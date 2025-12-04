@@ -96,6 +96,9 @@ A: Use Moon+ Reader, ReadEra, or Calibre. Lithium and some other readers may not
 
 ## 📜 Legal & Disclaimer
 
-This project is a fork of CjangCjengh's NovelpiaDownloader and is intended for personal use to create backups of content you have legally accessed. I am not affiliated with Novelpia. Please respect their terms of service and copyright laws.
+This project is intended for personal use to create backups of content you have legally accessed. I am not affiliated with Novelpia. Please respect their terms of service and copyright laws.
 
 -----
+
+## References
+https://github.com/SpazzTL/NovelpiaDownloader
