@@ -43,7 +43,7 @@ def process_text_content(content_json):
                 continue
 
             text = re.sub(r"<img.+?>", "", text)
-            text = re.sub(r"<p style='height: 0px; width: 0px;.+?>.*?</p>", "", text)
+            text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
             paragraph_html.append(text)
 
         if not paragraph_html:
@@ -53,7 +53,7 @@ def process_text_content(content_json):
     except Exception as e:
         return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>"
 
-def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, logger, next_image_no):
+def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no):
     html_parts = []
     images = []
     try:
@@ -98,17 +98,21 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                                 if im.mode not in ("RGB", "L"):
                                     im = im.convert("RGB")
                                 out = io.BytesIO()
-                                im.save(out, format="WEBP", quality=int(jpeg_quality))
-                                img_bytes = out.getvalue()
-                                ext = "webp"
-                            except Exception:
-                                try:
-                                    out = io.BytesIO()
+                                
+                                # Use selected format
+                                if image_format == "WEBP":
+                                    im.save(out, format="WEBP", quality=int(jpeg_quality))
+                                    ext = "webp"
+                                elif image_format == "PNG":
+                                    im.save(out, format="PNG", optimize=True)
+                                    ext = "png"
+                                else:  # JPEG
                                     im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
-                                    img_bytes = out.getvalue()
                                     ext = "jpg"
-                                except Exception:
-                                    pass
+                                
+                                img_bytes = out.getvalue()
+                            except Exception:
+                                pass
 
                         n = next_image_no()
                         fname = f"{n}.{ext}"
@@ -121,11 +125,11 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                         return ""
 
                 text = img_pat.sub(handle_img_match, text)
-                text = re.sub(r"<p style='height: 0px; width: 0px;.+?>.*?</p>", "", text)
+                text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
                 html_parts.append(f"<p>{text}</p>")
                 continue
 
-            text = re.sub(r"<p style='height: 0px; width: 0px;.+?>.*?</p>", "", text)
+            text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
             # Remove only actual HTML tags (tags starting with ASCII letters)
             # This preserves Korean/other text in angle brackets like <주인공>
             text = re.sub(r"</?[a-zA-Z][^>]*>", "", text)
@@ -210,8 +214,13 @@ class NovelpiaGUI(tk.Tk):
         self.var_novel_id = tk.StringVar()
         self.var_compress_images = tk.BooleanVar(value=True)
         self.var_jpeg_quality = tk.IntVar(value=50)
+        self.var_image_format = tk.StringVar(value="WEBP")  # WEBP, JPEG, PNG
+        self.var_compress_cover = tk.BooleanVar(value=False)
+        self.var_cover_quality = tk.IntVar(value=90)
+        self.var_cover_format = tk.StringVar(value="JPEG")  # JPEG, PNG, WEBP
+        self.var_zip_compress_images = tk.BooleanVar(value=False)  # ZIP_STORED by default
         self.var_threads = tk.IntVar(value=4)
-        self.var_interval = tk.DoubleVar(value=0.0)
+        self.var_interval = tk.DoubleVar(value=0.5)
         
         # Range vars
         self.var_from_enabled = tk.BooleanVar(value=False)
@@ -243,6 +252,7 @@ class NovelpiaGUI(tk.Tk):
         self._build_ui()
         self._load_config()
         self._poll_log_queue()
+        self._auto_login()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def log_message(self, message):
@@ -349,16 +359,27 @@ class NovelpiaGUI(tk.Tk):
         ttk.Checkbutton(comp_frame, text="Compress Images", variable=self.var_compress_images).pack(side="left")
         ttk.Label(comp_frame, text="Quality").pack(side="left", padx=(15, 5))
         ttk.Spinbox(comp_frame, textvariable=self.var_jpeg_quality, from_=10, to=100, width=5).pack(side="left")
+        ttk.Label(comp_frame, text="Format").pack(side="left", padx=(15, 5))
+        ttk.Combobox(comp_frame, textvariable=self.var_image_format, values=["WEBP", "JPEG", "PNG"], state="readonly", width=7).pack(side="left")
+        
+        cover_frame = ttk.Frame(dl_inner)
+        cover_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
+        ttk.Checkbutton(cover_frame, text="Compress Cover", variable=self.var_compress_cover).pack(side="left")
+        ttk.Label(cover_frame, text="Quality").pack(side="left", padx=(15, 5))
+        ttk.Spinbox(cover_frame, textvariable=self.var_cover_quality, from_=10, to=100, width=5).pack(side="left")
+        ttk.Label(cover_frame, text="Format").pack(side="left", padx=(15, 5))
+        ttk.Combobox(cover_frame, textvariable=self.var_cover_format, values=["JPEG", "WEBP", "PNG"], state="readonly", width=7).pack(side="left")
+        ttk.Checkbutton(cover_frame, text="ZIP Compress", variable=self.var_zip_compress_images).pack(side="left", padx=(15, 0))
 
         notices_frame = ttk.Frame(dl_inner)
-        notices_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
+        notices_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
         ttk.Checkbutton(notices_frame, text="Download Author Notices", variable=self.var_include_notices).pack(side="left")
         ttk.Checkbutton(notices_frame, text="Retry Chapters", variable=self.var_retry_chapters).pack(side="left", padx=15)
 
         # Batch Download Button (Bottom Right of DL frame)
         # Using grid weight to push it down/right
         btn_batch = ttk.Button(dl_inner, text="Batch Download", state="disabled") # Placeholder functionality
-        btn_batch.grid(row=6, column=2, sticky="e", pady=10)
+        btn_batch.grid(row=7, column=2, sticky="e", pady=10)
 
         # Big Buttons (Right side of DL Frame)
         # We create a sub-frame for the buttons on the right column of the DL group
@@ -414,11 +435,27 @@ class NovelpiaGUI(tk.Tk):
         self.progress_total = 0
 
     def open_quick_options(self):
-        """Replicates the popup shown in the screenshot."""
+        """Quick download options dialog with ratio-based sizing."""
         top = tk.Toplevel(self)
         top.title("Quick Options")
-        top.geometry("400x180")
-        top.resizable(False, False)
+        
+        # Use ratio-based sizing relative to screen
+        screen_width = top.winfo_screenwidth()
+        screen_height = top.winfo_screenheight()
+        dialog_width = int(screen_width * 0.25)  # 25% of screen width
+        dialog_height = int(screen_height * 0.25)  # 25% of screen height
+        
+        # Minimum size constraints
+        dialog_width = max(dialog_width, 450)
+        dialog_height = max(dialog_height, 220)
+        
+        # Center the dialog
+        x_pos = (screen_width - dialog_width) // 2
+        y_pos = (screen_height - dialog_height) // 2
+        
+        top.geometry(f"{dialog_width}x{dialog_height}+{x_pos}+{y_pos}")
+        top.resizable(True, True)
+        top.minsize(450, 220)
         
         main_f = ttk.Frame(top, padding=10)
         main_f.pack(fill="both", expand=True)
@@ -629,7 +666,7 @@ table, th, td {
 }
 """
         save_as_epub = (self._output_format == 'epub')
-        epub = EpubGenerator(meta, self._output_path if save_as_epub else f"temp.epub", css)
+        epub = EpubGenerator(meta, self._output_path if save_as_epub else f"temp.epub", css, self.var_zip_compress_images.get())
 
         # cover
         if meta.get('cover_url'):
@@ -637,17 +674,31 @@ table, th, td {
                 r = self.auth.session.get(meta['cover_url'], timeout=15)
                 if r.status_code == 200 and r.content:
                     data = r.content
-                    if Image is not None:
+                    cover_ext = "jpg"
+                    # Use separate cover compression settings
+                    if self.var_compress_cover.get() and Image is not None:
                         try:
                             im = Image.open(io.BytesIO(data))
                             if im.mode not in ("RGB", "L"):
                                 im = im.convert("RGB")
                             out = io.BytesIO()
-                            im.save(out, format="JPEG", quality=90, optimize=True)
+                            
+                            # Use selected cover format
+                            cover_fmt = self.var_cover_format.get()
+                            if cover_fmt == "WEBP":
+                                im.save(out, format="WEBP", quality=self.var_cover_quality.get())
+                                cover_ext = "webp"
+                            elif cover_fmt == "PNG":
+                                im.save(out, format="PNG", optimize=True)
+                                cover_ext = "png"
+                            else:  # JPEG
+                                im.save(out, format="JPEG", quality=self.var_cover_quality.get(), optimize=True)
+                                cover_ext = "jpg"
+                            
                             data = out.getvalue()
                         except Exception:
                             pass
-                    epub.add_image('cover.jpg', data)
+                    epub.add_image(f'cover.{cover_ext}', data)
             except Exception:
                 pass
 
@@ -717,7 +768,7 @@ table, th, td {
                             hb, imgs = extract_chapter_content_and_images(
                                 content_json, self.font_mapper, self.auth.session,
                                 self.var_compress_images.get(), self.var_jpeg_quality.get(),
-                                self.log_message, next_image_no
+                                self.var_image_format.get(), self.log_message, next_image_no
                             )
                             results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                             self.log_message(f"Downloaded: {chap['title']}")
@@ -768,28 +819,100 @@ table, th, td {
             try:
                 with open("config.json", "r", encoding="utf-8") as f:
                     cfg = json.load(f)
+                # Login settings
                 self.var_email.set(cfg.get("email", ""))
                 self.var_password.set(cfg.get("wd", ""))
                 self.var_loginkey.set(cfg.get("loginkey", ""))
+                
+                # Thread and interval settings
                 self.var_threads.set(cfg.get("thread_num", 4))
-                self.var_interval.set(cfg.get("interval_num", 0.0))
+                self.var_interval.set(cfg.get("interval_num", 0.5))
+                
+                # Font mapping
                 self.var_font_path.set(cfg.get("mapping_path", ""))
                 if self.var_font_path.get():
                     self.font_mapper = FontMapper(self.var_font_path.get())
+                
+                # Download settings
+                self.var_novel_id.set(cfg.get("novel_id", ""))
+                self.var_compress_images.set(cfg.get("compress_images", True))
+                self.var_jpeg_quality.set(cfg.get("jpeg_quality", 50))
+                self.var_image_format.set(cfg.get("image_format", "WEBP"))
+                self.var_compress_cover.set(cfg.get("compress_cover", False))
+                self.var_cover_quality.set(cfg.get("cover_quality", 90))
+                self.var_cover_format.set(cfg.get("cover_format", "JPEG"))
+                self.var_zip_compress_images.set(cfg.get("zip_compress_images", False))
+                self.var_include_notices.set(cfg.get("include_notices", True))
+                self.var_save_format.set(cfg.get("save_format", "epub"))
+                self.var_save_html.set(cfg.get("save_html", False))
+                self.var_retry_chapters.set(cfg.get("retry_chapters", False))
+                
+                # Range settings
+                self.var_from_enabled.set(cfg.get("from_enabled", False))
+                self.var_to_enabled.set(cfg.get("to_enabled", False))
+                self.var_from_num.set(cfg.get("from_num", 1))
+                self.var_to_num.set(cfg.get("to_num", 1))
+                
+                # Quick download options
+                self.var_quick_enable.set(cfg.get("quick_enable", False))
+                self.var_quick_path.set(cfg.get("quick_path", ""))
+                self.var_naming_mode.set(cfg.get("naming_mode", "title"))
+                self.var_append_range.set(cfg.get("append_range", False))
             except: pass
+    
+    def _auto_login(self):
+        """Automatically login on startup if credentials are available."""
+        # Prefer a real login when email/password are saved so the session is refreshed.
+        if self.var_email.get() and self.var_password.get():
+            threading.Thread(target=self._login_worker, daemon=True).start()
+        # If only a login key is available, fall back to injecting it.
+        elif self.var_loginkey.get():
+            self.auth.set_manual_key(self.var_loginkey.get())
+            self.log_message("Auto-login: Using saved login key.")
 
     def _on_close(self):
         cfg = {
-            "thread_num": self.var_threads.get(),
-            "interval_num": self.var_interval.get(),
+            # Login settings
             "email": self.var_email.get(),
             "wd": self.var_password.get(),
             "loginkey": self.var_loginkey.get(),
-            "mapping_path": self.var_font_path.get()
+            
+            # Thread and interval settings
+            "thread_num": self.var_threads.get(),
+            "interval_num": self.var_interval.get(),
+            
+            # Font mapping
+            "mapping_path": self.var_font_path.get(),
+            
+            # Download settings
+            "novel_id": self.var_novel_id.get(),
+            "compress_images": self.var_compress_images.get(),
+            "jpeg_quality": self.var_jpeg_quality.get(),
+            "image_format": self.var_image_format.get(),
+            "compress_cover": self.var_compress_cover.get(),
+            "cover_quality": self.var_cover_quality.get(),
+            "cover_format": self.var_cover_format.get(),
+            "zip_compress_images": self.var_zip_compress_images.get(),
+            "include_notices": self.var_include_notices.get(),
+            "save_format": self.var_save_format.get(),
+            "save_html": self.var_save_html.get(),
+            "retry_chapters": self.var_retry_chapters.get(),
+            
+            # Range settings
+            "from_enabled": self.var_from_enabled.get(),
+            "to_enabled": self.var_to_enabled.get(),
+            "from_num": self.var_from_num.get(),
+            "to_num": self.var_to_num.get(),
+            
+            # Quick download options
+            "quick_enable": self.var_quick_enable.get(),
+            "quick_path": self.var_quick_path.get(),
+            "naming_mode": self.var_naming_mode.get(),
+            "append_range": self.var_append_range.get()
         }
         try:
             with open("config.json", "w", encoding="utf-8") as f:
-                json.dump(cfg, f)
+                json.dump(cfg, f, indent=2)
         except: pass
         self.destroy()
 

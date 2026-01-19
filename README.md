@@ -1,6 +1,6 @@
 # NovelpiaDownloader
 
-A app that enhances the user experience and output quality. This version adds comprehensive metadata (tags, author, synopsis), improves EPUB formatting with HTML tag and newline support, includes file size optimization, and much more\!
+A fork of that enhances the user experience and output quality. This version adds comprehensive metadata (tags, author, synopsis), improves EPUB formatting with HTML tag and newline support, includes file size optimization, and much more\!
 
 -----
 
@@ -96,9 +96,6 @@ A: Use Moon+ Reader, ReadEra, or Calibre. Lithium and some other readers may not
 
 ## 📜 Legal & Disclaimer
 
-This project is intended for personal use to create backups of content you have legally accessed. I am not affiliated with Novelpia. Please respect their terms of service and copyright laws.
+This project is a fork of CjangCjengh's NovelpiaDownloader and is intended for personal use to create backups of content you have legally accessed. I am not affiliated with Novelpia. Please respect their terms of service and copyright laws.
 
 -----
-
-## References
-https://github.com/SpazzTL/NovelpiaDownloader

@@ -31,10 +31,12 @@ class DownloaderCore:
             author_match = re.search(r'<a class="writer-name"[^>]*>\s*(.+?)\s*</a>', text)
             author = author_match.group(1).strip() if author_match else "Unknown Author"
             
-            # Cover Image Extraction
-            cover_match = re.search(r'src="(//images\.novelpia\.com/imagebox/cover/.+?\.file)"', text)
+            # Cover Image Extraction - get full size image, not thumbnail
+            # Try finding the original full-size cover first
+            cover_match = re.search(r'"(//images\.novelpia\.com/imagebox/original/[^"]+)"', text)
             if not cover_match:
-                cover_match = re.search(r'href="(//images\.novelpia\.com/imagebox/cover/.+?\.file)"', text)
+                # Fallback to cover path (may be resized)
+                cover_match = re.search(r'"(//images\.novelpia\.com/imagebox/cover/[^"]+)"', text)
             cover_url = "https:" + cover_match.group(1) if cover_match else None
             
             # Tags Extraction (matches C# pattern: <span class="tag".*?>(#.+?)</span>)

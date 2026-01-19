@@ -5,10 +5,11 @@ import os
 from datetime import datetime
 
 class EpubGenerator:
-    def __init__(self, metadata, output_path, css_template):
+    def __init__(self, metadata, output_path, css_template, zip_compress_images=False):
         self.meta = metadata
         self.output_path = output_path
         self.css = css_template
+        self.zip_compress_images = zip_compress_images
         # Chapters will store title, content, and a concrete filename
         self.chapters = []
         # Extra pages (like info.xhtml) that should appear after cover but
@@ -122,7 +123,8 @@ class EpubGenerator:
                 mime = 'image/gif'
             else:
                 mime = 'application/octet-stream'
-            if fname == 'cover.jpg':
+            # Check if this is a cover image (any extension)
+            if fname.startswith('cover.'):
                 item_id = 'cover-image'
             else:
                 item_id = f'img_{index+1}'
@@ -135,8 +137,8 @@ class EpubGenerator:
         description = self.meta.get('description') or ''
         description_xml = f"\n    <dc:description>{html.escape(description)}</dc:description>" if description else ''
 
-        # Mark cover image for readers if present (keep cover.jpg to match original repo)
-        cover_present = any(img['filename'] == 'cover.jpg' for img in self.images)
+        # Mark cover image for readers if present (any cover extension)
+        cover_present = any(img['filename'].startswith('cover.') for img in self.images)
         cover_meta = "\n    <meta name=\"cover\" content=\"cover-image\"/>" if cover_present else ''
 
         return f"""<?xml version="1.0" encoding="utf-8"?>
@@ -169,10 +171,11 @@ class EpubGenerator:
             # 3. CSS
             zf.writestr("OEBPS/Styles/style.css", self.css, compress_type=zipfile.ZIP_DEFLATED)
             
-            # 4. Cover page (HTML to match original repo naming)
+            # 4. Cover page (HTML with dynamic cover filename)
             cover_img_tag = ''
-            if any(img['filename'] == 'cover.jpg' for img in self.images):
-                cover_img_tag = '<img alt="Cover" src="../Images/cover.jpg" />'
+            cover_img = next((img for img in self.images if img['filename'].startswith('cover.')), None)
+            if cover_img:
+                cover_img_tag = f'<img alt="Cover" src="../Images/{cover_img["filename"]}" />'
             cover_xhtml = f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -197,9 +200,10 @@ class EpubGenerator:
 <body><h1>{html.escape(chap['title'])}</h1>{chap['content']}</body></html>"""
                 zf.writestr(f"OEBPS/Text/{chap['filename']}", xhtml, compress_type=zipfile.ZIP_DEFLATED)
                 
-            # 6. Images
+            # 6. Images (use ZIP_STORED by default, ZIP_DEFLATED if user enables it)
+            img_compress_type = zipfile.ZIP_DEFLATED if self.zip_compress_images else zipfile.ZIP_STORED
             for img in self.images:
-                zf.writestr(f"OEBPS/Images/{img['filename']}", img['data'], compress_type=zipfile.ZIP_DEFLATED)
+                zf.writestr(f"OEBPS/Images/{img['filename']}", img['data'], compress_type=img_compress_type)
                 
             # 7. TOC and OPF
             zf.writestr("OEBPS/toc.ncx", self._create_toc_ncx(), compress_type=zipfile.ZIP_DEFLATED)
