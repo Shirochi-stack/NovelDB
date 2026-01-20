@@ -25,7 +25,26 @@ class DownloaderCore:
             
             # Title Extraction
             title_match = re.search(r"productName = '(.+?)';", text)
-            title = title_match.group(1) if title_match else f"Novel_{novel_id}"
+            if title_match:
+                title = title_match.group(1)
+            else:
+                # Fallback: try og:title meta tag
+                og_title_match = re.search(r'<meta\s+property=["\']og:title["\']\s+content=["\'](.+?)["\']', text, flags=re.IGNORECASE)
+                if og_title_match:
+                    # og:title format: "노벨피아 - 웹소설로 꿈꾸는 세상! - [Title]"
+                    # Extract the actual title after the last dash
+                    full_title = og_title_match.group(1)
+                    parts = full_title.split(' - ')
+                    title = parts[-1].strip() if len(parts) > 1 else full_title
+                else:
+                    # Last resort: try <title> tag
+                    title_tag_match = re.search(r'<title>(.+?)</title>', text, flags=re.IGNORECASE)
+                    if title_tag_match:
+                        full_title = title_tag_match.group(1)
+                        parts = full_title.split(' - ')
+                        title = parts[-1].strip() if len(parts) > 1 else full_title
+                    else:
+                        title = f"Novel_{novel_id}"
             
             # Author Extraction
             author_match = re.search(r'<a class="writer-name"[^>]*>\s*(.+?)\s*</a>', text)
@@ -88,7 +107,9 @@ class DownloaderCore:
             data = {"novel_no": novel_id, "sort": "DOWN", "page": page}
             
             try:
-                response = self.auth.session.post(url, data=data)
+                # Set proper Referer header to avoid empty responses
+                headers = {"Referer": f"https://novelpia.com/novel/{novel_id}"}
+                response = self.auth.session.post(url, data=data, headers=headers)
                 if "Authentication required" in response.text:
                     self.log("Error: Authentication required during scan.")
                     break
@@ -185,7 +206,9 @@ class DownloaderCore:
         try:
             url = "https://novelpia.com/proc/notice_list"
             data = {"novel_no": novel_id, "page": 0}
-            resp = self.auth.session.post(url, data=data, timeout=15)
+            # Set proper Referer header to avoid empty responses
+            headers = {"Referer": f"https://novelpia.com/novel/{novel_id}"}
+            resp = self.auth.session.post(url, data=data, headers=headers, timeout=15)
             text = resp.text or ""
             if not text.strip():
                 self.log("Notices: empty response.")
