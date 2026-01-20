@@ -91,26 +91,41 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                             # Remove the tag on failure (match gui.py)
                             return ""
                         img_bytes = r.content
+                        # Detect extension from URL or content type
                         ext = "jpg"
+                        if url_dl.lower().endswith('.gif') or (r.headers.get('content-type', '').lower().find('gif') >= 0):
+                            ext = "gif"
+                        elif url_dl.lower().endswith('.png') or (r.headers.get('content-type', '').lower().find('png') >= 0):
+                            ext = "png"
+                        elif url_dl.lower().endswith('.webp') or (r.headers.get('content-type', '').lower().find('webp') >= 0):
+                            ext = "webp"
                         if compress_images and Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(img_bytes))
-                                if im.mode not in ("RGB", "L"):
-                                    im = im.convert("RGB")
                                 out = io.BytesIO()
                                 
-                                # Use selected format
-                                if image_format == "WEBP":
-                                    im.save(out, format="WEBP", quality=int(jpeg_quality))
-                                    ext = "webp"
-                                elif image_format == "PNG":
-                                    im.save(out, format="PNG", optimize=True)
-                                    ext = "png"
-                                else:  # JPEG
-                                    im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
-                                    ext = "jpg"
-                                
-                                img_bytes = out.getvalue()
+                                # Special handling for GIFs to preserve animation
+                                if ext == "gif":
+                                    # Compress GIF with optimization while preserving animation
+                                    im.save(out, format="GIF", save_all=True, optimize=True)
+                                    img_bytes = out.getvalue()
+                                else:
+                                    # Standard compression for other formats
+                                    if im.mode not in ("RGB", "L"):
+                                        im = im.convert("RGB")
+                                    
+                                    # Use selected format
+                                    if image_format == "WEBP":
+                                        im.save(out, format="WEBP", quality=int(jpeg_quality))
+                                        ext = "webp"
+                                    elif image_format == "PNG":
+                                        im.save(out, format="PNG", optimize=True)
+                                        ext = "png"
+                                    else:  # JPEG
+                                        im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
+                                        ext = "jpg"
+                                    
+                                    img_bytes = out.getvalue()
                             except Exception:
                                 pass
 

@@ -28,7 +28,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='NovelpiaDownloader',
+    name='ND22',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

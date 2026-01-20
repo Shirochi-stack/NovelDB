@@ -406,10 +406,12 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                             header, b64 = url.split(',', 1)
                             mime = header.split(';')[0].split(':')[1] if ':' in header else 'image/png'
                             ext = 'png'
-                            if 'jpeg' in mime:
+                            if 'jpeg' in mime or 'jpg' in mime:
                                 ext = 'jpg'
                             elif 'webp' in mime:
                                 ext = 'webp'
+                            elif 'gif' in mime:
+                                ext = 'gif'
                             img_bytes = base64.b64decode(b64)
                         else:
                             if url.startswith("//"):
@@ -425,23 +427,39 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                                 logger(f"Image fetch failed ({r.status_code}): {url_dl}")
                                 return ""
                             img_bytes = r.content
+                            # Detect extension from URL or content
                             ext = "jpg"
+                            if url_dl.lower().endswith('.gif') or (r.headers.get('content-type', '').lower().find('gif') >= 0):
+                                ext = "gif"
+                            elif url_dl.lower().endswith('.png') or (r.headers.get('content-type', '').lower().find('png') >= 0):
+                                ext = "png"
+                            elif url_dl.lower().endswith('.webp') or (r.headers.get('content-type', '').lower().find('webp') >= 0):
+                                ext = "webp"
                         if compress_images and Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(img_bytes))
-                                if im.mode not in ("RGB", "L"):
-                                    im = im.convert("RGB")
                                 out = io.BytesIO()
-                                if image_format == "WEBP":
-                                    im.save(out, format="WEBP", quality=int(jpeg_quality))
-                                    ext = "webp"
-                                elif image_format == "PNG":
-                                    im.save(out, format="PNG", optimize=True)
-                                    ext = "png"
+                                
+                                # Special handling for GIFs to preserve animation
+                                if ext == "gif":
+                                    # Compress GIF with optimization while preserving animation
+                                    im.save(out, format="GIF", save_all=True, optimize=True)
+                                    img_bytes = out.getvalue()
                                 else:
-                                    im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
-                                    ext = "jpg"
-                                img_bytes = out.getvalue()
+                                    # Standard compression for other formats
+                                    if im.mode not in ("RGB", "L"):
+                                        im = im.convert("RGB")
+                                    
+                                    if image_format == "WEBP":
+                                        im.save(out, format="WEBP", quality=int(jpeg_quality))
+                                        ext = "webp"
+                                    elif image_format == "PNG":
+                                        im.save(out, format="PNG", optimize=True)
+                                        ext = "png"
+                                    else:
+                                        im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
+                                        ext = "jpg"
+                                    img_bytes = out.getvalue()
                             except Exception:
                                 pass
                         n = next_image_no()
