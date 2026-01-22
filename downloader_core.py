@@ -69,9 +69,48 @@ class DownloaderCore:
                         seen.add(t.lower())
                         tags.append(t)
 
-            # Description Extraction (meta description)
-            desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', text, flags=re.IGNORECASE|re.DOTALL)
-            description = html.unescape(desc_match.group(1).strip()) if desc_match else ""
+            # Description Extraction
+            # NOTE: Don't use a naive ["']... ["'] terminator because the content may contain
+            # the other quote character. Capture the delimiter and close with the same one.
+            description = ""
+
+            # 1) Try on-page synopsis (usually longer than SEO meta description)
+            syn_match = re.search(
+                r'<div[^>]*class=["\'][^"\']*\bsynopsis\b[^"\']*["\'][^>]*>(.*?)</div>',
+                text,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if syn_match:
+                syn_html = syn_match.group(1)
+                syn_txt = re.sub(r"<\s*br\s*/?\s*>", "\n", syn_html, flags=re.IGNORECASE)
+                syn_txt = re.sub(r"</?[^>]+>", " ", syn_txt)
+                syn_txt = html.unescape(syn_txt)
+                syn_txt = re.sub(r"[ \t\f\v]+", " ", syn_txt)
+                syn_txt = re.sub(r"\n{3,}", "\n\n", syn_txt)
+                syn_txt = syn_txt.strip()
+                if syn_txt:
+                    description = syn_txt
+
+            # 2) Fallback to meta description / og:description (often short)
+            if not description:
+                meta_desc = ""
+                desc_match = re.search(
+                    r'<meta[^>]*name=["\']description["\'][^>]*content=(["\'])(.*?)\1',
+                    text,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+                if desc_match:
+                    meta_desc = html.unescape(desc_match.group(2).strip())
+
+                og_desc_match = re.search(
+                    r'<meta[^>]*property=["\']og:description["\'][^>]*content=(["\'])(.*?)\1',
+                    text,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+                og_desc = html.unescape(og_desc_match.group(2).strip()) if og_desc_match else ""
+
+                # Prefer the longer one (sometimes they differ)
+                description = og_desc if len(og_desc) > len(meta_desc) else meta_desc
             # Status Extraction (best-effort): look for common Korean status words
             status_match = re.search(r'(완결|연재중|연재|휴재|완결됨)', text)
             status = status_match.group(1) if status_match else ''
