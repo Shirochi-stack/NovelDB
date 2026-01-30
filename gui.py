@@ -1027,5 +1027,6 @@ table, th, td {
         self.destroy()
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     app = NovelpiaGUI()
     app.mainloop()
