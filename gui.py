@@ -204,21 +204,43 @@ def _run_webview_login(output_path):
                 key = extract_loginkey(cookies)
                 if key:
                     key_holder["key"] = key
+                    try:
+                        with open(output_path, "w", encoding="utf-8") as f:
+                            f.write(key)
+                    except Exception:
+                        pass
                     webview.destroy_window()
                     return
             except Exception:
                 pass
             time.sleep(1)
 
-    window = webview.create_window("Novelpia Google Login", "https://novelpia.com/")
+    # Use screen ratio for window size
+    try:
+        import tkinter as _tk
+        _r = _tk.Tk()
+        _r.withdraw()
+        _sw = _r.winfo_screenwidth()
+        _sh = _r.winfo_screenheight()
+        _r.destroy()
+    except Exception:
+        _sw, _sh = 1200, 900
+
+    window = webview.create_window(
+        "Novelpia Google Login",
+        "https://novelpia.com/",
+        width=int(_sw * 0.6),
+        height=int(_sh * 0.7),
+    )
     try:
         webview.start(poll_for_key, window, debug=False)
     except Exception:
         pass
 
     try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(key_holder["key"] or "")
+        if key_holder["key"] is None:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("")
     except Exception:
         pass
 
@@ -289,7 +311,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_cover_quality = tk.IntVar(value=90)
         self.var_cover_format = tk.StringVar(value="JPEG")  # JPEG, PNG, WEBP
         self.var_zip_compress_images = tk.BooleanVar(value=False)  # ZIP_STORED by default
-        self.var_threads = tk.IntVar(value=4)
+        self.var_threads = tk.IntVar(value=1)
         self.var_interval = tk.DoubleVar(value=0.5)
         
         # Range vars
@@ -935,7 +957,7 @@ table, th, td {
                 self.var_loginkey.set(cfg.get("loginkey", ""))
                 
                 # Thread and interval settings
-                self.var_threads.set(cfg.get("thread_num", 4))
+                self.var_threads.set(cfg.get("thread_num", 1))
                 self.var_interval.set(cfg.get("interval_num", 0.5))
                 
                 # Font mapping

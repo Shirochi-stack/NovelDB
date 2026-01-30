@@ -64,7 +64,7 @@ from downloader_core import DownloaderCore
 from epub_generator import EpubGenerator
 from font_mapper import FontMapper
 
-DEFAULT_THREADS = 4
+DEFAULT_THREADS = 1
 MIN_INTERVAL = 0.5
 DEFAULT_INTERVAL = 0.5
 DEFAULT_IMG_QUALITY = 50
