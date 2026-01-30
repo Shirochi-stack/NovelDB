@@ -9,6 +9,8 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import io
+import multiprocessing
+import tempfile
 
 try:
     from PIL import Image
@@ -168,6 +170,59 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
     except Exception as e:
         return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>", images
 
+def _run_webview_login(output_path):
+    try:
+        import webview
+    except Exception:
+        # write empty to signal failure
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("")
+        except Exception:
+            pass
+        return
+
+    def extract_loginkey(cookie_str):
+        if not cookie_str:
+            return None
+        try:
+            parts = cookie_str.split(";")
+            for p in parts:
+                s = p.strip()
+                if s.startswith("LOGINKEY="):
+                    return s.split("=", 1)[1].strip()
+        except Exception:
+            return None
+        return None
+
+    key_holder = {"key": None}
+
+    def poll_for_key(_window=None):
+        for _ in range(900):
+            try:
+                cookies = window.evaluate_js("document.cookie")
+                key = extract_loginkey(cookies)
+                if key:
+                    key_holder["key"] = key
+                    webview.destroy_window()
+                    return
+            except Exception:
+                pass
+            time.sleep(1)
+
+    window = webview.create_window("Novelpia Google Login", "https://novelpia.com/")
+    try:
+        webview.start(poll_for_key, window, debug=False)
+    except Exception:
+        pass
+
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(key_holder["key"] or "")
+    except Exception:
+        pass
+
+
 class NovelpiaGUI(tk.Tk):
     def __init__(self):
         # High DPI support - MUST be done before creating the window
@@ -298,6 +353,7 @@ class NovelpiaGUI(tk.Tk):
         # 1. Login Group
         login_frame = ttk.LabelFrame(left_panel, text="Login", padding=(10, 5))
         login_frame.pack(fill="x", pady=(0, 10))
+        login_frame.grid_columnconfigure(1, weight=1)
 
         # Email
         ttk.Label(login_frame, text="Email").grid(row=0, column=0, sticky="w", pady=2)
@@ -318,6 +374,10 @@ class NovelpiaGUI(tk.Tk):
         # Login Button (Key) - Mapped to set key
         btn_key = ttk.Button(login_frame, text="Login", command=self.action_set_key)
         btn_key.grid(row=2, column=2, padx=5)
+
+        # Google Login Button (opens browser, then prompt for LOGINKEY)
+        btn_google = ttk.Button(login_frame, text="Login with Google", command=self.action_google_login)
+        btn_google.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(6, 0))
 
         # 2. Font & Threads Group (Visual separation like image)
         # Font Mapping
@@ -514,6 +574,41 @@ class NovelpiaGUI(tk.Tk):
         """Set LOGINKEY manually from the text field."""
         self.auth.set_manual_key(self.var_loginkey.get())
         self.log_message("Login Key set manually.")
+
+    def action_google_login(self):
+        """Launch embedded webview for Google login and auto-capture LOGINKEY."""
+        # Run webview in a separate process to avoid interfering with Tk dialogs/default browser
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".loginkey") as tmp:
+            key_path = tmp.name
+
+        def poll_file():
+            for _ in range(900):
+                try:
+                    if os.path.exists(key_path):
+                        with open(key_path, "r", encoding="utf-8") as f:
+                            key = f.read().strip()
+                        if key:
+                            self.var_loginkey.set(key)
+                            self.auth.set_manual_key(self.var_loginkey.get())
+                            self.log_message("Google login: LOGINKEY captured.")
+                            try:
+                                os.remove(key_path)
+                            except Exception:
+                                pass
+                            return
+                except Exception:
+                    pass
+                time.sleep(1)
+            self.log_message("Google login: LOGINKEY not captured.")
+
+        try:
+            proc = multiprocessing.Process(target=_run_webview_login, args=(key_path,), daemon=True)
+            proc.start()
+        except Exception as e:
+            messagebox.showerror("Google Login Failed", f"Could not start webview process: {e}")
+            return
+
+        threading.Thread(target=poll_file, daemon=True).start()
     def action_browse_font(self):
         path = filedialog.askopenfilename(title="Choose font mapping file", filetypes=[("Mapping files", "*.json;*.map;*.txt"), ("All files", "*")])
         if path:
