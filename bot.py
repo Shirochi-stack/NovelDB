@@ -751,7 +751,7 @@ def run_download(user_id: int,
                         text = html.unescape(text)
                         # 5. Clean up excess blank lines to a maximum of one, preserving paragraphs.
                         plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
-                        f.write(f"\n{t}\n\n{plain}\n")
+                        f.write(f"{t}\n\n{plain}\n\n\n")
         except Exception as e:
             raise RuntimeError(f"Save failed: {e}")
 
