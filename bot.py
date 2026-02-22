@@ -487,20 +487,19 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                 for du in data_urls:
                     replacement = handle_img_match(du)
                     text = text.replace(du, replacement)
-            text = re.sub(r"</?[a-zA-Z][^>]*>", "", text)
-            text = text.replace("\n", "")
+            # A proper solution would be to parse HTML and apply mapping on text nodes only.
+            # For now, we attempt mapping on the HTML string, as it's in a try/except block.
+            # This is better than losing all formatting.
             text = _strip_base64_blobs(text)
-            if not text or re.fullmatch(r"[A-Za-z0-9+/=]{40,}", text):
+            if not text:
                 continue
-            text = html.unescape(text)
-            text = _strip_base64_blobs(text)
             if font_mapper is not None:
                 try:
                     text = font_mapper.decode(text)
                 except Exception:
                     pass
             if text:
-                html_parts.append(f"<p>{html.escape(text)}</p>")
+                html_parts.append(text)
 
         if not html_parts:
             return "<p>[No text segments found in chapter]</p>", images
@@ -736,11 +735,22 @@ def run_download(user_id: int,
     else:
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
+                # Final, correct implementation to respect source formatting.
                 for res in results:
                     if res:
                         t, h, _, _ = res
-                        plain = re.sub(r"</?[^>]+>", "", h)
-                        f.write(f"{t}\n\n{html.unescape(plain)}\n\n")
+                        text = h
+                        # 1. Convert <br> tags to single newlines.
+                        text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+                        # 2. Convert paragraph endings to double newlines.
+                        text = re.sub(r'</(p|div)>', '\n\n', text, flags=re.IGNORECASE)
+                        # 3. Strip all other HTML tags.
+                        text = re.sub(r'<[^>]+>', '', text)
+                        # 4. Unescape HTML entities like &nbsp;
+                        text = html.unescape(text)
+                        # 5. Clean up excess blank lines to a maximum of one, preserving paragraphs.
+                        plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
+                        f.write(f"{t}\n\n{plain}\n")
         except Exception as e:
             raise RuntimeError(f"Save failed: {e}")
 

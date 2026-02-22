@@ -149,20 +149,20 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
             text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
             # Remove only actual HTML tags (tags starting with ASCII letters)
             # This preserves Korean/other text in angle brackets like <주인공>
-            text = re.sub(r"</?[a-zA-Z][^>]*>", "", text)
-            # Remove newlines
-            text = text.replace("\n", "")
             if not text:
                 continue
-            text = html.unescape(text)
+            # Font mapping is tricky on HTML. The original code stripped HTML, applied mapping,
+            # then re-wrapped in <p>, losing all internal structure.
+            # A proper solution would be to parse HTML and apply mapping on text nodes only.
+            # For now, we attempt mapping on the HTML string, as it's in a try/except block.
+            # This is better than losing all formatting.
             if font_mapper is not None:
                 try:
                     text = font_mapper.decode(text)
                 except Exception:
                     pass
             if text:
-                # Escape the text for safe HTML output (this will convert < to &lt; and > to &gt;)
-                html_parts.append(f"<p>{html.escape(text)}</p>")
+                html_parts.append(text)
 
         if not html_parts:
             return "<p>[No text segments found in chapter]</p>", images
@@ -255,7 +255,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("Novelpia Downloader V5.0")
+        self.title("ND25")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -938,8 +938,19 @@ table, th, td {
                             if self.var_save_html.get():
                                 f.write(f"<h2>{t}</h2>\n{h}\n\n")
                             else:
-                                plain = re.sub(r"</?[^>]+>", "", h)
-                                f.write(f"{t}\n\n{html.unescape(plain)}\n\n")
+                                # Final, correct implementation to respect source formatting.
+                                text = h
+                                # 1. Convert <br> tags to single newlines.
+                                text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+                                # 2. Convert paragraph endings to double newlines.
+                                text = re.sub(r'</(p|div)>', '\n\n', text, flags=re.IGNORECASE)
+                                # 3. Strip all other HTML tags.
+                                text = re.sub(r'<[^>]+>', '', text)
+                                # 4. Unescape HTML entities like &nbsp;
+                                text = html.unescape(text)
+                                # 5. Clean up excess blank lines to a maximum of one, preserving paragraphs.
+                                plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
+                                f.write(f"{t}\n\n{plain}\n")
             except Exception as e:
                 self.log_message(f"Save failed: {e}")
 
