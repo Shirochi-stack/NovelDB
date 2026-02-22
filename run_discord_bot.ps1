@@ -1,8 +1,8 @@
-# Npia Downloader Discord Bot Launcher
+# Novelpia Downloader Discord Bot Launcher
 
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 
-Write-Host "Starting Npia Discord Bot..." -ForegroundColor Cyan
+Write-Host "Starting Novelpia Discord Bot..." -ForegroundColor Cyan
 Write-Host ""
 
 # Set your Discord bot token here (required)
