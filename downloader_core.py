@@ -318,7 +318,8 @@ class DownloaderCore:
             self.log(f"Notices scan error: {e}")
             return []
 
-    def generate_pdf(self, metadata, output_path, chapters, css, image_map=None, cover_image=None, info_html=None):
+    def generate_pdf(self, metadata, output_path, chapters, css, image_map=None, cover_image=None, info_html=None,
+                     show_toc=False, show_page_numbers=False, use_counter_layout=False):
         """
         Generate a single PDF from chapter HTML using WeasyPrint.
 
@@ -367,14 +368,41 @@ class DownloaderCore:
 
             return re.sub(r'src=["\']([^"\']+)["\']', repl, html_content)
 
-        pdf_css = css + """
-@page { size: A4; margin: 1in; }
+        page_footer = "\n@page { @bottom-center { content: counter(page); } }" if show_page_numbers else ""
+        toc_counter_css = """
+.toc a::after { content: leader('.') target-counter(attr(href), page); }
+""" if use_counter_layout else ""
+
+        pdf_css = (
+            css
+            + "\n@page { size: A4; margin: 1in; }"
+            + page_footer
+            + """
 body { font-family: serif; }
 .chapter { page-break-before: always; }
 .cover { page-break-after: always; text-align: center; }
 .info { page-break-after: always; }
+.toc { page-break-after: always; }
+.toc h2 { text-align: center; }
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: 0.2em 0; }
 img { max-width: 100%; height: auto; }
 """
+            + toc_counter_css
+        )
+        def _anchor_id(title, idx):
+            base = re.sub(r"[^\w\s-]", "", title, flags=re.UNICODE).strip().lower()
+            base = re.sub(r"\s+", "-", base)
+            if not base:
+                base = f"chapter-{idx}"
+            return f"{base}-{idx}"
+
+        toc_items = []
+        for i, chap in enumerate(chapters or []):
+            title = str(chap.get("title", ""))
+            anchor = _anchor_id(title, i + 1)
+            chap["_pdf_anchor"] = anchor
+            toc_items.append((title, anchor))
 
         parts = [
             "<!DOCTYPE html>",
@@ -389,11 +417,19 @@ img { max-width: 100%; height: auto; }
 
         if info_html:
             parts.append(f"<div class=\"info\">{info_html}</div>")
+        if show_toc and toc_items:
+            toc_list = "".join(
+                f"<li><a href=\"#{anchor}\">{html.escape(title)}</a></li>"
+                for title, anchor in toc_items
+            )
+            parts.append(f"<div class=\"toc\"><h2>Table of Contents</h2><ul>{toc_list}</ul></div>")
 
         for chap in chapters or []:
             title = html.escape(str(chap.get("title", "")))
             content = inline_images(chap.get("html", "") or "")
-            parts.append(f"<div class=\"chapter\"><h1>{title}</h1>{content}</div>")
+            anchor = chap.get("_pdf_anchor")
+            anchor_attr = f" id=\"{anchor}\"" if anchor else ""
+            parts.append(f"<div class=\"chapter\"><h1{anchor_attr}>{title}</h1>{content}</div>")
 
         parts.append("</body></html>")
         html_doc = "".join(parts)

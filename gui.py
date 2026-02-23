@@ -255,7 +255,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("ND27")
+        self.title("ND28")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -327,6 +327,9 @@ class NovelpiaGUI(tk.Tk):
         # New visual-only variables to match screenshot
         self.var_save_html = tk.BooleanVar(value=False)
         self.var_retry_chapters = tk.BooleanVar(value=False)
+        self.var_pdf_toc = tk.BooleanVar(value=False)
+        self.var_pdf_page_numbers = tk.BooleanVar(value=False)
+        self.var_pdf_counter_layout = tk.BooleanVar(value=False)
         
         # Quick Options variables
         self.var_quick_enable = tk.BooleanVar(value=False)
@@ -474,10 +477,16 @@ class NovelpiaGUI(tk.Tk):
         ttk.Checkbutton(notices_frame, text="Download Author Notices", variable=self.var_include_notices).pack(side="left")
         ttk.Checkbutton(notices_frame, text="Retry Chapters", variable=self.var_retry_chapters).pack(side="left", padx=15)
 
+        pdf_frame = ttk.Frame(dl_inner)
+        pdf_frame.grid(row=7, column=0, columnspan=3, sticky="w", pady=2)
+        ttk.Checkbutton(pdf_frame, text="PDF: Table of Contents", variable=self.var_pdf_toc).pack(side="left")
+        ttk.Checkbutton(pdf_frame, text="PDF: Page Numbers", variable=self.var_pdf_page_numbers).pack(side="left", padx=15)
+        ttk.Checkbutton(pdf_frame, text="PDF: Counter Layout", variable=self.var_pdf_counter_layout).pack(side="left")
+
         # Batch Download Button (Bottom Right of DL frame)
         # Using grid weight to push it down/right
         btn_batch = ttk.Button(dl_inner, text="Batch Download", state="disabled") # Placeholder functionality
-        btn_batch.grid(row=7, column=2, sticky="e", pady=10)
+        btn_batch.grid(row=8, column=2, sticky="e", pady=10)
 
         # Big Buttons (Right side of DL Frame)
         # We create a sub-frame for the buttons on the right column of the DL group
@@ -962,6 +971,9 @@ table, th, td {
                     image_map=image_map,
                     cover_image=cover_image,
                     info_html=info_html,
+                    show_toc=self.var_pdf_toc.get(),
+                    show_page_numbers=self.var_pdf_page_numbers.get(),
+                    use_counter_layout=self.var_pdf_counter_layout.get(),
                 )
             except Exception as e:
                 self.log_message(f"PDF generation failed: {e}")
@@ -1025,6 +1037,9 @@ table, th, td {
                 self.var_save_format.set(cfg.get("save_format", "epub"))
                 self.var_save_html.set(cfg.get("save_html", False))
                 self.var_retry_chapters.set(cfg.get("retry_chapters", False))
+                self.var_pdf_toc.set(cfg.get("pdf_toc", False))
+                self.var_pdf_page_numbers.set(cfg.get("pdf_page_numbers", False))
+                self.var_pdf_counter_layout.set(cfg.get("pdf_counter_layout", False))
                 
                 # Range settings
                 self.var_from_enabled.set(cfg.get("from_enabled", False))
@@ -1076,6 +1091,9 @@ table, th, td {
             "save_format": self.var_save_format.get(),
             "save_html": self.var_save_html.get(),
             "retry_chapters": self.var_retry_chapters.get(),
+            "pdf_toc": self.var_pdf_toc.get(),
+            "pdf_page_numbers": self.var_pdf_page_numbers.get(),
+            "pdf_counter_layout": self.var_pdf_counter_layout.get(),
             
             # Range settings
             "from_enabled": self.var_from_enabled.get(),
