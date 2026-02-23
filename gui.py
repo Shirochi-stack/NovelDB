@@ -26,6 +26,39 @@ from downloader_core import DownloaderCore
 from epub_generator import EpubGenerator
 from font_mapper import FontMapper
 
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, _event=None):
+        if self.tipwindow or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            tw,
+            text=self.text,
+            justify="left",
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            font=("tahoma", "8", "normal"),
+        )
+        label.pack(ipadx=6, ipady=3)
+        self.tipwindow = tw
+
+    def _hide(self, _event=None):
+        if self.tipwindow:
+            self.tipwindow.destroy()
+            self.tipwindow = None
+
 def process_text_content(content_json):
     """Parse the viewer_data JSON into readable HTML paragraphs."""
     try:
@@ -477,11 +510,18 @@ class NovelpiaGUI(tk.Tk):
         ttk.Checkbutton(notices_frame, text="Download Author Notices", variable=self.var_include_notices).pack(side="left")
         ttk.Checkbutton(notices_frame, text="Retry Chapters", variable=self.var_retry_chapters).pack(side="left", padx=15)
 
-        pdf_frame = ttk.Frame(dl_inner)
-        pdf_frame.grid(row=7, column=0, columnspan=3, sticky="w", pady=2)
-        ttk.Checkbutton(pdf_frame, text="PDF: Table of Contents", variable=self.var_pdf_toc).pack(side="left")
-        ttk.Checkbutton(pdf_frame, text="PDF: Page Numbers", variable=self.var_pdf_page_numbers).pack(side="left", padx=15)
-        ttk.Checkbutton(pdf_frame, text="PDF: Counter Layout", variable=self.var_pdf_counter_layout).pack(side="left")
+        pdf_group = ttk.LabelFrame(dl_inner, text="PDF Settings", padding=(6, 4))
+        pdf_group.grid(row=7, column=0, columnspan=3, sticky="w", pady=4)
+        chk_pdf_toc = ttk.Checkbutton(pdf_group, text="Table of Contents", variable=self.var_pdf_toc)
+        chk_pdf_toc.pack(side="left")
+        chk_pdf_toc_pages = ttk.Checkbutton(pdf_group, text="TOC Page Numbers", variable=self.var_pdf_counter_layout)
+        chk_pdf_toc_pages.pack(side="left", padx=15)
+        chk_pdf_pages = ttk.Checkbutton(pdf_group, text="Page Numbers", variable=self.var_pdf_page_numbers)
+        chk_pdf_pages.pack(side="left", padx=15)
+
+        ToolTip(chk_pdf_toc, "Insert a TOC section after the synopsis page.")
+        ToolTip(chk_pdf_toc_pages, "Show page numbers in the TOC (uses PDF counters).")
+        ToolTip(chk_pdf_pages, "Show page numbers in the footer on each page.")
 
         # Batch Download Button (Bottom Right of DL frame)
         # Using grid weight to push it down/right
