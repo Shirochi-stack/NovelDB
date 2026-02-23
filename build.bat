@@ -2,7 +2,7 @@
 echo Building NovelpiaDownloader...
 echo.
 
-pyinstaller NovelpiaDownloader.spec
+pyinstaller NovelpiaDownloader.spec --clean
 
 echo.
 if %ERRORLEVEL% EQU 0 (

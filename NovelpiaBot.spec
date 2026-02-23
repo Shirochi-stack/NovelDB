@@ -1,10 +1,33 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+import glob
+
+# --- GTK/MSYS2 DLLs for WeasyPrint (PDF) ---
+gtk_folder = os.environ.get('GTK_FOLDER', '')
+msys2_bin_candidates = [
+    os.path.join(gtk_folder, 'bin') if gtk_folder else '',
+    r'C:\msys64\mingw64\bin',
+    r'C:\msys64\ucrt64\bin',
+    r'D:\a\_temp\msys64\mingw64\bin',
+]
+msys2_bin = None
+for candidate in msys2_bin_candidates:
+    if candidate and os.path.exists(candidate):
+        msys2_bin = candidate
+        break
+if msys2_bin:
+    os.environ['PATH'] = msys2_bin + os.pathsep + os.environ.get('PATH', '')
+
+binaries = []
+if msys2_bin and os.path.exists(msys2_bin):
+    for dll in glob.glob(os.path.join(msys2_bin, '*.dll')):
+        binaries.append((dll, '.'))
 
 a = Analysis(
     ['bot.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=[],
     hiddenimports=[],
     hookspath=[],

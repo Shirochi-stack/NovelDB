@@ -2,3 +2,4 @@ requests>=2.31.0
 Pillow>=10.0.0
 discord
 pywebview>=4.4
+weasyprint

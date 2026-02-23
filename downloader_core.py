@@ -2,6 +2,7 @@ import re
 import json
 import time
 import html
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
@@ -316,3 +317,87 @@ class DownloaderCore:
         except Exception as e:
             self.log(f"Notices scan error: {e}")
             return []
+
+    def generate_pdf(self, metadata, output_path, chapters, css, image_map=None, cover_image=None, info_html=None):
+        """
+        Generate a single PDF from chapter HTML using WeasyPrint.
+
+        chapters: list of dicts with keys: {title, html, is_notice}
+        image_map: dict of filename -> bytes (used to inline ../Images/ references)
+        cover_image: dict {filename, data} or None
+        info_html: optional HTML snippet (inner body) for metadata section
+        """
+        try:
+            from weasyprint import HTML
+        except Exception as e:
+            self.log(f"WeasyPrint not available: {e}")
+            raise
+
+        def guess_mime(filename):
+            ext = filename.rsplit(".", 1)[-1].lower()
+            if ext in ("jpg", "jpeg"):
+                return "image/jpeg"
+            if ext == "png":
+                return "image/png"
+            if ext == "webp":
+                return "image/webp"
+            if ext == "gif":
+                return "image/gif"
+            return "application/octet-stream"
+
+        def to_data_uri(filename, data):
+            mime = guess_mime(filename)
+            b64 = base64.b64encode(data).decode("ascii")
+            return f"data:{mime};base64,{b64}"
+
+        images = image_map or {}
+
+        def inline_images(html_content):
+            if not html_content or not images:
+                return html_content
+
+            def repl(m):
+                src = m.group(1)
+                if src.startswith("../Images/"):
+                    name = src.split("/")[-1]
+                    data = images.get(name)
+                    if data:
+                        return f'src="{to_data_uri(name, data)}"'
+                return m.group(0)
+
+            return re.sub(r'src=["\']([^"\']+)["\']', repl, html_content)
+
+        pdf_css = css + """
+@page { size: A4; margin: 1in; }
+body { font-family: serif; }
+.chapter { page-break-before: always; }
+.cover { page-break-after: always; text-align: center; }
+.info { page-break-after: always; }
+img { max-width: 100%; height: auto; }
+"""
+
+        parts = [
+            "<!DOCTYPE html>",
+            "<html><head><meta charset=\"utf-8\">",
+            f"<style>{pdf_css}</style>",
+            "</head><body>",
+        ]
+
+        if cover_image and cover_image.get("data"):
+            cover_src = to_data_uri(cover_image["filename"], cover_image["data"])
+            parts.append(f"<div class=\"cover\"><img alt=\"Cover\" src=\"{cover_src}\"/></div>")
+
+        if info_html:
+            parts.append(f"<div class=\"info\">{info_html}</div>")
+
+        for chap in chapters or []:
+            title = html.escape(str(chap.get("title", "")))
+            content = inline_images(chap.get("html", "") or "")
+            parts.append(f"<div class=\"chapter\"><h1>{title}</h1>{content}</div>")
+
+        parts.append("</body></html>")
+        html_doc = "".join(parts)
+
+        self.log("Generating PDF...")
+        HTML(string=html_doc).write_pdf(output_path)
+        self.log("PDF generation complete.")

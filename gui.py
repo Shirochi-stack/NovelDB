@@ -255,7 +255,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("ND26")
+        self.title("ND27")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -447,6 +447,7 @@ class NovelpiaGUI(tk.Tk):
         fmt_frame.grid(row=2, column=1, columnspan=2, sticky="w")
         ttk.Radiobutton(fmt_frame, text="EPUB", variable=self.var_save_format, value="epub").pack(side="left", padx=(5, 15))
         ttk.Radiobutton(fmt_frame, text="TXT", variable=self.var_save_format, value="txt").pack(side="left")
+        ttk.Radiobutton(fmt_frame, text="PDF", variable=self.var_save_format, value="pdf").pack(side="left", padx=(15, 0))
 
         # Checkboxes
         ttk.Checkbutton(dl_inner, text="Save as HTML (instead of TXT)", variable=self.var_save_html).grid(row=3, column=0, columnspan=3, sticky="w", pady=2)
@@ -663,17 +664,24 @@ class NovelpiaGUI(tk.Tk):
 
         def clean_filename(name):
             return "".join(c for c in name if c not in '\\/:*?"<>|').strip()
+        
+        def format_ext(fmt):
+            if fmt == "epub":
+                return "epub"
+            if fmt == "pdf":
+                return "pdf"
+            return "txt"
 
         if self.var_quick_enable.get() and self.var_quick_path.get():
             folder = self.var_quick_path.get()
             base = clean_filename(default_name)
             if self.var_append_range.get() and self.var_from_enabled.get() and self.var_to_enabled.get():
                 base = f"{base}_{self.var_from_num.get()}-{self.var_to_num.get()}"
-            ext = 'epub' if self._output_format == 'epub' else 'txt'
+            ext = format_ext(self._output_format)
             filename = f"[{novel_id}] {base}.{ext}"
             self._output_path = os.path.join(folder, filename)
         else:
-            ext = 'epub' if self._output_format == 'epub' else 'txt'
+            ext = format_ext(self._output_format)
             suggested = f"[{novel_id}] {clean_filename(default_name)}.{ext}"
             path = filedialog.asksaveasfilename(defaultextension='.' + ext, initialfile=suggested, filetypes=[(ext.upper(), f"*.{ext}"), ("All files", "*")])
             if not path:
@@ -798,8 +806,10 @@ table, th, td {
 }
 """
         save_as_epub = (self._output_format == 'epub')
-        epub = EpubGenerator(meta, self._output_path if save_as_epub else f"temp.epub", css, self.var_zip_compress_images.get())
+        save_as_pdf = (self._output_format == 'pdf')
+        epub = EpubGenerator(meta, self._output_path if save_as_epub else f"temp.epub", css, self.var_zip_compress_images.get()) if save_as_epub else None
 
+        cover_image = None
         # cover
         if meta.get('cover_url'):
             try:
@@ -830,10 +840,13 @@ table, th, td {
                             data = out.getvalue()
                         except Exception:
                             pass
-                    epub.add_image(f'cover.{cover_ext}', data)
+                    cover_image = {"filename": f"cover.{cover_ext}", "data": data}
+                    if save_as_epub:
+                        epub.add_image(f'cover.{cover_ext}', data)
             except Exception:
                 pass
 
+        info_html = None
         # Add info.xhtml with metadata below the cover (matches original repo layout)
         try:
             title = meta.get('title', '')
@@ -864,7 +877,8 @@ table, th, td {
                     info_parts.append(f"  <p>{safe}</p>\n")
 
             info_html = "\n".join(info_parts)
-            epub.add_extra_page('info.xhtml', info_html)
+            if save_as_epub:
+                epub.add_extra_page('info.xhtml', info_html)
         except Exception:
             pass
 
@@ -929,6 +943,28 @@ table, th, td {
                 epub.generate()
             except Exception as e:
                 self.log_message(f"EPUB generation failed: {e}")
+        elif save_as_pdf:
+            chapters_for_pdf = []
+            image_map = {}
+            for res in results:
+                if res:
+                    t, h, imgs, notice = res
+                    for name, data in imgs:
+                        if name not in image_map:
+                            image_map[name] = data
+                    chapters_for_pdf.append({"title": t, "html": h, "is_notice": notice})
+            try:
+                self.downloader.generate_pdf(
+                    meta,
+                    self._output_path,
+                    chapters_for_pdf,
+                    css,
+                    image_map=image_map,
+                    cover_image=cover_image,
+                    info_html=info_html,
+                )
+            except Exception as e:
+                self.log_message(f"PDF generation failed: {e}")
         else:
             try:
                 with open(self._output_path, 'w', encoding='utf-8') as f:

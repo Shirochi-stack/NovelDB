@@ -2,7 +2,7 @@
 Discord slash-command bot for Novelpia Downloader.
 
 Requirements (install):
-  pip install discord.py pillow requests
+  pip install discord.py pillow requests weasyprint
 
 Usage:
   1) Put your Discord bot token in environment variable DISCORD_TOKEN.
@@ -22,7 +22,7 @@ Command:
      threads             (int, default 4)
      interval            (float seconds, min 0.5; values below fallback to 0.5)
 
-The bot saves the EPUB/TXT to a temporary downloads/ folder and sends it back to the user.
+The bot saves the EPUB/TXT/PDF to a temporary downloads/ folder and sends it back to the user.
 """
 import asyncio
 import os
@@ -589,15 +589,23 @@ def run_download(user_id: int,
 
     base_name = meta.get('title', f"novel_{novel_id}")
     safe_base = sanitize_filename(base_name)
-    ext = 'epub' if save_format == 'epub' else 'txt'
+    def _format_ext(fmt: str) -> str:
+        if fmt == "epub":
+            return "epub"
+        if fmt == "pdf":
+            return "pdf"
+        return "txt"
+    ext = _format_ext(save_format)
     out_dir = os.path.join(os.getcwd(), 'downloads')
     os.makedirs(out_dir, exist_ok=True)
     filename = f"[{novel_id}] {safe_base}.{ext}"
     output_path = os.path.join(out_dir, filename)
-
     save_as_epub = save_format == 'epub'
+    save_as_pdf = save_format == 'pdf'
+    epub = EpubGenerator(meta, output_path if save_as_epub else f"temp.epub", CSS_TEMPLATE, zip_compress_images=False) if save_as_epub else None
     epub = EpubGenerator(meta, output_path if save_as_epub else f"temp.epub", CSS_TEMPLATE, zip_compress_images=False)
 
+    cover_image = None
     # Cover
     if meta.get('cover_url'):
         try:
@@ -652,10 +660,13 @@ def run_download(user_id: int,
                             cover_ext = "webp"
                         elif "png" in mime:
                             cover_ext = "png"
-                epub.add_image(f'cover.{cover_ext}', data)
+                cover_image = {"filename": f"cover.{cover_ext}", "data": data}
+                if save_as_epub:
+                    epub.add_image(f'cover.{cover_ext}', data)
         except Exception:
             pass
 
+    info_html = None
     # Info page
     try:
         title = meta.get('title', '')
@@ -684,7 +695,8 @@ def run_download(user_id: int,
                 info_parts.append(f"  <p>{safe}</p>\n")
 
         info_html = "\n".join(info_parts)
-        epub.add_extra_page('info.xhtml', info_html)
+        if save_as_epub:
+            epub.add_extra_page('info.xhtml', info_html)
     except Exception:
         pass
 
@@ -733,6 +745,25 @@ def run_download(user_id: int,
                 epub.add_chapter(t, h, is_notice=notice)
         logger(f"Total images added to EPUB: {total_imgs}")
         epub.generate()
+    elif save_as_pdf:
+        chapters_for_pdf = []
+        image_map = {}
+        for res in results:
+            if res:
+                t, h, imgs, notice = res
+                for name, data in imgs:
+                    if name not in image_map:
+                        image_map[name] = data
+                chapters_for_pdf.append({"title": t, "html": h, "is_notice": notice})
+        downloader.generate_pdf(
+            meta,
+            output_path,
+            chapters_for_pdf,
+            CSS_TEMPLATE,
+            image_map=image_map,
+            cover_image=cover_image,
+            info_html=info_html,
+        )
     else:
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -1090,7 +1121,7 @@ async def setting_cmd(interaction: discord.Interaction):
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
-@bot.tree.command(name="download", description="Download a Novelpia novel and return the EPUB/TXT.")
+@bot.tree.command(name="download", description="Download a Novelpia novel and return the EPUB/TXT/PDF.")
 @app_commands.describe(
     novel_id="Novel ID (required)",
     start="Chapter start number (optional)",
@@ -1103,10 +1134,11 @@ async def setting_cmd(interaction: discord.Interaction):
     include_notices="Download author notices (default False)",
     threads="Download threads (default 4)",
     interval="Delay between batches in seconds (min 0.5, default 0.5)",
-    save_format="epub or txt (default epub)")
+    save_format="epub, txt, or pdf (default epub)")
 @app_commands.choices(save_format=[
     app_commands.Choice(name="EPUB", value="epub"),
     app_commands.Choice(name="TXT", value="txt"),
+    app_commands.Choice(name="PDF", value="pdf"),
 ])
 async def download_cmd(interaction: discord.Interaction, novel_id: str,
                        start: int | None = None, end: int | None = None,
@@ -1182,7 +1214,7 @@ async def download_cmd(interaction: discord.Interaction, novel_id: str,
     threads = max(1, min(4, threads))
     interval = clamp_interval(interval)
     save_format = (save_format or "epub").lower()
-    if save_format not in ("epub", "txt"):
+    if save_format not in ("epub", "txt", "pdf"):
         save_format = "epub"
 
     loop = asyncio.get_running_loop()
