@@ -807,10 +807,36 @@ class NovelpiaGUI(tk.Tk):
             self.lbl_status.config(text="Idle")
             return
 
-        meta = self.downloader.fetch_metadata(novel_id)
-        if not meta:
-            self.lbl_status.config(text="Idle")
-            return
+        # Cache setup (loaded early so metadata can be cached too)
+        use_cache = self.var_use_cache.get()
+        cache_images = use_cache and self.var_cache_images.get()
+        cache_data = {}
+        cache_path = None
+        if use_cache:
+            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            cache_dir = os.path.join(base_dir, '.cache')
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_path = os.path.join(cache_dir, f'{novel_id}.json')
+            if os.path.exists(cache_path):
+                try:
+                    with open(cache_path, 'r', encoding='utf-8') as f:
+                        cache_data = json.load(f)
+                    chapter_count = sum(1 for k in cache_data if k != '_meta')
+                    self.log_message(f"Cache loaded ({chapter_count} chapters cached).")
+                except Exception:
+                    cache_data = {}
+
+        # Metadata (use cache if available)
+        if use_cache and '_meta' in cache_data:
+            meta = cache_data['_meta']
+            self.log_message(f"Metadata from cache: {meta.get('title', '?')} by {meta.get('author', '?')}")
+        else:
+            meta = self.downloader.fetch_metadata(novel_id)
+            if not meta:
+                self.lbl_status.config(text="Idle")
+                return
+            if use_cache:
+                cache_data['_meta'] = meta
 
         # Determine output path
         self._output_format = self.var_save_format.get()
@@ -1041,24 +1067,6 @@ table, th, td {
                 n = self.image_no
                 self.image_no += 1
                 return n
-
-        # Cache setup
-        use_cache = self.var_use_cache.get()
-        cache_images = use_cache and self.var_cache_images.get()
-        cache_data = {}
-        cache_path = None
-        if use_cache:
-            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-            cache_dir = os.path.join(base_dir, '.cache')
-            os.makedirs(cache_dir, exist_ok=True)
-            cache_path = os.path.join(cache_dir, f'{novel_id}.json')
-            if os.path.exists(cache_path):
-                try:
-                    with open(cache_path, 'r', encoding='utf-8') as f:
-                        cache_data = json.load(f)
-                    self.log_message(f"Cache loaded ({len(cache_data)} chapters cached).")
-                except Exception:
-                    cache_data = {}
 
         def _cache_entry_to_json(entry):
             """Extract raw content_json from a cache entry (string or dict)."""
