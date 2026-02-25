@@ -3,3 +3,5 @@ build/
 __pycache__/
 *.pyc
 *.pyo
+.cache/
+config.json

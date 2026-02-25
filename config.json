@@ -17,6 +17,8 @@
   "save_format": "epub",
   "save_html": false,
   "retry_chapters": false,
+  "use_cache": true,
+  "cache_images": true,
   "pdf_toc": false,
   "pdf_page_numbers": false,
   "pdf_counter_layout": false,

@@ -9,6 +9,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import io
+import base64
 import multiprocessing
 import tempfile
 
@@ -288,7 +289,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("ND29")
+        self.title("ND30")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -369,6 +370,8 @@ class NovelpiaGUI(tk.Tk):
         self.var_quick_path = tk.StringVar()
         self.var_naming_mode = tk.StringVar(value="title") # title or id
         self.var_append_range = tk.BooleanVar(value=False)
+        self.var_use_cache = tk.BooleanVar(value=False)
+        self.var_cache_images = tk.BooleanVar(value=False)
 
         # Runtime helpers
         self.font_mapper = None
@@ -509,6 +512,12 @@ class NovelpiaGUI(tk.Tk):
         notices_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
         ttk.Checkbutton(notices_frame, text="Download Author Notices", variable=self.var_include_notices).pack(side="left")
         ttk.Checkbutton(notices_frame, text="Retry Chapters", variable=self.var_retry_chapters).pack(side="left", padx=15)
+        chk_cache = ttk.Checkbutton(notices_frame, text="Use Cache", variable=self.var_use_cache)
+        chk_cache.pack(side="left", padx=15)
+        ToolTip(chk_cache, "Cache downloaded chapter data per novel.\nOn re-download only new chapters are fetched.")
+        chk_cache_imgs = ttk.Checkbutton(notices_frame, text="Cache Images", variable=self.var_cache_images)
+        chk_cache_imgs.pack(side="left", padx=(0, 15))
+        ToolTip(chk_cache_imgs, "Also cache processed images (heavy).\nMakes re-downloads fully offline but uses more disk.")
 
         pdf_group = ttk.LabelFrame(dl_inner, text="PDF Settings", padding=(6, 4))
         pdf_group.grid(row=7, column=0, columnspan=3, sticky="w", pady=4)
@@ -1032,6 +1041,35 @@ table, th, td {
                 self.image_no += 1
                 return n
 
+        # Cache setup
+        use_cache = self.var_use_cache.get()
+        cache_images = use_cache and self.var_cache_images.get()
+        cache_data = {}
+        cache_path = None
+        if use_cache:
+            cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache')
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_path = os.path.join(cache_dir, f'{novel_id}.json')
+            if os.path.exists(cache_path):
+                try:
+                    with open(cache_path, 'r', encoding='utf-8') as f:
+                        cache_data = json.load(f)
+                    self.log_message(f"Cache loaded ({len(cache_data)} chapters cached).")
+                except Exception:
+                    cache_data = {}
+
+        def _cache_entry_to_json(entry):
+            """Extract raw content_json from a cache entry (string or dict)."""
+            if isinstance(entry, str):
+                return entry
+            if isinstance(entry, dict):
+                return entry.get('json', '')
+            return ''
+
+        def _has_full_cache(entry):
+            """Check if a cache entry contains processed html + images."""
+            return isinstance(entry, dict) and 'html' in entry and 'images' in entry
+
         for c in selected:
             c.setdefault('is_notice', False)
         selected_total = (notice_items + selected) if notice_items else selected
@@ -1044,36 +1082,116 @@ table, th, td {
         threads = self.var_threads.get()
         interval = self.var_interval.get()
 
-        self.lbl_status.config(text="Downloading...")
-        with ThreadPoolExecutor(max_workers=threads) as executor:
-            for i in range(0, len(selected_total), threads):
-                batch = range(i, min(i + threads, len(selected_total)))
-                f_map = {executor.submit(self.downloader.download_chapter_content, selected_total[x]['id']): x for x in batch}
-                for future in as_completed(f_map):
-                    idx = f_map[future]
-                    chap = selected_total[idx]
+        # Process cached chapters first
+        uncached_indices = []
+        if use_cache:
+            for idx, chap in enumerate(selected_total):
+                chap_id = chap['id']
+                entry = cache_data.get(chap_id)
+                if entry is not None:
                     try:
-                        content_json = future.result()
-                        if content_json:
+                        # Full cache hit (html + images stored) — skip all processing
+                        if cache_images and _has_full_cache(entry):
+                            cached_html = entry['html']
+                            cached_imgs = [
+                                (name, base64.b64decode(b64))
+                                for name, b64 in entry.get('images', [])
+                            ]
+                            # Advance image counter past cached filenames
+                            for fname, _ in cached_imgs:
+                                try:
+                                    num = int(fname.rsplit('.', 1)[0])
+                                    with self.image_lock:
+                                        if num >= self.image_no:
+                                            self.image_no = num + 1
+                                except (ValueError, IndexError):
+                                    pass
+                            results[idx] = (chap['title'], cached_html, cached_imgs, chap.get('is_notice', False))
+                            self.log_message(f"Cached: {chap['title']}")
+                        else:
+                            # JSON-only cache hit — still need to process images
+                            content_json = _cache_entry_to_json(entry)
                             hb, imgs = extract_chapter_content_and_images(
                                 content_json, self.font_mapper, self.auth.session,
                                 self.var_compress_images.get(), self.var_jpeg_quality.get(),
                                 self.var_image_format.get(), self.log_message, next_image_no
                             )
                             results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
-                            self.log_message(f"Downloaded: {chap['title']}")
+                            self.log_message(f"Cached: {chap['title']}")
+                            # Upgrade entry to full cache if cache_images is now on
+                            if cache_images:
+                                cache_data[chap_id] = {
+                                    'json': content_json,
+                                    'html': hb,
+                                    'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
+                                }
                     except Exception as e:
-                        self.log_message(f"Error {chap.get('title','?')}: {e}")
-
+                        self.log_message(f"Cache read error {chap.get('title', '?')}: {e}")
+                        uncached_indices.append(idx)
                     self.progress_value += 1
                     try:
                         pct = int(self.progress_value / self.progress_total * 100)
                     except Exception:
                         pct = 0
                     self.after(0, lambda p=pct: self.progress.configure(value=p))
+                else:
+                    uncached_indices.append(idx)
+            cached_count = len(selected_total) - len(uncached_indices)
+            if cached_count > 0:
+                self.log_message(f"{cached_count} chapters from cache, {len(uncached_indices)} to download.")
+        else:
+            uncached_indices = list(range(len(selected_total)))
 
-                if interval > 0:
-                    time.sleep(interval)
+        # Download uncached chapters
+        self.lbl_status.config(text="Downloading...")
+        if uncached_indices:
+            with ThreadPoolExecutor(max_workers=threads) as executor:
+                for i in range(0, len(uncached_indices), threads):
+                    batch = uncached_indices[i:i + threads]
+                    f_map = {executor.submit(self.downloader.download_chapter_content, selected_total[x]['id']): x for x in batch}
+                    for future in as_completed(f_map):
+                        idx = f_map[future]
+                        chap = selected_total[idx]
+                        try:
+                            content_json = future.result()
+                            if content_json:
+                                hb, imgs = extract_chapter_content_and_images(
+                                    content_json, self.font_mapper, self.auth.session,
+                                    self.var_compress_images.get(), self.var_jpeg_quality.get(),
+                                    self.var_image_format.get(), self.log_message, next_image_no
+                                )
+                                results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
+                                self.log_message(f"Downloaded: {chap['title']}")
+                                # Store in cache
+                                if use_cache:
+                                    if cache_images:
+                                        cache_data[chap['id']] = {
+                                            'json': content_json,
+                                            'html': hb,
+                                            'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
+                                        }
+                                    else:
+                                        cache_data[chap['id']] = content_json
+                        except Exception as e:
+                            self.log_message(f"Error {chap.get('title','?')}: {e}")
+
+                        self.progress_value += 1
+                        try:
+                            pct = int(self.progress_value / self.progress_total * 100)
+                        except Exception:
+                            pct = 0
+                        self.after(0, lambda p=pct: self.progress.configure(value=p))
+
+                    if interval > 0:
+                        time.sleep(interval)
+
+        # Save cache
+        if use_cache and cache_path:
+            try:
+                with open(cache_path, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f, ensure_ascii=False)
+            except Exception as e:
+                self.log_message(f"Cache save error: {e}")
 
         # Saving
         if save_as_epub:
@@ -1172,6 +1290,8 @@ table, th, td {
                 self.var_save_format.set(cfg.get("save_format", "epub"))
                 self.var_save_html.set(cfg.get("save_html", False))
                 self.var_retry_chapters.set(cfg.get("retry_chapters", False))
+                self.var_use_cache.set(cfg.get("use_cache", False))
+                self.var_cache_images.set(cfg.get("cache_images", False))
                 self.var_pdf_toc.set(cfg.get("pdf_toc", False))
                 self.var_pdf_page_numbers.set(cfg.get("pdf_page_numbers", False))
                 self.var_pdf_counter_layout.set(cfg.get("pdf_counter_layout", False))
@@ -1226,6 +1346,8 @@ table, th, td {
             "save_format": self.var_save_format.get(),
             "save_html": self.var_save_html.get(),
             "retry_chapters": self.var_retry_chapters.get(),
+            "use_cache": self.var_use_cache.get(),
+            "cache_images": self.var_cache_images.get(),
             "pdf_toc": self.var_pdf_toc.get(),
             "pdf_page_numbers": self.var_pdf_page_numbers.get(),
             "pdf_counter_layout": self.var_pdf_counter_layout.get(),
