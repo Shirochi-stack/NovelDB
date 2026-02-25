@@ -371,7 +371,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_quick_path = tk.StringVar()
         self.var_naming_mode = tk.StringVar(value="title") # title or id
         self.var_append_range = tk.BooleanVar(value=False)
-        self.var_use_cache = tk.BooleanVar(value=False)
+        self.var_use_cache = tk.BooleanVar(value=True)
         self.var_cache_images = tk.BooleanVar(value=False)
 
         # Runtime helpers
