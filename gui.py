@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import io
 import base64
+import sys
 import multiprocessing
 import tempfile
 
@@ -1047,7 +1048,8 @@ table, th, td {
         cache_data = {}
         cache_path = None
         if use_cache:
-            cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache')
+            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            cache_dir = os.path.join(base_dir, '.cache')
             os.makedirs(cache_dir, exist_ok=True)
             cache_path = os.path.join(cache_dir, f'{novel_id}.json')
             if os.path.exists(cache_path):
