@@ -288,7 +288,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("ND28")
+        self.title("ND29")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -524,8 +524,7 @@ class NovelpiaGUI(tk.Tk):
         ToolTip(chk_pdf_pages, "Show page numbers in the footer on each page.")
 
         # Batch Download Button (Bottom Right of DL frame)
-        # Using grid weight to push it down/right
-        btn_batch = ttk.Button(dl_inner, text="Batch Download", state="disabled") # Placeholder functionality
+        btn_batch = ttk.Button(dl_inner, text="Batch Download", command=self.action_batch_download)
         btn_batch.grid(row=8, column=2, sticky="e", pady=10)
 
         # Big Buttons (Right side of DL Frame)
@@ -693,6 +692,102 @@ class NovelpiaGUI(tk.Tk):
 
     def action_download(self):
         threading.Thread(target=self._download_worker, daemon=True).start()
+
+    def action_batch_download(self):
+        """Batch download multiple novels from a list file.
+
+        Accepted line formats (one per line):
+          Title,NovelID
+          NovelID            (title is fetched automatically)
+        """
+        list_path = filedialog.askopenfilename(
+            title="Select batch list file",
+            filetypes=[("Text files", "*.txt"), ("CSV files", "*.csv"), ("All files", "*")],
+        )
+        if not list_path:
+            return
+
+        output_dir = filedialog.askdirectory(title="Select output directory")
+        if not output_dir:
+            return
+
+        threading.Thread(target=self._batch_download_worker, args=(list_path, output_dir), daemon=True).start()
+
+    @staticmethod
+    def _parse_batch_line(line):
+        """Parse a batch list line into (novel_id, title_or_none).
+
+        Supports:
+          Title,ID   -> ('ID', 'Title')
+          ID         -> ('ID', None)
+        Returns (None, None) if the line is unusable.
+        """
+        if "," in line:
+            parts = line.split(",", 1)
+            title = parts[0].strip()
+            novel_id = parts[1].strip()
+            return (novel_id, title) if novel_id else (None, None)
+        # No comma — treat the whole line as a novel ID.
+        novel_id = line.strip()
+        return (novel_id, None) if novel_id else (None, None)
+
+    def _batch_download_worker(self, list_path, output_dir):
+        self.lbl_status.config(text="Batch downloading...")
+        self.log_message(f"Batch download started: {list_path}")
+
+        # Preserve current quick-download settings and restore them afterwards.
+        prev_quick_enable = self.var_quick_enable.get()
+        prev_quick_path = self.var_quick_path.get()
+        prev_novel_id = self.var_novel_id.get()
+
+        try:
+            if not os.path.exists(list_path):
+                self.log_message(f"List file not found: {list_path}")
+                return
+
+            os.makedirs(output_dir, exist_ok=True)
+
+            with open(list_path, "r", encoding="utf-8") as f:
+                lines = [ln.strip() for ln in f if ln.strip()]
+
+            total = len(lines)
+            if total == 0:
+                self.log_message("Batch list file is empty.")
+                return
+
+            # Force quick-download so _download_worker won't show a Save As dialog.
+            self.var_quick_enable.set(True)
+            self.var_quick_path.set(output_dir)
+
+            for idx, line in enumerate(lines, start=1):
+                novel_id, title = self._parse_batch_line(line)
+                if not novel_id:
+                    self.log_message(f"Skipped (invalid line): {line}")
+                    continue
+
+                # If the list only had an ID, fetch the title so the log is useful.
+                if not title:
+                    self.log_message(f"[{idx}/{total}] Fetching title for novel {novel_id}...")
+                    meta = self.downloader.fetch_metadata(novel_id)
+                    title = meta.get("title", novel_id) if meta else novel_id
+
+                self.log_message(f"[{idx}/{total}] Downloading: {title} ({novel_id})")
+
+                # Set the novel id field and reuse the existing single-download worker.
+                self.var_novel_id.set(novel_id)
+                self._download_worker()
+
+                # Small pause between novels.
+                time.sleep(2)
+
+            self.log_message("Batch download complete!")
+        except Exception as e:
+            self.log_message(f"Batch download failed: {e}")
+        finally:
+            self.var_quick_enable.set(prev_quick_enable)
+            self.var_quick_path.set(prev_quick_path)
+            self.var_novel_id.set(prev_novel_id)
+            self.lbl_status.config(text="Idle")
 
     def _download_worker(self):
         self.lbl_status.config(text="Analyzing...")
