@@ -5,3 +5,5 @@ __pycache__/
 *.pyo
 .cache/
 config.json
+logs/
+*.loginkey

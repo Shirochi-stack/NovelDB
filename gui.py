@@ -13,6 +13,37 @@ import base64
 import sys
 import multiprocessing
 import tempfile
+import logging
+from datetime import datetime
+
+# ---------------------------------------------------------------------------
+# File logging setup (freeze / .exe aware)
+# Only runs in main process to avoid issues with multiprocessing child processes
+# ---------------------------------------------------------------------------
+def _get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+_logger = logging.getLogger('ND')
+_LOG_FILE = ""
+
+def _is_main_process():
+    try:
+        return multiprocessing.current_process().name == 'MainProcess'
+    except Exception:
+        return True
+
+if _is_main_process():
+    _LOG_DIR = os.path.join(_get_base_dir(), 'logs')
+    os.makedirs(_LOG_DIR, exist_ok=True)
+    _LOG_FILE = os.path.join(_LOG_DIR, f"nd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    _fh = logging.FileHandler(_LOG_FILE, encoding='utf-8')
+    _fh.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+    _logger.setLevel(logging.DEBUG)
+    _logger.addHandler(_fh)
+else:
+    _logger.addHandler(logging.NullHandler())
 
 try:
     from PIL import Image
@@ -90,9 +121,44 @@ def process_text_content(content_json):
     except Exception as e:
         return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>"
 
+def _format_size(nbytes):
+    if nbytes < 1024:
+        return f"{nbytes} B"
+    elif nbytes < 1024 * 1024:
+        return f"{nbytes / 1024:.1f} KB"
+    return f"{nbytes / (1024 * 1024):.2f} MB"
+
+def _download_image_with_progress(session, url, logger, label="Image"):
+    """Stream-download an image, logging progress/speed. Returns bytes or None."""
+    try:
+        r = session.get(url, timeout=30, stream=True)
+        if r.status_code != 200:
+            logger(f"  ✗ {label}: HTTP {r.status_code}")
+            return None
+        total = int(r.headers.get('content-length', 0))
+        chunks, downloaded, t0, last_pct = [], 0, time.time(), 0
+        for chunk in r.iter_content(chunk_size=8192):
+            if chunk:
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                if total > 0:
+                    pct = int(downloaded / total * 100)
+                    if pct >= last_pct + 10:
+                        speed = _format_size(int(downloaded / max(time.time() - t0, 0.001))) + "/s"
+                        logger(f"  ↓ {label}: {pct}% ({_format_size(downloaded)}/{_format_size(total)}) [{speed}]")
+                        last_pct = pct
+        data = b''.join(chunks)
+        speed = _format_size(int(len(data) / max(time.time() - t0, 0.001))) + "/s"
+        logger(f"  ✓ {label}: {_format_size(len(data))} [{speed}]")
+        return data
+    except Exception as e:
+        logger(f"  ✗ {label}: {e}")
+        return None
+
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no):
     html_parts = []
     images = []
+    _img_counter = [0]
     try:
         data = json.loads(content_json)
         segments = data.get("s")
@@ -121,58 +187,50 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                     else:
                         url_dl = "https:" + url
 
+                    _img_counter[0] += 1
+                    lbl = f"Image #{_img_counter[0]}"
                     try:
-                        r = session.get(url_dl, timeout=15)
-                        if r.status_code != 200 or not r.content:
-                            logger(f"Image fetch failed: {url_dl}")
-                            # Remove the tag on failure (match gui.py)
+                        img_bytes = _download_image_with_progress(session, url_dl, logger, label=lbl)
+                        if not img_bytes:
                             return ""
-                        img_bytes = r.content
-                        # Detect extension from URL or content type
                         ext = "jpg"
-                        if url_dl.lower().endswith('.gif') or (r.headers.get('content-type', '').lower().find('gif') >= 0):
-                            ext = "gif"
-                        elif url_dl.lower().endswith('.png') or (r.headers.get('content-type', '').lower().find('png') >= 0):
-                            ext = "png"
-                        elif url_dl.lower().endswith('.webp') or (r.headers.get('content-type', '').lower().find('webp') >= 0):
-                            ext = "webp"
+                        lo = url_dl.lower()
+                        if '.gif' in lo: ext = "gif"
+                        elif '.png' in lo: ext = "png"
+                        elif '.webp' in lo: ext = "webp"
+                        original_size = len(img_bytes)
                         if compress_images and Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(img_bytes))
                                 out = io.BytesIO()
-                                
-                                # Special handling for GIFs to preserve animation
                                 if ext == "gif":
-                                    # Compress GIF with optimization while preserving animation
                                     im.save(out, format="GIF", save_all=True, optimize=True)
                                     img_bytes = out.getvalue()
                                 else:
-                                    # Standard compression for other formats
                                     if im.mode not in ("RGB", "L"):
                                         im = im.convert("RGB")
-                                    
-                                    # Use selected format
                                     if image_format == "WEBP":
                                         im.save(out, format="WEBP", quality=int(jpeg_quality))
                                         ext = "webp"
                                     elif image_format == "PNG":
                                         im.save(out, format="PNG", optimize=True)
                                         ext = "png"
-                                    else:  # JPEG
+                                    else:
                                         im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
                                         ext = "jpg"
-                                    
                                     img_bytes = out.getvalue()
                             except Exception:
                                 pass
+                            if len(img_bytes) < original_size:
+                                saved = (1 - len(img_bytes) / original_size) * 100
+                                logger(f"  ⚙ {lbl}: {_format_size(original_size)} → {_format_size(len(img_bytes))} ({saved:.0f}% saved)")
 
                         n = next_image_no()
                         fname = f"{n}.{ext}"
                         images.append((fname, img_bytes))
-                        replacement = f"<img alt=\"{n}\" src=\"../Images/{fname}\" width=\"100%\"/>"
-                        return replacement
+                        return f'<img alt="{n}" src="../Images/{fname}" width="100%"/>'
                     except Exception as ex:
-                        logger(f"Image error: {ex}")
+                        logger(f"  ✗ {lbl}: {ex}")
                         # Remove tag on exception to match gui.py
                         return ""
 
@@ -206,10 +264,34 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
         return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>", images
 
 def _run_webview_login(output_path):
+    import traceback
+
+    # Write debug log to the logs/ directory (already created by file logging setup)
+    _log_dir = os.path.join(_get_base_dir(), 'logs')
+    os.makedirs(_log_dir, exist_ok=True)
+    debug_path = os.path.join(_log_dir, "webview_debug.log")
+    def _dbg(msg):
+        try:
+            with open(debug_path, "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+        except Exception:
+            pass
+
+    _dbg("=== webview login started ===")
+
+    # pythonnet 3.x requires explicit runtime init before clr.AddReference works
+    try:
+        from pythonnet import load
+        load()
+        _dbg("pythonnet loaded OK")
+    except Exception as e:
+        _dbg(f"pythonnet load (non-fatal): {e}")
+
     try:
         import webview
-    except Exception:
-        # write empty to signal failure
+        _dbg(f"webview imported OK (version: {getattr(webview, '__version__', '?')})")
+    except Exception as e:
+        _dbg(f"webview import FAILED:\n{traceback.format_exc()}")
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("")
@@ -217,67 +299,169 @@ def _run_webview_login(output_path):
             pass
         return
 
-    def extract_loginkey(cookie_str):
+    def extract_loginkey_js(cookie_str):
+        """Extract LOGINKEY from document.cookie string."""
         if not cookie_str:
             return None
         try:
-            parts = cookie_str.split(";")
-            for p in parts:
+            for p in cookie_str.split(";"):
                 s = p.strip()
                 if s.startswith("LOGINKEY="):
-                    return s.split("=", 1)[1].strip()
+                    v = s.split("=", 1)[1].strip()
+                    if v:
+                        return v
         except Exception:
-            return None
+            pass
         return None
 
-    key_holder = {"key": None}
+    def get_loginkey():
+        """Try multiple methods to read LOGINKEY from the webview."""
+        # Method 1: window.get_cookies() — reads ALL cookies including HttpOnly
+        try:
+            cookies = window.get_cookies()
+            if cookies:
+                for cookie in cookies:
+                    name = getattr(cookie, 'name', '')
+                    if name == 'LOGINKEY':
+                        v = getattr(cookie, 'value', '')
+                        if v:
+                            return v
+        except Exception:
+            pass
+        # Method 2: document.cookie — only non-HttpOnly cookies
+        try:
+            js_cookies = window.evaluate_js("document.cookie")
+            return extract_loginkey_js(js_cookies)
+        except Exception:
+            pass
+        return None
+
+    key_holder = {"key": None, "initial_key": None}
 
     def poll_for_key(_window=None):
-        for _ in range(900):
+        _dbg("poll_for_key started, waiting for page load...")
+        time.sleep(3)
+
+        initial_key = get_loginkey()
+        key_holder["initial_key"] = initial_key
+        _dbg(f"initial key: {repr(initial_key[:20] if initial_key else None)}")
+
+        was_on_google = False
+
+        for i in range(900):
             try:
-                cookies = window.evaluate_js("document.cookie")
-                key = extract_loginkey(cookies)
-                if key:
-                    key_holder["key"] = key
-                    try:
-                        with open(output_path, "w", encoding="utf-8") as f:
-                            f.write(key)
-                    except Exception:
-                        pass
-                    webview.destroy_window()
-                    return
-            except Exception:
-                pass
+                cur_url = ""
+                try:
+                    cur_url = window.get_current_url() or ""
+                except Exception:
+                    pass
+
+                # Track when we navigate to Google OAuth
+                if 'accounts.google.com' in cur_url:
+                    if not was_on_google:
+                        _dbg(f"poll #{i}: navigated to Google OAuth")
+                        was_on_google = True
+
+                # After Google OAuth, detect redirect back to novelpia.com
+                # This means login succeeded — the SAME cookie is now authenticated
+                if was_on_google and 'novelpia.com' in cur_url:
+                    _dbg(f"poll #{i}: redirected back to novelpia: {cur_url[:80]}")
+                    # Wait for the redirect chain to finish
+                    time.sleep(3)
+
+                    # Read the key — it's the same value but now it's authenticated
+                    key = get_loginkey()
+                    if not key:
+                        try:
+                            js_cookies = window.evaluate_js("document.cookie")
+                            key = extract_loginkey_js(js_cookies)
+                        except Exception:
+                            pass
+
+                    if key:
+                        _dbg(f"Login successful! Key: {key[:20]}...")
+                        key_holder["key"] = key
+                        try:
+                            with open(output_path, "w", encoding="utf-8") as f:
+                                f.write(key)
+                        except Exception:
+                            pass
+                        try:
+                            window.destroy()
+                        except Exception:
+                            pass
+                        return
+                    else:
+                        _dbg("Redirect detected but no cookie found, continuing...")
+                        was_on_google = False  # Reset to detect next redirect
+
+                if i < 5 or (i % 30 == 0):
+                    _dbg(f"poll #{i}: url={cur_url[:60] if cur_url else None}, google={was_on_google}")
+
+            except Exception as e:
+                if i < 5:
+                    _dbg(f"poll #{i} error: {e}")
             time.sleep(1)
+        _dbg("poll_for_key timed out after 900s")
 
     # Use screen ratio for window size
     try:
-        import tkinter as _tk
-        _r = _tk.Tk()
-        _r.withdraw()
-        _sw = _r.winfo_screenwidth()
-        _sh = _r.winfo_screenheight()
-        _r.destroy()
+        import ctypes
+        user32 = ctypes.windll.user32
+        _sw = user32.GetSystemMetrics(0)
+        _sh = user32.GetSystemMetrics(1)
+        _dbg(f"screen size: {_sw}x{_sh} (ctypes)")
     except Exception:
-        _sw, _sh = 1200, 900
+        try:
+            import tkinter as _tk
+            _r = _tk.Tk()
+            _r.withdraw()
+            _sw = _r.winfo_screenwidth()
+            _sh = _r.winfo_screenheight()
+            _r.destroy()
+            _dbg(f"screen size: {_sw}x{_sh} (tkinter)")
+        except Exception:
+            _sw, _sh = 1200, 900
+            _dbg(f"screen size: fallback {_sw}x{_sh}")
 
-    window = webview.create_window(
-        "Novelpia Google Login",
-        "https://novelpia.com/",
-        width=int(_sw * 0.6),
-        height=int(_sh * 0.7),
-    )
     try:
+        window = webview.create_window(
+            "Novelpia Google Login",
+            "https://novelpia.com/",
+            width=int(_sw * 0.6),
+            height=int(_sh * 0.7),
+        )
+        _dbg("window created, calling webview.start()")
         webview.start(poll_for_key, window, debug=False)
-    except Exception:
-        pass
+        _dbg("webview.start() returned")
+    except Exception as e:
+        _dbg(f"webview.start FAILED:\n{traceback.format_exc()}")
+
+    # Window was closed — try one final cookie read
+    if key_holder["key"] is None:
+        _dbg("Attempting final cookie read after window close...")
+        try:
+            final_key = get_loginkey()
+            _dbg(f"final get_loginkey: {repr(final_key[:20] if final_key else None)}")
+            if final_key and final_key != key_holder.get("initial_key"):
+                key_holder["key"] = final_key
+                try:
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        f.write(final_key)
+                except Exception:
+                    pass
+                _dbg(f"LOGINKEY captured post-close: {final_key[:20]}...")
+        except Exception as e:
+            _dbg(f"final cookie read error: {e}")
 
     try:
         if key_holder["key"] is None:
+            _dbg("No key captured, writing empty output")
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write("")
     except Exception:
         pass
+    _dbg("=== webview login ended ===")
 
 
 class NovelpiaGUI(tk.Tk):
@@ -290,7 +474,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("ND30")
+        self.title("ND31")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -388,6 +572,7 @@ class NovelpiaGUI(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def log_message(self, message):
+        _logger.info(message)
         self.log_queue.put(message)
 
     def _poll_log_queue(self):
@@ -681,6 +866,15 @@ class NovelpiaGUI(tk.Tk):
                     pass
                 time.sleep(1)
             self.log_message("Google login: LOGINKEY not captured.")
+            debug_log = os.path.join(_get_base_dir(), 'logs', 'webview_debug.log')
+            if os.path.exists(debug_log):
+                self.log_message(f"Debug log: {debug_log}")
+                try:
+                    with open(debug_log, "r", encoding="utf-8") as f:
+                        for line in f.read().strip().splitlines()[-10:]:
+                            self.log_message(f"  {line}")
+                except Exception:
+                    pass
 
         try:
             proc = multiprocessing.Process(target=_run_webview_login, args=(key_path,), daemon=True)
@@ -745,10 +939,10 @@ class NovelpiaGUI(tk.Tk):
         self.lbl_status.config(text="Batch downloading...")
         self.log_message(f"Batch download started: {list_path}")
 
-        # Preserve current quick-download settings and restore them afterwards.
         prev_quick_enable = self.var_quick_enable.get()
         prev_quick_path = self.var_quick_path.get()
         prev_novel_id = self.var_novel_id.get()
+        succeeded, failed, skipped = 0, 0, 0
 
         try:
             if not os.path.exists(list_path):
@@ -765,32 +959,43 @@ class NovelpiaGUI(tk.Tk):
                 self.log_message("Batch list file is empty.")
                 return
 
-            # Force quick-download so _download_worker won't show a Save As dialog.
             self.var_quick_enable.set(True)
             self.var_quick_path.set(output_dir)
 
             for idx, line in enumerate(lines, start=1):
-                novel_id, title = self._parse_batch_line(line)
-                if not novel_id:
-                    self.log_message(f"Skipped (invalid line): {line}")
+                if line.startswith('#'):
+                    self.log_message(f"[{idx}/{total}] Skipped comment")
+                    skipped += 1
                     continue
 
-                # If the list only had an ID, fetch the title so the log is useful.
-                if not title:
-                    self.log_message(f"[{idx}/{total}] Fetching title for novel {novel_id}...")
-                    meta = self.downloader.fetch_metadata(novel_id)
-                    title = meta.get("title", novel_id) if meta else novel_id
+                novel_id, title = self._parse_batch_line(line)
+                if not novel_id:
+                    self.log_message(f"[{idx}/{total}] Skipped (invalid): {line}")
+                    skipped += 1
+                    continue
 
-                self.log_message(f"[{idx}/{total}] Downloading: {title} ({novel_id})")
+                if not novel_id.isdigit():
+                    self.log_message(f"[{idx}/{total}] Skipped (non-numeric ID '{novel_id}')")
+                    skipped += 1
+                    continue
 
-                # Set the novel id field and reuse the existing single-download worker.
-                self.var_novel_id.set(novel_id)
-                self._download_worker()
+                try:
+                    if not title:
+                        self.log_message(f"[{idx}/{total}] Fetching title for novel {novel_id}...")
+                        meta = self.downloader.fetch_metadata(novel_id)
+                        title = meta.get("title", novel_id) if meta else novel_id
 
-                # Small pause between novels.
+                    self.log_message(f"[{idx}/{total}] Downloading: {title} ({novel_id})")
+                    self.var_novel_id.set(novel_id)
+                    self._download_worker()
+                    succeeded += 1
+                except Exception as e:
+                    failed += 1
+                    self.log_message(f"[{idx}/{total}] FAILED novel {novel_id}: {e}")
+
                 time.sleep(2)
 
-            self.log_message("Batch download complete!")
+            self.log_message(f"Batch complete! OK: {succeeded}, Failed: {failed}, Skipped: {skipped}")
         except Exception as e:
             self.log_message(f"Batch download failed: {e}")
         finally:
@@ -1171,7 +1376,8 @@ table, th, td {
                                     self.var_image_format.get(), self.log_message, next_image_no
                                 )
                                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
-                                self.log_message(f"Downloaded: {chap['title']}")
+                                img_info = f" ({len(imgs)} images)" if imgs else ""
+                                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Downloaded: {chap['title']}{img_info}")
                                 # Store in cache
                                 if use_cache:
                                     if cache_images:
@@ -1266,6 +1472,8 @@ table, th, td {
                 self.log_message(f"Save failed: {e}")
 
         self.log_message("Download Complete!")
+        if _LOG_FILE:
+            self.log_message(f"Log saved: {_LOG_FILE}")
         self.lbl_status.config(text="Idle")
 
     def _load_config(self):

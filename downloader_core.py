@@ -117,6 +117,12 @@ class DownloaderCore:
             status = status_match.group(1) if status_match else ''
 
             self.log(f"Metadata acquired: {title} by {author}")
+            if cover_url:
+                self.log(f"  Cover: found")
+            if tags:
+                self.log(f"  Tags: {', '.join(tags[:5])}{'...' if len(tags) > 5 else ''}")
+            if status:
+                self.log(f"  Status: {status}")
             return {
                 "id": novel_id,
                 "title": title,
@@ -143,25 +149,21 @@ class DownloaderCore:
         
         while not self.stop_signal:
             url = "https://novelpia.com/proc/episode_list"
-            # The API expects form-data for pagination
             data = {"novel_no": novel_id, "sort": "DOWN", "page": page}
             
             try:
-                # Set proper Referer header to avoid empty responses
                 headers = {"Referer": f"https://novelpia.com/novel/{novel_id}"}
                 response = self.auth.session.post(url, data=data, headers=headers)
                 if "Authentication required" in response.text:
                     self.log("Error: Authentication required during scan.")
                     break
                 
-                # Regex logic from C#
                 matches = re.findall(r'id="bookmark_(\d+)"></i>(.+?)</b>', response.text)
                 
                 if not matches:
-                    # Check for end of list indicator
                     break
                 
-                new_items = False
+                new_count = 0
                 for chap_id, chap_name in matches:
                     if chap_id not in discovered_ids:
                         chapters.append({
@@ -169,14 +171,16 @@ class DownloaderCore:
                             "title": html.unescape(chap_name.strip())
                         })
                         discovered_ids.add(chap_id)
-                        new_items = True
+                        new_count += 1
                 
-                # If a page returns no new items, we have likely reached the end or duplicates
-                if not new_items and page > 0:
+                if new_count > 0:
+                    self.log(f"  Discovered {len(chapters)} chapters...")
+                
+                if new_count == 0 and page > 0:
                     break
                     
                 page += 1
-                time.sleep(0.2) # Throttle to prevent rate limiting
+                time.sleep(0.2)
                 
             except Exception as e:
                 self.log(f"Error scanning page {page}: {str(e)}")
