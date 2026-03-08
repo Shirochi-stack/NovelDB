@@ -545,16 +545,19 @@ img { max-width: 100%; height: auto; }
                         novels.append((novel_id, title))
                         tag_found += 1
 
+                    total_pages = (total_cnt + rows - 1) // rows
+                    msg = f"    [{tag}] Page {page}/{total_pages}: {tag_found} novel(s) collected ({len(novels)} total)"
                     if r19_skipped > 0:
-                        self.log(f"    Page {page}: skipped {r19_skipped} R19 novel(s)")
+                        msg += f" [skipped {r19_skipped} R19]"
+                    self.log(msg)
 
                     # Check if more pages
                     if page * rows >= total_cnt or len(novel_list) < rows:
                         break
 
                     page += 1
-                    # Minimum 0.5s delay to be server-friendly
-                    time.sleep(max(0.5, delay))
+                    if delay > 0:
+                        time.sleep(delay)
 
                 except Exception as e:
                     self.log(f"  [{tag}] Error on page {page}: {e}")
@@ -563,8 +566,8 @@ img { max-width: 100%; height: auto; }
             self.log(f"  [{tag}] Added {tag_found} new novel(s) ({len(novels)} total)")
 
             # Delay between tags
-            if tag != tags[-1]:
-                time.sleep(max(0.5, delay))
+            if delay > 0 and tag != tags[-1]:
+                time.sleep(delay)
 
         self.log(f"Tag search complete: {len(novels)} novel(s) found.")
         return novels
