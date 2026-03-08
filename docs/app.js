@@ -56,8 +56,8 @@
     let filtered = [];
     let activeTags = new Set();
     let tagMode = "AND";
-    let displayCount = 60;
-    const BATCH = 60;
+    let displayCount = 30;
+    let BATCH = 30;
 
     // === DOM refs ===
     const $ = (sel) => document.querySelector(sel);
@@ -72,6 +72,7 @@
     const tagModeAnd = $("#tagModeAnd");
     const tagModeOr = $("#tagModeOr");
     const clearTagsBtn = $("#clearTags");
+    const batchSelect = $("#batchSelect");
 
     // === Format numbers ===
     function fmt(n) {
@@ -236,6 +237,12 @@
     sortSelect.addEventListener("change", applyFilters);
     orderSelect.addEventListener("change", applyFilters);
 
+    batchSelect.addEventListener("change", () => {
+        BATCH = parseInt(batchSelect.value);
+        displayCount = BATCH;
+        render();
+    });
+
     loadMoreBtn.addEventListener("click", () => {
         displayCount += BATCH;
         render();
@@ -270,7 +277,31 @@
         try {
             const resp = await fetch("data/novels.json");
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const raw = await resp.json();
+
+            // Show download progress
+            const contentLength = resp.headers.get("content-length");
+            if (contentLength && resp.body) {
+                const total = parseInt(contentLength);
+                const reader = resp.body.getReader();
+                const chunks = [];
+                let received = 0;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.length;
+                    const mb = (received / 1024 / 1024).toFixed(1);
+                    const totalMb = (total / 1024 / 1024).toFixed(1);
+                    const pct = Math.round((received / total) * 100);
+                    resultsEl.innerHTML = `<div class="loading-spinner">Downloading... ${mb}/${totalMb} MB (${pct}%)</div>`;
+                }
+                const blob = new Blob(chunks);
+                resultsEl.innerHTML = `<div class="loading-spinner">Parsing ${(received / 1024 / 1024).toFixed(1)} MB...</div>`;
+                await new Promise((r) => setTimeout(r, 50)); // let UI update
+                var raw = JSON.parse(await blob.text());
+            } else {
+                var raw = await resp.json();
+            }
 
             // Parse array format: [id, title, author, cover, tags, views, likes, chapters, complete, updated]
             allNovels = raw.map((r) => {
