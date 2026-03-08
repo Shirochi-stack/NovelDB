@@ -60,6 +60,7 @@
     let tagMode = "AND";
     let displayCount = 32;
     let BATCH = 32;
+    let currentPage = 1;
 
     // === DOM refs ===
     const $ = (sel) => document.querySelector(sel);
@@ -70,14 +71,17 @@
     const excludeTagContainer = $("#excludeTagContainer");
     const resultsEl = $("#results");
     const resultCount = $("#resultCount");
-    const loadMoreWrap = $("#loadMore");
-    const loadMoreBtn = $("#loadMoreBtn");
+    const paginationEl = $("#pagination");
+    const prevPageBtn = $("#prevPage");
+    const nextPageBtn = $("#nextPage");
+    const pageNumbersEl = $("#pageNumbers");
     const tagModeAnd = $("#tagModeAnd");
     const tagModeOr = $("#tagModeOr");
     const clearTagsBtn = $("#clearTags");
     const clearExcludeBtn = $("#clearExclude");
     const batchSelect = $("#batchSelect");
     const statusSelect = $("#statusSelect");
+    const audienceSelect = $("#audienceSelect");
 
     // === Format numbers ===
     function fmt(n) {
@@ -175,6 +179,11 @@
             if (status === "complete" && !n.complete) return false;
             if (status === "ongoing" && n.complete) return false;
 
+            // Audience filter
+            const audience = audienceSelect.value;
+            if (audience === "adult" && n.age !== 19) return false;
+            if (audience === "general" && n.age === 19) return false;
+
             // Tag filter (include)
             if (activeTags.size > 0) {
                 const novelTags = new Set(n.tags);
@@ -226,11 +235,11 @@
         });
 
         displayCount = BATCH;
-        render(true);
+        currentPage = 1;
+        render();
     }
 
     // === Render Cards ===
-    let renderedCount = 0; // tracks how many cards are currently in the DOM
 
     function renderCard(n) {
         const card = document.createElement("a");
@@ -284,21 +293,62 @@
         return card;
     }
 
-    function render(fullRedraw) {
-        resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found`;
+    function render() {
+        const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
+        if (currentPage > totalPages) currentPage = totalPages;
 
-        if (fullRedraw) {
-            resultsEl.innerHTML = "";
-            renderedCount = 0;
-        }
+        const start = (currentPage - 1) * BATCH;
+        const end = Math.min(start + BATCH, filtered.length);
 
-        const target = Math.min(displayCount, filtered.length);
-        for (let i = renderedCount; i < target; i++) {
+        resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}`;
+
+        resultsEl.innerHTML = "";
+        for (let i = start; i < end; i++) {
             resultsEl.appendChild(renderCard(filtered[i]));
         }
-        renderedCount = target;
 
-        loadMoreWrap.style.display = displayCount < filtered.length ? "" : "none";
+        // Pagination visibility
+        paginationEl.style.display = totalPages > 1 ? "" : "none";
+        prevPageBtn.disabled = currentPage === 1;
+        nextPageBtn.disabled = currentPage === totalPages;
+
+        // Build page numbers with ellipsis
+        pageNumbersEl.innerHTML = "";
+        const pages = buildPageRange(currentPage, totalPages);
+        for (const p of pages) {
+            if (p === "...") {
+                const span = document.createElement("span");
+                span.className = "page-ellipsis";
+                span.textContent = "...";
+                pageNumbersEl.appendChild(span);
+            } else {
+                const btn = document.createElement("button");
+                btn.className = "page-btn" + (p === currentPage ? " active" : "");
+                btn.textContent = p;
+                btn.addEventListener("click", () => {
+                    currentPage = p;
+                    render();
+                    window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+                });
+                pageNumbersEl.appendChild(btn);
+            }
+        }
+    }
+
+    function buildPageRange(current, total) {
+        // Show: 1 ... [current-2..current+2] ... last
+        const delta = 2;
+        const pages = [];
+        const rangeStart = Math.max(2, current - delta);
+        const rangeEnd = Math.min(total - 1, current + delta);
+
+        pages.push(1);
+        if (rangeStart > 2) pages.push("...");
+        for (let i = rangeStart; i <= rangeEnd; i++) pages.push(i);
+        if (rangeEnd < total - 1) pages.push("...");
+        if (total > 1) pages.push(total);
+
+        return pages;
     }
 
     function escHtml(s) {
@@ -331,16 +381,29 @@
     sortSelect.addEventListener("change", applyFilters);
     orderSelect.addEventListener("change", applyFilters);
     statusSelect.addEventListener("change", applyFilters);
+    audienceSelect.addEventListener("change", applyFilters);
 
     batchSelect.addEventListener("change", () => {
         BATCH = parseInt(batchSelect.value);
-        displayCount = BATCH;
-        render(true);
+        currentPage = 1;
+        render();
     });
 
-    loadMoreBtn.addEventListener("click", () => {
-        displayCount += BATCH;
-        render(false);
+    prevPageBtn.addEventListener("click", () => {
+        if (currentPage > 1) {
+            currentPage--;
+            render();
+            window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+        }
+    });
+
+    nextPageBtn.addEventListener("click", () => {
+        const totalPages = Math.ceil(filtered.length / BATCH);
+        if (currentPage < totalPages) {
+            currentPage++;
+            render();
+            window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+        }
     });
 
     tagModeAnd.addEventListener("click", () => {
@@ -420,6 +483,7 @@
                     complete: r[8] || 0,
                     updated: r[9] || "",
                     weeklyRank: r[10] || 0,
+                    age: r[11] || 0,
                     titleEn: "",
                 };
             });

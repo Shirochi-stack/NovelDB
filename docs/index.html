@@ -7,7 +7,7 @@
     <meta name="description" content="Search, filter, and browse all Novelpia novels by tags, views, likes, and more.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
     <header>
@@ -62,6 +62,14 @@
                         <option value="complete">Complete</option>
                     </select>
                 </div>
+                <div class="control-group">
+                    <label>Audience</label>
+                    <select id="audienceSelect">
+                        <option value="all">All</option>
+                        <option value="general">General</option>
+                        <option value="adult">Adult Only</option>
+                    </select>
+                </div>
             </div>
 
             <!-- Tag Filters -->
@@ -94,12 +102,14 @@
         <!-- Results -->
         <section id="results" class="results-grid"></section>
 
-        <!-- Load More -->
-        <div id="loadMore" class="load-more" style="display:none">
-            <button id="loadMoreBtn">Load More</button>
+        <!-- Pagination -->
+        <div id="pagination" class="pagination" style="display:none">
+            <button id="prevPage" class="page-btn">← Prev</button>
+            <div id="pageNumbers" class="page-numbers"></div>
+            <button id="nextPage" class="page-btn">Next →</button>
         </div>
     </main>
 
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=12"></script>
 </body>
 </html>

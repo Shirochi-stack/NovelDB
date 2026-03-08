@@ -207,6 +207,7 @@ def main():
             n.get("complete", 0),   # [8] complete
             n.get("updated", ""),   # [9] updated
             weekly_rank.get(nid, 0),# [10] weeklyRank (0=unranked)
+            n.get("age", 0),        # [11] age rating (0=all, 15=teen, 19=adult)
         ])
 
     opt_path = "docs/data/novels.json"
