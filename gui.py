@@ -564,6 +564,15 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
+
+        # Disable mousewheel scroll on all Spinbox and Combobox widgets
+        def _block_scroll(event):
+            return "break"
+        for widget_class in ("TSpinbox", "TCombobox"):
+            self.bind_class(widget_class, "<MouseWheel>", _block_scroll)
+            self.bind_class(widget_class, "<Button-4>", _block_scroll)
+            self.bind_class(widget_class, "<Button-5>", _block_scroll)
+
         self.title("ND33")
         
         # Get screen dimensions and calculate window size as percentage

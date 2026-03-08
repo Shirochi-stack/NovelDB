@@ -583,37 +583,49 @@ img { max-width: 100%; height: auto; }
             other_tags = set(sorted_tags[1:])
             self.log(f"  Fetching [{smallest}] ({tag_counts.get(smallest, 0)}), then verifying other tags per novel")
 
-            # Fetch smallest tag's IDs
-            base_ids = _fetch_all_pages(smallest)
+            # Fetch smallest tag with genre data for pre-filtering
+            base_ids, genres_map = _fetch_all_pages(smallest, include_genres=True)
 
-            # For each novel, fetch its actual page tags and check ALL other tags
-            result_ids = []
-            for i, nid in enumerate(base_ids):
-                if self.stop_signal:
-                    break
-                try:
-                    page_resp = self.auth.session.get(
-                        f"https://novelpia.com/novel/{nid}",
-                        headers={"Cookie": f"LOGINKEY={self.auth.loginkey};"},
-                        timeout=15,
-                    )
-                    page_tags = set()
-                    for m in re.findall(r'<span class="tag".*?>(#.+?)</span>', page_resp.text):
-                        page_tags.add(html.unescape(m.lstrip('#').strip()))
+            # Stage 1: Pre-filter using novel_genre_arr (fast, local)
+            candidates = []
+            for nid in base_ids:
+                genres = set(genres_map.get(nid, []))
+                if other_tags.issubset(genres):
+                    candidates.append(nid)
 
-                    if other_tags.issubset(page_tags):
-                        result_ids.append(nid)
-                        self.log(f"    [{i+1}/{len(base_ids)}] Novel {nid}: ✓ matched (tags: {', '.join(sorted(other_tags & page_tags))})")
-                    else:
-                        missing = other_tags - page_tags
-                        self.log(f"    [{i+1}/{len(base_ids)}] Novel {nid}: ✗ missing: {', '.join(missing)}")
-                except Exception as e:
-                    self.log(f"    [{i+1}/{len(base_ids)}] Novel {nid}: error — {e}")
+            self.log(f"  Pre-filter: {len(candidates)} candidate(s) from {len(base_ids)} (genre_arr match)")
 
-                if delay > 0:
-                    time.sleep(delay)
+            if not candidates:
+                result_ids = []
+            else:
+                # Stage 2: Verify candidates by scraping actual novel page tags
+                result_ids = []
+                for i, nid in enumerate(candidates):
+                    if self.stop_signal:
+                        break
+                    try:
+                        page_resp = self.auth.session.get(
+                            f"https://novelpia.com/novel/{nid}",
+                            headers={"Cookie": f"LOGINKEY={self.auth.loginkey};"},
+                            timeout=15,
+                        )
+                        page_tags = set()
+                        for m in re.findall(r'<span class="tag".*?>(#.+?)</span>', page_resp.text):
+                            page_tags.add(html.unescape(m.lstrip('#').strip()))
 
-            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s) (verified from {len(base_ids)} {smallest} results)")
+                        if other_tags.issubset(page_tags):
+                            result_ids.append(nid)
+                            self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: ✓ verified")
+                        else:
+                            missing = other_tags - page_tags
+                            self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: ✗ false positive (missing: {', '.join(missing)})")
+                    except Exception as e:
+                        self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: error — {e}")
+
+                    if delay > 0:
+                        time.sleep(delay)
+
+            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s)")
         else:
             all_ids = set()
             for tag in tags:
