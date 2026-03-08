@@ -1068,12 +1068,21 @@ class NovelpiaGUI(tk.Tk):
         ttk.Radiobutton(opts_frame, text="AND", variable=mode_var, value="AND").pack(side="left", padx=(5, 2))
         ttk.Radiobutton(opts_frame, text="OR", variable=mode_var, value="OR").pack(side="left", padx=(2, 15))
 
-        # Exclude R19 toggle
-        exclude_r19_var = tk.BooleanVar(value=getattr(self, '_tag_exclude_r19', False))
+        # Age rating dropdown
+        AGE_OPTIONS = ["All", "Non-adult only", "Adult only"]
+        AGE_MAP = {"All": "", "Non-adult only": "15", "Adult only": "19"}
+        saved_age = getattr(self, '_tag_age_filter', '')
+        initial_age = {v: k for k, v in AGE_MAP.items()}.get(saved_age, "All")
+        age_var = tk.StringVar(value=initial_age)
 
-        def on_exclude_r19_toggle():
-            self._tag_exclude_r19 = exclude_r19_var.get()
-            if exclude_r19_var.get():
+        ttk.Label(opts_frame, text="Age:").pack(side="left")
+        age_combo = ttk.Combobox(opts_frame, textvariable=age_var, values=AGE_OPTIONS,
+                                 state="readonly", width=15)
+        age_combo.pack(side="left", padx=(5, 0))
+
+        def on_age_change(*_):
+            self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
+            if age_var.get() != "All":
                 if "19금" in tag_vars:
                     tag_vars["19금"].set(False)
                 if "19금" in tag_widgets:
@@ -1082,12 +1091,8 @@ class NovelpiaGUI(tk.Tk):
                 if "19금" in tag_widgets:
                     tag_widgets["19금"].config(state="normal")
 
-        ttk.Checkbutton(opts_frame, text="Exclude all R19 (19금)",
-                        variable=exclude_r19_var, command=on_exclude_r19_toggle).pack(side="left")
-
-        # Apply initial R19 state if loaded from config
-        if exclude_r19_var.get():
-            on_exclude_r19_toggle()
+        age_combo.bind("<<ComboboxSelected>>", on_age_change)
+        on_age_change()  # Apply initial state
 
         # Result display
         result_frame = ttk.Frame(main_f)
@@ -1109,10 +1114,10 @@ class NovelpiaGUI(tk.Tk):
             btn_go.config(state="disabled")
             result_label.config(text="Searching...")
             self._tag_mode = mode_var.get()
-            self._tag_exclude_r19 = exclude_r19_var.get()
+            self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
             threading.Thread(
                 target=self._tag_retrieval_worker,
-                args=(all_tags, exclude_r19_var.get(), mode_var.get(), result_label, btn_go, top),
+                args=(all_tags, AGE_MAP.get(age_var.get(), ""), mode_var.get(), result_label, btn_go, top),
                 daemon=True
             ).start()
 
@@ -1120,7 +1125,7 @@ class NovelpiaGUI(tk.Tk):
         btn_go.pack(ipadx=20, ipady=8)
         self._tag_btn_go = btn_go
 
-    def _tag_retrieval_worker(self, tags, exclude_r19, mode, result_label, btn_go, dialog):
+    def _tag_retrieval_worker(self, tags, age_filter, mode, result_label, btn_go, dialog):
         """Background worker for tag-based novel ID retrieval."""
         # Manage stop/download state directly (don't use _set_downloading
         # which would also disable the tag retrieval button itself)
@@ -1131,7 +1136,7 @@ class NovelpiaGUI(tk.Tk):
 
         delay = max(0.0, self.var_interval.get())
         try:
-            novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, exclude_r19=exclude_r19, mode=mode)
+            novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, age_filter=age_filter, mode=mode)
         except Exception as e:
             self.log_message(f"Tag retrieval failed: {e}")
             self.after(0, lambda: result_label.config(text=f"Error: {e}"))
@@ -1977,7 +1982,7 @@ table, th, td {
                 self.var_append_range.set(cfg.get("append_range", False))
 
                 # Tag retrieval settings
-                self._tag_exclude_r19 = cfg.get("tag_exclude_r19", False)
+                self._tag_age_filter = cfg.get("tag_age_filter", "")
                 self._tag_mode = cfg.get("tag_mode", "AND")
             except: pass
     
@@ -2038,7 +2043,7 @@ table, th, td {
             "append_range": self.var_append_range.get(),
 
             # Tag retrieval settings
-            "tag_exclude_r19": getattr(self, '_tag_exclude_r19', False),
+            "tag_age_filter": getattr(self, '_tag_age_filter', ''),
             "tag_mode": getattr(self, '_tag_mode', "AND"),
         }
         try:

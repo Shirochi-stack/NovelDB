@@ -451,7 +451,7 @@ img { max-width: 100%; height: auto; }
         HTML(string=html_doc).write_pdf(output_path)
         self.log("PDF generation complete.")
 
-    def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, exclude_r19=False, mode="AND"):
+    def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, age_filter="", mode="AND"):
         """Fetch novel IDs from Novelpia's tag search API.
 
         Uses GET /proc/novel?cmd=novel_search&search_type=novel_genre&search_val={tag}.
@@ -463,23 +463,23 @@ img { max-width: 100%; height: auto; }
             tags: list of tag strings
             delay: seconds between page requests
             rows: results per page (max 30)
-            exclude_r19: if True, use novel_age=15 to exclude adult content
+            age_filter: "" (all), "15" (non-adult), "19" (adult only)
             mode: "AND" or "OR"
 
         Returns:
-            list of (novel_id, title) tuples
+            list of novel ID strings
         """
         url = "https://novelpia.com/proc/novel"
         headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://novelpia.com/search",
         }
-        # Server-side R19 filter
-        age_filter = "15" if exclude_r19 else ""
 
         self.log(f"Searching for novels with tags: {', '.join(tags)} (mode: {mode})")
-        if exclude_r19:
-            self.log("  R19 exclusion enabled (server-side filter)")
+        if age_filter == "15":
+            self.log("  Age filter: Non-adult only")
+        elif age_filter == "19":
+            self.log("  Age filter: Adult only")
 
         def _build_params(tag, page):
             return {
@@ -534,12 +534,6 @@ img { max-width: 100%; height: auto; }
                             continue
                         if filter_ids is not None and novel_id not in filter_ids:
                             continue
-                        if exclude_r19:
-                            age = novel.get("novel_age", 0)
-                            if age == 19 or str(age) == "19":
-                                continue
-                            if "19금" in (novel.get("novel_genre_arr") or []):
-                                continue
                         ids.add(novel_id)
                         if include_genres:
                             genres_map[novel_id] = novel.get("novel_genre_arr") or []
@@ -587,19 +581,39 @@ img { max-width: 100%; height: auto; }
             sorted_tags = sorted(tags, key=lambda t: tag_counts.get(t, 999999))
             smallest = sorted_tags[0]
             other_tags = set(sorted_tags[1:])
-            self.log(f"  Fetching [{smallest}] ({tag_counts.get(smallest, 0)}), filtering by genres: {', '.join(other_tags)}")
+            self.log(f"  Fetching [{smallest}] ({tag_counts.get(smallest, 0)}), then verifying other tags per novel")
 
-            # Fetch smallest tag with genre data
-            base_ids, genres_map = _fetch_all_pages(smallest, include_genres=True)
+            # Fetch smallest tag's IDs
+            base_ids = _fetch_all_pages(smallest)
 
-            # Filter: keep only novels whose genre_arr contains ALL other tags
+            # For each novel, fetch its actual page tags and check ALL other tags
             result_ids = []
-            for nid in base_ids:
-                genres = set(genres_map.get(nid, []))
-                if other_tags.issubset(genres):
-                    result_ids.append(nid)
+            for i, nid in enumerate(base_ids):
+                if self.stop_signal:
+                    break
+                try:
+                    page_resp = self.auth.session.get(
+                        f"https://novelpia.com/novel/{nid}",
+                        headers={"Cookie": f"LOGINKEY={self.auth.loginkey};"},
+                        timeout=15,
+                    )
+                    page_tags = set()
+                    for m in re.findall(r'<span class="tag".*?>(#.+?)</span>', page_resp.text):
+                        page_tags.add(html.unescape(m.lstrip('#').strip()))
 
-            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s) (from {len(base_ids)} {smallest} results)")
+                    if other_tags.issubset(page_tags):
+                        result_ids.append(nid)
+                        self.log(f"    [{i+1}/{len(base_ids)}] Novel {nid}: ✓ matched (tags: {', '.join(sorted(other_tags & page_tags))})")
+                    else:
+                        missing = other_tags - page_tags
+                        self.log(f"    [{i+1}/{len(base_ids)}] Novel {nid}: ✗ missing: {', '.join(missing)}")
+                except Exception as e:
+                    self.log(f"    [{i+1}/{len(base_ids)}] Novel {nid}: error — {e}")
+
+                if delay > 0:
+                    time.sleep(delay)
+
+            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s) (verified from {len(base_ids)} {smallest} results)")
         else:
             all_ids = set()
             for tag in tags:
