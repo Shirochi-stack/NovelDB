@@ -56,8 +56,8 @@
     let filtered = [];
     let activeTags = new Set();
     let tagMode = "AND";
-    let displayCount = 30;
-    let BATCH = 30;
+    let displayCount = 32;
+    let BATCH = 32;
 
     // === DOM refs ===
     const $ = (sel) => document.querySelector(sel);
@@ -169,55 +169,64 @@
         });
 
         displayCount = BATCH;
-        render();
+        render(true);
     }
 
     // === Render Cards ===
-    function render() {
-        const slice = filtered.slice(0, displayCount);
+    let renderedCount = 0; // tracks how many cards are currently in the DOM
 
+    function renderCard(n) {
+        const card = document.createElement("a");
+        card.className = "novel-card";
+        card.href = `https://novelpia.com/novel/${n.id}`;
+        card.target = "_blank";
+        card.rel = "noopener";
+
+        const coverHTML = n.cover
+            ? `<img class="card-cover" src="${escHtml(n.cover)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'">`
+            : `<div class="card-cover no-img">📖</div>`;
+
+        const badgeHTML = n.complete
+            ? `<span class="card-badge badge-complete">Complete</span>`
+            : "";
+
+        const tagsHTML = n.tags
+            .slice(0, 6)
+            .map((t) => `<span class="card-tag" title="${escHtml(t)}">${escHtml(tl(t))}</span>`)
+            .join("");
+
+        card.innerHTML = `
+            <div class="card-cover-wrap">
+                ${coverHTML}
+                ${badgeHTML}
+            </div>
+            <div class="card-body">
+                <div class="card-title">${escHtml(n.title)}</div>
+                <div class="card-author">${escHtml(n.author)}</div>
+                <div class="card-tags">${tagsHTML}</div>
+                <div class="card-stats">
+                    <span class="stat">👁 ${fmt(n.views)}</span>
+                    <span class="stat">❤ ${fmt(n.likes)}</span>
+                    <span class="stat">📄 ${fmt(n.chapters)}</span>
+                </div>
+            </div>
+        `;
+        return card;
+    }
+
+    function render(fullRedraw) {
         resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found`;
 
-        resultsEl.innerHTML = "";
-        for (const n of slice) {
-            const card = document.createElement("a");
-            card.className = "novel-card";
-            card.href = `https://novelpia.com/novel/${n.id}`;
-            card.target = "_blank";
-            card.rel = "noopener";
-
-            const coverHTML = n.cover
-                ? `<img class="card-cover" src="${escHtml(n.cover)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'">`
-                : `<div class="card-cover no-img">📖</div>`;
-
-            const badgeHTML = n.complete
-                ? `<span class="card-badge badge-complete">Complete</span>`
-                : "";
-
-            const tagsHTML = n.tags
-                .slice(0, 6)
-                .map((t) => `<span class="card-tag" title="${escHtml(t)}">${escHtml(tl(t))}</span>`)
-                .join("");
-
-            card.innerHTML = `
-                <div class="card-cover-wrap">
-                    ${coverHTML}
-                    ${badgeHTML}
-                </div>
-                <div class="card-body">
-                    <div class="card-title">${escHtml(n.title)}</div>
-                    <div class="card-author">${escHtml(n.author)}</div>
-                    <div class="card-tags">${tagsHTML}</div>
-                    <div class="card-stats">
-                        <span class="stat">👁 ${fmt(n.views)}</span>
-                        <span class="stat">❤ ${fmt(n.likes)}</span>
-                        <span class="stat">📄 ${fmt(n.chapters)}</span>
-                    </div>
-                </div>
-            `;
-
-            resultsEl.appendChild(card);
+        if (fullRedraw) {
+            resultsEl.innerHTML = "";
+            renderedCount = 0;
         }
+
+        const target = Math.min(displayCount, filtered.length);
+        for (let i = renderedCount; i < target; i++) {
+            resultsEl.appendChild(renderCard(filtered[i]));
+        }
+        renderedCount = target;
 
         loadMoreWrap.style.display = displayCount < filtered.length ? "" : "none";
     }
@@ -240,12 +249,12 @@
     batchSelect.addEventListener("change", () => {
         BATCH = parseInt(batchSelect.value);
         displayCount = BATCH;
-        render();
+        render(true);
     });
 
     loadMoreBtn.addEventListener("click", () => {
         displayCount += BATCH;
-        render();
+        render(false);
     });
 
     tagModeAnd.addEventListener("click", () => {
