@@ -52,7 +52,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ND35',
+    name='ND36',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
