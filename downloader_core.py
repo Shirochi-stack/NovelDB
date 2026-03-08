@@ -467,8 +467,12 @@ img { max-width: 100%; height: auto; }
             "Referer": "https://novelpia.com/search",
         }
 
-        # Korean consonant chars for maximum coverage
-        SEARCH_CHARS = ["타", "아", "다", "라", "사", "가", "마", "나", "자", "하", "카", "차", "바", "파"]
+        # Korean consonant chars + English letters + digits for maximum coverage
+        SEARCH_CHARS = (
+            list("타아다라사가마나자하카차바파") +
+            list("abcdefghijklmnopqrstuvwxyz") +
+            list("0123456789")
+        )
 
         self.log("Scraping all novel IDs from Novelpia...")
         if age_filter == "15":
@@ -529,10 +533,7 @@ img { max-width: 100%; height: auto; }
             except Exception as e:
                 self.log(f"    Error on '{ch}': {e}")
 
-            # Stop early if additional queries add very few new results
-            if ci > 0 and new_count < 10:
-                self.log(f"  Diminishing returns, stopping early.")
-                break
+
 
             time.sleep(0.5)
 
