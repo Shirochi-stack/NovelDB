@@ -1,6 +1,56 @@
 (() => {
     "use strict";
 
+    // === Tag Translation (Korean → English) ===
+    const TAG_MAP = {
+        "판타지": "Fantasy", "패러디": "Parody", "현대": "Modern", "라이트노벨": "Light Novel",
+        "일상": "Slice of Life", "하렘": "Harem", "먼치킨": "Munchkin/OP MC", "현대판타지": "Modern Fantasy",
+        "TS": "Genderbend (TS)", "로맨스": "Romance", "중세": "Medieval", "전생": "Reincarnation",
+        "집착": "Obsession", "아카데미": "Academy", "SF": "Sci-Fi", "순애": "Pure Love",
+        "드라마": "Drama", "빙의": "Possession", "착각": "Misunderstanding", "성장": "Growth",
+        "피폐": "Suffering/Angst", "블루아카이브": "Blue Archive", "무협": "Martial Arts",
+        "후회": "Regret", "코미디": "Comedy", "이세계": "Isekai", "기타": "Other",
+        "백합": "Yuri/GL", "회귀": "Regression", "약피폐": "Mild Angst", "환생": "Rebirth",
+        "게임": "Game", "헌터": "Hunter", "얀데레": "Yandere", "인터넷방송": "Streaming/VTuber",
+        "아포칼립스": "Apocalypse", "복수": "Revenge", "가면라이더": "Kamen Rider",
+        "대체역사": "Alternate History", "모험": "Adventure", "원신": "Genshin Impact",
+        "다크판타지": "Dark Fantasy", "공포": "Horror", "전쟁": "War", "힐링": "Healing",
+        "액션": "Action", "다중": "Crossover", "2차창작": "Fan Fiction", "생존": "Survival",
+        "상태창": "Status Window", "마법": "Magic", "스포츠": "Sports", "원피스": "One Piece",
+        "구원": "Salvation", "용사": "Hero", "인외": "Non-Human", "여주인공": "Female MC",
+        "히어로": "Superhero", "팬픽": "Fanfic", "주술회전": "Jujustu Kaisen",
+        "러브코미디": "Romcom", "노맨스": "No Romance", "남녀역전": "Gender Role Reversal",
+        "성장형먼치킨": "Growth-type OP", "퓨전": "Fusion", "로맨스판타지": "Romance Fantasy",
+        "마법소녀": "Magical Girl", "남성향": "Male-oriented", "단편": "Short Story",
+        "빌런": "Villain", "천재": "Genius", "사이버펑크": "Cyberpunk", "좀비": "Zombie",
+        "갤러리": "Gallery/Forum", "미스터리": "Mystery", "던전": "Dungeon",
+        "포켓몬": "Pokémon", "괴담": "Ghost Stories", "성좌": "Constellation",
+        "정치": "Politics", "추리": "Detective", "초능력": "Superpower",
+        "원작파괴": "Canon Divergence", "나데나데": "Headpats", "밀리터리": "Military",
+        "시스템": "System", "탑등반": "Tower Climbing", "영지": "Territory/Domain",
+        "경영": "Management", "커뮤니티": "Community", "귀환": "Return",
+        "역키잡": "Reverse Gap", "캣파이트": "Catfight", "느린전개": "Slow Burn",
+        "육아": "Childcare", "작가": "Writer/Author", "배우": "Actor",
+        "아이돌": "Idol", "버튜버": "VTuber", "요리": "Cooking", "고인물": "Veteran",
+        "근친": "Incest", "스트리머": "Streamer", "학원": "School",
+        "전문가": "Expert", "재벌": "Chaebol/Rich", "탑": "Tower",
+        "메카": "Mecha", "드래곤": "Dragon", "기사": "Knight", "마왕": "Demon King",
+        "성녀": "Saintess", "수인": "Beastkin", "엘프": "Elf", "흡혈귀": "Vampire",
+        "괴이": "Anomaly", "소환": "Summoning", "제작": "Crafting",
+        "히로아카": "My Hero Academia", "림버스": "Limbus Company",
+        "프문": "Project Moon", "로보토미": "Lobotomy Corp",
+        "전독시": "Omniscient Reader", "데어라": "Date A Live",
+        "라오루": "Library of Ruina", "블아": "Blue Archive",
+        "스페이스오페라": "Space Opera", "포스트아포칼립스": "Post-Apocalypse",
+        "고수위": "Mature/R-rated", "조교": "Training",
+        "마법사": "Mage/Wizard", "주딱": "Forum Mod", "소설": "Novel",
+        "정통판타지": "Classic Fantasy", "어반": "Urban", "어반판타지": "Urban Fantasy",
+        "느와르": "Noir", "피카레스크": "Picaresque", "망나니": "Delinquent",
+        "흑막": "Mastermind", "삼국지": "Three Kingdoms", "조선": "Joseon Era",
+    };
+
+    function tl(tag) { return TAG_MAP[tag] || tag; }
+
     // === State ===
     let allNovels = [];
     let filtered = [];
@@ -46,7 +96,8 @@
         for (const [tag, count] of sorted) {
             const chip = document.createElement("span");
             chip.className = "tag-chip";
-            chip.textContent = `${tag} (${fmt(count)})`;
+            chip.textContent = `${tl(tag)} (${fmt(count)})`;
+            chip.title = tag;
             chip.dataset.tag = tag;
             chip.addEventListener("click", () => toggleTag(tag, chip));
             tagContainer.appendChild(chip);
@@ -75,7 +126,8 @@
             if (query) {
                 const inTitle = n.title.toLowerCase().includes(query);
                 const inAuthor = n.author.toLowerCase().includes(query);
-                if (!inTitle && !inAuthor) return false;
+                const inId = String(n.id) === query;
+                if (!inTitle && !inAuthor && !inId) return false;
             }
 
             // Tag filter
@@ -143,7 +195,7 @@
 
             const tagsHTML = n.tags
                 .slice(0, 6)
-                .map((t) => `<span class="card-tag">${escHtml(t)}</span>`)
+                .map((t) => `<span class="card-tag" title="${escHtml(t)}">${escHtml(tl(t))}</span>`)
                 .join("");
 
             card.innerHTML = `
@@ -221,25 +273,30 @@
             const raw = await resp.json();
 
             // Parse array format: [id, title, author, cover, tags, views, likes, chapters, complete, updated]
-            allNovels = raw.map((r) => ({
-                id: r[0],
-                title: r[1],
-                author: r[2],
-                cover: r[3] ? COVER_PREFIX + r[3] : "",
-                tags: r[4],
-                views: r[5],
-                likes: r[6],
-                chapters: r[7],
-                complete: r[8],
-                updated: r[9],
-            }));
+            allNovels = raw.map((r) => {
+                let tags = r[4];
+                if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
+                return {
+                    id: r[0],
+                    title: r[1] || "",
+                    author: r[2] || "",
+                    cover: r[3] ? COVER_PREFIX + r[3] : "",
+                    tags,
+                    views: r[5] || 0,
+                    likes: r[6] || 0,
+                    chapters: r[7] || 0,
+                    complete: r[8] || 0,
+                    updated: r[9] || "",
+                };
+            });
 
             buildTags(allNovels);
             applyFilters();
         } catch (err) {
+            console.error("Load error:", err);
             resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">
                 ❌ Failed to load data.<br>
-                <small style="color:var(--text-muted)">Run <code>python scripts/scrape_npia.py</code> first to generate the data.</small>
+                <small style="color:var(--text-muted)">${err.message}</small>
             </div>`;
         }
     }
