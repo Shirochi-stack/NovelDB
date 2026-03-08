@@ -16,7 +16,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 from novelpia_auth import NovelpiaAuth
 
-# Common tags to search — covers most novels on the platform
+# Common tags to search — covers ~99.5% of novels
 SEARCH_TAGS = [
     '판타지', '현대', '패러디', '하렘', '라이트노벨', '일상', '로맨스',
     '현대판타지', 'TS', '먼치킨', '중세', '전생', '집착', '아카데미',
@@ -26,6 +26,9 @@ SEARCH_TAGS = [
     '헌터', '조교', '복수', '인터넷방송', '남녀역전', '대체역사', '모험',
     '원신', '상태창', '공포', '생존', '전쟁', '가면라이더', '액션',
 ]
+
+# Korean consonant chars — catches remaining novels missed by tag search
+SWEEP_CHARS = list("가나다라마바사아자차카타파하")
 
 def main():
     auth = NovelpiaAuth()
@@ -103,6 +106,64 @@ def main():
             print(f"ERROR: {e}")
 
         time.sleep(0.5)
+
+    print(f"\n--- Phase 1 complete: {len(novels)} novels from tags ---\n")
+
+    # Phase 2: Character sweep for remaining novels
+    for i, ch in enumerate(SWEEP_CHARS):
+        print(f"[{i+1}/{len(SWEEP_CHARS)}] Sweep: '{ch}'...", end=" ", flush=True)
+
+        try:
+            r = auth.session.get("https://novelpia.com/proc/novel", params={
+                "cmd": "novel_search",
+                "search_type": "all",
+                "search_val": ch,
+                "page": 1,
+                "rows": 99999,
+                "novel_type": "",
+                "sort_col": "last_viewdate",
+                "block_out": 0,
+                "block_stop": 0,
+                "is_contest": 0,
+                "is_challenge": 0,
+            }, headers=headers, timeout=120)
+
+            data = r.json()
+            items = data.get("list", [])
+            new_count = 0
+
+            for item in items:
+                novel_id = item.get("novel_no")
+                if not novel_id or novel_id in seen:
+                    continue
+                seen.add(novel_id)
+                new_count += 1
+
+                cover = item.get("novel_img_all") or item.get("novel_thumb_all") or ""
+                if cover and not cover.startswith("http"):
+                    cover = "https://novelpia.com" + cover
+
+                novels.append({
+                    "id": novel_id,
+                    "title": item.get("novel_name", ""),
+                    "synopsis": item.get("novel_story", ""),
+                    "author": item.get("writer_nick", ""),
+                    "cover": cover,
+                    "tags": item.get("novel_genre_arr") or [],
+                    "views": item.get("count_view", 0),
+                    "likes": item.get("count_good", 0),
+                    "chapters": item.get("count_book", 0),
+                    "complete": item.get("is_complete", 0),
+                    "age": item.get("novel_age", 0),
+                    "updated": item.get("last_viewdate", ""),
+                })
+
+            print(f"{len(items)} results, {new_count} new (total: {len(novels)})")
+
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+        time.sleep(0.3)
 
     # Save output
     os.makedirs("docs/data", exist_ok=True)
