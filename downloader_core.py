@@ -452,7 +452,7 @@ img { max-width: 100%; height: auto; }
         self.log("PDF generation complete.")
 
     def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, exclude_r19=False):
-        """Fetch novel IDs from Novelpia's tag search.
+        """Fetch novel IDs from Novelpia's tag search via AJAX endpoints.
 
         Args:
             tags: list of tag strings (e.g. ["TS", "회귀"])
@@ -470,9 +470,18 @@ img { max-width: 100%; height: auto; }
 
         self.log(f"Searching for novels with tags: {', '.join(tags)}")
 
+        # Novelpia search page is JS-rendered; try AJAX POST endpoints
+        proc_endpoints = [
+            "https://novelpia.com/proc/novel_list",
+            "https://novelpia.com/proc/novel_search",
+            "https://novelpia.com/proc/search_result",
+        ]
+        working_endpoint = None
+
         while not self.stop_signal:
-            url = f"https://novelpia.com/search/all//1/{tag_str}"
-            params = {
+            data = {
+                "text": "",
+                "tag": tag_str,
                 "page": page,
                 "rows": rows,
                 "novel_type": "",
@@ -484,26 +493,64 @@ img { max-width: 100%; height: auto; }
                 "is_contest": "0",
                 "is_complete": "",
                 "is_challenge": "0",
-                "list_display": "grid",
             }
-            try:
-                headers = {"Referer": "https://novelpia.com/"}
-                response = self.auth.session.get(url, params=params, headers=headers, timeout=15)
-                text = response.text
+            headers = {
+                "Referer": "https://novelpia.com/search",
+                "X-Requested-With": "XMLHttpRequest",
+            }
 
-                # Parse novel IDs and titles from the search results HTML
-                # Novelpia uses links like /novel/{id} and shows title nearby
-                # Try pattern: <a href="/novel/{id}"...>{title}</a> or similar
+            try:
+                text = ""
+                if working_endpoint:
+                    if working_endpoint == "GET":
+                        url = f"https://novelpia.com/search/all//1/{tag_str}"
+                        response = self.auth.session.get(url, params=data, headers=headers, timeout=15)
+                    else:
+                        response = self.auth.session.post(working_endpoint, data=data, headers=headers, timeout=15)
+                    text = response.text
+                else:
+                    # First request: try each POST endpoint
+                    for ep in proc_endpoints:
+                        try:
+                            response = self.auth.session.post(ep, data=data, headers=headers, timeout=15)
+                            if response.status_code == 200 and len(response.text) > 100:
+                                text = response.text
+                                working_endpoint = ep
+                                self.log(f"  Using endpoint: {ep}")
+                                break
+                        except Exception:
+                            continue
+
+                    if not working_endpoint:
+                        # Fallback: try GET to the search page
+                        url = f"https://novelpia.com/search/all//1/{tag_str}"
+                        response = self.auth.session.get(url, params=data, headers=headers, timeout=15)
+                        text = response.text
+                        if len(text) > 500:
+                            working_endpoint = "GET"
+                            self.log("  Using GET fallback")
+
+                if not text or len(text) < 100:
+                    if page == 1:
+                        self.log("No results found — endpoints may have changed.")
+                        self.log(f"  Response length: {len(text)} bytes")
+                    break
+
+                # Parse novel IDs and titles from the response
                 novel_matches = re.findall(
                     r'/novel/(\d+)["\'][^>]*>.*?<b class=["\']title["\'][^>]*>(.*?)</b>',
                     text, flags=re.DOTALL
                 )
                 if not novel_matches:
-                    # Fallback: just find all /novel/{id} links
-                    id_matches = re.findall(r'href=["\']/?novel/(\d+)["\']', text)
+                    novel_matches = re.findall(
+                        r'href=["\']/?novel/(\d+)["\'].*?>(.*?)</a>',
+                        text, flags=re.DOTALL
+                    )
+                if not novel_matches:
+                    id_matches = list(set(re.findall(r'novel/(\d+)', text)))
                     if not id_matches:
                         if page == 1:
-                            self.log("No results found — tag search may require login.")
+                            self.log("No novel IDs found in response.")
                         break
                     novel_matches = [(nid, "") for nid in id_matches]
 
@@ -511,9 +558,7 @@ img { max-width: 100%; height: auto; }
                 r19_skipped = 0
                 for novel_id, raw_title in novel_matches:
                     if novel_id not in seen_ids:
-                        # Check for R19 exclusion by looking for 19금 near this novel's entry
                         if exclude_r19:
-                            # Find the chunk of HTML around this novel ID and check for 19금
                             pattern = re.compile(
                                 r'novel/' + novel_id + r'.{0,500}',
                                 flags=re.DOTALL
