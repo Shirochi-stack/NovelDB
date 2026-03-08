@@ -203,31 +203,44 @@ class _DownloadStats:
                 lines.append(f"   \u2022 [{cid}] {title}")
         return "\n".join(lines)
 
-def _download_image_with_progress(session, url, logger, label="Image"):
+def _download_image_with_progress(session, url, logger, label="Image", max_retries=3):
     """Stream-download an image, logging progress/speed. Returns bytes or None."""
-    try:
-        r = session.get(url, timeout=30, stream=True)
-        if r.status_code != 200:
-            logger(f"  ✗ {label}: HTTP {r.status_code}")
-            return None
-        total = int(r.headers.get('content-length', 0))
-        chunks, downloaded, t0, last_pct = [], 0, time.time(), 0
-        for chunk in r.iter_content(chunk_size=8192):
-            if chunk:
-                chunks.append(chunk)
-                downloaded += len(chunk)
-                if total > 0:
-                    pct = int(downloaded / total * 100)
-                    if pct >= last_pct + 10:
-                        speed = _format_size(int(downloaded / max(time.time() - t0, 0.001))) + "/s"
-                        logger(f"  ↓ {label}: {pct}% ({_format_size(downloaded)}/{_format_size(total)}) [{speed}]")
-                        last_pct = pct
-        data = b''.join(chunks)
-        speed = _format_size(int(len(data) / max(time.time() - t0, 0.001))) + "/s"
-        logger(f"  ✓ {label}: {_format_size(len(data))} [{speed}]")
-        return data
-    except Exception as e:
-        logger(f"  ✗ {label}: {e}")
+    for attempt in range(max_retries):
+        try:
+            r = session.get(url, timeout=30, stream=True)
+            if r.status_code != 200:
+                logger(f"  ✗ {label}: HTTP {r.status_code}")
+                if r.status_code >= 500 and attempt < max_retries - 1:
+                    wait = (attempt + 1) * 2
+                    logger(f"  ↻ Retrying {label} in {wait}s (attempt {attempt + 2}/{max_retries})...")
+                    time.sleep(wait)
+                    continue
+                return None
+            total = int(r.headers.get('content-length', 0))
+            chunks, downloaded, t0, last_pct = [], 0, time.time(), 0
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        pct = int(downloaded / total * 100)
+                        if pct >= last_pct + 10:
+                            speed = _format_size(int(downloaded / max(time.time() - t0, 0.001))) + "/s"
+                            logger(f"  ↓ {label}: {pct}% ({_format_size(downloaded)}/{_format_size(total)}) [{speed}]")
+                            last_pct = pct
+            data = b''.join(chunks)
+            speed = _format_size(int(len(data) / max(time.time() - t0, 0.001))) + "/s"
+            logger(f"  ✓ {label}: {_format_size(len(data))} [{speed}]")
+            return data
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = (attempt + 1) * 2
+                logger(f"  ✗ {label}: {e}")
+                logger(f"  ↻ Retrying {label} in {wait}s (attempt {attempt + 2}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                logger(f"  ✗ {label}: {e} (failed after {max_retries} attempts)")
+                return None
         return None
 
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no):
@@ -877,7 +890,7 @@ class NovelpiaGUI(tk.Tk):
             # ETA calculation
             if self._progress_start_time and self.progress_value > 0:
                 elapsed = time.time() - self._progress_start_time
-                rate = self.progress_value / elapsed  # items per second
+                rate = self.progress_value / max(elapsed, 0.001)  # items per second
                 remaining = self.progress_total - self.progress_value
                 if rate > 0 and remaining > 0:
                     eta_secs = int(remaining / rate)
