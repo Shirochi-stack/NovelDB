@@ -8,3 +8,4 @@ config.json
 logs/
 *.loginkey
 debug_search.py
+docs/data/novels_full.json

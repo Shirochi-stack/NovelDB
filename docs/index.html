@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovelpiaDB — Browse & Filter Novelpia Novels</title>
+    <meta name="description" content="Search, filter, and browse all Novelpia novels by tags, views, likes, and more.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="header-inner">
+            <h1>📚 NovelpiaDB</h1>
+            <p class="subtitle">Browse & filter the Novelpia novel library</p>
+        </div>
+    </header>
+
+    <main>
+        <!-- Search & Controls -->
+        <section class="controls">
+            <div class="search-row">
+                <div class="search-box">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                    </svg>
+                    <input type="text" id="searchInput" placeholder="Search by title or author..." autocomplete="off">
+                </div>
+                <div class="control-group">
+                    <label>Sort by</label>
+                    <select id="sortSelect">
+                        <option value="views">Views</option>
+                        <option value="likes">Likes</option>
+                        <option value="chapters">Chapters</option>
+                        <option value="updated">Last Updated</option>
+                        <option value="title">Title</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Order</label>
+                    <select id="orderSelect">
+                        <option value="desc">Descending</option>
+                        <option value="asc">Ascending</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Tag Filters -->
+            <div class="tag-section">
+                <div class="tag-header">
+                    <span>Filter by tags</span>
+                    <div class="tag-mode">
+                        <button id="tagModeAnd" class="mode-btn active">AND</button>
+                        <button id="tagModeOr" class="mode-btn">OR</button>
+                    </div>
+                    <button id="clearTags" class="clear-btn">Clear</button>
+                </div>
+                <div id="tagContainer" class="tag-grid"></div>
+            </div>
+
+            <div class="status-bar">
+                <span id="resultCount">Loading...</span>
+            </div>
+        </section>
+
+        <!-- Results -->
+        <section id="results" class="results-grid"></section>
+
+        <!-- Load More -->
+        <div id="loadMore" class="load-more" style="display:none">
+            <button id="loadMoreBtn">Load More</button>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
