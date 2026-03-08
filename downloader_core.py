@@ -510,7 +510,10 @@ img { max-width: 100%; height: auto; }
                         self.log(f"  [{tag}] {total_cnt} result(s) found")
 
                     if not novel_list:
+                        self.log(f"    Page {page}: empty response, stopping")
                         break
+
+                    self.log(f"    Page {page}: received {len(novel_list)} novel(s)")
 
                     r19_skipped = 0
                     for novel in novel_list:
@@ -533,12 +536,12 @@ img { max-width: 100%; height: auto; }
                         self.log(f"    Page {page}: skipped {r19_skipped} R19 novel(s)")
 
                     # Check if more pages
-                    if page * rows >= total_cnt:
+                    if page * rows >= total_cnt or len(novel_list) < rows:
                         break
 
                     page += 1
-                    if delay > 0:
-                        time.sleep(delay)
+                    # Minimum 0.5s delay to be server-friendly
+                    time.sleep(max(0.5, delay))
 
                 except Exception as e:
                     self.log(f"  [{tag}] Error on page {page}: {e}")
@@ -547,8 +550,8 @@ img { max-width: 100%; height: auto; }
             self.log(f"  [{tag}] Added {tag_found} new novel(s) ({len(novels)} total)")
 
             # Delay between tags
-            if delay > 0 and tag != tags[-1]:
-                time.sleep(delay)
+            if tag != tags[-1]:
+                time.sleep(max(0.5, delay))
 
         self.log(f"Tag search complete: {len(novels)} novel(s) found.")
         return novels
