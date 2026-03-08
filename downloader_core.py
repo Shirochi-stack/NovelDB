@@ -481,7 +481,7 @@ img { max-width: 100%; height: auto; }
         elif age_filter == "19":
             self.log("  Age filter: Adult only")
 
-        def _build_params(tag, page):
+        def _build_params(tag, page, genre_filter=""):
             return {
                 "cmd": "novel_search",
                 "search_type": "novel_genre",
@@ -494,7 +494,7 @@ img { max-width: 100%; height: auto; }
                 "novel_age": age_filter,
                 "start_days": "",
                 "sort_col": "last_viewdate",
-                "novel_genre": "",
+                "novel_genre": genre_filter,
                 "block_out": 0,
                 "block_stop": 0,
                 "is_contest": 0,
@@ -503,7 +503,7 @@ img { max-width: 100%; height: auto; }
                 "list_display": "grid",
             }
 
-        def _fetch_all_pages(tag, filter_ids=None, include_genres=False):
+        def _fetch_all_pages(tag, filter_ids=None, include_genres=False, genre_filter=""):
             """Fetch all novel IDs for a tag. Returns a set of ID strings.
             If include_genres=True, also returns {id: genre_list} dict."""
             ids = set()
@@ -511,7 +511,7 @@ img { max-width: 100%; height: auto; }
             page = 1
             while not self.stop_signal:
                 try:
-                    response = self.auth.session.get(url, params=_build_params(tag, page), headers=headers, timeout=15)
+                    response = self.auth.session.get(url, params=_build_params(tag, page, genre_filter), headers=headers, timeout=15)
                     data = response.json()
 
                     if data.get("status") != 200:
@@ -562,7 +562,7 @@ img { max-width: 100%; height: auto; }
             return ids
 
         if mode == "AND" and len(tags) > 1:
-            # Probe page 1 of each tag to find the smallest
+            # Probe page 1 of each tag to get counts
             tag_counts = {}
             for tag in tags:
                 if self.stop_signal:
@@ -579,26 +579,38 @@ img { max-width: 100%; height: auto; }
                     time.sleep(delay)
 
             sorted_tags = sorted(tags, key=lambda t: tag_counts.get(t, 999999))
-            smallest = sorted_tags[0]
-            other_tags = set(sorted_tags[1:])
-            self.log(f"  Fetching [{smallest}] ({tag_counts.get(smallest, 0)}), then verifying other tags per novel")
+            primary = sorted_tags[0]  # smallest tag -> search_val
 
-            # Fetch smallest tag with genre data for pre-filtering
-            base_ids, genres_map = _fetch_all_pages(smallest, include_genres=True)
+            if len(sorted_tags) >= 2:
+                # Use 2nd smallest as server-side genre filter
+                secondary = sorted_tags[1]
+                remaining = set(sorted_tags[2:])
+                self.log(f"  Server filter: {primary} ∩ {secondary}")
+                if remaining:
+                    self.log(f"  Then verify: {', '.join(remaining)}")
 
-            # Stage 1: Pre-filter using novel_genre_arr (fast, local)
-            candidates = []
-            for nid in base_ids:
-                genres = set(genres_map.get(nid, []))
-                if other_tags.issubset(genres):
-                    candidates.append(nid)
+                # Fetch with server-side 2-tag filter
+                base_ids, genres_map = _fetch_all_pages(primary, include_genres=bool(remaining), genre_filter=secondary)
+            else:
+                remaining = set()
+                base_ids, genres_map = _fetch_all_pages(primary, include_genres=False)
 
-            self.log(f"  Pre-filter: {len(candidates)} candidate(s) from {len(base_ids)} (genre_arr match)")
+            # Stage 1: Pre-filter remaining tags via genre_arr (local)
+            if remaining and genres_map:
+                candidates = []
+                for nid in base_ids:
+                    genres = set(genres_map.get(nid, []))
+                    if remaining.issubset(genres):
+                        candidates.append(nid)
+                self.log(f"  Pre-filter: {len(candidates)} candidate(s) from {len(base_ids)} (genre_arr match for {', '.join(remaining)})")
+            else:
+                candidates = list(base_ids)
 
             if not candidates:
                 result_ids = []
             else:
                 # Stage 2: Verify candidates by scraping actual novel page tags
+                all_other = set(sorted_tags[1:])  # verify ALL tags except primary
                 result_ids = []
                 for i, nid in enumerate(candidates):
                     if self.stop_signal:
@@ -613,12 +625,12 @@ img { max-width: 100%; height: auto; }
                         for m in re.findall(r'<span class="tag".*?>(#.+?)</span>', page_resp.text):
                             page_tags.add(html.unescape(m.lstrip('#').strip()))
 
-                        if other_tags.issubset(page_tags):
+                        if all_other.issubset(page_tags):
                             result_ids.append(nid)
                             self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: ✓ verified")
                         else:
-                            missing = other_tags - page_tags
-                            self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: ✗ false positive (missing: {', '.join(missing)})")
+                            missing = all_other - page_tags
+                            self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: ✗ missing: {', '.join(missing)}")
                     except Exception as e:
                         self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: error — {e}")
 
