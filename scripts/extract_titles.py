@@ -36,7 +36,7 @@ with open(OUT_KR, "w", encoding="utf-8") as f:
     for r in raw:
         novel_id = r[0]
         title = r[1] or ""
-        f.write(f"{novel_id}\t{title}\n")
+        f.write(f"{novel_id}|||{title}\n")
 
 print(f"  Wrote {len(raw)} titles to {OUT_KR}")
 
@@ -46,9 +46,9 @@ if os.path.exists(OUT_EN):
     print(f"  Found existing {OUT_EN}, preserving translations...")
     with open(OUT_EN, "r", encoding="utf-8") as f:
         for line in f:
-            parts = line.rstrip("\n").split("\t")
+            parts = line.rstrip("\n").split("|||")
             if len(parts) >= 3 and parts[2].strip():
-                existing[parts[0]] = parts[2]
+                existing[parts[0]] = parts[2].strip()
     print(f"  {len(existing)} existing translations found.")
 
 with open(OUT_EN, "w", encoding="utf-8") as f:
@@ -59,7 +59,7 @@ with open(OUT_EN, "w", encoding="utf-8") as f:
         en = existing.get(novel_id, "")
         if en:
             preserved += 1
-        f.write(f"{novel_id}\t{title}\t{en}\n")
+        f.write(f"{novel_id}|||{title}|||{en}\n")
 
 print(f"  Wrote {OUT_EN} ({preserved} translations preserved, {len(raw) - preserved} need translation)")
 print("\nDone! To translate:")

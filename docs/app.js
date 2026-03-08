@@ -431,7 +431,7 @@
                     const text = await tResp.text();
                     let count = 0;
                     for (const line of text.split("\n")) {
-                        const parts = line.split("\t");
+                        const parts = line.split("|||");
                         if (parts.length >= 3 && parts[2].trim()) {
                             titleTranslations[parts[0]] = parts[2].trim();
                             count++;
