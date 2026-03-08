@@ -243,7 +243,7 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
                 return None
         return None
 
-def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no):
+def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None):
     html_parts = []
     images = []
     _img_counter = [0]
@@ -276,7 +276,9 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                         url_dl = "https:" + url
 
                     _img_counter[0] += 1
-                    lbl = f"Image #{_img_counter[0]}"
+                    ch_tag = f" [{chapter_title}]" if chapter_title else ""
+                    ch_num = f"[{chapter_num}] " if chapter_num is not None else ""
+                    lbl = f"{ch_num}Image #{_img_counter[0]}{ch_tag}"
                     try:
                         img_bytes = _download_image_with_progress(session, url_dl, logger, label=lbl)
                         if not img_bytes:
@@ -863,6 +865,10 @@ class NovelpiaGUI(tk.Tk):
         self.lbl_progress_info = ttk.Label(status_frame, text="")
         self.lbl_progress_info.pack(side="right", padx=(10, 10))
         
+        # Batch progress label (shown during batch downloads)
+        self.lbl_batch = ttk.Label(status_frame, text="")
+        self.lbl_batch.pack(side="right", padx=(5, 5))
+        
         # Image counter label (running total during downloads)
         self.lbl_img_count = ttk.Label(status_frame, text="")
         self.lbl_img_count.pack(side="right", padx=(5, 5))
@@ -1176,6 +1182,7 @@ class NovelpiaGUI(tk.Tk):
                         title = meta.get("title", novel_id) if meta else novel_id
 
                     self.log_message(f"[{idx}/{total}] Downloading: {title} ({novel_id})")
+                    self.after(0, lambda i=idx, t=total: self.lbl_batch.config(text=f"Batch: {i}/{t}"))
                     self.var_novel_id.set(novel_id)
                     self._download_worker()
                     succeeded += 1
@@ -1193,6 +1200,7 @@ class NovelpiaGUI(tk.Tk):
             self.var_quick_path.set(prev_quick_path)
             self.var_novel_id.set(prev_novel_id)
             self._reset_progress()
+            self.after(0, lambda: self.lbl_batch.config(text=""))
             self.lbl_status.config(text="Idle")
 
     def _download_worker(self):
@@ -1526,7 +1534,9 @@ table, th, td {
                             hb, imgs = extract_chapter_content_and_images(
                                 content_json, self.font_mapper, self.auth.session,
                                 self.var_compress_images.get(), self.var_jpeg_quality.get(),
-                                self.var_image_format.get(), self.log_message, next_image_no
+                                self.var_image_format.get(), self.log_message, next_image_no,
+                                chapter_title=chap.get('title', ''),
+                                chapter_num=self.progress_value + 1
                             )
                             results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                             self.log_message(f"Cached: {chap['title']}")
@@ -1569,7 +1579,9 @@ table, th, td {
                                 hb, imgs = extract_chapter_content_and_images(
                                     content_json, self.font_mapper, self.auth.session,
                                     self.var_compress_images.get(), self.var_jpeg_quality.get(),
-                                    self.var_image_format.get(), self.log_message, next_image_no
+                                    self.var_image_format.get(), self.log_message, next_image_no,
+                                    chapter_title=chap.get('title', ''),
+                                    chapter_num=self.progress_value + 1
                                 )
                                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                                 img_info = f" ({len(imgs)} images)" if imgs else ""
