@@ -232,7 +232,7 @@
         card.rel = "noopener";
 
         const coverHTML = n.cover
-            ? `<img class="card-cover" src="${escHtml(n.cover)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'">`
+            ? `<img class="card-cover" src="${escHtml(n.cover)}" alt="" decoding="async" onerror="this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const badgeHTML = n.complete
