@@ -573,7 +573,7 @@ class NovelpiaGUI(tk.Tk):
             self.bind_class(widget_class, "<Button-4>", _block_scroll)
             self.bind_class(widget_class, "<Button-5>", _block_scroll)
 
-        self.title("ND34")
+        self.title("ND35")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -1032,6 +1032,16 @@ class NovelpiaGUI(tk.Tk):
         top.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{(screen_h - h) // 2}")
         top.minsize(400, 400)
 
+        # Will be set later once widgets exist
+        self._tag_dialog_save_fn = None
+
+        def _on_dialog_close():
+            if self._tag_dialog_save_fn:
+                self._tag_dialog_save_fn()
+            top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", _on_dialog_close)
+
         main_f = ttk.Frame(top, padding=10)
         main_f.pack(fill="both", expand=True)
 
@@ -1054,7 +1064,8 @@ class NovelpiaGUI(tk.Tk):
         cols = 3
         tag_widgets = {}  # store checkbox widgets for enabling/disabling
         for i, (tag_kr, tag_en) in enumerate(self.COMMON_TAGS):
-            var = tk.BooleanVar(value=False)
+            saved_tags = getattr(self, '_tag_selected_tags', set())
+            var = tk.BooleanVar(value=(tag_kr in saved_tags))
             tag_vars[tag_kr] = var
             cb = ttk.Checkbutton(tag_frame, text=f"{tag_kr} ({tag_en})", variable=var)
             cb.grid(row=i // cols, column=i % cols, sticky="w", padx=5, pady=2)
@@ -1064,7 +1075,7 @@ class NovelpiaGUI(tk.Tk):
         custom_frame = ttk.Frame(main_f)
         custom_frame.pack(fill="x", pady=(5, 5))
         ttk.Label(custom_frame, text="Custom tags (comma-separated):").pack(side="left")
-        custom_var = tk.StringVar()
+        custom_var = tk.StringVar(value=getattr(self, '_tag_custom_tags', ''))
         ttk.Entry(custom_frame, textvariable=custom_var).pack(side="left", fill="x", expand=True, padx=5)
 
         # Options row: AND/OR + Exclude R19
@@ -1104,7 +1115,7 @@ class NovelpiaGUI(tk.Tk):
         on_age_change()  # Apply initial state
 
         # Scrape all toggle
-        scrape_all_var = tk.BooleanVar(value=False)
+        scrape_all_var = tk.BooleanVar(value=getattr(self, '_tag_scrape_all', False))
         tag_filter_widgets = []  # widgets to disable when scrape-all is on
         scrape_q_widgets = []    # widgets to enable only when scrape-all is on
 
@@ -1135,7 +1146,7 @@ class NovelpiaGUI(tk.Tk):
         scrape_q_frame.pack(fill="x", pady=(2, 0))
         scrape_q_label = ttk.Label(scrape_q_frame, text="Search queries:")
         scrape_q_label.pack(side="left")
-        scrape_queries_var = tk.IntVar(value=100)
+        scrape_queries_var = tk.IntVar(value=getattr(self, '_scrape_max_queries', 100))
         scrape_queries_spin = ttk.Spinbox(scrape_q_frame, from_=1, to=100,
                                           textvariable=scrape_queries_var, width=6,
                                           state="disabled")
@@ -1145,7 +1156,7 @@ class NovelpiaGUI(tk.Tk):
         scrape_desc_frame.pack(fill="x", pady=(0, 5))
         scrape_desc_label = ttk.Label(scrape_desc_frame,
                   text="More queries = better coverage but slower.\n"
-                       "1 ≈ 42K novels  |  50 ≈ 63K  |  64 ≈ 63.5K  |  100 ≈ 63.9K",
+                       "1 ≈ 42K novels  |  50 ≈ 63K  |  64 ≈ 63.3K  |  100 ≈ 63.7K",
                   foreground="gray", justify="left", state="disabled")
         scrape_desc_label.pack(side="left", padx=(2, 0))
 
@@ -1155,6 +1166,9 @@ class NovelpiaGUI(tk.Tk):
         for w in tag_widgets.values():
             tag_filter_widgets.append(w)
         tag_filter_widgets.append(custom_frame.winfo_children()[-1])  # Entry widget
+
+        # Apply initial scrape-all state now that all widgets are collected
+        on_scrape_all_toggle()
 
         # Result display
         result_frame = ttk.Frame(main_f)
@@ -1166,13 +1180,23 @@ class NovelpiaGUI(tk.Tk):
         btn_frame = ttk.Frame(main_f)
         btn_frame.pack(fill="x", pady=(10, 0))
 
+        def _save_dialog_state():
+            self._tag_selected_tags = {tag for tag, var in tag_vars.items() if var.get()}
+            self._tag_custom_tags = custom_var.get()
+            self._tag_scrape_all = scrape_all_var.get()
+            self._scrape_max_queries = scrape_queries_var.get()
+            self._tag_mode = mode_var.get()
+            self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
+
+        # Register save function for dialog close
+        self._tag_dialog_save_fn = _save_dialog_state
+
         def do_retrieve():
+            _save_dialog_state()
             if scrape_all_var.get():
                 max_q = scrape_queries_var.get()
                 btn_go.config(state="disabled")
                 result_label.config(text=f"Scraping all novels ({max_q} queries)...")
-                self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
-                self._scrape_max_queries = max_q
                 threading.Thread(
                     target=self._tag_retrieval_worker,
                     args=(None, AGE_MAP.get(age_var.get(), ""), None, result_label, btn_go, top),
@@ -1188,8 +1212,6 @@ class NovelpiaGUI(tk.Tk):
                 return
             btn_go.config(state="disabled")
             result_label.config(text="Searching...")
-            self._tag_mode = mode_var.get()
-            self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
             threading.Thread(
                 target=self._tag_retrieval_worker,
                 args=(all_tags, AGE_MAP.get(age_var.get(), ""), mode_var.get(), result_label, btn_go, top),
@@ -2072,6 +2094,10 @@ table, th, td {
                 # Tag retrieval settings
                 self._tag_age_filter = cfg.get("tag_age_filter", "")
                 self._tag_mode = cfg.get("tag_mode", "AND")
+                self._tag_selected_tags = set(cfg.get("tag_selected_tags", []))
+                self._tag_custom_tags = cfg.get("tag_custom_tags", "")
+                self._tag_scrape_all = cfg.get("tag_scrape_all", False)
+                self._scrape_max_queries = cfg.get("scrape_max_queries", 100)
             except: pass
     
     def _auto_login(self):
@@ -2132,7 +2158,11 @@ table, th, td {
 
             # Tag retrieval settings
             "tag_age_filter": getattr(self, '_tag_age_filter', ''),
-            "tag_mode": getattr(self, '_tag_mode', "AND"),
+            "tag_mode": getattr(self, '_tag_mode', 'AND'),
+            "tag_selected_tags": list(getattr(self, '_tag_selected_tags', set())),
+            "tag_custom_tags": getattr(self, '_tag_custom_tags', ''),
+            "tag_scrape_all": getattr(self, '_tag_scrape_all', False),
+            "scrape_max_queries": getattr(self, '_scrape_max_queries', 100),
         }
         try:
             with open("config.json", "w", encoding="utf-8") as f:
