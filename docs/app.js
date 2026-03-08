@@ -439,9 +439,8 @@
                     }
                     if (count > 0) {
                         for (const n of allNovels) {
-                            if (titleTranslations[n.id]) {
-                                n.titleEn = titleTranslations[n.id];
-                            }
+                            const en = titleTranslations[String(n.id)];
+                            if (en) n.titleEn = en;
                         }
                         console.log(`Loaded ${count} title translations`);
                     }
