@@ -577,7 +577,7 @@ img { max-width: 100%; height: auto; }
         self.log(f"  {len(ids)} novel(s) retrieved total")
         return list(ids)
 
-    def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, age_filter="", mode="AND"):
+    def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, age_filter="", mode="AND", threads=1):
         """Fetch novel IDs from Novelpia's tag search API.
 
         Uses GET /proc/novel?cmd=novel_search&search_type=novel_genre&search_val={tag}.
@@ -594,10 +594,13 @@ img { max-width: 100%; height: auto; }
             rows: results per page (max 30)
             age_filter: "" (all), "15" (non-adult), "19" (adult only)
             mode: "AND", "OR", or "GROUPS"
+            threads: number of concurrent fetch threads
 
         Returns:
             list of novel ID strings
         """
+        from concurrent.futures import ThreadPoolExecutor
+
         url = "https://novelpia.com/proc/novel"
         headers = {
             "X-Requested-With": "XMLHttpRequest",
@@ -606,23 +609,26 @@ img { max-width: 100%; height: auto; }
 
         if mode == "GROUPS":
             groups = tags  # list of lists
-            self.log(f"Searching with {len(groups)} group(s):")
+            self.log(f"Searching with {len(groups)} group(s), {threads} thread(s):")
             for gi, g in enumerate(groups):
                 self.log(f"  Group {gi+1}: {' OR '.join(g)}")
                 if gi < len(groups) - 1:
                     self.log(f"    AND")
         else:
-            self.log(f"Searching for novels with tags: {', '.join(tags)} (mode: {mode})")
+            self.log(f"Searching for novels with tags: {', '.join(tags)} (mode: {mode}, {threads} thread(s))")
         if age_filter == "15":
             self.log("  Age filter: Non-adult only")
         elif age_filter == "19":
             self.log("  Age filter: Adult only")
+
         def _timed_get(label, **kwargs):
             """session.get with elapsed-time logging every 3s."""
             done = threading.Event()
             def _tick():
                 start = time.time()
                 while not done.wait(3):
+                    if self.stop_signal:
+                        break
                     self.log(f"    {int(time.time() - start)}s elapsed...")
             t = threading.Thread(target=_tick, daemon=True)
             t.start()
@@ -632,9 +638,9 @@ img { max-width: 100%; height: auto; }
                 done.set()
 
         def _fetch_tag(tag, genre_filter="", include_genres=False):
-            """Fetch all novel IDs for a tag in a single API call.
-            If include_genres=True, returns (set_of_ids, {id: genre_list}).
-            Otherwise returns set_of_ids."""
+            """Fetch all novel IDs for a tag in a single API call."""
+            if self.stop_signal:
+                return (set(), {}) if include_genres else set()
             params = {
                 "cmd": "novel_search",
                 "search_type": "novel_genre",
@@ -678,23 +684,38 @@ img { max-width: 100%; height: auto; }
                 return ids, genres_map
             return ids
 
+        def _fetch_tags_parallel(tag_list):
+            """Fetch multiple tags concurrently and return list of id sets."""
+            if threads <= 1:
+                results = []
+                for tag in tag_list:
+                    if self.stop_signal:
+                        break
+                    results.append(_fetch_tag(tag))
+                    if delay > 0:
+                        time.sleep(delay)
+                return results
+            else:
+                with ThreadPoolExecutor(max_workers=threads) as pool:
+                    futures = []
+                    for tag in tag_list:
+                        if self.stop_signal:
+                            break
+                        futures.append(pool.submit(_fetch_tag, tag))
+                        time.sleep(delay)
+                    return [f.result() for f in futures]
+
         if mode == "GROUPS":
-            # Each group: OR the tags within it. Then AND the groups.
+            # Each group: OR the tags within it (parallel). Then AND the groups.
             result_set = None
             for gi, group in enumerate(tags):
                 if self.stop_signal:
                     break
-                # OR within group
+                tag_results = _fetch_tags_parallel(group)
                 group_ids = set()
-                for tag in group:
-                    if self.stop_signal:
-                        break
-                    tag_ids = _fetch_tag(tag)
-                    group_ids |= tag_ids
-                    if delay > 0:
-                        time.sleep(delay)
+                for ids in tag_results:
+                    group_ids |= ids
                 self.log(f"  Group {gi+1} result: {len(group_ids)} novel(s)")
-                # AND between groups
                 if result_set is None:
                     result_set = group_ids
                 else:
@@ -703,26 +724,17 @@ img { max-width: 100%; height: auto; }
             result_ids = list(result_set or set())
 
         elif mode == "AND" and len(tags) > 1:
-            # Fetch each tag (1 call each), intersect locally
+            tag_results = _fetch_tags_parallel(tags)
             result_set = None
-            for tag in tags:
-                if self.stop_signal:
-                    break
-                tag_ids = _fetch_tag(tag)
-                result_set = tag_ids if result_set is None else result_set & tag_ids
-                if delay > 0 and tag != tags[-1]:
-                    time.sleep(delay)
+            for ids in tag_results:
+                result_set = ids if result_set is None else result_set & ids
             result_ids = list(result_set or set())
             self.log(f"  AND intersection: {len(result_ids)} novel(s) match all {len(tags)} tag(s)")
         else:
+            tag_results = _fetch_tags_parallel(tags)
             all_ids = set()
-            for tag in tags:
-                if self.stop_signal:
-                    break
-                tag_ids = _fetch_tag(tag)
-                all_ids |= tag_ids
-                if delay > 0 and tag != tags[-1]:
-                    time.sleep(delay)
+            for ids in tag_results:
+                all_ids |= ids
             result_ids = list(all_ids)
 
         self.log(f"Tag search complete: {len(result_ids)} novel(s) found.")

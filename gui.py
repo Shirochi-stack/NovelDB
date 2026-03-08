@@ -1268,7 +1268,7 @@ class NovelpiaGUI(tk.Tk):
                 if not all_tags:
                     messagebox.showwarning("No query", "Add at least one group to the query builder,\nor select tags directly.", parent=top)
                     return
-                groups_to_search = [all_tags]
+                groups_to_search = [[t] for t in all_tags]  # Each tag is AND'd
             else:
                 groups_to_search = query_groups
 
@@ -1301,7 +1301,8 @@ class NovelpiaGUI(tk.Tk):
                 num_threads = max(1, self.var_threads.get())
                 novels = self.downloader.fetch_all_novels(delay=delay, age_filter=age_filter, max_queries=max_q, threads=num_threads)
             else:
-                novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, age_filter=age_filter, mode=mode)
+                num_threads = max(1, self.var_threads.get())
+                novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, age_filter=age_filter, mode=mode, threads=num_threads)
         except Exception as e:
             self.log_message(f"Tag retrieval failed: {e}")
             self.after(0, lambda: result_label.config(text=f"Error: {e}"))
@@ -1327,6 +1328,13 @@ class NovelpiaGUI(tk.Tk):
         # Save as batch file
         if tags is None:
             tag_label = "all_novels"
+        elif mode == "GROUPS":
+            tag_to_en = {kr: en for kr, en in self.COMMON_TAGS}
+            group_labels = []
+            for group in tags:
+                parts = [t if t.isascii() else tag_to_en.get(t, t).replace(" ", "_") for t in group]
+                group_labels.append("_OR_".join(parts))
+            tag_label = "+".join(group_labels)
         else:
             tag_to_en = {kr: en for kr, en in self.COMMON_TAGS}
             tag_label = "+".join(
