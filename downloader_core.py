@@ -467,13 +467,17 @@ img { max-width: 100%; height: auto; }
             "Referer": "https://novelpia.com/search",
         }
 
-        # Korean consonant chars + English letters + digits for maximum coverage
-        ALL_CHARS = (
-            list("타아다라사가마나자하카차바파") +
-            list("abcdefghijklmnopqrstuvwxyz") +
-            list("0123456789")
-        )
-        SEARCH_CHARS = ALL_CHARS[:max_queries]
+        # Tags first (highest unique yield), then Korean chars, English, digits
+        ALL_SEARCHES = [
+            '판타지', '현대', '패러디', '하렘', '라이트노벨', '일상', '로맨스',
+            '현대판타지', 'TS', '먼치킨', '중세', '전생', '집착', '아카데미',
+            '고수위', '드라마', 'SF', '순애', '빙의', '피폐', '성장', '착각',
+            '무협', '블루아카이브', '후회', '코미디', '이세계', '기타', '백합',
+            '회귀', '약피폐', '아포칼립스', '얀데레', '게임', '환생', '남성향',
+            '헌터', '조교', '복수', '인터넷방송', '남녀역전', '대체역사', '모험',
+            '원신', '상태창', '공포', '생존', '전쟁', '가면라이더', '액션',
+        ] + list("타아다라사가마나자하카차바파") + list("abcdefghijklmnopqrstuvwxyz0123456789")
+        SEARCH_CHARS = ALL_SEARCHES[:max_queries]
 
         self.log("Scraping all novel IDs from Novelpia...")
         if age_filter == "15":

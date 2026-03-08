@@ -1106,30 +1106,50 @@ class NovelpiaGUI(tk.Tk):
         # Scrape all toggle
         scrape_all_var = tk.BooleanVar(value=False)
         tag_filter_widgets = []  # widgets to disable when scrape-all is on
+        scrape_q_widgets = []    # widgets to enable only when scrape-all is on
+
+        scrape_all_frame = ttk.Frame(main_f)
+        scrape_all_frame.pack(fill="x", pady=(5, 0))
 
         def on_scrape_all_toggle():
-            state = "disabled" if scrape_all_var.get() else "normal"
+            is_all = scrape_all_var.get()
+            tag_state = "disabled" if is_all else "normal"
+            q_state = "normal" if is_all else "disabled"
             for w in tag_filter_widgets:
                 try:
-                    w.config(state=state)
+                    w.config(state=tag_state)
+                except Exception:
+                    pass
+            for w in scrape_q_widgets:
+                try:
+                    w.config(state=q_state)
                 except Exception:
                     pass
 
-        scrape_all_cb = ttk.Checkbutton(opts_frame, text="Scrape all novels",
+        scrape_all_cb = ttk.Checkbutton(scrape_all_frame, text="Scrape all novels",
                                          variable=scrape_all_var, command=on_scrape_all_toggle)
-        scrape_all_cb.pack(side="left", padx=(15, 0))
+        scrape_all_cb.pack(side="left")
 
-        # Scrape queries row (below options)
+        # Scrape queries row (below scrape all toggle)
         scrape_q_frame = ttk.Frame(main_f)
-        scrape_q_frame.pack(fill="x", pady=(2, 5))
-        ttk.Label(scrape_q_frame, text="Search queries:").pack(side="left")
-        scrape_queries_var = tk.IntVar(value=50)
-        scrape_queries_spin = ttk.Spinbox(scrape_q_frame, from_=1, to=50,
-                                          textvariable=scrape_queries_var, width=4)
-        scrape_queries_spin.pack(side="left", padx=(5, 8))
-        ttk.Label(scrape_q_frame,
-                  text="(More queries = better coverage but slower. 1≈42K novels, 14≈62K, 50≈63K+)",
-                  foreground="gray").pack(side="left")
+        scrape_q_frame.pack(fill="x", pady=(2, 0))
+        scrape_q_label = ttk.Label(scrape_q_frame, text="Search queries:")
+        scrape_q_label.pack(side="left")
+        scrape_queries_var = tk.IntVar(value=100)
+        scrape_queries_spin = ttk.Spinbox(scrape_q_frame, from_=1, to=100,
+                                          textvariable=scrape_queries_var, width=6,
+                                          state="disabled")
+        scrape_queries_spin.pack(side="left", padx=(5, 0))
+
+        scrape_desc_frame = ttk.Frame(main_f)
+        scrape_desc_frame.pack(fill="x", pady=(0, 5))
+        scrape_desc_label = ttk.Label(scrape_desc_frame,
+                  text="More queries = better coverage but slower.\n"
+                       "1 ≈ 42K novels  |  50 ≈ 63K  |  64 ≈ 63.5K  |  100 ≈ 63.9K",
+                  foreground="gray", justify="left", state="disabled")
+        scrape_desc_label.pack(side="left", padx=(2, 0))
+
+        scrape_q_widgets.extend([scrape_q_label, scrape_queries_spin, scrape_desc_label])
 
         # Collect widgets to disable when scrape-all is on
         for w in tag_widgets.values():
