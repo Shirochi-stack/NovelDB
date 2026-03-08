@@ -452,26 +452,26 @@ img { max-width: 100%; height: auto; }
         self.log("PDF generation complete.")
 
     def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, exclude_r19=False):
-        """Fetch novel IDs from Novelpia's search API.
+        """Fetch novel IDs from Novelpia's tag search API.
 
-        Uses GET /proc/novelsearch_v2/?search_text={tag} which returns JSON.
+        Uses GET /proc/novel?cmd=novel_search&search_type=novel_genre&search_val={tag}.
         Each tag is searched separately and results are merged (union).
 
         Args:
             tags: list of tag strings (e.g. ["TS", "회귀"])
             delay: seconds between page requests
             rows: results per page (max 30)
-            exclude_r19: if True, skip novels with 19금 in name/tags
+            exclude_r19: if True, skip novels with novel_age == 19
 
         Returns:
             list of (novel_id, title) tuples
         """
         novels = []
         seen_ids = set()
-        url = "https://novelpia.com/proc/novelsearch_v2/"
+        url = "https://novelpia.com/proc/novel"
         headers = {
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://novelpia.com/",
+            "Referer": "https://novelpia.com/search",
         }
 
         self.log(f"Searching for novels with tags: {', '.join(tags)}")
@@ -486,9 +486,24 @@ img { max-width: 100%; height: auto; }
 
             while not self.stop_signal:
                 params = {
-                    "search_text": tag,
+                    "cmd": "novel_search",
+                    "search_type": "novel_genre",
+                    "search_val": tag,
                     "page": page,
                     "rows": rows,
+                    "novel_type": "",
+                    "start_count_book": "",
+                    "end_count_book": "",
+                    "novel_age": "",
+                    "start_days": "",
+                    "sort_col": "last_viewdate",
+                    "novel_genre": "",
+                    "block_out": 0,
+                    "block_stop": 0,
+                    "is_contest": 0,
+                    "is_complete": "",
+                    "is_challenge": 0,
+                    "list_display": "grid",
                 }
 
                 try:
@@ -501,19 +516,15 @@ img { max-width: 100%; height: auto; }
                             self.log(f"  [{tag}] API error: {err}")
                         break
 
-                    search = data.get("novel_search", {})
-                    total_cnt = search.get("total_cnt", 0)
-                    novel_list = search.get("list", [])
+                    total_cnt = data.get("total_cnt", 0)
+                    novel_list = data.get("list", [])
 
                     if page == 1:
                         tag_total = total_cnt
                         self.log(f"  [{tag}] {total_cnt} result(s) found")
 
                     if not novel_list:
-                        self.log(f"    Page {page}: empty response, stopping")
                         break
-
-                    self.log(f"    Page {page}: received {len(novel_list)} novel(s)")
 
                     r19_skipped = 0
                     for novel in novel_list:
@@ -523,10 +534,12 @@ img { max-width: 100%; height: auto; }
                         if not novel_id or novel_id in seen_ids:
                             continue
 
-                        # R19 exclusion: check title for 19금
-                        if exclude_r19 and "19금" in title:
-                            r19_skipped += 1
-                            continue
+                        # R19 exclusion: check novel_age field
+                        if exclude_r19:
+                            age = novel.get("novel_age", 0)
+                            if age == 19 or str(age) == "19":
+                                r19_skipped += 1
+                                continue
 
                         seen_ids.add(novel_id)
                         novels.append((novel_id, title))
