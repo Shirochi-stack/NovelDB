@@ -1119,6 +1119,18 @@ class NovelpiaGUI(tk.Tk):
                                          variable=scrape_all_var, command=on_scrape_all_toggle)
         scrape_all_cb.pack(side="left", padx=(15, 0))
 
+        # Scrape queries row (below options)
+        scrape_q_frame = ttk.Frame(main_f)
+        scrape_q_frame.pack(fill="x", pady=(2, 5))
+        ttk.Label(scrape_q_frame, text="Search queries:").pack(side="left")
+        scrape_queries_var = tk.IntVar(value=50)
+        scrape_queries_spin = ttk.Spinbox(scrape_q_frame, from_=1, to=50,
+                                          textvariable=scrape_queries_var, width=4)
+        scrape_queries_spin.pack(side="left", padx=(5, 8))
+        ttk.Label(scrape_q_frame,
+                  text="(More queries = better coverage but slower. 1≈42K novels, 14≈62K, 50≈63K+)",
+                  foreground="gray").pack(side="left")
+
         # Collect widgets to disable when scrape-all is on
         for w in tag_widgets.values():
             tag_filter_widgets.append(w)
@@ -1136,9 +1148,11 @@ class NovelpiaGUI(tk.Tk):
 
         def do_retrieve():
             if scrape_all_var.get():
+                max_q = scrape_queries_var.get()
                 btn_go.config(state="disabled")
-                result_label.config(text="Scraping all novels...")
+                result_label.config(text=f"Scraping all novels ({max_q} queries)...")
                 self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
+                self._scrape_max_queries = max_q
                 threading.Thread(
                     target=self._tag_retrieval_worker,
                     args=(None, AGE_MAP.get(age_var.get(), ""), None, result_label, btn_go, top),
@@ -1179,7 +1193,8 @@ class NovelpiaGUI(tk.Tk):
             delay = max(0.0, self.var_interval.get())
             if tags is None:
                 # Scrape all novels mode
-                novels = self.downloader.fetch_all_novels(delay=delay, age_filter=age_filter)
+                max_q = getattr(self, '_scrape_max_queries', 50)
+                novels = self.downloader.fetch_all_novels(delay=delay, age_filter=age_filter, max_queries=max_q)
             else:
                 novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, age_filter=age_filter, mode=mode)
         except Exception as e:

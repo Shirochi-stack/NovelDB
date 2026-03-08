@@ -452,7 +452,7 @@ img { max-width: 100%; height: auto; }
         HTML(string=html_doc).write_pdf(output_path)
         self.log("PDF generation complete.")
 
-    def fetch_all_novels(self, delay=0.5, rows=30, age_filter=""):
+    def fetch_all_novels(self, delay=0.5, rows=30, age_filter="", max_queries=50):
         """Fetch ALL novel IDs from Novelpia using multiple API calls.
 
         The API caps results at ~42K per query, so we search with multiple
@@ -468,11 +468,12 @@ img { max-width: 100%; height: auto; }
         }
 
         # Korean consonant chars + English letters + digits for maximum coverage
-        SEARCH_CHARS = (
+        ALL_CHARS = (
             list("타아다라사가마나자하카차바파") +
             list("abcdefghijklmnopqrstuvwxyz") +
             list("0123456789")
         )
+        SEARCH_CHARS = ALL_CHARS[:max_queries]
 
         self.log("Scraping all novel IDs from Novelpia...")
         if age_filter == "15":
