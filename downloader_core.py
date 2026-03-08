@@ -467,8 +467,8 @@ img { max-width: 100%; height: auto; }
             "Referer": "https://novelpia.com/search",
         }
 
-        # Characters chosen for maximum coverage with minimal overlap
-        SEARCH_CHARS = ["타", "아", "다", "라", "사"]
+        # Korean consonant chars for maximum coverage
+        SEARCH_CHARS = ["타", "아", "다", "라", "사", "가", "마", "나", "자", "하", "카", "차", "바", "파"]
 
         self.log("Scraping all novel IDs from Novelpia...")
         if age_filter == "15":
