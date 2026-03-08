@@ -456,14 +456,14 @@ img { max-width: 100%; height: auto; }
 
         Uses GET /proc/novel?cmd=novel_search&search_type=novel_genre&search_val={tag}.
         Each tag is searched separately. Results are combined based on mode:
-          AND = intersection (novels must match ALL tags)
+          AND = intersection (novels must match ALL tags) — searches smallest tag first
           OR  = union (novels matching ANY tag)
 
         Args:
-            tags: list of tag strings (e.g. ["TS", "회귀"])
+            tags: list of tag strings
             delay: seconds between page requests
             rows: results per page (max 30)
-            exclude_r19: if True, skip novels with novel_age == 19
+            exclude_r19: if True, use novel_age=15 to exclude adult content
             mode: "AND" or "OR"
 
         Returns:
@@ -474,50 +474,48 @@ img { max-width: 100%; height: auto; }
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://novelpia.com/search",
         }
+        # Server-side R19 filter
+        age_filter = "15" if exclude_r19 else ""
 
         self.log(f"Searching for novels with tags: {', '.join(tags)} (mode: {mode})")
+        if exclude_r19:
+            self.log("  R19 exclusion enabled (server-side filter)")
 
-        # Per-tag result sets for AND mode
-        tag_results = []  # list of dict {novel_id: title}
+        def _build_params(tag, page):
+            return {
+                "cmd": "novel_search",
+                "search_type": "novel_genre",
+                "search_val": tag,
+                "page": page,
+                "rows": rows,
+                "novel_type": "",
+                "start_count_book": "",
+                "end_count_book": "",
+                "novel_age": age_filter,
+                "start_days": "",
+                "sort_col": "last_viewdate",
+                "novel_genre": "",
+                "block_out": 0,
+                "block_stop": 0,
+                "is_contest": 0,
+                "is_complete": "",
+                "is_challenge": 0,
+                "list_display": "grid",
+            }
 
-        for tag in tags:
-            if self.stop_signal:
-                break
-
+        def _fetch_all_pages(tag, filter_ids=None):
+            """Fetch all novels for a tag. If filter_ids is set, only keep those IDs."""
+            tag_novels = {}
             page = 1
             tag_total = 0
-            tag_novels = {}  # {novel_id: title} for this tag
-
             while not self.stop_signal:
-                params = {
-                    "cmd": "novel_search",
-                    "search_type": "novel_genre",
-                    "search_val": tag,
-                    "page": page,
-                    "rows": rows,
-                    "novel_type": "",
-                    "start_count_book": "",
-                    "end_count_book": "",
-                    "novel_age": "",
-                    "start_days": "",
-                    "sort_col": "last_viewdate",
-                    "novel_genre": "",
-                    "block_out": 0,
-                    "block_stop": 0,
-                    "is_contest": 0,
-                    "is_complete": "",
-                    "is_challenge": 0,
-                    "list_display": "grid",
-                }
-
                 try:
-                    response = self.auth.session.get(url, params=params, headers=headers, timeout=15)
+                    response = self.auth.session.get(url, params=_build_params(tag, page), headers=headers, timeout=15)
                     data = response.json()
 
                     if data.get("status") != 200:
-                        err = data.get("errmsg", "Unknown error")
                         if page == 1:
-                            self.log(f"  [{tag}] API error: {err}")
+                            self.log(f"  [{tag}] API error: {data.get('errmsg', 'Unknown')}")
                         break
 
                     total_cnt = data.get("total_cnt", 0)
@@ -530,30 +528,30 @@ img { max-width: 100%; height: auto; }
                     if not novel_list:
                         break
 
-                    r19_skipped = 0
                     for novel in novel_list:
                         novel_id = str(novel.get("novel_no", ""))
-                        title = novel.get("novel_name", "")
-
                         if not novel_id or novel_id in tag_novels:
                             continue
-
-                        # R19 exclusion: check novel_age field
+                        # If filtering, skip IDs not in the filter set
+                        if filter_ids is not None and novel_id not in filter_ids:
+                            continue
+                        # R19 exclusion (client-side fallback)
                         if exclude_r19:
                             age = novel.get("novel_age", 0)
                             if age == 19 or str(age) == "19":
-                                r19_skipped += 1
                                 continue
-
-                        tag_novels[novel_id] = title
+                            genre_list = novel.get("novel_genre_arr", []) or []
+                            if "19금" in genre_list:
+                                continue
+                        genre_arr = novel.get("novel_genre_arr", []) or []
+                        tag_novels[novel_id] = {
+                            "title": novel.get("novel_name", ""),
+                            "genres": genre_arr,
+                        }
 
                     total_pages = (total_cnt + rows - 1) // rows
-                    msg = f"    [{tag}] Page {page}/{total_pages}: {len(tag_novels)} novel(s) collected"
-                    if r19_skipped > 0:
-                        msg += f" [skipped {r19_skipped} R19]"
-                    self.log(msg)
+                    self.log(f"    [{tag}] Page {page}/{total_pages}: {len(tag_novels)} novel(s) collected")
 
-                    # Check if more pages
                     if page * rows >= total_cnt or len(novel_list) < rows:
                         break
 
@@ -566,32 +564,68 @@ img { max-width: 100%; height: auto; }
                     break
 
             self.log(f"  [{tag}] Finished: {len(tag_novels)} novel(s)")
-            tag_results.append(tag_novels)
+            return tag_novels
 
-            # Delay between tags
-            if delay > 0 and tag != tags[-1]:
-                time.sleep(delay)
+        if mode == "AND" and len(tags) > 1:
+            # AND mode: probe page 1 of each tag to get counts, sort smallest first
+            tag_counts = {}
+            for tag in tags:
+                if self.stop_signal:
+                    break
+                try:
+                    response = self.auth.session.get(url, params=_build_params(tag, 1), headers=headers, timeout=15)
+                    data = response.json()
+                    cnt = data.get("total_cnt", 0) if data.get("status") == 200 else 0
+                    tag_counts[tag] = cnt
+                    self.log(f"  [{tag}] {cnt} result(s) — probed")
+                except Exception:
+                    tag_counts[tag] = 999999
 
-        # Combine results based on mode
-        if not tag_results:
-            self.log("Tag search complete: 0 novel(s) found.")
-            return []
+                if delay > 0:
+                    time.sleep(delay)
 
-        if mode == "AND" and len(tag_results) > 1:
-            # Intersection: only keep IDs that appear in ALL tag results
-            common_ids = set(tag_results[0].keys())
-            for tr in tag_results[1:]:
-                common_ids &= set(tr.keys())
-            # Use title from first tag result
-            novels = [(nid, tag_results[0].get(nid, "")) for nid in common_ids]
-            self.log(f"  AND intersection: {len(novels)} novel(s) match all {len(tags)} tag(s)")
+            # Sort tags by count ascending (search smallest first)
+            sorted_tags = sorted(tags, key=lambda t: tag_counts.get(t, 999999))
+            self.log(f"  Search order (smallest first): {', '.join(f'{t}({tag_counts.get(t,0)})' for t in sorted_tags)}")
+
+            # Fetch all from smallest tag first (keep titles)
+            common_ids = None
+            titles = {}
+            for tag in sorted_tags:
+                if self.stop_signal:
+                    break
+                tag_novels = _fetch_all_pages(tag)
+                tag_ids = set(tag_novels.keys())
+
+                if common_ids is None:
+                    common_ids = tag_ids
+                    titles = {nid: info["title"] for nid, info in tag_novels.items()}
+                else:
+                    common_ids &= tag_ids
+
+                self.log(f"  Running intersection: {len(common_ids)} novel(s)")
+
+                if not common_ids:
+                    self.log("  Intersection is empty — stopping early")
+                    break
+
+                if delay > 0 and tag != sorted_tags[-1]:
+                    time.sleep(delay)
+
+            novels = [(nid, titles.get(nid, "")) for nid in (common_ids or set())]
+            self.log(f"  AND result: {len(novels)} novel(s) match all {len(tags)} tag(s)")
         else:
-            # Union: combine all unique IDs
+            # OR mode (or single tag): union of all results
             merged = {}
-            for tr in tag_results:
-                for nid, title in tr.items():
+            for tag in tags:
+                if self.stop_signal:
+                    break
+                tag_novels = _fetch_all_pages(tag)
+                for nid, info in tag_novels.items():
                     if nid not in merged:
-                        merged[nid] = title
+                        merged[nid] = info["title"]
+                if delay > 0 and tag != tags[-1]:
+                    time.sleep(delay)
             novels = list(merged.items())
 
         self.log(f"Tag search complete: {len(novels)} novel(s) found.")

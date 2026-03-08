@@ -1108,7 +1108,6 @@ class NovelpiaGUI(tk.Tk):
                 return
             btn_go.config(state="disabled")
             result_label.config(text="Searching...")
-            top.iconify()  # Minimize tag dialog on retrieve
             self._tag_mode = mode_var.get()
             self._tag_exclude_r19 = exclude_r19_var.get()
             threading.Thread(
@@ -1139,6 +1138,7 @@ class NovelpiaGUI(tk.Tk):
             self.after(0, lambda: btn_go.config(state="normal"))
             self.after(0, lambda: self.btn_download.config(state="normal"))
             self.after(0, lambda: self.btn_stop.pack_forget())
+
             self._is_downloading = False
             return
 
