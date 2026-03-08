@@ -504,10 +504,9 @@ img { max-width: 100%; height: auto; }
             }
 
         def _fetch_all_pages(tag, filter_ids=None):
-            """Fetch all novels for a tag. If filter_ids is set, only keep those IDs."""
-            tag_novels = {}
+            """Fetch all novel IDs for a tag. Returns a set of ID strings."""
+            ids = set()
             page = 1
-            tag_total = 0
             while not self.stop_signal:
                 try:
                     response = self.auth.session.get(url, params=_build_params(tag, page), headers=headers, timeout=15)
@@ -522,7 +521,6 @@ img { max-width: 100%; height: auto; }
                     novel_list = data.get("list", [])
 
                     if page == 1:
-                        tag_total = total_cnt
                         self.log(f"  [{tag}] {total_cnt} result(s) found")
 
                     if not novel_list:
@@ -530,27 +528,24 @@ img { max-width: 100%; height: auto; }
 
                     for novel in novel_list:
                         novel_id = str(novel.get("novel_no", ""))
-                        if not novel_id or novel_id in tag_novels:
+                        if not novel_id or novel_id in ids:
                             continue
-                        # If filtering, skip IDs not in the filter set
                         if filter_ids is not None and novel_id not in filter_ids:
                             continue
-                        # R19 exclusion (client-side fallback)
                         if exclude_r19:
                             age = novel.get("novel_age", 0)
                             if age == 19 or str(age) == "19":
                                 continue
-                            genre_list = novel.get("novel_genre_arr", []) or []
-                            if "19금" in genre_list:
+                            if "19금" in (novel.get("novel_genre_arr") or []):
                                 continue
-                        genre_arr = novel.get("novel_genre_arr", []) or []
-                        tag_novels[novel_id] = {
-                            "title": novel.get("novel_name", ""),
-                            "genres": genre_arr,
-                        }
+                        ids.add(novel_id)
 
                     total_pages = (total_cnt + rows - 1) // rows
-                    self.log(f"    [{tag}] Page {page}/{total_pages}: {len(tag_novels)} novel(s) collected")
+                    self.log(f"    [{tag}] Page {page}/{total_pages}: {len(ids)} novel(s) collected")
+
+                    if filter_ids is not None and ids == filter_ids:
+                        self.log(f"    [{tag}] All {len(filter_ids)} target IDs found — stopping early")
+                        break
 
                     if page * rows >= total_cnt or len(novel_list) < rows:
                         break
@@ -563,11 +558,10 @@ img { max-width: 100%; height: auto; }
                     self.log(f"  [{tag}] Error on page {page}: {e}")
                     break
 
-            self.log(f"  [{tag}] Finished: {len(tag_novels)} novel(s)")
-            return tag_novels
+            self.log(f"  [{tag}] Finished: {len(ids)} novel(s)")
+            return ids
 
         if mode == "AND" and len(tags) > 1:
-            # AND mode: probe page 1 of each tag to get counts, sort smallest first
             tag_counts = {}
             for tag in tags:
                 if self.stop_signal:
@@ -580,53 +574,37 @@ img { max-width: 100%; height: auto; }
                     self.log(f"  [{tag}] {cnt} result(s) — probed")
                 except Exception:
                     tag_counts[tag] = 999999
-
                 if delay > 0:
                     time.sleep(delay)
 
-            # Sort tags by count ascending (search smallest first)
             sorted_tags = sorted(tags, key=lambda t: tag_counts.get(t, 999999))
             self.log(f"  Search order (smallest first): {', '.join(f'{t}({tag_counts.get(t,0)})' for t in sorted_tags)}")
 
-            # Fetch all from smallest tag first (keep titles)
             common_ids = None
-            titles = {}
             for tag in sorted_tags:
                 if self.stop_signal:
                     break
-                tag_novels = _fetch_all_pages(tag)
-                tag_ids = set(tag_novels.keys())
-
-                if common_ids is None:
-                    common_ids = tag_ids
-                    titles = {nid: info["title"] for nid, info in tag_novels.items()}
-                else:
-                    common_ids &= tag_ids
-
+                tag_ids = _fetch_all_pages(tag, filter_ids=common_ids)
+                common_ids = tag_ids if common_ids is None else (common_ids & tag_ids)
                 self.log(f"  Running intersection: {len(common_ids)} novel(s)")
-
                 if not common_ids:
                     self.log("  Intersection is empty — stopping early")
                     break
-
                 if delay > 0 and tag != sorted_tags[-1]:
                     time.sleep(delay)
 
-            novels = [(nid, titles.get(nid, "")) for nid in (common_ids or set())]
-            self.log(f"  AND result: {len(novels)} novel(s) match all {len(tags)} tag(s)")
+            result_ids = list(common_ids or set())
+            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s)")
         else:
-            # OR mode (or single tag): union of all results
-            merged = {}
+            all_ids = set()
             for tag in tags:
                 if self.stop_signal:
                     break
-                tag_novels = _fetch_all_pages(tag)
-                for nid, info in tag_novels.items():
-                    if nid not in merged:
-                        merged[nid] = info["title"]
+                tag_ids = _fetch_all_pages(tag)
+                all_ids |= tag_ids
                 if delay > 0 and tag != tags[-1]:
                     time.sleep(delay)
-            novels = list(merged.items())
+            result_ids = list(all_ids)
 
-        self.log(f"Tag search complete: {len(novels)} novel(s) found.")
-        return novels
+        self.log(f"Tag search complete: {len(result_ids)} novel(s) found.")
+        return result_ids
