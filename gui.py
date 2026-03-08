@@ -1103,6 +1103,27 @@ class NovelpiaGUI(tk.Tk):
         age_combo.bind("<<ComboboxSelected>>", on_age_change)
         on_age_change()  # Apply initial state
 
+        # Scrape all toggle
+        scrape_all_var = tk.BooleanVar(value=False)
+        tag_filter_widgets = []  # widgets to disable when scrape-all is on
+
+        def on_scrape_all_toggle():
+            state = "disabled" if scrape_all_var.get() else "normal"
+            for w in tag_filter_widgets:
+                try:
+                    w.config(state=state)
+                except Exception:
+                    pass
+
+        scrape_all_cb = ttk.Checkbutton(opts_frame, text="Scrape all novels",
+                                         variable=scrape_all_var, command=on_scrape_all_toggle)
+        scrape_all_cb.pack(side="left", padx=(15, 0))
+
+        # Collect widgets to disable when scrape-all is on
+        for w in tag_widgets.values():
+            tag_filter_widgets.append(w)
+        tag_filter_widgets.append(custom_frame.winfo_children()[-1])  # Entry widget
+
         # Result display
         result_frame = ttk.Frame(main_f)
         result_frame.pack(fill="x", pady=(5, 0))
@@ -1114,6 +1135,17 @@ class NovelpiaGUI(tk.Tk):
         btn_frame.pack(fill="x", pady=(10, 0))
 
         def do_retrieve():
+            if scrape_all_var.get():
+                btn_go.config(state="disabled")
+                result_label.config(text="Scraping all novels...")
+                self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
+                threading.Thread(
+                    target=self._tag_retrieval_worker,
+                    args=(None, AGE_MAP.get(age_var.get(), ""), None, result_label, btn_go, top),
+                    daemon=True
+                ).start()
+                return
+
             selected = [tag for tag, var in tag_vars.items() if var.get()]
             custom = [t.strip() for t in custom_var.get().split(",") if t.strip()]
             all_tags = selected + custom
@@ -1143,9 +1175,13 @@ class NovelpiaGUI(tk.Tk):
         self.after(0, lambda: self.btn_stop.pack(pady=5, ipady=5))
         self._is_downloading = True
 
-        delay = max(0.0, self.var_interval.get())
         try:
-            novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, age_filter=age_filter, mode=mode)
+            delay = max(0.0, self.var_interval.get())
+            if tags is None:
+                # Scrape all novels mode
+                novels = self.downloader.fetch_all_novels(delay=delay, age_filter=age_filter)
+            else:
+                novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, age_filter=age_filter, mode=mode)
         except Exception as e:
             self.log_message(f"Tag retrieval failed: {e}")
             self.after(0, lambda: result_label.config(text=f"Error: {e}"))
@@ -1168,12 +1204,15 @@ class NovelpiaGUI(tk.Tk):
         if count == 0:
             return
 
-        # Save as batch file — use English translations for Korean tags, keep ASCII tags as-is
-        tag_to_en = {kr: en for kr, en in self.COMMON_TAGS}
-        tag_label = "+".join(
-            t if t.isascii() else tag_to_en.get(t, t).replace(" ", "_")
-            for t in tags
-        )
+        # Save as batch file
+        if tags is None:
+            tag_label = "all_novels"
+        else:
+            tag_to_en = {kr: en for kr, en in self.COMMON_TAGS}
+            tag_label = "+".join(
+                t if t.isascii() else tag_to_en.get(t, t).replace(" ", "_")
+                for t in tags
+            )
         if self.var_quick_enable.get() and self.var_quick_path.get():
             # Auto-save to quick path directory
             save_path = os.path.join(self.var_quick_path.get(), f"tag_{tag_label}.txt")

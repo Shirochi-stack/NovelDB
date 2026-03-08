@@ -451,6 +451,86 @@ img { max-width: 100%; height: auto; }
         HTML(string=html_doc).write_pdf(output_path)
         self.log("PDF generation complete.")
 
+    def fetch_all_novels(self, delay=0.5, rows=30, age_filter=""):
+        """Fetch ALL novel IDs from Novelpia by searching with a broad character.
+
+        Returns:
+            list of novel ID strings
+        """
+        url = "https://novelpia.com/proc/novel"
+        headers = {
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://novelpia.com/search",
+        }
+
+        self.log("Scraping all novel IDs from Novelpia...")
+        if age_filter == "15":
+            self.log("  Age filter: Non-adult only")
+        elif age_filter == "19":
+            self.log("  Age filter: Adult only")
+
+        ids = set()
+        page = 1
+        while not self.stop_signal:
+            try:
+                response = self.auth.session.get(url, params={
+                    "cmd": "novel_search",
+                    "search_type": "all",
+                    "search_val": "타",
+                    "page": page,
+                    "rows": rows,
+                    "novel_type": "",
+                    "start_count_book": "",
+                    "end_count_book": "",
+                    "novel_age": age_filter,
+                    "start_days": "",
+                    "sort_col": "last_viewdate",
+                    "novel_genre": "",
+                    "block_out": 0,
+                    "block_stop": 0,
+                    "is_contest": 0,
+                    "is_complete": "",
+                    "is_challenge": 0,
+                    "list_display": "grid",
+                }, headers=headers, timeout=15)
+                data = response.json()
+
+                if data.get("status") != 200:
+                    if page == 1:
+                        self.log(f"  API error: {data.get('errmsg', 'Unknown')}")
+                    break
+
+                total_cnt = data.get("total_cnt", 0)
+                novel_list = data.get("list", [])
+
+                if page == 1:
+                    self.log(f"  {total_cnt} total novel(s) found")
+
+                if not novel_list:
+                    break
+
+                for novel in novel_list:
+                    novel_id = str(novel.get("novel_no", ""))
+                    if novel_id:
+                        ids.add(novel_id)
+
+                total_pages = (total_cnt + rows - 1) // rows
+                self.log(f"  Page {page}/{total_pages}: {len(ids)} novel(s) collected")
+
+                if page * rows >= total_cnt or len(novel_list) < rows:
+                    break
+
+                page += 1
+                if delay > 0:
+                    time.sleep(delay)
+
+            except Exception as e:
+                self.log(f"  Error on page {page}: {e}")
+                break
+
+        self.log(f"Scrape complete: {len(ids)} novel(s) found.")
+        return list(ids)
+
     def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, age_filter="", mode="AND"):
         """Fetch novel IDs from Novelpia's tag search API.
 
