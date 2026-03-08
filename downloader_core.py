@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import threading
 import html
 import base64
 from concurrent.futures import ThreadPoolExecutor
@@ -452,7 +453,7 @@ img { max-width: 100%; height: auto; }
         self.log("PDF generation complete.")
 
     def fetch_all_novels(self, delay=0.5, rows=30, age_filter=""):
-        """Fetch ALL novel IDs from Novelpia by searching with a broad character.
+        """Fetch ALL novel IDs from Novelpia in a single API call.
 
         Returns:
             list of novel ID strings
@@ -469,16 +470,21 @@ img { max-width: 100%; height: auto; }
         elif age_filter == "19":
             self.log("  Age filter: Adult only")
 
-        ids = set()
-        page = 1
-        while not self.stop_signal:
+        try:
+            done = threading.Event()
+            def _tick():
+                start = time.time()
+                while not done.wait(3):
+                    self.log(f"    {int(time.time() - start)}s elapsed...")
+            t = threading.Thread(target=_tick, daemon=True)
+            t.start()
             try:
                 response = self.auth.session.get(url, params={
                     "cmd": "novel_search",
                     "search_type": "all",
                     "search_val": "타",
-                    "page": page,
-                    "rows": rows,
+                    "page": 1,
+                    "rows": 50000,
                     "novel_type": "",
                     "start_count_book": "",
                     "end_count_book": "",
@@ -492,43 +498,27 @@ img { max-width: 100%; height: auto; }
                     "is_complete": "",
                     "is_challenge": 0,
                     "list_display": "grid",
-                }, headers=headers, timeout=15)
-                data = response.json()
+                }, headers=headers, timeout=60)
+            finally:
+                done.set()
+            data = response.json()
 
-                if data.get("status") != 200:
-                    if page == 1:
-                        self.log(f"  API error: {data.get('errmsg', 'Unknown')}")
-                    break
+            if data.get("status") != 200:
+                self.log(f"  API error: {data.get('errmsg', 'Unknown')}")
+                return []
 
-                total_cnt = data.get("total_cnt", 0)
-                novel_list = data.get("list", [])
+            novel_list = data.get("list", [])
+            ids = set()
+            for novel in novel_list:
+                novel_id = str(novel.get("novel_no", ""))
+                if novel_id:
+                    ids.add(novel_id)
 
-                if page == 1:
-                    self.log(f"  {total_cnt} total novel(s) found")
+            self.log(f"  {len(ids)} novel(s) retrieved in single request")
+        except Exception as e:
+            self.log(f"  Error: {e}")
+            return []
 
-                if not novel_list:
-                    break
-
-                for novel in novel_list:
-                    novel_id = str(novel.get("novel_no", ""))
-                    if novel_id:
-                        ids.add(novel_id)
-
-                total_pages = (total_cnt + rows - 1) // rows
-                self.log(f"  Page {page}/{total_pages}: {len(ids)} novel(s) collected")
-
-                if page * rows >= total_cnt or len(novel_list) < rows:
-                    break
-
-                page += 1
-                if delay > 0:
-                    time.sleep(delay)
-
-            except Exception as e:
-                self.log(f"  Error on page {page}: {e}")
-                break
-
-        self.log(f"Scrape complete: {len(ids)} novel(s) found.")
         return list(ids)
 
     def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, age_filter="", mode="AND"):
@@ -560,14 +550,30 @@ img { max-width: 100%; height: auto; }
             self.log("  Age filter: Non-adult only")
         elif age_filter == "19":
             self.log("  Age filter: Adult only")
+        def _timed_get(label, **kwargs):
+            """session.get with elapsed-time logging every 3s."""
+            done = threading.Event()
+            def _tick():
+                start = time.time()
+                while not done.wait(3):
+                    self.log(f"    {int(time.time() - start)}s elapsed...")
+            t = threading.Thread(target=_tick, daemon=True)
+            t.start()
+            try:
+                return self.auth.session.get(**kwargs)
+            finally:
+                done.set()
 
-        def _build_params(tag, page, genre_filter=""):
-            return {
+        def _fetch_tag(tag, genre_filter="", include_genres=False):
+            """Fetch all novel IDs for a tag in a single API call.
+            If include_genres=True, returns (set_of_ids, {id: genre_list}).
+            Otherwise returns set_of_ids."""
+            params = {
                 "cmd": "novel_search",
                 "search_type": "novel_genre",
                 "search_val": tag,
-                "page": page,
-                "rows": rows,
+                "page": 1,
+                "rows": 50000,
                 "novel_type": "",
                 "start_count_book": "",
                 "end_count_book": "",
@@ -582,162 +588,47 @@ img { max-width: 100%; height: auto; }
                 "is_challenge": 0,
                 "list_display": "grid",
             }
+            label = f"{tag}{' ∩ ' + genre_filter if genre_filter else ''}"
+            response = _timed_get(label, url=url, params=params, headers=headers, timeout=60)
+            data = response.json()
 
-        def _fetch_all_pages(tag, filter_ids=None, include_genres=False, genre_filter=""):
-            """Fetch all novel IDs for a tag. Returns a set of ID strings.
-            If include_genres=True, also returns {id: genre_list} dict."""
+            if data.get("status") != 200:
+                self.log(f"  [{tag}] API error: {data.get('errmsg', 'Unknown')}")
+                return (set(), {}) if include_genres else set()
+
+            novel_list = data.get("list", [])
             ids = set()
-            genres_map = {} if include_genres else None
-            page = 1
-            while not self.stop_signal:
-                try:
-                    response = self.auth.session.get(url, params=_build_params(tag, page, genre_filter), headers=headers, timeout=15)
-                    data = response.json()
+            genres_map = {}
+            for novel in novel_list:
+                novel_id = str(novel.get("novel_no", ""))
+                if novel_id:
+                    ids.add(novel_id)
+                    if include_genres:
+                        genres_map[novel_id] = novel.get("novel_genre_arr") or []
 
-                    if data.get("status") != 200:
-                        if page == 1:
-                            self.log(f"  [{tag}] API error: {data.get('errmsg', 'Unknown')}")
-                        break
-
-                    total_cnt = data.get("total_cnt", 0)
-                    novel_list = data.get("list", [])
-
-                    if page == 1:
-                        self.log(f"  [{tag}] {total_cnt} result(s) found")
-
-                    if not novel_list:
-                        break
-
-                    for novel in novel_list:
-                        novel_id = str(novel.get("novel_no", ""))
-                        if not novel_id or novel_id in ids:
-                            continue
-                        if filter_ids is not None and novel_id not in filter_ids:
-                            continue
-                        ids.add(novel_id)
-                        if include_genres:
-                            genres_map[novel_id] = novel.get("novel_genre_arr") or []
-
-                    total_pages = (total_cnt + rows - 1) // rows
-                    self.log(f"    [{tag}] Page {page}/{total_pages}: {len(ids)} novel(s) collected")
-
-                    if filter_ids is not None and ids == filter_ids:
-                        self.log(f"    [{tag}] All {len(filter_ids)} target IDs found — stopping early")
-                        break
-
-                    if page * rows >= total_cnt or len(novel_list) < rows:
-                        break
-
-                    page += 1
-                    if delay > 0:
-                        time.sleep(delay)
-
-                except Exception as e:
-                    self.log(f"  [{tag}] Error on page {page}: {e}")
-                    break
-
-            self.log(f"  [{tag}] Finished: {len(ids)} novel(s)")
+            self.log(f"  [{tag}{' ∩ ' + genre_filter if genre_filter else ''}] {len(ids)} novel(s)")
             if include_genres:
                 return ids, genres_map
             return ids
 
         if mode == "AND" and len(tags) > 1:
-            # Probe page 1 of each tag to get counts
-            tag_counts = {}
+            # Fetch each tag (1 call each), intersect locally
+            result_set = None
             for tag in tags:
                 if self.stop_signal:
                     break
-                try:
-                    response = self.auth.session.get(url, params=_build_params(tag, 1), headers=headers, timeout=15)
-                    data = response.json()
-                    cnt = data.get("total_cnt", 0) if data.get("status") == 200 else 0
-                    tag_counts[tag] = cnt
-                    self.log(f"  [{tag}] {cnt} result(s) — probed")
-                except Exception:
-                    tag_counts[tag] = 999999
-                if delay > 0:
+                tag_ids = _fetch_tag(tag)
+                result_set = tag_ids if result_set is None else result_set & tag_ids
+                if delay > 0 and tag != tags[-1]:
                     time.sleep(delay)
-
-            sorted_tags = sorted(tags, key=lambda t: tag_counts.get(t, 999999))
-
-            # Probe pairs to find the smallest server-side combination
-            best_pair = None
-            best_cnt = float('inf')
-            for i, t1 in enumerate(sorted_tags):
-                for t2 in sorted_tags[i+1:]:
-                    if self.stop_signal:
-                        break
-                    try:
-                        resp = self.auth.session.get(url, params=_build_params(t1, 1, genre_filter=t2), headers=headers, timeout=15)
-                        d = resp.json()
-                        cnt = d.get("total_cnt", 999999) if d.get("status") == 200 else 999999
-                        self.log(f"  Pair {t1} ∩ {t2}: {cnt}")
-                        if cnt < best_cnt:
-                            best_cnt = cnt
-                            best_pair = (t1, t2)
-                    except Exception:
-                        pass
-                    if delay > 0:
-                        time.sleep(delay)
-
-            primary, secondary = best_pair
-            remaining = set(tags) - {primary, secondary}
-            self.log(f"  Best pair: {primary} ∩ {secondary} = {best_cnt}")
-            if remaining:
-                self.log(f"  Then verify: {', '.join(remaining)}")
-
-            # Fetch with server-side 2-tag filter (always include genres for verification)
-            base_ids, genres_map = _fetch_all_pages(primary, include_genres=True, genre_filter=secondary)
-
-            # Stage 1: Pre-filter remaining tags via genre_arr (local)
-            if remaining:
-                candidates = []
-                for nid in base_ids:
-                    genres = set(genres_map.get(nid, []))
-                    if remaining.issubset(genres):
-                        candidates.append(nid)
-                self.log(f"  Pre-filter: {len(candidates)} candidate(s) from {len(base_ids)} (genre_arr match for {', '.join(remaining)})")
-            else:
-                candidates = list(base_ids)
-
-            if not candidates:
-                result_ids = []
-            else:
-                # Stage 2: Verify candidates by scraping actual novel page tags
-                all_other = set(tags) - {primary}
-                result_ids = []
-                for i, nid in enumerate(candidates):
-                    if self.stop_signal:
-                        break
-                    try:
-                        page_resp = self.auth.session.get(
-                            f"https://novelpia.com/novel/{nid}",
-                            headers={"Cookie": f"LOGINKEY={self.auth.loginkey};"},
-                            timeout=15,
-                        )
-                        page_tags = set()
-                        for m in re.findall(r'<span class="tag".*?>(#.+?)</span>', page_resp.text):
-                            page_tags.add(html.unescape(m.lstrip('#').strip()))
-
-                        if all_other.issubset(page_tags):
-                            result_ids.append(nid)
-                            self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: ✓ verified")
-                        else:
-                            missing = all_other - page_tags
-                            self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: ✗ missing: {', '.join(missing)}")
-                    except Exception as e:
-                        self.log(f"    [{i+1}/{len(candidates)}] Novel {nid}: error — {e}")
-
-                    if delay > 0:
-                        time.sleep(delay)
-
-            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s)")
+            result_ids = list(result_set or set())
+            self.log(f"  AND intersection: {len(result_ids)} novel(s) match all {len(tags)} tag(s)")
         else:
             all_ids = set()
             for tag in tags:
                 if self.stop_signal:
                     break
-                tag_ids = _fetch_all_pages(tag)
+                tag_ids = _fetch_tag(tag)
                 all_ids |= tag_ids
                 if delay > 0 and tag != tags[-1]:
                     time.sleep(delay)
