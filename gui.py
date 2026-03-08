@@ -813,7 +813,8 @@ class NovelpiaGUI(tk.Tk):
         # Batch Download Button (Bottom Right of DL frame)
         batch_btn_frame = ttk.Frame(dl_inner)
         batch_btn_frame.grid(row=8, column=0, columnspan=3, sticky="e", pady=10)
-        ttk.Button(batch_btn_frame, text="Tag Retrieval", command=self.action_tag_retrieval).pack(side="left", padx=(0, 5))
+        self.btn_tag_retrieval = ttk.Button(batch_btn_frame, text="Tag Retrieval", command=self.action_tag_retrieval)
+        self.btn_tag_retrieval.pack(side="left", padx=(0, 5))
         ttk.Button(batch_btn_frame, text="Batch Download", command=self.action_batch_download).pack(side="left")
 
         # Big Buttons (Right side of DL Frame)
@@ -1247,9 +1248,11 @@ class NovelpiaGUI(tk.Tk):
             self._stop_requested = False
             self.downloader.stop_signal = False
             self.btn_download.config(state="disabled")
+            self.btn_tag_retrieval.config(state="disabled")
             self.btn_stop.pack(pady=5, ipady=5)
         else:
             self.btn_download.config(state="normal")
+            self.btn_tag_retrieval.config(state="normal")
             self.btn_stop.pack_forget()
 
     def action_download(self):
