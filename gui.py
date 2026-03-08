@@ -1168,8 +1168,12 @@ class NovelpiaGUI(tk.Tk):
         if count == 0:
             return
 
-        # Save as batch file
-        tag_label = "+".join(tags)
+        # Save as batch file — use English translations for Korean tags, keep ASCII tags as-is
+        tag_to_en = {kr: en for kr, en in self.COMMON_TAGS}
+        tag_label = "+".join(
+            t if t.isascii() else tag_to_en.get(t, t).replace(" ", "_")
+            for t in tags
+        )
         if self.var_quick_enable.get() and self.var_quick_path.get():
             # Auto-save to quick path directory
             save_path = os.path.join(self.var_quick_path.get(), f"tag_{tag_label}.txt")
