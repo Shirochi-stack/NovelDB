@@ -55,6 +55,7 @@
     let allNovels = [];
     let filtered = [];
     let activeTags = new Set();
+    let excludeTags = new Set();
     let tagMode = "AND";
     let displayCount = 32;
     let BATCH = 32;
@@ -65,6 +66,7 @@
     const sortSelect = $("#sortSelect");
     const orderSelect = $("#orderSelect");
     const tagContainer = $("#tagContainer");
+    const excludeTagContainer = $("#excludeTagContainer");
     const resultsEl = $("#results");
     const resultCount = $("#resultCount");
     const loadMoreWrap = $("#loadMore");
@@ -72,7 +74,9 @@
     const tagModeAnd = $("#tagModeAnd");
     const tagModeOr = $("#tagModeOr");
     const clearTagsBtn = $("#clearTags");
+    const clearExcludeBtn = $("#clearExclude");
     const batchSelect = $("#batchSelect");
+    const statusSelect = $("#statusSelect");
 
     // === Format numbers ===
     function fmt(n) {
@@ -94,7 +98,9 @@
             .slice(0, 80);
 
         tagContainer.innerHTML = "";
+        excludeTagContainer.innerHTML = "";
         for (const [tag, count] of sorted) {
+            // Include chip
             const chip = document.createElement("span");
             chip.className = "tag-chip";
             chip.textContent = `${tl(tag)} (${fmt(count)})`;
@@ -102,6 +108,15 @@
             chip.dataset.tag = tag;
             chip.addEventListener("click", () => toggleTag(tag, chip));
             tagContainer.appendChild(chip);
+
+            // Exclude chip
+            const echip = document.createElement("span");
+            echip.className = "tag-chip";
+            echip.textContent = `${tl(tag)} (${fmt(count)})`;
+            echip.title = tag;
+            echip.dataset.tag = tag;
+            echip.addEventListener("click", () => toggleExcludeTag(tag, echip));
+            excludeTagContainer.appendChild(echip);
         }
     }
 
@@ -113,6 +128,28 @@
             activeTags.add(tag);
             chip.classList.add("active");
         }
+        applyFilters();
+    }
+
+    function toggleExcludeTag(tag, chip) {
+        if (excludeTags.has(tag)) {
+            excludeTags.delete(tag);
+            chip.classList.remove("excluded");
+        } else {
+            excludeTags.add(tag);
+            chip.classList.add("excluded");
+        }
+        applyFilters();
+    }
+
+    // Add a tag to include filter (from card click)
+    function addIncludeTag(tag) {
+        if (activeTags.has(tag)) return;
+        activeTags.add(tag);
+        // Highlight the chip in the tag grid
+        tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+            if (c.dataset.tag === tag) c.classList.add("active");
+        });
         applyFilters();
     }
 
@@ -131,7 +168,12 @@
                 if (!inTitle && !inAuthor && !inId) return false;
             }
 
-            // Tag filter
+            // Status filter
+            const status = statusSelect.value;
+            if (status === "complete" && !n.complete) return false;
+            if (status === "ongoing" && n.complete) return false;
+
+            // Tag filter (include)
             if (activeTags.size > 0) {
                 const novelTags = new Set(n.tags);
                 if (tagMode === "AND") {
@@ -144,6 +186,13 @@
                         if (novelTags.has(t)) { match = true; break; }
                     }
                     if (!match) return false;
+                }
+            }
+
+            // Tag filter (exclude)
+            if (excludeTags.size > 0) {
+                for (const t of excludeTags) {
+                    if (n.tags.includes(t)) return false;
                 }
             }
 
@@ -192,7 +241,7 @@
 
         const tagsHTML = n.tags
             .slice(0, 6)
-            .map((t) => `<span class="card-tag" title="${escHtml(t)}">${escHtml(tl(t))}</span>`)
+            .map((t) => `<span class="card-tag" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
         card.innerHTML = `
@@ -211,6 +260,16 @@
                 </div>
             </div>
         `;
+
+        // Make card tags clickable (add to include filter)
+        card.querySelectorAll(".card-tag").forEach((tagEl) => {
+            tagEl.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                addIncludeTag(tagEl.dataset.tag);
+            });
+        });
+
         return card;
     }
 
@@ -245,6 +304,7 @@
 
     sortSelect.addEventListener("change", applyFilters);
     orderSelect.addEventListener("change", applyFilters);
+    statusSelect.addEventListener("change", applyFilters);
 
     batchSelect.addEventListener("change", () => {
         BATCH = parseInt(batchSelect.value);
@@ -274,6 +334,12 @@
     clearTagsBtn.addEventListener("click", () => {
         activeTags.clear();
         tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+        applyFilters();
+    });
+
+    clearExcludeBtn.addEventListener("click", () => {
+        excludeTags.clear();
+        excludeTagContainer.querySelectorAll(".tag-chip.excluded").forEach((c) => c.classList.remove("excluded"));
         applyFilters();
     });
 

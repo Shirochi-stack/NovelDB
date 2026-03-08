@@ -53,6 +53,14 @@
                         <option value="256">256</option>
                     </select>
                 </div>
+                <div class="control-group">
+                    <label>Status</label>
+                    <select id="statusSelect">
+                        <option value="all">All</option>
+                        <option value="ongoing">Ongoing</option>
+                        <option value="complete">Complete</option>
+                    </select>
+                </div>
             </div>
 
             <!-- Tag Filters -->
@@ -66,6 +74,15 @@
                     <button id="clearTags" class="clear-btn">Clear</button>
                 </div>
                 <div id="tagContainer" class="tag-grid"></div>
+            </div>
+
+            <!-- Exclude Tag Filters -->
+            <div class="tag-section exclude-section">
+                <div class="tag-header">
+                    <span>Exclude tags</span>
+                    <button id="clearExclude" class="clear-btn">Clear</button>
+                </div>
+                <div id="excludeTagContainer" class="tag-grid"></div>
             </div>
 
             <div class="status-bar">
@@ -82,6 +99,6 @@
         </div>
     </main>
 
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>

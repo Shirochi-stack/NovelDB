@@ -24,6 +24,10 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+html {
+    scroll-behavior: smooth;
+}
+
 body {
     font-family: 'Inter', -apple-system, sans-serif;
     background: var(--bg-primary);
@@ -243,6 +247,22 @@ main {
     box-shadow: 0 0 12px var(--accent-glow);
 }
 
+/* Exclude tags section */
+.exclude-section {
+    border-top-color: rgba(239, 68, 68, 0.15);
+}
+
+.exclude-section .tag-header span {
+    color: #f87171;
+}
+
+.tag-chip.excluded {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.4);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.1);
+}
+
 /* === Status Bar === */
 .status-bar {
     margin-top: 1rem;
@@ -268,6 +288,9 @@ main {
     text-decoration: none;
     color: inherit;
     display: block;
+    will-change: transform;
+    content-visibility: auto;
+    contain-intrinsic-size: 0 450px;
 }
 
 .novel-card:hover {
@@ -282,6 +305,7 @@ main {
     object-fit: cover;
     background: var(--bg-input);
     display: block;
+    min-height: 200px;
 }
 
 .card-cover.no-img {
@@ -330,6 +354,15 @@ main {
     border-radius: 12px;
     font-size: 0.7rem;
     color: var(--tag-text);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    border: 1px solid transparent;
+}
+
+.card-tag:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent-hover);
 }
 
 .card-stats {
