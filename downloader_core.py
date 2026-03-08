@@ -453,7 +453,10 @@ img { max-width: 100%; height: auto; }
         self.log("PDF generation complete.")
 
     def fetch_all_novels(self, delay=0.5, rows=30, age_filter=""):
-        """Fetch ALL novel IDs from Novelpia in a single API call.
+        """Fetch ALL novel IDs from Novelpia using multiple API calls.
+
+        The API caps results at ~42K per query, so we search with multiple
+        characters and union the results for better coverage.
 
         Returns:
             list of novel ID strings
@@ -464,61 +467,76 @@ img { max-width: 100%; height: auto; }
             "Referer": "https://novelpia.com/search",
         }
 
+        # Characters chosen for maximum coverage with minimal overlap
+        SEARCH_CHARS = ["타", "아", "다", "라", "사"]
+
         self.log("Scraping all novel IDs from Novelpia...")
         if age_filter == "15":
             self.log("  Age filter: Non-adult only")
         elif age_filter == "19":
             self.log("  Age filter: Adult only")
 
-        try:
-            done = threading.Event()
-            def _tick():
-                start = time.time()
-                while not done.wait(3):
-                    self.log(f"    {int(time.time() - start)}s elapsed...")
-            t = threading.Thread(target=_tick, daemon=True)
-            t.start()
+        ids = set()
+
+        for ci, ch in enumerate(SEARCH_CHARS):
+            self.log(f"  Query {ci+1}/{len(SEARCH_CHARS)}: searching '{ch}'...")
             try:
-                response = self.auth.session.get(url, params={
-                    "cmd": "novel_search",
-                    "search_type": "all",
-                    "search_val": "타",
-                    "page": 1,
-                    "rows": 50000,
-                    "novel_type": "",
-                    "start_count_book": "",
-                    "end_count_book": "",
-                    "novel_age": age_filter,
-                    "start_days": "",
-                    "sort_col": "last_viewdate",
-                    "novel_genre": "",
-                    "block_out": 0,
-                    "block_stop": 0,
-                    "is_contest": 0,
-                    "is_complete": "",
-                    "is_challenge": 0,
-                    "list_display": "grid",
-                }, headers=headers, timeout=60)
-            finally:
-                done.set()
-            data = response.json()
+                done = threading.Event()
+                def _tick():
+                    start = time.time()
+                    while not done.wait(3):
+                        self.log(f"    {int(time.time() - start)}s elapsed...")
+                t = threading.Thread(target=_tick, daemon=True)
+                t.start()
+                try:
+                    response = self.auth.session.get(url, params={
+                        "cmd": "novel_search",
+                        "search_type": "all",
+                        "search_val": ch,
+                        "page": 1,
+                        "rows": 99999,
+                        "novel_type": "",
+                        "start_count_book": "",
+                        "end_count_book": "",
+                        "novel_age": age_filter,
+                        "start_days": "",
+                        "sort_col": "last_viewdate",
+                        "novel_genre": "",
+                        "block_out": 0,
+                        "block_stop": 0,
+                        "is_contest": 0,
+                        "is_complete": "",
+                        "is_challenge": 0,
+                        "list_display": "grid",
+                    }, headers=headers, timeout=120)
+                finally:
+                    done.set()
+                data = response.json()
 
-            if data.get("status") != 200:
-                self.log(f"  API error: {data.get('errmsg', 'Unknown')}")
-                return []
+                if data.get("status") != 200:
+                    self.log(f"    API error: {data.get('errmsg', 'Unknown')}")
+                    continue
 
-            novel_list = data.get("list", [])
-            ids = set()
-            for novel in novel_list:
-                novel_id = str(novel.get("novel_no", ""))
-                if novel_id:
-                    ids.add(novel_id)
+                novel_list = data.get("list", [])
+                before = len(ids)
+                for novel in novel_list:
+                    novel_id = str(novel.get("novel_no", ""))
+                    if novel_id:
+                        ids.add(novel_id)
+                new_count = len(ids) - before
+                self.log(f"    {len(novel_list)} results, {new_count} new (total: {len(ids)})")
 
-            self.log(f"  {len(ids)} novel(s) retrieved in single request")
-        except Exception as e:
-            self.log(f"  Error: {e}")
-            return []
+            except Exception as e:
+                self.log(f"    Error on '{ch}': {e}")
 
+            # Stop early if additional queries add very few new results
+            if ci > 0 and new_count < 10:
+                self.log(f"  Diminishing returns, stopping early.")
+                break
+
+            time.sleep(0.5)
+
+        self.log(f"  {len(ids)} novel(s) retrieved total")
         return list(ids)
 
     def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, age_filter="", mode="AND"):
