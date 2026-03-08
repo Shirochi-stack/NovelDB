@@ -1113,6 +1113,7 @@ class NovelpiaGUI(tk.Tk):
 
         btn_go = ttk.Button(btn_frame, text="Retrieve Novel IDs", command=do_retrieve)
         btn_go.pack(ipadx=20, ipady=8)
+        self._tag_btn_go = btn_go
 
     def _tag_retrieval_worker(self, tags, exclude_r19, mode, result_label, btn_go, dialog):
         """Background worker for tag-based novel ID retrieval."""
@@ -1261,10 +1262,20 @@ class NovelpiaGUI(tk.Tk):
             self.downloader.stop_signal = False
             self.btn_download.config(state="disabled")
             self.btn_tag_retrieval.config(state="disabled")
+            if hasattr(self, '_tag_btn_go') and self._tag_btn_go:
+                try:
+                    self._tag_btn_go.config(state="disabled")
+                except Exception:
+                    pass
             self.btn_stop.pack(pady=5, ipady=5)
         else:
             self.btn_download.config(state="normal")
             self.btn_tag_retrieval.config(state="normal")
+            if hasattr(self, '_tag_btn_go') and self._tag_btn_go:
+                try:
+                    self._tag_btn_go.config(state="normal")
+                except Exception:
+                    pass
             self.btn_stop.pack_forget()
 
     def action_download(self):
