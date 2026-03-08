@@ -846,11 +846,14 @@ class NovelpiaGUI(tk.Tk):
         self.lbl_status = ttk.Label(status_frame, text="Idle")
         self.lbl_status.pack(side="left")
         
-        ttk.Label(status_frame, text="V5.0").pack(side="right")
-        
         # Progress info label: "12/45 (27%) — ETA: 1m 30s"
         self.lbl_progress_info = ttk.Label(status_frame, text="")
         self.lbl_progress_info.pack(side="right", padx=(10, 10))
+        
+        # Image counter label (running total during downloads)
+        self.lbl_img_count = ttk.Label(status_frame, text="")
+        self.lbl_img_count.pack(side="right", padx=(5, 5))
+        self._img_downloaded_count = 0
         
         # Progress bar
         self.progress = ttk.Progressbar(status_frame, mode='determinate')
@@ -888,7 +891,6 @@ class NovelpiaGUI(tk.Tk):
         else:
             pct = 0
             info = ""
-
         def _apply():
             self.progress.configure(value=pct)
             self.lbl_progress_info.config(text=info)
@@ -899,9 +901,11 @@ class NovelpiaGUI(tk.Tk):
         self.progress_value = 0
         self.progress_total = 0
         self._progress_start_time = None
+        self._img_downloaded_count = 0
         def _apply():
             self.progress.configure(value=0)
             self.lbl_progress_info.config(text="")
+            self.lbl_img_count.config(text="")
         self.after(0, _apply)
 
     def open_quick_options(self):
@@ -1561,6 +1565,8 @@ table, th, td {
                                 if imgs:
                                     img_bytes = sum(len(d) for _, d in imgs)
                                     dl_stats.add(len(imgs), img_bytes)
+                                    self._img_downloaded_count += len(imgs)
+                                    self.after(0, lambda c=self._img_downloaded_count: self.lbl_img_count.config(text=f"Images: {c}"))
                                 # Store in cache
                                 if use_cache:
                                     if cache_images:
