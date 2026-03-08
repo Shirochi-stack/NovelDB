@@ -451,30 +451,34 @@ img { max-width: 100%; height: auto; }
         HTML(string=html_doc).write_pdf(output_path)
         self.log("PDF generation complete.")
 
-    def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, exclude_r19=False):
+    def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, exclude_r19=False, mode="AND"):
         """Fetch novel IDs from Novelpia's tag search API.
 
         Uses GET /proc/novel?cmd=novel_search&search_type=novel_genre&search_val={tag}.
-        Each tag is searched separately and results are merged (union).
+        Each tag is searched separately. Results are combined based on mode:
+          AND = intersection (novels must match ALL tags)
+          OR  = union (novels matching ANY tag)
 
         Args:
             tags: list of tag strings (e.g. ["TS", "회귀"])
             delay: seconds between page requests
             rows: results per page (max 30)
             exclude_r19: if True, skip novels with novel_age == 19
+            mode: "AND" or "OR"
 
         Returns:
             list of (novel_id, title) tuples
         """
-        novels = []
-        seen_ids = set()
         url = "https://novelpia.com/proc/novel"
         headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://novelpia.com/search",
         }
 
-        self.log(f"Searching for novels with tags: {', '.join(tags)}")
+        self.log(f"Searching for novels with tags: {', '.join(tags)} (mode: {mode})")
+
+        # Per-tag result sets for AND mode
+        tag_results = []  # list of dict {novel_id: title}
 
         for tag in tags:
             if self.stop_signal:
@@ -482,7 +486,7 @@ img { max-width: 100%; height: auto; }
 
             page = 1
             tag_total = 0
-            tag_found = 0
+            tag_novels = {}  # {novel_id: title} for this tag
 
             while not self.stop_signal:
                 params = {
@@ -531,7 +535,7 @@ img { max-width: 100%; height: auto; }
                         novel_id = str(novel.get("novel_no", ""))
                         title = novel.get("novel_name", "")
 
-                        if not novel_id or novel_id in seen_ids:
+                        if not novel_id or novel_id in tag_novels:
                             continue
 
                         # R19 exclusion: check novel_age field
@@ -541,12 +545,10 @@ img { max-width: 100%; height: auto; }
                                 r19_skipped += 1
                                 continue
 
-                        seen_ids.add(novel_id)
-                        novels.append((novel_id, title))
-                        tag_found += 1
+                        tag_novels[novel_id] = title
 
                     total_pages = (total_cnt + rows - 1) // rows
-                    msg = f"    [{tag}] Page {page}/{total_pages}: {tag_found} novel(s) collected ({len(novels)} total)"
+                    msg = f"    [{tag}] Page {page}/{total_pages}: {len(tag_novels)} novel(s) collected"
                     if r19_skipped > 0:
                         msg += f" [skipped {r19_skipped} R19]"
                     self.log(msg)
@@ -563,11 +565,34 @@ img { max-width: 100%; height: auto; }
                     self.log(f"  [{tag}] Error on page {page}: {e}")
                     break
 
-            self.log(f"  [{tag}] Added {tag_found} new novel(s) ({len(novels)} total)")
+            self.log(f"  [{tag}] Finished: {len(tag_novels)} novel(s)")
+            tag_results.append(tag_novels)
 
             # Delay between tags
             if delay > 0 and tag != tags[-1]:
                 time.sleep(delay)
+
+        # Combine results based on mode
+        if not tag_results:
+            self.log("Tag search complete: 0 novel(s) found.")
+            return []
+
+        if mode == "AND" and len(tag_results) > 1:
+            # Intersection: only keep IDs that appear in ALL tag results
+            common_ids = set(tag_results[0].keys())
+            for tr in tag_results[1:]:
+                common_ids &= set(tr.keys())
+            # Use title from first tag result
+            novels = [(nid, tag_results[0].get(nid, "")) for nid in common_ids]
+            self.log(f"  AND intersection: {len(novels)} novel(s) match all {len(tags)} tag(s)")
+        else:
+            # Union: combine all unique IDs
+            merged = {}
+            for tr in tag_results:
+                for nid, title in tr.items():
+                    if nid not in merged:
+                        merged[nid] = title
+            novels = list(merged.items())
 
         self.log(f"Tag search complete: {len(novels)} novel(s) found.")
         return novels

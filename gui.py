@@ -1004,9 +1004,19 @@ class NovelpiaGUI(tk.Tk):
 
     def action_tag_retrieval(self):
         """Open tag selection dialog and retrieve novel IDs."""
+        # Reuse existing dialog if still open
+        if hasattr(self, '_tag_dialog') and self._tag_dialog and self._tag_dialog.winfo_exists():
+            self._tag_dialog.lift()
+            self._tag_dialog.focus_force()
+            return
+
         top = tk.Toplevel(self)
+        self._tag_dialog = top
         top.title("Novel ID Tag Retrieval")
         top.resizable(True, True)
+
+        # Minimize main window
+        self.iconify()
 
         screen_w = top.winfo_screenwidth()
         screen_h = top.winfo_screenheight()
@@ -1035,12 +1045,13 @@ class NovelpiaGUI(tk.Tk):
         # Create checkbutton vars for each tag
         tag_vars = {}
         cols = 3
+        tag_widgets = {}  # store checkbox widgets for enabling/disabling
         for i, (tag_kr, tag_en) in enumerate(self.COMMON_TAGS):
             var = tk.BooleanVar(value=False)
             tag_vars[tag_kr] = var
-            ttk.Checkbutton(tag_frame, text=f"{tag_kr} ({tag_en})", variable=var).grid(
-                row=i // cols, column=i % cols, sticky="w", padx=5, pady=2
-            )
+            cb = ttk.Checkbutton(tag_frame, text=f"{tag_kr} ({tag_en})", variable=var)
+            cb.grid(row=i // cols, column=i % cols, sticky="w", padx=5, pady=2)
+            tag_widgets[tag_kr] = cb
 
         # Custom tags entry
         custom_frame = ttk.Frame(main_f)
@@ -1049,9 +1060,32 @@ class NovelpiaGUI(tk.Tk):
         custom_var = tk.StringVar()
         ttk.Entry(custom_frame, textvariable=custom_var).pack(side="left", fill="x", expand=True, padx=5)
 
+        # Options row: AND/OR + Exclude R19
+        opts_frame = ttk.Frame(main_f)
+        opts_frame.pack(fill="x", pady=(2, 5))
+
+        # AND / OR radio buttons
+        mode_var = tk.StringVar(value="AND")
+        ttk.Label(opts_frame, text="Mode:").pack(side="left")
+        ttk.Radiobutton(opts_frame, text="AND", variable=mode_var, value="AND").pack(side="left", padx=(5, 2))
+        ttk.Radiobutton(opts_frame, text="OR", variable=mode_var, value="OR").pack(side="left", padx=(2, 15))
+
         # Exclude R19 toggle
         exclude_r19_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(main_f, text="Exclude all R19 (19금)", variable=exclude_r19_var).pack(anchor="w", pady=(2, 5))
+
+        def on_exclude_r19_toggle():
+            if exclude_r19_var.get():
+                # Disable and uncheck the 19금 tag
+                if "19금" in tag_vars:
+                    tag_vars["19금"].set(False)
+                if "19금" in tag_widgets:
+                    tag_widgets["19금"].config(state="disabled")
+            else:
+                if "19금" in tag_widgets:
+                    tag_widgets["19금"].config(state="normal")
+
+        ttk.Checkbutton(opts_frame, text="Exclude all R19 (19금)",
+                        variable=exclude_r19_var, command=on_exclude_r19_toggle).pack(side="left")
 
         # Result display
         result_frame = ttk.Frame(main_f)
@@ -1074,27 +1108,32 @@ class NovelpiaGUI(tk.Tk):
             result_label.config(text="Searching...")
             threading.Thread(
                 target=self._tag_retrieval_worker,
-                args=(all_tags, exclude_r19_var.get(), result_label, btn_go, top),
+                args=(all_tags, exclude_r19_var.get(), mode_var.get(), result_label, btn_go, top),
                 daemon=True
             ).start()
 
         btn_go = ttk.Button(btn_frame, text="Retrieve Novel IDs", command=do_retrieve)
         btn_go.pack(ipadx=20, ipady=8)
 
-    def _tag_retrieval_worker(self, tags, exclude_r19, result_label, btn_go, dialog):
+    def _tag_retrieval_worker(self, tags, exclude_r19, mode, result_label, btn_go, dialog):
         """Background worker for tag-based novel ID retrieval."""
+        self.after(0, lambda: self._set_downloading(True))
         delay = max(0.0, self.var_interval.get())
         try:
-            novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, exclude_r19=exclude_r19)
+            novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, exclude_r19=exclude_r19, mode=mode)
         except Exception as e:
             self.log_message(f"Tag retrieval failed: {e}")
             self.after(0, lambda: result_label.config(text=f"Error: {e}"))
             self.after(0, lambda: btn_go.config(state="normal"))
+            self.after(0, lambda: self._set_downloading(False))
             return
 
         count = len(novels)
-        self.after(0, lambda: result_label.config(text=f"Found {count} novel(s)."))
+        stopped = self.downloader.stop_signal
+        status = f"Found {count} novel(s)." + (" (stopped)" if stopped else "")
+        self.after(0, lambda: result_label.config(text=status))
         self.after(0, lambda: btn_go.config(state="normal"))
+        self.after(0, lambda: self._set_downloading(False))
 
         if count == 0:
             return
