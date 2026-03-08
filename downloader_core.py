@@ -584,13 +584,16 @@ img { max-width: 100%; height: auto; }
         Each tag is searched separately. Results are combined based on mode:
           AND = intersection (novels must match ALL tags) — searches smallest tag first
           OR  = union (novels matching ANY tag)
+          GROUPS = tags is a list of groups (list of lists). Tags within a group
+                   are OR'd, groups are AND'd. e.g. [['TS'], ['약피폐', '피폐']]
+                   means: TS AND (약피폐 OR 피폐)
 
         Args:
-            tags: list of tag strings
+            tags: list of tag strings, or list of lists for GROUPS mode
             delay: seconds between page requests
             rows: results per page (max 30)
             age_filter: "" (all), "15" (non-adult), "19" (adult only)
-            mode: "AND" or "OR"
+            mode: "AND", "OR", or "GROUPS"
 
         Returns:
             list of novel ID strings
@@ -601,7 +604,15 @@ img { max-width: 100%; height: auto; }
             "Referer": "https://novelpia.com/search",
         }
 
-        self.log(f"Searching for novels with tags: {', '.join(tags)} (mode: {mode})")
+        if mode == "GROUPS":
+            groups = tags  # list of lists
+            self.log(f"Searching with {len(groups)} group(s):")
+            for gi, g in enumerate(groups):
+                self.log(f"  Group {gi+1}: {' OR '.join(g)}")
+                if gi < len(groups) - 1:
+                    self.log(f"    AND")
+        else:
+            self.log(f"Searching for novels with tags: {', '.join(tags)} (mode: {mode})")
         if age_filter == "15":
             self.log("  Age filter: Non-adult only")
         elif age_filter == "19":
@@ -667,7 +678,31 @@ img { max-width: 100%; height: auto; }
                 return ids, genres_map
             return ids
 
-        if mode == "AND" and len(tags) > 1:
+        if mode == "GROUPS":
+            # Each group: OR the tags within it. Then AND the groups.
+            result_set = None
+            for gi, group in enumerate(tags):
+                if self.stop_signal:
+                    break
+                # OR within group
+                group_ids = set()
+                for tag in group:
+                    if self.stop_signal:
+                        break
+                    tag_ids = _fetch_tag(tag)
+                    group_ids |= tag_ids
+                    if delay > 0:
+                        time.sleep(delay)
+                self.log(f"  Group {gi+1} result: {len(group_ids)} novel(s)")
+                # AND between groups
+                if result_set is None:
+                    result_set = group_ids
+                else:
+                    result_set &= group_ids
+                    self.log(f"  After AND with group {gi+1}: {len(result_set)} novel(s)")
+            result_ids = list(result_set or set())
+
+        elif mode == "AND" and len(tags) > 1:
             # Fetch each tag (1 call each), intersect locally
             result_set = None
             for tag in tags:

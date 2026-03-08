@@ -1027,7 +1027,7 @@ class NovelpiaGUI(tk.Tk):
 
         screen_w = top.winfo_screenwidth()
         screen_h = top.winfo_screenheight()
-        w = max(700, int(screen_w * 0.42))
+        w = max(780, int(screen_w * 0.48))
         h = max(500, int(screen_h * 0.38))
         top.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{(screen_h - h) // 2}")
         top.minsize(400, 400)
@@ -1078,15 +1078,71 @@ class NovelpiaGUI(tk.Tk):
         custom_var = tk.StringVar(value=getattr(self, '_tag_custom_tags', ''))
         ttk.Entry(custom_frame, textvariable=custom_var).pack(side="left", fill="x", expand=True, padx=5)
 
-        # Options row: AND/OR + Exclude R19
+        # Query builder section
+        qb_frame = ttk.LabelFrame(main_f, text="Query Builder (groups are AND'd, tags within a group are OR'd)")
+        qb_frame.pack(fill="x", pady=(5, 5))
+
+        # Group management buttons
+        qb_btn_frame = ttk.Frame(qb_frame)
+        qb_btn_frame.pack(fill="x", padx=5, pady=(5, 2))
+
+        query_groups = list(getattr(self, '_tag_query_groups', []))  # list of lists of tag strings
+        groups_display = ttk.Frame(qb_frame)
+        groups_display.pack(fill="x", padx=5, pady=(0, 5))
+
+        def _refresh_groups_display():
+            for w in groups_display.winfo_children():
+                w.destroy()
+            if not query_groups:
+                ttk.Label(groups_display, text="No groups defined. Select tags and click 'Add Group'.",
+                          foreground="gray").pack(anchor="w")
+                return
+            for gi, group in enumerate(query_groups):
+                row = ttk.Frame(groups_display)
+                row.pack(fill="x", pady=1)
+                if gi > 0:
+                    ttk.Label(row, text="AND", foreground="#888", font=("", 8, "bold")).pack(side="left", padx=(0, 5))
+                else:
+                    ttk.Label(row, text="     ", font=("", 8)).pack(side="left", padx=(0, 5))
+                group_text = " OR ".join(group)
+                ttk.Label(row, text=f"Group {gi+1}: {group_text}").pack(side="left")
+                rm_btn = ttk.Button(row, text="✕", width=3,
+                                     command=lambda i=gi: _remove_group(i))
+                rm_btn.pack(side="right", padx=2)
+
+        def _add_group():
+            selected = [tag for tag, var in tag_vars.items() if var.get()]
+            custom = [t.strip() for t in custom_var.get().split(",") if t.strip()]
+            group = selected + custom
+            if not group:
+                messagebox.showinfo("No tags", "Select at least one tag to add as a group.", parent=top)
+                return
+            query_groups.append(group)
+            # Uncheck tags after adding
+            for var in tag_vars.values():
+                var.set(False)
+            custom_var.set("")
+            _refresh_groups_display()
+
+        def _remove_group(idx):
+            if 0 <= idx < len(query_groups):
+                query_groups.pop(idx)
+                _refresh_groups_display()
+
+        def _clear_groups():
+            query_groups.clear()
+            _refresh_groups_display()
+
+        ttk.Button(qb_btn_frame, text="Add Selected as Group", command=_add_group).pack(side="left", padx=(0, 5), ipadx=10)
+        ttk.Button(qb_btn_frame, text="Clear All", command=_clear_groups).pack(side="left")
+        ttk.Label(qb_btn_frame, text="  (select tags above, click 'Add' to create a group)",
+                  foreground="gray").pack(side="left", padx=(10, 0))
+
+        _refresh_groups_display()
+
+        # Options row: Age filter
         opts_frame = ttk.Frame(main_f)
         opts_frame.pack(fill="x", pady=(2, 5))
-
-        # AND / OR radio buttons
-        mode_var = tk.StringVar(value=getattr(self, '_tag_mode', 'AND'))
-        ttk.Label(opts_frame, text="Mode:").pack(side="left")
-        ttk.Radiobutton(opts_frame, text="AND", variable=mode_var, value="AND").pack(side="left", padx=(5, 2))
-        ttk.Radiobutton(opts_frame, text="OR", variable=mode_var, value="OR").pack(side="left", padx=(2, 15))
 
         # Age rating dropdown
         AGE_OPTIONS = ["All", "Non-adult only", "Adult only"]
@@ -1185,7 +1241,7 @@ class NovelpiaGUI(tk.Tk):
             self._tag_custom_tags = custom_var.get()
             self._tag_scrape_all = scrape_all_var.get()
             self._scrape_max_queries = scrape_queries_var.get()
-            self._tag_mode = mode_var.get()
+            self._tag_query_groups = [list(g) for g in query_groups]
             self._tag_age_filter = AGE_MAP.get(age_var.get(), "")
 
         # Register save function for dialog close
@@ -1204,17 +1260,23 @@ class NovelpiaGUI(tk.Tk):
                 ).start()
                 return
 
-            selected = [tag for tag, var in tag_vars.items() if var.get()]
-            custom = [t.strip() for t in custom_var.get().split(",") if t.strip()]
-            all_tags = selected + custom
-            if not all_tags:
-                messagebox.showwarning("No tags", "Please select at least one tag.", parent=top)
-                return
+            if not query_groups:
+                # Fall back: use selected tags + custom as a single OR group
+                selected = [tag for tag, var in tag_vars.items() if var.get()]
+                custom = [t.strip() for t in custom_var.get().split(",") if t.strip()]
+                all_tags = selected + custom
+                if not all_tags:
+                    messagebox.showwarning("No query", "Add at least one group to the query builder,\nor select tags directly.", parent=top)
+                    return
+                groups_to_search = [all_tags]
+            else:
+                groups_to_search = query_groups
+
             btn_go.config(state="disabled")
             result_label.config(text="Searching...")
             threading.Thread(
                 target=self._tag_retrieval_worker,
-                args=(all_tags, AGE_MAP.get(age_var.get(), ""), mode_var.get(), result_label, btn_go, top),
+                args=(groups_to_search, AGE_MAP.get(age_var.get(), ""), "GROUPS", result_label, btn_go, top),
                 daemon=True
             ).start()
 
@@ -2093,7 +2155,7 @@ table, th, td {
 
                 # Tag retrieval settings
                 self._tag_age_filter = cfg.get("tag_age_filter", "")
-                self._tag_mode = cfg.get("tag_mode", "AND")
+                self._tag_query_groups = cfg.get("tag_query_groups", [])
                 self._tag_selected_tags = set(cfg.get("tag_selected_tags", []))
                 self._tag_custom_tags = cfg.get("tag_custom_tags", "")
                 self._tag_scrape_all = cfg.get("tag_scrape_all", False)
@@ -2158,7 +2220,7 @@ table, th, td {
 
             # Tag retrieval settings
             "tag_age_filter": getattr(self, '_tag_age_filter', ''),
-            "tag_mode": getattr(self, '_tag_mode', 'AND'),
+            "tag_query_groups": getattr(self, '_tag_query_groups', []),
             "tag_selected_tags": list(getattr(self, '_tag_selected_tags', set())),
             "tag_custom_tags": getattr(self, '_tag_custom_tags', ''),
             "tag_scrape_all": getattr(self, '_tag_scrape_all', False),
