@@ -452,141 +452,103 @@ img { max-width: 100%; height: auto; }
         self.log("PDF generation complete.")
 
     def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, exclude_r19=False):
-        """Fetch novel IDs from Novelpia's tag search via AJAX endpoints.
+        """Fetch novel IDs from Novelpia's search API.
+
+        Uses GET /proc/novelsearch_v2/?search_text={tag} which returns JSON.
+        Each tag is searched separately and results are merged (union).
 
         Args:
             tags: list of tag strings (e.g. ["TS", "회귀"])
             delay: seconds between page requests
             rows: results per page (max 30)
-            exclude_r19: if True, skip novels tagged with 19금
+            exclude_r19: if True, skip novels with 19금 in name/tags
 
         Returns:
             list of (novel_id, title) tuples
         """
-        tag_str = ",".join(tags)
         novels = []
         seen_ids = set()
-        page = 1
+        url = "https://novelpia.com/proc/novelsearch_v2/"
+        headers = {
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://novelpia.com/",
+        }
 
         self.log(f"Searching for novels with tags: {', '.join(tags)}")
 
-        # Novelpia search page is JS-rendered; try AJAX POST endpoints
-        proc_endpoints = [
-            "https://novelpia.com/proc/novel_list",
-            "https://novelpia.com/proc/novel_search",
-            "https://novelpia.com/proc/search_result",
-        ]
-        working_endpoint = None
+        for tag in tags:
+            if self.stop_signal:
+                break
 
-        while not self.stop_signal:
-            data = {
-                "text": "",
-                "tag": tag_str,
-                "page": page,
-                "rows": rows,
-                "novel_type": "",
-                "novel_age": "",
-                "sort_col": "last_viewdate",
-                "novel_genre": "",
-                "block_out": "0",
-                "block_stop": "0",
-                "is_contest": "0",
-                "is_complete": "",
-                "is_challenge": "0",
-            }
-            headers = {
-                "Referer": "https://novelpia.com/search",
-                "X-Requested-With": "XMLHttpRequest",
-            }
+            page = 1
+            tag_total = 0
+            tag_found = 0
 
-            try:
-                text = ""
-                if working_endpoint:
-                    if working_endpoint == "GET":
-                        url = f"https://novelpia.com/search/all//1/{tag_str}"
-                        response = self.auth.session.get(url, params=data, headers=headers, timeout=15)
-                    else:
-                        response = self.auth.session.post(working_endpoint, data=data, headers=headers, timeout=15)
-                    text = response.text
-                else:
-                    # First request: try each POST endpoint
-                    for ep in proc_endpoints:
-                        try:
-                            response = self.auth.session.post(ep, data=data, headers=headers, timeout=15)
-                            if response.status_code == 200 and len(response.text) > 100:
-                                text = response.text
-                                working_endpoint = ep
-                                self.log(f"  Using endpoint: {ep}")
-                                break
-                        except Exception:
+            while not self.stop_signal:
+                params = {
+                    "search_text": tag,
+                    "page": page,
+                    "rows": rows,
+                }
+
+                try:
+                    response = self.auth.session.get(url, params=params, headers=headers, timeout=15)
+                    data = response.json()
+
+                    if data.get("status") != 200:
+                        err = data.get("errmsg", "Unknown error")
+                        if page == 1:
+                            self.log(f"  [{tag}] API error: {err}")
+                        break
+
+                    search = data.get("novel_search", {})
+                    total_cnt = search.get("total_cnt", 0)
+                    novel_list = search.get("list", [])
+
+                    if page == 1:
+                        tag_total = total_cnt
+                        self.log(f"  [{tag}] {total_cnt} result(s) found")
+
+                    if not novel_list:
+                        break
+
+                    r19_skipped = 0
+                    for novel in novel_list:
+                        novel_id = str(novel.get("novel_no", ""))
+                        title = novel.get("novel_name", "")
+
+                        if not novel_id or novel_id in seen_ids:
                             continue
 
-                    if not working_endpoint:
-                        # Fallback: try GET to the search page
-                        url = f"https://novelpia.com/search/all//1/{tag_str}"
-                        response = self.auth.session.get(url, params=data, headers=headers, timeout=15)
-                        text = response.text
-                        if len(text) > 500:
-                            working_endpoint = "GET"
-                            self.log("  Using GET fallback")
+                        # R19 exclusion: check title for 19금
+                        if exclude_r19 and "19금" in title:
+                            r19_skipped += 1
+                            continue
 
-                if not text or len(text) < 100:
-                    if page == 1:
-                        self.log("No results found — endpoints may have changed.")
-                        self.log(f"  Response length: {len(text)} bytes")
-                    break
-
-                # Parse novel IDs and titles from the response
-                novel_matches = re.findall(
-                    r'/novel/(\d+)["\'][^>]*>.*?<b class=["\']title["\'][^>]*>(.*?)</b>',
-                    text, flags=re.DOTALL
-                )
-                if not novel_matches:
-                    novel_matches = re.findall(
-                        r'href=["\']/?novel/(\d+)["\'].*?>(.*?)</a>',
-                        text, flags=re.DOTALL
-                    )
-                if not novel_matches:
-                    id_matches = list(set(re.findall(r'novel/(\d+)', text)))
-                    if not id_matches:
-                        if page == 1:
-                            self.log("No novel IDs found in response.")
-                        break
-                    novel_matches = [(nid, "") for nid in id_matches]
-
-                new_count = 0
-                r19_skipped = 0
-                for novel_id, raw_title in novel_matches:
-                    if novel_id not in seen_ids:
-                        if exclude_r19:
-                            pattern = re.compile(
-                                r'novel/' + novel_id + r'.{0,500}',
-                                flags=re.DOTALL
-                            )
-                            snippet = pattern.search(text)
-                            if snippet and '19금' in snippet.group(0):
-                                r19_skipped += 1
-                                continue
                         seen_ids.add(novel_id)
-                        title = html.unescape(re.sub(r'<[^>]+>', '', raw_title)).strip() if raw_title else ""
                         novels.append((novel_id, title))
-                        new_count += 1
+                        tag_found += 1
 
-                if new_count > 0 or r19_skipped > 0:
-                    msg = f"  Page {page}: found {new_count} new novel(s) ({len(novels)} total)"
                     if r19_skipped > 0:
-                        msg += f" [skipped {r19_skipped} R19]"
-                    self.log(msg)
-                else:
+                        self.log(f"    Page {page}: skipped {r19_skipped} R19 novel(s)")
+
+                    # Check if more pages
+                    if page * rows >= total_cnt:
+                        break
+
+                    page += 1
+                    if delay > 0:
+                        time.sleep(delay)
+
+                except Exception as e:
+                    self.log(f"  [{tag}] Error on page {page}: {e}")
                     break
 
-                page += 1
-                if delay > 0:
-                    time.sleep(delay)
+            self.log(f"  [{tag}] Added {tag_found} new novel(s) ({len(novels)} total)")
 
-            except Exception as e:
-                self.log(f"  Error on page {page}: {e}")
-                break
+            # Delay between tags
+            if delay > 0 and tag != tags[-1]:
+                time.sleep(delay)
 
         self.log(f"Tag search complete: {len(novels)} novel(s) found.")
         return novels
