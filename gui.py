@@ -55,7 +55,7 @@ except Exception:
 # or are imported. For this script to run standalone if you have the files, 
 # I am keeping the imports exactly as you provided.
 from novelpia_auth import NovelpiaAuth
-from downloader_core import DownloaderCore
+from downloader_core import DownloaderCore, AccessBlockedError
 from epub_generator import EpubGenerator
 from font_mapper import FontMapper
 
@@ -127,6 +127,81 @@ def _format_size(nbytes):
     elif nbytes < 1024 * 1024:
         return f"{nbytes / 1024:.1f} KB"
     return f"{nbytes / (1024 * 1024):.2f} MB"
+
+def _count_images_in_json(content_json):
+    """Lightweight count of <img> tags in chapter JSON without downloading.
+    Parses the JSON segments and counts src-bearing <img> tags.
+    Returns the count (0 if parsing fails or no images found)."""
+    try:
+        data = json.loads(content_json)
+        segments = data.get("s")
+        if not isinstance(segments, list):
+            return 0
+        count = 0
+        img_pat = re.compile(r"<img[^>]+src=[\"'][^\"']+[\"']")
+        for seg in segments:
+            if not isinstance(seg, dict):
+                continue
+            text = seg.get("text", "")
+            if not text or "cover-wrapper" in text:
+                continue
+            count += len(img_pat.findall(text))
+        return count
+    except Exception:
+        return 0
+
+class _DownloadStats:
+    """Thread-safe accumulator for download statistics."""
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.total_images = 0
+        self.total_bytes = 0
+        self.blocked_chapters = []   # list of (chapter_id, title)
+        self.failed_chapters = []    # list of (chapter_id, title)
+        self.t0 = time.time()
+
+    def add(self, image_count, byte_count):
+        with self._lock:
+            self.total_images += image_count
+            self.total_bytes += byte_count
+
+    def add_blocked(self, chapter_id, title):
+        with self._lock:
+            self.blocked_chapters.append((chapter_id, title))
+
+    def add_failed(self, chapter_id, title):
+        with self._lock:
+            self.failed_chapters.append((chapter_id, title))
+
+    def elapsed(self):
+        return time.time() - self.t0
+
+    def summary(self):
+        elapsed = self.elapsed()
+        parts = [f"Total images: {self.total_images}"]
+        if self.total_bytes > 0:
+            parts.append(f"Total image data: {_format_size(self.total_bytes)}")
+        if elapsed > 0 and self.total_bytes > 0:
+            parts.append(f"Avg speed: {_format_size(int(self.total_bytes / elapsed))}/s")
+        mins, secs = divmod(int(elapsed), 60)
+        if mins > 0:
+            parts.append(f"Elapsed: {mins}m {secs}s")
+        else:
+            parts.append(f"Elapsed: {secs}s")
+        return " | ".join(parts)
+
+    def warnings_summary(self):
+        """Return a multi-line string of blocked/failed chapter warnings, or empty string."""
+        lines = []
+        if self.blocked_chapters:
+            lines.append(f"\u26d4 {len(self.blocked_chapters)} chapter(s) blocked (login/age verification):")
+            for cid, title in self.blocked_chapters:
+                lines.append(f"   \u2022 [{cid}] {title}")
+        if self.failed_chapters:
+            lines.append(f"\u274c {len(self.failed_chapters)} chapter(s) failed after retries:")
+            for cid, title in self.failed_chapters:
+                lines.append(f"   \u2022 [{cid}] {title}")
+        return "\n".join(lines)
 
 def _download_image_with_progress(session, url, logger, label="Image"):
     """Stream-download an image, logging progress/speed. Returns bytes or None."""
@@ -474,7 +549,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("ND31")
+        self.title("ND32")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -564,6 +639,8 @@ class NovelpiaGUI(tk.Tk):
         self.image_lock = threading.Lock()
         self._output_path = None
         self._output_format = "epub"
+        self._stop_requested = False
+        self._is_downloading = False
         
         self._build_ui()
         self._load_config()
@@ -745,8 +822,12 @@ class NovelpiaGUI(tk.Tk):
         dl_btns = ttk.Frame(dl_frame)
         dl_btns.pack(side="right", fill="y")
         
-        btn_download = ttk.Button(dl_btns, text="Download", width=12, command=self.action_download)
-        btn_download.pack(pady=(40, 5), ipady=10) # Large button
+        self.btn_download = ttk.Button(dl_btns, text="Download", width=12, command=self.action_download)
+        self.btn_download.pack(pady=(40, 5), ipady=10) # Large button
+        
+        self.btn_stop = ttk.Button(dl_btns, text="Stop", width=12, command=self.action_stop)
+        self.btn_stop.pack(pady=5, ipady=5)
+        self.btn_stop.pack_forget()  # Hidden initially
         
         btn_options = ttk.Button(dl_btns, text="Quick\nDownload\nOptions", width=12, command=self.open_quick_options)
         btn_options.pack(pady=5)
@@ -765,15 +846,63 @@ class NovelpiaGUI(tk.Tk):
         self.lbl_status = ttk.Label(status_frame, text="Idle")
         self.lbl_status.pack(side="left")
         
-        # The screenshot has "Idle" at bottom left.
-        # It also has V5.0 at bottom right.
         ttk.Label(status_frame, text="V5.0").pack(side="right")
         
-        # Progress bar (Hidden in screenshot or thin? Added for functionality)
+        # Progress info label: "12/45 (27%) — ETA: 1m 30s"
+        self.lbl_progress_info = ttk.Label(status_frame, text="")
+        self.lbl_progress_info.pack(side="right", padx=(10, 10))
+        
+        # Progress bar
         self.progress = ttk.Progressbar(status_frame, mode='determinate')
-        self.progress.pack(side="left", fill="x", expand=True, padx=20)
+        self.progress.pack(side="left", fill="x", expand=True, padx=(20, 5))
         self.progress_value = 0
         self.progress_total = 0
+        self._progress_start_time = None
+
+    def _update_progress(self, value=None, total=None, status_text=None):
+        """Consolidated progress update: bar, percentage label, and ETA."""
+        if value is not None:
+            self.progress_value = value
+        if total is not None:
+            self.progress_total = total
+        if status_text is not None:
+            self.lbl_status.config(text=status_text)
+
+        if self.progress_total > 0:
+            pct = int(self.progress_value / self.progress_total * 100)
+            info = f"{self.progress_value}/{self.progress_total} ({pct}%)"
+            # ETA calculation
+            if self._progress_start_time and self.progress_value > 0:
+                elapsed = time.time() - self._progress_start_time
+                rate = self.progress_value / elapsed  # items per second
+                remaining = self.progress_total - self.progress_value
+                if rate > 0 and remaining > 0:
+                    eta_secs = int(remaining / rate)
+                    eta_m, eta_s = divmod(eta_secs, 60)
+                    if eta_m > 0:
+                        info += f" \u2014 ETA: {eta_m}m {eta_s}s"
+                    else:
+                        info += f" \u2014 ETA: {eta_s}s"
+                elif remaining == 0:
+                    info += " \u2014 Done"
+        else:
+            pct = 0
+            info = ""
+
+        def _apply():
+            self.progress.configure(value=pct)
+            self.lbl_progress_info.config(text=info)
+        self.after(0, _apply)
+
+    def _reset_progress(self):
+        """Reset progress bar and info label to idle state."""
+        self.progress_value = 0
+        self.progress_total = 0
+        self._progress_start_time = None
+        def _apply():
+            self.progress.configure(value=0)
+            self.lbl_progress_info.config(text="")
+        self.after(0, _apply)
 
     def open_quick_options(self):
         """Quick download options dialog with ratio-based sizing."""
@@ -894,8 +1023,38 @@ class NovelpiaGUI(tk.Tk):
             except Exception as e:
                 self.log_message(f"Failed to load font mapping: {e}")
 
+    def action_stop(self):
+        """Request cancellation of the current download."""
+        if self._is_downloading:
+            self._stop_requested = True
+            self.downloader.stop_signal = True
+            self.log_message("\u26a0 Stop requested \u2014 finishing current operation...")
+            self.lbl_status.config(text="Stopping...")
+
+    def _set_downloading(self, active):
+        """Toggle UI state for download in progress."""
+        self._is_downloading = active
+        if active:
+            self._stop_requested = False
+            self.downloader.stop_signal = False
+            self.btn_download.config(state="disabled")
+            self.btn_stop.pack(pady=5, ipady=5)
+        else:
+            self.btn_download.config(state="normal")
+            self.btn_stop.pack_forget()
+
     def action_download(self):
-        threading.Thread(target=self._download_worker, daemon=True).start()
+        if self._is_downloading:
+            return
+        self._set_downloading(True)
+        threading.Thread(target=self._download_worker_wrapper, daemon=True).start()
+
+    def _download_worker_wrapper(self):
+        """Wrapper that ensures UI state is restored after download."""
+        try:
+            self._download_worker()
+        finally:
+            self.after(0, lambda: self._set_downloading(False))
 
     def action_batch_download(self):
         """Batch download multiple novels from a list file.
@@ -915,7 +1074,17 @@ class NovelpiaGUI(tk.Tk):
         if not output_dir:
             return
 
-        threading.Thread(target=self._batch_download_worker, args=(list_path, output_dir), daemon=True).start()
+        if self._is_downloading:
+            return
+        self._set_downloading(True)
+        threading.Thread(target=self._batch_download_wrapper, args=(list_path, output_dir), daemon=True).start()
+
+    def _batch_download_wrapper(self, list_path, output_dir):
+        """Wrapper that ensures UI state is restored after batch download."""
+        try:
+            self._batch_download_worker(list_path, output_dir)
+        finally:
+            self.after(0, lambda: self._set_downloading(False))
 
     @staticmethod
     def _parse_batch_line(line):
@@ -963,6 +1132,10 @@ class NovelpiaGUI(tk.Tk):
             self.var_quick_path.set(output_dir)
 
             for idx, line in enumerate(lines, start=1):
+                if self._stop_requested:
+                    self.log_message(f"Batch stopped by user after {succeeded} novel(s).")
+                    break
+
                 if line.startswith('#'):
                     self.log_message(f"[{idx}/{total}] Skipped comment")
                     skipped += 1
@@ -1002,10 +1175,14 @@ class NovelpiaGUI(tk.Tk):
             self.var_quick_enable.set(prev_quick_enable)
             self.var_quick_path.set(prev_quick_path)
             self.var_novel_id.set(prev_novel_id)
+            self._reset_progress()
             self.lbl_status.config(text="Idle")
 
     def _download_worker(self):
         self.lbl_status.config(text="Analyzing...")
+        # Reset image counter for this download session
+        with self.image_lock:
+            self.image_no = 1
         novel_id = self.var_novel_id.get().strip()
         if not novel_id:
             messagebox.showwarning("Missing Novel ID", "Please enter a Novel ID before downloading.")
@@ -1290,12 +1467,15 @@ table, th, td {
         selected_total = (notice_items + selected) if notice_items else selected
         results = [None] * len(selected_total)
 
-        self.progress_total = len(selected_total)
-        self.progress_value = 0
-        self.after(0, lambda: self.progress.configure(value=0))
+        self._progress_start_time = time.time()
+        self._update_progress(value=0, total=len(selected_total))
 
-        threads = self.var_threads.get()
-        interval = self.var_interval.get()
+        threads = max(1, min(32, self.var_threads.get()))
+        interval = max(0.0, min(60.0, self.var_interval.get()))
+        if threads != self.var_threads.get():
+            self.log_message(f"\u26a0 Threads clamped to {threads} (valid range: 1\u201332)")
+        if interval != self.var_interval.get():
+            self.log_message(f"\u26a0 Interval clamped to {interval}s (valid range: 0\u201360)")
 
         # Process cached chapters first
         uncached_indices = []
@@ -1343,12 +1523,7 @@ table, th, td {
                     except Exception as e:
                         self.log_message(f"Cache read error {chap.get('title', '?')}: {e}")
                         uncached_indices.append(idx)
-                    self.progress_value += 1
-                    try:
-                        pct = int(self.progress_value / self.progress_total * 100)
-                    except Exception:
-                        pct = 0
-                    self.after(0, lambda p=pct: self.progress.configure(value=p))
+                    self._update_progress(value=self.progress_value + 1)
                 else:
                     uncached_indices.append(idx)
             cached_count = len(selected_total) - len(uncached_indices)
@@ -1359,9 +1534,13 @@ table, th, td {
 
         # Download uncached chapters
         self.lbl_status.config(text="Downloading...")
+        dl_stats = _DownloadStats()
         if uncached_indices:
             with ThreadPoolExecutor(max_workers=threads) as executor:
                 for i in range(0, len(uncached_indices), threads):
+                    if self._stop_requested:
+                        self.log_message("Download stopped by user.")
+                        break
                     batch = uncached_indices[i:i + threads]
                     f_map = {executor.submit(self.downloader.download_chapter_content, selected_total[x]['id']): x for x in batch}
                     for future in as_completed(f_map):
@@ -1378,6 +1557,10 @@ table, th, td {
                                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                                 img_info = f" ({len(imgs)} images)" if imgs else ""
                                 self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Downloaded: {chap['title']}{img_info}")
+                                # Track stats
+                                if imgs:
+                                    img_bytes = sum(len(d) for _, d in imgs)
+                                    dl_stats.add(len(imgs), img_bytes)
                                 # Store in cache
                                 if use_cache:
                                     if cache_images:
@@ -1388,18 +1571,22 @@ table, th, td {
                                         }
                                     else:
                                         cache_data[chap['id']] = content_json
+                            else:
+                                # None = failed after retries
+                                dl_stats.add_failed(chap['id'], chap.get('title', '?'))
+                                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Failed: {chap.get('title', '?')}")
+                        except AccessBlockedError:
+                            dl_stats.add_blocked(chap['id'], chap.get('title', '?'))
+                            self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Blocked: {chap.get('title', '?')}")
                         except Exception as e:
-                            self.log_message(f"Error {chap.get('title','?')}: {e}")
+                            dl_stats.add_failed(chap['id'], chap.get('title', '?'))
+                            self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error {chap.get('title','?')}: {e}")
 
-                        self.progress_value += 1
-                        try:
-                            pct = int(self.progress_value / self.progress_total * 100)
-                        except Exception:
-                            pct = 0
-                        self.after(0, lambda p=pct: self.progress.configure(value=p))
+                        self._update_progress(value=self.progress_value + 1)
 
                     if interval > 0:
                         time.sleep(interval)
+
 
         # Save cache
         if use_cache and cache_path:
@@ -1471,9 +1658,19 @@ table, th, td {
             except Exception as e:
                 self.log_message(f"Save failed: {e}")
 
-        self.log_message("Download Complete!")
+        # Final summary
+        if dl_stats.total_images > 0:
+            self.log_message(f"📊 {dl_stats.summary()}")
+        warn_text = dl_stats.warnings_summary()
+        if warn_text:
+            self.log_message(warn_text)
+        if self._stop_requested:
+            self.log_message("Download stopped by user.")
+        else:
+            self.log_message("Download Complete!")
         if _LOG_FILE:
             self.log_message(f"Log saved: {_LOG_FILE}")
+        self._reset_progress()
         self.lbl_status.config(text="Idle")
 
     def _load_config(self):

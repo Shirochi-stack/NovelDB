@@ -60,7 +60,7 @@ except Exception:
     Image = None
 
 from novelpia_auth import NovelpiaAuth
-from downloader_core import DownloaderCore
+from downloader_core import DownloaderCore, AccessBlockedError
 from epub_generator import EpubGenerator
 from font_mapper import FontMapper
 
@@ -352,6 +352,35 @@ def load_user_prefs(user_id: int) -> dict:
 
 def sanitize_filename(name: str) -> str:
     return "".join(c for c in name if c not in "\\/:*?\"<>|").strip()
+
+
+def _format_size(nbytes):
+    if nbytes < 1024:
+        return f"{nbytes} B"
+    elif nbytes < 1024 * 1024:
+        return f"{nbytes / 1024:.1f} KB"
+    return f"{nbytes / (1024 * 1024):.2f} MB"
+
+
+def _count_images_in_json(content_json):
+    """Lightweight count of <img> tags in chapter JSON without downloading."""
+    try:
+        data = json.loads(content_json)
+        segments = data.get("s")
+        if not isinstance(segments, list):
+            return 0
+        count = 0
+        img_pat = re.compile(r"<img[^>]+src=[\"'][^\"']+[\"']")
+        for seg in segments:
+            if not isinstance(seg, dict):
+                continue
+            text = seg.get("text", "")
+            if not text or "cover-wrapper" in text:
+                continue
+            count += len(img_pat.findall(text))
+        return count
+    except Exception:
+        return 0
 
 
 def _strip_base64_blobs(text: str) -> str:
@@ -712,6 +741,11 @@ def run_download(user_id: int,
         return _inner
     next_img = next_image_no()
 
+    dl_t0 = time.time()
+    blocked_chapters = []  # list of (chapter_id, title)
+    failed_chapters = []   # list of (chapter_id, title)
+    total_dl_images = 0
+    total_dl_bytes = 0
     with ThreadPoolExecutor(max_workers=threads) as executor:
         for i in range(0, len(selected_total), threads):
             batch = range(i, min(i + threads, len(selected_total)))
@@ -728,11 +762,48 @@ def run_download(user_id: int,
                             image_format, logger, next_img
                         )
                         results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
-                        logger(f"Downloaded: {chap['title']}")
+                        img_info = f" ({len(imgs)} images)" if imgs else ""
+                        logger(f"Downloaded: {chap['title']}{img_info}")
+                        if imgs:
+                            total_dl_images += len(imgs)
+                            total_dl_bytes += sum(len(d) for _, d in imgs)
+                    else:
+                        failed_chapters.append((chap['id'], chap.get('title', '?')))
+                        logger(f"Failed: {chap.get('title', '?')}")
+                except AccessBlockedError:
+                    blocked_chapters.append((chap['id'], chap.get('title', '?')))
+                    logger(f"Blocked: {chap.get('title', '?')}")
                 except Exception as e:
+                    failed_chapters.append((chap['id'], chap.get('title', '?')))
                     logger(f"Error {chap.get('title','?')}: {e}")
             if interval > 0:
                 time.sleep(interval)
+
+
+    # Final download stats
+    if total_dl_images > 0:
+        dl_elapsed = time.time() - dl_t0
+        stats_parts = [f"Total images: {total_dl_images}"]
+        if total_dl_bytes > 0:
+            stats_parts.append(f"Total image data: {_format_size(total_dl_bytes)}")
+        if dl_elapsed > 0 and total_dl_bytes > 0:
+            stats_parts.append(f"Avg speed: {_format_size(int(total_dl_bytes / dl_elapsed))}/s")
+        mins, secs = divmod(int(dl_elapsed), 60)
+        if mins > 0:
+            stats_parts.append(f"Elapsed: {mins}m {secs}s")
+        else:
+            stats_parts.append(f"Elapsed: {secs}s")
+        logger(f"\ud83d\udcca {' | '.join(stats_parts)}")
+
+    # Warnings summary
+    if blocked_chapters:
+        logger(f"\u26d4 {len(blocked_chapters)} chapter(s) blocked (login/age verification):")
+        for cid, title in blocked_chapters:
+            logger(f"   \u2022 [{cid}] {title}")
+    if failed_chapters:
+        logger(f"\u274c {len(failed_chapters)} chapter(s) failed after retries:")
+        for cid, title in failed_chapters:
+            logger(f"   \u2022 [{cid}] {title}")
 
     if save_as_epub:
         total_imgs = 0

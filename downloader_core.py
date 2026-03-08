@@ -6,6 +6,11 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
+class AccessBlockedError(Exception):
+    """Raised when chapter access is blocked (login/age verification required)."""
+    pass
+
+
 class DownloaderCore:
     def __init__(self, auth_instance, logger_func):
         self.auth = auth_instance
@@ -229,10 +234,14 @@ class DownloaderCore:
                     self.log(
                         f"Chapter {chapter_id}: access appears to be blocked (login/age verification)."
                     )
-                    return None
+                    raise AccessBlockedError(
+                        f"Chapter {chapter_id}: login/age verification required"
+                    )
 
                 return text  # Returns raw JSON string
 
+            except AccessBlockedError:
+                raise
             except Exception:
                 self.log(f"Retrying chapter {chapter_id} (Attempt {attempt + 1})...")
                 time.sleep(1)
