@@ -303,8 +303,6 @@ main {
     color: inherit;
     display: block;
     will-change: transform;
-    content-visibility: auto;
-    contain-intrinsic-size: 0 450px;
 }
 
 .novel-card:hover {
