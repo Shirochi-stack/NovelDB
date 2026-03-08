@@ -564,7 +564,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         super().__init__()
-        self.title("ND32")
+        self.title("ND33")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -932,19 +932,25 @@ class NovelpiaGUI(tk.Tk):
     # --- Tag Retrieval ---
     # Common Novelpia tags: (korean_tag, english_label)
     COMMON_TAGS = [
+        # -- Pinned --
+        ("TS", "Genderbend"), ("비극", "Tragedy"), ("먼치킨", "Munchkin"),
+        ("약피폐", "Weak-to-Strong"), ("GL", "Girls Love"), ("BL", "Boys Love"),
+        ("백합", "Yuri"), ("추리", "Mystery"), ("로맨스", "Romance"),
+        ("하렘", "Harem"), ("역하렘", "Reverse Harem"),
         # -- Recommended --
-        ("노벨피아", "Novelpia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"), ("로맨스", "Romance"),
+        ("노벨피아", "Novelpia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"),
         ("오리지널", "Original"), ("순애", "Pure Love"), ("일상", "Slice of Life"), ("용사", "Hero"),
         # -- Popular --
-        ("먼치킨", "Munchkin"), ("학교", "School"), ("19금", "R-19"), ("수녀", "Nun"),
-        ("하렘", "Harem"), ("학원", "Academy"), ("썰만화", "Ssulmanhwa"), ("방송", "Broadcast"),
+        ("학교", "School"), ("19금", "R-19"), ("수녀", "Nun"),
+        ("학원", "Academy"), ("썰만화", "Ssulmanhwa"), ("방송", "Broadcast"),
         # -- Genre / Trope --
-        ("TS", "Genderbend"), ("BL", "Boys Love"), ("GL", "Girls Love"), ("SF", "Sci-Fi"),
-        ("회귀", "Regression"), ("빙의", "Possession"), ("환생", "Reincarnation"), ("헌터", "Hunter"),
+        ("SF", "Sci-Fi"), ("회귀", "Regression"), ("빙의", "Possession"),
+        ("환생", "Reincarnation"), ("헌터", "Hunter"),
         ("현대판타지", "Modern Fantasy"), ("로맨스판타지", "Romance Fantasy"), ("무협", "Martial Arts"),
-        ("게임판타지", "Game Fantasy"), ("호러", "Horror"), ("추리", "Mystery"), ("스포츠", "Sports"),
-        ("라이트노벨", "Light Novel"), ("팬픽", "Fanfic"), ("백합", "Yuri"), ("역하렘", "Reverse Harem"),
+        ("게임판타지", "Game Fantasy"), ("호러", "Horror"), ("스포츠", "Sports"),
+        ("라이트노벨", "Light Novel"), ("팬픽", "Fanfic"),
         ("성장", "Growth"), ("후회물", "Regret"), ("집착물", "Obsession"), ("피카레스크", "Picaresque"),
+        ("착각", "Misunderstanding"), ("나데나데", "Nade Nade"),
     ]
 
     def open_quick_options(self):
@@ -1004,8 +1010,8 @@ class NovelpiaGUI(tk.Tk):
 
         screen_w = top.winfo_screenwidth()
         screen_h = top.winfo_screenheight()
-        w = max(700, int(screen_w * 0.4))
-        h = max(450, int(screen_h * 0.3))
+        w = max(700, int(screen_w * 0.42))
+        h = max(500, int(screen_h * 0.38))
         top.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{(screen_h - h) // 2}")
         top.minsize(400, 400)
 
@@ -1073,7 +1079,7 @@ class NovelpiaGUI(tk.Tk):
             ).start()
 
         btn_go = ttk.Button(btn_frame, text="Retrieve Novel IDs", command=do_retrieve)
-        btn_go.pack()
+        btn_go.pack(ipadx=20, ipady=8)
 
     def _tag_retrieval_worker(self, tags, exclude_r19, result_label, btn_go, dialog):
         """Background worker for tag-based novel ID retrieval."""
