@@ -208,6 +208,12 @@
                 case "chapters": va = a.chapters; vb = b.chapters; break;
                 case "updated": va = a.updated; vb = b.updated; break;
                 case "title": va = a.title; vb = b.title; break;
+                case "weekly":
+                    // Ranked novels first (lower rank = better), unranked last
+                    const ra = a.weeklyRank || 9999;
+                    const rb = b.weeklyRank || 9999;
+                    if (ra !== rb) return order === "asc" ? rb - ra : ra - rb;
+                    return b.views - a.views; // tie-break by views
                 default: va = a.views; vb = b.views;
             }
             if (sortBy === "title" || sortBy === "updated") {
@@ -235,7 +241,9 @@
             ? `<img class="card-cover" src="${escHtml(n.cover)}" alt="" decoding="async" onerror="this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'">`
             : `<div class="card-cover no-img">📖</div>`;
 
-        const badgeHTML = n.complete
+        const badgeHTML = n.weeklyRank
+            ? `<span class="card-badge badge-rank">#${n.weeklyRank}</span>`
+            : n.complete
             ? `<span class="card-badge badge-complete">Complete</span>`
             : "";
 
@@ -393,6 +401,7 @@
                     chapters: r[7] || 0,
                     complete: r[8] || 0,
                     updated: r[9] || "",
+                    weeklyRank: r[10] || 0,
                 };
             });
 

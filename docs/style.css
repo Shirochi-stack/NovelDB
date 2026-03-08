@@ -394,6 +394,13 @@ main {
     border: 1px solid rgba(74, 222, 128, 0.3);
 }
 
+.badge-rank {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    font-weight: 700;
+}
+
 .card-cover-wrap {
     position: relative;
 }

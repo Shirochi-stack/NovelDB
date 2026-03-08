@@ -165,6 +165,19 @@ def main():
 
         time.sleep(0.3)
 
+    # Phase 3: Scrape weekly ranking
+    print(f"\n--- Scraping weekly ranking ---")
+    weekly_rank = {}
+    try:
+        import re
+        r = auth.session.get("https://novelpia.com/top100/all/week/view/all/all", timeout=30)
+        rank_ids = list(dict.fromkeys(re.findall(r'href="/novel/(\d+)"', r.text)))
+        for pos, nid in enumerate(rank_ids[:100], 1):
+            weekly_rank[nid] = pos
+        print(f"  Got {len(weekly_rank)} weekly ranked novels")
+    except Exception as e:
+        print(f"  Error scraping ranking: {e}")
+
     # Save output
     os.makedirs("docs/data", exist_ok=True)
 
@@ -181,6 +194,7 @@ def main():
         cover = n.get("cover", "")
         if cover.startswith(COVER_PREFIX):
             cover = cover[len(COVER_PREFIX):]
+        nid = str(n["id"])
         optimized.append([
             n["id"],                # [0] id
             n["title"],             # [1] title
@@ -192,6 +206,7 @@ def main():
             n.get("chapters", 0),   # [7] chapters
             n.get("complete", 0),   # [8] complete
             n.get("updated", ""),   # [9] updated
+            weekly_rank.get(nid, 0),# [10] weeklyRank (0=unranked)
         ])
 
     opt_path = "docs/data/novels.json"
