@@ -1016,9 +1016,6 @@ class NovelpiaGUI(tk.Tk):
         top.title("Novel ID Tag Retrieval")
         top.resizable(True, True)
 
-        # Minimize main window
-        self.iconify()
-
         screen_w = top.winfo_screenwidth()
         screen_h = top.winfo_screenheight()
         w = max(700, int(screen_w * 0.42))
@@ -1107,6 +1104,7 @@ class NovelpiaGUI(tk.Tk):
                 return
             btn_go.config(state="disabled")
             result_label.config(text="Searching...")
+            self.iconify()  # Minimize main window on retrieve
             threading.Thread(
                 target=self._tag_retrieval_worker,
                 args=(all_tags, exclude_r19_var.get(), mode_var.get(), result_label, btn_go, top),
@@ -1118,7 +1116,13 @@ class NovelpiaGUI(tk.Tk):
 
     def _tag_retrieval_worker(self, tags, exclude_r19, mode, result_label, btn_go, dialog):
         """Background worker for tag-based novel ID retrieval."""
-        self.after(0, lambda: self._set_downloading(True))
+        # Manage stop/download state directly (don't use _set_downloading
+        # which would also disable the tag retrieval button itself)
+        self.downloader.stop_signal = False
+        self.after(0, lambda: self.btn_download.config(state="disabled"))
+        self.after(0, lambda: self.btn_stop.pack(pady=5, ipady=5))
+        self._is_downloading = True
+
         delay = max(0.0, self.var_interval.get())
         try:
             novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, exclude_r19=exclude_r19, mode=mode)
@@ -1126,7 +1130,9 @@ class NovelpiaGUI(tk.Tk):
             self.log_message(f"Tag retrieval failed: {e}")
             self.after(0, lambda: result_label.config(text=f"Error: {e}"))
             self.after(0, lambda: btn_go.config(state="normal"))
-            self.after(0, lambda: self._set_downloading(False))
+            self.after(0, lambda: self.btn_download.config(state="normal"))
+            self.after(0, lambda: self.btn_stop.pack_forget())
+            self._is_downloading = False
             return
 
         count = len(novels)
@@ -1134,21 +1140,27 @@ class NovelpiaGUI(tk.Tk):
         status = f"Found {count} novel(s)." + (" (stopped)" if stopped else "")
         self.after(0, lambda: result_label.config(text=status))
         self.after(0, lambda: btn_go.config(state="normal"))
-        self.after(0, lambda: self._set_downloading(False))
+        self.after(0, lambda: self.btn_download.config(state="normal"))
+        self.after(0, lambda: self.btn_stop.pack_forget())
+        self._is_downloading = False
 
         if count == 0:
             return
 
-        # Ask user to save as batch file
+        # Save as batch file
         tag_label = "+".join(tags)
-        save_path = filedialog.asksaveasfilename(
-            title="Save novel ID list",
-            initialfile=f"tag_{tag_label}.txt",
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*")],
-        )
-        if not save_path:
-            return
+        if self.var_quick_enable.get() and self.var_quick_path.get():
+            # Auto-save to quick path directory
+            save_path = os.path.join(self.var_quick_path.get(), f"tag_{tag_label}.txt")
+        else:
+            save_path = filedialog.asksaveasfilename(
+                title="Save novel ID list",
+                initialfile=f"tag_{tag_label}.txt",
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*")],
+            )
+            if not save_path:
+                return
 
         try:
             with open(save_path, "w", encoding="utf-8") as f:
@@ -1583,8 +1595,10 @@ a:active {
 }
 table, th, td {
    border: 1px solid black;
-}
+ }
 """
+        total_items = len(notice_items) + len(selected)
+        self.log_message(f"Preparing download: {len(selected)} chapter(s) + {len(notice_items)} notice(s) = {total_items} item(s)")
         save_as_epub = (self._output_format == 'epub')
         save_as_pdf = (self._output_format == 'pdf')
         epub = EpubGenerator(meta, self._output_path if save_as_epub else f"temp.epub", css, self.var_zip_compress_images.get()) if save_as_epub else None
