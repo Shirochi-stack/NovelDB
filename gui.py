@@ -933,10 +933,10 @@ class NovelpiaGUI(tk.Tk):
     # Common Novelpia tags: (korean_tag, english_label)
     COMMON_TAGS = [
         # -- Recommended --
-        ("노벨피아", "Nobelpia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"), ("로맨스", "Romance"),
-        ("오리지널", "Original"), ("순애", "Pure Love"), ("일상", "Daily"), ("용사", "Brave"),
+        ("노벨피아", "Novelpia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"), ("로맨스", "Romance"),
+        ("오리지널", "Original"), ("순애", "Pure Love"), ("일상", "Slice of Life"), ("용사", "Hero"),
         # -- Popular --
-        ("먼치킨", "Munchkin"), ("학교", "School"), ("19금", "19+"), ("수녀", "Nun"),
+        ("먼치킨", "Munchkin"), ("학교", "School"), ("19금", "R-19"), ("수녀", "Nun"),
         ("하렘", "Harem"), ("학원", "Academy"), ("썰만화", "Ssulmanhwa"), ("방송", "Broadcast"),
         # -- Genre / Trope --
         ("TS", "Genderbend"), ("BL", "Boys Love"), ("GL", "Girls Love"), ("SF", "Sci-Fi"),
@@ -1004,10 +1004,10 @@ class NovelpiaGUI(tk.Tk):
 
         screen_w = top.winfo_screenwidth()
         screen_h = top.winfo_screenheight()
-        w = max(700, int(screen_w * 0.5))
-        h = max(550, int(screen_h * 0.55))
+        w = max(700, int(screen_w * 0.4))
+        h = max(450, int(screen_h * 0.3))
         top.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{(screen_h - h) // 2}")
-        top.minsize(600, 450)
+        top.minsize(400, 400)
 
         main_f = ttk.Frame(top, padding=10)
         main_f.pack(fill="both", expand=True)
