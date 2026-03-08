@@ -450,3 +450,98 @@ img { max-width: 100%; height: auto; }
         self.log("Generating PDF...")
         HTML(string=html_doc).write_pdf(output_path)
         self.log("PDF generation complete.")
+
+    def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, exclude_r19=False):
+        """Fetch novel IDs from Novelpia's tag search.
+
+        Args:
+            tags: list of tag strings (e.g. ["TS", "회귀"])
+            delay: seconds between page requests
+            rows: results per page (max 30)
+            exclude_r19: if True, skip novels tagged with 19금
+
+        Returns:
+            list of (novel_id, title) tuples
+        """
+        tag_str = ",".join(tags)
+        novels = []
+        seen_ids = set()
+        page = 1
+
+        self.log(f"Searching for novels with tags: {', '.join(tags)}")
+
+        while not self.stop_signal:
+            url = f"https://novelpia.com/search/all//1/{tag_str}"
+            params = {
+                "page": page,
+                "rows": rows,
+                "novel_type": "",
+                "novel_age": "",
+                "sort_col": "last_viewdate",
+                "novel_genre": "",
+                "block_out": "0",
+                "block_stop": "0",
+                "is_contest": "0",
+                "is_complete": "",
+                "is_challenge": "0",
+                "list_display": "grid",
+            }
+            try:
+                headers = {"Referer": "https://novelpia.com/"}
+                response = self.auth.session.get(url, params=params, headers=headers, timeout=15)
+                text = response.text
+
+                # Parse novel IDs and titles from the search results HTML
+                # Novelpia uses links like /novel/{id} and shows title nearby
+                # Try pattern: <a href="/novel/{id}"...>{title}</a> or similar
+                novel_matches = re.findall(
+                    r'/novel/(\d+)["\'][^>]*>.*?<b class=["\']title["\'][^>]*>(.*?)</b>',
+                    text, flags=re.DOTALL
+                )
+                if not novel_matches:
+                    # Fallback: just find all /novel/{id} links
+                    id_matches = re.findall(r'href=["\']/?novel/(\d+)["\']', text)
+                    if not id_matches:
+                        if page == 1:
+                            self.log("No results found — tag search may require login.")
+                        break
+                    novel_matches = [(nid, "") for nid in id_matches]
+
+                new_count = 0
+                r19_skipped = 0
+                for novel_id, raw_title in novel_matches:
+                    if novel_id not in seen_ids:
+                        # Check for R19 exclusion by looking for 19금 near this novel's entry
+                        if exclude_r19:
+                            # Find the chunk of HTML around this novel ID and check for 19금
+                            pattern = re.compile(
+                                r'novel/' + novel_id + r'.{0,500}',
+                                flags=re.DOTALL
+                            )
+                            snippet = pattern.search(text)
+                            if snippet and '19금' in snippet.group(0):
+                                r19_skipped += 1
+                                continue
+                        seen_ids.add(novel_id)
+                        title = html.unescape(re.sub(r'<[^>]+>', '', raw_title)).strip() if raw_title else ""
+                        novels.append((novel_id, title))
+                        new_count += 1
+
+                if new_count > 0 or r19_skipped > 0:
+                    msg = f"  Page {page}: found {new_count} new novel(s) ({len(novels)} total)"
+                    if r19_skipped > 0:
+                        msg += f" [skipped {r19_skipped} R19]"
+                    self.log(msg)
+                else:
+                    break
+
+                page += 1
+                if delay > 0:
+                    time.sleep(delay)
+
+            except Exception as e:
+                self.log(f"  Error on page {page}: {e}")
+                break
+
+        self.log(f"Tag search complete: {len(novels)} novel(s) found.")
+        return novels

@@ -811,8 +811,10 @@ class NovelpiaGUI(tk.Tk):
         ToolTip(chk_pdf_pages, "Show page numbers in the footer on each page.")
 
         # Batch Download Button (Bottom Right of DL frame)
-        btn_batch = ttk.Button(dl_inner, text="Batch Download", command=self.action_batch_download)
-        btn_batch.grid(row=8, column=2, sticky="e", pady=10)
+        batch_btn_frame = ttk.Frame(dl_inner)
+        batch_btn_frame.grid(row=8, column=0, columnspan=3, sticky="e", pady=10)
+        ttk.Button(batch_btn_frame, text="Tag Retrieval", command=self.action_tag_retrieval).pack(side="left", padx=(0, 5))
+        ttk.Button(batch_btn_frame, text="Batch Download", command=self.action_batch_download).pack(side="left")
 
         # Big Buttons (Right side of DL Frame)
         # We create a sub-frame for the buttons on the right column of the DL group
@@ -927,6 +929,24 @@ class NovelpiaGUI(tk.Tk):
             self.lbl_img_count.config(text="")
         self.after(0, _apply)
 
+    # --- Tag Retrieval ---
+    # Common Novelpia tags: (korean_tag, english_label)
+    COMMON_TAGS = [
+        # -- Recommended --
+        ("노벨피아", "Nobelpia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"), ("로맨스", "Romance"),
+        ("오리지널", "Original"), ("순애", "Pure Love"), ("일상", "Daily"), ("용사", "Brave"),
+        # -- Popular --
+        ("먼치킨", "Munchkin"), ("학교", "School"), ("19금", "19+"), ("수녀", "Nun"),
+        ("하렘", "Harem"), ("학원", "Academy"), ("썰만화", "Ssulmanhwa"), ("방송", "Broadcast"),
+        # -- Genre / Trope --
+        ("TS", "Genderbend"), ("BL", "Boys Love"), ("GL", "Girls Love"), ("SF", "Sci-Fi"),
+        ("회귀", "Regression"), ("빙의", "Possession"), ("환생", "Reincarnation"), ("헌터", "Hunter"),
+        ("현대판타지", "Modern Fantasy"), ("로맨스판타지", "Romance Fantasy"), ("무협", "Martial Arts"),
+        ("게임판타지", "Game Fantasy"), ("호러", "Horror"), ("추리", "Mystery"), ("스포츠", "Sports"),
+        ("라이트노벨", "Light Novel"), ("팬픽", "Fanfic"), ("백합", "Yuri"), ("역하렘", "Reverse Harem"),
+        ("성장", "Growth"), ("후회물", "Regret"), ("집착물", "Obsession"), ("피카레스크", "Picaresque"),
+    ]
+
     def open_quick_options(self):
         """Quick download options dialog with ratio-based sizing."""
         top = tk.Toplevel(self)
@@ -971,10 +991,131 @@ class NovelpiaGUI(tk.Tk):
         ttk.Radiobutton(row_radios, text="Save as Title", variable=self.var_naming_mode, value="title").pack(side="left", padx=(0, 10))
         ttk.Radiobutton(row_radios, text="Save as ID", variable=self.var_naming_mode, value="id").pack(side="left")
         
-        ttk.Button(row_radios, text="Reset", command=lambda: self.var_quick_path.set("")).pack(side="right") # Placeholder for Reset
+        ttk.Button(row_radios, text="Reset", command=lambda: self.var_quick_path.set("")).pack(side="right")
         ttk.Button(row_radios, text="Clear", command=lambda: self.var_quick_path.set("")).pack(side="right", padx=5)
 
         ttk.Checkbutton(main_f, text="Append chapter range to title for ongoing novels", variable=self.var_append_range).pack(anchor="w", pady=5)
+
+    def action_tag_retrieval(self):
+        """Open tag selection dialog and retrieve novel IDs."""
+        top = tk.Toplevel(self)
+        top.title("Novel ID Tag Retrieval")
+        top.resizable(True, True)
+
+        screen_w = top.winfo_screenwidth()
+        screen_h = top.winfo_screenheight()
+        w = max(700, int(screen_w * 0.5))
+        h = max(550, int(screen_h * 0.55))
+        top.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{(screen_h - h) // 2}")
+        top.minsize(600, 450)
+
+        main_f = ttk.Frame(top, padding=10)
+        main_f.pack(fill="both", expand=True)
+
+        ttk.Label(main_f, text="Select tags to search for novels:").pack(anchor="w")
+
+        # Scrollable tag grid
+        tag_canvas = tk.Canvas(main_f, height=200)
+        tag_scrollbar = ttk.Scrollbar(main_f, orient="vertical", command=tag_canvas.yview)
+        tag_frame = ttk.Frame(tag_canvas)
+
+        tag_frame.bind("<Configure>", lambda e: tag_canvas.configure(scrollregion=tag_canvas.bbox("all")))
+        tag_canvas.create_window((0, 0), window=tag_frame, anchor="nw")
+        tag_canvas.configure(yscrollcommand=tag_scrollbar.set)
+
+        tag_canvas.pack(side="left", fill="both", expand=True, pady=(5, 5))
+        tag_scrollbar.pack(side="right", fill="y", pady=(5, 5))
+
+        # Create checkbutton vars for each tag
+        tag_vars = {}
+        cols = 3
+        for i, (tag_kr, tag_en) in enumerate(self.COMMON_TAGS):
+            var = tk.BooleanVar(value=False)
+            tag_vars[tag_kr] = var
+            ttk.Checkbutton(tag_frame, text=f"{tag_kr} ({tag_en})", variable=var).grid(
+                row=i // cols, column=i % cols, sticky="w", padx=5, pady=2
+            )
+
+        # Custom tags entry
+        custom_frame = ttk.Frame(main_f)
+        custom_frame.pack(fill="x", pady=(5, 5))
+        ttk.Label(custom_frame, text="Custom tags (comma-separated):").pack(side="left")
+        custom_var = tk.StringVar()
+        ttk.Entry(custom_frame, textvariable=custom_var).pack(side="left", fill="x", expand=True, padx=5)
+
+        # Exclude R19 toggle
+        exclude_r19_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(main_f, text="Exclude all R19 (19금)", variable=exclude_r19_var).pack(anchor="w", pady=(2, 5))
+
+        # Result display
+        result_frame = ttk.Frame(main_f)
+        result_frame.pack(fill="x", pady=(5, 0))
+        result_label = ttk.Label(result_frame, text="")
+        result_label.pack(side="left")
+
+        # Buttons
+        btn_frame = ttk.Frame(main_f)
+        btn_frame.pack(fill="x", pady=(10, 0))
+
+        def do_retrieve():
+            selected = [tag for tag, var in tag_vars.items() if var.get()]
+            custom = [t.strip() for t in custom_var.get().split(",") if t.strip()]
+            all_tags = selected + custom
+            if not all_tags:
+                messagebox.showwarning("No tags", "Please select at least one tag.", parent=top)
+                return
+            btn_go.config(state="disabled")
+            result_label.config(text="Searching...")
+            threading.Thread(
+                target=self._tag_retrieval_worker,
+                args=(all_tags, exclude_r19_var.get(), result_label, btn_go, top),
+                daemon=True
+            ).start()
+
+        btn_go = ttk.Button(btn_frame, text="Retrieve Novel IDs", command=do_retrieve)
+        btn_go.pack()
+
+    def _tag_retrieval_worker(self, tags, exclude_r19, result_label, btn_go, dialog):
+        """Background worker for tag-based novel ID retrieval."""
+        delay = max(0.0, self.var_interval.get())
+        try:
+            novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, exclude_r19=exclude_r19)
+        except Exception as e:
+            self.log_message(f"Tag retrieval failed: {e}")
+            self.after(0, lambda: result_label.config(text=f"Error: {e}"))
+            self.after(0, lambda: btn_go.config(state="normal"))
+            return
+
+        count = len(novels)
+        self.after(0, lambda: result_label.config(text=f"Found {count} novel(s)."))
+        self.after(0, lambda: btn_go.config(state="normal"))
+
+        if count == 0:
+            return
+
+        # Ask user to save as batch file
+        tag_label = "+".join(tags)
+        save_path = filedialog.asksaveasfilename(
+            title="Save novel ID list",
+            initialfile=f"tag_{tag_label}.txt",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*")],
+        )
+        if not save_path:
+            return
+
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(f"# Novelpia tag search: {', '.join(tags)}\n")
+                f.write(f"# {count} novel(s) found\n")
+                for novel_id, title in novels:
+                    if title:
+                        f.write(f"{title},{novel_id}\n")
+                    else:
+                        f.write(f"{novel_id}\n")
+            self.log_message(f"Saved {count} novel IDs to: {save_path}")
+        except Exception as e:
+            self.log_message(f"Failed to save: {e}")
 
     def action_login(self):
         """Spawns a thread for login to avoid freezing UI."""
@@ -1093,9 +1234,13 @@ class NovelpiaGUI(tk.Tk):
         if not list_path:
             return
 
-        output_dir = filedialog.askdirectory(title="Select output directory")
-        if not output_dir:
-            return
+        # Use Quick Download path if enabled, otherwise ask
+        if self.var_quick_enable.get() and self.var_quick_path.get().strip():
+            output_dir = self.var_quick_path.get().strip()
+        else:
+            output_dir = filedialog.askdirectory(title="Select output directory")
+            if not output_dir:
+                return
 
         if self._is_downloading:
             return
