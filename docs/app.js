@@ -53,6 +53,7 @@
 
     // === State ===
     let allNovels = [];
+    let titleTranslations = {};  // id -> english title
     let filtered = [];
     let activeTags = new Set();
     let excludeTags = new Set();
@@ -163,9 +164,10 @@
             // Search filter
             if (query) {
                 const inTitle = n.title.toLowerCase().includes(query);
+                const inTitleEn = n.titleEn && n.titleEn.toLowerCase().includes(query);
                 const inAuthor = n.author.toLowerCase().includes(query);
                 const inId = String(n.id) === query;
-                if (!inTitle && !inAuthor && !inId) return false;
+                if (!inTitle && !inTitleEn && !inAuthor && !inId) return false;
             }
 
             // Status filter
@@ -258,7 +260,8 @@
                 ${badgeHTML}
             </div>
             <div class="card-body">
-                <div class="card-title">${escHtml(n.title)}</div>
+                <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
+                ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
                 <div class="card-author">${escHtml(n.author)}</div>
                 <div class="card-tags">${tagsHTML}</div>
                 <div class="card-stats">
@@ -417,8 +420,35 @@
                     complete: r[8] || 0,
                     updated: r[9] || "",
                     weeklyRank: r[10] || 0,
+                    titleEn: "",
                 };
             });
+
+            // Load title translations if available
+            try {
+                const tResp = await fetch("data/titles_en.txt");
+                if (tResp.ok) {
+                    const text = await tResp.text();
+                    let count = 0;
+                    for (const line of text.split("\n")) {
+                        const parts = line.split("\t");
+                        if (parts.length >= 3 && parts[2].trim()) {
+                            titleTranslations[parts[0]] = parts[2].trim();
+                            count++;
+                        }
+                    }
+                    if (count > 0) {
+                        for (const n of allNovels) {
+                            if (titleTranslations[n.id]) {
+                                n.titleEn = titleTranslations[n.id];
+                            }
+                        }
+                        console.log(`Loaded ${count} title translations`);
+                    }
+                }
+            } catch (e) {
+                // titles_en.txt not found, skip silently
+            }
 
             buildTags(allNovels);
             applyFilters();
