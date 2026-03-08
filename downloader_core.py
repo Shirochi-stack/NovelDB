@@ -503,9 +503,11 @@ img { max-width: 100%; height: auto; }
                 "list_display": "grid",
             }
 
-        def _fetch_all_pages(tag, filter_ids=None):
-            """Fetch all novel IDs for a tag. Returns a set of ID strings."""
+        def _fetch_all_pages(tag, filter_ids=None, include_genres=False):
+            """Fetch all novel IDs for a tag. Returns a set of ID strings.
+            If include_genres=True, also returns {id: genre_list} dict."""
             ids = set()
+            genres_map = {} if include_genres else None
             page = 1
             while not self.stop_signal:
                 try:
@@ -539,6 +541,8 @@ img { max-width: 100%; height: auto; }
                             if "19금" in (novel.get("novel_genre_arr") or []):
                                 continue
                         ids.add(novel_id)
+                        if include_genres:
+                            genres_map[novel_id] = novel.get("novel_genre_arr") or []
 
                     total_pages = (total_cnt + rows - 1) // rows
                     self.log(f"    [{tag}] Page {page}/{total_pages}: {len(ids)} novel(s) collected")
@@ -559,9 +563,12 @@ img { max-width: 100%; height: auto; }
                     break
 
             self.log(f"  [{tag}] Finished: {len(ids)} novel(s)")
+            if include_genres:
+                return ids, genres_map
             return ids
 
         if mode == "AND" and len(tags) > 1:
+            # Probe page 1 of each tag to find the smallest
             tag_counts = {}
             for tag in tags:
                 if self.stop_signal:
@@ -578,23 +585,21 @@ img { max-width: 100%; height: auto; }
                     time.sleep(delay)
 
             sorted_tags = sorted(tags, key=lambda t: tag_counts.get(t, 999999))
-            self.log(f"  Search order (smallest first): {', '.join(f'{t}({tag_counts.get(t,0)})' for t in sorted_tags)}")
+            smallest = sorted_tags[0]
+            other_tags = set(sorted_tags[1:])
+            self.log(f"  Fetching [{smallest}] ({tag_counts.get(smallest, 0)}), filtering by genres: {', '.join(other_tags)}")
 
-            common_ids = None
-            for tag in sorted_tags:
-                if self.stop_signal:
-                    break
-                tag_ids = _fetch_all_pages(tag, filter_ids=common_ids)
-                common_ids = tag_ids if common_ids is None else (common_ids & tag_ids)
-                self.log(f"  Running intersection: {len(common_ids)} novel(s)")
-                if not common_ids:
-                    self.log("  Intersection is empty — stopping early")
-                    break
-                if delay > 0 and tag != sorted_tags[-1]:
-                    time.sleep(delay)
+            # Fetch smallest tag with genre data
+            base_ids, genres_map = _fetch_all_pages(smallest, include_genres=True)
 
-            result_ids = list(common_ids or set())
-            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s)")
+            # Filter: keep only novels whose genre_arr contains ALL other tags
+            result_ids = []
+            for nid in base_ids:
+                genres = set(genres_map.get(nid, []))
+                if other_tags.issubset(genres):
+                    result_ids.append(nid)
+
+            self.log(f"  AND result: {len(result_ids)} novel(s) match all {len(tags)} tag(s) (from {len(base_ids)} {smallest} results)")
         else:
             all_ids = set()
             for tag in tags:

@@ -934,7 +934,7 @@ class NovelpiaGUI(tk.Tk):
     # Common Novelpia tags: (korean_tag, english_label)
     COMMON_TAGS = [
         # -- Pinned --
-        ("TS", "Genderbend"), ("악피폐", "Dark Suffering"), ("먼치킨", "Munchkin"),
+        ("TS", "Genderbend"), ("약피폐", "Moderate Suffering"), ("먼치킨", "Munchkin"),
         ("GL", "Girls Love"), ("BL", "Boys Love"),
         ("백합", "Yuri"), ("추리", "Mystery"), ("로맨스", "Romance"),
         ("하렘", "Harem"), ("역하렘", "Reverse Harem"),
@@ -945,7 +945,7 @@ class NovelpiaGUI(tk.Tk):
         ("학교", "School"), ("19금", "R-19"), ("수녀", "Nun"),
         ("학원", "Academy"), ("썰만화", "Ssulmanhwa"), ("방송", "Broadcast"),
         # -- Genre / Trope --
-        ("SF", "Sci-Fi"), ("비극", "Tragedy"), ("회귀", "Regression"), ("빙의", "Possession"),
+        ("SF", "Sci-Fi"), ("비극", "Tragedy"), ("악피폐", "Dark Suffering"), ("회귀", "Regression"), ("빙의", "Possession"),
         ("환생", "Reincarnation"), ("헌터", "Hunter"),
         ("현대판타지", "Modern Fantasy"), ("로맨스판타지", "Romance Fantasy"), ("무협", "Martial Arts"),
         ("게임판타지", "Game Fantasy"), ("호러", "Horror"), ("스포츠", "Sports"),
