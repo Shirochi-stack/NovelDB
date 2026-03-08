@@ -9,3 +9,6 @@ logs/
 *.loginkey
 debug_search.py
 docs/data/novels_full.json
+
+# Allow translation txt files in docs/data
+!docs/data/*.txt
