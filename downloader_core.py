@@ -452,11 +452,17 @@ img { max-width: 100%; height: auto; }
         HTML(string=html_doc).write_pdf(output_path)
         self.log("PDF generation complete.")
 
-    def fetch_all_novels(self, delay=0.5, rows=30, age_filter="", max_queries=50):
+    def fetch_all_novels(self, delay=0.5, rows=30, age_filter="", max_queries=50, threads=1):
         """Fetch ALL novel IDs from Novelpia using multiple API calls.
 
         The API caps results at ~42K per query, so we search with multiple
         characters and union the results for better coverage.
+
+        Args:
+            delay: seconds between requests (per thread)
+            age_filter: "" (all), "15" (non-adult), "19" (adult only)
+            max_queries: how many search terms to use (1-100)
+            threads: number of concurrent query threads
 
         Returns:
             list of novel ID strings
@@ -479,21 +485,29 @@ img { max-width: 100%; height: auto; }
         ] + list("타아다라사가마나자하카차바파") + list("abcdefghijklmnopqrstuvwxyz0123456789")
         SEARCH_CHARS = ALL_SEARCHES[:max_queries]
 
-        self.log("Scraping all novel IDs from Novelpia...")
+        self.log(f"Scraping all novel IDs from Novelpia... ({len(SEARCH_CHARS)} queries, {threads} thread(s))")
         if age_filter == "15":
             self.log("  Age filter: Non-adult only")
         elif age_filter == "19":
             self.log("  Age filter: Adult only")
 
         ids = set()
+        lock = threading.Lock()
+        completed = [0]  # mutable counter for progress
 
-        for ci, ch in enumerate(SEARCH_CHARS):
+        def _query_one(ci, ch):
+            """Run a single search query."""
+            if self.stop_signal:
+                return
+
             self.log(f"  Query {ci+1}/{len(SEARCH_CHARS)}: searching '{ch}'...")
             try:
-                done = threading.Event()
+                done_ev = threading.Event()
                 def _tick():
                     start = time.time()
-                    while not done.wait(3):
+                    while not done_ev.wait(3):
+                        if self.stop_signal:
+                            break
                         self.log(f"    {int(time.time() - start)}s elapsed...")
                 t = threading.Thread(target=_tick, daemon=True)
                 t.start()
@@ -519,28 +533,46 @@ img { max-width: 100%; height: auto; }
                         "list_display": "grid",
                     }, headers=headers, timeout=120)
                 finally:
-                    done.set()
+                    done_ev.set()
+
                 data = response.json()
 
                 if data.get("status") != 200:
                     self.log(f"    API error: {data.get('errmsg', 'Unknown')}")
-                    continue
+                    return
 
                 novel_list = data.get("list", [])
-                before = len(ids)
-                for novel in novel_list:
-                    novel_id = str(novel.get("novel_no", ""))
-                    if novel_id:
-                        ids.add(novel_id)
-                new_count = len(ids) - before
-                self.log(f"    {len(novel_list)} results, {new_count} new (total: {len(ids)})")
+                with lock:
+                    before = len(ids)
+                    for novel in novel_list:
+                        novel_id = str(novel.get("novel_no", ""))
+                        if novel_id:
+                            ids.add(novel_id)
+                    new_count = len(ids) - before
+                    completed[0] += 1
+                    self.log(f"    {len(novel_list)} results, {new_count} new (total: {len(ids)})")
 
             except Exception as e:
                 self.log(f"    Error on '{ch}': {e}")
 
-
-
-            time.sleep(0.5)
+        if threads > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=threads) as pool:
+                futures = []
+                for ci, ch in enumerate(SEARCH_CHARS):
+                    if self.stop_signal:
+                        break
+                    futures.append(pool.submit(_query_one, ci, ch))
+                    time.sleep(delay)  # stagger submissions
+                for f in futures:
+                    f.result()  # wait for all to finish
+        else:
+            for ci, ch in enumerate(SEARCH_CHARS):
+                if self.stop_signal:
+                    self.log("  Stopped by user.")
+                    break
+                _query_one(ci, ch)
+                time.sleep(delay)
 
         self.log(f"  {len(ids)} novel(s) retrieved total")
         return list(ids)

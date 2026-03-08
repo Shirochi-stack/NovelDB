@@ -66,24 +66,24 @@
 
             <!-- Tag Filters -->
             <div class="tag-section">
-                <div class="tag-header">
-                    <span>Filter by tags</span>
+                <div class="tag-header" id="tagToggle" style="cursor:pointer">
+                    <span>▶ Filter by tags</span>
                     <div class="tag-mode">
                         <button id="tagModeAnd" class="mode-btn active">AND</button>
                         <button id="tagModeOr" class="mode-btn">OR</button>
                     </div>
                     <button id="clearTags" class="clear-btn">Clear</button>
                 </div>
-                <div id="tagContainer" class="tag-grid"></div>
+                <div id="tagContainer" class="tag-grid collapsed"></div>
             </div>
 
             <!-- Exclude Tag Filters -->
             <div class="tag-section exclude-section">
-                <div class="tag-header">
-                    <span>Exclude tags</span>
+                <div class="tag-header" id="excludeToggle" style="cursor:pointer">
+                    <span>▶ Exclude tags</span>
                     <button id="clearExclude" class="clear-btn">Clear</button>
                 </div>
-                <div id="excludeTagContainer" class="tag-grid"></div>
+                <div id="excludeTagContainer" class="tag-grid collapsed"></div>
             </div>
 
             <div class="status-bar">
@@ -100,6 +100,6 @@
         </div>
     </main>
 
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
 </body>
 </html>

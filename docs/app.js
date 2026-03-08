@@ -303,6 +303,21 @@
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
+    // === Tag section toggle ===
+    function setupToggle(headerId, containerId) {
+        const header = document.getElementById(headerId);
+        const container = document.getElementById(containerId);
+        header.addEventListener("click", (e) => {
+            // Don't toggle when clicking buttons inside the header
+            if (e.target.closest("button")) return;
+            const collapsed = container.classList.toggle("collapsed");
+            const label = header.querySelector("span");
+            label.textContent = label.textContent.replace(/^[▶▼]/, collapsed ? "▶" : "▼");
+        });
+    }
+    setupToggle("tagToggle", "tagContainer");
+    setupToggle("excludeToggle", "excludeTagContainer");
+
     // === Event Listeners ===
     let searchTimer;
     searchInput.addEventListener("input", () => {

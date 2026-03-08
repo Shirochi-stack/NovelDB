@@ -1214,7 +1214,8 @@ class NovelpiaGUI(tk.Tk):
             if tags is None:
                 # Scrape all novels mode
                 max_q = getattr(self, '_scrape_max_queries', 50)
-                novels = self.downloader.fetch_all_novels(delay=delay, age_filter=age_filter, max_queries=max_q)
+                num_threads = max(1, self.var_threads.get())
+                novels = self.downloader.fetch_all_novels(delay=delay, age_filter=age_filter, max_queries=max_q, threads=num_threads)
             else:
                 novels = self.downloader.fetch_novels_by_tags(tags, delay=delay, age_filter=age_filter, mode=mode)
         except Exception as e:

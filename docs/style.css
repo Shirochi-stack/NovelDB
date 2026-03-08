@@ -221,6 +221,20 @@ main {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
+    max-height: 800px;
+    opacity: 1;
+}
+
+.tag-grid.collapsed {
+    max-height: 0;
+    opacity: 0;
+    margin: 0;
+}
+
+.tag-header:hover span {
+    color: var(--text-primary);
 }
 
 .tag-chip {
