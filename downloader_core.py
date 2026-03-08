@@ -579,24 +579,38 @@ img { max-width: 100%; height: auto; }
                     time.sleep(delay)
 
             sorted_tags = sorted(tags, key=lambda t: tag_counts.get(t, 999999))
-            primary = sorted_tags[0]  # smallest tag -> search_val
 
-            if len(sorted_tags) >= 2:
-                # Use 2nd smallest as server-side genre filter
-                secondary = sorted_tags[1]
-                remaining = set(sorted_tags[2:])
-                self.log(f"  Server filter: {primary} ∩ {secondary}")
-                if remaining:
-                    self.log(f"  Then verify: {', '.join(remaining)}")
+            # Probe pairs to find the smallest server-side combination
+            best_pair = None
+            best_cnt = float('inf')
+            for i, t1 in enumerate(sorted_tags):
+                for t2 in sorted_tags[i+1:]:
+                    if self.stop_signal:
+                        break
+                    try:
+                        resp = self.auth.session.get(url, params=_build_params(t1, 1, genre_filter=t2), headers=headers, timeout=15)
+                        d = resp.json()
+                        cnt = d.get("total_cnt", 999999) if d.get("status") == 200 else 999999
+                        self.log(f"  Pair {t1} ∩ {t2}: {cnt}")
+                        if cnt < best_cnt:
+                            best_cnt = cnt
+                            best_pair = (t1, t2)
+                    except Exception:
+                        pass
+                    if delay > 0:
+                        time.sleep(delay)
 
-                # Fetch with server-side 2-tag filter
-                base_ids, genres_map = _fetch_all_pages(primary, include_genres=bool(remaining), genre_filter=secondary)
-            else:
-                remaining = set()
-                base_ids, genres_map = _fetch_all_pages(primary, include_genres=False)
+            primary, secondary = best_pair
+            remaining = set(tags) - {primary, secondary}
+            self.log(f"  Best pair: {primary} ∩ {secondary} = {best_cnt}")
+            if remaining:
+                self.log(f"  Then verify: {', '.join(remaining)}")
+
+            # Fetch with server-side 2-tag filter (always include genres for verification)
+            base_ids, genres_map = _fetch_all_pages(primary, include_genres=True, genre_filter=secondary)
 
             # Stage 1: Pre-filter remaining tags via genre_arr (local)
-            if remaining and genres_map:
+            if remaining:
                 candidates = []
                 for nid in base_ids:
                     genres = set(genres_map.get(nid, []))
@@ -610,7 +624,7 @@ img { max-width: 100%; height: auto; }
                 result_ids = []
             else:
                 # Stage 2: Verify candidates by scraping actual novel page tags
-                all_other = set(sorted_tags[1:])  # verify ALL tags except primary
+                all_other = set(tags) - {primary}
                 result_ids = []
                 for i, nid in enumerate(candidates):
                     if self.stop_signal:
