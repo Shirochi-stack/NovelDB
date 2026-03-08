@@ -1063,17 +1063,17 @@ class NovelpiaGUI(tk.Tk):
         opts_frame.pack(fill="x", pady=(2, 5))
 
         # AND / OR radio buttons
-        mode_var = tk.StringVar(value="AND")
+        mode_var = tk.StringVar(value=getattr(self, '_tag_mode', 'AND'))
         ttk.Label(opts_frame, text="Mode:").pack(side="left")
         ttk.Radiobutton(opts_frame, text="AND", variable=mode_var, value="AND").pack(side="left", padx=(5, 2))
         ttk.Radiobutton(opts_frame, text="OR", variable=mode_var, value="OR").pack(side="left", padx=(2, 15))
 
         # Exclude R19 toggle
-        exclude_r19_var = tk.BooleanVar(value=False)
+        exclude_r19_var = tk.BooleanVar(value=getattr(self, '_tag_exclude_r19', False))
 
         def on_exclude_r19_toggle():
+            self._tag_exclude_r19 = exclude_r19_var.get()
             if exclude_r19_var.get():
-                # Disable and uncheck the 19금 tag
                 if "19금" in tag_vars:
                     tag_vars["19금"].set(False)
                 if "19금" in tag_widgets:
@@ -1084,6 +1084,10 @@ class NovelpiaGUI(tk.Tk):
 
         ttk.Checkbutton(opts_frame, text="Exclude all R19 (19금)",
                         variable=exclude_r19_var, command=on_exclude_r19_toggle).pack(side="left")
+
+        # Apply initial R19 state if loaded from config
+        if exclude_r19_var.get():
+            on_exclude_r19_toggle()
 
         # Result display
         result_frame = ttk.Frame(main_f)
@@ -1104,7 +1108,9 @@ class NovelpiaGUI(tk.Tk):
                 return
             btn_go.config(state="disabled")
             result_label.config(text="Searching...")
-            self.iconify()  # Minimize main window on retrieve
+            top.iconify()  # Minimize tag dialog on retrieve
+            self._tag_mode = mode_var.get()
+            self._tag_exclude_r19 = exclude_r19_var.get()
             threading.Thread(
                 target=self._tag_retrieval_worker,
                 args=(all_tags, exclude_r19_var.get(), mode_var.get(), result_label, btn_go, top),
@@ -1429,6 +1435,9 @@ class NovelpiaGUI(tk.Tk):
             messagebox.showwarning("Missing Novel ID", "Please enter a Novel ID before downloading.")
             self.lbl_status.config(text="Idle")
             return
+
+        # Save novel ID to config immediately
+        self._save_config()
 
         # Cache setup (loaded early so metadata can be cached too)
         use_cache = self.var_use_cache.get()
@@ -1971,6 +1980,10 @@ table, th, td {
                 self.var_quick_path.set(cfg.get("quick_path", ""))
                 self.var_naming_mode.set(cfg.get("naming_mode", "title"))
                 self.var_append_range.set(cfg.get("append_range", False))
+
+                # Tag retrieval settings
+                self._tag_exclude_r19 = cfg.get("tag_exclude_r19", False)
+                self._tag_mode = cfg.get("tag_mode", "AND")
             except: pass
     
     def _auto_login(self):
@@ -1983,7 +1996,8 @@ table, th, td {
             self.auth.set_manual_key(self.var_loginkey.get())
             self.log_message("Auto-login: Using saved login key.")
 
-    def _on_close(self):
+    def _save_config(self):
+        """Save current settings to config.json."""
         cfg = {
             # Login settings
             "email": self.var_email.get(),
@@ -2026,12 +2040,19 @@ table, th, td {
             "quick_enable": self.var_quick_enable.get(),
             "quick_path": self.var_quick_path.get(),
             "naming_mode": self.var_naming_mode.get(),
-            "append_range": self.var_append_range.get()
+            "append_range": self.var_append_range.get(),
+
+            # Tag retrieval settings
+            "tag_exclude_r19": getattr(self, '_tag_exclude_r19', False),
+            "tag_mode": getattr(self, '_tag_mode', "AND"),
         }
         try:
             with open("config.json", "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
         except: pass
+
+    def _on_close(self):
+        self._save_config()
         self.destroy()
 
 if __name__ == "__main__":
