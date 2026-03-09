@@ -915,7 +915,9 @@
 
     // Add a tag to include filter (from card click)
     function addIncludeTag(tag) {
-        if (activeTags.has(tag)) return;
+        // Clear previous tags first
+        activeTags.clear();
+        tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
         activeTags.add(tag);
         // Highlight the chip in the tag grid
         tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
