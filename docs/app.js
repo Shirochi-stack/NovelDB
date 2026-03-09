@@ -1262,7 +1262,7 @@
             dataUrl: "data/sfacg_novels.json",
             translationsUrl: "data/sfacg_titles_en.txt",
             format: "array",
-            coverPrefix: "",  // full URLs in data
+            coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
             linkPrefix: "https://book.sfacg.com/Novel/",
         },
     };
@@ -1290,12 +1290,30 @@
                 resultsEl.innerHTML = `<div class="loading-spinner">Downloading... ${mb}/${totalMb} MB (${pct}%)</div>`;
             }
             const blob = new Blob(chunks);
+            const text = await blob.text();
             resultsEl.innerHTML = `<div class="loading-spinner">Parsing ${(received / 1024 / 1024).toFixed(1)} MB...</div>`;
-            await new Promise((r) => setTimeout(r, 50));
-            return JSON.parse(await blob.text());
+            // Parse in a Web Worker to avoid blocking the UI
+            return await parseJsonAsync(text);
         } else {
             return await resp.json();
         }
+    }
+
+    function parseJsonAsync(text) {
+        return new Promise((resolve, reject) => {
+            try {
+                const blob = new Blob([
+                    `self.onmessage = function(e) { self.postMessage(JSON.parse(e.data)); };`
+                ], { type: "application/javascript" });
+                const url = URL.createObjectURL(blob);
+                const worker = new Worker(url);
+                worker.onmessage = (e) => { URL.revokeObjectURL(url); worker.terminate(); resolve(e.data); };
+                worker.onerror = (e) => { URL.revokeObjectURL(url); worker.terminate(); resolve(JSON.parse(text)); };
+                worker.postMessage(text);
+            } catch (e) {
+                resolve(JSON.parse(text));
+            }
+        });
     }
 
 

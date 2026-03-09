@@ -130,14 +130,18 @@ def main():
 
 def save_novels(all_novels):
     """Save novels to disk."""
+    COVER_PREFIX = "https://rss.sfacg.com/web/novel/images/NovelCover/Big/"
     os.makedirs("docs/data", exist_ok=True)
     optimized = []
     for n in all_novels.values():
         tags = n.get("tags", [])
         if isinstance(tags, str):
             tags = [tags]
+        cover = n.get("cover", "")
+        if cover.startswith(COVER_PREFIX):
+            cover = cover[len(COVER_PREFIX):]
         optimized.append([
-            n["id"], n["title"], n["author"], n.get("cover", ""),
+            n["id"], n["title"], n["author"], cover,
             tags, n.get("views", 0), n.get("likes", 0),
             n.get("chapters", 0), n.get("complete", 0),
             n.get("updated", ""), 0, n.get("age", 0),
