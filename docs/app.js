@@ -915,8 +915,6 @@
 
     // Add a tag to include filter (from card click)
     function addIncludeTag(tag) {
-        // Save current state before changing
-        history.pushState({ search: searchInput.value, tags: [...activeTags] }, "");
         // Clear previous tags first
         activeTags.clear();
         tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
@@ -928,20 +926,9 @@
         applyFilters();
     }
 
-    // Handle browser back button
-    window.addEventListener("popstate", (e) => {
-        if (e.state) {
-            searchInput.value = e.state.search || "";
-            activeTags.clear();
-            tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
-            for (const t of (e.state.tags || [])) {
-                activeTags.add(t);
-                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === t) c.classList.add("active");
-                });
-            }
-            applyFilters();
-        }
+    // Handle browser back/forward — restore from URL hash
+    window.addEventListener("hashchange", () => {
+        restoreFromHash();
     });
 
     // === Filter & Sort ===
@@ -1104,8 +1091,6 @@
             authorEl.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // Save current state before changing
-                history.pushState({ search: searchInput.value, tags: [...activeTags] }, "");
                 searchInput.value = authorEl.dataset.author;
                 applyFilters();
             });
@@ -1449,11 +1434,139 @@
             </div>`;
         }
     }
+    // === State persistence via URL hash ===
+    let _lastHash = window.location.hash;
+    function saveState() {
+        const state = {};
+        if (searchInput.value) state.q = searchInput.value;
+        if (sortSelect.value !== "weekly") state.sort = sortSelect.value;
+        if (orderSelect.value !== "desc") state.order = orderSelect.value;
+        if (statusSelect.value !== "all") state.status = statusSelect.value;
+        if (audienceSelect.value !== "all") state.audience = audienceSelect.value;
+        if (batchSelect.value !== "50") state.batch = batchSelect.value;
+        if (currentPage > 1) state.page = currentPage;
+        if (sourceSelect.value !== "all") state.src = sourceSelect.value;
+        if (activeTags.size > 0) state.tags = [...activeTags].join(",");
+        if (excludeTags.size > 0) state.xtags = [...excludeTags].join(",");
+        if (tagMode !== "AND") state.tmode = tagMode;
+
+        const hash = Object.keys(state).length > 0
+            ? "#" + Object.entries(state).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")
+            : "";
+        const newHash = hash || window.location.pathname + window.location.search;
+        if (_lastHash !== hash) {
+            history.pushState(null, "", newHash);
+            _lastHash = hash;
+        }
+    }
+
+    function parseHash(hash) {
+        if (!hash) return {};
+        const params = {};
+        for (const pair of hash.replace(/^#/, "").split("&")) {
+            const eq = pair.indexOf("=");
+            if (eq > 0) params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1));
+        }
+        return params;
+    }
+
+    function restoreFromHash() {
+        const params = parseHash(window.location.hash);
+        searchInput.value = params.q || "";
+        sortSelect.value = params.sort || "weekly";
+        orderSelect.value = params.order || "desc";
+        statusSelect.value = params.status || "all";
+        audienceSelect.value = params.audience || "all";
+        if (params.batch) { batchSelect.value = params.batch; BATCH = parseInt(params.batch); }
+        currentPage = params.page ? parseInt(params.page) : 1;
+        if (params.tmode) tagMode = params.tmode;
+
+        // Restore tags
+        activeTags.clear();
+        tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+        if (params.tags) {
+            for (const t of params.tags.split(",")) {
+                activeTags.add(t);
+                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === t) c.classList.add("active");
+                });
+            }
+        }
+        excludeTags.clear();
+        excludeTagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+        if (params.xtags) {
+            for (const t of params.xtags.split(",")) {
+                excludeTags.add(t);
+                excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === t) c.classList.add("active");
+                });
+            }
+        }
+
+        _lastHash = window.location.hash;
+        _origApplyFilters();
+    }
+
+    function restoreState() {
+        const params = parseHash(window.location.hash);
+        if (Object.keys(params).length === 0) return false;
+
+        if (params.q) searchInput.value = params.q;
+        if (params.sort) sortSelect.value = params.sort;
+        if (params.order) orderSelect.value = params.order;
+        if (params.status) statusSelect.value = params.status;
+        if (params.audience) audienceSelect.value = params.audience;
+        if (params.batch) { batchSelect.value = params.batch; BATCH = parseInt(params.batch); }
+        if (params.page) currentPage = parseInt(params.page);
+        if (params.src) sourceSelect.value = params.src;
+        if (params.tmode) tagMode = params.tmode;
+
+        // Tags are restored after data loads (in loadSource callback)
+        return params;
+    }
+
+    const savedParams = restoreState();
+    const initialSource = sourceSelect.value;
+
+    // Wrap original applyFilters to auto-save state
+    const _origApplyFilters = applyFilters;
+    applyFilters = function() {
+        _origApplyFilters();
+        saveState();
+    };
+
+    // After data loads, restore tags
+    const _origLoadSource = loadSource;
+    loadSource = async function(source) {
+        await _origLoadSource(source);
+        if (savedParams && savedParams.tags) {
+            for (const t of savedParams.tags.split(",")) {
+                activeTags.add(t);
+                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === t) c.classList.add("active");
+                });
+            }
+        }
+        if (savedParams && savedParams.xtags) {
+            for (const t of savedParams.xtags.split(",")) {
+                excludeTags.add(t);
+                excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === t) c.classList.add("active");
+                });
+            }
+        }
+        if (savedParams && (savedParams.tags || savedParams.xtags || savedParams.q || savedParams.page)) {
+            applyFilters();
+        }
+        // Only restore once
+        loadSource = _origLoadSource;
+    };
 
     // Source change listener
     sourceSelect.addEventListener("change", () => {
         loadSource(sourceSelect.value);
+        saveState();
     });
 
-    loadSource("all");
+    loadSource(initialSource);
 })();
