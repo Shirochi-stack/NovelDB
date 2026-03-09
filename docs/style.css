@@ -376,8 +376,6 @@ a.card-cover-wrap {
     flex-wrap: wrap;
     gap: 4px;
     margin-bottom: 0.75rem;
-    max-height: 52px;
-    overflow: hidden;
 }
 
 .card-tag {
