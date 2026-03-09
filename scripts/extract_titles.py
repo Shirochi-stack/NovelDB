@@ -1,7 +1,8 @@
 """Extract novel titles from scraped data for translation.
 
 Supports multiple sources. Each source reads its own JSON and writes
-its own title files so nothing conflicts.
+to its *_en.txt file only. Preserves existing English translations
+and sorts untranslated rows to the bottom.
 
 Usage:
     python scripts/extract_titles.py              # Novelpia (default)
@@ -10,12 +11,14 @@ Usage:
     python scripts/extract_titles.py all           # All sources
 
 Output files in docs/data/:
-    Novelpia:  titles.txt,       titles_en.txt
-    KakaoPage: kakao_titles.txt, kakao_titles_en.txt
-    SFACG:     sfacg_titles.txt, sfacg_titles_en.txt
+    Novelpia:  titles_en.txt
+    KakaoPage: kakao_titles_en.txt
+    SFACG:     sfacg_titles_en.txt
 
 Format: novel_id|||Raw Title|||English Title
-The site auto-loads the *_titles_en.txt for each source.
+  - Translated rows are sorted to the top.
+  - Untranslated rows (empty column 3) are at the bottom.
+  - The site auto-loads the *_titles_en.txt for each source.
 """
 
 import json, os, sys
@@ -25,20 +28,30 @@ sys.stdout.reconfigure(encoding="utf-8")
 SOURCES = {
     "novelpia": {
         "data": os.path.join("docs", "data", "novels.json"),
-        "raw":  os.path.join("docs", "data", "titles.txt"),
         "en":   os.path.join("docs", "data", "titles_en.txt"),
     },
     "kakao": {
         "data": os.path.join("docs", "data", "kakao_novels.json"),
-        "raw":  os.path.join("docs", "data", "kakao_titles.txt"),
         "en":   os.path.join("docs", "data", "kakao_titles_en.txt"),
     },
     "sfacg": {
         "data": os.path.join("docs", "data", "sfacg_novels.json"),
-        "raw":  os.path.join("docs", "data", "sfacg_titles.txt"),
         "en":   os.path.join("docs", "data", "sfacg_titles_en.txt"),
     },
 }
+
+
+def load_existing_translations(path):
+    """Load existing English translations from a _en.txt file."""
+    translations = {}
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n").rstrip("\r")
+                parts = line.split("|||")
+                if len(parts) >= 3 and parts[2].strip():
+                    translations[parts[0].strip()] = parts[2].strip()
+    return translations
 
 
 def extract(source):
@@ -57,22 +70,32 @@ def extract(source):
         raw = json.load(f)
     print(f"  {len(raw)} novels loaded.")
 
-    # Write raw titles
-    with open(cfg["raw"], "w", encoding="utf-8") as f:
-        for r in raw:
-            novel_id = r[0]
-            title = r[1] or ""
-            f.write(f"{novel_id}|||{title}\n")
-    print(f"  Wrote {len(raw)} titles to {cfg['raw']}")
+    # Preserve existing translations
+    existing_en = load_existing_translations(cfg["en"])
+    if existing_en:
+        print(f"  Preserved {len(existing_en)} existing translations")
 
-    # Write translation template
+    # Build rows, split into translated and untranslated
+    translated = []
+    untranslated = []
+    for r in raw:
+        novel_id = str(r[0])
+        title = r[1] or ""
+        en = existing_en.get(novel_id, "")
+        row = f"{novel_id}|||{title}|||{en}\n"
+        if en:
+            translated.append(row)
+        else:
+            untranslated.append(row)
+
+    # Write: translated first, untranslated at bottom
     with open(cfg["en"], "w", encoding="utf-8") as f:
-        for r in raw:
-            novel_id = str(r[0])
-            title = r[1] or ""
-            f.write(f"{novel_id}|||{title}|||\n")
+        f.writelines(translated)
+        f.writelines(untranslated)
 
-    print(f"  Wrote {cfg['en']} ({len(raw)} titles)")
+    total = len(translated) + len(untranslated)
+    print(f"  Wrote {cfg['en']} ({total} titles)")
+    print(f"  Translated: {len(translated)}, Untranslated: {len(untranslated)}")
 
 
 def main():
@@ -84,10 +107,7 @@ def main():
     else:
         extract(source)
 
-    print("\nDone! To translate:")
-    print("  1. Open the *_titles_en.txt file for your source")
-    print("  2. Fill in the 3rd column (after the 2nd |||) with English titles")
-    print("  3. The website auto-loads translations per source")
+    print("\nDone!")
 
 
 if __name__ == "__main__":
