@@ -416,15 +416,21 @@ a.card-cover-wrap {
 .card-synopsis {
     margin-top: 0.5rem;
     font-size: 0.75rem;
-    color: #fff;
+    color: rgba(255, 255, 255, 0.85);
     line-height: 1.6;
     max-height: 200px;
     overflow-y: auto;
 }
 
 .synopsis-label {
-    font-weight: 600;
+    display: block;
+    font-weight: 700;
+    font-size: 0.8rem;
     color: #fff;
+    margin-bottom: 0.3rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    letter-spacing: 0.03em;
 }
 
 .stat {

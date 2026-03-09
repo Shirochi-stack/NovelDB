@@ -1467,12 +1467,15 @@
                 const map = {};
                 let count = 0;
                 for (const line of text.split("\n")) {
-                    const sep = line.indexOf("|||");
-                    if (sep > 0) {
-                        const id = line.slice(0, sep);
-                        const desc = line.slice(sep + 3).trim();
-                        if (desc) {
-                            map[id] = desc.replace(/\\r\\n|\\n/g, "\n");
+                    const parts = line.split("|||");
+                    if (parts.length >= 2 && parts[0].trim()) {
+                        const id = parts[0].trim();
+                        // Format: id|||korean|||english — prefer english if present
+                        const raw = (parts.length >= 3 && parts[2].trim())
+                            ? parts[2].trim()
+                            : parts[1].trim();
+                        if (raw) {
+                            map[id] = raw.replace(/\\r\\n|\\n/g, "\n");
                             count++;
                         }
                     }
