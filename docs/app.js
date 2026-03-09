@@ -915,6 +915,8 @@
 
     // Add a tag to include filter (from card click)
     function addIncludeTag(tag) {
+        // Save current state before changing
+        history.pushState({ search: searchInput.value, tags: [...activeTags] }, "");
         // Clear previous tags first
         activeTags.clear();
         tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
@@ -925,6 +927,22 @@
         });
         applyFilters();
     }
+
+    // Handle browser back button
+    window.addEventListener("popstate", (e) => {
+        if (e.state) {
+            searchInput.value = e.state.search || "";
+            activeTags.clear();
+            tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+            for (const t of (e.state.tags || [])) {
+                activeTags.add(t);
+                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === t) c.classList.add("active");
+                });
+            }
+            applyFilters();
+        }
+    });
 
     // === Filter & Sort ===
     function applyFilters() {
@@ -1086,6 +1104,8 @@
             authorEl.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                // Save current state before changing
+                history.pushState({ search: searchInput.value, tags: [...activeTags] }, "");
                 searchInput.value = authorEl.dataset.author;
                 applyFilters();
             });

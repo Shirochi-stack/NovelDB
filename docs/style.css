@@ -363,6 +363,7 @@ a.card-cover-wrap {
     color: var(--text-secondary);
     margin-bottom: 0.6rem;
     cursor: pointer;
+    width: fit-content;
 }
 
 .card-author:hover {
