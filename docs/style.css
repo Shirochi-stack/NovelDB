@@ -410,10 +410,9 @@ main {
 }
 
 .badge-complete {
-    background: rgba(22, 163, 74, 0.3);
-    color: #4ade80;
+    background: rgba(22, 101, 52, 0.55);
+    color: #fff;
     border: 1px solid rgba(74, 222, 128, 0.5);
-    text-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
 }
 
 .badge-rank {
@@ -436,7 +435,7 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(220, 38, 38, 0.9);
+    background: rgba(220, 38, 38, 0.55);
     color: #fff;
     font-size: 0.65rem;
     font-weight: 800;
