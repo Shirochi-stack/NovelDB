@@ -410,7 +410,7 @@ main {
 }
 
 .badge-complete {
-    background: rgba(22, 101, 52, 0.85);
+    background: rgba(34, 130, 70, 0.8);
     color: #fff;
     border: 1px solid rgba(74, 222, 128, 0.5);
 }
@@ -430,14 +430,14 @@ main {
     position: absolute;
     top: 6px;
     left: 6px;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     background: rgba(220, 38, 38, 0.9);
     color: #fff;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 800;
     border-radius: 50%;
     z-index: 2;
