@@ -1115,6 +1115,8 @@
             bar.style.display = show ? "" : "none";
             bar.querySelector(".prev-page").disabled = currentPage === 1;
             bar.querySelector(".next-page").disabled = currentPage === totalPages;
+            const pi = bar.querySelector(".page-input");
+            if (pi) pi.max = totalPages;
 
             const numsEl = bar.querySelector(".page-numbers");
             numsEl.innerHTML = "";
@@ -1208,6 +1210,23 @@
                 render();
                 window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
             }
+        });
+
+        const goBtn = bar.querySelector(".go-page");
+        const pageInput = bar.querySelector(".page-input");
+        function jumpToPage() {
+            const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
+            const val = parseInt(pageInput.value);
+            if (val >= 1 && val <= totalPages) {
+                currentPage = val;
+                render();
+                window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+            }
+            pageInput.value = "";
+        }
+        goBtn.addEventListener("click", jumpToPage);
+        pageInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") jumpToPage();
         });
     }
 

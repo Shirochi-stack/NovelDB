@@ -519,14 +519,14 @@ a.card-cover-wrap {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
     padding: 2rem 0;
     flex-wrap: wrap;
 }
 
 .page-numbers {
     display: flex;
-    gap: 0.25rem;
+    gap: 0.35rem;
     flex-wrap: wrap;
     justify-content: center;
 }
@@ -535,11 +535,13 @@ a.card-cover-wrap {
     background: var(--bg-card);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
+    padding: 0.65rem 1.25rem;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 0.95rem;
     transition: all 0.2s;
+    min-width: 44px;
+    text-align: center;
 }
 
 .page-btn:hover:not(:disabled) {
@@ -562,8 +564,33 @@ a.card-cover-wrap {
 
 .page-ellipsis {
     color: var(--text-muted);
-    padding: 0.5rem 0.4rem;
-    font-size: 0.85rem;
+    padding: 0.65rem 0.5rem;
+    font-size: 0.95rem;
+}
+
+.page-jump {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.page-input {
+    width: 60px;
+    padding: 0.55rem 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    text-align: center;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.page-input::-webkit-outer-spin-button,
+.page-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
 
 /* === Responsive === */
