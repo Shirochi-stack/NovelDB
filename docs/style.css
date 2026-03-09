@@ -415,15 +415,16 @@ a.card-cover-wrap {
 /* === Synopsis === */
 .card-synopsis {
     margin-top: 0.5rem;
-    padding: 0.6rem;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
     font-size: 0.75rem;
-    color: var(--text-secondary);
+    color: #fff;
     line-height: 1.6;
     max-height: 200px;
     overflow-y: auto;
+}
+
+.synopsis-label {
+    font-weight: 600;
+    color: #fff;
 }
 
 .stat {

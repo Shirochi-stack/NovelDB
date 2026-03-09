@@ -1081,7 +1081,7 @@
         const r19Badge = (n.age === 19) ? `<span class="${ageBadgeClass}">${ageLabel}</span>` : "";
 
         const synopsisHTML = n.synopsis ? `
-                <div class="card-synopsis">${escHtml(n.synopsis).replace(/\n/g, '<br>')}</div>` : "";
+                <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(n.synopsis).replace(/\n/g, '<br>')}</div>` : "";
 
         card.innerHTML = `
             <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
