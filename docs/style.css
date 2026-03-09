@@ -300,7 +300,7 @@ main {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    overflow: hidden;
+    overflow: visible;
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     color: inherit;
     display: block;
@@ -316,6 +316,8 @@ a.card-cover-wrap {
     display: block;
     cursor: pointer;
     text-decoration: none;
+    overflow: hidden;
+    border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .card-cover {
