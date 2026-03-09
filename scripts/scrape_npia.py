@@ -94,9 +94,20 @@ def main():
                 seen.add(novel_id)
                 new_count += 1
 
-                cover = item.get("novel_img_all") or item.get("novel_thumb_all") or ""
-                if cover and not cover.startswith("http"):
-                    cover = "https://novelpia.com" + cover
+                # novel_img_all / novel_thumb_all can be the string "None" for R19 novels
+                # Fall back to cover_url, novel_img, novel_thumb in order
+                def _pick_cover(it):
+                    for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
+                        v = it.get(k)
+                        if v and str(v) not in ("", "None", "null"):
+                            v = str(v)
+                            if v.startswith("//"):
+                                return "https:" + v
+                            if not v.startswith("http"):
+                                return "https://novelpia.com" + v
+                            return v
+                    return ""
+                cover = _pick_cover(item)
 
                 novels.append({
                     "id": novel_id,
@@ -165,9 +176,7 @@ def main():
                 seen.add(novel_id)
                 new_count += 1
 
-                cover = item.get("novel_img_all") or item.get("novel_thumb_all") or ""
-                if cover and not cover.startswith("http"):
-                    cover = "https://novelpia.com" + cover
+                cover = _pick_cover(item)
 
                 novels.append({
                     "id": novel_id,

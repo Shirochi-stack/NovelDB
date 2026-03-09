@@ -345,9 +345,12 @@
             .map((t) => `<span class="card-tag" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
+        const r19Badge = (n.age === 19) ? `<span class="badge-r19">🔞 R19</span>` : "";
+
         card.innerHTML = `
             <div class="card-cover-wrap">
                 ${coverHTML}
+                ${r19Badge}
                 ${badgeHTML}
             </div>
             <div class="card-body">

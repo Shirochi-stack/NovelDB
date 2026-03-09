@@ -410,9 +410,10 @@ main {
 }
 
 .badge-complete {
-    background: rgba(74, 222, 128, 0.15);
-    color: var(--success);
-    border: 1px solid rgba(74, 222, 128, 0.3);
+    background: rgba(22, 163, 74, 0.3);
+    color: #4ade80;
+    border: 1px solid rgba(74, 222, 128, 0.5);
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
 }
 
 .badge-rank {
@@ -424,6 +425,22 @@ main {
 
 .card-cover-wrap {
     position: relative;
+}
+
+.badge-r19 {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: rgba(220, 38, 38, 0.85);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    z-index: 2;
+    letter-spacing: 0.5px;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 80, 80, 0.5);
 }
 
 /* === Load More === */
