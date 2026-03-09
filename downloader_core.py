@@ -511,46 +511,69 @@ img { max-width: 100%; height: auto; }
                         self.log(f"    {int(time.time() - start)}s elapsed...")
                 t = threading.Thread(target=_tick, daemon=True)
                 t.start()
+
+                page_novel_list = []
+                ROWS_PER_PAGE = 30000
                 try:
-                    response = self.auth.session.get(url, params={
-                        "cmd": "novel_search",
-                        "search_type": "all",
-                        "search_val": ch,
-                        "page": 1,
-                        "rows": 99999,
-                        "novel_type": "",
-                        "start_count_book": "",
-                        "end_count_book": "",
-                        "novel_age": age_filter,
-                        "start_days": "",
-                        "sort_col": "last_viewdate",
-                        "novel_genre": "",
-                        "block_out": 0,
-                        "block_stop": 0,
-                        "is_contest": 0,
-                        "is_complete": "",
-                        "is_challenge": 0,
-                        "list_display": "grid",
-                    }, headers=headers, timeout=120)
+                    for pg in range(1, 21):  # up to 20 pages = 100k novels max
+                        response = self.auth.session.get(url, params={
+                            "cmd": "novel_search",
+                            "search_type": "all",
+                            "search_val": ch,
+                            "page": pg,
+                            "rows": ROWS_PER_PAGE,
+                            "novel_type": "",
+                            "start_count_book": "",
+                            "end_count_book": "",
+                            "novel_age": age_filter,
+                            "start_days": "",
+                            "sort_col": "last_viewdate",
+                            "novel_genre": "",
+                            "block_out": 0,
+                            "block_stop": 0,
+                            "is_contest": 0,
+                            "is_complete": "",
+                            "is_challenge": 0,
+                            "list_display": "grid",
+                        }, headers=headers, timeout=120)
+
+                        if response.status_code != 200:
+                            self.log(f"    HTTP {response.status_code} on page {pg}, skipping")
+                            break
+
+                        text = response.text.strip()
+                        if not text:
+                            self.log(f"    Empty response on page {pg}, skipping")
+                            break
+
+                        try:
+                            data = response.json()
+                        except Exception:
+                            self.log(f"    Invalid JSON for '{ch}' p{pg} (len={len(text)}): {text[:300]}")
+                            break
+
+                        if data.get("status") != 200:
+                            self.log(f"    API error p{pg}: {data.get('errmsg', 'Unknown')}")
+                            break
+
+                        batch = data.get("list", [])
+                        page_novel_list.extend(batch)
+
+                        # If we got fewer than a full page, no more pages
+                        if len(batch) < ROWS_PER_PAGE:
+                            break
                 finally:
                     done_ev.set()
 
-                data = response.json()
-
-                if data.get("status") != 200:
-                    self.log(f"    API error: {data.get('errmsg', 'Unknown')}")
-                    return
-
-                novel_list = data.get("list", [])
                 with lock:
                     before = len(ids)
-                    for novel in novel_list:
+                    for novel in page_novel_list:
                         novel_id = str(novel.get("novel_no", ""))
                         if novel_id:
                             ids.add(novel_id)
                     new_count = len(ids) - before
                     completed[0] += 1
-                    self.log(f"    {len(novel_list)} results, {new_count} new (total: {len(ids)})")
+                    self.log(f"    {len(page_novel_list)} results, {new_count} new (total: {len(ids)})")
 
             except Exception as e:
                 self.log(f"    Error on '{ch}': {e}")

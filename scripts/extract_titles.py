@@ -1,68 +1,110 @@
-"""Extract all novel titles from the scraped data for translation.
+"""Extract novel titles from scraped data for translation.
 
-Reads: docs/data/novels.json (optimized array format)
-Outputs:
-  docs/data/titles.txt       - One title per line, format: ID<TAB>Korean Title
-  docs/data/titles_en.txt    - Template for translations: ID<TAB>Korean Title<TAB>English Title
-
-After translating, fill in the 3rd column of titles_en.txt.
-The site will load titles_en.txt and overlay English titles if present.
+Supports multiple sources. Each source reads its own JSON and writes
+its own title files so nothing conflicts.
 
 Usage:
-    python scripts/extract_titles.py
+    python scripts/extract_titles.py              # Novelpia (default)
+    python scripts/extract_titles.py kakao         # KakaoPage
+    python scripts/extract_titles.py sfacg         # SFACG
+    python scripts/extract_titles.py all           # All sources
+
+Output files in docs/data/:
+    Novelpia:  titles.txt,       titles_en.txt
+    KakaoPage: kakao_titles.txt, kakao_titles_en.txt
+    SFACG:     sfacg_titles.txt, sfacg_titles_en.txt
+
+Format: novel_id|||Raw Title|||English Title
+The site auto-loads the *_titles_en.txt for each source.
 """
 
 import json, os, sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-DATA_PATH = os.path.join("docs", "data", "novels.json")
-OUT_KR = os.path.join("docs", "data", "titles.txt")
-OUT_EN = os.path.join("docs", "data", "titles_en.txt")
+SOURCES = {
+    "novelpia": {
+        "data": os.path.join("docs", "data", "novels.json"),
+        "raw":  os.path.join("docs", "data", "titles.txt"),
+        "en":   os.path.join("docs", "data", "titles_en.txt"),
+    },
+    "kakao": {
+        "data": os.path.join("docs", "data", "kakao_novels.json"),
+        "raw":  os.path.join("docs", "data", "kakao_titles.txt"),
+        "en":   os.path.join("docs", "data", "kakao_titles_en.txt"),
+    },
+    "sfacg": {
+        "data": os.path.join("docs", "data", "sfacg_novels.json"),
+        "raw":  os.path.join("docs", "data", "sfacg_titles.txt"),
+        "en":   os.path.join("docs", "data", "sfacg_titles_en.txt"),
+    },
+}
 
-if not os.path.exists(DATA_PATH):
-    print(f"Error: {DATA_PATH} not found. Run the scraper first.")
-    sys.exit(1)
 
-print(f"Loading {DATA_PATH}...")
-with open(DATA_PATH, "r", encoding="utf-8") as f:
-    raw = json.load(f)
+def extract(source):
+    cfg = SOURCES.get(source)
+    if not cfg:
+        print(f"Unknown source: {source}")
+        print(f"Available: {', '.join(SOURCES.keys())}, all")
+        sys.exit(1)
 
-print(f"  {len(raw)} novels loaded.")
+    if not os.path.exists(cfg["data"]):
+        print(f"  Skipping {source}: {cfg['data']} not found.")
+        return
 
-# Format: [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank]
-# Write Korean titles
-with open(OUT_KR, "w", encoding="utf-8") as f:
-    for r in raw:
-        novel_id = r[0]
-        title = r[1] or ""
-        f.write(f"{novel_id}|||{title}\n")
+    print(f"\n[{source.upper()}] Loading {cfg['data']}...")
+    with open(cfg["data"], "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    print(f"  {len(raw)} novels loaded.")
 
-print(f"  Wrote {len(raw)} titles to {OUT_KR}")
+    # Write raw titles
+    with open(cfg["raw"], "w", encoding="utf-8") as f:
+        for r in raw:
+            novel_id = r[0]
+            title = r[1] or ""
+            f.write(f"{novel_id}|||{title}\n")
+    print(f"  Wrote {len(raw)} titles to {cfg['raw']}")
 
-# Write English template (preserve existing translations if file exists)
-existing = {}
-if os.path.exists(OUT_EN):
-    print(f"  Found existing {OUT_EN}, preserving translations...")
-    with open(OUT_EN, "r", encoding="utf-8") as f:
-        for line in f:
-            parts = line.rstrip("\n").split("|||")
-            if len(parts) >= 3 and parts[2].strip():
-                existing[parts[0]] = parts[2].strip()
-    print(f"  {len(existing)} existing translations found.")
+    # Preserve existing translations
+    existing = {}
+    if os.path.exists(cfg["en"]):
+        print(f"  Found existing {cfg['en']}, preserving translations...")
+        with open(cfg["en"], "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.rstrip("\n").split("|||")
+                if len(parts) >= 3 and parts[2].strip():
+                    existing[parts[0]] = parts[2].strip()
+        print(f"  {len(existing)} existing translations found.")
 
-with open(OUT_EN, "w", encoding="utf-8") as f:
-    preserved = 0
-    for r in raw:
-        novel_id = str(r[0])
-        title = r[1] or ""
-        en = existing.get(novel_id, "")
-        if en:
-            preserved += 1
-        f.write(f"{novel_id}|||{title}|||{en}\n")
+    # Write translation template
+    with open(cfg["en"], "w", encoding="utf-8") as f:
+        preserved = 0
+        for r in raw:
+            novel_id = str(r[0])
+            title = r[1] or ""
+            en = existing.get(novel_id, "")
+            if en:
+                preserved += 1
+            f.write(f"{novel_id}|||{title}|||{en}\n")
 
-print(f"  Wrote {OUT_EN} ({preserved} translations preserved, {len(raw) - preserved} need translation)")
-print("\nDone! To translate:")
-print(f"  1. Open {OUT_EN}")
-print(f"  2. Fill in the 3rd column (after the 2nd tab) with English titles")
-print(f"  3. The website will auto-load translations from data/titles_en.txt")
+    need = len(raw) - preserved
+    print(f"  Wrote {cfg['en']} ({preserved} preserved, {need} need translation)")
+
+
+def main():
+    source = sys.argv[1] if len(sys.argv) > 1 else "novelpia"
+
+    if source == "all":
+        for s in SOURCES:
+            extract(s)
+    else:
+        extract(source)
+
+    print("\nDone! To translate:")
+    print("  1. Open the *_titles_en.txt file for your source")
+    print("  2. Fill in the 3rd column (after the 2nd |||) with English titles")
+    print("  3. The website auto-loads translations per source")
+
+
+if __name__ == "__main__":
+    main()

@@ -244,7 +244,8 @@
     function renderCard(n) {
         const card = document.createElement("a");
         card.className = "novel-card";
-        card.href = `https://novelpia.com/novel/${n.id}`;
+        const cfg = SOURCES[currentSource] || SOURCES.novelpia;
+        card.href = `${cfg.linkPrefix}${n.id}`;
         card.target = "_blank";
         card.rel = "noopener";
 
@@ -432,42 +433,80 @@
         applyFilters();
     });
 
-    // === Load Data ===
-    const COVER_PREFIX = "https://novelpia.com";
+    // === DOM ref ===
+    const sourceSelect = $("#sourceSelect");
 
-    async function init() {
-        resultsEl.innerHTML = `<div class="loading-spinner">Loading novel database...</div>`;
+    // === Source configs ===
+    const SOURCES = {
+        novelpia: {
+            dataUrl: "data/novels.json",
+            translationsUrl: "data/titles_en.txt",
+            format: "array",  // optimized array format
+            coverPrefix: "https://novelpia.com",
+            linkPrefix: "https://novelpia.com/novel/",
+        },
+        kakao: {
+            dataUrl: "data/kakao_novels.json",
+            translationsUrl: "data/kakao_titles_en.txt",
+            format: "array",
+            coverPrefix: "",  // full URLs in data
+            linkPrefix: "https://page.kakao.com/content/",
+        },
+        sfacg: {
+            dataUrl: "data/sfacg_novels.json",
+            translationsUrl: "data/sfacg_titles_en.txt",
+            format: "array",
+            coverPrefix: "",  // full URLs in data
+            linkPrefix: "https://book.sfacg.com/Novel/",
+        },
+    };
+
+    let currentSource = "novelpia";
+
+    async function fetchWithProgress(url) {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        const contentLength = resp.headers.get("content-length");
+        if (contentLength && resp.body) {
+            const total = parseInt(contentLength);
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let received = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                const mb = (received / 1024 / 1024).toFixed(1);
+                const totalMb = (total / 1024 / 1024).toFixed(1);
+                const pct = Math.round((received / total) * 100);
+                resultsEl.innerHTML = `<div class="loading-spinner">Downloading... ${mb}/${totalMb} MB (${pct}%)</div>`;
+            }
+            const blob = new Blob(chunks);
+            resultsEl.innerHTML = `<div class="loading-spinner">Parsing ${(received / 1024 / 1024).toFixed(1)} MB...</div>`;
+            await new Promise((r) => setTimeout(r, 50));
+            return JSON.parse(await blob.text());
+        } else {
+            return await resp.json();
+        }
+    }
+
+    async function loadSource(source) {
+        currentSource = source;
+        const cfg = SOURCES[source];
+        resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source} database...</div>`;
+        paginationEl.style.display = "none";
+
+        // Clear filters
+        activeTags.clear();
+        excludeTags.clear();
+        searchInput.value = "";
+        currentPage = 1;
 
         try {
-            const resp = await fetch("data/novels.json");
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const raw = await fetchWithProgress(cfg.dataUrl);
 
-            // Show download progress
-            const contentLength = resp.headers.get("content-length");
-            if (contentLength && resp.body) {
-                const total = parseInt(contentLength);
-                const reader = resp.body.getReader();
-                const chunks = [];
-                let received = 0;
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    chunks.push(value);
-                    received += value.length;
-                    const mb = (received / 1024 / 1024).toFixed(1);
-                    const totalMb = (total / 1024 / 1024).toFixed(1);
-                    const pct = Math.round((received / total) * 100);
-                    resultsEl.innerHTML = `<div class="loading-spinner">Downloading... ${mb}/${totalMb} MB (${pct}%)</div>`;
-                }
-                const blob = new Blob(chunks);
-                resultsEl.innerHTML = `<div class="loading-spinner">Parsing ${(received / 1024 / 1024).toFixed(1)} MB...</div>`;
-                await new Promise((r) => setTimeout(r, 50)); // let UI update
-                var raw = JSON.parse(await blob.text());
-            } else {
-                var raw = await resp.json();
-            }
-
-            // Parse array format: [id, title, author, cover, tags, views, likes, chapters, complete, updated]
             allNovels = raw.map((r) => {
                 let tags = r[4];
                 if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
@@ -475,7 +514,7 @@
                     id: r[0],
                     title: r[1] || "",
                     author: r[2] || "",
-                    cover: r[3] ? COVER_PREFIX + r[3] : "",
+                    cover: r[3] ? (cfg.coverPrefix ? cfg.coverPrefix + r[3] : r[3]) : "",
                     tags,
                     views: r[5] || 0,
                     likes: r[6] || 0,
@@ -485,12 +524,14 @@
                     weeklyRank: r[10] || 0,
                     age: r[11] || 0,
                     titleEn: "",
+                    source: source,
                 };
             });
 
             // Load title translations if available
+            titleTranslations = {};
             try {
-                const tResp = await fetch("data/titles_en.txt");
+                const tResp = await fetch(cfg.translationsUrl);
                 if (tResp.ok) {
                     const text = await tResp.text();
                     let count = 0;
@@ -506,11 +547,11 @@
                             const en = titleTranslations[String(n.id)];
                             if (en) n.titleEn = en;
                         }
-                        console.log(`Loaded ${count} title translations`);
+                        console.log(`Loaded ${count} title translations for ${source}`);
                     }
                 }
             } catch (e) {
-                // titles_en.txt not found, skip silently
+                // translations not found, skip
             }
 
             buildTags(allNovels);
@@ -518,11 +559,16 @@
         } catch (err) {
             console.error("Load error:", err);
             resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">
-                ❌ Failed to load data.<br>
+                ❌ Failed to load ${source} data.<br>
                 <small style="color:var(--text-muted)">${err.message}</small>
             </div>`;
         }
     }
 
-    init();
+    // Source change listener
+    sourceSelect.addEventListener("change", () => {
+        loadSource(sourceSelect.value);
+    });
+
+    loadSource("novelpia");
 })();
