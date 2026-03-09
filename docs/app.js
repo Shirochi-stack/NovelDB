@@ -394,7 +394,8 @@
             .join("");
 
         const ageLabel = (novelSource === "sfacg") ? "15" : "19";
-        const r19Badge = (n.age === 19) ? `<span class="badge-r19">${ageLabel}</span>` : "";
+        const ageBadgeClass = (novelSource === "sfacg") ? "badge-r15" : "badge-r19";
+        const r19Badge = (n.age === 19) ? `<span class="${ageBadgeClass}">${ageLabel}</span>` : "";
 
         card.innerHTML = `
             <div class="card-cover-wrap">
