@@ -65,30 +65,14 @@ def extract(source):
             f.write(f"{novel_id}|||{title}\n")
     print(f"  Wrote {len(raw)} titles to {cfg['raw']}")
 
-    # Preserve existing translations
-    existing = {}
-    if os.path.exists(cfg["en"]):
-        print(f"  Found existing {cfg['en']}, preserving translations...")
-        with open(cfg["en"], "r", encoding="utf-8") as f:
-            for line in f:
-                parts = line.rstrip("\n").split("|||")
-                if len(parts) >= 3 and parts[2].strip():
-                    existing[parts[0]] = parts[2].strip()
-        print(f"  {len(existing)} existing translations found.")
-
     # Write translation template
     with open(cfg["en"], "w", encoding="utf-8") as f:
-        preserved = 0
         for r in raw:
             novel_id = str(r[0])
             title = r[1] or ""
-            en = existing.get(novel_id, "")
-            if en:
-                preserved += 1
-            f.write(f"{novel_id}|||{title}|||{en}\n")
+            f.write(f"{novel_id}|||{title}|||\n")
 
-    need = len(raw) - preserved
-    print(f"  Wrote {cfg['en']} ({preserved} preserved, {need} need translation)")
+    print(f"  Wrote {cfg['en']} ({len(raw)} titles)")
 
 
 def main():
