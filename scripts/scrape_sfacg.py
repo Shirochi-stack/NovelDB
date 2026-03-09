@@ -27,7 +27,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Scrape SFACG novels")
     parser.add_argument("--delay", type=float, default=0.3, help="Delay between requests")
-    parser.add_argument("--max-pages", type=int, default=3000, help="Max pages to fetch")
+    parser.add_argument("--max-pages", type=int, default=9999, help="Max pages to fetch")
     args = parser.parse_args()
 
     session = requests.Session()
