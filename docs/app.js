@@ -323,15 +323,15 @@
         const NPIA_COVER_DEFAULT = "https://images.novelpia.com/img/layout/readycover4.png";
 
         let coverSrc = n.cover;
-        if (!coverSrc && currentSource === "novelpia") {
-            coverSrc = n.age === 19 ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT;
+        if ((!coverSrc || coverSrc === "") && currentSource === "novelpia") {
+            coverSrc = (n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT;
         }
-        const fallbackSrc = currentSource === "novelpia"
-            ? (n.age === 19 ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT)
+        const fallbackSrc = (currentSource === "novelpia")
+            ? ((n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT)
             : "";
 
         const coverHTML = coverSrc
-            ? `<img class="card-cover" src="${escHtml(coverSrc)}" alt="" decoding="async" onerror="${fallbackSrc ? `this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
+            ? `<img class="card-cover" src="${escHtml(coverSrc)}" alt="" decoding="async" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const badgeHTML = n.weeklyRank
