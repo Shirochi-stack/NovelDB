@@ -1,0 +1,46 @@
+name: Update SFACG Data
+
+on:
+  schedule:
+    # Run every Sunday at 04:00 UTC
+    - cron: '0 4 * * 0'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  update-sfacg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hour limit
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run SFACG scraper
+        run: python scripts/scrape_sfacg.py --delay 0.15
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet docs/data/sfacg_novels.json && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          FILE_SIZE=$(du -h docs/data/sfacg_novels.json | cut -f1)
+          NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/sfacg_novels.json'))))")
+          git add docs/data/sfacg_novels.json
+          git commit -m "🔄 Update SFACG data: ${NOVEL_COUNT} novels (${FILE_SIZE})"
+          git push
