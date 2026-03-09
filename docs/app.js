@@ -849,6 +849,8 @@
     const statusSelect = $("#statusSelect");
     const audienceSelect = $("#audienceSelect");
 
+    // Track which specific card+tag was clicked for highlight
+    let focusedCard = null; // { id, source, tag }
     // === Format numbers ===
     function fmt(n) {
         if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
@@ -1048,8 +1050,10 @@
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
         const badgeHTML = completeBadge + rankBadge;
 
-        const tagsHTML = n.tags
-            .map((t) => `<span class="card-tag${activeTags.has(t) ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
+        const isFocused = focusedCard && focusedCard.id === n.id && focusedCard.source === (n.source || currentSource);
+        const sortedTags = [...n.tags].sort((a, b) => (activeTags.has(b) ? 1 : 0) - (activeTags.has(a) ? 1 : 0));
+        const tagsHTML = sortedTags
+            .map((t) => `<span class="card-tag${isFocused && focusedCard.tag === t ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
         const ageLabel = (novelSource === "sfacg") ? "15" : "19";
@@ -1128,6 +1132,7 @@
                 e.stopPropagation();
                 const novelId = n.id;
                 const novelSource = n.source || currentSource;
+                focusedCard = { id: novelId, source: novelSource, tag: tagEl.dataset.tag };
                 addIncludeTag(tagEl.dataset.tag);
                 filterAndFocusCard(novelId, novelSource);
             });
@@ -1302,6 +1307,7 @@
 
     clearTagsBtn.addEventListener("click", () => {
         activeTags.clear();
+        focusedCard = null;
         tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
         applyFilters();
     });
