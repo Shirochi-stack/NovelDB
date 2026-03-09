@@ -84,9 +84,10 @@ def main():
                 if not nid or nid in all_novels:
                     continue
 
-                sys_tags = item.get("sysTags") or []
-                tag_names = [t.get("sysTagName", "") for t in sys_tags if t.get("sysTagName")]
-                type_name = item.get("typeName", "")
+                expand = item.get("expand", {})
+                sys_tags = expand.get("sysTags") or []
+                tag_names = [t.get("tagName", "") for t in sys_tags if t.get("tagName")]
+                type_name = expand.get("typeName", "")
                 if type_name and type_name not in tag_names:
                     tag_names.insert(0, type_name)
 

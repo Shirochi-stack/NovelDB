@@ -3,6 +3,7 @@
 
     // === Tag Translation (Korean → English) ===
     const TAG_MAP = {
+        // === Novelpia (Korean) ===
         "판타지": "Fantasy", "패러디": "Parody", "현대": "Modern", "라이트노벨": "Light Novel",
         "일상": "Slice of Life", "하렘": "Harem", "먼치킨": "Munchkin/OP MC", "현대판타지": "Modern Fantasy",
         "TS": "Genderbend (TS)", "로맨스": "Romance", "중세": "Medieval", "전생": "Reincarnation",
@@ -47,6 +48,44 @@
         "정통판타지": "Classic Fantasy", "어반": "Urban", "어반판타지": "Urban Fantasy",
         "느와르": "Noir", "피카레스크": "Picaresque", "망나니": "Delinquent",
         "흑막": "Mastermind", "삼국지": "Three Kingdoms", "조선": "Joseon Era",
+        // === KakaoPage (Korean) ===
+        "로판": "Romance Fantasy", "현판": "Modern Fantasy", "BL": "Boys' Love",
+        // === SFACG (Chinese) ===
+        "奇幻": "Fantasy", "玄幻": "Xuanhuan", "魔幻": "Magic Fantasy",
+        "都市": "Urban", "科幻": "Sci-Fi", "末世": "Apocalypse",
+        "武侠": "Wuxia", "仙侠": "Xianxia", "游戏": "Game",
+        "竞技": "Sports/Competition", "变身": "Transformation",
+        "百合": "Yuri/GL", "悬疑": "Suspense", "灵异": "Supernatural",
+        "历史": "History", "军事": "Military", "二次元": "ACG/Otaku",
+        "轻小说": "Light Novel", "同人": "Fan Fiction", "其他": "Other",
+        "恋爱": "Romance", "后宫": "Harem", "冒险": "Adventure",
+        "搞笑": "Comedy", "热血": "Action/Hot-blooded", "战争": "War",
+        "异世界": "Isekai", "穿越": "Transmigration", "重生": "Rebirth",
+        "系统": "System", "校园": "School", "日常": "Slice of Life",
+        "种田": "Farming/Building", "推理": "Mystery/Detective",
+        "恐怖": "Horror", "治愈": "Healing", "复仇": "Revenge",
+        "职场": "Workplace", "青春": "Youth", "机甲": "Mecha",
+        "末日": "Doomsday", "丧尸": "Zombie", "赛博朋克": "Cyberpunk",
+        "星际": "Interstellar", "无限流": "Infinite Flow",
+        "克苏鲁": "Cthulhu", "废土": "Wasteland",
+        "诡秘": "Occult/Mystery", "修仙": "Cultivation",
+        "升级": "Level Up", "异能": "Superpowers",
+        "召唤": "Summoning", "魔法": "Magic", "龙": "Dragon",
+        "吸血鬼": "Vampire", "狼人": "Werewolf", "精灵": "Elf",
+        "骑士": "Knight", "魔王": "Demon King", "勇者": "Hero",
+        "女主": "Female MC", "男主": "Male MC", "群像": "Ensemble Cast",
+        "反派": "Villain", "无敌": "Invincible", "天才": "Genius",
+        "养成": "Raising/Training", "惊悚": "Thriller",
+        "奶爸": "Doting Father", "萌宠": "Cute Pets",
+        "甜宠": "Sweet Romance", "豪门": "Elite Family",
+        "兄妹": "Siblings", "姐弟": "Older Sister",
+        "总裁": "CEO", "明星": "Celebrity", "电竞": "Esports",
+        "经营": "Management", "直播": "Live Streaming",
+        "网游": "Online Game", "宫斗": "Palace Intrigue",
+        "宅斗": "Family Intrigue", "古风": "Ancient Style",
+        "权谋": "Political Intrigue", "策略": "Strategy",
+        "耽美": "BL/Danmei", "纯爱": "Pure Love",
+        "暗恋": "Secret Crush", "虐恋": "Tragic Love",
     };
 
     function tl(tag) { return TAG_MAP[tag] || tag; }
@@ -71,10 +110,7 @@
     const excludeTagContainer = $("#excludeTagContainer");
     const resultsEl = $("#results");
     const resultCount = $("#resultCount");
-    const paginationEl = $("#pagination");
-    const prevPageBtn = $("#prevPage");
-    const nextPageBtn = $("#nextPage");
-    const pageNumbersEl = $("#pageNumbers");
+    const paginationBars = [$("#paginationTop"), $("#paginationBottom")];
     const tagModeAnd = $("#tagModeAnd");
     const tagModeOr = $("#tagModeOr");
     const clearTagsBtn = $("#clearTags");
@@ -308,30 +344,33 @@
             resultsEl.appendChild(renderCard(filtered[i]));
         }
 
-        // Pagination visibility
-        paginationEl.style.display = totalPages > 1 ? "" : "none";
-        prevPageBtn.disabled = currentPage === 1;
-        nextPageBtn.disabled = currentPage === totalPages;
-
-        // Build page numbers with ellipsis
-        pageNumbersEl.innerHTML = "";
+        // Update both pagination bars
+        const show = totalPages > 1;
         const pages = buildPageRange(currentPage, totalPages);
-        for (const p of pages) {
-            if (p === "...") {
-                const span = document.createElement("span");
-                span.className = "page-ellipsis";
-                span.textContent = "...";
-                pageNumbersEl.appendChild(span);
-            } else {
-                const btn = document.createElement("button");
-                btn.className = "page-btn" + (p === currentPage ? " active" : "");
-                btn.textContent = p;
-                btn.addEventListener("click", () => {
-                    currentPage = p;
-                    render();
-                    window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
-                });
-                pageNumbersEl.appendChild(btn);
+        for (const bar of paginationBars) {
+            bar.style.display = show ? "" : "none";
+            bar.querySelector(".prev-page").disabled = currentPage === 1;
+            bar.querySelector(".next-page").disabled = currentPage === totalPages;
+
+            const numsEl = bar.querySelector(".page-numbers");
+            numsEl.innerHTML = "";
+            for (const p of pages) {
+                if (p === "...") {
+                    const span = document.createElement("span");
+                    span.className = "page-ellipsis";
+                    span.textContent = "...";
+                    numsEl.appendChild(span);
+                } else {
+                    const btn = document.createElement("button");
+                    btn.className = "page-btn" + (p === currentPage ? " active" : "");
+                    btn.textContent = p;
+                    btn.addEventListener("click", () => {
+                        currentPage = p;
+                        render();
+                        window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+                    });
+                    numsEl.appendChild(btn);
+                }
             }
         }
     }
@@ -390,22 +429,23 @@
         render();
     });
 
-    prevPageBtn.addEventListener("click", () => {
-        if (currentPage > 1) {
-            currentPage--;
-            render();
-            window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
-        }
-    });
-
-    nextPageBtn.addEventListener("click", () => {
-        const totalPages = Math.ceil(filtered.length / BATCH);
-        if (currentPage < totalPages) {
-            currentPage++;
-            render();
-            window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
-        }
-    });
+    for (const bar of paginationBars) {
+        bar.querySelector(".prev-page").addEventListener("click", () => {
+            if (currentPage > 1) {
+                currentPage--;
+                render();
+                window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+            }
+        });
+        bar.querySelector(".next-page").addEventListener("click", () => {
+            const totalPages = Math.ceil(filtered.length / BATCH);
+            if (currentPage < totalPages) {
+                currentPage++;
+                render();
+                window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+            }
+        });
+    }
 
     tagModeAnd.addEventListener("click", () => {
         tagMode = "AND";
