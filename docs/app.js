@@ -817,6 +817,25 @@
         "2018萌神": "2018 Moe God", "2019萌神": "2019 Moe God", "2020萌神": "2020 Moe God",
         "2021萌神": "2021 Moe God", "2022萌神": "2022 Moe God", "2023萌神": "2023 Moe God",
         "2024萌神": "2024 Moe God", "2025萌神": "2025 Moe God",
+        // Top-100 tags
+        "1차세계대전": "World War I", "TS5화미만": "TS Under 5 Chapters",
+        "각종태그": "Various Tags", "개이득": "Huge Profit",
+        "게으른": "Lazy", "계약결혼": "Contract Marriage",
+        "공학": "Engineering", "괴담우주": "Horror Universe",
+        "괴담향": "Horror-flavored", "국가경영": "Nation Management",
+        "김괴라리": "Kim Goe-ra-ri", "나혼자능력자": "Solo Ability User",
+        "날먹": "Freeloader", "뉴비": "Newbie",
+        "대체역사향첨가": "Alt. History Flavored", "로우먼치킨": "Low-key OP",
+        "롬멜": "Rommel", "마법소년": "Magic Boy",
+        "메디컬": "Medical", "명장": "Great General",
+        "세종파딱": "Sejong Twist", "아기호랑이": "Baby Tiger",
+        "아카데미파견공무원": "Academy Dispatch Officer", "야짤": "Lewds",
+        "어노말리": "Anomaly", "우주괴담": "Space Horror",
+        "유년기": "Childhood", "임진왜란": "Imjin War",
+        "젤리": "Jelly", "족장": "Chieftain",
+        "종신파딱": "Life Sentence Twist", "캔따개하렘": "Easy Harem",
+        "파딱": "Plot Twist", "표절": "Plagiarism",
+        "허균": "Heo Gyun",
     };
 
     function tl(tag) { return TAG_MAP[tag] || tag; }
