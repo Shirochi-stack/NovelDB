@@ -203,10 +203,11 @@ class DownloaderCore:
         url = f"https://novelpia.com/proc/viewer_data/{chapter_id}"
         for attempt in range(3):  # Hardcoded retry limit matching C# MAX_DOWNLOAD_RETRIES
             try:
-                # Mirror C# PostRequest: POST with LOGINKEY cookie header
+                # LOGINKEY is already in session cookies via novelpia_auth.
+                # Don't manually override the Cookie header — it clobbers
+                # other cookies (USERKEY, NPK*) that the server needs.
                 response = self.auth.session.post(
                     url,
-                    headers={"Cookie": f"LOGINKEY={self.auth.loginkey};"},
                     timeout=15,
                 )
 
@@ -219,8 +220,20 @@ class DownloaderCore:
 
                 text = response.text or ""
                 if not text.strip():
+                    # Detailed debug info to diagnose auth/empty response issues
+                    has_loginkey = bool(self.auth.loginkey)
+                    loginkey_preview = self.auth.loginkey[:8] + "..." if has_loginkey else "(empty)"
+                    resp_ct = response.headers.get("content-type", "?")
+                    resp_cl = response.headers.get("content-length", "?")
+                    resp_cookies = ", ".join(f"{c.name}={c.value[:10]}..." for c in response.cookies) or "(none)"
+                    set_cookie = response.headers.get("set-cookie", "(none)")[:100]
                     self.log(
-                        f"Chapter {chapter_id}: Empty response body on attempt {attempt + 1}"
+                        f"Chapter {chapter_id}: Empty response body on attempt {attempt + 1}\n"
+                        f"  → HTTP {response.status_code} | Content-Type: {resp_ct} | Content-Length: {resp_cl}\n"
+                        f"  → LOGINKEY: {loginkey_preview} | Response cookies: {resp_cookies}\n"
+                        f"  → Set-Cookie header: {set_cookie}\n"
+                        f"  → Raw body repr: {repr(response.content[:200])}\n"
+                        f"  → Hint: If free chapters work but premium ones don't, check that you have an active subscription or have purchased this chapter."
                     )
                     time.sleep(1)
                     continue

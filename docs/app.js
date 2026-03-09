@@ -86,6 +86,39 @@
         "权谋": "Political Intrigue", "策略": "Strategy",
         "耽美": "BL/Danmei", "纯爱": "Pure Love",
         "暗恋": "Secret Crush", "虐恋": "Tragic Love",
+        "战斗": "Combat", "女性主角": "Female MC",
+        "脑洞": "Brain-hole/Creative", "倒追": "Reverse Chase",
+        "现实": "Realistic", "西幻": "Western Fantasy",
+        "橘味": "GL/Yuri", "致郁": "Depressing/Dark",
+        "综漫": "Multi-Anime Crossover", "嫁人": "Marriage",
+        "分支小说": "Branching Novel", "魔王勇者": "Demon King & Hero",
+        "神话": "Mythology", "运动": "Sports",
+        "魔法少女": "Magical Girl", "超级英雄": "Superhero",
+        "追夫": "Chasing Husband", "多女主": "Multiple Heroines",
+        "救赎": "Redemption", "魔女": "Witch",
+        "童话": "Fairy Tale", "数据": "Data/Numbers",
+        "轻松": "Light-hearted", "蒸朋": "Steampunk",
+        "大小姐": "Ojou-sama", "女尊": "Matriarchy",
+        "怪谈": "Ghost Stories", "爽文": "Power Fantasy",
+        "凤傲天": "Mary Sue", "玩梗": "Meme/References",
+        "女武神": "Valkyrie", "刀客塔": "Arknights",
+        "师尊": "Master/Shifu", "约战": "Date A Live",
+        "女帝": "Empress", "单女主": "Single Heroine",
+        "硬核": "Hardcore", "舰长": "Captain/Honkai",
+        "暗黑": "Dark", "迪化": "Mastermind Schemer",
+        "SCP": "SCP Foundation", "后悔": "Regret",
+        "黑化": "Blackened/Corrupted", "型月": "Type-Moon/Fate",
+        "假面骑士": "Kamen Rider", "配角": "Side Character",
+        "退队": "Left the Party", "火影": "Naruto",
+        "时间回溯": "Time Rewind", "舰娘": "Kantai Collection",
+        "幻想乡": "Gensokyo/Touhou", "卧底": "Undercover",
+        "神奇宝贝": "Pokémon", "修罗场": "Love Triangle Drama",
+        "卡牌": "Card Game", "海贼": "One Piece",
+        "人生赢家": "Life Winner", "枪娘": "Girls' Frontline",
+        "单身": "Single", "废柴": "Useless/Loser MC",
+        "柯南": "Detective Conan", "死神": "Bleach",
+        "骨王": "Overlord", "医生": "Doctor",
+        "女性向": "Female-oriented", "冒险类": "Adventure-type",
     };
 
     function tl(tag) { return TAG_MAP[tag] || tag; }
@@ -285,8 +318,20 @@
         card.target = "_blank";
         card.rel = "noopener";
 
-        const coverHTML = n.cover
-            ? `<img class="card-cover" src="${escHtml(n.cover)}" alt="" decoding="async" onerror="this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'">`
+        // Novelpia fallback covers
+        const NPIA_COVER_R19 = "https://images.novelpia.com/img/novel/adult_cover_img.jpg";
+        const NPIA_COVER_DEFAULT = "https://images.novelpia.com/img/layout/readycover4.png";
+
+        let coverSrc = n.cover;
+        if (!coverSrc && currentSource === "novelpia") {
+            coverSrc = n.age === 19 ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT;
+        }
+        const fallbackSrc = currentSource === "novelpia"
+            ? (n.age === 19 ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT)
+            : "";
+
+        const coverHTML = coverSrc
+            ? `<img class="card-cover" src="${escHtml(coverSrc)}" alt="" decoding="async" onerror="${fallbackSrc ? `this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const badgeHTML = n.weeklyRank
