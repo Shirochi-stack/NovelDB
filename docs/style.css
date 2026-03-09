@@ -426,6 +426,9 @@ main {
     color: #fff;
     border: 1px solid rgba(251, 191, 36, 0.6);
     font-weight: 700;
+}
+
+.badge-complete + .badge-rank {
     top: 34px;
 }
 

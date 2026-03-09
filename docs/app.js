@@ -391,7 +391,7 @@
         const displayRank = sortBy === "monthly" ? n.monthlyRank : sortBy === "weekly" ? n.weeklyRank : (n.weeklyRank || n.monthlyRank);
         const rankBadge = displayRank ? `<span class="card-badge badge-rank">#${displayRank}</span>` : "";
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
-        const badgeHTML = rankBadge + completeBadge;
+        const badgeHTML = completeBadge + rankBadge;
 
         const tagsHTML = n.tags
             .slice(0, 6)
