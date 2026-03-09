@@ -1062,8 +1062,7 @@
         const r19Badge = (n.age === 19) ? `<span class="${ageBadgeClass}">${ageLabel}</span>` : "";
 
         const synopsisHTML = n.synopsis ? `
-                <div class="card-synopsis-toggle" title="Show synopsis">Synopsis ▶</div>
-                <div class="card-synopsis collapsed">${escHtml(n.synopsis).replace(/\\r\\n|\\n|\r?\n/g, '<br>')}</div>` : "";
+                <div class="card-synopsis">${escHtml(n.synopsis).replace(/\n/g, '<br>')}</div>` : "";
 
         card.innerHTML = `
             <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
@@ -1074,7 +1073,7 @@
             <div class="card-body">
                 <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
                 ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
-                <div class="card-author" data-author="${escHtml(n.author)}">${escHtml(n.author)}</div>
+                <div class="card-author" data-author="${escHtml(n.author)}">Author: ${escHtml(n.author)}</div>
                 <div class="card-tags">${tagsHTML}</div>
                 <div class="card-stats">
                     <span class="stat">👁 ${fmt(n.views)}</span>
@@ -1101,31 +1100,29 @@
         }
 
         // Make card tags clickable (add to include filter)
-        // Synopsis toggle
-        const synToggle = card.querySelector(".card-synopsis-toggle");
-        if (synToggle) {
-            synToggle.addEventListener("click", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const synEl = card.querySelector(".card-synopsis");
-                const isCollapsed = synEl.classList.toggle("collapsed");
-                synToggle.textContent = isCollapsed ? "Synopsis ▶" : "Synopsis ▼";
-            });
-        }
 
         card.querySelectorAll(".card-tag").forEach((tagEl) => {
             tagEl.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                const clickedTag = tagEl.dataset.tag;
                 const novelId = n.id;
                 const novelSource = n.source || currentSource;
-                focusedCard = { id: novelId, source: novelSource, tag: tagEl.dataset.tag };
-                addIncludeTag(tagEl.dataset.tag);
-                filterAndFocusCard(novelId, novelSource);
+                // Toggle: if this tag is the only active tag, clear it
+                if (activeTags.size === 1 && activeTags.has(clickedTag)) {
+                    activeTags.clear();
+                    focusedCard = null;
+                    tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+                    applyFilters();
+                } else {
+                    focusedCard = { id: novelId, source: novelSource, tag: clickedTag };
+                    addIncludeTag(clickedTag);
+                    filterAndFocusCard(novelId, novelSource);
+                }
             });
         });
 
-        // Make author clickable (search by author)
+        // Make author clickable (search by author) — toggle off on 2nd click
         const authorEl = card.querySelector(".card-author");
         if (authorEl) {
             authorEl.addEventListener("click", (e) => {
@@ -1133,9 +1130,15 @@
                 e.stopPropagation();
                 const novelId = n.id;
                 const novelSource = n.source || currentSource;
-                searchInput.value = authorEl.dataset.author;
-                applyFilters();
-                filterAndFocusCard(novelId, novelSource);
+                // Toggle: if search already matches this author, clear it
+                if (searchInput.value === authorEl.dataset.author) {
+                    searchInput.value = "";
+                    applyFilters();
+                } else {
+                    searchInput.value = authorEl.dataset.author;
+                    applyFilters();
+                    filterAndFocusCard(novelId, novelSource);
+                }
             });
         }
 
@@ -1313,6 +1316,7 @@
         novelpia: {
             dataUrl: "data/novels.json",
             translationsUrl: "data/titles_en.txt",
+            descriptionsUrl: "data/descriptions.txt",
             format: "array",  // optimized array format
             coverPrefix: "https://novelpia.com",
             linkPrefix: "https://novelpia.com/novel/",
@@ -1401,7 +1405,7 @@
                 weeklyRank: r[10] || 0,
                 age: r[11] || 0,
                 monthlyRank: r[12] || 0,
-                synopsis: r[13] || "",
+                synopsis: "",
                 titleEn: "",
                 source: sourceName,
             };
@@ -1435,6 +1439,38 @@
         }
     }
 
+    async function loadDescriptions(novels, cfg, sourceName) {
+        if (!cfg.descriptionsUrl) return;
+        try {
+            const resp = await fetch(cfg.descriptionsUrl);
+            if (resp.ok) {
+                const text = await resp.text();
+                const map = {};
+                let count = 0;
+                for (const line of text.split("\n")) {
+                    const sep = line.indexOf("|||");
+                    if (sep > 0) {
+                        const id = line.slice(0, sep);
+                        const desc = line.slice(sep + 3).trim();
+                        if (desc) {
+                            map[id] = desc.replace(/\\r\\n|\\n/g, "\n");
+                            count++;
+                        }
+                    }
+                }
+                if (count > 0) {
+                    for (const n of novels) {
+                        const d = map[String(n.id)];
+                        if (d) n.synopsis = d;
+                    }
+                    console.log(`Loaded ${count} descriptions for ${sourceName}`);
+                }
+            }
+        } catch (e) {
+            // descriptions not found, skip
+        }
+    }
+
     async function loadSource(source, keepState = false) {
         currentSource = source;
         resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
@@ -1457,7 +1493,10 @@
                         const cfg = SOURCES[s];
                         const raw = await fetchWithProgress(cfg.dataUrl);
                         const novels = parseNovels(raw, s, cfg);
-                        await loadTranslations(novels, cfg, s);
+                        await Promise.all([
+                            loadTranslations(novels, cfg, s),
+                            loadDescriptions(novels, cfg, s),
+                        ]);
                         return novels;
                     })
                 );
@@ -1468,7 +1507,10 @@
                 const raw = await fetchWithProgress(cfg.dataUrl);
                 allNovels = parseNovels(raw, source, cfg);
                 titleTranslations = {};
-                await loadTranslations(allNovels, cfg, source);
+                await Promise.all([
+                    loadTranslations(allNovels, cfg, source),
+                    loadDescriptions(allNovels, cfg, source),
+                ]);
             }
 
             buildTags(allNovels);
