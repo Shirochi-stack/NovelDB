@@ -1080,47 +1080,17 @@
             </div>
         `;
 
-        // Helper: get number of grid columns
-        function getGridCols() {
-            const style = window.getComputedStyle(resultsEl);
-            const cols = style.gridTemplateColumns.split(" ").length;
-            return cols || 1;
-        }
-
-        // Helper: filter, jump to card's page, and keep it in the same column
+        // Helper: filter, jump to card's page, scroll to it
         function filterAndFocusCard(novelId, novelSource) {
-            const origCards = resultsEl.querySelectorAll(".novel-card");
-            const origCardEl = card;
-            const origIdx = Array.from(origCards).indexOf(origCardEl);
-            const numCols = getGridCols();
-            const origCol = origIdx >= 0 ? origIdx % numCols : 0;
-
-            // Find which page this novel ended up on
             const idx = filtered.findIndex((f) => f.id === novelId && (f.source || currentSource) === novelSource);
             if (idx >= 0) {
                 currentPage = Math.floor(idx / BATCH) + 1;
                 render();
-
-                const newCardIdx = idx - (currentPage - 1) * BATCH;
-                const newCol = newCardIdx % numCols;
-                const colDiff = (origCol - newCol + numCols) % numCols;
-
-                // Insert invisible spacers to maintain column position
-                if (colDiff > 0) {
-                    for (let s = 0; s < colDiff; s++) {
-                        const spacer = document.createElement("div");
-                        spacer.className = "grid-spacer";
-                        spacer.style.cssText = "visibility:hidden;height:0;overflow:hidden;margin:0;padding:0;border:0;";
-                        resultsEl.insertBefore(spacer, resultsEl.firstChild);
-                    }
-                }
-
-                // Scroll to the specific card
                 setTimeout(() => {
-                    const allCards = resultsEl.querySelectorAll(".novel-card");
-                    const targetCard = allCards[newCardIdx + colDiff] || allCards[newCardIdx];
-                    if (targetCard) {
-                        targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
+                    const cards = resultsEl.querySelectorAll(".novel-card");
+                    const cardIdx = idx - (currentPage - 1) * BATCH;
+                    if (cards[cardIdx]) {
+                        cards[cardIdx].scrollIntoView({ behavior: "smooth", block: "center" });
                     }
                 }, 50);
             }
