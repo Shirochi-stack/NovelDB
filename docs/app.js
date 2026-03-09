@@ -387,11 +387,11 @@
             ? `<img class="card-cover" src="${escHtml(coverSrc)}" alt="" decoding="async" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
             : `<div class="card-cover no-img">📖</div>`;
 
-        const badgeHTML = n.weeklyRank
-            ? `<span class="card-badge badge-rank">#${n.weeklyRank}</span>`
-            : n.complete
-            ? `<span class="card-badge badge-complete">Complete</span>`
-            : "";
+        const sortBy = sortSelect.value;
+        const displayRank = sortBy === "monthly" ? n.monthlyRank : sortBy === "weekly" ? n.weeklyRank : (n.weeklyRank || n.monthlyRank);
+        const rankBadge = displayRank ? `<span class="card-badge badge-rank">#${displayRank}</span>` : "";
+        const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
+        const badgeHTML = rankBadge + completeBadge;
 
         const tagsHTML = n.tags
             .slice(0, 6)

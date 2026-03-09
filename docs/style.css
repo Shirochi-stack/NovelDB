@@ -422,10 +422,11 @@ main {
 }
 
 .badge-rank {
-    background: rgba(251, 191, 36, 0.2);
-    color: #fbbf24;
-    border: 1px solid rgba(251, 191, 36, 0.4);
+    background: rgba(180, 130, 20, 0.85);
+    color: #fff;
+    border: 1px solid rgba(251, 191, 36, 0.6);
     font-weight: 700;
+    top: 34px;
 }
 
 .card-cover-wrap {
