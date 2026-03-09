@@ -1081,8 +1081,23 @@
             tagEl.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                const novelId = n.id;
+                const novelSource = n.source || currentSource;
                 addIncludeTag(tagEl.dataset.tag);
-                window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+                // Find which page this novel ended up on and jump there
+                const idx = filtered.findIndex((f) => f.id === novelId && (f.source || currentSource) === novelSource);
+                if (idx >= 0) {
+                    currentPage = Math.floor(idx / BATCH) + 1;
+                    render();
+                    // Scroll to the specific card
+                    setTimeout(() => {
+                        const cards = resultsEl.querySelectorAll(".novel-card");
+                        const cardIdx = idx - (currentPage - 1) * BATCH;
+                        if (cards[cardIdx]) {
+                            cards[cardIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+                        }
+                    }, 50);
+                }
             });
         });
 
@@ -1092,9 +1107,23 @@
             authorEl.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                const novelId = n.id;
+                const novelSource = n.source || currentSource;
                 searchInput.value = authorEl.dataset.author;
                 applyFilters();
-                window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+                // Find which page this novel ended up on and jump there
+                const idx = filtered.findIndex((f) => f.id === novelId && (f.source || currentSource) === novelSource);
+                if (idx >= 0) {
+                    currentPage = Math.floor(idx / BATCH) + 1;
+                    render();
+                    setTimeout(() => {
+                        const cards = resultsEl.querySelectorAll(".novel-card");
+                        const cardIdx = idx - (currentPage - 1) * BATCH;
+                        if (cards[cardIdx]) {
+                            cards[cardIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+                        }
+                    }, 50);
+                }
             });
         }
 
