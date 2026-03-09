@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,8 +8,9 @@
     <meta name="description" content="Search, filter, and browse all Novelpia novels by tags, views, likes, and more.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5">
 </head>
+
 <body>
     <header>
         <div class="header-inner">
@@ -23,9 +25,11 @@
             <div class="search-row">
                 <div class="search-box">
                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.3-4.3" />
                     </svg>
-                    <input type="text" id="searchInput" placeholder="Search by title, author, or ID..." autocomplete="off">
+                    <input type="text" id="searchInput" placeholder="Search by title, author, or ID..."
+                        autocomplete="off">
                 </div>
                 <div class="control-group">
                     <label>Source</label>
@@ -113,7 +117,8 @@
         <div id="paginationTop" class="pagination" style="display:none">
             <button class="page-btn prev-page">← Prev</button>
             <div class="page-numbers"></div>
-            <div class="page-jump"><input type="number" class="page-input" min="1" placeholder="#"><button class="page-btn go-page">Go</button></div>
+            <div class="page-jump"><input type="number" class="page-input" min="1" placeholder="#"><button
+                    class="page-btn go-page">Go</button></div>
             <button class="page-btn next-page">Next →</button>
         </div>
         <section id="results" class="results-grid"></section>
@@ -122,11 +127,13 @@
         <div id="paginationBottom" class="pagination" style="display:none">
             <button class="page-btn prev-page">← Prev</button>
             <div class="page-numbers"></div>
-            <div class="page-jump"><input type="number" class="page-input" min="1" placeholder="#"><button class="page-btn go-page">Go</button></div>
+            <div class="page-jump"><input type="number" class="page-input" min="1" placeholder="#"><button
+                    class="page-btn go-page">Go</button></div>
             <button class="page-btn next-page">Next →</button>
         </div>
     </main>
 
     <script src="app.js?v=24"></script>
 </body>
+
 </html>
