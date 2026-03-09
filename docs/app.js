@@ -741,6 +741,7 @@
         "전투원화": "Combat Animation", "재단": "Foundation/SCP",
         "소닉": "Sonic", "풀맨스": "Full Romance",
         "반란": "Rebellion", "선택지": "Choices",
+        "폐급": "Trash-tier",
         // === KakaoPage (Korean) ===
         "로판": "Romance Fantasy", "현판": "Modern Fantasy", "BL": "Boys' Love",
         // === SFACG (Chinese) ===
