@@ -426,7 +426,7 @@ main {
     position: relative;
 }
 
-.badge-r19 {
+.badge-r19, .badge-r15 {
     position: absolute;
     top: 6px;
     left: 6px;
@@ -435,7 +435,6 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(220, 38, 38, 0.9);
     color: #fff;
     font-size: 0.75rem;
     font-weight: 800;
@@ -443,6 +442,14 @@ main {
     z-index: 2;
     border: 2px solid #fff;
     line-height: 1;
+}
+
+.badge-r19 {
+    background: rgba(220, 38, 38, 0.9);
+}
+
+.badge-r15 {
+    background: rgba(147, 51, 234, 0.9);
 }
 
 /* === Load More === */
