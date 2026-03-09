@@ -1050,7 +1050,7 @@
 
         const tagsHTML = n.tags
             .slice(0, 6)
-            .map((t) => `<span class="card-tag" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
+            .map((t) => `<span class="card-tag${activeTags.has(t) ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
         const ageLabel = (novelSource === "sfacg") ? "15" : "19";

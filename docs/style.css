@@ -397,6 +397,12 @@ a.card-cover-wrap {
     border-color: var(--accent-hover);
 }
 
+.card-tag.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent-hover);
+}
+
 .card-stats {
     display: flex;
     gap: 1rem;
