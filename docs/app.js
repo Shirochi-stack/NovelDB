@@ -536,7 +536,7 @@
         currentSource = source;
         const cfg = SOURCES[source];
         resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source} database...</div>`;
-        paginationEl.style.display = "none";
+        for (const bar of paginationBars) bar.style.display = "none";
 
         // Clear filters
         activeTags.clear();
