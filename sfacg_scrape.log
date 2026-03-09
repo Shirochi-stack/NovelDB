@@ -1,0 +1,37 @@
+Testing SFACG API...
+  OK
+
+Scraping all novels (50/page, max 9999 pages)...
+  Page 50: 2500 novels
+  Page 100: 5000 novels
+
+  Error at page 117: HTTPSConnectionPool(host='api.sfacg.com', port=443): Read timed out. (read timeout=15)
+  Page 150: 7450 novels
+  Page 200: 9950 novels
+  Page 250: 12450 novels
+  Page 300: 14950 novels
+  Page 350: 17450 novels
+  Page 400: 19950 novels
+  Page 450: 22450 novels
+  Page 500: 24950 novels
+Saved to docs/data/sfacg_novels.json (6.1 MB)
+  [auto-saved 24950 novels]
+  Page 550: 27450 novels
+  Page 600: 29949 novels
+  Page 650: 32449 novels
+  Page 700: 34949 novels
+  Page 750: 37449 novels
+  Page 800: 39949 novels
+  Page 850: 42449 novels
+  Page 900: 44949 novels
+  Page 950: 47449 novels
+  Page 1000: 49949 novels
+Saved to docs/data/sfacg_novels.json (12.0 MB)
+  [auto-saved 49949 novels]
+  Page 1050: 52449 novels
+  Page 1100: 54949 novels
+  Page 1150: 57449 novels
+  Page 1200: 59949 novels
+  Page 1250: 62449 novels
+  Page 1300: 64948 novels
+  Page 1350: 67448 novels
