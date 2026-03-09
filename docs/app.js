@@ -392,7 +392,8 @@
             .map((t) => `<span class="card-tag" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
-        const r19Badge = (n.age === 19) ? `<span class="badge-r19">19</span>` : "";
+        const ageLabel = (currentSource === "sfacg") ? "15" : "19";
+        const r19Badge = (n.age === 19) ? `<span class="badge-r19">${ageLabel}</span>` : "";
 
         card.innerHTML = `
             <div class="card-cover-wrap">
@@ -649,7 +650,7 @@
                     id: r[0],
                     title: r[1] || "",
                     author: r[2] || "",
-                    cover: r[3] ? (cfg.coverPrefix ? cfg.coverPrefix + r[3] : r[3]) : "",
+                    cover: r[3] ? (cfg.coverPrefix && !r[3].startsWith("http") ? cfg.coverPrefix + r[3] : r[3]) : "",
                     tags,
                     views: r[5] || 0,
                     likes: r[6] || 0,
