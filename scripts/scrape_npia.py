@@ -49,29 +49,42 @@ def main():
         print(f"[{i+1}/{len(SEARCH_TAGS)}] Searching: {tag}...", end=" ", flush=True)
 
         try:
-            r = auth.session.get("https://novelpia.com/proc/novel", params={
-                "cmd": "novel_search",
-                "search_type": "all",
-                "search_val": tag,
-                "page": 1,
-                "rows": 99999,
-                "novel_type": "",
-                "start_count_book": "",
-                "end_count_book": "",
-                "novel_age": "",
-                "start_days": "",
-                "sort_col": "last_viewdate",
-                "novel_genre": "",
-                "block_out": 0,
-                "block_stop": 0,
-                "is_contest": 0,
-                "is_complete": "",
-                "is_challenge": 0,
-                "list_display": "grid",
-            }, headers=headers, timeout=120)
+            items = []
+            ROWS = 30000
+            for pg in range(1, 21):
+                r = auth.session.get("https://novelpia.com/proc/novel", params={
+                    "cmd": "novel_search",
+                    "search_type": "all",
+                    "search_val": tag,
+                    "page": pg,
+                    "rows": ROWS,
+                    "novel_type": "",
+                    "start_count_book": "",
+                    "end_count_book": "",
+                    "novel_age": "",
+                    "start_days": "",
+                    "sort_col": "last_viewdate",
+                    "novel_genre": "",
+                    "block_out": 0,
+                    "block_stop": 0,
+                    "is_contest": 0,
+                    "is_complete": "",
+                    "is_challenge": 0,
+                    "list_display": "grid",
+                }, headers=headers, timeout=120)
 
-            data = r.json()
-            items = data.get("list", [])
+                text = r.text.strip()
+                if not text:
+                    break
+                try:
+                    data = r.json()
+                except Exception:
+                    print(f"invalid JSON p{pg}", end=" ")
+                    break
+                batch = data.get("list", [])
+                items.extend(batch)
+                if len(batch) < ROWS:
+                    break
             new_count = 0
 
             for item in items:
@@ -114,22 +127,35 @@ def main():
         print(f"[{i+1}/{len(SWEEP_CHARS)}] Sweep: '{ch}'...", end=" ", flush=True)
 
         try:
-            r = auth.session.get("https://novelpia.com/proc/novel", params={
-                "cmd": "novel_search",
-                "search_type": "all",
-                "search_val": ch,
-                "page": 1,
-                "rows": 99999,
-                "novel_type": "",
-                "sort_col": "last_viewdate",
-                "block_out": 0,
-                "block_stop": 0,
-                "is_contest": 0,
-                "is_challenge": 0,
-            }, headers=headers, timeout=120)
+            items = []
+            ROWS = 30000
+            for pg in range(1, 21):
+                r = auth.session.get("https://novelpia.com/proc/novel", params={
+                    "cmd": "novel_search",
+                    "search_type": "all",
+                    "search_val": ch,
+                    "page": pg,
+                    "rows": ROWS,
+                    "novel_type": "",
+                    "sort_col": "last_viewdate",
+                    "block_out": 0,
+                    "block_stop": 0,
+                    "is_contest": 0,
+                    "is_challenge": 0,
+                }, headers=headers, timeout=120)
 
-            data = r.json()
-            items = data.get("list", [])
+                text = r.text.strip()
+                if not text:
+                    break
+                try:
+                    data = r.json()
+                except Exception:
+                    print(f"invalid JSON p{pg}", end=" ")
+                    break
+                batch = data.get("list", [])
+                items.extend(batch)
+                if len(batch) < ROWS:
+                    break
             new_count = 0
 
             for item in items:
