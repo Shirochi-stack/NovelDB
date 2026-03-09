@@ -108,6 +108,11 @@ def main():
             if (page + 1) % 50 == 0:
                 print(f"  Page {page+1}: {len(all_novels)} novels", flush=True)
 
+            # Auto-save every 500 pages to prevent data loss
+            if (page + 1) % 500 == 0 and all_novels:
+                save_novels(all_novels)
+                print(f"  [auto-saved {len(all_novels)} novels]", flush=True)
+
             time.sleep(args.delay)
 
         except Exception as e:
@@ -120,7 +125,11 @@ def main():
         print("No novels found!")
         return
 
-    # Save
+    save_novels(all_novels)
+
+
+def save_novels(all_novels):
+    """Save novels to disk."""
     os.makedirs("docs/data", exist_ok=True)
     optimized = []
     for n in all_novels.values():
