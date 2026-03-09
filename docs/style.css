@@ -431,16 +431,12 @@ main {
     position: absolute;
     top: 6px;
     left: 6px;
-    background: rgba(220, 38, 38, 0.85);
-    color: #fff;
-    font-size: 0.65rem;
-    font-weight: 700;
-    padding: 0.15rem 0.4rem;
-    border-radius: 4px;
+    color: #ef4444;
+    font-size: 0.75rem;
+    font-weight: 800;
     z-index: 2;
     letter-spacing: 0.5px;
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255, 80, 80, 0.5);
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.7), 1px 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 /* === Load More === */
