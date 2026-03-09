@@ -358,6 +358,12 @@ main {
     font-size: 0.8rem;
     color: var(--text-secondary);
     margin-bottom: 0.6rem;
+    cursor: pointer;
+}
+
+.card-author:hover {
+    color: var(--accent);
+    text-decoration: underline;
 }
 
 .card-tags {

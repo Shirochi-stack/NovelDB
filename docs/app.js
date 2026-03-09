@@ -337,10 +337,15 @@
                 case "title": va = a.title; vb = b.title; break;
                 case "weekly":
                     // Ranked novels first (lower rank = better), unranked last
-                    const ra = a.weeklyRank || 9999;
-                    const rb = b.weeklyRank || 9999;
-                    if (ra !== rb) return order === "asc" ? rb - ra : ra - rb;
-                    return b.views - a.views; // tie-break by views
+                    const rwa = a.weeklyRank || 9999;
+                    const rwb = b.weeklyRank || 9999;
+                    if (rwa !== rwb) return order === "asc" ? rwb - rwa : rwa - rwb;
+                    return b.views - a.views;
+                case "monthly":
+                    const rma = a.monthlyRank || 9999;
+                    const rmb = b.monthlyRank || 9999;
+                    if (rma !== rmb) return order === "asc" ? rmb - rma : rma - rmb;
+                    return b.views - a.views;
                 default: va = a.views; vb = b.views;
             }
             if (sortBy === "title" || sortBy === "updated") {
@@ -406,7 +411,7 @@
             <div class="card-body">
                 <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
                 ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
-                <div class="card-author">${escHtml(n.author)}</div>
+                <div class="card-author" data-author="${escHtml(n.author)}">${escHtml(n.author)}</div>
                 <div class="card-tags">${tagsHTML}</div>
                 <div class="card-stats">
                     <span class="stat">👁 ${fmt(n.views)}</span>
@@ -424,6 +429,17 @@
                 addIncludeTag(tagEl.dataset.tag);
             });
         });
+
+        // Make author clickable (search by author)
+        const authorEl = card.querySelector(".card-author");
+        if (authorEl) {
+            authorEl.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                searchInput.value = authorEl.dataset.author;
+                applyFilters();
+            });
+        }
 
         return card;
     }
@@ -648,6 +664,7 @@
                 updated: r[9] || "",
                 weeklyRank: r[10] || 0,
                 age: r[11] || 0,
+                monthlyRank: r[12] || 0,
                 titleEn: "",
                 source: sourceName,
             };
