@@ -1082,6 +1082,7 @@
                 e.preventDefault();
                 e.stopPropagation();
                 addIncludeTag(tagEl.dataset.tag);
+                window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
             });
         });
 
@@ -1093,6 +1094,7 @@
                 e.stopPropagation();
                 searchInput.value = authorEl.dataset.author;
                 applyFilters();
+                window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
             });
         }
 
@@ -1390,16 +1392,18 @@
         }
     }
 
-    async function loadSource(source) {
+    async function loadSource(source, keepState = false) {
         currentSource = source;
         resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
         for (const bar of paginationBars) bar.style.display = "none";
 
-        // Clear filters
-        activeTags.clear();
-        excludeTags.clear();
-        searchInput.value = "";
-        currentPage = 1;
+        // Clear filters (unless restoring state)
+        if (!keepState) {
+            activeTags.clear();
+            excludeTags.clear();
+            searchInput.value = "";
+            currentPage = 1;
+        }
 
         try {
             if (source === "all") {
@@ -1527,6 +1531,7 @@
 
     const savedParams = restoreState();
     const initialSource = sourceSelect.value;
+    const hasRestoredState = savedParams && Object.keys(savedParams).length > 0;
 
     // Wrap original applyFilters to auto-save state
     const _origApplyFilters = applyFilters;
@@ -1535,32 +1540,34 @@
         saveState();
     };
 
-    // After data loads, restore tags
+    // After data loads, restore tags then re-apply
     const _origLoadSource = loadSource;
-    loadSource = async function(source) {
-        await _origLoadSource(source);
-        if (savedParams && savedParams.tags) {
-            for (const t of savedParams.tags.split(",")) {
-                activeTags.add(t);
-                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === t) c.classList.add("active");
-                });
+    if (hasRestoredState) {
+        loadSource = async function(source, keepState) {
+            await _origLoadSource(source, true);
+            if (savedParams.tags) {
+                for (const t of savedParams.tags.split(",")) {
+                    activeTags.add(t);
+                    tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                        if (c.dataset.tag === t) c.classList.add("active");
+                    });
+                }
             }
-        }
-        if (savedParams && savedParams.xtags) {
-            for (const t of savedParams.xtags.split(",")) {
-                excludeTags.add(t);
-                excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === t) c.classList.add("active");
-                });
+            if (savedParams.xtags) {
+                for (const t of savedParams.xtags.split(",")) {
+                    excludeTags.add(t);
+                    excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                        if (c.dataset.tag === t) c.classList.add("active");
+                    });
+                }
             }
-        }
-        if (savedParams && (savedParams.tags || savedParams.xtags || savedParams.q || savedParams.page)) {
-            applyFilters();
-        }
-        // Only restore once
-        loadSource = _origLoadSource;
-    };
+            // Re-apply with restored state
+            _origApplyFilters();
+            saveState();
+            // Only restore once
+            loadSource = _origLoadSource;
+        };
+    }
 
     // Source change listener
     sourceSelect.addEventListener("change", () => {
@@ -1568,5 +1575,5 @@
         saveState();
     });
 
-    loadSource(initialSource);
+    loadSource(initialSource, hasRestoredState);
 })();
