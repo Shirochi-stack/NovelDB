@@ -298,8 +298,6 @@ main {
     border-radius: var(--radius);
     overflow: hidden;
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
-    cursor: pointer;
-    text-decoration: none;
     color: inherit;
     display: block;
 }
@@ -308,6 +306,12 @@ main {
     transform: translateY(-3px);
     border-color: var(--border-hover);
     box-shadow: var(--shadow);
+}
+
+a.card-cover-wrap {
+    display: block;
+    cursor: pointer;
+    text-decoration: none;
 }
 
 .card-cover {

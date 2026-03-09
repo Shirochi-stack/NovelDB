@@ -1015,13 +1015,11 @@
     // === Render Cards ===
 
     function renderCard(n) {
-        const card = document.createElement("a");
+        const card = document.createElement("div");
         card.className = "novel-card";
         const novelSource = n.source || currentSource;
         const cfg = SOURCES[novelSource] || SOURCES.novelpia;
-        card.href = `${cfg.linkPrefix}${n.id}`;
-        card.target = "_blank";
-        card.rel = "noopener";
+        const cardLink = `${cfg.linkPrefix}${n.id}`;
 
         // Novelpia fallback covers
         const NPIA_COVER_R19 = "https://images.novelpia.com/img/novel/adult_cover_img.jpg";
@@ -1055,11 +1053,11 @@
         const r19Badge = (n.age === 19) ? `<span class="${ageBadgeClass}">${ageLabel}</span>` : "";
 
         card.innerHTML = `
-            <div class="card-cover-wrap">
+            <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
                 ${coverHTML}
                 ${r19Badge}
                 ${badgeHTML}
-            </div>
+            </a>
             <div class="card-body">
                 <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
                 ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
