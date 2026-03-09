@@ -360,7 +360,8 @@
     function renderCard(n) {
         const card = document.createElement("a");
         card.className = "novel-card";
-        const cfg = SOURCES[currentSource] || SOURCES.novelpia;
+        const novelSource = n.source || currentSource;
+        const cfg = SOURCES[novelSource] || SOURCES.novelpia;
         card.href = `${cfg.linkPrefix}${n.id}`;
         card.target = "_blank";
         card.rel = "noopener";
@@ -370,10 +371,10 @@
         const NPIA_COVER_DEFAULT = "https://images.novelpia.com/img/layout/readycover4.png";
 
         let coverSrc = n.cover;
-        if ((!coverSrc || coverSrc === "") && currentSource === "novelpia") {
+        if ((!coverSrc || coverSrc === "") && novelSource === "novelpia") {
             coverSrc = (n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT;
         }
-        const fallbackSrc = (currentSource === "novelpia")
+        const fallbackSrc = (novelSource === "novelpia")
             ? ((n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT)
             : "";
 
@@ -392,7 +393,7 @@
             .map((t) => `<span class="card-tag" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
-        const ageLabel = (currentSource === "sfacg") ? "15" : "19";
+        const ageLabel = (novelSource === "sfacg") ? "15" : "19";
         const r19Badge = (n.age === 19) ? `<span class="badge-r19">${ageLabel}</span>` : "";
 
         card.innerHTML = `
@@ -628,10 +629,60 @@
         }
     }
 
+
+    function parseNovels(raw, sourceName, cfg) {
+        return raw.map((r) => {
+            let tags = r[4];
+            if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
+            return {
+                id: r[0],
+                title: r[1] || "",
+                author: r[2] || "",
+                cover: r[3] ? (cfg.coverPrefix && !r[3].startsWith("http") ? cfg.coverPrefix + r[3] : r[3]) : "",
+                tags,
+                views: r[5] || 0,
+                likes: r[6] || 0,
+                chapters: r[7] || 0,
+                complete: r[8] || 0,
+                updated: r[9] || "",
+                weeklyRank: r[10] || 0,
+                age: r[11] || 0,
+                titleEn: "",
+                source: sourceName,
+            };
+        });
+    }
+
+    async function loadTranslations(novels, cfg, sourceName) {
+        try {
+            const tResp = await fetch(cfg.translationsUrl);
+            if (tResp.ok) {
+                const text = await tResp.text();
+                const map = {};
+                let count = 0;
+                for (const line of text.split("\n")) {
+                    const parts = line.split("|||");
+                    if (parts.length >= 3 && parts[2].trim()) {
+                        map[parts[0]] = parts[2].trim();
+                        count++;
+                    }
+                }
+                if (count > 0) {
+                    for (const n of novels) {
+                        const en = map[String(n.id)];
+                        if (en) n.titleEn = en;
+                    }
+                    console.log(`Loaded ${count} title translations for ${sourceName}`);
+                }
+            }
+        } catch (e) {
+            // translations not found, skip
+        }
+    }
+
     async function loadSource(source) {
         currentSource = source;
-        const cfg = SOURCES[source];
-        resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source} database...</div>`;
+        resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
         for (const bar of paginationBars) bar.style.display = "none";
 
         // Clear filters
@@ -641,53 +692,26 @@
         currentPage = 1;
 
         try {
-            const raw = await fetchWithProgress(cfg.dataUrl);
-
-            allNovels = raw.map((r) => {
-                let tags = r[4];
-                if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
-                return {
-                    id: r[0],
-                    title: r[1] || "",
-                    author: r[2] || "",
-                    cover: r[3] ? (cfg.coverPrefix && !r[3].startsWith("http") ? cfg.coverPrefix + r[3] : r[3]) : "",
-                    tags,
-                    views: r[5] || 0,
-                    likes: r[6] || 0,
-                    chapters: r[7] || 0,
-                    complete: r[8] || 0,
-                    updated: r[9] || "",
-                    weeklyRank: r[10] || 0,
-                    age: r[11] || 0,
-                    titleEn: "",
-                    source: source,
-                };
-            });
-
-            // Load title translations if available
-            titleTranslations = {};
-            try {
-                const tResp = await fetch(cfg.translationsUrl);
-                if (tResp.ok) {
-                    const text = await tResp.text();
-                    let count = 0;
-                    for (const line of text.split("\n")) {
-                        const parts = line.split("|||");
-                        if (parts.length >= 3 && parts[2].trim()) {
-                            titleTranslations[parts[0]] = parts[2].trim();
-                            count++;
-                        }
-                    }
-                    if (count > 0) {
-                        for (const n of allNovels) {
-                            const en = titleTranslations[String(n.id)];
-                            if (en) n.titleEn = en;
-                        }
-                        console.log(`Loaded ${count} title translations for ${source}`);
-                    }
-                }
-            } catch (e) {
-                // translations not found, skip
+            if (source === "all") {
+                // Load all sources in parallel
+                const sourceNames = ["novelpia", "kakao", "sfacg"];
+                const results = await Promise.all(
+                    sourceNames.map(async (s) => {
+                        const cfg = SOURCES[s];
+                        const raw = await fetchWithProgress(cfg.dataUrl);
+                        const novels = parseNovels(raw, s, cfg);
+                        await loadTranslations(novels, cfg, s);
+                        return novels;
+                    })
+                );
+                allNovels = results.flat();
+                titleTranslations = {};
+            } else {
+                const cfg = SOURCES[source];
+                const raw = await fetchWithProgress(cfg.dataUrl);
+                allNovels = parseNovels(raw, source, cfg);
+                titleTranslations = {};
+                await loadTranslations(allNovels, cfg, source);
             }
 
             buildTags(allNovels);
@@ -706,5 +730,5 @@
         loadSource(sourceSelect.value);
     });
 
-    loadSource("novelpia");
+    loadSource("all");
 })();
