@@ -1061,6 +1061,10 @@
         const ageBadgeClass = (novelSource === "sfacg") ? "badge-r15" : "badge-r19";
         const r19Badge = (n.age === 19) ? `<span class="${ageBadgeClass}">${ageLabel}</span>` : "";
 
+        const synopsisHTML = n.synopsis ? `
+                <div class="card-synopsis-toggle" title="Show synopsis">Synopsis ▶</div>
+                <div class="card-synopsis collapsed">${escHtml(n.synopsis).replace(/\\r\\n|\\n|\r?\n/g, '<br>')}</div>` : "";
+
         card.innerHTML = `
             <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
                 ${coverHTML}
@@ -1076,7 +1080,7 @@
                     <span class="stat">👁 ${fmt(n.views)}</span>
                     <span class="stat">❤ ${fmt(n.likes)}</span>
                     <span class="stat">📄 ${fmt(n.chapters)}</span>
-                </div>
+                </div>${synopsisHTML}
             </div>
         `;
 
@@ -1097,6 +1101,18 @@
         }
 
         // Make card tags clickable (add to include filter)
+        // Synopsis toggle
+        const synToggle = card.querySelector(".card-synopsis-toggle");
+        if (synToggle) {
+            synToggle.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const synEl = card.querySelector(".card-synopsis");
+                const isCollapsed = synEl.classList.toggle("collapsed");
+                synToggle.textContent = isCollapsed ? "Synopsis ▶" : "Synopsis ▼";
+            });
+        }
+
         card.querySelectorAll(".card-tag").forEach((tagEl) => {
             tagEl.addEventListener("click", (e) => {
                 e.preventDefault();
@@ -1385,6 +1401,7 @@
                 weeklyRank: r[10] || 0,
                 age: r[11] || 0,
                 monthlyRank: r[12] || 0,
+                synopsis: r[13] || "",
                 titleEn: "",
                 source: sourceName,
             };

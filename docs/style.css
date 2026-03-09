@@ -412,6 +412,45 @@ a.card-cover-wrap {
     color: var(--text-muted);
 }
 
+/* === Synopsis === */
+.card-synopsis-toggle {
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    color: var(--accent);
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    transition: color 0.2s;
+}
+
+.card-synopsis-toggle:hover {
+    color: var(--accent-hover);
+}
+
+.card-synopsis {
+    margin-top: 0.4rem;
+    padding: 0.6rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    max-height: 200px;
+    overflow-y: auto;
+    transition: max-height 0.3s ease, opacity 0.2s ease, padding 0.3s ease, margin 0.3s ease;
+}
+
+.card-synopsis.collapsed {
+    max-height: 0;
+    opacity: 0;
+    padding: 0 0.6rem;
+    margin: 0;
+    border-color: transparent;
+    overflow: hidden;
+}
+
 .stat {
     display: flex;
     align-items: center;
@@ -704,6 +743,9 @@ a.card-cover-wrap {
         font-size: 0.65rem;
         gap: 0.5rem;
     }
+
+    .card-synopsis-toggle { font-size: 0.6rem; margin-top: 0.4rem; }
+    .card-synopsis { font-size: 0.65rem; max-height: 150px; padding: 0.4rem; }
 
     .card-cover {
         min-height: 140px;
