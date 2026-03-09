@@ -410,7 +410,7 @@ main {
 }
 
 .badge-complete {
-    background: rgba(22, 101, 52, 0.55);
+    background: rgba(22, 101, 52, 0.85);
     color: #fff;
     border: 1px solid rgba(74, 222, 128, 0.5);
 }
@@ -435,7 +435,7 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(220, 38, 38, 0.55);
+    background: rgba(220, 38, 38, 0.9);
     color: #fff;
     font-size: 0.65rem;
     font-weight: 800;
