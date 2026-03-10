@@ -1629,12 +1629,17 @@
             if (source === "all") {
                 // Progressive loading: load Novelpia first, show immediately,
                 // then load KakaoPage & SFACG in background and refresh
+                let firstRendered = false;
                 const loadSingle = async (s) => {
                     const cfg = SOURCES[s];
                     let novels;
                     if (cfg.chunked) {
                         novels = await fetchChunkedSource(cfg, s, (chunk, loaded, total) => {
-                            resultsEl.innerHTML = `<div class="loading-spinner">Loading ${s}... chunk ${loaded}/${total}</div>`;
+                            if (!firstRendered) {
+                                resultsEl.innerHTML = `<div class="loading-spinner">Loading ${s}... chunk ${loaded}/${total}</div>`;
+                            } else {
+                                resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading ${s}... ${loaded}/${total}`;
+                            }
                         });
                     } else {
                         const raw = await fetchWithProgress(cfg.dataUrl);
@@ -1653,6 +1658,7 @@
                 titleTranslations = {};
                 buildTags(allNovels);
                 applyFilters();
+                firstRendered = true;
 
                 // 2. Load KakaoPage & SFACG in parallel, merge as each completes
                 const remaining = ["kakao", "sfacg"];
