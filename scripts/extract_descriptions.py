@@ -15,7 +15,7 @@ Format: novel_id|||korean_synopsis|||english_translation
   - Newlines in synopsis are replaced with literal \\n.
 """
 
-import json, os, sys
+import json, os, re, sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -60,7 +60,10 @@ def main():
         if nid is None:
             continue
         if synopsis:
-            flat = synopsis.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+            # Normalize newlines, then collapse multiple into one
+            normed = synopsis.replace("\r\n", "\n").replace("\r", "\n")
+            normed = re.sub(r"\n{2,}", "\n", normed).strip()
+            flat = normed.replace("\n", "\\n")
             en = existing_en.get(str(nid), "")
             row = f"{nid}|||{flat}|||{en}\n"
             if en:
