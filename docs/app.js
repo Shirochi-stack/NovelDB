@@ -1627,31 +1627,42 @@
 
         try {
             if (source === "all") {
-                // Load all sources in parallel (chunked sources use progressive loading)
-                const sourceNames = ["novelpia", "kakao", "sfacg"];
-                let progressiveNovels = [];
-                const results = await Promise.all(
-                    sourceNames.map(async (s) => {
-                        const cfg = SOURCES[s];
-                        let novels;
-                        if (cfg.chunked) {
-                            novels = await fetchChunkedSource(cfg, s, (chunk, loaded, total) => {
-                                progressiveNovels.push(...chunk);
-                                resultsEl.innerHTML = `<div class="loading-spinner">Loading ${s}... chunk ${loaded}/${total}</div>`;
-                            });
-                        } else {
-                            const raw = await fetchWithProgress(cfg.dataUrl);
-                            novels = parseNovels(raw, s, cfg);
-                        }
-                        await Promise.all([
-                            loadTranslations(novels, cfg, s),
-                            loadDescriptions(novels, cfg, s),
-                        ]);
-                        return novels;
-                    })
-                );
-                allNovels = results.flat();
+                // Progressive loading: load Novelpia first, show immediately,
+                // then load KakaoPage & SFACG in background and refresh
+                const loadSingle = async (s) => {
+                    const cfg = SOURCES[s];
+                    let novels;
+                    if (cfg.chunked) {
+                        novels = await fetchChunkedSource(cfg, s, (chunk, loaded, total) => {
+                            resultsEl.innerHTML = `<div class="loading-spinner">Loading ${s}... chunk ${loaded}/${total}</div>`;
+                        });
+                    } else {
+                        const raw = await fetchWithProgress(cfg.dataUrl);
+                        novels = parseNovels(raw, s, cfg);
+                    }
+                    await Promise.all([
+                        loadTranslations(novels, cfg, s),
+                        loadDescriptions(novels, cfg, s),
+                    ]);
+                    return novels;
+                };
+
+                // 1. Load Novelpia first and show results immediately
+                const novelpiaNovels = await loadSingle("novelpia");
+                allNovels = [...novelpiaNovels];
                 titleTranslations = {};
+                buildTags(allNovels);
+                applyFilters();
+
+                // 2. Load KakaoPage & SFACG in parallel, merge as each completes
+                const remaining = ["kakao", "sfacg"];
+                await Promise.all(remaining.map(async (s) => {
+                    const novels = await loadSingle(s);
+                    allNovels = [...allNovels, ...novels];
+                    titleTranslations = {};
+                    buildTags(allNovels);
+                    applyFilters();
+                }));
             } else {
                 const cfg = SOURCES[source];
                 if (cfg.chunked) {
