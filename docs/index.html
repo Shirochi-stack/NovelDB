@@ -35,7 +35,7 @@
                     <label>Source</label>
                     <select id="sourceSelect">
                         <option value="all">All Sources</option>
-                        <option value="novelpia">Novelpia</option>
+                        <option value="novelpia" selected>Novelpia</option>
                         <option value="kakao">KakaoPage</option>
                         <option value="sfacg">SFACG</option>
                     </select>
@@ -96,6 +96,7 @@
                     </div>
                     <button id="clearTags" class="clear-btn">Clear</button>
                 </div>
+                <div id="activeTagsSummary" class="active-tags-summary"></div>
                 <div id="tagContainer" class="tag-grid collapsed"></div>
             </div>
 
@@ -105,6 +106,7 @@
                     <span>▶ Exclude tags</span>
                     <button id="clearExclude" class="clear-btn">Clear</button>
                 </div>
+                <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
                 <div id="excludeTagContainer" class="tag-grid collapsed"></div>
             </div>
 

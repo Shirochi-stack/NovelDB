@@ -922,6 +922,7 @@
             activeTags.add(tag);
             chip.classList.add("active");
         }
+        updateActiveTagsSummary();
         applyFilters();
     }
 
@@ -933,7 +934,50 @@
             excludeTags.add(tag);
             chip.classList.add("excluded");
         }
+        updateActiveTagsSummary();
         applyFilters();
+    }
+
+    function updateActiveTagsSummary() {
+        const includeSummary = document.getElementById("activeTagsSummary");
+        const excludeSummary = document.getElementById("activeExcludeTagsSummary");
+
+        // Include tags
+        includeSummary.innerHTML = "";
+        for (const tag of activeTags) {
+            const chip = document.createElement("span");
+            chip.className = "summary-chip include";
+            chip.textContent = `${tl(tag)} ✕`;
+            chip.title = `Remove ${tag}`;
+            chip.addEventListener("click", () => {
+                activeTags.delete(tag);
+                // Also update the main tag grid chip
+                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === tag) c.classList.remove("active");
+                });
+                updateActiveTagsSummary();
+                applyFilters();
+            });
+            includeSummary.appendChild(chip);
+        }
+
+        // Exclude tags
+        excludeSummary.innerHTML = "";
+        for (const tag of excludeTags) {
+            const chip = document.createElement("span");
+            chip.className = "summary-chip exclude";
+            chip.textContent = `${tl(tag)} ✕`;
+            chip.title = `Remove ${tag}`;
+            chip.addEventListener("click", () => {
+                excludeTags.delete(tag);
+                excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === tag) c.classList.remove("excluded");
+                });
+                updateActiveTagsSummary();
+                applyFilters();
+            });
+            excludeSummary.appendChild(chip);
+        }
     }
 
     // Add a tag to include filter (from card click)
@@ -946,6 +990,7 @@
         tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
             if (c.dataset.tag === tag) c.classList.add("active");
         });
+        updateActiveTagsSummary();
         applyFilters();
     }
 
@@ -1062,7 +1107,7 @@
             : "";
 
         const coverHTML = coverSrc
-            ? `<img class="card-cover" src="${escHtml(coverSrc)}" alt="" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
+            ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('loaded')" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
@@ -1187,6 +1232,12 @@
         for (let i = start; i < end; i++) {
             resultsEl.appendChild(renderCard(filtered[i]));
         }
+
+        // Stagger image loading: load 4 at a time with 100ms gaps
+        const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
+        imgs.forEach((img, idx) => {
+            setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 4) * 100);
+        });
 
         // Update both pagination bars
         const show = totalPages > 1;
@@ -1328,12 +1379,14 @@
         activeTags.clear();
         focusedCard = null;
         tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+        updateActiveTagsSummary();
         applyFilters();
     });
 
     clearExcludeBtn.addEventListener("click", () => {
         excludeTags.clear();
         excludeTagContainer.querySelectorAll(".tag-chip.excluded").forEach((c) => c.classList.remove("excluded"));
+        updateActiveTagsSummary();
         applyFilters();
     });
 
@@ -1712,6 +1765,7 @@
         }
 
         _lastHash = window.location.hash;
+        updateActiveTagsSummary();
         _origApplyFilters();
     }
 
@@ -1766,6 +1820,7 @@
                 }
             }
             // Re-apply with restored state
+            updateActiveTagsSummary();
             _origApplyFilters();
             saveState();
             // Only restore once

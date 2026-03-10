@@ -237,6 +237,44 @@ main {
     margin: 0;
 }
 
+/* Active tags summary — always visible even when tag grid is collapsed */
+.active-tags-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 0.5rem;
+}
+
+.active-tags-summary:empty {
+    display: none;
+}
+
+.active-tags-summary .summary-chip {
+    padding: 0.25rem 0.6rem;
+    border-radius: 16px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.active-tags-summary .summary-chip.include {
+    background: var(--accent);
+    color: #fff;
+    border: 1px solid var(--accent-hover);
+    box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.active-tags-summary .summary-chip.exclude {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.active-tags-summary .summary-chip:hover {
+    opacity: 0.7;
+}
+
 .tag-header:hover span {
     color: var(--text-primary);
 }
