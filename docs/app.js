@@ -1062,7 +1062,7 @@
             : "";
 
         const coverHTML = coverSrc
-            ? `<img class="card-cover" src="${escHtml(coverSrc)}" alt="" decoding="async" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
+            ? `<img class="card-cover" src="${escHtml(coverSrc)}" alt="" loading="lazy" decoding="async" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
