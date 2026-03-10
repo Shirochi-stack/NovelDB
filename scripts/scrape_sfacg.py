@@ -129,7 +129,12 @@ def main():
 
 
 def save_novels(all_novels):
-    """Save novels to disk."""
+    """Save novels to disk.
+
+    Output format per entry (11 fields, trailing zeros stripped):
+        [id, title, author, cover, tags, views, likes, chapters, complete, updated, age]
+    Note: weeklyRank/monthlyRank are not available from SFACG API and are omitted.
+    """
     COVER_PREFIX = "https://rss.sfacg.com/web/novel/images/NovelCover/Big/"
     os.makedirs("docs/data", exist_ok=True)
     optimized = []
@@ -140,12 +145,16 @@ def save_novels(all_novels):
         cover = n.get("cover", "")
         if cover.startswith(COVER_PREFIX):
             cover = cover[len(COVER_PREFIX):]
-        optimized.append([
+        entry = [
             n["id"], n["title"], n["author"], cover,
             tags, n.get("views", 0), n.get("likes", 0),
             n.get("chapters", 0), n.get("complete", 0),
-            n.get("updated", ""), 0, n.get("age", 0),
-        ])
+            n.get("updated", ""), n.get("age", 0),
+        ]
+        # Strip trailing zeros/empty values to save space
+        while entry and (entry[-1] == 0 or entry[-1] == "" or entry[-1] == []):
+            entry.pop()
+        optimized.append(entry)
 
     path = "docs/data/sfacg_novels.json"
     with open(path, "w", encoding="utf-8") as f:

@@ -1346,16 +1346,22 @@
             dataUrl: "data/novels.json",
             translationsUrl: "data/titles_en.txt",
             descriptionsUrl: "data/descriptions.txt",
-            format: "array",  // optimized array format
+            format: "array",
             coverPrefix: "https://novelpia.com",
             linkPrefix: "https://novelpia.com/novel/",
+            chunked: true,
+            chunkCount: 5,
+            chunkPrefix: "data/novelpia_chunk_",
         },
         kakao: {
             dataUrl: "data/kakao_novels.json",
             translationsUrl: "data/kakao_titles_en.txt",
             format: "array",
-            coverPrefix: "",  // full URLs in data
+            coverPrefix: "",
             linkPrefix: "https://page.kakao.com/content/",
+            chunked: true,
+            chunkCount: 3,
+            chunkPrefix: "data/kakao_chunk_",
         },
         sfacg: {
             dataUrl: "data/sfacg_novels.json",
@@ -1363,6 +1369,10 @@
             format: "array",
             coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
             linkPrefix: "https://book.sfacg.com/Novel/",
+            noWeeklyRank: true,
+            chunked: true,
+            chunkCount: 10,
+            chunkPrefix: "data/sfacg_chunk_",
         },
     };
 
@@ -1391,11 +1401,54 @@
             const blob = new Blob(chunks);
             const text = await blob.text();
             resultsEl.innerHTML = `<div class="loading-spinner">Parsing ${(received / 1024 / 1024).toFixed(1)} MB...</div>`;
-            // Parse in a Web Worker to avoid blocking the UI
             return await parseJsonAsync(text);
         } else {
             return await resp.json();
         }
+    }
+
+    /** Fetch a .json.gz file, decompress client-side, parse JSON */
+    async function fetchGzChunk(url) {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+        // Use DecompressionStream to decompress gzip on the fly
+        const ds = new DecompressionStream("gzip");
+        const decompressed = resp.body.pipeThrough(ds);
+        const reader = decompressed.getReader();
+        const chunks = [];
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+        }
+        const blob = new Blob(chunks);
+        const text = await blob.text();
+        return JSON.parse(text);
+    }
+
+    /**
+     * Load a chunked+gzipped source progressively.
+     * Fires onChunkLoaded after each chunk so the UI can update.
+     */
+    async function fetchChunkedSource(cfg, sourceName, onChunkLoaded) {
+        const { chunkCount, chunkPrefix } = cfg;
+        let loaded = 0;
+        const chunkPromises = [];
+
+        for (let i = 0; i < chunkCount; i++) {
+            const url = `${chunkPrefix}${i}.json.gz`;
+            chunkPromises.push(
+                fetchGzChunk(url).then((raw) => {
+                    loaded++;
+                    const novels = parseNovels(raw, sourceName, cfg);
+                    onChunkLoaded(novels, loaded, chunkCount);
+                    return novels;
+                })
+            );
+        }
+
+        const results = await Promise.all(chunkPromises);
+        return results.flat();
     }
 
     function parseJsonAsync(text) {
@@ -1417,6 +1470,9 @@
 
 
     function parseNovels(raw, sourceName, cfg) {
+        // SFACG format (11 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age]
+        // Novelpia/Kakao format (13 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank]
+        const noRank = cfg.noWeeklyRank;
         return raw.map((r) => {
             let tags = r[4];
             if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
@@ -1431,9 +1487,9 @@
                 chapters: r[7] || 0,
                 complete: r[8] || 0,
                 updated: r[9] || "",
-                weeklyRank: r[10] || 0,
-                age: r[11] || 0,
-                monthlyRank: r[12] || 0,
+                weeklyRank: noRank ? 0 : (r[10] || 0),
+                age: noRank ? (r[10] || 0) : (r[11] || 0),
+                monthlyRank: noRank ? 0 : (r[12] || 0),
                 synopsis: "",
                 titleEn: "",
                 source: sourceName,
@@ -1518,13 +1574,22 @@
 
         try {
             if (source === "all") {
-                // Load all sources in parallel
+                // Load all sources in parallel (chunked sources use progressive loading)
                 const sourceNames = ["novelpia", "kakao", "sfacg"];
+                let progressiveNovels = [];
                 const results = await Promise.all(
                     sourceNames.map(async (s) => {
                         const cfg = SOURCES[s];
-                        const raw = await fetchWithProgress(cfg.dataUrl);
-                        const novels = parseNovels(raw, s, cfg);
+                        let novels;
+                        if (cfg.chunked) {
+                            novels = await fetchChunkedSource(cfg, s, (chunk, loaded, total) => {
+                                progressiveNovels.push(...chunk);
+                                resultsEl.innerHTML = `<div class="loading-spinner">Loading ${s}... chunk ${loaded}/${total}</div>`;
+                            });
+                        } else {
+                            const raw = await fetchWithProgress(cfg.dataUrl);
+                            novels = parseNovels(raw, s, cfg);
+                        }
                         await Promise.all([
                             loadTranslations(novels, cfg, s),
                             loadDescriptions(novels, cfg, s),
@@ -1536,13 +1601,35 @@
                 titleTranslations = {};
             } else {
                 const cfg = SOURCES[source];
-                const raw = await fetchWithProgress(cfg.dataUrl);
-                allNovels = parseNovels(raw, source, cfg);
-                titleTranslations = {};
-                await Promise.all([
-                    loadTranslations(allNovels, cfg, source),
-                    loadDescriptions(allNovels, cfg, source),
-                ]);
+                if (cfg.chunked) {
+                    // Progressive chunked loading — show results as chunks arrive
+                    allNovels = [];
+                    titleTranslations = {};
+                    let firstRender = true;
+                    const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
+                        allNovels.push(...chunk);
+                        resultsEl.innerHTML = `<div class="loading-spinner">Loading chunk ${loaded}/${total}...</div>`;
+                        // Render after first chunk so user sees results immediately
+                        if (firstRender) {
+                            firstRender = false;
+                            buildTags(allNovels);
+                            applyFilters();
+                        }
+                    });
+                    allNovels = allChunkNovels;
+                    await Promise.all([
+                        loadTranslations(allNovels, cfg, source),
+                        loadDescriptions(allNovels, cfg, source),
+                    ]);
+                } else {
+                    const raw = await fetchWithProgress(cfg.dataUrl);
+                    allNovels = parseNovels(raw, source, cfg);
+                    titleTranslations = {};
+                    await Promise.all([
+                        loadTranslations(allNovels, cfg, source),
+                        loadDescriptions(allNovels, cfg, source),
+                    ]);
+                }
             }
 
             buildTags(allNovels);
