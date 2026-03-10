@@ -318,15 +318,29 @@ a.card-cover-wrap {
     text-decoration: none;
     overflow: hidden;
     border-radius: var(--radius) var(--radius) 0 0;
+    /* Shimmer skeleton while image loads */
+    background: linear-gradient(110deg, var(--bg-input) 30%, #252540 50%, var(--bg-input) 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .card-cover {
     width: 100%;
     aspect-ratio: 3 / 4;
     object-fit: cover;
-    background: var(--bg-input);
     display: block;
     min-height: 200px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.card-cover.loaded {
+    opacity: 1;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
 }
 
 .card-cover.no-img {
