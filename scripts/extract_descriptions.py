@@ -29,10 +29,13 @@ def load_existing_translations():
     if os.path.exists(OUTPUT):
         with open(OUTPUT, "r", encoding="utf-8") as f:
             for line in f:
-                line = line.rstrip("\n").rstrip("\r")
+                line = line.rstrip("\r\n")
+                if not line: continue
                 parts = line.split("|||")
+                nid = parts[0].strip()
+                if not nid: continue
                 if len(parts) >= 3 and parts[2].strip():
-                    translations[parts[0].strip()] = parts[2].strip()
+                    translations[nid] = parts[2].strip()
         if translations:
             print(f"  Preserved {len(translations)} existing English translations")
     return translations

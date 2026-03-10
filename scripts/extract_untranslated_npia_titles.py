@@ -1,6 +1,6 @@
 """Extract untranslated title rows from titles_en.txt for Novelpia.
 
-Creates: docs/data/titles_untranslated.txt (only rows missing column 3)
+Skips blank lines, empty IDs, and non-numeric IDs.
 """
 import os, sys
 sys.stdout.reconfigure(encoding="utf-8")
@@ -14,9 +14,13 @@ if not os.path.exists(SRC):
 count = 0
 with open(SRC, "r", encoding="utf-8") as f, open(OUT, "w", encoding="utf-8") as out:
     for line in f:
-        parts = line.rstrip("\n").rstrip("\r").split("|||")
+        stripped = line.rstrip("\r\n")
+        if not stripped: continue
+        parts = stripped.split("|||")
+        nid = parts[0].strip()
+        if not nid or not nid.isdigit(): continue
         if len(parts) < 3 or not parts[2].strip():
-            out.write(line)
+            out.write(stripped + "\n")
             count += 1
 
 print(f"Extracted {count} untranslated rows to {OUT}")
