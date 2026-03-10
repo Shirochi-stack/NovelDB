@@ -417,7 +417,7 @@ a.card-cover-wrap {
 /* === Synopsis === */
 .card-synopsis {
     margin-top: 0.5rem;
-    font-size: 0.75rem;
+    font-size: 0.85rem;
     color: rgba(255, 255, 255, 0.85);
     line-height: 1.6;
     max-height: 200px;
@@ -728,7 +728,7 @@ a.card-cover-wrap {
         gap: 0.5rem;
     }
 
-    .card-synopsis { font-size: 0.65rem; max-height: 150px; padding: 0.4rem; }
+    .card-synopsis { font-size: 0.75rem; max-height: 150px; padding: 0.4rem; }
 
     .card-cover {
         min-height: 140px;
