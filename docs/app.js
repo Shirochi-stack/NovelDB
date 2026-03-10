@@ -871,6 +871,7 @@
 
     // Track which specific card+tag was clicked for highlight
     let focusedCard = null; // { id, source, tag }
+    let preTagScrollY = null; // scroll position before tag filter was applied
     // === Format numbers ===
     function fmt(n) {
         if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
@@ -1127,13 +1128,22 @@
                 const clickedTag = tagEl.dataset.tag;
                 const novelId = n.id;
                 const novelSource = n.source || currentSource;
-                // Toggle: if this tag is the only active tag, clear it
+                // Toggle: if this tag is the only active tag, clear it and restore scroll
                 if (activeTags.size === 1 && activeTags.has(clickedTag)) {
+                    const savedScroll = preTagScrollY;
                     activeTags.clear();
                     focusedCard = null;
+                    preTagScrollY = null;
                     tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
                     applyFilters();
+                    if (savedScroll != null) {
+                        requestAnimationFrame(() => window.scrollTo({ top: savedScroll, behavior: "instant" }));
+                    }
                 } else {
+                    // Save scroll position before applying filter
+                    if (activeTags.size === 0) {
+                        preTagScrollY = window.scrollY;
+                    }
                     focusedCard = { id: novelId, source: novelSource, tag: clickedTag };
                     addIncludeTag(clickedTag);
                     filterAndFocusCard(novelId, novelSource);
