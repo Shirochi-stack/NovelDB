@@ -1022,7 +1022,8 @@
 
             // Audience filter
             const audience = audienceSelect.value;
-            if (audience === "adult" && n.age !== 19) return false;
+            if (audience === "adult" && !(n.source === "novelpia" && n.age === 19)) return false;
+            if (audience === "r15" && !(n.source === "sfacg" && n.age === 19)) return false;
             if (audience === "general" && n.age === 19) return false;
 
             // Tag filter (include)
