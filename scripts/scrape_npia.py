@@ -1,4 +1,4 @@
-"""Scrape all Novelpia novel metadata for the NovelpiaDB site.
+"""Scrape all Novelpia novel metadata for the NovelDB site.
 
 Searches across many common tags to maximize coverage,
 unions results, and exports as JSON for the static site.

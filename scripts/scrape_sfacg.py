@@ -1,4 +1,4 @@
-"""Scrape SFACG (SF轻小说) novel metadata for the NovelpiaDB site.
+"""Scrape SFACG (SF轻小说) novel metadata for the NovelDB site.
 
 Uses the SFACG public API to fetch ALL novel listings via deep pagination.
 No category filter — just paginate through the entire catalog.
