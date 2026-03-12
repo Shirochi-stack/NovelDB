@@ -844,7 +844,8 @@
     let allNovels = [];
     let titleTranslations = {};  // id -> english title
     let filtered = [];
-    let activeTags = new Set();
+    let andTags = new Set();
+    let orTags = new Set();
     let excludeTags = new Set();
     let tagMode = "AND";
     let displayCount = 32;
@@ -917,12 +918,22 @@
     }
 
     function toggleTag(tag, chip) {
-        if (activeTags.has(tag)) {
-            activeTags.delete(tag);
+        // If tag is already in either set, remove it
+        if (andTags.has(tag)) {
+            andTags.delete(tag);
             chip.classList.remove("active");
+        } else if (orTags.has(tag)) {
+            orTags.delete(tag);
+            chip.classList.remove("active-or");
         } else {
-            activeTags.add(tag);
-            chip.classList.add("active");
+            // Add to the set matching current mode
+            if (tagMode === "AND") {
+                andTags.add(tag);
+                chip.classList.add("active");
+            } else {
+                orTags.add(tag);
+                chip.classList.add("active-or");
+            }
         }
         updateActiveTagsSummary();
         applyFilters();
@@ -944,18 +955,32 @@
         const includeSummary = document.getElementById("activeTagsSummary");
         const excludeSummary = document.getElementById("activeExcludeTagsSummary");
 
-        // Include tags
+        // Include tags (AND + OR)
         includeSummary.innerHTML = "";
-        for (const tag of activeTags) {
+        for (const tag of andTags) {
             const chip = document.createElement("span");
             chip.className = "summary-chip include";
             chip.textContent = `${tl(tag)} ✕`;
-            chip.title = `Remove ${tag}`;
+            chip.title = `Remove AND tag: ${tag}`;
             chip.addEventListener("click", () => {
-                activeTags.delete(tag);
-                // Also update the main tag grid chip
+                andTags.delete(tag);
                 tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
                     if (c.dataset.tag === tag) c.classList.remove("active");
+                });
+                updateActiveTagsSummary();
+                applyFilters();
+            });
+            includeSummary.appendChild(chip);
+        }
+        for (const tag of orTags) {
+            const chip = document.createElement("span");
+            chip.className = "summary-chip include-or";
+            chip.textContent = `${tl(tag)} ✕`;
+            chip.title = `Remove OR tag: ${tag}`;
+            chip.addEventListener("click", () => {
+                orTags.delete(tag);
+                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === tag) c.classList.remove("active-or");
                 });
                 updateActiveTagsSummary();
                 applyFilters();
@@ -985,9 +1010,13 @@
     // Add a tag to include filter (from card click)
     function addIncludeTag(tag) {
         // Clear previous tags first
-        activeTags.clear();
-        tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
-        activeTags.add(tag);
+        andTags.clear();
+        orTags.clear();
+        tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
+            c.classList.remove("active");
+            c.classList.remove("active-or");
+        });
+        andTags.add(tag);
         // Highlight the chip in the tag grid
         tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
             if (c.dataset.tag === tag) c.classList.add("active");
@@ -1028,16 +1057,21 @@
             if (audience === "r15" && !(n.source === "sfacg" && n.age === 19)) return false;
             if (audience === "general" && n.age === 19) return false;
 
-            // Tag filter (include)
-            if (activeTags.size > 0) {
+            // Tag filter (include): AND tags + OR tags
+            const hasAndTags = andTags.size > 0;
+            const hasOrTags = orTags.size > 0;
+            if (hasAndTags || hasOrTags) {
                 const novelTags = new Set(n.tags);
-                if (tagMode === "AND") {
-                    for (const t of activeTags) {
+                // All AND tags must match
+                if (hasAndTags) {
+                    for (const t of andTags) {
                         if (!novelTags.has(t)) return false;
                     }
-                } else {
+                }
+                // At least one OR tag must match (if any OR tags selected)
+                if (hasOrTags) {
                     let match = false;
-                    for (const t of activeTags) {
+                    for (const t of orTags) {
                         if (novelTags.has(t)) { match = true; break; }
                     }
                     if (!match) return false;
@@ -1120,7 +1154,7 @@
         const badgeHTML = completeBadge + rankBadge;
 
         const isFocused = focusedCard && focusedCard.id === n.id && focusedCard.source === (n.source || currentSource);
-        const sortedTags = [...n.tags].sort((a, b) => (activeTags.has(b) ? 1 : 0) - (activeTags.has(a) ? 1 : 0));
+        const sortedTags = [...n.tags].sort((a, b) => ((andTags.has(b) || orTags.has(b)) ? 1 : 0) - ((andTags.has(a) || orTags.has(a)) ? 1 : 0));
         const tagsHTML = sortedTags
             .map((t) => `<span class="card-tag${isFocused && focusedCard.tag === t ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
@@ -1177,19 +1211,24 @@
                 const novelId = n.id;
                 const novelSource = n.source || currentSource;
                 // Toggle: if this tag is the only active tag, clear it and restore scroll
-                if (activeTags.size === 1 && activeTags.has(clickedTag)) {
+                const totalActive = andTags.size + orTags.size;
+                if (totalActive === 1 && (andTags.has(clickedTag) || orTags.has(clickedTag))) {
                     const savedScroll = preTagScrollY;
-                    activeTags.clear();
+                    andTags.clear();
+                    orTags.clear();
                     focusedCard = null;
                     preTagScrollY = null;
-                    tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+                    tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
+                        c.classList.remove("active");
+                        c.classList.remove("active-or");
+                    });
                     applyFilters();
                     if (savedScroll != null) {
                         requestAnimationFrame(() => window.scrollTo({ top: savedScroll, behavior: "instant" }));
                     }
                 } else {
                     // Save scroll position before applying filter
-                    if (activeTags.size === 0) {
+                    if (totalActive === 0) {
                         preTagScrollY = window.scrollY;
                     }
                     focusedCard = { id: novelId, source: novelSource, tag: clickedTag };
@@ -1394,20 +1433,22 @@
         tagMode = "AND";
         tagModeAnd.classList.add("active");
         tagModeOr.classList.remove("active");
-        if (activeTags.size) applyFilters();
     });
 
     tagModeOr.addEventListener("click", () => {
         tagMode = "OR";
         tagModeOr.classList.add("active");
         tagModeAnd.classList.remove("active");
-        if (activeTags.size) applyFilters();
     });
 
     clearTagsBtn.addEventListener("click", () => {
-        activeTags.clear();
+        andTags.clear();
+        orTags.clear();
         focusedCard = null;
-        tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+        tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
+            c.classList.remove("active");
+            c.classList.remove("active-or");
+        });
         updateActiveTagsSummary();
         applyFilters();
     });
@@ -1648,7 +1689,8 @@
 
         // Clear filters (unless restoring state)
         if (!keepState) {
-            activeTags.clear();
+            andTags.clear();
+            orTags.clear();
             excludeTags.clear();
             searchInput.value = "";
             currentPage = 1;
@@ -1753,9 +1795,9 @@
         if (batchSelect.value !== "50") state.batch = batchSelect.value;
         if (currentPage > 1) state.page = currentPage;
         if (sourceSelect.value !== "all") state.src = sourceSelect.value;
-        if (activeTags.size > 0) state.tags = [...activeTags].join(",");
+        if (andTags.size > 0) state.tags = [...andTags].join(",");
+        if (orTags.size > 0) state.ortags = [...orTags].join(",");
         if (excludeTags.size > 0) state.xtags = [...excludeTags].join(",");
-        if (tagMode !== "AND") state.tmode = tagMode;
 
         const hash = Object.keys(state).length > 0
             ? "#" + Object.entries(state).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")
@@ -1788,24 +1830,37 @@
         currentPage = params.page ? parseInt(params.page) : 1;
         if (params.tmode) tagMode = params.tmode;
 
-        // Restore tags
-        activeTags.clear();
-        tagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+        // Restore AND tags
+        andTags.clear();
+        orTags.clear();
+        tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
+            c.classList.remove("active");
+            c.classList.remove("active-or");
+        });
         if (params.tags) {
             for (const t of params.tags.split(",")) {
-                activeTags.add(t);
+                andTags.add(t);
                 tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
                     if (c.dataset.tag === t) c.classList.add("active");
                 });
             }
         }
+        // Restore OR tags
+        if (params.ortags) {
+            for (const t of params.ortags.split(",")) {
+                orTags.add(t);
+                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                    if (c.dataset.tag === t) c.classList.add("active-or");
+                });
+            }
+        }
         excludeTags.clear();
-        excludeTagContainer.querySelectorAll(".tag-chip.active").forEach((c) => c.classList.remove("active"));
+        excludeTagContainer.querySelectorAll(".tag-chip.excluded").forEach((c) => c.classList.remove("excluded"));
         if (params.xtags) {
             for (const t of params.xtags.split(",")) {
                 excludeTags.add(t);
                 excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === t) c.classList.add("active");
+                    if (c.dataset.tag === t) c.classList.add("excluded");
                 });
             }
         }
@@ -1827,7 +1882,6 @@
         if (params.batch) { batchSelect.value = params.batch; BATCH = parseInt(params.batch); }
         if (params.page) currentPage = parseInt(params.page);
         if (params.src) sourceSelect.value = params.src;
-        if (params.tmode) tagMode = params.tmode;
 
         // Tags are restored after data loads (in loadSource callback)
         return params;
@@ -1851,9 +1905,17 @@
             await _origLoadSource(source, true);
             if (savedParams.tags) {
                 for (const t of savedParams.tags.split(",")) {
-                    activeTags.add(t);
+                    andTags.add(t);
                     tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
                         if (c.dataset.tag === t) c.classList.add("active");
+                    });
+                }
+            }
+            if (savedParams.ortags) {
+                for (const t of savedParams.ortags.split(",")) {
+                    orTags.add(t);
+                    tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+                        if (c.dataset.tag === t) c.classList.add("active-or");
                     });
                 }
             }
@@ -1861,7 +1923,7 @@
                 for (const t of savedParams.xtags.split(",")) {
                     excludeTags.add(t);
                     excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                        if (c.dataset.tag === t) c.classList.add("active");
+                        if (c.dataset.tag === t) c.classList.add("excluded");
                     });
                 }
             }

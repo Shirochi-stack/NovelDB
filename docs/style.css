@@ -301,6 +301,13 @@ main {
     box-shadow: 0 0 8px var(--accent-glow);
 }
 
+.active-tags-summary .summary-chip.include-or {
+    background: rgba(245, 158, 11, 0.85);
+    color: #fff;
+    border: 1px solid rgba(251, 191, 36, 0.7);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.15);
+}
+
 .active-tags-summary .summary-chip.exclude {
     background: rgba(239, 68, 68, 0.15);
     color: #f87171;
@@ -337,6 +344,13 @@ main {
     color: #fff;
     border-color: var(--accent-hover);
     box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.tag-chip.active-or {
+    background: rgba(245, 158, 11, 0.85);
+    color: #fff;
+    border-color: rgba(251, 191, 36, 0.7);
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
 }
 
 /* Exclude tags section */
