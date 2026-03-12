@@ -1803,6 +1803,13 @@
                 const novelpiaNovels = await loadSingle("novelpia");
                 const deduped = novelpiaNovels.filter((n) => !topIds.has(n.id));
                 allNovels = [...(topNovels || []), ...deduped];
+                // Re-apply translations & descriptions to ALL novels (including top)
+                // so that descriptions.txt overrides stale embedded descriptions
+                const npiaCfg = SOURCES.novelpia;
+                await Promise.all([
+                    loadTranslations(allNovels, npiaCfg, "novelpia"),
+                    loadDescriptions(allNovels, npiaCfg, "novelpia"),
+                ]);
                 titleTranslations = {};
                 buildTags(allNovels);
                 applyFilters();
