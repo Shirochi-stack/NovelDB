@@ -93,7 +93,7 @@ def main():
 
     print(f"\nSaved {output_path}")
     print(f"  {len(top)} novels, {len(translations)} translations, {len(descriptions)} descriptions")
-    print(f"  Raw: {len(raw)/1024:.1f} KB → Gzipped: {len(gz)/1024:.1f} KB")
+    print(f"  Raw: {len(raw)/1024:.1f} KB -> Gzipped: {len(gz)/1024:.1f} KB")
 
 
 if __name__ == "__main__":
