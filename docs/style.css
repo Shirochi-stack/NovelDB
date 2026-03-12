@@ -378,6 +378,7 @@ main {
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     color: inherit;
     display: block;
+    min-width: 0;
 }
 
 .novel-card:hover {
@@ -779,6 +780,12 @@ a.card-cover-wrap {
     .results-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 0.6rem;
+    }
+
+    /* Prevent long content from breaking equal columns */
+    .novel-card {
+        overflow: hidden;
+        word-break: break-word;
     }
 
     /* Card tweaks */
