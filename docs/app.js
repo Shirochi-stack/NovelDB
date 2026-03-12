@@ -1060,8 +1060,7 @@
             const audience = audienceSelect.value;
             if (audience === "adult" && !((n.source === "novelpia" || n.source === "kakao") && n.age === 19)) return false;
             if (audience === "r15" && !((n.source === "sfacg" && n.age === 19) || (n.source === "novelpia" && n.age === 15))) return false;
-            if (audience === "r15general" && n.age === 19) return false;
-            if (audience === "general" && (n.age === 19 || n.age === 15)) return false;
+            if (audience === "general" && n.age === 19) return false;
 
             // Tag filter (include): AND tags + OR tags
             const hasAndTags = andTags.size > 0;
