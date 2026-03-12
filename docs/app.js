@@ -1094,18 +1094,22 @@
         });
 
         // Pick the right rank field based on audience
+        // all     → all/plus ranks
+        // general → teen/plus ranks (Novelpia "teen" = non-adult = our "General")
+        // adult   → adult/plus ranks
+        // r15     → all ranks (no dedicated R15 ranking on Novelpia)
         function getRank(novel, type) {
             const aud = audienceSelect.value;
             if (aud === "adult") {
                 if (type === "weekly") return novel.weeklyRankAdult;
                 if (type === "monthly") return novel.monthlyRankAdult;
                 if (type === "daily") return novel.dailyRankAdult;
-            } else if (aud === "r15") {
+            } else if (aud === "general") {
                 if (type === "weekly") return novel.weeklyRankTeen;
                 if (type === "monthly") return novel.monthlyRankTeen;
                 if (type === "daily") return novel.dailyRankTeen;
             }
-            // all / general → use 'all' ranks
+            // all / r15 → use 'all' ranks
             if (type === "weekly") return novel.weeklyRank;
             if (type === "monthly") return novel.monthlyRank;
             if (type === "daily") return novel.dailyRank;
