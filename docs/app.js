@@ -1059,8 +1059,8 @@
             // Audience filter
             const audience = audienceSelect.value;
             if (audience === "adult" && !((n.source === "novelpia" || n.source === "kakao") && n.age === 19)) return false;
-            if (audience === "r15" && !(n.source === "sfacg" && n.age === 19)) return false;
-            if (audience === "general" && n.age === 19) return false;
+            if (audience === "r15" && !((n.source === "sfacg" && n.age === 19) || (n.source === "novelpia" && n.age === 15))) return false;
+            if (audience === "general" && (n.age === 19 || n.age === 15)) return false;
 
             // Tag filter (include): AND tags + OR tags
             const hasAndTags = andTags.size > 0;
@@ -1164,9 +1164,11 @@
             .map((t) => `<span class="card-tag${isFocused && focusedCard.tag === t ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
-        const ageLabel = (novelSource === "sfacg") ? "15" : "19";
-        const ageBadgeClass = (novelSource === "sfacg") ? "badge-r15" : "badge-r19";
-        const r19Badge = (n.age === 19) ? `<span class="${ageBadgeClass}">${ageLabel}</span>` : "";
+        const isR15 = (novelSource === "sfacg" && n.age === 19) || (novelSource === "novelpia" && n.age === 15);
+        const isR19 = (novelSource !== "sfacg" && n.age === 19);
+        const ageBadge = isR15 ? `<span class="badge-r15">15</span>`
+            : isR19 ? `<span class="badge-r19">19</span>`
+            : "";
 
         const synopsisHTML = n.synopsis ? `
                 <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(n.synopsis).replace(/\n+/g, '<br>')}</div>` : "";
@@ -1174,7 +1176,7 @@
         card.innerHTML = `
             <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
                 ${coverHTML}
-                ${r19Badge}
+                ${ageBadge}
                 ${badgeHTML}
             </a>
             <div class="card-body">
