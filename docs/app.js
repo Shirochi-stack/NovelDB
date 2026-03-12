@@ -1093,6 +1093,25 @@
             return true;
         });
 
+        // Pick the right rank field based on audience
+        function getRank(novel, type) {
+            const aud = audienceSelect.value;
+            if (aud === "adult") {
+                if (type === "weekly") return novel.weeklyRankAdult;
+                if (type === "monthly") return novel.monthlyRankAdult;
+                if (type === "daily") return novel.dailyRankAdult;
+            } else if (aud === "r15") {
+                if (type === "weekly") return novel.weeklyRankTeen;
+                if (type === "monthly") return novel.monthlyRankTeen;
+                if (type === "daily") return novel.dailyRankTeen;
+            }
+            // all / general → use 'all' ranks
+            if (type === "weekly") return novel.weeklyRank;
+            if (type === "monthly") return novel.monthlyRank;
+            if (type === "daily") return novel.dailyRank;
+            return 0;
+        }
+
         // Sort
         filtered.sort((a, b) => {
             let va, vb;
@@ -1103,21 +1122,13 @@
                 case "updated": va = a.updated; vb = b.updated; break;
                 case "title": va = a.title; vb = b.title; break;
                 case "daily":
-                    const rda = a.dailyRank || 9999;
-                    const rdb = b.dailyRank || 9999;
-                    if (rda !== rdb) return order === "asc" ? rdb - rda : rda - rdb;
-                    return b.views - a.views;
                 case "weekly":
-                    // Ranked novels first (lower rank = better), unranked last
-                    const rwa = a.weeklyRank || 9999;
-                    const rwb = b.weeklyRank || 9999;
-                    if (rwa !== rwb) return order === "asc" ? rwb - rwa : rwa - rwb;
+                case "monthly": {
+                    const ra = getRank(a, sortBy) || 9999;
+                    const rb = getRank(b, sortBy) || 9999;
+                    if (ra !== rb) return order === "asc" ? rb - ra : ra - rb;
                     return b.views - a.views;
-                case "monthly":
-                    const rma = a.monthlyRank || 9999;
-                    const rmb = b.monthlyRank || 9999;
-                    if (rma !== rmb) return order === "asc" ? rmb - rma : rma - rmb;
-                    return b.views - a.views;
+                }
                 default: va = a.views; vb = b.views;
             }
             if (sortBy === "title" || sortBy === "updated") {
@@ -1158,7 +1169,9 @@
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
-        const displayRank = sortBy === "monthly" ? n.monthlyRank : sortBy === "daily" ? n.dailyRank : sortBy === "weekly" ? n.weeklyRank : (n.dailyRank || n.weeklyRank || n.monthlyRank);
+        const displayRank = (sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly")
+            ? getRank(n, sortBy)
+            : (getRank(n, "daily") || getRank(n, "weekly") || getRank(n, "monthly"));
         const rankBadge = displayRank ? `<span class="card-badge badge-rank">#${displayRank}</span>` : "";
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
         const badgeHTML = completeBadge + rankBadge;
@@ -1669,6 +1682,12 @@
                 age: noRank ? (r[10] || 0) : (r[11] || 0),
                 monthlyRank: noRank ? 0 : (r[12] || 0),
                 dailyRank: noRank ? 0 : (r[13] || 0),
+                weeklyRankAdult: noRank ? 0 : (r[14] || 0),
+                monthlyRankAdult: noRank ? 0 : (r[15] || 0),
+                dailyRankAdult: noRank ? 0 : (r[16] || 0),
+                weeklyRankTeen: noRank ? 0 : (r[17] || 0),
+                monthlyRankTeen: noRank ? 0 : (r[18] || 0),
+                dailyRankTeen: noRank ? 0 : (r[19] || 0),
                 synopsis: "",
                 titleEn: "",
                 source: sourceName,

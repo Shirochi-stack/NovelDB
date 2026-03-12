@@ -1,7 +1,12 @@
 """Update Novelpia weekly, monthly & daily rankings with authentication.
 
-Scrapes the top100 pages (general + R19 adult) for daily, weekly, and monthly
-views, then patches the existing novels.json with the new ranking data.
+Scrapes the top100 pages for each audience (all, adult, teen) × each period
+(daily, weekly, monthly), then patches novels.json with audience-specific ranks.
+
+Data indices:
+  [10] weeklyRank (all)    [12] monthlyRank (all)    [13] dailyRank (all)
+  [14] weeklyRankAdult     [15] monthlyRankAdult     [16] dailyRankAdult
+  [17] weeklyRankTeen      [18] monthlyRankTeen      [19] dailyRankTeen
 
 Usage:
     python scripts/update_rankings.py
@@ -14,17 +19,18 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 from novelpia_auth import NovelpiaAuth
 
-# (period_url, audience_url, label)
-RANKING_PAGES = [
-    ("weekly",  "all/plus",    "weekly general"),
-    ("weekly",  "adult/plus",  "weekly R19"),
-    ("weekly",  "teen/plus",   "weekly R15"),
-    ("month",   "all/plus",    "monthly general"),
-    ("month",   "adult/plus",  "monthly R19"),
-    ("month",   "teen/plus",   "monthly R15"),
-    ("today",   "all/plus",    "daily general"),
-    ("today",   "adult/plus",  "daily R19"),
-    ("today",   "teen/plus",   "daily R15"),
+# (period, audience, label, data_index_weekly, data_index_monthly, data_index_daily)
+# We scrape per-audience and store to the matching index.
+AUDIENCES = [
+    ("all/plus",   "all",   10, 12, 13),  # weeklyRank, monthlyRank, dailyRank
+    ("adult/plus", "adult", 14, 15, 16),  # weeklyRankAdult, monthlyRankAdult, dailyRankAdult
+    ("teen/plus",  "teen",  17, 18, 19),  # weeklyRankTeen, monthlyRankTeen, dailyRankTeen
+]
+
+PERIODS = [
+    ("weekly", "weekly"),
+    ("month",  "monthly"),
+    ("today",  "daily"),
 ]
 
 
@@ -50,27 +56,20 @@ def main():
         sys.exit(1)
     auth.set_manual_key(loginkey)
 
-    weekly = {}
-    monthly = {}
-    daily = {}
+    # rankings[audience_url][(period_url)] = {novel_id: rank}
+    rankings = {}
 
-    for period, audience, label in RANKING_PAGES:
-        print(f"Scraping {label}...")
-        try:
-            ranking = scrape_ranking(auth.session, period, audience)
-        except Exception as e:
-            print(f"  WARNING: Failed to scrape {label}: {e}")
-            ranking = {}
-        print(f"  Got {len(ranking)} ranked novels")
-
-        # Merge: all/plus is scraped first so its ranks take priority.
-        # adult/teen only ADD novels not already in the dict.
-        target = weekly if period == "weekly" else monthly if period == "month" else daily
-        for nid, pos in ranking.items():
-            if nid not in target:
-                target[nid] = pos
-
-    print(f"\nTotals: {len(weekly)} weekly, {len(monthly)} monthly, {len(daily)} daily")
+    for audience_url, audience_label, _, _, _ in AUDIENCES:
+        for period_url, period_label in PERIODS:
+            label = f"{period_label} {audience_label}"
+            print(f"Scraping {label}...")
+            try:
+                ranking = scrape_ranking(auth.session, period_url, audience_url)
+            except Exception as e:
+                print(f"  WARNING: Failed: {e}")
+                ranking = {}
+            print(f"  Got {len(ranking)} ranked novels")
+            rankings[(audience_url, period_url)] = ranking
 
     # Load existing data
     data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data", "novels.json")
@@ -79,41 +78,28 @@ def main():
         sys.exit(1)
 
     data = json.load(open(data_path, "r", encoding="utf-8"))
-    print(f"Loaded {len(data)} novels from {data_path}")
+    print(f"\nLoaded {len(data)} novels from {data_path}")
 
-    updated_weekly = 0
-    updated_monthly = 0
-    updated_daily = 0
-
+    updated = 0
     for novel in data:
         nid = str(novel[0])
 
-        # [10] = weeklyRank
-        old_weekly = novel[10] if len(novel) > 10 else 0
-        new_weekly = weekly.get(nid, 0)
-        novel[10] = new_weekly
-        if new_weekly != old_weekly:
-            updated_weekly += 1
-
-        # [12] = monthlyRank (ensure array is long enough)
-        while len(novel) < 13:
+        # Ensure array is long enough for all indices (up to [19])
+        while len(novel) < 20:
             novel.append(0)
-        old_monthly = novel[12]
-        new_monthly = monthly.get(nid, 0)
-        novel[12] = new_monthly
-        if new_monthly != old_monthly:
-            updated_monthly += 1
 
-        # [13] = dailyRank (ensure array is long enough)
-        while len(novel) < 14:
-            novel.append(0)
-        old_daily = novel[13]
-        new_daily = daily.get(nid, 0)
-        novel[13] = new_daily
-        if new_daily != old_daily:
-            updated_daily += 1
+        changed = False
+        for audience_url, _, idx_weekly, idx_monthly, idx_daily in AUDIENCES:
+            for period_url, idx in [("weekly", idx_weekly), ("month", idx_monthly), ("today", idx_daily)]:
+                new_rank = rankings.get((audience_url, period_url), {}).get(nid, 0)
+                if novel[idx] != new_rank:
+                    novel[idx] = new_rank
+                    changed = True
 
-    print(f"\nUpdated {updated_weekly} weekly, {updated_monthly} monthly, {updated_daily} daily ranks")
+        if changed:
+            updated += 1
+
+    print(f"Updated {updated} novels")
 
     # Save
     with open(data_path, "w", encoding="utf-8") as f:

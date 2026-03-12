@@ -200,36 +200,38 @@ def main():
 
         time.sleep(0.3)
 
-    # Phase 3: Scrape weekly, monthly & daily rankings (general + R19 adult)
+    # Phase 3: Scrape rankings per audience (all, adult, teen) × period (weekly, monthly, daily)
     print(f"\n--- Scraping rankings ---")
-    weekly_rank = {}
-    monthly_rank = {}
-    daily_rank = {}
+    # rankings[(audience, period)] = {novel_id: rank}
+    rankings = {}
     try:
         import re
-        RANKING_PAGES = [
-            ("weekly",  "all/plus",    "weekly general",  weekly_rank),
-            ("weekly",  "adult/plus",  "weekly R19",      weekly_rank),
-            ("weekly",  "teen/plus",   "weekly R15",      weekly_rank),
-            ("month",   "all/plus",    "monthly general", monthly_rank),
-            ("month",   "adult/plus",  "monthly R19",     monthly_rank),
-            ("month",   "teen/plus",   "monthly R15",     monthly_rank),
-            ("today",   "all/plus",    "daily general",   daily_rank),
-            ("today",   "adult/plus",  "daily R19",       daily_rank),
-            ("today",   "teen/plus",   "daily R15",       daily_rank),
+        AUDIENCES = [
+            ("all/plus",   "all"),
+            ("adult/plus", "adult"),
+            ("teen/plus",  "teen"),
         ]
-        for period, audience, label, target in RANKING_PAGES:
-            url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
-            r = auth.session.get(url, timeout=30)
-            rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
-            for pos, nid in enumerate(rank_ids[:100], 1):
-                if nid not in target:
-                    target[nid] = pos
-            print(f"  {label}: {min(len(rank_ids), 100)} novels")
+        PERIODS = [
+            ("weekly", "weekly"),
+            ("month",  "monthly"),
+            ("today",  "daily"),
+        ]
+        for audience_url, audience_label in AUDIENCES:
+            for period_url, period_label in PERIODS:
+                label = f"{period_label} {audience_label}"
+                url = f"https://novelpia.com/top100/all/{period_url}/view/{audience_url}"
+                r = auth.session.get(url, timeout=30)
+                rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
+                ranking = {}
+                for pos, nid in enumerate(rank_ids[:100], 1):
+                    ranking[nid] = pos
+                rankings[(audience_url, period_url)] = ranking
+                print(f"  {label}: {len(ranking)} novels")
     except Exception as e:
         print(f"  Error scraping ranking: {e}")
 
-    print(f"  Totals: {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily")
+    def get_rank(nid, audience, period):
+        return rankings.get((audience, period), {}).get(nid, 0)
 
     # Save output
     os.makedirs("docs/data", exist_ok=True)
@@ -249,20 +251,26 @@ def main():
             cover = cover[len(COVER_PREFIX):]
         nid = str(n["id"])
         optimized.append([
-            n["id"],                # [0] id
-            n["title"],             # [1] title
-            n["author"],            # [2] author
-            cover,                  # [3] cover (relative)
-            n.get("tags", []),      # [4] tags
-            n.get("views", 0),      # [5] views
-            n.get("likes", 0),      # [6] likes
-            n.get("chapters", 0),   # [7] chapters
-            n.get("complete", 0),   # [8] complete
-            n.get("updated", ""),   # [9] updated
-            weekly_rank.get(nid, 0),# [10] weeklyRank (0=unranked)
-            n.get("age", 0),        # [11] age rating (0=all, 15=teen, 19=adult)
-            monthly_rank.get(nid, 0),# [12] monthlyRank (0=unranked)
-            daily_rank.get(nid, 0), # [13] dailyRank (0=unranked)
+            n["id"],                             # [0]  id
+            n["title"],                          # [1]  title
+            n["author"],                         # [2]  author
+            cover,                               # [3]  cover (relative)
+            n.get("tags", []),                   # [4]  tags
+            n.get("views", 0),                   # [5]  views
+            n.get("likes", 0),                   # [6]  likes
+            n.get("chapters", 0),                # [7]  chapters
+            n.get("complete", 0),                # [8]  complete
+            n.get("updated", ""),                # [9]  updated
+            get_rank(nid, "all/plus", "weekly"),  # [10] weeklyRank (all)
+            n.get("age", 0),                     # [11] age rating
+            get_rank(nid, "all/plus", "month"),   # [12] monthlyRank (all)
+            get_rank(nid, "all/plus", "today"),   # [13] dailyRank (all)
+            get_rank(nid, "adult/plus", "weekly"),# [14] weeklyRankAdult
+            get_rank(nid, "adult/plus", "month"), # [15] monthlyRankAdult
+            get_rank(nid, "adult/plus", "today"), # [16] dailyRankAdult
+            get_rank(nid, "teen/plus", "weekly"), # [17] weeklyRankTeen
+            get_rank(nid, "teen/plus", "month"),  # [18] monthlyRankTeen
+            get_rank(nid, "teen/plus", "today"),  # [19] dailyRankTeen
         ])
 
     opt_path = "docs/data/novels.json"

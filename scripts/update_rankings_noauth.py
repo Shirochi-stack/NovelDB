@@ -1,11 +1,12 @@
 """Update Novelpia weekly, monthly & daily rankings WITHOUT authentication.
 
-The rankings page (top100) is publicly accessible — no login required.
-This script scrapes the public rankings (general + R19 adult) and patches
-the existing novels.json.
+Scrapes top100 pages for each audience (all, adult, teen) × each period.
+R19 pages require auth and may fail in CI — existing R19 ranks are preserved.
 
-R19 pages require authentication, so they may fail in CI. When they do,
-existing R19 rankings are preserved (not zeroed out).
+Data indices:
+  [10] weeklyRank (all)    [12] monthlyRank (all)    [13] dailyRank (all)
+  [14] weeklyRankAdult     [15] monthlyRankAdult     [16] dailyRankAdult
+  [17] weeklyRankTeen      [18] monthlyRankTeen      [19] dailyRankTeen
 
 Usage:
     python scripts/update_rankings_noauth.py
@@ -21,17 +22,16 @@ HEADERS = {
     "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
 }
 
-# (period_url, audience_url, label)
-RANKING_PAGES = [
-    ("weekly",  "all/plus",    "weekly general"),
-    ("weekly",  "adult/plus",  "weekly R19"),
-    ("weekly",  "teen/plus",   "weekly R15"),
-    ("month",   "all/plus",    "monthly general"),
-    ("month",   "adult/plus",  "monthly R19"),
-    ("month",   "teen/plus",   "monthly R15"),
-    ("today",   "all/plus",    "daily general"),
-    ("today",   "adult/plus",  "daily R19"),
-    ("today",   "teen/plus",   "daily R15"),
+AUDIENCES = [
+    ("all/plus",   "all",   10, 12, 13),
+    ("adult/plus", "adult", 14, 15, 16),
+    ("teen/plus",  "teen",  17, 18, 19),
+]
+
+PERIODS = [
+    ("weekly", "weekly"),
+    ("month",  "monthly"),
+    ("today",  "daily"),
 ]
 
 
@@ -40,7 +40,6 @@ def scrape_ranking(session, period, audience):
     url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
     r = session.get(url, timeout=30)
     if r.status_code != 200:
-        print(f"  Warning: got status {r.status_code} for {url}")
         return {}
     rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
     ranking = {}
@@ -53,46 +52,39 @@ def main():
     session = requests.Session()
     session.headers.update(HEADERS)
 
-    # Visit main page first to get any session cookies
     print("Initializing session...")
     try:
         session.get("https://novelpia.com", timeout=15)
     except Exception:
         pass
 
-    weekly = {}
-    monthly = {}
-    daily = {}
-    r19_available = True  # Track whether R19 pages could be scraped
+    rankings = {}
+    failed_audiences = set()
 
-    for period, audience, label in RANKING_PAGES:
-        print(f"Scraping {label}...")
-        try:
-            ranking = scrape_ranking(session, period, audience)
-        except Exception as e:
-            print(f"  WARNING: Failed to scrape {label}: {e}")
-            ranking = {}
-        if len(ranking) == 0 and "R19" in label:
-            print(f"  (R19 pages may require authentication — skipping)")
-            r19_available = False
-        else:
-            print(f"  Got {len(ranking)} ranked novels")
+    for audience_url, audience_label, _, _, _ in AUDIENCES:
+        for period_url, period_label in PERIODS:
+            label = f"{period_label} {audience_label}"
+            print(f"Scraping {label}...")
+            try:
+                ranking = scrape_ranking(session, period_url, audience_url)
+            except Exception as e:
+                print(f"  WARNING: Failed: {e}")
+                ranking = {}
+            if len(ranking) == 0:
+                print(f"  (may require authentication — skipping)")
+                failed_audiences.add(audience_url)
+            else:
+                print(f"  Got {len(ranking)} ranked novels")
+            rankings[(audience_url, period_url)] = ranking
 
-        # Merge: all/plus is scraped first so its ranks take priority.
-        # adult/teen only ADD novels not already in the dict.
-        target = weekly if period == "weekly" else monthly if period == "month" else daily
-        for nid, pos in ranking.items():
-            if nid not in target:
-                target[nid] = pos
-
-    if len(weekly) == 0 and len(monthly) == 0 and len(daily) == 0:
-        print("ERROR: Could not fetch any rankings. The page may require auth.")
+    # Check if we got anything at all
+    total = sum(len(r) for r in rankings.values())
+    if total == 0:
+        print("ERROR: Could not fetch any rankings.")
         sys.exit(1)
 
-    if not r19_available:
-        print("\nR19 pages unavailable — existing R19 rankings will be preserved")
-
-    print(f"\nTotals: {len(weekly)} weekly, {len(monthly)} monthly, {len(daily)} daily")
+    if "adult/plus" in failed_audiences:
+        print("\nR19 (adult) pages unavailable — existing adult ranks will be preserved")
 
     # Load existing data
     data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data", "novels.json")
@@ -103,48 +95,30 @@ def main():
     data = json.load(open(data_path, "r", encoding="utf-8"))
     print(f"Loaded {len(data)} novels from {data_path}")
 
-    updated_weekly = 0
-    updated_monthly = 0
-    updated_daily = 0
-
+    updated = 0
     for novel in data:
         nid = str(novel[0])
-        # age rating is at index [11]
-        is_r19 = (novel[11] if len(novel) > 11 else 0) == 19
 
-        # Skip R19 novels if R19 pages couldn't be scraped (preserve their existing ranks)
-        if is_r19 and not r19_available:
-            # Ensure array is long enough but don't change values
-            while len(novel) < 14:
-                novel.append(0)
-            continue
-
-        # [10] = weeklyRank
-        old_weekly = novel[10] if len(novel) > 10 else 0
-        new_weekly = weekly.get(nid, 0)
-        novel[10] = new_weekly
-        if new_weekly != old_weekly:
-            updated_weekly += 1
-
-        # [12] = monthlyRank (ensure array is long enough)
-        while len(novel) < 13:
+        # Ensure array is long enough for all indices (up to [19])
+        while len(novel) < 20:
             novel.append(0)
-        old_monthly = novel[12]
-        new_monthly = monthly.get(nid, 0)
-        novel[12] = new_monthly
-        if new_monthly != old_monthly:
-            updated_monthly += 1
 
-        # [13] = dailyRank (ensure array is long enough)
-        while len(novel) < 14:
-            novel.append(0)
-        old_daily = novel[13]
-        new_daily = daily.get(nid, 0)
-        novel[13] = new_daily
-        if new_daily != old_daily:
-            updated_daily += 1
+        changed = False
+        for audience_url, _, idx_weekly, idx_monthly, idx_daily in AUDIENCES:
+            # Skip this audience if it failed (preserve existing ranks)
+            if audience_url in failed_audiences:
+                continue
 
-    print(f"\nUpdated {updated_weekly} weekly, {updated_monthly} monthly, {updated_daily} daily ranks")
+            for period_url, idx in [("weekly", idx_weekly), ("month", idx_monthly), ("today", idx_daily)]:
+                new_rank = rankings.get((audience_url, period_url), {}).get(nid, 0)
+                if novel[idx] != new_rank:
+                    novel[idx] = new_rank
+                    changed = True
+
+        if changed:
+            updated += 1
+
+    print(f"\nUpdated {updated} novels")
 
     # Save
     with open(data_path, "w", encoding="utf-8") as f:

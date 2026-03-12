@@ -49,31 +49,21 @@ def main():
                     descs[parts[0].strip()] = parts[1].strip()
         print(f"  {len(descs)} descriptions loaded")
 
-    # Find novels with weekly rank (index 10), monthly rank (index 12), or daily rank (index 13)
-    weekly = [e for e in all_novels if len(e) > 10 and e[10] > 0]
-    monthly = [e for e in all_novels if len(e) > 12 and e[12] > 0]
-    daily = [e for e in all_novels if len(e) > 13 and e[13] > 0]
+    # Find novels with any ranking across all audiences
+    # Indices: [10,12,13]=all, [14,15,16]=adult, [17,18,19]=teen
+    RANK_INDICES = [10, 12, 13, 14, 15, 16, 17, 18, 19]
+    ranked = [e for e in all_novels if any(len(e) > i and e[i] > 0 for i in RANK_INDICES)]
 
     ids_seen = set()
     top = []
-    for e in sorted(weekly, key=lambda x: x[10]):
-        sid = str(e[0])
-        if sid not in ids_seen:
-            ids_seen.add(sid)
-            top.append(e)
-    for e in sorted(monthly, key=lambda x: x[12]):
-        sid = str(e[0])
-        if sid not in ids_seen:
-            ids_seen.add(sid)
-            top.append(e)
-    for e in sorted(daily, key=lambda x: x[13]):
+    # Sort by all-audience weekly rank first, then by any rank
+    for e in sorted(ranked, key=lambda x: x[10] if len(x) > 10 and x[10] > 0 else 9999):
         sid = str(e[0])
         if sid not in ids_seen:
             ids_seen.add(sid)
             top.append(e)
 
-    print(f"\n  Weekly ranked: {len(weekly)}, Monthly ranked: {len(monthly)}, Daily ranked: {len(daily)}")
-    print(f"  Unique top novels: {len(top)}")
+    print(f"\n  Ranked novels: {len(ranked)}, Unique top novels: {len(top)}")
 
     # Build output with embedded translations and descriptions
     translations = {str(e[0]): trans[str(e[0])] for e in top if str(e[0]) in trans}
