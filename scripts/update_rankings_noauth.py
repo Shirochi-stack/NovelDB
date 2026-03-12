@@ -78,13 +78,12 @@ def main():
         else:
             print(f"  Got {len(ranking)} ranked novels")
 
-        # Merge into the appropriate dict (general + adult don't overlap)
-        if period == "weekly":
-            weekly.update(ranking)
-        elif period == "month":
-            monthly.update(ranking)
-        elif period == "today":
-            daily.update(ranking)
+        # Merge: all/plus is scraped first so its ranks take priority.
+        # adult/teen only ADD novels not already in the dict.
+        target = weekly if period == "weekly" else monthly if period == "month" else daily
+        for nid, pos in ranking.items():
+            if nid not in target:
+                target[nid] = pos
 
     if len(weekly) == 0 and len(monthly) == 0 and len(daily) == 0:
         print("ERROR: Could not fetch any rankings. The page may require auth.")

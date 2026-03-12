@@ -223,7 +223,8 @@ def main():
             r = auth.session.get(url, timeout=30)
             rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
             for pos, nid in enumerate(rank_ids[:100], 1):
-                target[nid] = pos
+                if nid not in target:
+                    target[nid] = pos
             print(f"  {label}: {min(len(rank_ids), 100)} novels")
     except Exception as e:
         print(f"  Error scraping ranking: {e}")
