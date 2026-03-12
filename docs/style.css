@@ -749,21 +749,21 @@ a.card-cover-wrap {
 
     /* Search row: wrap items, stretch full width */
     .search-row {
-        flex-direction: row;
-        flex-wrap: wrap;
-        align-items: stretch;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 0.75rem;
+        align-items: end;
     }
 
     /* Search box takes full width as first row */
     .search-box {
         min-width: unset;
-        flex: 1 1 100%;
+        grid-column: 1 / -1;
     }
 
-    /* Control groups in a 2-col grid via flex-basis */
+    /* Control groups fill grid cells evenly */
     .search-row .control-group {
-        flex: 0 0 calc(50% - 0.375rem);
+        min-width: 0;
     }
 
     .control-group select {
@@ -920,8 +920,8 @@ a.card-cover-wrap {
     }
 
     /* Single column for dropdowns on very narrow screens */
-    .search-row .control-group {
-        width: 100%;
+    .search-row {
+        grid-template-columns: 1fr;
     }
 
     .results-grid {
