@@ -1773,7 +1773,7 @@
                     applyFilters();
                 }
 
-                // === Background: load all sources in chunks ===
+                // === Background: load ALL sources in parallel ===
                 const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
                 let firstRendered = topNovels && topNovels.length > 0;
 
@@ -1799,12 +1799,17 @@
                     return novels;
                 };
 
-                // Load Novelpia chunks (deduplicate with top novels)
-                const novelpiaNovels = await loadSingle("novelpia");
+                // Start ALL sources loading in parallel immediately
+                const novelpiaPromise = loadSingle("novelpia");
+                const kakaoPromise = loadSingle("kakao");
+                const sfacgPromise = loadSingle("sfacg");
+
+                // Merge each source as it finishes
+                const novelpiaNovels = await novelpiaPromise;
                 const deduped = novelpiaNovels.filter((n) => !topIds.has(n.id));
                 allNovels = [...(topNovels || []), ...deduped];
-                // Re-apply translations & descriptions to ALL novels (including top)
-                // so that descriptions.txt overrides stale embedded descriptions
+                // Re-apply translations & descriptions to top novels
+                // (browser caches the fetch, so this is effectively free)
                 const npiaCfg = SOURCES.novelpia;
                 await Promise.all([
                     loadTranslations(allNovels, npiaCfg, "novelpia"),
@@ -1815,15 +1820,12 @@
                 applyFilters();
                 firstRendered = true;
 
-                // Load remaining sources in parallel
-                const remaining = ["kakao", "sfacg"];
-                await Promise.all(remaining.map(async (s) => {
-                    const novels = await loadSingle(s);
-                    allNovels = [...allNovels, ...novels];
-                    titleTranslations = {};
-                    buildTags(allNovels);
-                    applyFilters();
-                }));
+                // Await remaining sources (already loading in background)
+                const [kakaoNovels, sfacgNovels] = await Promise.all([kakaoPromise, sfacgPromise]);
+                allNovels = [...allNovels, ...kakaoNovels, ...sfacgNovels];
+                titleTranslations = {};
+                buildTags(allNovels);
+                applyFilters();
             } else if (source === "novelpia") {
                 // === Single source: Novelpia with instant top ===
                 let topNovels = null;
