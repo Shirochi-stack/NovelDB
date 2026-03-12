@@ -200,27 +200,32 @@ def main():
 
         time.sleep(0.3)
 
-    # Phase 3: Scrape weekly and monthly rankings
+    # Phase 3: Scrape weekly, monthly & daily rankings (general + R19 adult)
     print(f"\n--- Scraping rankings ---")
     weekly_rank = {}
     monthly_rank = {}
+    daily_rank = {}
     try:
         import re
-        # Weekly
-        r = auth.session.get("https://novelpia.com/top100/all/week/view/all/all", timeout=30)
-        rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
-        for pos, nid in enumerate(rank_ids[:100], 1):
-            weekly_rank[nid] = pos
-        print(f"  Got {len(weekly_rank)} weekly ranked novels")
-
-        # Monthly
-        r = auth.session.get("https://novelpia.com/top100/all/month/view/all/all", timeout=30)
-        rank_ids = list(dict.fromkeys(re.findall(r'href="/novel/(\d+)"', r.text)))
-        for pos, nid in enumerate(rank_ids[:100], 1):
-            monthly_rank[nid] = pos
-        print(f"  Got {len(monthly_rank)} monthly ranked novels")
+        RANKING_PAGES = [
+            ("week",  "all/all",    "weekly general",  weekly_rank),
+            ("week",  "adult/plus", "weekly R19",       weekly_rank),
+            ("month", "all/all",    "monthly general",  monthly_rank),
+            ("month", "adult/plus", "monthly R19",      monthly_rank),
+            ("today", "all/plus",   "daily general",    daily_rank),
+            ("today", "adult/plus", "daily R19",        daily_rank),
+        ]
+        for period, audience, label, target in RANKING_PAGES:
+            url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
+            r = auth.session.get(url, timeout=30)
+            rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
+            for pos, nid in enumerate(rank_ids[:100], 1):
+                target[nid] = pos
+            print(f"  {label}: {min(len(rank_ids), 100)} novels")
     except Exception as e:
         print(f"  Error scraping ranking: {e}")
+
+    print(f"  Totals: {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily")
 
     # Save output
     os.makedirs("docs/data", exist_ok=True)
@@ -253,6 +258,7 @@ def main():
             weekly_rank.get(nid, 0),# [10] weeklyRank (0=unranked)
             n.get("age", 0),        # [11] age rating (0=all, 15=teen, 19=adult)
             monthly_rank.get(nid, 0),# [12] monthlyRank (0=unranked)
+            daily_rank.get(nid, 0), # [13] dailyRank (0=unranked)
         ])
 
     opt_path = "docs/data/novels.json"

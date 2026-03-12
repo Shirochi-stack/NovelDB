@@ -1102,6 +1102,11 @@
                 case "chapters": va = a.chapters; vb = b.chapters; break;
                 case "updated": va = a.updated; vb = b.updated; break;
                 case "title": va = a.title; vb = b.title; break;
+                case "daily":
+                    const rda = a.dailyRank || 9999;
+                    const rdb = b.dailyRank || 9999;
+                    if (rda !== rdb) return order === "asc" ? rdb - rda : rda - rdb;
+                    return b.views - a.views;
                 case "weekly":
                     // Ranked novels first (lower rank = better), unranked last
                     const rwa = a.weeklyRank || 9999;
@@ -1153,7 +1158,7 @@
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
-        const displayRank = sortBy === "monthly" ? n.monthlyRank : sortBy === "weekly" ? n.weeklyRank : (n.weeklyRank || n.monthlyRank);
+        const displayRank = sortBy === "monthly" ? n.monthlyRank : sortBy === "daily" ? n.dailyRank : sortBy === "weekly" ? n.weeklyRank : (n.dailyRank || n.weeklyRank || n.monthlyRank);
         const rankBadge = displayRank ? `<span class="card-badge badge-rank">#${displayRank}</span>` : "";
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
         const badgeHTML = completeBadge + rankBadge;
@@ -1663,6 +1668,7 @@
                 weeklyRank: noRank ? 0 : (r[10] || 0),
                 age: noRank ? (r[10] || 0) : (r[11] || 0),
                 monthlyRank: noRank ? 0 : (r[12] || 0),
+                dailyRank: noRank ? 0 : (r[13] || 0),
                 synopsis: "",
                 titleEn: "",
                 source: sourceName,
@@ -1919,7 +1925,7 @@
     function saveState() {
         const state = {};
         if (searchInput.value) state.q = searchInput.value;
-        if (sortSelect.value !== "weekly") state.sort = sortSelect.value;
+        if (sortSelect.value !== "daily") state.sort = sortSelect.value;
         if (orderSelect.value !== "desc") state.order = orderSelect.value;
         if (statusSelect.value !== "all") state.status = statusSelect.value;
         if (audienceSelect.value !== "all") state.audience = audienceSelect.value;
@@ -1953,7 +1959,7 @@
     function restoreFromHash() {
         const params = parseHash(window.location.hash);
         searchInput.value = params.q || "";
-        sortSelect.value = params.sort || "weekly";
+        sortSelect.value = params.sort || "daily";
         orderSelect.value = params.order || "desc";
         statusSelect.value = params.status || "all";
         audienceSelect.value = params.audience || "all";

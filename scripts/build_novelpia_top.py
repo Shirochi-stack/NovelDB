@@ -49,9 +49,10 @@ def main():
                     descs[parts[0].strip()] = parts[1].strip()
         print(f"  {len(descs)} descriptions loaded")
 
-    # Find novels with weekly rank (index 10) or monthly rank (index 12)
+    # Find novels with weekly rank (index 10), monthly rank (index 12), or daily rank (index 13)
     weekly = [e for e in all_novels if len(e) > 10 and e[10] > 0]
     monthly = [e for e in all_novels if len(e) > 12 and e[12] > 0]
+    daily = [e for e in all_novels if len(e) > 13 and e[13] > 0]
 
     ids_seen = set()
     top = []
@@ -65,8 +66,13 @@ def main():
         if sid not in ids_seen:
             ids_seen.add(sid)
             top.append(e)
+    for e in sorted(daily, key=lambda x: x[13]):
+        sid = str(e[0])
+        if sid not in ids_seen:
+            ids_seen.add(sid)
+            top.append(e)
 
-    print(f"\n  Weekly ranked: {len(weekly)}, Monthly ranked: {len(monthly)}")
+    print(f"\n  Weekly ranked: {len(weekly)}, Monthly ranked: {len(monthly)}, Daily ranked: {len(daily)}")
     print(f"  Unique top novels: {len(top)}")
 
     # Build output with embedded translations and descriptions
