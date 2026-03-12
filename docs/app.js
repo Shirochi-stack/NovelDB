@@ -849,6 +849,8 @@
     let excludeTags = new Set();
     let tagMode = "AND";
     let displayCount = 32;
+    let allTagCounts = {};   // full tag -> count for all loaded novels
+    let top80Tags = new Set(); // tags shown in the default top-80 cloud
     let BATCH = 32;
     let currentPage = 1;
 
@@ -890,9 +892,11 @@
                 counts[t] = (counts[t] || 0) + 1;
             }
         }
+        allTagCounts = counts;
         const sorted = Object.entries(counts)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 80);
+        top80Tags = new Set(sorted.map(([t]) => t));
 
         tagContainer.innerHTML = "";
         excludeTagContainer.innerHTML = "";
@@ -1359,9 +1363,13 @@
     setupToggle("excludeToggle", "excludeTagContainer", excludeTagSearchInput);
 
     // === Tag search filtering ===
-    function setupTagSearch(searchInput, container) {
+    function setupTagSearch(searchInput, container, isExclude) {
+        const toggleFn = isExclude ? toggleExcludeTag : toggleTag;
         searchInput.addEventListener("input", () => {
             const query = searchInput.value.toLowerCase().trim();
+            // Remove previously injected dynamic chips
+            container.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
+            // Show/hide the static top-80 chips
             container.querySelectorAll(".tag-chip").forEach((chip) => {
                 if (!query) {
                     chip.style.display = "";
@@ -1371,10 +1379,33 @@
                 const original = (chip.dataset.tag || "").toLowerCase();
                 chip.style.display = (translated.includes(query) || original.includes(query)) ? "" : "none";
             });
+            // If query is long enough, inject dynamic chips for non-top-80 matches
+            if (query.length >= 2) {
+                let added = 0;
+                const entries = Object.entries(allTagCounts).sort((a, b) => b[1] - a[1]);
+                for (const [tag, count] of entries) {
+                    if (top80Tags.has(tag)) continue; // already a static chip
+                    const translated = tl(tag).toLowerCase();
+                    const original = tag.toLowerCase();
+                    if (!translated.includes(query) && !original.includes(query)) continue;
+                    const chip = document.createElement("span");
+                    chip.className = "tag-chip dynamic";
+                    chip.textContent = `${tl(tag)} (${fmt(count)})`;
+                    chip.title = tag;
+                    chip.dataset.tag = tag;
+                    // Restore active state if already selected
+                    if (!isExclude && andTags.has(tag)) chip.classList.add("active");
+                    if (!isExclude && orTags.has(tag)) chip.classList.add("active-or");
+                    if (isExclude && excludeTags.has(tag)) chip.classList.add("excluded");
+                    chip.addEventListener("click", () => toggleFn(tag, chip));
+                    container.appendChild(chip);
+                    if (++added >= 50) break;
+                }
+            }
         });
     }
-    setupTagSearch(tagSearchInput, tagContainer);
-    setupTagSearch(excludeTagSearchInput, excludeTagContainer);
+    setupTagSearch(tagSearchInput, tagContainer, false);
+    setupTagSearch(excludeTagSearchInput, excludeTagContainer, true);
 
     // === Event Listeners ===
     let searchTimer;
@@ -1445,7 +1476,10 @@
         andTags.clear();
         orTags.clear();
         focusedCard = null;
-        tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
+        tagSearchInput.value = "";
+        tagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
+        tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+            c.style.display = "";
             c.classList.remove("active");
             c.classList.remove("active-or");
         });
@@ -1455,7 +1489,12 @@
 
     clearExcludeBtn.addEventListener("click", () => {
         excludeTags.clear();
-        excludeTagContainer.querySelectorAll(".tag-chip.excluded").forEach((c) => c.classList.remove("excluded"));
+        excludeTagSearchInput.value = "";
+        excludeTagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
+        excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+            c.style.display = "";
+            c.classList.remove("excluded");
+        });
         updateActiveTagsSummary();
         applyFilters();
     });
