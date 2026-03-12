@@ -208,12 +208,15 @@ def main():
     try:
         import re
         RANKING_PAGES = [
-            ("week",  "all/all",    "weekly general",  weekly_rank),
-            ("week",  "adult/plus", "weekly R19",       weekly_rank),
-            ("month", "all/all",    "monthly general",  monthly_rank),
-            ("month", "adult/plus", "monthly R19",      monthly_rank),
-            ("today", "all/plus",   "daily general",    daily_rank),
-            ("today", "adult/plus", "daily R19",        daily_rank),
+            ("weekly",  "all/plus",    "weekly general",  weekly_rank),
+            ("weekly",  "adult/plus",  "weekly R19",      weekly_rank),
+            ("weekly",  "teen/plus",   "weekly R15",      weekly_rank),
+            ("month",   "all/plus",    "monthly general", monthly_rank),
+            ("month",   "adult/plus",  "monthly R19",     monthly_rank),
+            ("month",   "teen/plus",   "monthly R15",     monthly_rank),
+            ("today",   "all/plus",    "daily general",   daily_rank),
+            ("today",   "adult/plus",  "daily R19",       daily_rank),
+            ("today",   "teen/plus",   "daily R15",       daily_rank),
         ]
         for period, audience, label, target in RANKING_PAGES:
             url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
@@ -225,21 +228,7 @@ def main():
     except Exception as e:
         print(f"  Error scraping ranking: {e}")
 
-    print(f"  Totals (before renumbering): {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily")
-
-    # Build a lookup: id -> likes for renumbering
-    likes_by_id = {str(n["id"]): n.get("likes", 0) for n in novels}
-
-    # Renumber merged rankings 1-N sorted by likes (descending)
-    def renumber_by_likes(ranking):
-        sorted_ids = sorted(ranking.keys(), key=lambda nid: likes_by_id.get(nid, 0), reverse=True)
-        return {nid: pos for pos, nid in enumerate(sorted_ids, 1)}
-
-    weekly_rank = renumber_by_likes(weekly_rank)
-    monthly_rank = renumber_by_likes(monthly_rank)
-    daily_rank = renumber_by_likes(daily_rank)
-
-    print(f"  Renumbered: {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily (by likes)")
+    print(f"  Totals: {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily")
 
     # Save output
     os.makedirs("docs/data", exist_ok=True)

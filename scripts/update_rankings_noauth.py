@@ -23,12 +23,15 @@ HEADERS = {
 
 # (period_url, audience_url, label)
 RANKING_PAGES = [
-    ("week",  "all/all",    "weekly general"),
-    ("week",  "adult/plus", "weekly R19"),
-    ("month", "all/all",    "monthly general"),
-    ("month", "adult/plus", "monthly R19"),
-    ("today", "all/plus",   "daily general"),
-    ("today", "adult/plus", "daily R19"),
+    ("weekly",  "all/plus",    "weekly general"),
+    ("weekly",  "adult/plus",  "weekly R19"),
+    ("weekly",  "teen/plus",   "weekly R15"),
+    ("month",   "all/plus",    "monthly general"),
+    ("month",   "adult/plus",  "monthly R19"),
+    ("month",   "teen/plus",   "monthly R15"),
+    ("today",   "all/plus",    "daily general"),
+    ("today",   "adult/plus",  "daily R19"),
+    ("today",   "teen/plus",   "daily R15"),
 ]
 
 
@@ -76,7 +79,7 @@ def main():
             print(f"  Got {len(ranking)} ranked novels")
 
         # Merge into the appropriate dict (general + adult don't overlap)
-        if period == "week":
+        if period == "weekly":
             weekly.update(ranking)
         elif period == "month":
             monthly.update(ranking)
@@ -90,7 +93,7 @@ def main():
     if not r19_available:
         print("\nR19 pages unavailable — existing R19 rankings will be preserved")
 
-    print(f"\nTotals (before renumbering): {len(weekly)} weekly, {len(monthly)} monthly, {len(daily)} daily")
+    print(f"\nTotals: {len(weekly)} weekly, {len(monthly)} monthly, {len(daily)} daily")
 
     # Load existing data
     data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data", "novels.json")
@@ -100,21 +103,6 @@ def main():
 
     data = json.load(open(data_path, "r", encoding="utf-8"))
     print(f"Loaded {len(data)} novels from {data_path}")
-
-    # Build a lookup: id -> likes for renumbering
-    likes_by_id = {str(novel[0]): (novel[6] if len(novel) > 6 else 0) for novel in data}
-
-    # Renumber merged rankings 1-N sorted by likes (descending)
-    def renumber_by_likes(ranking):
-        """Take {id: rank} dict, re-rank 1-N sorted by likes descending."""
-        sorted_ids = sorted(ranking.keys(), key=lambda nid: likes_by_id.get(nid, 0), reverse=True)
-        return {nid: pos for pos, nid in enumerate(sorted_ids, 1)}
-
-    weekly = renumber_by_likes(weekly)
-    monthly = renumber_by_likes(monthly)
-    daily = renumber_by_likes(daily)
-
-    print(f"Renumbered: {len(weekly)} weekly, {len(monthly)} monthly, {len(daily)} daily (by likes)")
 
     updated_weekly = 0
     updated_monthly = 0
