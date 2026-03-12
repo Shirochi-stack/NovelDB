@@ -853,6 +853,7 @@
     let top80Tags = new Set(); // tags shown in the default top-80 cloud
     let BATCH = 32;
     let currentPage = 1;
+    let pendingImageTimers = [];
 
     // === DOM refs ===
     const $ = (sel) => document.querySelector(sel);
@@ -1266,6 +1267,12 @@
     }
 
     function render() {
+        // Cancel pending staggered image loads from previous page
+        for (const id of pendingImageTimers) clearTimeout(id);
+        pendingImageTimers = [];
+        // Abort in-flight image downloads by clearing src
+        resultsEl.querySelectorAll("img.card-cover").forEach(img => { img.src = ""; });
+
         const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
         if (currentPage > totalPages) currentPage = totalPages;
 
@@ -1282,7 +1289,8 @@
         // Stagger image loading: load 4 at a time with 100ms gaps
         const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
         imgs.forEach((img, idx) => {
-            setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 4) * 100);
+            const tid = setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 4) * 100);
+            pendingImageTimers.push(tid);
         });
 
         // Update both pagination bars
