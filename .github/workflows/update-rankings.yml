@@ -45,6 +45,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/novels.json docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json docs/data/novelpia_top.json
+          git add docs/data/novels.json docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json docs/data/novelpia_top.json.gz
           git commit -m "📊 Update Novelpia rankings ($(date -u +%Y-%m-%d))"
           git push
