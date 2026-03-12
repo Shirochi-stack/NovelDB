@@ -1475,6 +1475,7 @@
             chunked: true,
             chunkCount: 5,
             chunkPrefix: "data/novelpia_chunk_",
+            topUrl: "data/novelpia_top.json",
         },
         kakao: {
             dataUrl: "data/kakao_novels.json",
@@ -1697,10 +1698,46 @@
         }
 
         try {
+            // Helper: load top rankings instantly, return parsed novels with translations applied
+            async function loadTopRankings() {
+                const cfg = SOURCES.novelpia;
+                const resp = await fetch(cfg.topUrl);
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                const novels = parseNovels(data.novels, "novelpia", cfg);
+                // Apply embedded translations
+                if (data.translations) {
+                    for (const n of novels) {
+                        if (data.translations[n.id]) n.titleEn = data.translations[n.id];
+                    }
+                }
+                // Apply embedded descriptions
+                if (data.descriptions) {
+                    for (const n of novels) {
+                        if (data.descriptions[n.id]) n.synopsis = data.descriptions[n.id];
+                    }
+                }
+                return novels;
+            }
+
             if (source === "all") {
-                // Progressive loading: load Novelpia first, show immediately,
-                // then load KakaoPage & SFACG in background and refresh
-                let firstRendered = false;
+                // === Instant load: show top rankings immediately ===
+                let topNovels = null;
+                try {
+                    topNovels = await loadTopRankings();
+                } catch (e) { /* fall through to normal load */ }
+
+                if (topNovels && topNovels.length > 0) {
+                    allNovels = [...topNovels];
+                    titleTranslations = {};
+                    buildTags(allNovels);
+                    applyFilters();
+                }
+
+                // === Background: load all sources in chunks ===
+                const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
+                let firstRendered = topNovels && topNovels.length > 0;
+
                 const loadSingle = async (s) => {
                     const cfg = SOURCES[s];
                     let novels;
@@ -1723,15 +1760,16 @@
                     return novels;
                 };
 
-                // 1. Load Novelpia first and show results immediately
+                // Load Novelpia chunks (deduplicate with top novels)
                 const novelpiaNovels = await loadSingle("novelpia");
-                allNovels = [...novelpiaNovels];
+                const deduped = novelpiaNovels.filter((n) => !topIds.has(n.id));
+                allNovels = [...(topNovels || []), ...deduped];
                 titleTranslations = {};
                 buildTags(allNovels);
                 applyFilters();
                 firstRendered = true;
 
-                // 2. Load KakaoPage & SFACG in parallel, merge as each completes
+                // Load remaining sources in parallel
                 const remaining = ["kakao", "sfacg"];
                 await Promise.all(remaining.map(async (s) => {
                     const novels = await loadSingle(s);
@@ -1740,6 +1778,41 @@
                     buildTags(allNovels);
                     applyFilters();
                 }));
+            } else if (source === "novelpia") {
+                // === Single source: Novelpia with instant top ===
+                let topNovels = null;
+                try {
+                    topNovels = await loadTopRankings();
+                } catch (e) { /* fall through */ }
+
+                if (topNovels && topNovels.length > 0) {
+                    allNovels = [...topNovels];
+                    titleTranslations = {};
+                    buildTags(allNovels);
+                    applyFilters();
+                }
+
+                const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
+                const cfg = SOURCES.novelpia;
+                let firstRender = !(topNovels && topNovels.length > 0);
+                const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
+                    if (firstRender) {
+                        allNovels.push(...chunk);
+                        resultsEl.innerHTML = `<div class="loading-spinner">Loading chunk ${loaded}/${total}...</div>`;
+                        buildTags(allNovels);
+                        applyFilters();
+                        firstRender = false;
+                    } else {
+                        resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading chunk ${loaded}/${total}`;
+                    }
+                });
+                // Deduplicate and merge
+                const deduped = allChunkNovels.filter((n) => !topIds.has(n.id));
+                allNovels = [...(topNovels || []), ...deduped];
+                await Promise.all([
+                    loadTranslations(allNovels, cfg, source),
+                    loadDescriptions(allNovels, cfg, source),
+                ]);
             } else {
                 const cfg = SOURCES[source];
                 if (cfg.chunked) {
