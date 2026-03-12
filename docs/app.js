@@ -1475,7 +1475,7 @@
             chunked: true,
             chunkCount: 5,
             chunkPrefix: "data/novelpia_chunk_",
-            topUrl: "data/novelpia_top.json",
+            topUrl: "data/novelpia_top.json.gz",
         },
         kakao: {
             dataUrl: "data/kakao_novels.json",
@@ -1701,9 +1701,7 @@
             // Helper: load top rankings instantly, return parsed novels with translations applied
             async function loadTopRankings() {
                 const cfg = SOURCES.novelpia;
-                const resp = await fetch(cfg.topUrl);
-                if (!resp.ok) return null;
-                const data = await resp.json();
+                const data = await fetchGzChunk(cfg.topUrl);
                 const novels = parseNovels(data.novels, "novelpia", cfg);
                 // Apply embedded translations
                 if (data.translations) {
@@ -1714,7 +1712,9 @@
                 // Apply embedded descriptions
                 if (data.descriptions) {
                     for (const n of novels) {
-                        if (data.descriptions[n.id]) n.synopsis = data.descriptions[n.id];
+                        if (data.descriptions[n.id]) {
+                            n.synopsis = data.descriptions[n.id].replace(/\\r\\n|\\n/g, "\n");
+                        }
                     }
                 }
                 return novels;
