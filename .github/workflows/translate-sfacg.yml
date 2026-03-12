@@ -1,0 +1,63 @@
+name: Translate SFACG Titles
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Grok model to use'
+        required: false
+        default: 'grok-4.20-beta-0309-reasoning'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  translate-sfacg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      # --- Extract untranslated ---
+      - name: Extract untranslated SFACG titles
+        run: python scripts/extract_untranslated_sfacg_titles.py
+
+      # --- Translate ---
+      - name: Translate SFACG titles with Grok
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model }}
+
+      # --- Merge ---
+      - name: Merge translated SFACG titles
+        run: python scripts/merge_translated_sfacg_titles.py
+
+      # --- Re-chunk SFACG data ---
+      - name: Re-chunk SFACG data
+        run: python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10
+
+      # --- Commit ---
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/sfacg_titles_en.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json
+          git commit -m "🌐 Translate SFACG titles ($(date -u +%Y-%m-%d))"
+          git push
