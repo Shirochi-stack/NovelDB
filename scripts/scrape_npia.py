@@ -225,7 +225,21 @@ def main():
     except Exception as e:
         print(f"  Error scraping ranking: {e}")
 
-    print(f"  Totals: {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily")
+    print(f"  Totals (before renumbering): {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily")
+
+    # Build a lookup: id -> likes for renumbering
+    likes_by_id = {str(n["id"]): n.get("likes", 0) for n in novels}
+
+    # Renumber merged rankings 1-N sorted by likes (descending)
+    def renumber_by_likes(ranking):
+        sorted_ids = sorted(ranking.keys(), key=lambda nid: likes_by_id.get(nid, 0), reverse=True)
+        return {nid: pos for pos, nid in enumerate(sorted_ids, 1)}
+
+    weekly_rank = renumber_by_likes(weekly_rank)
+    monthly_rank = renumber_by_likes(monthly_rank)
+    daily_rank = renumber_by_likes(daily_rank)
+
+    print(f"  Renumbered: {len(weekly_rank)} weekly, {len(monthly_rank)} monthly, {len(daily_rank)} daily (by likes)")
 
     # Save output
     os.makedirs("docs/data", exist_ok=True)
