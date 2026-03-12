@@ -8,7 +8,7 @@
     <meta name="description" content="Search, filter, and browse web novels from Novelpia, KakaoPage, and SFACG by tags, views, likes, and more.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=8">
+    <link rel="stylesheet" href="style.css?v=9">
 </head>
 
 <body>
@@ -98,6 +98,7 @@
                     <button id="clearTags" class="clear-btn">Clear</button>
                 </div>
                 <div id="activeTagsSummary" class="active-tags-summary"></div>
+                <input type="text" id="tagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
                 <div id="tagContainer" class="tag-grid collapsed"></div>
             </div>
 
@@ -108,6 +109,7 @@
                     <button id="clearExclude" class="clear-btn">Clear</button>
                 </div>
                 <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
+                <input type="text" id="excludeTagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
                 <div id="excludeTagContainer" class="tag-grid collapsed"></div>
             </div>
 
@@ -136,7 +138,7 @@
         </div>
     </main>
 
-    <script src="app.js?v=24"></script>
+    <script src="app.js?v=25"></script>
 </body>
 
 </html>

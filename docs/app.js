@@ -865,6 +865,8 @@
     const tagModeOr = $("#tagModeOr");
     const clearTagsBtn = $("#clearTags");
     const clearExcludeBtn = $("#clearExclude");
+    const tagSearchInput = $("#tagSearch");
+    const excludeTagSearchInput = $("#excludeTagSearch");
     const batchSelect = $("#batchSelect");
     const statusSelect = $("#statusSelect");
     const audienceSelect = $("#audienceSelect");
@@ -1295,19 +1297,45 @@
     }
 
     // === Tag section toggle ===
-    function setupToggle(headerId, containerId) {
+    function setupToggle(headerId, containerId, searchInputEl) {
         const header = document.getElementById(headerId);
         const container = document.getElementById(containerId);
         header.addEventListener("click", (e) => {
-            // Don't toggle when clicking buttons inside the header
-            if (e.target.closest("button")) return;
+            // Don't toggle when clicking buttons or inputs inside the header
+            if (e.target.closest("button") || e.target.closest("input")) return;
             const collapsed = container.classList.toggle("collapsed");
+            // Also toggle the search input visibility
+            if (searchInputEl) {
+                if (collapsed) {
+                    searchInputEl.classList.add("collapsed");
+                } else {
+                    searchInputEl.classList.remove("collapsed");
+                }
+            }
             const label = header.querySelector("span");
             label.textContent = label.textContent.replace(/^[▶▼]/, collapsed ? "▶" : "▼");
         });
     }
-    setupToggle("tagToggle", "tagContainer");
-    setupToggle("excludeToggle", "excludeTagContainer");
+    setupToggle("tagToggle", "tagContainer", tagSearchInput);
+    setupToggle("excludeToggle", "excludeTagContainer", excludeTagSearchInput);
+
+    // === Tag search filtering ===
+    function setupTagSearch(searchInput, container) {
+        searchInput.addEventListener("input", () => {
+            const query = searchInput.value.toLowerCase().trim();
+            container.querySelectorAll(".tag-chip").forEach((chip) => {
+                if (!query) {
+                    chip.style.display = "";
+                    return;
+                }
+                const translated = chip.textContent.toLowerCase();
+                const original = (chip.dataset.tag || "").toLowerCase();
+                chip.style.display = (translated.includes(query) || original.includes(query)) ? "" : "none";
+            });
+        });
+    }
+    setupTagSearch(tagSearchInput, tagContainer);
+    setupTagSearch(excludeTagSearchInput, excludeTagContainer);
 
     // === Event Listeners ===
     let searchTimer;

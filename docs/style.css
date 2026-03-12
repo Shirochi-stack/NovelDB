@@ -237,6 +237,42 @@ main {
     margin: 0;
 }
 
+/* Tag search input */
+.tag-search {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    margin-bottom: 0.6rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s, max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease, padding 0.3s ease;
+    max-height: 50px;
+    opacity: 1;
+}
+
+.tag-search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.tag-search::placeholder {
+    color: var(--text-muted);
+}
+
+.tag-search.collapsed {
+    max-height: 0;
+    opacity: 0;
+    margin: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+    overflow: hidden;
+}
+
 /* Active tags summary — always visible even when tag grid is collapsed */
 .active-tags-summary {
     display: flex;
@@ -821,6 +857,11 @@ a.card-cover-wrap {
 
     .tag-grid {
         gap: 4px;
+    }
+
+    .tag-search {
+        font-size: 0.8rem;
+        padding: 0.45rem 0.6rem;
     }
 
     /* Pagination */
