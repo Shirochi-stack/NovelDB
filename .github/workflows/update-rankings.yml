@@ -29,16 +29,22 @@ jobs:
       - name: Update rankings (no auth required)
         run: python scripts/update_rankings_noauth.py
 
+      - name: Re-chunk Novelpia data
+        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5
+
+      - name: Rebuild instant-load top rankings
+        run: python scripts/build_novelpia_top.py
+
       - name: Check for changes
         id: changes
         run: |
-          git diff --quiet docs/data/novels.json && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
 
       - name: Commit and push
         if: steps.changes.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/novels.json
+          git add docs/data/novels.json docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json docs/data/novelpia_top.json
           git commit -m "📊 Update Novelpia rankings ($(date -u +%Y-%m-%d))"
           git push
