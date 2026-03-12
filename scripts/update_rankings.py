@@ -1,7 +1,7 @@
-"""Update Novelpia weekly & monthly rankings without re-scraping all novels.
+"""Update Novelpia weekly, monthly & daily rankings with authentication.
 
-Scrapes the top100 pages for weekly and monthly views, then patches the
-existing novels.json with the new ranking data.
+Scrapes the top100 pages (general + R19 adult) for daily, weekly, and monthly
+views, then patches the existing novels.json with the new ranking data.
 
 Usage:
     python scripts/update_rankings.py
@@ -14,10 +14,20 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 from novelpia_auth import NovelpiaAuth
 
+# (period_url, audience_url, label)
+RANKING_PAGES = [
+    ("week",  "all/all",    "weekly general"),
+    ("week",  "adult/plus", "weekly R19"),
+    ("month", "all/all",    "monthly general"),
+    ("month", "adult/plus", "monthly R19"),
+    ("today", "all/plus",   "daily general"),
+    ("today", "adult/plus", "daily R19"),
+]
 
-def scrape_ranking(session, period):
-    """Scrape top100 for a given period (week/month)."""
-    url = f"https://novelpia.com/top100/all/{period}/view/all/all"
+
+def scrape_ranking(session, period, audience):
+    """Scrape top100 for a given period and audience."""
+    url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
     r = session.get(url, timeout=30)
     rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
     ranking = {}
@@ -37,13 +47,28 @@ def main():
         sys.exit(1)
     auth.set_manual_key(loginkey)
 
-    print("Scraping weekly ranking...")
-    weekly = scrape_ranking(auth.session, "week")
-    print(f"  Got {len(weekly)} weekly ranked novels")
+    weekly = {}
+    monthly = {}
+    daily = {}
 
-    print("Scraping monthly ranking...")
-    monthly = scrape_ranking(auth.session, "month")
-    print(f"  Got {len(monthly)} monthly ranked novels")
+    for period, audience, label in RANKING_PAGES:
+        print(f"Scraping {label}...")
+        try:
+            ranking = scrape_ranking(auth.session, period, audience)
+        except Exception as e:
+            print(f"  WARNING: Failed to scrape {label}: {e}")
+            ranking = {}
+        print(f"  Got {len(ranking)} ranked novels")
+
+        # Merge into the appropriate dict (general + adult don't overlap)
+        if period == "week":
+            weekly.update(ranking)
+        elif period == "month":
+            monthly.update(ranking)
+        elif period == "today":
+            daily.update(ranking)
+
+    print(f"\nTotals: {len(weekly)} weekly, {len(monthly)} monthly, {len(daily)} daily")
 
     # Load existing data
     data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data", "novels.json")
@@ -52,10 +77,11 @@ def main():
         sys.exit(1)
 
     data = json.load(open(data_path, "r", encoding="utf-8"))
-    print(f"\nLoaded {len(data)} novels from {data_path}")
+    print(f"Loaded {len(data)} novels from {data_path}")
 
     updated_weekly = 0
     updated_monthly = 0
+    updated_daily = 0
 
     for novel in data:
         nid = str(novel[0])
@@ -76,7 +102,16 @@ def main():
         if new_monthly != old_monthly:
             updated_monthly += 1
 
-    print(f"\nUpdated {updated_weekly} weekly ranks, {updated_monthly} monthly ranks")
+        # [13] = dailyRank (ensure array is long enough)
+        while len(novel) < 14:
+            novel.append(0)
+        old_daily = novel[13]
+        new_daily = daily.get(nid, 0)
+        novel[13] = new_daily
+        if new_daily != old_daily:
+            updated_daily += 1
+
+    print(f"\nUpdated {updated_weekly} weekly, {updated_monthly} monthly, {updated_daily} daily ranks")
 
     # Save
     with open(data_path, "w", encoding="utf-8") as f:

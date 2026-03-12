@@ -60,8 +60,15 @@ def main():
 
     for period, audience, label in RANKING_PAGES:
         print(f"Scraping {label}...")
-        ranking = scrape_ranking(session, period, audience)
-        print(f"  Got {len(ranking)} ranked novels")
+        try:
+            ranking = scrape_ranking(session, period, audience)
+        except Exception as e:
+            print(f"  WARNING: Failed to scrape {label}: {e}")
+            ranking = {}
+        if len(ranking) == 0 and "R19" in label:
+            print(f"  (R19 pages may require authentication — skipping)")
+        else:
+            print(f"  Got {len(ranking)} ranked novels")
 
         # Merge into the appropriate dict (general + adult don't overlap)
         if period == "week":
