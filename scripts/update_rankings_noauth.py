@@ -4,6 +4,9 @@ The rankings page (top100) is publicly accessible — no login required.
 This script scrapes the public rankings (general + R19 adult) and patches
 the existing novels.json.
 
+R19 pages require authentication, so they may fail in CI. When they do,
+existing R19 rankings are preserved (not zeroed out).
+
 Usage:
     python scripts/update_rankings_noauth.py
 """
@@ -57,6 +60,7 @@ def main():
     weekly = {}
     monthly = {}
     daily = {}
+    r19_available = True  # Track whether R19 pages could be scraped
 
     for period, audience, label in RANKING_PAGES:
         print(f"Scraping {label}...")
@@ -67,6 +71,7 @@ def main():
             ranking = {}
         if len(ranking) == 0 and "R19" in label:
             print(f"  (R19 pages may require authentication — skipping)")
+            r19_available = False
         else:
             print(f"  Got {len(ranking)} ranked novels")
 
@@ -81,6 +86,9 @@ def main():
     if len(weekly) == 0 and len(monthly) == 0 and len(daily) == 0:
         print("ERROR: Could not fetch any rankings. The page may require auth.")
         sys.exit(1)
+
+    if not r19_available:
+        print("\nR19 pages unavailable — existing R19 rankings will be preserved")
 
     print(f"\nTotals (before renumbering): {len(weekly)} weekly, {len(monthly)} monthly, {len(daily)} daily")
 
@@ -114,6 +122,15 @@ def main():
 
     for novel in data:
         nid = str(novel[0])
+        # age rating is at index [11]
+        is_r19 = (novel[11] if len(novel) > 11 else 0) == 19
+
+        # Skip R19 novels if R19 pages couldn't be scraped (preserve their existing ranks)
+        if is_r19 and not r19_available:
+            # Ensure array is long enough but don't change values
+            while len(novel) < 14:
+                novel.append(0)
+            continue
 
         # [10] = weeklyRank
         old_weekly = novel[10] if len(novel) > 10 else 0
