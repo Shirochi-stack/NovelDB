@@ -20,6 +20,7 @@ RANK_CATEGORIES = [
     ("sale",     "Best Seller"),
     ("new",      "New Books"),
     ("bm",       "Bookmarks"),
+    ("jp",       "JP Light Novels"),
 ]
 
 API_URL = "https://api.sfacg.com/novels"
@@ -90,7 +91,7 @@ def main():
     session.headers.update(HEADERS)
 
     need_synopsis = [rid for rid in sorted(all_ranked)
-                     if rid in id_map and (len(data[id_map[rid]]) <= 15 or not data[id_map[rid]][15] if len(data[id_map[rid]]) > 15 else True)]
+                     if rid in id_map and (len(data[id_map[rid]]) <= 17 or not data[id_map[rid]][17] if len(data[id_map[rid]]) > 17 else True)]
     if need_synopsis:
         print(f"\nFetching synopsis for {len(need_synopsis)} ranked novels...")
         synopses = {}
@@ -104,29 +105,31 @@ def main():
         synopses = {}
 
     # Phase 3: Clear old rankings and patch new ones
-    # First, clear all existing rankings (indices 11-14) so stale ranks are removed
+    # First, clear all existing rankings (indices 11-16) so stale ranks are removed
     for entry in data:
         if len(entry) > 11:
-            for j in range(11, min(15, len(entry))):
+            for j in range(11, min(17, len(entry))):
                 entry[j] = 0
 
     # Patch new rankings + synopses
     patched = 0
     for i, entry in enumerate(data):
         nid = str(entry[0])
-        # Ensure entry has at least 16 fields
-        while len(entry) < 16:
-            entry.append(0 if len(entry) < 15 else "")
+        # Ensure entry has at least 18 fields
+        while len(entry) < 18:
+            entry.append(0 if len(entry) < 17 else "")
 
         entry[11] = rankings.get("original", {}).get(nid, 0)
         entry[12] = rankings.get("sale", {}).get(nid, 0)
         entry[13] = rankings.get("new", {}).get(nid, 0)
         entry[14] = rankings.get("bm", {}).get(nid, 0)
+        entry[15] = rankings.get("jp", {}).get(nid, 0)
+        entry[16] = rankings.get("ticket", {}).get(nid, 0)
 
         if nid in synopses:
-            entry[15] = synopses[nid]
+            entry[17] = synopses[nid]
 
-        if any(entry[j] > 0 for j in range(11, 15)):
+        if any(entry[j] > 0 for j in range(11, 17)):
             patched += 1
 
         # Strip trailing zeros/empty to save space

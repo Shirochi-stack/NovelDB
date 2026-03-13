@@ -1046,6 +1046,8 @@
         if (type === "sfacg_bestseller") return novel.bestSellerRank || 0;
         if (type === "sfacg_newbooks") return novel.newBooksRank || 0;
         if (type === "sfacg_bookmarks") return novel.bookmarksRank || 0;
+        if (type === "sfacg_jp") return novel.jpRank || 0;
+        if (type === "sfacg_ticket") return novel.ticketRank || 0;
 
         const aud = audienceSelect.value;
         if (aud === "adult") {
@@ -1138,7 +1140,9 @@
                 case "sfacg_popularity":
                 case "sfacg_bestseller":
                 case "sfacg_newbooks":
-                case "sfacg_bookmarks": {
+                case "sfacg_bookmarks":
+                case "sfacg_jp":
+                case "sfacg_ticket": {
                     const ra = getRank(a, sortBy) || 9999;
                     const rb = getRank(b, sortBy) || 9999;
                     if (ra !== rb) return order === "asc" ? rb - ra : ra - rb;
@@ -1192,7 +1196,7 @@
         } else {
             // Show any available rank badge
             displayRank = getRank(n, "daily") || getRank(n, "weekly") || getRank(n, "monthly")
-                || n.popularityRank || n.bestSellerRank || n.newBooksRank || n.bookmarksRank;
+                || n.popularityRank || n.bestSellerRank || n.newBooksRank || n.bookmarksRank || n.jpRank || n.ticketRank;
         }
         const rankBadge = displayRank ? `<span class="card-badge badge-rank">#${displayRank}</span>` : "";
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
@@ -1700,8 +1704,8 @@
 
 
     function parseNovels(raw, sourceName, cfg) {
-        // SFACG format (16 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
-        //                            popularityRank, bestSellerRank, newBooksRank, bookmarksRank, synopsis]
+        // SFACG format (18 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
+        //                            popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis]
         // Novelpia/Kakao format (13+ fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank, ...]
         const sfacg = cfg.sfacgRanks;
         return raw.map((r) => {
@@ -1728,7 +1732,9 @@
                     bestSellerRank: r[12] || 0,
                     newBooksRank: r[13] || 0,
                     bookmarksRank: r[14] || 0,
-                    synopsis: r[15] ? String(r[15]).replace(/\\n/g, "\n") : "",
+                    jpRank: r[15] || 0,
+                    ticketRank: r[16] || 0,
+                    synopsis: r[17] ? String(r[17]).replace(/\\n/g, "\n") : "",
                     titleEn: "",
                     source: sourceName,
                 };
@@ -1755,7 +1761,7 @@
                 weeklyRankTeen: r[17] || 0,
                 monthlyRankTeen: r[18] || 0,
                 dailyRankTeen: r[19] || 0,
-                popularityRank: 0, bestSellerRank: 0, newBooksRank: 0, bookmarksRank: 0,
+                popularityRank: 0, bestSellerRank: 0, newBooksRank: 0, bookmarksRank: 0, jpRank: 0, ticketRank: 0,
                 synopsis: "",
                 titleEn: "",
                 source: sourceName,

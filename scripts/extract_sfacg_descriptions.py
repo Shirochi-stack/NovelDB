@@ -55,14 +55,14 @@ def main():
     existing_en = load_existing_translations()
 
     # SFACG format: [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
-    #                 popularityRank, bestSellerRank, newBooksRank, bookmarksRank, synopsis]
-    # Synopsis is at index 15
+    #                 popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis]
+    # Synopsis is at index 17
     count = 0
     translated = []
     untranslated = []
     for entry in data:
         nid = str(entry[0]) if len(entry) > 0 else ""
-        synopsis = entry[15] if len(entry) > 15 else ""
+        synopsis = entry[17] if len(entry) > 17 else ""
         if not nid or not synopsis:
             continue
 

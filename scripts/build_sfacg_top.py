@@ -50,8 +50,8 @@ def main():
         print(f"  {len(descs)} descriptions loaded")
 
     # Find novels with any SFACG ranking
-    # SFACG indices: [11]=popularity, [12]=bestSeller, [13]=newBooks, [14]=bookmarks
-    RANK_INDICES = [11, 12, 13, 14]
+    # SFACG indices: [11]=popularity, [12]=bestSeller, [13]=newBooks, [14]=bookmarks, [15]=jp, [16]=ticket
+    RANK_INDICES = [11, 12, 13, 14, 15, 16]
     ranked = [e for e in all_novels if any(len(e) > i and e[i] > 0 for i in RANK_INDICES)]
 
     ids_seen = set()

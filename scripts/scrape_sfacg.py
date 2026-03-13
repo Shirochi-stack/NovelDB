@@ -30,6 +30,7 @@ RANK_CATEGORIES = [
     ("sale",     "Best Seller"),
     ("new",      "New Books"),
     ("bm",       "Bookmarks"),
+    ("jp",       "JP Light Novels"),
 ]
 
 
@@ -229,12 +230,12 @@ def main():
 def save_novels(all_novels, rankings=None):
     """Save novels to disk.
 
-    Output format per entry (up to 16 fields, trailing zeros stripped):
+    Output format per entry (up to 18 fields, trailing zeros stripped):
         [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
-         popularityRank, bestSellerRank, newBooksRank, bookmarksRank, synopsis]
+         popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis]
 
-    Indices 11-14 are SFACG ranking positions (1-20, or 0 if unranked).
-    Index 15 is the Chinese synopsis string.
+    Indices 11-16 are SFACG ranking positions (1-20, or 0 if unranked).
+    Index 17 is the Chinese synopsis string.
     """
     if rankings is None:
         rankings = {}
@@ -255,6 +256,8 @@ def save_novels(all_novels, rankings=None):
         sale_rank = rankings.get("sale", {}).get(nid, 0)
         new_rank = rankings.get("new", {}).get(nid, 0)
         bm_rank = rankings.get("bm", {}).get(nid, 0)
+        jp_rank = rankings.get("jp", {}).get(nid, 0)
+        ticket_rank = rankings.get("ticket", {}).get(nid, 0)
         synopsis = n.get("synopsis", "")
 
         entry = [
@@ -263,7 +266,7 @@ def save_novels(all_novels, rankings=None):
             n.get("chapters", 0), n.get("complete", 0),
             n.get("updated", ""), n.get("age", 0),
             pop_rank, sale_rank, new_rank, bm_rank,
-            synopsis,
+            jp_rank, ticket_rank, synopsis,
         ]
         # Strip trailing zeros/empty values to save space
         while entry and (entry[-1] == 0 or entry[-1] == "" or entry[-1] == []):
