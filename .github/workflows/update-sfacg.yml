@@ -29,18 +29,26 @@ jobs:
       - name: Run SFACG scraper
         run: python scripts/scrape_sfacg.py --delay 0.15
 
+      - name: Extract descriptions
+        run: python scripts/extract_sfacg_descriptions.py
+
+      - name: Re-chunk SFACG data
+        run: python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10
+
+      - name: Build SFACG top file
+        run: python scripts/build_sfacg_top.py
+
       - name: Check for changes
         id: changes
         run: |
-          git diff --quiet docs/data/sfacg_novels.json && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
 
       - name: Commit and push
         if: steps.changes.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          FILE_SIZE=$(du -h docs/data/sfacg_novels.json | cut -f1)
           NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/sfacg_novels.json'))))")
-          git add docs/data/sfacg_novels.json
-          git commit -m "🔄 Update SFACG data: ${NOVEL_COUNT} novels (${FILE_SIZE})"
+          git add docs/data/sfacg_novels.json docs/data/sfacg_descriptions.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
+          git commit -m "🔄 Update SFACG data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
           git push

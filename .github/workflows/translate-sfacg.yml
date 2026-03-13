@@ -29,23 +29,36 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      # --- Extract untranslated ---
+      # --- Translate Titles ---
       - name: Extract untranslated SFACG titles
         run: python scripts/extract_untranslated_sfacg_titles.py
 
-      # --- Translate ---
       - name: Translate SFACG titles with Grok
         env:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
         run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model }}
 
-      # --- Merge ---
       - name: Merge translated SFACG titles
         run: python scripts/merge_translated_sfacg_titles.py
 
-      # --- Re-chunk SFACG data ---
+      # --- Translate Descriptions ---
+      - name: Extract untranslated SFACG descriptions
+        run: python scripts/extract_untranslated_sfacg_descriptions.py
+
+      - name: Translate SFACG descriptions with Grok
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model }}
+
+      - name: Merge translated SFACG descriptions
+        run: python scripts/merge_translated_sfacg_descriptions.py
+
+      # --- Re-chunk and build top ---
       - name: Re-chunk SFACG data
         run: python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10
+
+      - name: Build SFACG top file
+        run: python scripts/build_sfacg_top.py
 
       # --- Commit ---
       - name: Check for changes
@@ -58,6 +71,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/sfacg_titles_en.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json
-          git commit -m "🌐 Translate SFACG titles ($(date -u +%Y-%m-%d))"
+          git add docs/data/sfacg_titles_en.txt docs/data/sfacg_descriptions.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
+          git commit -m "🌐 Translate SFACG titles + descriptions ($(date -u +%Y-%m-%d))"
           git push

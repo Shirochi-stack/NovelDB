@@ -1041,6 +1041,12 @@
     // adult   → adult/plus ranks
     // r15     → all ranks (no dedicated R15 ranking on Novelpia)
     function getRank(novel, type) {
+        // SFACG-specific rank types
+        if (type === "sfacg_popularity") return novel.popularityRank || 0;
+        if (type === "sfacg_bestseller") return novel.bestSellerRank || 0;
+        if (type === "sfacg_newbooks") return novel.newBooksRank || 0;
+        if (type === "sfacg_bookmarks") return novel.bookmarksRank || 0;
+
         const aud = audienceSelect.value;
         if (aud === "adult") {
             if (type === "weekly") return novel.weeklyRankAdult;
@@ -1128,7 +1134,11 @@
                 case "title": va = a.title; vb = b.title; break;
                 case "daily":
                 case "weekly":
-                case "monthly": {
+                case "monthly":
+                case "sfacg_popularity":
+                case "sfacg_bestseller":
+                case "sfacg_newbooks":
+                case "sfacg_bookmarks": {
                     const ra = getRank(a, sortBy) || 9999;
                     const rb = getRank(b, sortBy) || 9999;
                     if (ra !== rb) return order === "asc" ? rb - ra : ra - rb;
@@ -1174,9 +1184,16 @@
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
-        const displayRank = (sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly")
-            ? getRank(n, sortBy)
-            : (getRank(n, "daily") || getRank(n, "weekly") || getRank(n, "monthly"));
+        const isSfacgSort = sortBy.startsWith("sfacg_");
+        const isRankSort = sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly" || isSfacgSort;
+        let displayRank;
+        if (isRankSort) {
+            displayRank = getRank(n, sortBy);
+        } else {
+            // Show any available rank badge
+            displayRank = getRank(n, "daily") || getRank(n, "weekly") || getRank(n, "monthly")
+                || n.popularityRank || n.bestSellerRank || n.newBooksRank || n.bookmarksRank;
+        }
         const rankBadge = displayRank ? `<span class="card-badge badge-rank">#${displayRank}</span>` : "";
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
         const badgeHTML = completeBadge + rankBadge;
@@ -1577,13 +1594,15 @@
         sfacg: {
             dataUrl: "data/sfacg_novels.json",
             translationsUrl: "data/sfacg_titles_en.txt",
+            descriptionsUrl: "data/sfacg_descriptions.txt",
             format: "array",
             coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
             linkPrefix: "https://book.sfacg.com/Novel/",
-            noWeeklyRank: true,
+            sfacgRanks: true,
             chunked: true,
             chunkCount: 10,
             chunkPrefix: "data/sfacg_chunk_",
+            topUrl: "data/sfacg_top.json.gz",
         },
     };
 
@@ -1681,12 +1700,40 @@
 
 
     function parseNovels(raw, sourceName, cfg) {
-        // SFACG format (11 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age]
-        // Novelpia/Kakao format (13 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank]
-        const noRank = cfg.noWeeklyRank;
+        // SFACG format (16 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
+        //                            popularityRank, bestSellerRank, newBooksRank, bookmarksRank, synopsis]
+        // Novelpia/Kakao format (13+ fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank, ...]
+        const sfacg = cfg.sfacgRanks;
         return raw.map((r) => {
             let tags = r[4];
             if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
+            if (sfacg) {
+                // SFACG: index 10=age, 11-14=ranks, 15=synopsis
+                return {
+                    id: r[0],
+                    title: r[1] || "",
+                    author: r[2] || "",
+                    cover: r[3] ? (cfg.coverPrefix && !r[3].startsWith("http") ? cfg.coverPrefix + r[3] : r[3]) : "",
+                    tags,
+                    views: r[5] || 0,
+                    likes: r[6] || 0,
+                    chapters: r[7] || 0,
+                    complete: r[8] || 0,
+                    updated: r[9] || "",
+                    age: r[10] || 0,
+                    weeklyRank: 0, monthlyRank: 0, dailyRank: 0,
+                    weeklyRankAdult: 0, monthlyRankAdult: 0, dailyRankAdult: 0,
+                    weeklyRankTeen: 0, monthlyRankTeen: 0, dailyRankTeen: 0,
+                    popularityRank: r[11] || 0,
+                    bestSellerRank: r[12] || 0,
+                    newBooksRank: r[13] || 0,
+                    bookmarksRank: r[14] || 0,
+                    synopsis: r[15] ? String(r[15]).replace(/\\n/g, "\n") : "",
+                    titleEn: "",
+                    source: sourceName,
+                };
+            }
+            // Novelpia / Kakao: index 10=weeklyRank, 11=age, 12+=more ranks
             return {
                 id: r[0],
                 title: r[1] || "",
@@ -1698,16 +1745,17 @@
                 chapters: r[7] || 0,
                 complete: r[8] || 0,
                 updated: r[9] || "",
-                weeklyRank: noRank ? 0 : (r[10] || 0),
-                age: noRank ? (r[10] || 0) : (r[11] || 0),
-                monthlyRank: noRank ? 0 : (r[12] || 0),
-                dailyRank: noRank ? 0 : (r[13] || 0),
-                weeklyRankAdult: noRank ? 0 : (r[14] || 0),
-                monthlyRankAdult: noRank ? 0 : (r[15] || 0),
-                dailyRankAdult: noRank ? 0 : (r[16] || 0),
-                weeklyRankTeen: noRank ? 0 : (r[17] || 0),
-                monthlyRankTeen: noRank ? 0 : (r[18] || 0),
-                dailyRankTeen: noRank ? 0 : (r[19] || 0),
+                weeklyRank: r[10] || 0,
+                age: r[11] || 0,
+                monthlyRank: r[12] || 0,
+                dailyRank: r[13] || 0,
+                weeklyRankAdult: r[14] || 0,
+                monthlyRankAdult: r[15] || 0,
+                dailyRankAdult: r[16] || 0,
+                weeklyRankTeen: r[17] || 0,
+                monthlyRankTeen: r[18] || 0,
+                dailyRankTeen: r[19] || 0,
+                popularityRank: 0, bestSellerRank: 0, newBooksRank: 0, bookmarksRank: 0,
                 synopsis: "",
                 titleEn: "",
                 source: sourceName,
@@ -1914,6 +1962,55 @@
                     }
                 });
                 // Deduplicate and merge
+                const deduped = allChunkNovels.filter((n) => !topIds.has(n.id));
+                allNovels = [...(topNovels || []), ...deduped];
+                await Promise.all([
+                    loadTranslations(allNovels, cfg, source),
+                    loadDescriptions(allNovels, cfg, source),
+                ]);
+            } else if (source === "sfacg") {
+                // === SFACG with instant top ===
+                const cfg = SOURCES.sfacg;
+                let topNovels = null;
+                if (cfg.topUrl) {
+                    try {
+                        const topData = await fetchGzChunk(cfg.topUrl);
+                        topNovels = parseNovels(topData.novels, "sfacg", cfg);
+                        if (topData.translations) {
+                            for (const n of topNovels) {
+                                if (topData.translations[n.id]) n.titleEn = topData.translations[n.id];
+                            }
+                        }
+                        if (topData.descriptions) {
+                            for (const n of topNovels) {
+                                if (topData.descriptions[n.id]) {
+                                    n.synopsis = topData.descriptions[n.id].replace(/\\r\\n|\\n/g, "\n");
+                                }
+                            }
+                        }
+                    } catch (e) { /* fall through */ }
+                }
+
+                if (topNovels && topNovels.length > 0) {
+                    allNovels = [...topNovels];
+                    titleTranslations = {};
+                    buildTags(allNovels);
+                    applyFilters();
+                }
+
+                const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
+                let firstRender = !(topNovels && topNovels.length > 0);
+                const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
+                    if (firstRender) {
+                        allNovels.push(...chunk);
+                        resultCount.textContent = `Loading sfacg... chunk ${loaded}/${total}`;
+                        buildTags(allNovels);
+                        applyFilters();
+                        firstRender = false;
+                    } else {
+                        resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading sfacg... ${loaded}/${total}`;
+                    }
+                });
                 const deduped = allChunkNovels.filter((n) => !topIds.has(n.id));
                 allNovels = [...(topNovels || []), ...deduped];
                 await Promise.all([
