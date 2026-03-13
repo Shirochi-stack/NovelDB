@@ -1,0 +1,53 @@
+name: Update SFACG Rankings
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  update-sfacg-rankings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Scrape SFACG rankings
+        run: python scripts/update_sfacg_rankings.py
+
+      - name: Extract descriptions
+        run: python scripts/extract_sfacg_descriptions.py
+
+      - name: Re-chunk SFACG data
+        run: python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10
+
+      - name: Build SFACG top file
+        run: python scripts/build_sfacg_top.py
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/sfacg_novels.json docs/data/sfacg_descriptions.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
+          git commit -m "📊 Update SFACG rankings ($(date -u +%Y-%m-%d))"
+          git push
