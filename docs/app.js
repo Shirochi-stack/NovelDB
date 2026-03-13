@@ -1575,7 +1575,7 @@
     const SOURCES = {
         novelpia: {
             dataUrl: "data/novels.json",
-            translationsUrl: "data/titles_en.txt",
+            translationsUrl: "data/titles_en.txt.gz",
             descriptionsUrl: "data/descriptions.txt.gz",
             format: "array",
             coverPrefix: "https://novelpia.com",
@@ -1587,7 +1587,7 @@
         },
         kakao: {
             dataUrl: "data/kakao_novels.json",
-            translationsUrl: "data/kakao_titles_en.txt",
+            translationsUrl: "data/kakao_titles_en.txt.gz",
             format: "array",
             coverPrefix: "",
             linkPrefix: "https://page.kakao.com/content/",
@@ -1597,7 +1597,7 @@
         },
         sfacg: {
             dataUrl: "data/sfacg_novels.json",
-            translationsUrl: "data/sfacg_titles_en.txt",
+            translationsUrl: "data/sfacg_titles_en.txt.gz",
             descriptionsUrl: "data/sfacg_descriptions.txt.gz",
             format: "array",
             coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
@@ -1773,7 +1773,21 @@
         try {
             const tResp = await fetch(cfg.translationsUrl);
             if (tResp.ok) {
-                const text = await tResp.text();
+                let text;
+                if (cfg.translationsUrl.endsWith(".gz")) {
+                    const ds = new DecompressionStream("gzip");
+                    const decompressed = tResp.body.pipeThrough(ds);
+                    const reader = decompressed.getReader();
+                    const chunks = [];
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                    }
+                    text = await new Blob(chunks).text();
+                } else {
+                    text = await tResp.text();
+                }
                 const map = {};
                 let count = 0;
                 for (const line of text.split("\n")) {

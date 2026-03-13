@@ -41,6 +41,9 @@ jobs:
       - name: Merge translated Novelpia titles
         run: python scripts/merge_translated_npia_titles.py
 
+      - name: Gzip translations for web
+        run: python -c "import gzip; raw=open('docs/data/titles_en.txt','rb').read(); open('docs/data/titles_en.txt.gz','wb').write(gzip.compress(raw,6))"
+
       # --- Descriptions ---
       - name: Extract untranslated Novelpia descriptions
         run: python scripts/extract_untranslated_npia_descriptions.py
@@ -75,6 +78,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/titles_en.txt docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/novelpia_top.json.gz docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json
+          git add docs/data/titles_en.txt docs/data/titles_en.txt.gz docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/novelpia_top.json.gz docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json
           git commit -m "🌐 Translate Novelpia top titles & descriptions ($(date -u +%Y-%m-%d))"
           git push
