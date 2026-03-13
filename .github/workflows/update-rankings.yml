@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: novelpia-data
+  cancel-in-progress: false
+
 jobs:
   update-rankings:
     runs-on: ubuntu-latest

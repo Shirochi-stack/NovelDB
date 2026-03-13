@@ -12,6 +12,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: sfacg-data
+  cancel-in-progress: false
+
 jobs:
   translate-sfacg:
     runs-on: ubuntu-latest

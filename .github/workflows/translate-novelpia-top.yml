@@ -12,6 +12,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: novelpia-data
+  cancel-in-progress: false
+
 jobs:
   translate-novelpia-top:
     runs-on: ubuntu-latest
