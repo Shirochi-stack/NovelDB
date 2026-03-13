@@ -15,7 +15,7 @@ Format: novel_id|||chinese_synopsis|||english_translation
   - Newlines in synopsis are replaced with literal \\n.
 """
 
-import json, os, re, sys
+import gzip, json, os, re, sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -102,6 +102,15 @@ def main():
 
     new_size = os.path.getsize(DATA) / 1024 / 1024
     print(f"  Stripped {stripped} synopses from {DATA} ({new_size:.1f} MB)")
+
+    # Gzip the descriptions file for web serving
+    gz_path = OUTPUT + ".gz"
+    with open(OUTPUT, "rb") as f_in:
+        raw = f_in.read()
+    gz = gzip.compress(raw, compresslevel=6)
+    with open(gz_path, "wb") as f_out:
+        f_out.write(gz)
+    print(f"  Gzipped: {len(raw)/1024:.0f} KB -> {len(gz)/1024:.0f} KB ({gz_path})")
 
 
 if __name__ == "__main__":

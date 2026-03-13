@@ -1598,7 +1598,7 @@
         sfacg: {
             dataUrl: "data/sfacg_novels.json",
             translationsUrl: "data/sfacg_titles_en.txt",
-            descriptionsUrl: "data/sfacg_descriptions.txt",
+            descriptionsUrl: "data/sfacg_descriptions.txt.gz",
             format: "array",
             coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
             linkPrefix: "https://book.sfacg.com/Novel/",
@@ -1801,7 +1801,21 @@
         try {
             const resp = await fetch(cfg.descriptionsUrl);
             if (resp.ok) {
-                const text = await resp.text();
+                let text;
+                if (cfg.descriptionsUrl.endsWith(".gz")) {
+                    const ds = new DecompressionStream("gzip");
+                    const decompressed = resp.body.pipeThrough(ds);
+                    const reader = decompressed.getReader();
+                    const chunks = [];
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                    }
+                    text = await new Blob(chunks).text();
+                } else {
+                    text = await resp.text();
+                }
                 const map = {};
                 let count = 0;
                 for (const line of text.split("\n")) {
