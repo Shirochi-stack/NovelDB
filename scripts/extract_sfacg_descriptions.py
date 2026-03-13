@@ -86,6 +86,23 @@ def main():
     print(f"  Wrote {count} descriptions to {OUTPUT} ({size_kb:.0f} KB)")
     print(f"  Translated: {len(translated)}, Untranslated: {len(untranslated)}")
 
+    # Strip synopsis from JSON to keep file size under GitHub's 100MB limit.
+    # The website loads descriptions from sfacg_descriptions.txt instead.
+    stripped = 0
+    for entry in data:
+        if len(entry) > 17 and entry[17]:
+            entry[17] = ""
+            stripped += 1
+        # Also trim trailing empty/zero values
+        while entry and (entry[-1] == 0 or entry[-1] == "" or entry[-1] == []):
+            entry.pop()
+
+    with open(DATA, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+
+    new_size = os.path.getsize(DATA) / 1024 / 1024
+    print(f"  Stripped {stripped} synopses from {DATA} ({new_size:.1f} MB)")
+
 
 if __name__ == "__main__":
     main()
