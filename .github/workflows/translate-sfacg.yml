@@ -1,4 +1,4 @@
-name: Translate SFACG Titles
+name: Translate SFACG
 
 on:
   workflow_dispatch:
