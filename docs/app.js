@@ -1576,7 +1576,7 @@
         novelpia: {
             dataUrl: "data/novels.json",
             translationsUrl: "data/titles_en.txt",
-            descriptionsUrl: "data/descriptions.txt",
+            descriptionsUrl: "data/descriptions.txt.gz",
             format: "array",
             coverPrefix: "https://novelpia.com",
             linkPrefix: "https://novelpia.com/novel/",
