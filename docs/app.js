@@ -1145,7 +1145,7 @@
 
         displayCount = BATCH;
         currentPage = 1;
-        render();
+        render(true);
     }
 
     // === Render Cards ===
@@ -1291,63 +1291,78 @@
         return card;
     }
 
-    function render() {
+    function render(fade = false) {
         // Cancel pending staggered image loads from previous page
         for (const id of pendingImageTimers) clearTimeout(id);
         pendingImageTimers = [];
         // Abort in-flight image downloads by clearing src
         resultsEl.querySelectorAll("img.card-cover").forEach(img => { img.src = ""; });
 
-        const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
-        if (currentPage > totalPages) currentPage = totalPages;
+        function doRender() {
+            const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
+            if (currentPage > totalPages) currentPage = totalPages;
 
-        const start = (currentPage - 1) * BATCH;
-        const end = Math.min(start + BATCH, filtered.length);
+            const start = (currentPage - 1) * BATCH;
+            const end = Math.min(start + BATCH, filtered.length);
 
-        resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}`;
+            resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}`;
 
-        resultsEl.innerHTML = "";
-        for (let i = start; i < end; i++) {
-            resultsEl.appendChild(renderCard(filtered[i]));
-        }
+            resultsEl.innerHTML = "";
+            for (let i = start; i < end; i++) {
+                resultsEl.appendChild(renderCard(filtered[i]));
+            }
 
-        // Stagger image loading: load 4 at a time with 100ms gaps
-        const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
-        imgs.forEach((img, idx) => {
-            const tid = setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 4) * 100);
-            pendingImageTimers.push(tid);
-        });
+            // Stagger image loading: load 4 at a time with 100ms gaps
+            const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
+            imgs.forEach((img, idx) => {
+                const tid = setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 4) * 100);
+                pendingImageTimers.push(tid);
+            });
 
-        // Update both pagination bars
-        const show = totalPages > 1;
-        const pages = buildPageRange(currentPage, totalPages);
-        for (const bar of paginationBars) {
-            bar.style.display = show ? "" : "none";
-            bar.querySelector(".prev-page").disabled = currentPage === 1;
-            bar.querySelector(".next-page").disabled = currentPage === totalPages;
-            const pi = bar.querySelector(".page-input");
-            if (pi) pi.max = totalPages;
+            // Update both pagination bars
+            const show = totalPages > 1;
+            const pages = buildPageRange(currentPage, totalPages);
+            for (const bar of paginationBars) {
+                bar.style.display = show ? "" : "none";
+                bar.querySelector(".prev-page").disabled = currentPage === 1;
+                bar.querySelector(".next-page").disabled = currentPage === totalPages;
+                const pi = bar.querySelector(".page-input");
+                if (pi) pi.max = totalPages;
 
-            const numsEl = bar.querySelector(".page-numbers");
-            numsEl.innerHTML = "";
-            for (const p of pages) {
-                if (p === "...") {
-                    const span = document.createElement("span");
-                    span.className = "page-ellipsis";
-                    span.textContent = "...";
-                    numsEl.appendChild(span);
-                } else {
-                    const btn = document.createElement("button");
-                    btn.className = "page-btn" + (p === currentPage ? " active" : "");
-                    btn.textContent = p;
-                    btn.addEventListener("click", () => {
-                        currentPage = p;
-                        render();
-                        window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
-                    });
-                    numsEl.appendChild(btn);
+                const numsEl = bar.querySelector(".page-numbers");
+                numsEl.innerHTML = "";
+                for (const p of pages) {
+                    if (p === "...") {
+                        const span = document.createElement("span");
+                        span.className = "page-ellipsis";
+                        span.textContent = "...";
+                        numsEl.appendChild(span);
+                    } else {
+                        const btn = document.createElement("button");
+                        btn.className = "page-btn" + (p === currentPage ? " active" : "");
+                        btn.textContent = p;
+                        btn.addEventListener("click", () => {
+                            currentPage = p;
+                            render();
+                            window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+                        });
+                        numsEl.appendChild(btn);
+                    }
                 }
             }
+
+            if (fade) {
+                // Fade back in after DOM rebuild
+                requestAnimationFrame(() => resultsEl.classList.remove("fading"));
+            }
+        }
+
+        if (fade && resultsEl.children.length > 0) {
+            resultsEl.classList.add("fading");
+            // Wait for fade-out transition, then rebuild and fade in
+            setTimeout(doRender, 150);
+        } else {
+            doRender();
         }
     }
 
@@ -1764,8 +1779,12 @@
 
     async function loadSource(source, keepState = false) {
         currentSource = source;
-        resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
-        for (const bar of paginationBars) bar.style.display = "none";
+        // Only show loading spinner for sources that have a slow multi-phase load.
+        // SFACG and Kakao load fast enough that a spinner just causes a distracting flash.
+        if (source === "all" || source === "novelpia") {
+            resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
+            for (const bar of paginationBars) bar.style.display = "none";
+        }
 
         // Clear filters (unless restoring state)
         if (!keepState) {
@@ -1910,7 +1929,7 @@
                     let firstRender = true;
                     const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
                         allNovels.push(...chunk);
-                        resultsEl.innerHTML = `<div class="loading-spinner">Loading chunk ${loaded}/${total}...</div>`;
+                        resultCount.textContent = `Loading ${source}... chunk ${loaded}/${total}`;
                         // Render after first chunk so user sees results immediately
                         if (firstRender) {
                             firstRender = false;

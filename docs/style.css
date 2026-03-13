@@ -381,6 +381,11 @@ main {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 1rem;
+    transition: opacity 0.15s ease;
+}
+
+.results-grid.fading {
+    opacity: 0;
 }
 
 /* === Novel Card === */
