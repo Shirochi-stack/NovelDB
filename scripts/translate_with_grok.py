@@ -1,11 +1,13 @@
 """Translate untranslated titles/descriptions using the Grok API.
 
 Reads an untranslated file (id|||original or id|||original|||), chunks the rows
-to stay within the Grok API output token limit (with 30% safety margin), sends
-translation requests IN PARALLEL, and writes the translated results back to the
-same file.
+to stay within the Grok API token limits (using proper CJK-aware token estimation),
+sends translation requests IN PARALLEL, and writes the translated results back to
+the same file.
 
-The script chunks at line boundaries to avoid splitting mid-sentence.
+Chunking uses actual token estimation — CJK characters count as ~1 token each,
+ASCII characters as ~0.25 tokens each — to stay within the model's context window.
+
 Parallel requests are staggered by a configurable delay (default 5s) to avoid
 rate-limit storms.
 
@@ -29,17 +31,31 @@ sys.stdout.reconfigure(encoding="utf-8")
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 DEFAULT_MODEL = "grok-4.20-beta-0309-reasoning"
 MAX_OUTPUT_TOKENS = 131072  # 128k
-SAFETY_MARGIN = 0.30  # 30% margin
-EFFECTIVE_OUTPUT_TOKENS = int(MAX_OUTPUT_TOKENS * (1 - SAFETY_MARGIN))
 
-# Rough estimate: 1 token ≈ 3.5 chars for mixed CJK/English output
-CHARS_PER_TOKEN = 3.5
-MAX_OUTPUT_CHARS = int(EFFECTIVE_OUTPUT_TOKENS * CHARS_PER_TOKEN)
+# ── Token budget for chunking ──
+# The model context window is 131k tokens total (input + output).
+# For a reasoning model, output includes thinking tokens which can use 30-60%
+# of the output budget. We need to be conservative.
+#
+# Budget allocation:
+#   Input  = 65% of context  → ~85k tokens for the prompt
+#   Output = 35% of context  → ~46k tokens for reasoning + translated lines
+#
+# The prompt includes ~200 tokens of system/instruction overhead.
+MAX_CONTEXT_TOKENS = 131072
+INPUT_BUDGET_RATIO = 0.65
+PROMPT_OVERHEAD_TOKENS = 300  # system message + instruction text
+MAX_INPUT_TOKENS = int(MAX_CONTEXT_TOKENS * INPUT_BUDGET_RATIO) - PROMPT_OVERHEAD_TOKENS
 
-# Each output line is roughly: id|||original|||translated
-# Average translated title ~ 50 chars, so ~80 chars per output line
-# Average translated description ~ 200 chars, so ~250 chars per output line
-AVG_CHARS_PER_LINE = {"titles": 80, "descriptions": 250}
+# For output, the reasoning model uses ~40-60% of output on thinking.
+# We estimate effective output tokens for actual content:
+OUTPUT_BUDGET_RATIO = 0.35
+REASONING_OVERHEAD = 0.50  # 50% of output goes to thinking
+EFFECTIVE_OUTPUT_TOKENS = int(MAX_CONTEXT_TOKENS * OUTPUT_BUDGET_RATIO * (1 - REASONING_OVERHEAD))
+
+# Hard cap on lines per chunk (even if token budget allows more,
+# very large batches cause the model to lose focus)
+MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400}
 
 # Concurrency settings
 MAX_WORKERS = 30
@@ -56,6 +72,66 @@ def _tprint(*args, **kwargs):
     with _print_lock:
         print(*args, **kwargs)
         sys.stdout.flush()
+
+
+# ── Token estimation ──
+
+def estimate_tokens(text):
+    """Estimate the token count for a string using CJK-aware heuristics.
+
+    Most LLM tokenizers (BPE-based) treat CJK characters as individual tokens
+    since they're outside the common merge vocabulary. ASCII text compresses
+    to ~1 token per 4 characters on average.
+
+    This gives results within ~15% of actual tokenizer output for mixed
+    CJK/English text, which is close enough for chunk sizing.
+    """
+    cjk = 0
+    ascii_chars = 0
+    for ch in text:
+        cp = ord(ch)
+        if (0x4E00 <= cp <= 0x9FFF      # CJK Unified Ideographs
+            or 0x3400 <= cp <= 0x4DBF    # CJK Extension A
+            or 0x20000 <= cp <= 0x2A6DF  # CJK Extension B
+            or 0xF900 <= cp <= 0xFAFF    # CJK Compatibility Ideographs
+            or 0xAC00 <= cp <= 0xD7AF    # Korean Hangul Syllables
+            or 0x1100 <= cp <= 0x11FF    # Hangul Jamo
+            or 0x3130 <= cp <= 0x318F    # Hangul Compatibility Jamo
+            or 0x3040 <= cp <= 0x309F    # Hiragana
+            or 0x30A0 <= cp <= 0x30FF    # Katakana
+            or 0xFF00 <= cp <= 0xFFEF    # Fullwidth Forms
+            or 0x3000 <= cp <= 0x303F):  # CJK Symbols and Punctuation
+            cjk += 1
+        else:
+            ascii_chars += 1
+    # CJK chars ≈ 1 token each, ASCII ≈ 0.25 tokens per char (4 chars/token)
+    return cjk + max(1, ascii_chars // 4)
+
+
+def estimate_output_tokens_per_line(rows, content_type):
+    """Estimate how many output tokens each translated line will consume.
+
+    Output format: id|||original|||english_translation
+    The original text is echoed back, so output ≈ input + translation.
+    For descriptions, translation length ≈ 0.8x the original CJK length.
+    For titles, translation ≈ 1.5x the original (short titles expand in English).
+    """
+    if not rows:
+        return 50  # fallback
+    # Sample up to 100 rows to estimate
+    sample = rows[:100]
+    total_tokens = 0
+    for row in sample:
+        parts = row.split("|||")
+        original = parts[1].strip() if len(parts) >= 2 else ""
+        orig_tokens = estimate_tokens(original)
+        if content_type == "descriptions":
+            translation_tokens = int(orig_tokens * 0.8)
+        else:
+            translation_tokens = int(orig_tokens * 1.5)
+        # Output line = id tokens + delimiters (~5) + original + delimiters + translation
+        total_tokens += 5 + orig_tokens + translation_tokens
+    return max(10, total_tokens // len(sample))
 
 
 def build_prompt(rows, lang, content_type):
@@ -157,13 +233,43 @@ def call_grok(prompt, api_key, model=DEFAULT_MODEL):
 
 
 def chunk_rows(rows, content_type):
-    """Split rows into chunks that fit within the output token limit."""
-    avg_chars = AVG_CHARS_PER_LINE.get(content_type, 100)
-    max_lines_per_chunk = max(1, MAX_OUTPUT_CHARS // avg_chars)
+    """Split rows into chunks using actual token estimation.
+
+    Each chunk is bounded by three constraints:
+    1. Input tokens (measured) must fit within the model's input budget
+    2. Estimated output tokens must fit within the effective output budget
+    3. Line count must not exceed the hard cap for the content type
+    """
+    max_lines = MAX_LINES_PER_CHUNK.get(content_type, 500)
+    avg_output_per_line = estimate_output_tokens_per_line(rows, content_type)
 
     chunks = []
-    for i in range(0, len(rows), max_lines_per_chunk):
-        chunks.append(rows[i:i + max_lines_per_chunk])
+    current_chunk = []
+    current_input_tokens = 0
+    current_output_tokens = 0
+
+    for row in rows:
+        row_input_tokens = estimate_tokens(row + "\n")
+        row_output_tokens = avg_output_per_line
+
+        would_exceed = (
+            len(current_chunk) >= max_lines
+            or current_input_tokens + row_input_tokens > MAX_INPUT_TOKENS
+            or current_output_tokens + row_output_tokens > EFFECTIVE_OUTPUT_TOKENS
+        )
+
+        if current_chunk and would_exceed:
+            chunks.append(current_chunk)
+            current_chunk = []
+            current_input_tokens = 0
+            current_output_tokens = 0
+
+        current_chunk.append(row)
+        current_input_tokens += row_input_tokens
+        current_output_tokens += row_output_tokens
+
+    if current_chunk:
+        chunks.append(current_chunk)
 
     return chunks
 
@@ -262,10 +368,13 @@ def main():
 
     print(f"Found {len(rows)} untranslated rows in {args.input_file}")
 
-    # Chunk the rows
+    # Chunk the rows using token estimation
     chunks = chunk_rows(rows, args.content_type)
-    max_lines = MAX_OUTPUT_CHARS // AVG_CHARS_PER_LINE.get(args.content_type, 100)
-    print(f"Split into {len(chunks)} chunks (max ~{max_lines} lines per chunk)")
+    chunk_sizes = [len(c) for c in chunks]
+    avg_output_per_line = estimate_output_tokens_per_line(rows, args.content_type)
+
+    print(f"Split into {len(chunks)} chunks (lines per chunk: {min(chunk_sizes)}-{max(chunk_sizes)})")
+    print(f"Token budgets — input: {MAX_INPUT_TOKENS:,} | output (effective): {EFFECTIVE_OUTPUT_TOKENS:,} | est. output/line: {avg_output_per_line}")
     print(f"Parallel mode: {args.workers} workers, {args.delay}s stagger delay")
 
     # ── Translate chunks in parallel ──
