@@ -43,6 +43,34 @@ def load_translations_file(path):
     return trans
 
 
+def load_descriptions_file(path):
+    """Load descriptions from a |||‐delimited text file.
+
+    Prefers column 3 (English translation) when available,
+    falls back to column 2 (original language) otherwise.
+    Returns dict of {id_str: description_text}.
+    """
+    descs = {}
+    if not path or not os.path.exists(path):
+        return descs
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\r\n")
+            if not line:
+                continue
+            parts = line.split("|||")
+            nid = parts[0].strip()
+            if not nid:
+                continue
+            # Prefer English (col3), fall back to original (col2)
+            eng = parts[2].strip() if len(parts) >= 3 else ""
+            orig = parts[1].strip() if len(parts) >= 2 else ""
+            text = eng or orig
+            if text and text != "N/A":
+                descs[nid] = text
+    return descs
+
+
 def main():
     parser = argparse.ArgumentParser(description="Chunk and gzip a JSON dataset")
     parser.add_argument("--input", default="docs/data/sfacg_novels.json", help="Input JSON file")
@@ -88,7 +116,7 @@ def main():
         print(f"  Loaded {len(all_translations)} title translations to embed")
 
     if args.descriptions:
-        all_descriptions = load_translations_file(args.descriptions)
+        all_descriptions = load_descriptions_file(args.descriptions)
         print(f"  Loaded {len(all_descriptions)} descriptions to embed")
 
     total_gz = 0

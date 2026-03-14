@@ -62,15 +62,23 @@ def main():
     untranslated = []
     for entry in data:
         nid = str(entry[0]) if len(entry) > 0 else ""
+        if not nid:
+            continue
         synopsis = entry[17] if len(entry) > 17 else ""
-        if not nid or not synopsis:
+        en = existing_en.get(nid, "")
+
+        # Skip if no synopsis AND no existing translation
+        if not synopsis and not en:
             continue
 
         # Normalize newlines, then collapse multiple into one
-        normed = synopsis.replace("\r\n", "\n").replace("\r", "\n")
-        normed = re.sub(r"\n{2,}", "\n", normed).strip()
-        flat = normed.replace("\n", "\\n")
-        en = existing_en.get(nid, "")
+        if synopsis:
+            normed = synopsis.replace("\r\n", "\n").replace("\r", "\n")
+            normed = re.sub(r"\n{2,}", "\n", normed).strip()
+            flat = normed.replace("\n", "\\n")
+        else:
+            flat = ""
+
         row = f"{nid}|||{flat}|||{en}\n"
         if en:
             translated.append(row)
