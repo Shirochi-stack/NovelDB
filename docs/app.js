@@ -885,18 +885,14 @@
         return String(n);
     }
 
-    // === Format date as human-readable (e.g. "March 5th, 2026") ===
+    // === Format date as human-readable (e.g. "Jan 16, 2024") ===
     function fmtDate(dateStr) {
         if (!dateStr) return "";
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return "";
-        const months = ["January","February","March","April","May","June",
-                        "July","August","September","October","November","December"];
-        const day = d.getDate();
-        const suffix = day === 1 || day === 21 || day === 31 ? "st"
-                     : day === 2 || day === 22 ? "nd"
-                     : day === 3 || day === 23 ? "rd" : "th";
-        return `${months[d.getMonth()]} ${day}${suffix}, ${d.getFullYear()}`;
+        const months = ["Jan","Feb","Mar","Apr","May","Jun",
+                        "Jul","Aug","Sep","Oct","Nov","Dec"];
+        return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
     }
 
     // === Build tag chips ===
@@ -1253,7 +1249,7 @@
                     <span class="stat">👁 ${fmt(n.views)}</span>
                     <span class="stat">❤ ${fmt(n.likes)}</span>
                     <span class="stat">📄 ${fmt(n.chapters)}</span>
-                </div>${n.updated ? `<div class="card-updated">📅 Last Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML}
+                </div>${n.updated ? `<div class="card-updated">📅 Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML}
             </div>
         `;
 
