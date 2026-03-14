@@ -3,12 +3,45 @@
 Splits a large JSON array into N gzipped chunks that can be loaded in parallel
 by the browser using DecompressionStream.
 
+Optionally embeds title translations and/or descriptions into each chunk,
+eliminating the need for separate translation/description file downloads.
+
 Usage:
     python scripts/chunk_and_compress.py                          # SFACG defaults
     python scripts/chunk_and_compress.py --input data.json -n 10  # custom
+    python scripts/chunk_and_compress.py --input data.json -n 10 --translations titles.txt --descriptions desc.txt
 """
 
 import json, gzip, os, sys, argparse, math
+
+sys.stdout.reconfigure(encoding="utf-8")
+
+
+def load_translations_file(path):
+    """Load translations from a |||‐delimited text file.
+
+    Supports formats:
+        id|||original|||english
+        id||||||english  (stripped original)
+    Returns dict of {id_str: english_text}.
+    """
+    trans = {}
+    if not path or not os.path.exists(path):
+        return trans
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\r\n")
+            if not line:
+                continue
+            parts = line.split("|||")
+            nid = parts[0].strip()
+            if not nid:
+                continue
+            # Column 3 (index 2) = English
+            if len(parts) >= 3 and parts[2].strip():
+                trans[nid] = parts[2].strip()
+    return trans
+
 
 def main():
     parser = argparse.ArgumentParser(description="Chunk and gzip a JSON dataset")
@@ -16,6 +49,10 @@ def main():
     parser.add_argument("--output-dir", default=None, help="Output directory (default: same as input)")
     parser.add_argument("--prefix", default=None, help="Output filename prefix (default: derived from input)")
     parser.add_argument("-n", "--chunks", type=int, default=10, help="Number of chunks")
+    parser.add_argument("--translations", default=None,
+                        help="Path to title translations file (id|||orig|||english) to embed in chunks")
+    parser.add_argument("--descriptions", default=None,
+                        help="Path to descriptions file (id|||orig|||english) to embed in chunks")
     args = parser.parse_args()
 
     input_path = os.path.normpath(args.input)
@@ -41,6 +78,19 @@ def main():
     print(f"  {total} entries, {original_size / 1024 / 1024:.1f} MB")
     print(f"  Splitting into {args.chunks} chunks of ~{chunk_size} entries...")
 
+    # Load optional embedded data
+    all_translations = {}
+    all_descriptions = {}
+    embed = args.translations or args.descriptions
+
+    if args.translations:
+        all_translations = load_translations_file(args.translations)
+        print(f"  Loaded {len(all_translations)} title translations to embed")
+
+    if args.descriptions:
+        all_descriptions = load_translations_file(args.descriptions)
+        print(f"  Loaded {len(all_descriptions)} descriptions to embed")
+
     total_gz = 0
     total_raw = 0
     chunk_files = []
@@ -52,7 +102,28 @@ def main():
         if not chunk:
             break
 
-        raw = json.dumps(chunk, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if embed:
+            # Get the IDs in this chunk (first element of each entry)
+            chunk_ids = {str(entry[0]) for entry in chunk if entry}
+
+            # Build per-chunk translation/description dicts
+            chunk_trans = {nid: all_translations[nid]
+                           for nid in chunk_ids if nid in all_translations}
+            chunk_descs = {nid: all_descriptions[nid]
+                           for nid in chunk_ids if nid in all_descriptions}
+
+            # Wrap in object format
+            chunk_obj = {"novels": chunk}
+            if all_translations:
+                chunk_obj["translations"] = chunk_trans
+            if all_descriptions:
+                chunk_obj["descriptions"] = chunk_descs
+
+            raw = json.dumps(chunk_obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        else:
+            # Legacy: plain array format
+            raw = json.dumps(chunk, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
         gz = gzip.compress(raw, compresslevel=6)
 
         filename = f"{prefix}_{i}.json.gz"
@@ -73,6 +144,7 @@ def main():
         "chunks": len(chunk_files),
         "totalEntries": total,
         "files": chunk_files,
+        "embedded": bool(embed),
     }
     manifest_path = os.path.join(output_dir, f"{prefix}_manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:

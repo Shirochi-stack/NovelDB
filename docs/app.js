@@ -1575,8 +1575,6 @@
     const SOURCES = {
         novelpia: {
             dataUrl: "data/novels.json",
-            translationsUrl: "data/titles_en.txt.gz",
-            descriptionsUrl: "data/descriptions.txt.gz",
             format: "array",
             coverPrefix: "https://novelpia.com",
             linkPrefix: "https://novelpia.com/novel/",
@@ -1587,7 +1585,6 @@
         },
         kakao: {
             dataUrl: "data/kakao_novels.json",
-            translationsUrl: "data/kakao_titles_en.txt.gz",
             format: "array",
             coverPrefix: "",
             linkPrefix: "https://page.kakao.com/content/",
@@ -1597,8 +1594,6 @@
         },
         sfacg: {
             dataUrl: "data/sfacg_novels.json",
-            translationsUrl: "data/sfacg_titles_en.txt.gz",
-            descriptionsUrl: "data/sfacg_descriptions.txt.gz",
             format: "array",
             coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
             linkPrefix: "https://book.sfacg.com/Novel/",
@@ -1674,7 +1669,24 @@
             chunkPromises.push(
                 fetchGzChunk(url).then((raw) => {
                     loaded++;
-                    const novels = parseNovels(raw, sourceName, cfg);
+                    // Detect embedded format: {novels, translations, descriptions}
+                    let novelsData, translations, descriptions;
+                    if (raw && !Array.isArray(raw) && raw.novels) {
+                        novelsData = raw.novels;
+                        translations = raw.translations || {};
+                        descriptions = raw.descriptions || {};
+                    } else {
+                        novelsData = raw;
+                        translations = {};
+                        descriptions = {};
+                    }
+                    const novels = parseNovels(novelsData, sourceName, cfg);
+                    // Apply embedded translations and descriptions
+                    for (const n of novels) {
+                        const sid = String(n.id);
+                        if (translations[sid]) n.titleEn = translations[sid];
+                        if (descriptions[sid]) n.synopsis = descriptions[sid].replace(/\\r\\n|\\n/g, "\n");
+                    }
                     onChunkLoaded(novels, loaded, chunkCount);
                     return novels;
                 })
@@ -1769,95 +1781,7 @@
         });
     }
 
-    async function loadTranslations(novels, cfg, sourceName) {
-        try {
-            const tResp = await fetch(cfg.translationsUrl);
-            if (tResp.ok) {
-                let text;
-                if (cfg.translationsUrl.endsWith(".gz")) {
-                    const ds = new DecompressionStream("gzip");
-                    const decompressed = tResp.body.pipeThrough(ds);
-                    const reader = decompressed.getReader();
-                    const chunks = [];
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        chunks.push(value);
-                    }
-                    text = await new Blob(chunks).text();
-                } else {
-                    text = await tResp.text();
-                }
-                const map = {};
-                let count = 0;
-                for (const line of text.split("\n")) {
-                    const parts = line.split("|||");
-                    if (parts.length >= 3 && parts[2].trim()) {
-                        map[parts[0]] = parts[2].trim();
-                        count++;
-                    }
-                }
-                if (count > 0) {
-                    for (const n of novels) {
-                        const en = map[String(n.id)];
-                        if (en) n.titleEn = en;
-                    }
-                    console.log(`Loaded ${count} title translations for ${sourceName}`);
-                }
-            }
-        } catch (e) {
-            // translations not found, skip
-        }
-    }
-
-    async function loadDescriptions(novels, cfg, sourceName) {
-        if (!cfg.descriptionsUrl) return;
-        try {
-            const resp = await fetch(cfg.descriptionsUrl);
-            if (resp.ok) {
-                let text;
-                if (cfg.descriptionsUrl.endsWith(".gz")) {
-                    const ds = new DecompressionStream("gzip");
-                    const decompressed = resp.body.pipeThrough(ds);
-                    const reader = decompressed.getReader();
-                    const chunks = [];
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        chunks.push(value);
-                    }
-                    text = await new Blob(chunks).text();
-                } else {
-                    text = await resp.text();
-                }
-                const map = {};
-                let count = 0;
-                for (const line of text.split("\n")) {
-                    const parts = line.split("|||");
-                    if (parts.length >= 2 && parts[0].trim()) {
-                        const id = parts[0].trim();
-                        // Format: id|||korean|||english — prefer english if present
-                        const raw = (parts.length >= 3 && parts[2].trim())
-                            ? parts[2].trim()
-                            : parts[1].trim();
-                        if (raw) {
-                            map[id] = raw.replace(/\\r\\n|\\n/g, "\n");
-                            count++;
-                        }
-                    }
-                }
-                if (count > 0) {
-                    for (const n of novels) {
-                        const d = map[String(n.id)];
-                        if (d) n.synopsis = d;
-                    }
-                    console.log(`Loaded ${count} descriptions for ${sourceName}`);
-                }
-            }
-        } catch (e) {
-            // descriptions not found, skip
-        }
-    }
+    // loadTranslations and loadDescriptions removed — data is now embedded in chunks
 
     async function loadSource(source, keepState = false) {
         currentSource = source;
@@ -1933,10 +1857,7 @@
                         const raw = await fetchWithProgress(cfg.dataUrl);
                         novels = parseNovels(raw, s, cfg);
                     }
-                    await Promise.all([
-                        loadTranslations(novels, cfg, s),
-                        loadDescriptions(novels, cfg, s),
-                    ]);
+                    // Translations and descriptions are embedded in chunks
                     return novels;
                 };
 
@@ -1949,13 +1870,8 @@
                 const novelpiaNovels = await novelpiaPromise;
                 const deduped = novelpiaNovels.filter((n) => !topIds.has(n.id));
                 allNovels = [...(topNovels || []), ...deduped];
-                // Re-apply translations & descriptions to top novels
-                // (browser caches the fetch, so this is effectively free)
-                const npiaCfg = SOURCES.novelpia;
-                await Promise.all([
-                    loadTranslations(allNovels, npiaCfg, "novelpia"),
-                    loadDescriptions(allNovels, npiaCfg, "novelpia"),
-                ]);
+                // Translations & descriptions are now embedded in chunks
+                // Top novels already have translations from topUrl
                 titleTranslations = {};
                 buildTags(allNovels);
                 applyFilters();
@@ -1998,10 +1914,7 @@
                 // Deduplicate and merge
                 const deduped = allChunkNovels.filter((n) => !topIds.has(n.id));
                 allNovels = [...(topNovels || []), ...deduped];
-                await Promise.all([
-                    loadTranslations(allNovels, cfg, source),
-                    loadDescriptions(allNovels, cfg, source),
-                ]);
+                // Translations and descriptions are embedded in chunks
             } else if (source === "sfacg") {
                 // === SFACG with instant top ===
                 const cfg = SOURCES.sfacg;
@@ -2047,10 +1960,7 @@
                 });
                 const deduped = allChunkNovels.filter((n) => !topIds.has(n.id));
                 allNovels = [...(topNovels || []), ...deduped];
-                await Promise.all([
-                    loadTranslations(allNovels, cfg, source),
-                    loadDescriptions(allNovels, cfg, source),
-                ]);
+                // Translations and descriptions are embedded in chunks
             } else {
                 const cfg = SOURCES[source];
                 if (cfg.chunked) {
@@ -2069,18 +1979,12 @@
                         }
                     });
                     allNovels = allChunkNovels;
-                    await Promise.all([
-                        loadTranslations(allNovels, cfg, source),
-                        loadDescriptions(allNovels, cfg, source),
-                    ]);
+                    // Translations and descriptions are embedded in chunks
                 } else {
                     const raw = await fetchWithProgress(cfg.dataUrl);
                     allNovels = parseNovels(raw, source, cfg);
                     titleTranslations = {};
-                    await Promise.all([
-                        loadTranslations(allNovels, cfg, source),
-                        loadDescriptions(allNovels, cfg, source),
-                    ]);
+                    // Translations and descriptions are embedded in chunks
                 }
             }
 

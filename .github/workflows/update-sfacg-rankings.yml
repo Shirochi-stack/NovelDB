@@ -36,8 +36,8 @@ jobs:
       - name: Extract descriptions
         run: python scripts/extract_sfacg_descriptions.py
 
-      - name: Re-chunk SFACG data
-        run: python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10
+      - name: Re-chunk SFACG data (with embedded translations + descriptions)
+        run: python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10 --translations docs/data/sfacg_titles_en.txt --descriptions docs/data/sfacg_descriptions.txt
 
       - name: Build SFACG top file
         run: python scripts/build_sfacg_top.py
@@ -52,6 +52,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/sfacg_novels.json docs/data/sfacg_descriptions.txt docs/data/sfacg_descriptions.txt.gz docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
+          git add docs/data/sfacg_novels.json docs/data/sfacg_descriptions.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
           git commit -m "📊 Update SFACG rankings ($(date -u +%Y-%m-%d))"
           git push
