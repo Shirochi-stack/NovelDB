@@ -18,12 +18,22 @@ if not os.path.exists(SRC):
     print(f"Error: {SRC} not found."); sys.exit(1)
 
 def is_mostly_english(text):
-    """Check if text is predominantly English/ASCII."""
+    """Check if text is predominantly English/ASCII.
+    
+    Returns False if ANY CJK characters are present — that indicates
+    a garbled/partial translation that needs retranslation.
+    """
     if not text:
         return False
     alpha = [c for c in text if c.isalpha()]
     if not alpha:
         return False
+    # If any CJK chars exist, it's not "already English" — it's garbled
+    for c in alpha:
+        cp = ord(c)
+        if (0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
+            or 0xAC00 <= cp <= 0xD7AF or 0x3040 <= cp <= 0x30FF):
+            return False
     ascii_alpha = sum(1 for c in alpha if ord(c) < 128)
     return ascii_alpha / len(alpha) > 0.6
 
