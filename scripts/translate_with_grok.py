@@ -210,6 +210,10 @@ def process_chunk(chunk_idx, chunk, total_chunks, lang, content_type, api_key, m
         # Create a per-thread client instance for thread safety
         client = UnifiedClient(api_key=api_key, model=model, output_dir="/tmp/translate_output")
 
+        # Disable internal retry — accept whatever the model returns on first try
+        client._disable_internal_retry = True
+        client.request_timeout = 300  # 5 min max per chunk
+
         prompt = build_prompt(chunk, lang, content_type)
 
         messages = [
@@ -217,7 +221,7 @@ def process_chunk(chunk_idx, chunk, total_chunks, lang, content_type, api_key, m
             {"role": "user", "content": prompt},
         ]
 
-        # Use UnifiedClient.send() — handles retries, rate limits, timeouts internally
+        # Single-shot call — no internal retries, just accept what comes back
         response_text, finish_reason = client.send(
             messages,
             temperature=0.3,
