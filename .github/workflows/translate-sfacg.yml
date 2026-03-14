@@ -31,7 +31,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests Pillow
+        run: pip install requests Pillow tiktoken
 
       # --- Translate Titles ---
       - name: Extract untranslated SFACG titles

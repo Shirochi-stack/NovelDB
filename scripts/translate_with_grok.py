@@ -63,34 +63,14 @@ def _tprint(*args, **kwargs):
         sys.stdout.flush()
 
 
-# ── Token estimation (CJK-aware, from unified_api_client patterns) ──
+# ── Token counting (tiktoken) ──
+
+import tiktoken
+_enc = tiktoken.get_encoding("cl100k_base")
 
 def estimate_tokens(text):
-    """Estimate token count using CJK-aware heuristics.
-
-    CJK characters ≈ 1 token each (BPE treats them individually).
-    ASCII text ≈ 1 token per 4 characters on average.
-    Gives results within ~15% of actual tokenizer output.
-    """
-    cjk = 0
-    ascii_chars = 0
-    for ch in text:
-        cp = ord(ch)
-        if (0x4E00 <= cp <= 0x9FFF      # CJK Unified Ideographs
-            or 0x3400 <= cp <= 0x4DBF    # CJK Extension A
-            or 0x20000 <= cp <= 0x2A6DF  # CJK Extension B
-            or 0xF900 <= cp <= 0xFAFF    # CJK Compatibility Ideographs
-            or 0xAC00 <= cp <= 0xD7AF    # Korean Hangul Syllables
-            or 0x1100 <= cp <= 0x11FF    # Hangul Jamo
-            or 0x3130 <= cp <= 0x318F    # Hangul Compatibility Jamo
-            or 0x3040 <= cp <= 0x309F    # Hiragana
-            or 0x30A0 <= cp <= 0x30FF    # Katakana
-            or 0xFF00 <= cp <= 0xFFEF    # Fullwidth Forms
-            or 0x3000 <= cp <= 0x303F):  # CJK Symbols and Punctuation
-            cjk += 1
-        else:
-            ascii_chars += 1
-    return cjk + max(1, ascii_chars // 4)
+    """Count tokens using tiktoken (cl100k_base, GPT-4/Grok compatible)."""
+    return len(_enc.encode(text))
 
 
 def estimate_output_tokens_per_line(rows, content_type):
