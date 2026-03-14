@@ -63,28 +63,11 @@ def estimate_output_per_line(rows, content_type):
     return max(10, total // len(sample))
 
 
+
 def build_prompt(rows, lang, content_type):
-    """Build the translation prompt."""
-    lang_name = {"korean": "Korean", "chinese": "Chinese"}.get(lang, lang.title())
+    """Build the user prompt — just the raw lines to translate."""
+    return "\n".join(rows)
 
-    if content_type == "descriptions":
-        task = f"""Translate each {lang_name} novel description to natural English.
-Keep the line format: id|||original|||English translation
-Preserve \\n markers as-is. Do NOT skip any lines. Translate EVERY line."""
-    else:
-        task = f"""Translate each {lang_name} novel title to natural English.
-Keep the line format: id|||original|||English translation
-Do NOT skip any lines. Translate EVERY line."""
-
-    return f"""{task}
-
-RULES:
-- Output ONLY the translated lines. No commentary, no headers, no code blocks.
-- Keep the exact id and original text, add English after the third |||
-- Maintain the exact ||| delimiter format.
-
-Input ({len(rows)} lines):
-{"chr(10)".join(rows)}"""
 
 
 def chunk_rows(rows, content_type):
@@ -139,10 +122,32 @@ def call_api(prompt, api_key, model):
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    SYSTEM_PROMPT = """You are translating text to English. Each line has this exact 3-column format:
+
+ID|||ORIGINAL|||ENGLISH
+
+INPUT example:
+390198|||어쩌다 보니 캄피오네 가 되버린 주인공의 모험기|||
+
+OUTPUT example:
+390198|||어쩌다 보니 캄피오네 가 되버린 주인공의 모험기|||The Adventure of a Protagonist Who Accidentally Became a Campione
+
+Rules:
+- Column 1 (ID): Copy EXACTLY, do not change
+- Column 2 (ORIGINAL): Copy EXACTLY, do not change — this MUST remain in the original language
+- Column 3 (ENGLISH): Write your English translation here
+- Use ||| as the ONLY delimiter between columns — every line must have exactly two |||
+- Translate naturally, not robotically
+- Romanize proper nouns (e.g. 김철수 → Kim Cheolsu)
+- If text is already English, keep as-is
+- Literal \\n in column 2 are line breaks — do NOT remove them, copy them exactly
+- Output ALL lines — do not skip, merge, or reorder
+- Output ONLY translated lines — no commentary, headers, or explanations"""
+
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are a professional translator. Translate novel titles and descriptions accurately. Output ONLY the translated lines in the exact format requested. No markdown, no code blocks."},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.3,
