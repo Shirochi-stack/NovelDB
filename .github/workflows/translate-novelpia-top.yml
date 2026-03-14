@@ -1,6 +1,9 @@
 name: Translate Novelpia Top 100
 
 on:
+  workflow_run:
+    workflows: ["Update Novelpia Rankings"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       model:
@@ -40,7 +43,7 @@ jobs:
       - name: Translate Novelpia titles with Grok
         env:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-        run: python scripts/translate_with_grok.py docs/data/titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model }}
+        run: python scripts/translate_with_grok.py docs/data/titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }}
 
       - name: Merge translated Novelpia titles
         run: python scripts/merge_translated_npia_titles.py
@@ -52,7 +55,7 @@ jobs:
       - name: Translate Novelpia descriptions with Grok
         env:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-        run: python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model }}
+        run: python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }}
 
       - name: Merge translated Novelpia descriptions
         run: python scripts/merge_translated_npia_descriptions.py

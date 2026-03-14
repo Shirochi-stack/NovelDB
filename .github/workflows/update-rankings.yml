@@ -2,8 +2,8 @@ name: Update Novelpia Rankings
 
 on:
   schedule:
-    # Run every 6 hours to keep daily rankings fresh
-    - cron: '0 0,6,12,18 * * *'
+    # Run daily at 09:00 UTC (3 hours after SFACG Rankings)
+    - cron: '0 9 * * *'
   workflow_dispatch: # Allow manual trigger
 
 permissions:

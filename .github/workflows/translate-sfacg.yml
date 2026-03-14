@@ -1,6 +1,9 @@
 name: Translate SFACG
 
 on:
+  workflow_run:
+    workflows: ["Update SFACG Data", "Update SFACG Rankings"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       model:
@@ -40,7 +43,7 @@ jobs:
       - name: Translate SFACG titles with Grok
         env:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-        run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }}
 
       - name: Merge translated SFACG titles
         run: python scripts/merge_translated_sfacg_titles.py
@@ -52,7 +55,7 @@ jobs:
       - name: Translate SFACG descriptions with Grok
         env:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-        run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }}
 
       - name: Merge translated SFACG descriptions
         run: python scripts/merge_translated_sfacg_descriptions.py
