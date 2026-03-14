@@ -41,18 +41,10 @@ from unified_api_client import UnifiedClient
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 # ── Token budget for chunking ──
-# Conservative estimates for chunk sizing.
-# The model context window is ~131k tokens total.
-# We allocate 65% for input and 35% for output.
-MAX_CONTEXT_TOKENS = 131072
-INPUT_BUDGET_RATIO = 0.65
-PROMPT_OVERHEAD_TOKENS = 300
-MAX_INPUT_TOKENS = int(MAX_CONTEXT_TOKENS * INPUT_BUDGET_RATIO) - PROMPT_OVERHEAD_TOKENS
-
-# Output: reasoning models use ~50% on thinking
-OUTPUT_BUDGET_RATIO = 0.35
-REASONING_OVERHEAD = 0.50
-EFFECTIVE_OUTPUT_TOKENS = int(MAX_CONTEXT_TOKENS * OUTPUT_BUDGET_RATIO * (1 - REASONING_OVERHEAD))
+# Grok models have a 2M token context window.
+# We use conservative fixed budgets for reliable chunking.
+MAX_INPUT_TOKENS = 200_000   # plenty of room for large prompts
+EFFECTIVE_OUTPUT_TOKENS = 60_000  # effective output after reasoning overhead
 
 # Hard cap on lines per chunk
 MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400}
