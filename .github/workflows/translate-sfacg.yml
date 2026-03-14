@@ -6,7 +6,7 @@ on:
       model:
         description: 'Grok model to use'
         required: false
-        default: 'grok-4.20-beta-0309-reasoning'
+        default: 'grok-4-1-fast-reasoning'
         type: string
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests Pillow
 
       # --- Translate Titles ---
       - name: Extract untranslated SFACG titles

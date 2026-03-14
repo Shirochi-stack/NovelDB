@@ -1,18 +1,16 @@
-"""Translate untranslated titles/descriptions using the Grok API.
+"""Translate untranslated titles/descriptions using the Unified API Client.
+
+Uses the UnifiedClient from unified_api_client.py for reliable API communication
+with built-in retry logic, rate limiting, and multi-provider support.
 
 Reads an untranslated file (id|||original or id|||original|||), chunks the rows
-to stay within the Grok API token limits (using proper CJK-aware token estimation),
-sends translation requests IN PARALLEL, and writes the translated results back to
-the same file.
-
-Chunking uses actual token estimation — CJK characters count as ~1 token each,
-ASCII characters as ~0.25 tokens each — to stay within the model's context window.
-
-Parallel requests are staggered by a configurable delay (default 5s) to avoid
-rate-limit storms.
+to stay within the API token limits (using CJK-aware token estimation),
+sends translation requests IN PARALLEL, and writes the translated results back
+to the same file.
 
 Environment:
     GROK_API_KEY  — required API key (set via GitHub secret)
+    MODEL         — override model name (optional, default: grok-4-1-fast-reasoning)
 
 Usage:
     python scripts/translate_with_grok.py <input_file> [--lang korean|chinese] [--type titles|descriptions]
@@ -23,46 +21,45 @@ Examples:
     python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions
 """
 
-import os, sys, json, time, argparse, requests, threading
+import os, sys, json, time, argparse, threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-DEFAULT_MODEL = "grok-4.20-beta-0309-reasoning"
-MAX_OUTPUT_TOKENS = 131072  # 128k
+# Add scripts dir to path so we can import unified_api_client
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
+# Suppress debug payload saving in CI
+os.environ.setdefault("DEBUG_SAVE_REQUEST_PAYLOADS", "0")
+# Suppress HTTP logging noise in CI
+os.environ.setdefault("GRACEFUL_STOP_HTTP_SUPPRESS", "1")
+
+from unified_api_client import UnifiedClient
+
+DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 # ── Token budget for chunking ──
-# The model context window is 131k tokens total (input + output).
-# For a reasoning model, output includes thinking tokens which can use 30-60%
-# of the output budget. We need to be conservative.
-#
-# Budget allocation:
-#   Input  = 65% of context  → ~85k tokens for the prompt
-#   Output = 35% of context  → ~46k tokens for reasoning + translated lines
-#
-# The prompt includes ~200 tokens of system/instruction overhead.
+# Conservative estimates for chunk sizing.
+# The model context window is ~131k tokens total.
+# We allocate 65% for input and 35% for output.
 MAX_CONTEXT_TOKENS = 131072
 INPUT_BUDGET_RATIO = 0.65
-PROMPT_OVERHEAD_TOKENS = 300  # system message + instruction text
+PROMPT_OVERHEAD_TOKENS = 300
 MAX_INPUT_TOKENS = int(MAX_CONTEXT_TOKENS * INPUT_BUDGET_RATIO) - PROMPT_OVERHEAD_TOKENS
 
-# For output, the reasoning model uses ~40-60% of output on thinking.
-# We estimate effective output tokens for actual content:
+# Output: reasoning models use ~50% on thinking
 OUTPUT_BUDGET_RATIO = 0.35
-REASONING_OVERHEAD = 0.50  # 50% of output goes to thinking
+REASONING_OVERHEAD = 0.50
 EFFECTIVE_OUTPUT_TOKENS = int(MAX_CONTEXT_TOKENS * OUTPUT_BUDGET_RATIO * (1 - REASONING_OVERHEAD))
 
-# Hard cap on lines per chunk (even if token budget allows more,
-# very large batches cause the model to lose focus)
+# Hard cap on lines per chunk
 MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400}
 
-# Concurrency settings
+# Concurrency
 MAX_WORKERS = 67
-STAGGER_DELAY = 5  # seconds between launching each parallel request
-MAX_RETRIES = 5
-MAX_RATE_LIMIT_RETRIES = 8  # separate budget for consecutive 429s
-REQUEST_TIMEOUT = 600  # 10 minutes for large chunks
+STAGGER_DELAY = 5
 
 # Thread-safe print lock
 _print_lock = threading.Lock()
@@ -74,17 +71,14 @@ def _tprint(*args, **kwargs):
         sys.stdout.flush()
 
 
-# ── Token estimation ──
+# ── Token estimation (CJK-aware, from unified_api_client patterns) ──
 
 def estimate_tokens(text):
-    """Estimate the token count for a string using CJK-aware heuristics.
+    """Estimate token count using CJK-aware heuristics.
 
-    Most LLM tokenizers (BPE-based) treat CJK characters as individual tokens
-    since they're outside the common merge vocabulary. ASCII text compresses
-    to ~1 token per 4 characters on average.
-
-    This gives results within ~15% of actual tokenizer output for mixed
-    CJK/English text, which is close enough for chunk sizing.
+    CJK characters ≈ 1 token each (BPE treats them individually).
+    ASCII text ≈ 1 token per 4 characters on average.
+    Gives results within ~15% of actual tokenizer output.
     """
     cjk = 0
     ascii_chars = 0
@@ -104,21 +98,13 @@ def estimate_tokens(text):
             cjk += 1
         else:
             ascii_chars += 1
-    # CJK chars ≈ 1 token each, ASCII ≈ 0.25 tokens per char (4 chars/token)
     return cjk + max(1, ascii_chars // 4)
 
 
 def estimate_output_tokens_per_line(rows, content_type):
-    """Estimate how many output tokens each translated line will consume.
-
-    Output format: id|||original|||english_translation
-    The original text is echoed back, so output ≈ input + translation.
-    For descriptions, translation length ≈ 0.8x the original CJK length.
-    For titles, translation ≈ 1.5x the original (short titles expand in English).
-    """
+    """Estimate output tokens per translated line."""
     if not rows:
-        return 50  # fallback
-    # Sample up to 100 rows to estimate
+        return 50
     sample = rows[:100]
     total_tokens = 0
     for row in sample:
@@ -129,7 +115,6 @@ def estimate_output_tokens_per_line(rows, content_type):
             translation_tokens = int(orig_tokens * 0.8)
         else:
             translation_tokens = int(orig_tokens * 1.5)
-        # Output line = id tokens + delimiters (~5) + original + delimiters + translation
         total_tokens += 5 + orig_tokens + translation_tokens
     return max(10, total_tokens // len(sample))
 
@@ -162,91 +147,8 @@ Input ({len(rows)} lines):
 {lines_text}"""
 
 
-def call_grok(prompt, api_key, model=DEFAULT_MODEL):
-    """Call the Grok API with robust retry logic.
-
-    Rate-limit (429) responses have their own retry budget so they don't
-    consume the general retry counter.  Uses a while-loop so that 429s
-    truly don't decrement the attempt counter.
-    """
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "You are a professional translator. You translate novel titles and descriptions accurately and naturally. Output ONLY the translated lines in the exact format requested."},
-            {"role": "user", "content": prompt},
-        ],
-        "max_tokens": MAX_OUTPUT_TOKENS,
-        "temperature": 0.3,
-    }
-
-    rate_limit_hits = 0
-    attempt = 0
-
-    while attempt < MAX_RETRIES:
-        try:
-            # Tuple timeout: (connect_timeout, read_timeout)
-            # Connect must succeed in 30s, entire response must arrive in 600s
-            resp = requests.post(GROK_API_URL, headers=headers, json=payload,
-                                 timeout=(30, REQUEST_TIMEOUT))
-
-            if resp.status_code == 429:
-                rate_limit_hits += 1
-                if rate_limit_hits > MAX_RATE_LIMIT_RETRIES:
-                    raise RuntimeError(f"Rate-limited {rate_limit_hits} times, giving up")
-                wait = min(120, 2 ** rate_limit_hits * 10)
-                _tprint(f"    Rate limited (429 #{rate_limit_hits}), waiting {wait}s...")
-                time.sleep(wait)
-                # Don't count rate-limits against the normal retry budget
-                continue
-
-            if resp.status_code >= 500:
-                wait = min(60, 2 ** attempt * 10)
-                _tprint(f"    Server error {resp.status_code} on attempt {attempt + 1}, waiting {wait}s...")
-                time.sleep(wait)
-                attempt += 1
-                continue
-
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"].strip()
-            usage = data.get("usage", {})
-            _tprint(f"    Tokens: {usage.get('prompt_tokens', '?')} in, {usage.get('completion_tokens', '?')} out")
-            return content
-
-        except requests.exceptions.Timeout:
-            _tprint(f"    Timeout on attempt {attempt + 1}/{MAX_RETRIES}, retrying...")
-            time.sleep(10)
-            attempt += 1
-        except requests.exceptions.ConnectionError as e:
-            wait = min(60, 2 ** attempt * 10)
-            _tprint(f"    Connection error on attempt {attempt + 1}: {e}")
-            _tprint(f"    Waiting {wait}s before retry...")
-            time.sleep(wait)
-            attempt += 1
-        except RuntimeError:
-            raise
-        except Exception as e:
-            _tprint(f"    Error on attempt {attempt + 1}: {e}")
-            attempt += 1
-            if attempt >= MAX_RETRIES:
-                raise
-            time.sleep(10)
-
-    raise RuntimeError("All retries exhausted")
-
-
 def chunk_rows(rows, content_type):
-    """Split rows into chunks using actual token estimation.
-
-    Each chunk is bounded by three constraints:
-    1. Input tokens (measured) must fit within the model's input budget
-    2. Estimated output tokens must fit within the effective output budget
-    3. Line count must not exceed the hard cap for the content type
-    """
+    """Split rows into chunks using token estimation."""
     max_lines = MAX_LINES_PER_CHUNK.get(content_type, 500)
     avg_output_per_line = estimate_output_tokens_per_line(rows, content_type)
 
@@ -282,10 +184,7 @@ def chunk_rows(rows, content_type):
 
 
 def parse_response(response_text, original_rows):
-    """Parse the API response and extract translations.
-
-    Returns a dict of {id: english_translation}.
-    """
+    """Parse the API response and extract translations."""
     translations = {}
     original_ids = {row.split("|||")[0].strip() for row in original_rows}
 
@@ -304,22 +203,41 @@ def parse_response(response_text, original_rows):
 
 
 def process_chunk(chunk_idx, chunk, total_chunks, lang, content_type, api_key, model):
-    """Process a single chunk: build prompt, call API, parse response.
-
-    Returns (chunk_idx, translations_dict, len(chunk)).
-    """
+    """Process a single chunk using UnifiedClient."""
     _tprint(f"\n  Chunk {chunk_idx + 1}/{total_chunks} ({len(chunk)} lines)...")
 
     try:
+        # Create a per-thread client instance for thread safety
+        client = UnifiedClient(api_key=api_key, model=model, output_dir="/tmp/translate_output")
+
         prompt = build_prompt(chunk, lang, content_type)
-        response = call_grok(prompt, api_key, model=model)
-        translations = parse_response(response, chunk)
+
+        messages = [
+            {"role": "system", "content": "You are a professional translator. You translate novel titles and descriptions accurately and naturally. Output ONLY the translated lines in the exact format requested."},
+            {"role": "user", "content": prompt},
+        ]
+
+        # Use UnifiedClient.send() — handles retries, rate limits, timeouts internally
+        response_text, finish_reason = client.send(
+            messages,
+            temperature=0.3,
+            context=f"translate_chunk_{chunk_idx}",
+        )
+
+        if not response_text:
+            _tprint(f"  Chunk {chunk_idx + 1}/{total_chunks}: EMPTY RESPONSE")
+            return chunk_idx, {}, len(chunk)
+
+        translations = parse_response(response_text, chunk)
 
         _tprint(f"  Chunk {chunk_idx + 1}/{total_chunks}: got {len(translations)} translations (expected {len(chunk)})")
 
         missing = len(chunk) - len(translations)
         if missing > 0:
             _tprint(f"  Chunk {chunk_idx + 1}/{total_chunks}: WARNING — {missing} lines not translated")
+
+        if finish_reason and finish_reason != "stop":
+            _tprint(f"  Chunk {chunk_idx + 1}/{total_chunks}: finish_reason={finish_reason}")
 
         return chunk_idx, translations, len(chunk)
 
@@ -329,20 +247,23 @@ def process_chunk(chunk_idx, chunk, total_chunks, lang, content_type, api_key, m
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Translate with Grok API")
+    parser = argparse.ArgumentParser(description="Translate with Unified API Client")
     parser.add_argument("input_file", help="Path to untranslated file")
     parser.add_argument("--lang", default="korean", choices=["korean", "chinese"],
                         help="Source language (default: korean)")
     parser.add_argument("--type", dest="content_type", default="titles",
                         choices=["titles", "descriptions"],
                         help="Content type (default: titles)")
-    parser.add_argument("--model", default=DEFAULT_MODEL,
-                        help=f"Grok model to use (default: {DEFAULT_MODEL})")
+    parser.add_argument("--model", default=None,
+                        help=f"Model to use (default: {DEFAULT_MODEL}, or MODEL env var)")
     parser.add_argument("--workers", type=int, default=MAX_WORKERS,
                         help=f"Max parallel workers (default: {MAX_WORKERS})")
     parser.add_argument("--delay", type=float, default=STAGGER_DELAY,
                         help=f"Seconds between launching each request (default: {STAGGER_DELAY})")
     args = parser.parse_args()
+
+    # Resolve model: CLI flag > MODEL env var > default
+    model = args.model or os.environ.get("MODEL", DEFAULT_MODEL)
 
     api_key = os.environ.get("GROK_API_KEY")
     if not api_key:
@@ -374,8 +295,9 @@ def main():
         return
 
     print(f"Found {len(rows)} untranslated rows in {args.input_file}")
+    print(f"Using model: {model}")
 
-    # Chunk the rows using token estimation
+    # Chunk the rows
     chunks = chunk_rows(rows, args.content_type)
     chunk_sizes = [len(c) for c in chunks]
     avg_output_per_line = estimate_output_tokens_per_line(rows, args.content_type)
@@ -393,10 +315,10 @@ def main():
         futures = {}
         for i, chunk in enumerate(chunks):
             if i > 0:
-                time.sleep(args.delay)  # stagger each submission
+                time.sleep(args.delay)
             future = pool.submit(
                 process_chunk, i, chunk, len(chunks),
-                args.lang, args.content_type, api_key, args.model,
+                args.lang, args.content_type, api_key, model,
             )
             futures[future] = i
 
