@@ -2,9 +2,12 @@
 
 Reads an untranslated file (id|||original or id|||original|||), chunks the rows
 to stay within the Grok API output token limit (with 30% safety margin), sends
-translation requests, and writes the translated results back to the same file.
+translation requests IN PARALLEL, and writes the translated results back to the
+same file.
 
 The script chunks at line boundaries to avoid splitting mid-sentence.
+Parallel requests are staggered by a configurable delay (default 5s) to avoid
+rate-limit storms.
 
 Environment:
     GROK_API_KEY  — required API key (set via GitHub secret)
@@ -18,7 +21,8 @@ Examples:
     python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions
 """
 
-import os, sys, json, time, argparse, requests
+import os, sys, json, time, argparse, requests, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -36,6 +40,22 @@ MAX_OUTPUT_CHARS = int(EFFECTIVE_OUTPUT_TOKENS * CHARS_PER_TOKEN)
 # Average translated title ~ 50 chars, so ~80 chars per output line
 # Average translated description ~ 200 chars, so ~250 chars per output line
 AVG_CHARS_PER_LINE = {"titles": 80, "descriptions": 250}
+
+# Concurrency settings
+MAX_WORKERS = 30
+STAGGER_DELAY = 5  # seconds between launching each parallel request
+MAX_RETRIES = 5
+MAX_RATE_LIMIT_RETRIES = 8  # separate budget for consecutive 429s
+REQUEST_TIMEOUT = 600  # 10 minutes for large chunks
+
+# Thread-safe print lock
+_print_lock = threading.Lock()
+
+def _tprint(*args, **kwargs):
+    """Thread-safe print."""
+    with _print_lock:
+        print(*args, **kwargs)
+        sys.stdout.flush()
 
 
 def build_prompt(rows, lang, content_type):
@@ -66,8 +86,12 @@ Input ({len(rows)} lines):
 {lines_text}"""
 
 
-def call_grok(prompt, api_key, model=DEFAULT_MODEL, max_retries=3):
-    """Call the Grok API with retry logic."""
+def call_grok(prompt, api_key, model=DEFAULT_MODEL):
+    """Call the Grok API with robust retry logic.
+
+    Rate-limit (429) responses have their own retry budget so they don't
+    consume the general retry counter.
+    """
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -82,29 +106,53 @@ def call_grok(prompt, api_key, model=DEFAULT_MODEL, max_retries=3):
         "temperature": 0.3,
     }
 
-    for attempt in range(max_retries):
+    rate_limit_hits = 0
+
+    for attempt in range(MAX_RETRIES):
         try:
-            resp = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=300)
+            resp = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+
             if resp.status_code == 429:
+                rate_limit_hits += 1
+                if rate_limit_hits > MAX_RATE_LIMIT_RETRIES:
+                    raise RuntimeError(f"Rate-limited {rate_limit_hits} times, giving up")
+                wait = min(120, 2 ** rate_limit_hits * 10)
+                _tprint(f"    Rate limited (attempt {attempt + 1}), waiting {wait}s...")
+                time.sleep(wait)
+                # Don't count rate-limits against the normal retry budget
+                attempt = max(0, attempt - 1)
+                continue
+
+            if resp.status_code >= 500:
                 wait = min(60, 2 ** attempt * 10)
-                print(f"  Rate limited, waiting {wait}s...")
+                _tprint(f"    Server error {resp.status_code} on attempt {attempt + 1}, waiting {wait}s...")
                 time.sleep(wait)
                 continue
+
             resp.raise_for_status()
             data = resp.json()
             content = data["choices"][0]["message"]["content"].strip()
             usage = data.get("usage", {})
-            print(f"  Tokens used: {usage.get('prompt_tokens', '?')} in, {usage.get('completion_tokens', '?')} out")
+            _tprint(f"    Tokens: {usage.get('prompt_tokens', '?')} in, {usage.get('completion_tokens', '?')} out")
             return content
+
         except requests.exceptions.Timeout:
-            print(f"  Timeout on attempt {attempt + 1}, retrying...")
-            time.sleep(5)
+            _tprint(f"    Timeout on attempt {attempt + 1}, retrying...")
+            time.sleep(10)
+        except requests.exceptions.ConnectionError as e:
+            wait = min(60, 2 ** attempt * 10)
+            _tprint(f"    Connection error on attempt {attempt + 1}: {e}")
+            _tprint(f"    Waiting {wait}s before retry...")
+            time.sleep(wait)
+        except RuntimeError:
+            raise
         except Exception as e:
-            print(f"  Error on attempt {attempt + 1}: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(5)
+            _tprint(f"    Error on attempt {attempt + 1}: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(10)
             else:
                 raise
+
     raise RuntimeError("All retries exhausted")
 
 
@@ -142,6 +190,31 @@ def parse_response(response_text, original_rows):
     return translations
 
 
+def process_chunk(chunk_idx, chunk, total_chunks, lang, content_type, api_key, model):
+    """Process a single chunk: build prompt, call API, parse response.
+
+    Returns (chunk_idx, translations_dict, len(chunk)).
+    """
+    _tprint(f"\n  Chunk {chunk_idx + 1}/{total_chunks} ({len(chunk)} lines)...")
+
+    try:
+        prompt = build_prompt(chunk, lang, content_type)
+        response = call_grok(prompt, api_key, model=model)
+        translations = parse_response(response, chunk)
+
+        _tprint(f"  Chunk {chunk_idx + 1}/{total_chunks}: got {len(translations)} translations (expected {len(chunk)})")
+
+        missing = len(chunk) - len(translations)
+        if missing > 0:
+            _tprint(f"  Chunk {chunk_idx + 1}/{total_chunks}: WARNING — {missing} lines not translated")
+
+        return chunk_idx, translations, len(chunk)
+
+    except Exception as e:
+        _tprint(f"  Chunk {chunk_idx + 1}/{total_chunks}: FAILED — {e}")
+        return chunk_idx, {}, len(chunk)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Translate with Grok API")
     parser.add_argument("input_file", help="Path to untranslated file")
@@ -152,6 +225,10 @@ def main():
                         help="Content type (default: titles)")
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         help=f"Grok model to use (default: {DEFAULT_MODEL})")
+    parser.add_argument("--workers", type=int, default=MAX_WORKERS,
+                        help=f"Max parallel workers (default: {MAX_WORKERS})")
+    parser.add_argument("--delay", type=float, default=STAGGER_DELAY,
+                        help=f"Seconds between launching each request (default: {STAGGER_DELAY})")
     args = parser.parse_args()
 
     api_key = os.environ.get("GROK_API_KEY")
@@ -187,27 +264,36 @@ def main():
 
     # Chunk the rows
     chunks = chunk_rows(rows, args.content_type)
-    print(f"Split into {len(chunks)} chunks (max ~{MAX_OUTPUT_CHARS // AVG_CHARS_PER_LINE.get(args.content_type, 100)} lines per chunk)")
+    max_lines = MAX_OUTPUT_CHARS // AVG_CHARS_PER_LINE.get(args.content_type, 100)
+    print(f"Split into {len(chunks)} chunks (max ~{max_lines} lines per chunk)")
+    print(f"Parallel mode: {args.workers} workers, {args.delay}s stagger delay")
 
-    # Translate each chunk
+    # ── Translate chunks in parallel ──
     all_translations = {}
-    for i, chunk in enumerate(chunks):
-        print(f"\nChunk {i + 1}/{len(chunks)} ({len(chunk)} lines)...")
-        prompt = build_prompt(chunk, args.lang, args.content_type)
-        response = call_grok(prompt, api_key, model=args.model)
-        translations = parse_response(response, chunk)
-        all_translations.update(translations)
-        print(f"  Got {len(translations)} translations (expected {len(chunk)})")
+    total_expected = 0
+    failed_chunks = []
 
-        missing = len(chunk) - len(translations)
-        if missing > 0:
-            print(f"  WARNING: {missing} lines were not translated")
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {}
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                time.sleep(args.delay)  # stagger each submission
+            future = pool.submit(
+                process_chunk, i, chunk, len(chunks),
+                args.lang, args.content_type, api_key, args.model,
+            )
+            futures[future] = i
 
-        # Brief pause between API calls
-        if i < len(chunks) - 1:
-            time.sleep(2)
+        for future in as_completed(futures):
+            chunk_idx, translations, chunk_size = future.result()
+            all_translations.update(translations)
+            total_expected += chunk_size
+            if not translations:
+                failed_chunks.append(chunk_idx + 1)
 
-    print(f"\nTotal translations: {len(all_translations)} / {len(rows)}")
+    print(f"\nTotal translations: {len(all_translations)} / {total_expected}")
+    if failed_chunks:
+        print(f"Failed chunks: {sorted(failed_chunks)}")
 
     # Write results back to the input file with translations filled in
     output_lines = []
