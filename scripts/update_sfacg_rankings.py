@@ -1,8 +1,7 @@
 """Scrape SFACG rankings and patch them into existing sfacg_novels.json.
 
-Lightweight alternative to a full rescrape — only fetches:
-  1. Rankings from m.sfacg.com (4 categories, ~80 novels total)
-  2. Synopses for ranked novels via API
+Also rescrapes full metadata (cover, title, views, etc.) for all ranked novels
+so that data stays fresh.
 
 Updates sfacg_novels.json in-place, then re-extracts descriptions,
 re-chunks data, and rebuilds the top file.
@@ -30,6 +29,8 @@ HEADERS = {
     "Authorization": "Basic YW5kcm9pZHVzZXI6MWEjJDUxLXl0Njk7KkFjdkBxeHE=",
 }
 
+COVER_PREFIX = "https://rss.sfacg.com/web/novel/images/NovelCover/Big/"
+
 
 def scrape_rankings():
     rankings = {}
@@ -49,17 +50,58 @@ def scrape_rankings():
     return rankings
 
 
-def fetch_synopsis(session, novel_id):
-    try:
-        r = session.get(f"{API_URL}/{novel_id}", params={"expand": "intro"}, timeout=10)
-        data = r.json()
-        intro = data.get("data", {}).get("expand", {}).get("intro", "")
-        if intro:
-            intro = intro.replace("\r\n", "\n").replace("\r", "\n")
-            intro = re.sub(r"\n{3,}", "\n\n", intro).strip()
-        return intro
-    except Exception:
-        return ""
+def rescrape_metadata(session, ranked_ids):
+    """Fetch fresh metadata for ranked novels from the SFACG API.
+
+    Returns dict: {novel_id_str: {title, author, cover, tags, views, likes, chapters, complete, updated, age, synopsis}}
+    """
+    fresh = {}
+    for i, nid in enumerate(sorted(ranked_ids, key=int)):
+        try:
+            r = session.get(f"{API_URL}/{nid}",
+                            params={"expand": "intro,sysTags,typeName"},
+                            timeout=10)
+            data = r.json().get("data", {})
+            if not data:
+                continue
+
+            expand = data.get("expand", {})
+            sys_tags = expand.get("sysTags") or []
+            tag_names = [t.get("tagName", "") for t in sys_tags if t.get("tagName")]
+            type_name = expand.get("typeName", "")
+            if type_name and type_name not in tag_names:
+                tag_names.insert(0, type_name)
+
+            cover = data.get("novelCover", "")
+            if cover.startswith(COVER_PREFIX):
+                cover = cover[len(COVER_PREFIX):]
+
+            synopsis = expand.get("intro", "")
+            if synopsis:
+                synopsis = synopsis.replace("\r\n", "\n").replace("\r", "\n")
+                synopsis = re.sub(r"\n{3,}", "\n\n", synopsis).strip()
+
+            fresh[str(nid)] = {
+                "title": data.get("novelName", ""),
+                "author": data.get("authorName", ""),
+                "cover": cover,
+                "tags": tag_names,
+                "views": data.get("viewTimes", 0),
+                "likes": data.get("markCount", 0),
+                "chapters": data.get("charCount", 0),
+                "complete": 1 if data.get("isFinish", False) else 0,
+                "updated": data.get("lastUpdateTime", ""),
+                "age": 19 if data.get("allowDown", 0) == 0 else 0,
+                "synopsis": synopsis,
+            }
+        except Exception as e:
+            print(f"  Warning: failed to fetch {nid}: {e}")
+
+        if (i + 1) % 20 == 0:
+            print(f"  Fetched {i+1}/{len(ranked_ids)} novels...", flush=True)
+        time.sleep(0.2)
+
+    return fresh
 
 
 def main():
@@ -81,37 +123,25 @@ def main():
         all_ranked.update(rm.keys())
     print(f"\nTotal unique ranked IDs: {len(all_ranked)}")
 
+    # Phase 2: Rescrape full metadata for ranked novels
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    print(f"\nRescraping metadata for {len(all_ranked)} ranked novels...")
+    fresh_data = rescrape_metadata(session, all_ranked)
+    print(f"  Got fresh data for {len(fresh_data)} novels")
+
     # Build ID -> index map
     id_map = {str(e[0]): i for i, e in enumerate(data)}
     found = sum(1 for rid in all_ranked if rid in id_map)
     print(f"Ranked IDs found in dataset: {found}/{len(all_ranked)}")
 
-    # Phase 2: Fetch synopsis for ranked novels missing one
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    need_synopsis = [rid for rid in sorted(all_ranked)
-                     if rid in id_map and (len(data[id_map[rid]]) <= 17 or not data[id_map[rid]][17] if len(data[id_map[rid]]) > 17 else True)]
-    if need_synopsis:
-        print(f"\nFetching synopsis for {len(need_synopsis)} ranked novels...")
-        synopses = {}
-        for rid in need_synopsis:
-            synopsis = fetch_synopsis(session, rid)
-            if synopsis:
-                synopses[rid] = synopsis
-            time.sleep(0.2)
-        print(f"  Got {len(synopses)} synopses")
-    else:
-        synopses = {}
-
-    # Phase 3: Clear old rankings and patch new ones
-    # First, clear all existing rankings (indices 11-16) so stale ranks are removed
+    # Phase 3: Clear old rankings and patch new ones + metadata
     for entry in data:
         if len(entry) > 11:
             for j in range(11, min(17, len(entry))):
                 entry[j] = 0
 
-    # Patch new rankings + synopses
     patched = 0
     for i, entry in enumerate(data):
         nid = str(entry[0])
@@ -119,6 +149,23 @@ def main():
         while len(entry) < 18:
             entry.append(0 if len(entry) < 17 else "")
 
+        # Update metadata if we have fresh data
+        if nid in fresh_data:
+            f = fresh_data[nid]
+            entry[1] = f["title"]
+            entry[2] = f["author"]
+            entry[3] = f["cover"]
+            entry[4] = f["tags"]
+            entry[5] = f["views"]
+            entry[6] = f["likes"]
+            entry[7] = f["chapters"]
+            entry[8] = f["complete"]
+            entry[9] = f["updated"]
+            entry[10] = f["age"]
+            if f["synopsis"]:
+                entry[17] = f["synopsis"]
+
+        # Patch rankings
         entry[11] = rankings.get("original", {}).get(nid, 0)
         entry[12] = rankings.get("sale", {}).get(nid, 0)
         entry[13] = rankings.get("new", {}).get(nid, 0)
@@ -126,10 +173,7 @@ def main():
         entry[15] = rankings.get("jp", {}).get(nid, 0)
         entry[16] = rankings.get("ticket", {}).get(nid, 0)
 
-        if nid in synopses:
-            entry[17] = synopses[nid]
-
-        if any(entry[j] > 0 for j in range(11, 17)):
+        if any(entry[j] > 0 for j in range(11, 17)) or nid in fresh_data:
             patched += 1
 
         # Strip trailing zeros/empty to save space
@@ -138,7 +182,7 @@ def main():
 
         data[i] = entry
 
-    print(f"\nPatched {patched} novels with ranking data")
+    print(f"\nPatched {patched} novels with ranking + metadata")
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
