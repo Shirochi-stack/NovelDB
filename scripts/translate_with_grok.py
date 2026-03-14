@@ -58,7 +58,7 @@ EFFECTIVE_OUTPUT_TOKENS = int(MAX_CONTEXT_TOKENS * OUTPUT_BUDGET_RATIO * (1 - RE
 MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400}
 
 # Concurrency settings
-MAX_WORKERS = 30
+MAX_WORKERS = 67
 STAGGER_DELAY = 5  # seconds between launching each parallel request
 MAX_RETRIES = 5
 MAX_RATE_LIMIT_RETRIES = 8  # separate budget for consecutive 429s
