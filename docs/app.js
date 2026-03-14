@@ -1146,6 +1146,13 @@
                     const ra = getRank(a, sortBy) || 9999;
                     const rb = getRank(b, sortBy) || 9999;
                     if (ra !== rb) return order === "asc" ? rb - ra : ra - rb;
+                    // Prioritize the relevant source for unranked novels
+                    const isSfacg = sortBy.startsWith("sfacg_");
+                    const preferred = isSfacg ? "sfacg" : "novelpia";
+                    const aSrc = a.source || currentSource;
+                    const bSrc = b.source || currentSource;
+                    if (aSrc === preferred && bSrc !== preferred) return -1;
+                    if (bSrc === preferred && aSrc !== preferred) return 1;
                     return b.views - a.views;
                 }
                 default: va = a.views; vb = b.views;
