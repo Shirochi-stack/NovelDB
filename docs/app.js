@@ -1252,8 +1252,8 @@
                 <div class="card-stats">
                     <span class="stat">👁 ${fmt(n.views)}</span>
                     <span class="stat">❤ ${fmt(n.likes)}</span>
-                    <span class="stat">📄 ${fmt(n.chapters)}</span>
-                </div>${n.updated ? `<div class="card-updated">🕒 ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML}
+                    <span class="stat">📄 ${fmt(n.chapters)}</span>${n.updated ? `<span class="stat card-updated">◷ ${fmtDate(n.updated)}</span>` : ""}
+                </div>${synopsisHTML}
             </div>
         `;
 
