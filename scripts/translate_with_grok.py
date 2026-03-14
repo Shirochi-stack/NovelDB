@@ -166,7 +166,8 @@ def call_grok(prompt, api_key, model=DEFAULT_MODEL):
     """Call the Grok API with robust retry logic.
 
     Rate-limit (429) responses have their own retry budget so they don't
-    consume the general retry counter.
+    consume the general retry counter.  Uses a while-loop so that 429s
+    truly don't decrement the attempt counter.
     """
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -183,26 +184,30 @@ def call_grok(prompt, api_key, model=DEFAULT_MODEL):
     }
 
     rate_limit_hits = 0
+    attempt = 0
 
-    for attempt in range(MAX_RETRIES):
+    while attempt < MAX_RETRIES:
         try:
-            resp = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+            # Tuple timeout: (connect_timeout, read_timeout)
+            # Connect must succeed in 30s, entire response must arrive in 600s
+            resp = requests.post(GROK_API_URL, headers=headers, json=payload,
+                                 timeout=(30, REQUEST_TIMEOUT))
 
             if resp.status_code == 429:
                 rate_limit_hits += 1
                 if rate_limit_hits > MAX_RATE_LIMIT_RETRIES:
                     raise RuntimeError(f"Rate-limited {rate_limit_hits} times, giving up")
                 wait = min(120, 2 ** rate_limit_hits * 10)
-                _tprint(f"    Rate limited (attempt {attempt + 1}), waiting {wait}s...")
+                _tprint(f"    Rate limited (429 #{rate_limit_hits}), waiting {wait}s...")
                 time.sleep(wait)
                 # Don't count rate-limits against the normal retry budget
-                attempt = max(0, attempt - 1)
                 continue
 
             if resp.status_code >= 500:
                 wait = min(60, 2 ** attempt * 10)
                 _tprint(f"    Server error {resp.status_code} on attempt {attempt + 1}, waiting {wait}s...")
                 time.sleep(wait)
+                attempt += 1
                 continue
 
             resp.raise_for_status()
@@ -213,21 +218,23 @@ def call_grok(prompt, api_key, model=DEFAULT_MODEL):
             return content
 
         except requests.exceptions.Timeout:
-            _tprint(f"    Timeout on attempt {attempt + 1}, retrying...")
+            _tprint(f"    Timeout on attempt {attempt + 1}/{MAX_RETRIES}, retrying...")
             time.sleep(10)
+            attempt += 1
         except requests.exceptions.ConnectionError as e:
             wait = min(60, 2 ** attempt * 10)
             _tprint(f"    Connection error on attempt {attempt + 1}: {e}")
             _tprint(f"    Waiting {wait}s before retry...")
             time.sleep(wait)
+            attempt += 1
         except RuntimeError:
             raise
         except Exception as e:
             _tprint(f"    Error on attempt {attempt + 1}: {e}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(10)
-            else:
+            attempt += 1
+            if attempt >= MAX_RETRIES:
                 raise
+            time.sleep(10)
 
     raise RuntimeError("All retries exhausted")
 
