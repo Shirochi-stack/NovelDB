@@ -66,52 +66,111 @@ def pick_cover(item):
 
 
 def rescrape_metadata(session, ranked_ids):
-    """Fetch fresh metadata for ranked novels via the Novelpia search API.
+    """Fetch fresh metadata for ranked novels via bulk tag searches.
+
+    Uses search_type=novel_genre with common tags to fetch large batches,
+    then filters to only the ranked IDs we need. This avoids the broken
+    search_type=novel_no endpoint which causes PHP memory crashes.
 
     Returns dict: {novel_id_str: {title, author, cover, tags, views, likes, chapters, complete, age, updated}}
     """
     fresh = {}
+    remaining = set(str(nid) for nid in ranked_ids)
     headers = {
         "X-Requested-With": "XMLHttpRequest",
         "Referer": "https://novelpia.com/search",
     }
 
-    # Fetch each novel individually via the search API
-    for i, nid in enumerate(sorted(ranked_ids, key=int)):
+    # Common tags that collectively cover most novels
+    SEARCH_TAGS = [
+        '판타지', '현대', '로맨스', '라이트노벨', '패러디', '하렘',
+        '일상', '현대판타지', '먼치킨', '전생', '아카데미', '회귀',
+    ]
+
+    def extract_item(item):
+        cover = pick_cover(item)
+        if cover.startswith(COVER_PREFIX):
+            cover = cover[len(COVER_PREFIX):]
+        return {
+            "title": item.get("novel_name", ""),
+            "author": item.get("writer_nick", ""),
+            "cover": cover,
+            "tags": item.get("novel_genre_arr") or [],
+            "views": item.get("count_view", 0),
+            "likes": item.get("count_good", 0),
+            "chapters": item.get("count_book", 0),
+            "complete": item.get("is_complete", 0),
+            "age": item.get("novel_age", 0),
+            "updated": item.get("last_viewdate", ""),
+        }
+
+    for tag in SEARCH_TAGS:
+        if not remaining:
+            break
         try:
             r = session.get("https://novelpia.com/proc/novel", params={
                 "cmd": "novel_search",
-                "search_type": "novel_no",
-                "search_val": nid,
+                "search_type": "novel_genre",
+                "search_val": tag,
                 "page": 1,
-                "rows": 1,
-            }, headers=headers, timeout=15)
+                "rows": 30000,
+                "sort_col": "last_viewdate",
+                "block_out": 0,
+                "block_stop": 0,
+            }, headers=headers, timeout=60)
 
             data = r.json()
             items = data.get("list", [])
-            if items:
-                item = items[0]
-                cover = pick_cover(item)
-                if cover.startswith(COVER_PREFIX):
-                    cover = cover[len(COVER_PREFIX):]
-                fresh[str(nid)] = {
-                    "title": item.get("novel_name", ""),
-                    "author": item.get("writer_nick", ""),
-                    "cover": cover,
-                    "tags": item.get("novel_genre_arr") or [],
-                    "views": item.get("count_view", 0),
-                    "likes": item.get("count_good", 0),
-                    "chapters": item.get("count_book", 0),
-                    "complete": item.get("is_complete", 0),
-                    "age": item.get("novel_age", 0),
-                    "updated": item.get("last_viewdate", ""),
-                }
+            found_count = 0
+            for item in items:
+                nid = str(item.get("novel_no", ""))
+                if nid in remaining:
+                    fresh[nid] = extract_item(item)
+                    remaining.discard(nid)
+                    found_count += 1
+            print(f"  [{tag}] {len(items)} novels, {found_count} ranked matches "
+                  f"({len(remaining)} still missing)")
         except Exception as e:
-            print(f"  Warning: failed to fetch {nid}: {e}")
+            print(f"  [{tag}] Warning: {e}")
+        time.sleep(0.5)
 
-        if (i + 1) % 50 == 0:
-            print(f"  Fetched {i+1}/{len(ranked_ids)} novels...", flush=True)
-        time.sleep(0.15)
+    if remaining:
+        print(f"  {len(remaining)} ranked novels not found via tags, "
+              f"trying character sweep...")
+        for ch in "가나다라마바사아자차카타파하":
+            if not remaining:
+                break
+            try:
+                r = session.get("https://novelpia.com/proc/novel", params={
+                    "cmd": "novel_search",
+                    "search_type": "all",
+                    "search_val": ch,
+                    "page": 1,
+                    "rows": 30000,
+                    "sort_col": "last_viewdate",
+                    "block_out": 0,
+                    "block_stop": 0,
+                }, headers=headers, timeout=60)
+
+                data = r.json()
+                items = data.get("list", [])
+                found_count = 0
+                for item in items:
+                    nid = str(item.get("novel_no", ""))
+                    if nid in remaining:
+                        fresh[nid] = extract_item(item)
+                        remaining.discard(nid)
+                        found_count += 1
+                if found_count:
+                    print(f"  [sweep '{ch}'] found {found_count} "
+                          f"({len(remaining)} still missing)")
+            except Exception as e:
+                print(f"  [sweep '{ch}'] Warning: {e}")
+            time.sleep(0.5)
+
+    if remaining:
+        print(f"  Note: {len(remaining)} novels could not be found "
+              f"(may be deleted or R19-only)")
 
     return fresh
 

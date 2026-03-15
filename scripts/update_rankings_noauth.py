@@ -1,9 +1,13 @@
 """Update Novelpia weekly, monthly & daily rankings WITHOUT authentication.
 
 Scrapes top100 pages for each audience (all, adult, teen) × each period.
+Also rescrapes full metadata (cover, title, views, etc.) for all ranked novels
+so that data stays fresh.
 R19 pages require auth and may fail in CI — existing R19 ranks are preserved.
 
 Data indices:
+  [0] id  [1] title  [2] author  [3] cover  [4] tags  [5] views  [6] likes
+  [7] chapters  [8] complete  [9] updated
   [10] weeklyRank (all)    [12] monthlyRank (all)    [13] dailyRank (all)
   [14] weeklyRankAdult     [15] monthlyRankAdult     [16] dailyRankAdult
   [17] weeklyRankTeen      [18] monthlyRankTeen      [19] dailyRankTeen
@@ -12,8 +16,9 @@ Usage:
     python scripts/update_rankings_noauth.py
 """
 
-import sys, os, json, re, requests
+import sys, os, json, re, time, requests
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
 HEADERS = {
@@ -21,6 +26,8 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
 }
+
+COVER_PREFIX = "https://novelpia.com"
 
 AUDIENCES = [
     ("all/plus",   "all",   10, 12, 13),
@@ -48,6 +55,132 @@ def scrape_ranking(session, period, audience):
     return ranking
 
 
+def pick_cover(item):
+    """Pick the best cover URL from a Novelpia API response."""
+    for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
+        v = item.get(k)
+        if v and str(v) not in ("", "None", "null"):
+            v = str(v)
+            if v.startswith("//"):
+                return "https:" + v
+            if not v.startswith("http"):
+                return COVER_PREFIX + v
+            return v
+    return ""
+
+
+def rescrape_metadata(session, ranked_ids):
+    """Fetch fresh metadata for ranked novels via bulk tag searches.
+
+    Uses search_type=novel_genre with common tags to fetch large batches,
+    then filters to only the ranked IDs we need. This avoids the broken
+    search_type=novel_no endpoint which causes PHP memory crashes.
+
+    Returns dict: {novel_id_str: {title, author, cover, tags, views, likes, chapters, complete, age, updated}}
+    """
+    fresh = {}
+    remaining = set(str(nid) for nid in ranked_ids)
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://novelpia.com/search",
+    }
+
+    # Common tags that collectively cover most novels
+    SEARCH_TAGS = [
+        '판타지', '현대', '로맨스', '라이트노벨', '패러디', '하렘',
+        '일상', '현대판타지', '먼치킨', '전생', '아카데미', '회귀',
+    ]
+
+    def extract_item(item):
+        cover = pick_cover(item)
+        if cover.startswith(COVER_PREFIX):
+            cover = cover[len(COVER_PREFIX):]
+        return {
+            "title": item.get("novel_name", ""),
+            "author": item.get("writer_nick", ""),
+            "cover": cover,
+            "tags": item.get("novel_genre_arr") or [],
+            "views": item.get("count_view", 0),
+            "likes": item.get("count_good", 0),
+            "chapters": item.get("count_book", 0),
+            "complete": item.get("is_complete", 0),
+            "age": item.get("novel_age", 0),
+            "updated": item.get("last_viewdate", ""),
+        }
+
+    for tag in SEARCH_TAGS:
+        if not remaining:
+            break
+        try:
+            r = session.get("https://novelpia.com/proc/novel", params={
+                "cmd": "novel_search",
+                "search_type": "novel_genre",
+                "search_val": tag,
+                "page": 1,
+                "rows": 30000,
+                "sort_col": "last_viewdate",
+                "block_out": 0,
+                "block_stop": 0,
+            }, headers=headers, timeout=60)
+
+            data = r.json()
+            items = data.get("list", [])
+            found_count = 0
+            for item in items:
+                nid = str(item.get("novel_no", ""))
+                if nid in remaining:
+                    fresh[nid] = extract_item(item)
+                    remaining.discard(nid)
+                    found_count += 1
+            print(f"  [{tag}] {len(items)} novels, {found_count} ranked matches "
+                  f"({len(remaining)} still missing)")
+        except Exception as e:
+            print(f"  [{tag}] Warning: {e}")
+        time.sleep(0.5)
+
+    if remaining:
+        print(f"  {len(remaining)} ranked novels not found via tags, "
+              f"trying character sweep...")
+        # Try broad character-based searches for remaining
+        for ch in "가나다라마바사아자차카타파하":
+            if not remaining:
+                break
+            try:
+                r = session.get("https://novelpia.com/proc/novel", params={
+                    "cmd": "novel_search",
+                    "search_type": "all",
+                    "search_val": ch,
+                    "page": 1,
+                    "rows": 30000,
+                    "sort_col": "last_viewdate",
+                    "block_out": 0,
+                    "block_stop": 0,
+                }, headers=headers, timeout=60)
+
+                data = r.json()
+                items = data.get("list", [])
+                found_count = 0
+                for item in items:
+                    nid = str(item.get("novel_no", ""))
+                    if nid in remaining:
+                        fresh[nid] = extract_item(item)
+                        remaining.discard(nid)
+                        found_count += 1
+                if found_count:
+                    print(f"  [sweep '{ch}'] found {found_count} "
+                          f"({len(remaining)} still missing)")
+            except Exception as e:
+                print(f"  [sweep '{ch}'] Warning: {e}")
+            time.sleep(0.5)
+
+    if remaining:
+        print(f"  Note: {len(remaining)} novels could not be found "
+              f"(may be deleted or R19-only)")
+
+    return fresh
+
+
+
 def main():
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -58,6 +191,25 @@ def main():
     except Exception:
         pass
 
+    # Try to set up authenticated session for metadata rescraping
+    auth_session = None
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+    if os.path.exists(config_path):
+        try:
+            from novelpia_auth import NovelpiaAuth
+            config = json.load(open(config_path, "r"))
+            loginkey = config.get("loginkey", "")
+            if loginkey:
+                auth = NovelpiaAuth()
+                auth.set_manual_key(loginkey)
+                auth_session = auth.session
+                print("  Using loginkey from config.json for metadata API")
+        except Exception as e:
+            print(f"  Warning: Could not load auth: {e}")
+    if not auth_session:
+        print("  No loginkey — metadata rescrape will use unauthenticated session")
+
+    # Phase 1: Scrape rankings
     rankings = {}
     failed_audiences = set()
 
@@ -86,6 +238,18 @@ def main():
     if "adult/plus" in failed_audiences:
         print("\nR19 (adult) pages unavailable — existing adult ranks will be preserved")
 
+    # Collect all unique ranked novel IDs
+    all_ranked_ids = set()
+    for rm in rankings.values():
+        all_ranked_ids.update(rm.keys())
+    print(f"\nTotal unique ranked IDs: {len(all_ranked_ids)}")
+
+    # Phase 2: Rescrape full metadata for ranked novels
+    meta_session = auth_session or session
+    print(f"\nRescraping metadata for {len(all_ranked_ids)} ranked novels...")
+    fresh_data = rescrape_metadata(meta_session, all_ranked_ids)
+    print(f"  Got fresh data for {len(fresh_data)} novels")
+
     # Load existing data
     data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data", "novels.json")
     if not os.path.exists(data_path):
@@ -93,8 +257,9 @@ def main():
         sys.exit(1)
 
     data = json.load(open(data_path, "r", encoding="utf-8"))
-    print(f"Loaded {len(data)} novels from {data_path}")
+    print(f"\nLoaded {len(data)} novels from {data_path}")
 
+    # Phase 3: Patch metadata + rankings
     updated = 0
     for novel in data:
         nid = str(novel[0])
@@ -103,6 +268,21 @@ def main():
         while len(novel) < 20:
             novel.append(0)
 
+        # Update metadata if we have fresh data (indices 1-9, 11)
+        if nid in fresh_data:
+            f = fresh_data[nid]
+            novel[1] = f["title"]
+            novel[2] = f["author"]
+            novel[3] = f["cover"]
+            novel[4] = f["tags"]
+            novel[5] = f["views"]
+            novel[6] = f["likes"]
+            novel[7] = f["chapters"]
+            novel[8] = f["complete"]
+            novel[9] = f["updated"]
+            novel[11] = f["age"]
+
+        # Update rankings
         changed = False
         for audience_url, _, idx_weekly, idx_monthly, idx_daily in AUDIENCES:
             # Skip this audience if it failed (preserve existing ranks)
@@ -115,7 +295,7 @@ def main():
                     novel[idx] = new_rank
                     changed = True
 
-        if changed:
+        if changed or nid in fresh_data:
             updated += 1
 
     print(f"\nUpdated {updated} novels")
