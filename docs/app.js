@@ -5747,14 +5747,6 @@
                 pendingImageTimers.push(tid);
             });
 
-            // Dynamic font reduction for overflowing titles on mobile
-            if (window.innerWidth <= 768) {
-                resultsEl.querySelectorAll(".card-title").forEach(el => {
-                    if (el.scrollHeight > el.clientHeight + 1) {
-                        el.classList.add("card-title-sm");
-                    }
-                });
-            }
 
             // Update both pagination bars
             const show = totalPages > 1;
