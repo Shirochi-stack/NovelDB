@@ -461,6 +461,7 @@ a.card-cover-wrap {
     -webkit-box-orient: vertical;
     overflow: hidden;
     line-height: 1.4;
+    transition: font-size 0.15s ease;
 }
 
 .card-title-kr {
@@ -821,8 +822,12 @@ a.card-cover-wrap {
 
     .card-title {
         font-size: 0.9rem;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+    }
+
+    .card-title.card-title-sm {
+        font-size: 0.78rem;
     }
 
     .card-title-kr {
