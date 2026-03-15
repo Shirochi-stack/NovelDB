@@ -1,0 +1,62 @@
+name: Translate Novelpia Tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Grok model to use'
+        required: false
+        default: 'grok-4-1-fast-reasoning'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: novelpia-data
+  cancel-in-progress: false
+
+jobs:
+  translate-tags:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests tiktoken
+
+      - name: Extract untranslated tags
+        run: python scripts/extract_untranslated_tags.py
+
+      - name: Translate tags with Grok
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+        run: python scripts/translate_with_grok.py docs/data/tags_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }}
+
+      - name: Merge translated tags into app.js
+        run: python scripts/merge_translated_tags.py
+
+      - name: Re-chunk Novelpia data
+        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt --descriptions docs/data/descriptions.txt
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet docs/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/app.js docs/data/tags_en.txt docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json
+          git commit -m "🏷️ Translate Novelpia tags ($(date -u +%Y-%m-%d))"
+          git push
