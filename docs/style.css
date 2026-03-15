@@ -841,9 +841,13 @@ a.card-cover-wrap {
         margin-bottom: 0.5rem;
     }
 
+    .card-title.card-title-sm {
+        font-size: 0.78rem;
+    }
+
     .card-tag {
-        font-size: 0.6rem;
-        padding: 0.1rem 0.4rem;
+        font-size: 0.5rem;
+        padding: 0.1rem 0.35rem;
     }
 
     .card-stats {
