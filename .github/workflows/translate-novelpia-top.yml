@@ -1,4 +1,4 @@
-name: Translate Novelpia Top 100
+name: Translate Novelpia Titles & Descriptions
 
 on:
   workflow_run:
@@ -80,5 +80,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/data/titles_en.txt docs/data/descriptions.txt docs/data/novelpia_top.json.gz docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json
-          git commit -m "🌐 Translate Npia top titles & descriptions ($(date -u +%Y-%m-%d))"
+          git commit -m "🌐 Translate Npia titles & descriptions ($(date -u +%Y-%m-%d))"
           git push

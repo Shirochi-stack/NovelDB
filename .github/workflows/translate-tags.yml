@@ -2,7 +2,7 @@ name: Translate Novelpia Tags
 
 on:
   workflow_run:
-    workflows: ["Translate Novelpia Top 100"]
+    workflows: ["Translate Novelpia Titles & Descriptions"]
     types: [completed]
   workflow_dispatch:
     inputs:
