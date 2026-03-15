@@ -29,7 +29,7 @@ MAX_INPUT_TOKENS = 200_000
 EFFECTIVE_OUTPUT_TOKENS = 60_000
 
 # Hard cap on lines per chunk
-MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400}
+MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400, "tags": 2000}
 
 # Concurrency
 MAX_WORKERS = 67
@@ -116,13 +116,7 @@ def parse_response(text, original_rows):
     return translations
 
 
-def call_api(prompt, api_key, model):
-    """Single API call with proper timeout. No retries — accept what we get."""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    SYSTEM_PROMPT = """You are translating text to English. Each line has this exact 3-column format:
+SYSTEM_PROMPT_DEFAULT = """You are translating text to English. Each line has this exact 3-column format:
 
 ID|||ORIGINAL|||ENGLISH
 
@@ -144,10 +138,47 @@ Rules:
 - Output ALL lines — do not skip, merge, or reorder
 - Output ONLY translated lines — no commentary, headers, or explanations"""
 
+SYSTEM_PROMPT_TAGS = """You are translating Korean web novel tags/genres into English. Each line has this exact 3-column format:
+
+ID|||KOREAN_TAG|||ENGLISH_TAG
+
+INPUT example:
+42|||현대판타지|||
+15|||블루아카이브|||
+99|||먼치킨|||
+
+OUTPUT example:
+42|||현대판타지|||Modern Fantasy
+15|||블루아카이브|||Blue Archive
+99|||먼치킨|||Munchkin/OP MC
+
+Rules:
+- Column 1 (ID): Copy EXACTLY, do not change
+- Column 2 (KOREAN_TAG): Copy EXACTLY, do not change
+- Column 3 (ENGLISH_TAG): Write the English translation here
+- Use ||| as the ONLY delimiter — every line must have exactly two |||
+- These are web novel genre tags, so translate in that context (e.g. 회귀 = Regression, 빙의 = Possession, 성장 = Growth)
+- If a tag is a proper noun or brand name, romanize it (e.g. 블루아카이브 → Blue Archive, 원신 → Genshin)
+- If you cannot translate a tag meaningfully, romanize it to Latin script (e.g. 야스 → Yasu)
+- ALL output must be in Latin script — no Korean/CJK characters in column 3
+- If text is already in English/Latin, keep as-is
+- Keep translations SHORT — these are tags, not sentences. 1-3 words ideal
+- Output EVERY line — you MUST NOT skip any lines. Every input line needs an output line
+- Output ONLY translated lines — no commentary, headers, or explanations"""
+
+
+def call_api(prompt, api_key, model, content_type="titles"):
+    """Single API call with proper timeout. No retries — accept what we get."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    system_prompt = SYSTEM_PROMPT_TAGS if content_type == "tags" else SYSTEM_PROMPT_DEFAULT
+
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.3,
@@ -171,7 +202,7 @@ def process_chunk(idx, chunk, total, lang, content_type, api_key, model):
 
     try:
         prompt = build_prompt(chunk, lang, content_type)
-        response = call_api(prompt, api_key, model)
+        response = call_api(prompt, api_key, model, content_type)
         translations = parse_response(response, chunk)
 
         _tprint(f"  Chunk {idx+1}/{total}: got {len(translations)} translations (expected {len(chunk)})")
@@ -191,7 +222,7 @@ def main():
     parser.add_argument("input_file", help="Path to untranslated file")
     parser.add_argument("--lang", default="korean", choices=["korean", "chinese"])
     parser.add_argument("--type", dest="content_type", default="titles",
-                        choices=["titles", "descriptions"])
+                        choices=["titles", "descriptions", "tags"])
     parser.add_argument("--model", default=None)
     parser.add_argument("--workers", type=int, default=MAX_WORKERS)
     parser.add_argument("--delay", type=float, default=STAGGER_DELAY)
