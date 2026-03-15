@@ -1,6 +1,9 @@
 name: Translate Novelpia Tags
 
 on:
+  workflow_run:
+    workflows: ["Translate Novelpia Top 100"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       model:
