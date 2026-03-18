@@ -859,7 +859,7 @@ a.card-cover-wrap {
         font-size: 0.58rem;
     }
 
-    .card-synopsis { font-size: 0.85rem; max-height: 150px; padding: 0.4rem; }
+    .card-synopsis { font-size: 0.85rem; max-height: 300px; padding: 0.4rem; }
 
     .card-cover {
         min-height: 140px;
