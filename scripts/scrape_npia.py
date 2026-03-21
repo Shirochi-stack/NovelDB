@@ -25,7 +25,9 @@ SEARCH_TAGS = [
     '회귀', '약피폐', '아포칼립스', '얀데레', '게임', '환생', '남성향',
     '헌터', '조교', '복수', '인터넷방송', '남녀역전', '대체역사', '모험',
     '원신', '상태창', '공포', '생존', '전쟁', '가면라이더', '액션',
+    '디스토피아',
 ]
+
 
 # Korean consonant chars — catches remaining novels missed by tag search
 SWEEP_CHARS = list("가나다라마바사아자차카타파하")
@@ -44,6 +46,19 @@ def main():
 
     seen = set()
     novels = []
+
+    # Helper to pick the best cover URL from a search result item
+    def _pick_cover(it):
+        for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
+            v = it.get(k)
+            if v and str(v) not in ("", "None", "null"):
+                v = str(v)
+                if v.startswith("//"):
+                    return "https:" + v
+                if not v.startswith("http"):
+                    return "https://novelpia.com" + v
+                return v
+        return ""
 
     for i, tag in enumerate(SEARCH_TAGS):
         print(f"[{i+1}/{len(SEARCH_TAGS)}] Searching: {tag}...", end=" ", flush=True)
@@ -94,19 +109,6 @@ def main():
                 seen.add(novel_id)
                 new_count += 1
 
-                # novel_img_all / novel_thumb_all can be the string "None" for R19 novels
-                # Fall back to cover_url, novel_img, novel_thumb in order
-                def _pick_cover(it):
-                    for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
-                        v = it.get(k)
-                        if v and str(v) not in ("", "None", "null"):
-                            v = str(v)
-                            if v.startswith("//"):
-                                return "https:" + v
-                            if not v.startswith("http"):
-                                return "https://novelpia.com" + v
-                            return v
-                    return ""
                 cover = _pick_cover(item)
 
                 novels.append({
