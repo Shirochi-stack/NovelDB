@@ -1,0 +1,72 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '*.py'
+      - '*.spec'
+      - 'requirements.txt'
+      - '.github/workflows/build-macos.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
+
+      - name: Install Homebrew dependencies (WeasyPrint / Pango)
+        run: |
+          brew install pango gobject-introspection cairo gdk-pixbuf libffi harfbuzz fontconfig freetype librsvg
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Convert icon.ico to icon.icns
+        run: |
+          # Create iconset from ico using sips
+          mkdir -p icon.iconset
+          sips -s format png icon.ico --out icon_base.png 2>/dev/null || true
+          if [ -f icon_base.png ]; then
+            # Generate required icon sizes
+            for size in 16 32 64 128 256 512; do
+              sips -z $size $size icon_base.png --out "icon.iconset/icon_${size}x${size}.png" 2>/dev/null || true
+            done
+            for size in 32 64 256 512 1024; do
+              half=$((size / 2))
+              sips -z $size $size icon_base.png --out "icon.iconset/icon_${half}x${half}@2x.png" 2>/dev/null || true
+            done
+            iconutil -c icns icon.iconset -o icon.icns
+          fi
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller NovelpiaDownloader_mac.spec --clean
+
+      - name: Package artifact
+        run: |
+          cd dist
+          zip -r "../ND37-macos-${{ matrix.arch }}.zip" ND37
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ND37-macos-${{ matrix.arch }}
+          path: ND37-macos-${{ matrix.arch }}.zip
+          retention-days: 90

@@ -594,21 +594,34 @@ class NovelpiaGUI(tk.Tk):
         self.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         self.minsize(min_width, min_height)
         
-        # Set window icon if an icon.ico file exists next to this script
+        # Set window icon (cross-platform: .ico on Windows, .icns/.png on macOS)
         try:
-            icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
-            if os.path.exists(icon_path):
-                self.iconbitmap(icon_path)
+            base_dir = os.path.dirname(__file__)
+            if sys.platform == 'darwin':
+                # macOS: try .icns first, then .png via PhotoImage
+                icns_path = os.path.join(base_dir, 'icon.icns')
+                png_path = os.path.join(base_dir, 'icon.png')
+                if os.path.exists(icns_path):
+                    self.iconbitmap(icns_path)
+                elif os.path.exists(png_path):
+                    self._icon_img = tk.PhotoImage(file=png_path)
+                    self.iconphoto(True, self._icon_img)
+            else:
+                icon_path = os.path.join(base_dir, 'icon.ico')
+                if os.path.exists(icon_path):
+                    self.iconbitmap(icon_path)
         except Exception:
             pass
 
         try:
             style = ttk.Style(self)
-            # Try to match the clean look
-            if "vista" in style.theme_names():
-                style.theme_use("vista")
+            # Try to match the native look per platform
+            if "aqua" in style.theme_names():
+                style.theme_use("aqua")    # macOS native
+            elif "vista" in style.theme_names():
+                style.theme_use("vista")   # Windows native
             elif "clam" in style.theme_names():
-                style.theme_use("clam")
+                style.theme_use("clam")    # Fallback
         except Exception:
             pass
         
@@ -1625,8 +1638,7 @@ class NovelpiaGUI(tk.Tk):
         cache_data = {}
         cache_path = None
         if use_cache:
-            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-            cache_dir = os.path.join(base_dir, '.cache')
+            cache_dir = os.path.join(_get_base_dir(), '.cache')
             os.makedirs(cache_dir, exist_ok=True)
             cache_path = os.path.join(cache_dir, f'{novel_id}.json')
             if os.path.exists(cache_path):
@@ -2112,9 +2124,10 @@ table, th, td {
         self.lbl_status.config(text="Idle")
 
     def _load_config(self):
-        if os.path.exists("config.json"):
+        cfg_path = os.path.join(_get_base_dir(), "config.json")
+        if os.path.exists(cfg_path):
             try:
-                with open("config.json", "r", encoding="utf-8") as f:
+                with open(cfg_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 # Login settings
                 self.var_email.set(cfg.get("email", ""))
@@ -2235,7 +2248,8 @@ table, th, td {
             "scrape_max_queries": getattr(self, '_scrape_max_queries', 100),
         }
         try:
-            with open("config.json", "w", encoding="utf-8") as f:
+            cfg_path = os.path.join(_get_base_dir(), "config.json")
+            with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
         except: pass
 
