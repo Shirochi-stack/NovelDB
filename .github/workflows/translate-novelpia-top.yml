@@ -37,6 +37,9 @@ jobs:
         run: pip install requests tiktoken
 
       # --- Titles ---
+      - name: Rebuild titles_en.txt from novels.json (adds new novels)
+        run: python scripts/extract_titles.py novelpia
+
       - name: Extract untranslated Novelpia titles
         run: python scripts/extract_untranslated_npia_titles.py
 
