@@ -8,11 +8,18 @@ Skips:
   - Junk/trivial entries (≤5 meaningful characters)
 Also fixes rows with || delimiter: moves English from col2 into col3 in the main file.
 """
-import os, sys, re
+import gzip, os, sys, re
 sys.stdout.reconfigure(encoding="utf-8")
 
 SRC = os.path.join("docs", "data", "sfacg_descriptions.txt")
 OUT = os.path.join("docs", "data", "sfacg_descriptions_untranslated.txt")
+
+# Decompress .gz if only the compressed version exists (CI commits .gz only)
+if not os.path.exists(SRC) and os.path.exists(SRC + ".gz"):
+    print(f"Decompressing {SRC}.gz -> {SRC}")
+    with gzip.open(SRC + ".gz", "rb") as gz_in:
+        with open(SRC, "wb") as f_out:
+            f_out.write(gz_in.read())
 
 if not os.path.exists(SRC):
     print(f"Error: {SRC} not found."); sys.exit(1)

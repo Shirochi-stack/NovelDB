@@ -60,6 +60,9 @@ jobs:
       - name: Merge translated SFACG descriptions
         run: python scripts/merge_translated_sfacg_descriptions.py
 
+      - name: Gzip SFACG descriptions
+        run: gzip -kf docs/data/sfacg_descriptions.txt
+
       # --- Re-chunk and build top ---
       - name: Re-chunk SFACG data (with embedded translations + descriptions)
         run: python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10 --translations docs/data/sfacg_titles_en.txt --descriptions docs/data/sfacg_descriptions.txt
