@@ -1436,7 +1436,7 @@ class NovelpiaGUI(tk.Tk):
 
         threading.Thread(target=poll_file, daemon=True).start()
     def action_browse_font(self):
-        path = filedialog.askopenfilename(title="Choose font mapping file", filetypes=[("Mapping files", "*.json;*.map;*.txt"), ("All files", "*")])
+        path = filedialog.askopenfilename(title="Choose font mapping file", filetypes=[("Mapping files", "*.json *.map *.txt"), ("All files", "*")])
         if path:
             self.var_font_path.set(path)
             try:
