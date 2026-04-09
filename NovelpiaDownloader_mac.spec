@@ -79,7 +79,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # UPX not commonly used on macOS
+    upx=False,
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
@@ -88,4 +88,19 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=icon_file,
+)
+
+# Create macOS .app bundle
+app = BUNDLE(
+    exe,
+    name='ND37.app',
+    icon=icon_file,
+    bundle_identifier='com.novelpiadownloader.nd37',
+    info_plist={
+        'CFBundleName': 'ND37',
+        'CFBundleDisplayName': 'Novelpia Downloader',
+        'CFBundleVersion': '3.7',
+        'CFBundleShortVersionString': '3.7',
+        'NSHighResolutionCapable': True,
+    },
 )
