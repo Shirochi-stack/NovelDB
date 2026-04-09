@@ -12,3 +12,5 @@ docs/data/novels_full.json
 
 # Allow translation txt files in docs/data
 !docs/data/*.txt
+# Except the raw descriptions file (too large, only .gz is committed)
+docs/data/sfacg_descriptions.txt

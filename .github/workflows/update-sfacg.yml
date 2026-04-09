@@ -53,6 +53,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/sfacg_novels.json'))))")
-          git add docs/data/sfacg_novels.json docs/data/sfacg_descriptions.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
+          git add docs/data/sfacg_novels.json docs/data/sfacg_descriptions.txt.gz docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
           git commit -m "🔄 Update SFACG data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
           git push

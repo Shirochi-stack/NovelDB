@@ -24,20 +24,31 @@ OUTPUT = os.path.join("docs", "data", "sfacg_descriptions.txt")
 
 
 def load_existing_translations():
-    """Load existing English translations from sfacg_descriptions.txt if it exists."""
+    """Load existing English translations from sfacg_descriptions.txt (or .gz) if it exists."""
     translations = {}
+    # Try raw .txt first (local dev), then .gz (committed to repo)
+    source = None
     if os.path.exists(OUTPUT):
+        source = OUTPUT
         with open(OUTPUT, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.rstrip("\r\n")
-                if not line: continue
-                parts = line.split("|||")
-                nid = parts[0].strip()
-                if not nid: continue
-                if len(parts) >= 3 and parts[2].strip():
-                    translations[nid] = parts[2].strip()
-        if translations:
-            print(f"  Preserved {len(translations)} existing English translations")
+            lines = f.readlines()
+    elif os.path.exists(OUTPUT + ".gz"):
+        source = OUTPUT + ".gz"
+        with gzip.open(OUTPUT + ".gz", "rt", encoding="utf-8") as f:
+            lines = f.readlines()
+    else:
+        return translations
+
+    for line in lines:
+        line = line.rstrip("\r\n")
+        if not line: continue
+        parts = line.split("|||")
+        nid = parts[0].strip()
+        if not nid: continue
+        if len(parts) >= 3 and parts[2].strip():
+            translations[nid] = parts[2].strip()
+    if translations:
+        print(f"  Preserved {len(translations)} existing English translations (from {source})")
     return translations
 
 
