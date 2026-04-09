@@ -37,6 +37,9 @@ jobs:
         run: pip install requests tiktoken
 
       # --- Translate Titles ---
+      - name: Sync SFACG titles from novels JSON
+        run: python scripts/extract_titles.py sfacg
+
       - name: Extract untranslated SFACG titles
         run: python scripts/extract_untranslated_sfacg_titles.py
 
