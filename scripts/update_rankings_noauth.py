@@ -1,5 +1,7 @@
 """Update Novelpia weekly, monthly & daily rankings WITHOUT authentication.
 
+Also captures novel synopses from the API and merges them into descriptions.txt.
+
 Scrapes top100 pages for each audience (all, adult, teen) × each period.
 Also rescrapes full metadata (cover, title, views, etc.) for all ranked novels
 so that data stays fresh.
@@ -17,6 +19,8 @@ Usage:
 """
 
 import sys, os, json, re, time, requests
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
@@ -106,6 +110,7 @@ def rescrape_metadata(session, ranked_ids):
             "complete": item.get("is_complete", 0),
             "age": item.get("novel_age", 0),
             "updated": item.get("last_viewdate", ""),
+            "synopsis": item.get("novel_story", ""),
         }
 
     for tag in SEARCH_TAGS:
@@ -304,6 +309,61 @@ def main():
     with open(data_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"Saved to {data_path} ({os.path.getsize(data_path) / 1024 / 1024:.1f} MB)")
+
+    # Phase 4: Merge fresh descriptions into descriptions.txt
+    desc_path = os.path.join(BASE_DIR, "docs", "data", "descriptions.txt")
+    # Load existing descriptions (preserve translations)
+    existing = {}  # nid -> (korean, english)
+    if os.path.exists(desc_path):
+        with open(desc_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\r\n")
+                if not line:
+                    continue
+                parts = line.split("|||")
+                nid = parts[0].strip()
+                if not nid:
+                    continue
+                korean = parts[1].strip() if len(parts) > 1 else ""
+                english = parts[2].strip() if len(parts) >= 3 else ""
+                existing[nid] = (korean, english)
+
+    # Merge fresh synopses from ranked novels
+    new_count = 0
+    updated_count = 0
+    for nid, meta in fresh_data.items():
+        synopsis = meta.get("synopsis", "")
+        if not synopsis:
+            continue
+        # Normalize newlines
+        normed = synopsis.replace("\r\n", "\n").replace("\r", "\n")
+        normed = re.sub(r"\n{2,}", "\n", normed).strip()
+        flat = normed.replace("\n", "\\n")
+        if nid in existing:
+            old_korean, english = existing[nid]
+            if old_korean != flat:
+                existing[nid] = (flat, english)
+                updated_count += 1
+        else:
+            existing[nid] = (flat, "")
+            new_count += 1
+
+    # Write back: translated first, untranslated at bottom
+    translated = []
+    untranslated = []
+    for nid, (korean, english) in existing.items():
+        row = f"{nid}|||{korean}|||{english}\n"
+        if english:
+            translated.append(row)
+        else:
+            untranslated.append(row)
+
+    with open(desc_path, "w", encoding="utf-8") as f:
+        f.writelines(translated)
+        f.writelines(untranslated)
+
+    total = len(translated) + len(untranslated)
+    print(f"\nDescriptions: {total} total ({new_count} new, {updated_count} updated)")
 
 
 if __name__ == "__main__":
