@@ -1429,14 +1429,25 @@ class NovelpiaGUI(tk.Tk):
 
         # Collect all unique IDs and per-category counts
         all_ids = set()
-        summary_parts = []
+        category_counts = {}
         for label, ids in rankings.items():
             all_ids.update(ids)
-            summary_parts.append(f"{label}: {len(ids)}")
+            category_counts[label] = len(ids)
 
-        status = f"Top 100: {len(all_ids)} unique novels ({', '.join(summary_parts)})"
+        # Build multi-line summary grouped by audience
+        status_lines = [f"Top 100: {len(all_ids)} unique novels"]
+        # Group by audience (last word of label)
+        audiences_seen = {}
+        for label, count in category_counts.items():
+            parts = label.split()  # e.g. "daily all" -> ["daily", "all"]
+            audience = parts[-1] if len(parts) > 1 else "all"
+            period = parts[0] if parts else label
+            audiences_seen.setdefault(audience, []).append(f"{period}: {count}")
+        for audience, periods in audiences_seen.items():
+            status_lines.append(f"  {audience}: {', '.join(periods)}")
         if stopped:
-            status += " (stopped)"
+            status_lines.append("(stopped)")
+        status = "\n".join(status_lines)
         self.after(0, lambda: result_label.config(text=status))
         self.after(0, lambda: btn_go.config(state="normal"))
         self.after(0, lambda: btn_top100.config(state="normal"))
