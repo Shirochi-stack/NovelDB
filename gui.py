@@ -1295,12 +1295,22 @@ class NovelpiaGUI(tk.Tk):
 
         def do_retrieve_top100():
             _save_dialog_state()
+            # Ask single vs separate BEFORE fetching
+            choice = messagebox.askyesnocancel(
+                "Save Rankings",
+                "Save all rankings in a single file?\n\n"
+                "Yes = Single file (with section headers)\n"
+                "No = Separate file per ranking",
+                parent=top,
+            )
+            if choice is None:
+                return  # Cancel
             btn_go.config(state="disabled")
             btn_top100.config(state="disabled")
             result_label.config(text="Fetching Top 100 rankings...")
             threading.Thread(
                 target=self._top100_worker,
-                args=(AGE_MAP.get(age_var.get(), ""), result_label, btn_go, btn_top100, top),
+                args=(AGE_MAP.get(age_var.get(), ""), choice, result_label, btn_go, btn_top100, top),
                 daemon=True
             ).start()
 
@@ -1405,8 +1415,12 @@ class NovelpiaGUI(tk.Tk):
         except Exception as e:
             self.log_message(f"Failed to save: {e}")
 
-    def _top100_worker(self, age_filter, result_label, btn_go, btn_top100, dialog):
-        """Background worker for Top 100 ranking retrieval."""
+    def _top100_worker(self, age_filter, single_file, result_label, btn_go, btn_top100, dialog):
+        """Background worker for Top 100 ranking retrieval.
+
+        Args:
+            single_file: True = save all in one file, False = separate files per ranking
+        """
         self.downloader.stop_signal = False
         self.after(0, lambda: self.btn_download.config(state="disabled"))
         self.after(0, lambda: self.btn_stop.pack(pady=5, ipady=5))
@@ -1458,18 +1472,7 @@ class NovelpiaGUI(tk.Tk):
         if not all_ids:
             return
 
-        # Ask user: single file or separate files?
-        choice = messagebox.askyesnocancel(
-            "Save Rankings",
-            "Save all rankings in a single file?\n\n"
-            "Yes = Single file (with section headers)\n"
-            "No = Separate file per ranking",
-            parent=dialog,
-        )
-        if choice is None:
-            return  # Cancel
-
-        if choice:
+        if single_file:
             # --- Single file ---
             lines = []
             for label, ids in rankings.items():
