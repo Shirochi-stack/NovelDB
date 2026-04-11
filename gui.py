@@ -1458,33 +1458,67 @@ class NovelpiaGUI(tk.Tk):
         if not all_ids:
             return
 
-        # Build file content with section headers
-        lines = []
-        for label, ids in rankings.items():
-            lines.append(f"# {label.title()} Top 100\n")
-            for novel_id in ids:
-                lines.append(f"{novel_id}\n")
-            lines.append("\n")
+        # Ask user: single file or separate files?
+        choice = messagebox.askyesnocancel(
+            "Save Rankings",
+            "Save all rankings in a single file?\n\n"
+            "Yes = Single file (with section headers)\n"
+            "No = Separate file per ranking",
+            parent=dialog,
+        )
+        if choice is None:
+            return  # Cancel
 
-        # Save
-        if self.var_quick_enable.get() and self.var_quick_path.get():
-            save_path = os.path.join(self.var_quick_path.get(), "top100_rankings.txt")
+        if choice:
+            # --- Single file ---
+            lines = []
+            for label, ids in rankings.items():
+                lines.append(f"# {label.title()} Top 100\n")
+                for novel_id in ids:
+                    lines.append(f"{novel_id}\n")
+                lines.append("\n")
+
+            if self.var_quick_enable.get() and self.var_quick_path.get():
+                save_path = os.path.join(self.var_quick_path.get(), "top100_rankings.txt")
+            else:
+                save_path = filedialog.asksaveasfilename(
+                    title="Save Top 100 rankings",
+                    initialfile="top100_rankings.txt",
+                    defaultextension=".txt",
+                    filetypes=[("Text files", "*.txt"), ("All files", "*")],
+                )
+                if not save_path:
+                    return
+
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines)
+                self.log_message(f"Saved {len(all_ids)} unique novel IDs to: {save_path}")
+            except Exception as e:
+                self.log_message(f"Failed to save: {e}")
         else:
-            save_path = filedialog.asksaveasfilename(
-                title="Save Top 100 rankings",
-                initialfile="top100_rankings.txt",
-                defaultextension=".txt",
-                filetypes=[("Text files", "*.txt"), ("All files", "*")],
-            )
-            if not save_path:
-                return
+            # --- Separate files ---
+            if self.var_quick_enable.get() and self.var_quick_path.get():
+                out_dir = self.var_quick_path.get()
+            else:
+                out_dir = filedialog.askdirectory(title="Select folder for ranking files")
+                if not out_dir:
+                    return
 
-        try:
-            with open(save_path, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-            self.log_message(f"Saved {len(all_ids)} unique novel IDs to: {save_path}")
-        except Exception as e:
-            self.log_message(f"Failed to save: {e}")
+            saved = 0
+            for label, ids in rankings.items():
+                if not ids:
+                    continue
+                filename = label.replace(" ", "_") + "_top100.txt"
+                path = os.path.join(out_dir, filename)
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        for novel_id in ids:
+                            f.write(f"{novel_id}\n")
+                    saved += 1
+                except Exception as e:
+                    self.log_message(f"Failed to save {filename}: {e}")
+            self.log_message(f"Saved {saved} ranking file(s) to: {out_dir}")
 
     def action_login(self):
         """Spawns a thread for login to avoid freezing UI."""
