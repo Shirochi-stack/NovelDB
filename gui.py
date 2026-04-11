@@ -1293,9 +1293,24 @@ class NovelpiaGUI(tk.Tk):
                 daemon=True
             ).start()
 
+        def do_retrieve_top100():
+            _save_dialog_state()
+            btn_go.config(state="disabled")
+            btn_top100.config(state="disabled")
+            result_label.config(text="Fetching Top 100 rankings...")
+            threading.Thread(
+                target=self._top100_worker,
+                args=(AGE_MAP.get(age_var.get(), ""), result_label, btn_go, btn_top100, top),
+                daemon=True
+            ).start()
+
         btn_go = ttk.Button(btn_frame, text="Retrieve Novel IDs", command=do_retrieve)
-        btn_go.pack(ipadx=20, ipady=8)
+        btn_go.pack(side="left", ipadx=20, ipady=8)
         self._tag_btn_go = btn_go
+
+        btn_top100 = ttk.Button(btn_frame, text="Retrieve Top 100", command=do_retrieve_top100)
+        btn_top100.pack(side="left", padx=(10, 0), ipadx=20, ipady=8)
+        self._tag_btn_top100 = btn_top100
 
     def _tag_retrieval_worker(self, tags, age_filter, mode, result_label, btn_go, dialog):
         """Background worker for tag-based novel ID retrieval."""
@@ -1304,6 +1319,11 @@ class NovelpiaGUI(tk.Tk):
         self.downloader.stop_signal = False
         self.after(0, lambda: self.btn_download.config(state="disabled"))
         self.after(0, lambda: self.btn_stop.pack(pady=5, ipady=5))
+        if hasattr(self, '_tag_btn_top100') and self._tag_btn_top100:
+            try:
+                self.after(0, lambda: self._tag_btn_top100.config(state="disabled"))
+            except Exception:
+                pass
         self._is_downloading = True
 
         try:
@@ -1322,6 +1342,11 @@ class NovelpiaGUI(tk.Tk):
             self.after(0, lambda: btn_go.config(state="normal"))
             self.after(0, lambda: self.btn_download.config(state="normal"))
             self.after(0, lambda: self.btn_stop.pack_forget())
+            if hasattr(self, '_tag_btn_top100') and self._tag_btn_top100:
+                try:
+                    self.after(0, lambda: self._tag_btn_top100.config(state="normal"))
+                except Exception:
+                    pass
 
             self._is_downloading = False
             return
@@ -1333,6 +1358,11 @@ class NovelpiaGUI(tk.Tk):
         self.after(0, lambda: btn_go.config(state="normal"))
         self.after(0, lambda: self.btn_download.config(state="normal"))
         self.after(0, lambda: self.btn_stop.pack_forget())
+        if hasattr(self, '_tag_btn_top100') and self._tag_btn_top100:
+            try:
+                self.after(0, lambda: self._tag_btn_top100.config(state="normal"))
+            except Exception:
+                pass
         self._is_downloading = False
 
         if count == 0:
@@ -1372,6 +1402,76 @@ class NovelpiaGUI(tk.Tk):
                 for novel_id in novels:
                     f.write(f"{novel_id}\n")
             self.log_message(f"Saved {count} novel IDs to: {save_path}")
+        except Exception as e:
+            self.log_message(f"Failed to save: {e}")
+
+    def _top100_worker(self, age_filter, result_label, btn_go, btn_top100, dialog):
+        """Background worker for Top 100 ranking retrieval."""
+        self.downloader.stop_signal = False
+        self.after(0, lambda: self.btn_download.config(state="disabled"))
+        self.after(0, lambda: self.btn_stop.pack(pady=5, ipady=5))
+        self._is_downloading = True
+
+        try:
+            self.log_message("--- Fetching Top 100 Rankings ---")
+            rankings = self.downloader.fetch_top100_rankings(age_filter=age_filter)
+        except Exception as e:
+            self.log_message(f"Top 100 retrieval failed: {e}")
+            self.after(0, lambda: result_label.config(text=f"Error: {e}"))
+            self.after(0, lambda: btn_go.config(state="normal"))
+            self.after(0, lambda: btn_top100.config(state="normal"))
+            self.after(0, lambda: self.btn_download.config(state="normal"))
+            self.after(0, lambda: self.btn_stop.pack_forget())
+            self._is_downloading = False
+            return
+
+        stopped = self.downloader.stop_signal
+
+        # Collect all unique IDs and per-category counts
+        all_ids = set()
+        summary_parts = []
+        for label, ids in rankings.items():
+            all_ids.update(ids)
+            summary_parts.append(f"{label}: {len(ids)}")
+
+        status = f"Top 100: {len(all_ids)} unique novels ({', '.join(summary_parts)})"
+        if stopped:
+            status += " (stopped)"
+        self.after(0, lambda: result_label.config(text=status))
+        self.after(0, lambda: btn_go.config(state="normal"))
+        self.after(0, lambda: btn_top100.config(state="normal"))
+        self.after(0, lambda: self.btn_download.config(state="normal"))
+        self.after(0, lambda: self.btn_stop.pack_forget())
+        self._is_downloading = False
+
+        if not all_ids:
+            return
+
+        # Build file content with section headers
+        lines = []
+        for label, ids in rankings.items():
+            lines.append(f"# {label.title()} Top 100\n")
+            for novel_id in ids:
+                lines.append(f"{novel_id}\n")
+            lines.append("\n")
+
+        # Save
+        if self.var_quick_enable.get() and self.var_quick_path.get():
+            save_path = os.path.join(self.var_quick_path.get(), "top100_rankings.txt")
+        else:
+            save_path = filedialog.asksaveasfilename(
+                title="Save Top 100 rankings",
+                initialfile="top100_rankings.txt",
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*")],
+            )
+            if not save_path:
+                return
+
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+            self.log_message(f"Saved {len(all_ids)} unique novel IDs to: {save_path}")
         except Exception as e:
             self.log_message(f"Failed to save: {e}")
 
@@ -1466,6 +1566,11 @@ class NovelpiaGUI(tk.Tk):
                     self._tag_btn_go.config(state="disabled")
                 except Exception:
                     pass
+            if hasattr(self, '_tag_btn_top100') and self._tag_btn_top100:
+                try:
+                    self._tag_btn_top100.config(state="disabled")
+                except Exception:
+                    pass
             self.btn_stop.pack(pady=5, ipady=5)
         else:
             self.btn_download.config(state="normal")
@@ -1473,6 +1578,11 @@ class NovelpiaGUI(tk.Tk):
             if hasattr(self, '_tag_btn_go') and self._tag_btn_go:
                 try:
                     self._tag_btn_go.config(state="normal")
+                except Exception:
+                    pass
+            if hasattr(self, '_tag_btn_top100') and self._tag_btn_top100:
+                try:
+                    self._tag_btn_top100.config(state="normal")
                 except Exception:
                     pass
             self.btn_stop.pack_forget()

@@ -465,6 +465,65 @@ img { max-width: 100%; height: auto; }
         HTML(string=html_doc).write_pdf(output_path)
         self.log("PDF generation complete.")
 
+    def fetch_top100_rankings(self, age_filter=""):
+        """Fetch Top 100 novel IDs from Novelpia ranking pages.
+
+        Scrapes /top100/ pages for each period (daily, weekly, monthly).
+        The audience is determined by age_filter:
+            "" (All)       -> all, adult, teen
+            "15" (Non-adult) -> teen only
+            "19" (Adult)     -> adult only
+
+        Returns:
+            dict: {label: [novel_id_str, ...]} where label is e.g. "daily all"
+        """
+        AUDIENCES_ALL = [
+            ("all/plus",   "all"),
+            ("adult/plus", "adult"),
+            ("teen/plus",  "teen"),
+        ]
+        PERIODS = [
+            ("today",  "daily"),
+            ("weekly", "weekly"),
+            ("month",  "monthly"),
+        ]
+
+        # Filter audiences based on age_filter
+        if age_filter == "19":
+            audiences = [("adult/plus", "adult")]
+        elif age_filter == "15":
+            audiences = [("teen/plus", "teen")]
+        else:
+            audiences = AUDIENCES_ALL
+
+        results = {}
+        for audience_url, audience_label in audiences:
+            for period_url, period_label in PERIODS:
+                if self.stop_signal:
+                    self.log("  Stopped by user.")
+                    return results
+
+                label = f"{period_label} {audience_label}"
+                url = f"https://novelpia.com/top100/all/{period_url}/view/{audience_url}"
+                self.log(f"  Fetching {label}...")
+
+                try:
+                    r = self.auth.session.get(url, timeout=30)
+                    if r.status_code != 200:
+                        self.log(f"  {label}: HTTP {r.status_code}")
+                        results[label] = []
+                        continue
+                    rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))[:100]
+                    results[label] = rank_ids
+                    self.log(f"  {label}: {len(rank_ids)} novels")
+                except Exception as e:
+                    self.log(f"  {label}: Error - {e}")
+                    results[label] = []
+
+                time.sleep(0.3)
+
+        return results
+
     def fetch_all_novels(self, delay=0.5, rows=30, age_filter="", max_queries=50, threads=1):
         """Fetch ALL novel IDs from Novelpia using multiple API calls.
 
