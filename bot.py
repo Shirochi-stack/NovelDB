@@ -410,11 +410,13 @@ def _strip_base64_blobs(text: str) -> str:
     return text
 
 
-def _encode_image_bytes(im, image_format, quality, logger=None):
+def _encode_image_bytes(im, image_format, quality, logger=None, static_only=False):
     """Encode a PIL image to `image_format` and return (bytes, ext).
 
     Preserves animation when the source has multiple frames AND the target
     format supports it (WEBP, AVIF, PNG/APNG). JPEG flattens to first frame.
+    When `static_only` is True, ALL animated sources are flattened to their
+    first frame regardless of target format.
     Falls back to WEBP if AVIF is requested but pillow-avif-plugin is absent.
     """
     from PIL import ImageSequence
@@ -422,6 +424,7 @@ def _encode_image_bytes(im, image_format, quality, logger=None):
     is_animated = (
         getattr(im, "is_animated", False)
         and getattr(im, "n_frames", 1) > 1
+        and not static_only
     )
 
     wants_alpha = image_format in ("WEBP", "PNG", "AVIF")
@@ -494,7 +497,7 @@ def _encode_image_bytes(im, image_format, quality, logger=None):
 
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images,
                                        jpeg_quality, image_format, logger, next_image_no,
-                                       convert_gifs=False):
+                                       convert_gifs=False, static_only=False):
     """Return (html, images, image_failures).
 
     image_failures mirrors the gui.py extractor so higher layers can decide
@@ -581,13 +584,18 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                                 # Default: preserve GIF animation byte-for-byte.
                                 # Otherwise defer to the shared encoder which keeps
                                 # animation when the target format supports it.
-                                if ext == "gif" and not convert_gifs:
+                                if ext == "gif" and not convert_gifs and not static_only:
                                     out = io.BytesIO()
                                     im.save(out, format="GIF", save_all=True, optimize=True)
                                     img_bytes = out.getvalue()
+                                elif ext == "gif" and not convert_gifs and static_only:
+                                    out = io.BytesIO()
+                                    im.save(out, format="GIF", optimize=True)
+                                    img_bytes = out.getvalue()
                                 else:
                                     img_bytes, ext = _encode_image_bytes(
-                                        im, image_format, jpeg_quality, logger=logger
+                                        im, image_format, jpeg_quality,
+                                        logger=logger, static_only=static_only,
                                     )
                             except Exception as conv_err:
                                 logger(f"Image conversion failed: {conv_err}")
@@ -648,7 +656,8 @@ def run_download(user_id: int,
                  log_sink: list[str] | None = None,
                  passphrase: str | None = None,
                  convert_gifs: bool | None = None,
-                 max_retries: int | None = None) -> tuple[str, list[str]]:
+                 max_retries: int | None = None,
+                 static_only: bool | None = None) -> tuple[str, list[str]]:
     """Blocking download workflow. Returns (output_path, logs)."""
     auth_cfg = load_user_auth(user_id, passphrase) or {}
     prefs = load_user_prefs(user_id) or {}
@@ -672,6 +681,8 @@ def run_download(user_id: int,
     cover_format = prefs.get("cover_format", "JPEG") if cover_format is None else cover_format
     # GIFs are preserved by default; user must opt in via prefs to convert them.
     convert_gifs = prefs.get("convert_gifs", False) if convert_gifs is None else convert_gifs
+    # Flatten every animated source to a single frame when True.
+    static_only = prefs.get("static_only", False) if static_only is None else static_only
     # Retry budget per chapter (default 5, same as downloader_core).
     if max_retries is None:
         max_retries = prefs.get("max_retries", 5)
@@ -785,7 +796,8 @@ def run_download(user_id: int,
                             # Shared encoder keeps animation for WEBP/AVIF/APNG if
                             # the cover somehow happens to be animated.
                             data, cover_ext = _encode_image_bytes(
-                                im, cover_format, cover_quality, logger=logger
+                                im, cover_format, cover_quality,
+                                logger=logger, static_only=static_only,
                             )
                         except Exception:
                             pass
@@ -876,6 +888,7 @@ def run_download(user_id: int,
                             compress_images, image_quality,
                             image_format, logger, next_img,
                             convert_gifs=convert_gifs,
+                            static_only=static_only,
                         )
                         results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                         img_info = f" ({len(imgs)} images)" if imgs else ""

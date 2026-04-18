@@ -282,12 +282,16 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
                 return None
         return None
 
-def _encode_image_bytes(im, image_format, quality, logger=None):
+def _encode_image_bytes(im, image_format, quality, logger=None, static_only=False):
     """Encode a PIL image to `image_format` and return (bytes, ext).
 
     Preserves animation when the source has multiple frames AND the target
     format supports it (WEBP, AVIF, PNG/APNG). JPEG drops animation
     (first frame only) because the codec itself has no sequence support.
+
+    When `static_only` is True, ANY animated source is flattened to its
+    first frame regardless of the target format — this yields the smallest
+    possible files at the cost of motion.
 
     If `image_format` is "AVIF" but pillow-avif-plugin is missing, this
     falls back to WEBP and logs a warning.
@@ -297,6 +301,7 @@ def _encode_image_bytes(im, image_format, quality, logger=None):
     is_animated = (
         getattr(im, "is_animated", False)
         and getattr(im, "n_frames", 1) > 1
+        and not static_only
     )
 
     # Pick the working colour mode for the target format.
@@ -374,12 +379,16 @@ def _encode_image_bytes(im, image_format, quality, logger=None):
     return out.getvalue(), "jpg"
 
 
-def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False):
+def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False, static_only=False):
     """Return (html, images, image_failures).
 
     image_failures is the number of <img> tags whose download/processing
     failed; callers can use it to avoid baking a "hole" into the full
     image cache (see _download_worker's cache-store logic).
+
+    When `static_only` is True every animated source (GIF, animated WebP,
+    APNG, animated AVIF) is flattened to its first frame — applied even to
+    the GIF-preservation branch so it overrides `convert_gifs=False`.
     """
     html_parts = []
     images = []
@@ -434,15 +443,22 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                                 im = Image.open(io.BytesIO(img_bytes))
                                 # Default behavior: preserve GIFs as .gif so animation
                                 # is kept byte-for-byte. If the user opted in to
-                                # "Convert GIFs", fall through to the shared encoder
-                                # (which preserves animation for WEBP/AVIF/APNG too).
-                                if ext == "gif" and not convert_gifs:
+                                # "Convert GIFs" OR "Static images only", fall through
+                                # to the shared encoder (which flattens when asked and
+                                # preserves animation for WEBP/AVIF/APNG otherwise).
+                                if ext == "gif" and not convert_gifs and not static_only:
                                     out = io.BytesIO()
                                     im.save(out, format="GIF", save_all=True, optimize=True)
                                     img_bytes = out.getvalue()
+                                elif ext == "gif" and not convert_gifs and static_only:
+                                    # Keep the .gif extension but drop to a single frame.
+                                    out = io.BytesIO()
+                                    im.save(out, format="GIF", optimize=True)
+                                    img_bytes = out.getvalue()
                                 else:
                                     img_bytes, ext = _encode_image_bytes(
-                                        im, image_format, jpeg_quality, logger=logger
+                                        im, image_format, jpeg_quality,
+                                        logger=logger, static_only=static_only,
                                     )
                             except Exception as conv_err:
                                 logger(f"  \u26a0 {lbl}: conversion failed ({conv_err}), keeping original.")
@@ -775,8 +791,13 @@ class NovelpiaGUI(tk.Tk):
         self.var_jpeg_quality = tk.IntVar(value=50)
         self.var_image_format = tk.StringVar(value="WEBP")  # WEBP, JPEG, PNG, AVIF
         # When False (default) GIF sources are preserved as .gif (animation kept).
-        # When True, GIFs are re-encoded to the selected image_format (first frame only).
+        # When True, GIFs are re-encoded to the selected image_format
+        # (animation preserved when format supports it: WEBP/AVIF/APNG).
         self.var_convert_gifs = tk.BooleanVar(value=False)
+        # When True, every animated source (GIF, animated WebP, APNG, animated
+        # AVIF) is flattened to its first frame regardless of the target format.
+        # Dramatically reduces file size at the cost of motion.
+        self.var_static_only = tk.BooleanVar(value=False)
         self.var_compress_cover = tk.BooleanVar(value=False)
         self.var_cover_quality = tk.IntVar(value=90)
         self.var_cover_format = tk.StringVar(value="JPEG")  # JPEG, PNG, WEBP
@@ -831,8 +852,10 @@ class NovelpiaGUI(tk.Tk):
         
         self._build_ui()
         self._load_config()
-        # Auto-save the "Convert GIFs" toggle to config whenever the user flips it.
+        # Auto-save toggles that change encoder behaviour so the user never
+        # loses their preference if the app crashes before normal save paths run.
         self.var_convert_gifs.trace_add("write", lambda *_: self._save_config())
+        self.var_static_only.trace_add("write", lambda *_: self._save_config())
         self._poll_log_queue()
         self._auto_login()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -959,8 +982,16 @@ class NovelpiaGUI(tk.Tk):
         ToolTip(
             chk_convert_gifs,
             "Off (default): GIF sources are saved as .gif and animation is preserved.\n"
-            "On: GIFs are re-encoded to the selected image format (WEBP/JPEG/PNG/AVIF);\n"
-            "only the first frame is kept \u2014 animation will be lost.",
+            "On: GIFs are re-encoded to the selected image format. Animation is\n"
+            "preserved for WEBP/AVIF/APNG; JPEG always flattens to the first frame.",
+        )
+        chk_static_only = ttk.Checkbutton(comp_frame, text="Static images only", variable=self.var_static_only)
+        chk_static_only.pack(side="left", padx=(15, 0))
+        ToolTip(
+            chk_static_only,
+            "Off (default): animation is preserved when the target format supports it.\n"
+            "On: EVERY animated source (GIF, animated WEBP, APNG, animated AVIF) is\n"
+            "flattened to its first frame regardless of format. Smallest files possible.",
         )
         
         cover_frame = ttk.Frame(dl_inner)
@@ -2464,6 +2495,7 @@ table, th, td {
                             data, cover_ext = _encode_image_bytes(
                                 im, cover_fmt, self.var_cover_quality.get(),
                                 logger=self.log_message,
+                                static_only=self.var_static_only.get(),
                             )
                         except Exception as cov_err:
                             self.log_message(f"\u26a0 Cover conversion failed: {cov_err}")
@@ -2578,6 +2610,7 @@ table, th, td {
                                 chapter_title=chap.get('title', ''),
                                 chapter_num=self.progress_value + 1,
                                 convert_gifs=self.var_convert_gifs.get(),
+                                static_only=self.var_static_only.get(),
                             )
                             results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                             self.log_message(f"Cached: {chap['title']}")
@@ -2645,6 +2678,7 @@ table, th, td {
                                     chapter_title=chap.get('title', ''),
                                     chapter_num=self.progress_value + 1,
                                     convert_gifs=self.var_convert_gifs.get(),
+                                    static_only=self.var_static_only.get(),
                                 )
                                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                                 img_info = f" ({len(imgs)} images)" if imgs else ""
@@ -2803,6 +2837,7 @@ table, th, td {
                 self.var_jpeg_quality.set(cfg.get("jpeg_quality", 50))
                 self.var_image_format.set(cfg.get("image_format", "WEBP"))
                 self.var_convert_gifs.set(cfg.get("convert_gifs", False))
+                self.var_static_only.set(cfg.get("static_only", False))
                 self.var_compress_cover.set(cfg.get("compress_cover", False))
                 self.var_cover_quality.set(cfg.get("cover_quality", 90))
                 self.var_cover_format.set(cfg.get("cover_format", "JPEG"))
@@ -2883,6 +2918,7 @@ table, th, td {
             "jpeg_quality": self.var_jpeg_quality.get(),
             "image_format": self.var_image_format.get(),
             "convert_gifs": self.var_convert_gifs.get(),
+            "static_only": self.var_static_only.get(),
             "compress_cover": self.var_compress_cover.get(),
             "cover_quality": self.var_cover_quality.get(),
             "cover_format": self.var_cover_format.get(),
