@@ -1907,7 +1907,11 @@ class NovelpiaGUI(tk.Tk):
         messagebox.showinfo("Batch Download \u2014 Help", help_text)
 
     def action_paste_batch(self):
-        """Open a dialog where the user can paste IDs/URLs for a sequential batch."""
+        """Open a dialog where the user can paste IDs/URLs for a sequential batch.
+
+        The pasted text is remembered in-memory (self._paste_batch_text) and
+        restored whenever the dialog is reopened — closing no longer clears it.
+        """
         if getattr(self, '_paste_batch_dialog', None) and self._paste_batch_dialog.winfo_exists():
             self._paste_batch_dialog.lift()
             self._paste_batch_dialog.focus_force()
@@ -1940,10 +1944,33 @@ class NovelpiaGUI(tk.Tk):
 
         text = tk.Text(main_f, wrap="word", height=14)
         text.pack(fill="both", expand=True)
+
+        # Restore any text the user had previously entered.
+        saved = getattr(self, '_paste_batch_text', '') or ''
+        if saved:
+            text.insert('1.0', saved)
         text.focus_set()
 
         btns = ttk.Frame(main_f)
         btns.pack(fill="x", pady=(10, 0))
+
+        def _snapshot_text():
+            """Copy the widget's current content to the instance attribute so
+            we can restore it next time the dialog is opened."""
+            try:
+                self._paste_batch_text = text.get('1.0', 'end-1c')
+            except Exception:
+                # Widget already gone (destroyed) — nothing to capture.
+                pass
+
+        def _close():
+            _snapshot_text()
+            top.destroy()
+            self._paste_batch_dialog = None
+
+        def _clear():
+            text.delete('1.0', 'end')
+            self._paste_batch_text = ''
 
         def _start():
             raw = text.get("1.0", "end").strip()
@@ -1963,12 +1990,18 @@ class NovelpiaGUI(tk.Tk):
                 if not output_dir:
                     return
 
+            # Preserve the list so it's still there if the user reopens the dialog.
+            _snapshot_text()
             top.destroy()
             self._paste_batch_dialog = None
             self._start_batch_download(lines, output_dir, "pasted batch")
 
+        # Also snapshot when the user hits the window's X button.
+        top.protocol("WM_DELETE_WINDOW", _close)
+
         ttk.Button(btns, text="Start Batch", command=_start).pack(side="right")
-        ttk.Button(btns, text="Close", command=top.destroy).pack(side="right", padx=(0, 8))
+        ttk.Button(btns, text="Close", command=_close).pack(side="right", padx=(0, 8))
+        ttk.Button(btns, text="Clear", command=_clear).pack(side="right", padx=(0, 8))
 
     def action_batch_download(self):
         """Batch download multiple novels from a list file.
