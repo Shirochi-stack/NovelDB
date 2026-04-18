@@ -1,3 +1,9 @@
+# IMPORTANT: configure DPI scaling BEFORE importing anything that touches Tk
+# or Qt. dpi_setup only sets env vars and makes the process DPI-aware at
+# this point — no GUI toolkits are imported here, so it is safe.
+import dpi_setup
+dpi_setup.configure()
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
@@ -605,14 +611,14 @@ def _run_webview_login(output_path):
 
 class NovelpiaGUI(tk.Tk):
     def __init__(self):
-        # High DPI support - MUST be done before creating the window
+        # High DPI support — dpi_setup handles process-level DPI-awareness
+        # (already invoked at module load). We apply the configured scale
+        # factor to the Tk root below, right after creation.
+        super().__init__()
         try:
-            from ctypes import windll
-            windll.shcore.SetProcessDpiAwareness(1)
+            dpi_setup.apply_to_tk(self)
         except Exception:
             pass
-        
-        super().__init__()
 
         # Disable mousewheel scroll on all Spinbox and Combobox widgets
         def _block_scroll(event):
@@ -721,6 +727,15 @@ class NovelpiaGUI(tk.Tk):
         self.var_append_range = tk.BooleanVar(value=False)
         self.var_use_cache = tk.BooleanVar(value=True)
         self.var_cache_images = tk.BooleanVar(value=False)
+
+        # DPI / UI scaling (read by dpi_setup at startup, editable in Quick Options).
+        # Changes take effect after the app is restarted.
+        self.var_auto_dpi_scale = tk.BooleanVar(
+            value=True  # overridden by _load_config
+        )
+        self.var_gui_scale_factor = tk.DoubleVar(
+            value=round(float(dpi_setup.get_scale_factor()), 2)
+        )
 
         # Runtime helpers
         self.font_mapper = None
@@ -1113,6 +1128,50 @@ class NovelpiaGUI(tk.Tk):
         ttk.Button(row_radios, text="Clear", command=lambda: self.var_quick_path.set("")).pack(side="right", padx=5)
 
         ttk.Checkbutton(main_f, text="Append chapter range to title for ongoing novels", variable=self.var_append_range).pack(anchor="w", pady=5)
+
+        # -- DPI / UI scaling --
+        dpi_group = ttk.LabelFrame(main_f, text="UI Scaling (applies after restart)", padding=5)
+        dpi_group.pack(fill="x", pady=5)
+
+        auto_chk = ttk.Checkbutton(
+            dpi_group,
+            text="Auto-scale based on screen resolution",
+            variable=self.var_auto_dpi_scale,
+        )
+        auto_chk.pack(anchor="w")
+        ToolTip(
+            auto_chk,
+            "On (default): dpi_setup picks a sensible scale from the primary\n"
+            "monitor's resolution.\n"
+            "Off: the manual scale factor below is used.",
+        )
+
+        scale_row = ttk.Frame(dpi_group)
+        scale_row.pack(fill="x", pady=(3, 0))
+        ttk.Label(scale_row, text="Manual scale factor (0.5 \u2013 3.0):").pack(side="left")
+        scale_spin = ttk.Spinbox(
+            scale_row,
+            from_=0.5,
+            to=3.0,
+            increment=0.05,
+            textvariable=self.var_gui_scale_factor,
+            width=6,
+        )
+        scale_spin.pack(side="left", padx=5)
+
+        def _sync_scale_state(*_):
+            try:
+                scale_spin.configure(state=("disabled" if self.var_auto_dpi_scale.get() else "normal"))
+            except Exception:
+                pass
+        _sync_scale_state()
+        self.var_auto_dpi_scale.trace_add("write", _sync_scale_state)
+
+        detected = (
+            f"Detected: target={dpi_setup.get_scale_factor():.2f}, "
+            f"system={dpi_setup.get_system_scale():.2f}"
+        )
+        ttk.Label(dpi_group, text=detected, foreground="#666").pack(anchor="w", pady=(3, 0))
 
     def action_tag_retrieval(self):
         """Open tag selection dialog and retrieve novel IDs."""
@@ -2600,6 +2659,15 @@ table, th, td {
                 self.var_naming_mode.set(cfg.get("naming_mode", "title"))
                 self.var_append_range.set(cfg.get("append_range", False))
 
+                # DPI / UI scaling (consumed by dpi_setup at next startup).
+                self.var_auto_dpi_scale.set(cfg.get("auto_dpi_scale", True))
+                try:
+                    raw_scale = float(cfg.get("gui_scale_factor",
+                                              dpi_setup.get_scale_factor()))
+                except (TypeError, ValueError):
+                    raw_scale = float(dpi_setup.get_scale_factor())
+                self.var_gui_scale_factor.set(round(raw_scale, 2))
+
                 # Tag retrieval settings
                 self._tag_age_filter = cfg.get("tag_age_filter", "")
                 self._tag_query_groups = cfg.get("tag_query_groups", [])
@@ -2665,6 +2733,10 @@ table, th, td {
             "quick_path": self.var_quick_path.get(),
             "naming_mode": self.var_naming_mode.get(),
             "append_range": self.var_append_range.get(),
+
+            # DPI / UI scaling (read by dpi_setup on next startup)
+            "auto_dpi_scale": self.var_auto_dpi_scale.get(),
+            "gui_scale_factor": round(float(self.var_gui_scale_factor.get()), 2),
 
             # Tag retrieval settings
             "tag_age_filter": getattr(self, '_tag_age_filter', ''),

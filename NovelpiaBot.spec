@@ -28,8 +28,12 @@ a = Analysis(
     ['bot.py'],
     pathex=[],
     binaries=binaries,
-    datas=[],
-    hiddenimports=[],
+    datas=[
+        ('dpi_setup.py', '.'),      # Ship source copy for reference
+    ],
+    hiddenimports=[
+        'dpi_setup',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

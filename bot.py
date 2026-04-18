@@ -41,6 +41,15 @@ import hashlib
 import secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# DPI / UTF-8 console setup (safe no-op in headless environments).
+# dpi_setup force-reconfigures stdout/stderr to UTF-8 and makes the process
+# DPI-aware so any webview-based login helper renders correctly.
+try:
+    import dpi_setup
+    dpi_setup.configure()
+except Exception:
+    pass
+
 import requests
 import discord
 from discord import app_commands

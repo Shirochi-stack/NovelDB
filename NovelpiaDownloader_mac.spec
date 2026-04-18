@@ -56,10 +56,13 @@ a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=binaries,
-    datas=[
-        ('icon.icns', '.'),
-    ] if icon_file else [],
-    hiddenimports=[],
+    datas=(
+        [('icon.icns', '.'), ('dpi_setup.py', '.')]
+        if icon_file else [('dpi_setup.py', '.')]
+    ),
+    hiddenimports=[
+        'dpi_setup',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

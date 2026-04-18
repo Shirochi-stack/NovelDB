@@ -31,6 +31,13 @@ _configured = False
 # Default scale factor when config.json has no value
 DEFAULT_SCALE_FACTOR = 1.0
 
+# Populated by configure(): the scale factor that was ultimately applied.
+# Consumers (e.g. tkinter apps via apply_to_tk) read these to line up with
+# what Qt would have used.
+_TOTAL_SCALE = 1.0    # user's desired total UI scale
+_QT_SCALE = 1.0       # what we wrote into QT_SCALE_FACTOR
+_SYSTEM_SCALE = 1.0   # OS-level DPI scale (1.0, 1.25, 1.5, ...)
+
 
 def _ensure_dpi_aware():
     """Make the process DPI-aware on Windows (idempotent, no-op on other platforms)."""
@@ -290,6 +297,14 @@ def _get_screen_resolution():
 def _get_default_scale_for_resolution():
     """Return a sensible default scale factor based on the primary monitor's resolution.
 
+    Values are chosen to be conservative on DPI-aware processes (tkinter
+    on Windows, Cocoa Retina on macOS) where the OS has already scaled
+    the UI. The multiplier is only meant to tweak the OS-applied size,
+    not replace it — so all values stay near 1.0.
+
+    Qt code paths (see configure()) divide this out by the system DPI
+    scale, so the same values also work there.
+
     Works on Windows, macOS, and Linux (no PySide6 needed).
     Falls back to DEFAULT_SCALE_FACTOR if detection fails.
     """
@@ -298,17 +313,18 @@ def _get_default_scale_for_resolution():
         if width <= 0 or height <= 0:
             return DEFAULT_SCALE_FACTOR
 
-        # Choose scale factor based on horizontal resolution
-        if width >= 3840:       # 4K (3840×2160)
-            return 1.7
-        elif width >= 2560:     # 1440p / QHD (2560×1440)
-            return 1.15
-        elif width >= 1920:     # 1080p (1920×1080)
+        # Horizontal-resolution buckets. These are *total* target scales;
+        # the OS contribution is handled separately in configure() / apply_to_tk().
+        if width >= 3840:       # 4K (3840x2160) and up
             return 1.0
-        elif width >= 1366:     # 768p / common laptops
-            return 0.62
-        else:                   # 720p or lower
-            return 0.6
+        elif width >= 2560:     # 1440p / QHD (2560x1440)
+            return 1.0
+        elif width >= 1920:     # 1080p (1920x1080)
+            return 1.0
+        elif width >= 1366:     # 768p / common laptop panels
+            return 0.9
+        else:                   # 720p or lower / very small panels
+            return 0.8
     except Exception:
         return DEFAULT_SCALE_FACTOR
 
@@ -349,11 +365,20 @@ def configure():
 
     Must be called *before* importing any PySide6/Qt modules.
     Idempotent — subsequent calls are harmless no-ops.
+
+    For tkinter apps, this is still safe to call early: it only sets env
+    vars (ignored by tkinter) and makes the Windows process DPI-aware.
+    Use apply_to_tk(root) after creating the Tk root to apply the same
+    scale factor to tkinter widgets.
     """
-    global _configured
+    global _configured, _TOTAL_SCALE, _QT_SCALE, _SYSTEM_SCALE
     if _configured:
         return
     _configured = True
+
+    # Ensure the process is DPI-aware before we measure anything, so that
+    # resolution and system-DPI reads are correct on Windows.
+    _ensure_dpi_aware()
 
     # ── Enable Qt6 native high-DPI scaling (sharp text rendering) ─────────
     # Use PassThrough to prevent blurry text on fractional scales (e.g. 1.15x)
@@ -365,7 +390,7 @@ def configure():
     # stretched up, which causes blurriness).
     os.environ.pop("QT_FONT_DPI", None)
 
-    # ── Apply user-configured scale factor ────────────────────────────────
+    # ── Apply user-configured scale factor ──────────────────────────────────
     # The user's factor is the desired *total* scale.  Qt will auto-detect
     # the system DPI (e.g. 1.5× on a 150 % Windows display), so we divide
     # out the system scale to keep the total correct.
@@ -381,4 +406,93 @@ def configure():
     qt_scale = max(0.25, min(4.0, qt_scale))
     os.environ["QT_SCALE_FACTOR"] = str(round(qt_scale, 4))
 
-    print(f"✅ DPI scaling configured (target={factor}, system={system_scale:.2f}, QT_SCALE_FACTOR={qt_scale:.4f})")
+    _TOTAL_SCALE = float(factor)
+    _QT_SCALE = float(qt_scale)
+    _SYSTEM_SCALE = float(system_scale)
+
+    try:
+        print(
+            f"[dpi_setup] scaling configured (target={factor}, "
+            f"system={system_scale:.2f}, QT_SCALE_FACTOR={qt_scale:.4f})"
+        )
+    except Exception:
+        pass
+
+
+def get_scale_factor():
+    """Return the user's desired total UI scale factor after configure().
+
+    Falls back to a resolution-based default if configure() hasn't run yet.
+    """
+    if _configured:
+        return _TOTAL_SCALE
+    return _read_scale_factor()
+
+
+def get_system_scale():
+    """Return the detected OS-level DPI scale after configure()."""
+    if _configured:
+        return _SYSTEM_SCALE
+    return _get_system_dpi_scale()
+
+
+def apply_to_tk(root):
+    """Apply the configured DPI scaling to a tkinter `Tk` / `Toplevel` root.
+
+    Must be called AFTER the root window exists. Safe to call multiple times
+    (the last call wins). Uses Tk's built-in 'tk scaling' so widget geometry,
+    default fonts, and ttk themes scale consistently.
+
+    On Windows it also ensures the process is DPI-aware (no-op elsewhere).
+
+    On macOS tkinter is already Retina-aware via the system framework, so we
+    only pass through the user's desired scale (Qt divides out the backing
+    factor; tkinter does not need that).
+    """
+    # Make sure configure() has run at least once.
+    if not _configured:
+        configure()
+    _ensure_dpi_aware()
+
+    try:
+        # tk's native 'scaling' is in points-per-pixel: 1.0 = 72 DPI, default
+        # on Windows/Linux is ~1.33 (96 DPI / 72). To scale UI by `factor`,
+        # multiply the current value rather than overriding absolutely,
+        # otherwise we'd clobber the system DPI that Tk already detected.
+        current = float(root.tk.call('tk', 'scaling'))
+    except Exception:
+        current = 1.333  # fall back to the 96 DPI default
+
+    # On Windows the process is DPI-aware now, so Tk already reports the
+    # correct system scaling in `current`. The user's factor is a multiplier
+    # on top of that. On macOS tkinter ignores the backing factor in 'scaling'
+    # so we just multiply too.
+    target_factor = _TOTAL_SCALE if _configured else _read_scale_factor()
+    try:
+        new_scaling = current * float(target_factor)
+        # Clamp to Tk's sane range
+        new_scaling = max(0.5, min(6.0, new_scaling))
+        root.tk.call('tk', 'scaling', new_scaling)
+    except Exception:
+        pass
+
+    # Also scale the default named fonts so text in every widget grows/shrinks
+    # proportionally. Without this, widget padding changes but font size doesn't.
+    try:
+        import tkinter.font as tkfont
+        for fname in tkfont.names(root):
+            try:
+                f = tkfont.nametofont(fname)
+                size = int(f.cget('size'))
+                if size == 0:
+                    continue
+                # tk uses negative sizes for pixels, positive for points.
+                # Scaling applies to both; round to keep values integer.
+                scaled = int(round(size * float(target_factor)))
+                if scaled == 0:
+                    scaled = size
+                f.configure(size=scaled)
+            except Exception:
+                continue
+    except Exception:
+        pass

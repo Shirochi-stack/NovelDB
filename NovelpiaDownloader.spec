@@ -31,9 +31,14 @@ a = Analysis(
     pathex=[],
     binaries=binaries,
     datas=[
-        ('icon.ico', '.')  # Include the icon file in the root of the bundle
+        ('icon.ico', '.'),          # Include the icon file in the root of the bundle
+        ('dpi_setup.py', '.'),      # Ship source copy alongside the exe so
+                                    # config.json ↔ dpi_setup stays introspectable.
     ],
-    hiddenimports=[],
+    hiddenimports=[
+        'dpi_setup',                # Ensure dpi_setup is always bundled,
+                                    # even if only imported conditionally.
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
