@@ -102,8 +102,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'ND38',
         'CFBundleDisplayName': 'Novelpia Downloader',
-        'CFBundleVersion': '3.7',
-        'CFBundleShortVersionString': '3.7',
+        'CFBundleVersion': '3.8',
+        'CFBundleShortVersionString': '3.8',
         'NSHighResolutionCapable': True,
     },
 )

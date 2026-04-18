@@ -31,6 +31,60 @@ def _get_base_dir():
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
+
+def _writable_data_dir(kind):
+    """Return a writable directory path for `kind` ('logs' or '.cache').
+
+    Windows / Linux: uses `<base_dir>/<kind>` like before. If os.makedirs
+    fails (unusual — Program Files install, read-only filesystem, etc.)
+    we return None instead of crashing so the caller can skip file I/O
+    gracefully.
+
+    macOS: frozen .app bundles in /Applications are read-only, so we try
+    an ordered fallback chain and return the first writable candidate.
+    If every candidate fails we return None (same contract as above).
+
+    The caller is expected to treat None as "no file I/O for this kind".
+    """
+    if sys.platform != "darwin":
+        # Windows / Linux: single candidate, same as before the fix — but
+        # swallow makedirs errors so the app still launches.
+        path = os.path.join(_get_base_dir(), kind)
+        try:
+            os.makedirs(path, exist_ok=True)
+            return path
+        except Exception:
+            return None
+
+    # macOS: try base_dir first (dev / signed non-sandboxed builds),
+    # then ~/Library/... (standard location for read-only bundles),
+    # then a temp dir as absolute last resort.
+    home = os.path.expanduser("~")
+    if kind == "logs":
+        mac_standard = os.path.join(home, "Library", "Logs", "ND38")
+    elif kind == ".cache":
+        mac_standard = os.path.join(home, "Library", "Caches", "ND38")
+    else:
+        mac_standard = os.path.join(home, "Library", "Application Support", "ND38", kind)
+
+    candidates = [
+        os.path.join(_get_base_dir(), kind),
+        mac_standard,
+        os.path.join(tempfile.gettempdir(), f"ND38_{kind.lstrip('.')}"),
+    ]
+    for path in candidates:
+        try:
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, ".write_probe")
+            with open(probe, "w") as f:
+                f.write("")
+            os.remove(probe)
+            return path
+        except Exception:
+            continue
+    return None
+
+
 _logger = logging.getLogger('ND')
 _LOG_FILE = ""
 
@@ -40,14 +94,29 @@ def _is_main_process():
     except Exception:
         return True
 
+# Module-level log setup. On macOS .app bundles installed in /Applications
+# the bundle is read-only, so os.makedirs / FileHandler would raise
+# PermissionError at import time and crash the whole app before the GUI
+# appears. Everything below is wrapped so that the worst case is "no file
+# logging this session" instead of "app won't launch".
 if _is_main_process():
-    _LOG_DIR = os.path.join(_get_base_dir(), 'logs')
-    os.makedirs(_LOG_DIR, exist_ok=True)
-    _LOG_FILE = os.path.join(_LOG_DIR, f"nd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    _fh = logging.FileHandler(_LOG_FILE, encoding='utf-8')
-    _fh.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
-    _logger.setLevel(logging.DEBUG)
-    _logger.addHandler(_fh)
+    _LOG_DIR = _writable_data_dir('logs')
+    if _LOG_DIR:
+        try:
+            _LOG_FILE = os.path.join(
+                _LOG_DIR, f"nd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            )
+            _fh = logging.FileHandler(_LOG_FILE, encoding='utf-8')
+            _fh.setFormatter(logging.Formatter(
+                '[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
+            ))
+            _logger.setLevel(logging.DEBUG)
+            _logger.addHandler(_fh)
+        except Exception:
+            _LOG_FILE = ""
+            _logger.addHandler(logging.NullHandler())
+    else:
+        _logger.addHandler(logging.NullHandler())
 else:
     _logger.addHandler(logging.NullHandler())
 
@@ -1936,17 +2005,17 @@ class NovelpiaGUI(tk.Tk):
 
         threading.Thread(target=poll_file, daemon=True).start()
     def action_open_cache_folder(self):
-        """Open the per-novel `.cache` directory in the OS file explorer.
+        """Open the per-novel cache directory in the OS file explorer.
 
-        Creates the directory if it doesn't yet exist so the button is
-        never a no-op. Works on Windows (explorer.exe), macOS (open), and
-        Linux (xdg-open). Any failure is logged to the console.
+        The real location depends on write permissions — see
+        `_writable_data_dir('.cache')` for the fallback chain. On Windows
+        and Linux this is always `<base_dir>/.cache` (historical
+        behaviour). On macOS we fall back to `~/Library/Caches/ND38` if
+        the bundle location is read-only.
         """
-        cache_dir = os.path.join(_get_base_dir(), '.cache')
-        try:
-            os.makedirs(cache_dir, exist_ok=True)
-        except Exception as e:
-            self.log_message(f"Could not create cache folder: {e}")
+        cache_dir = _writable_data_dir('.cache')
+        if not cache_dir:
+            self.log_message("Could not create cache folder (no writable location).")
             return
 
         try:
@@ -2376,15 +2445,20 @@ class NovelpiaGUI(tk.Tk):
             self._end_per_novel_log(per_novel_handler)
 
     def _begin_per_novel_log(self, novel_id):
-        """Attach a FileHandler writing to logs/nd_<novel_id>_<timestamp>.log.
+        """Attach a FileHandler writing to <logs_dir>/nd_<novel_id>_<timestamp>.log.
 
-        Returns the handler so the caller can detach it when the download
-        completes. Logs stay in `logs/` under _get_base_dir(), same folder
-        as the session-wide log.
+        Uses the same writable-dir resolver as startup logging so it works
+        even when the app is installed in a read-only location (e.g. a
+        macOS .app bundle in /Applications).
         """
         try:
-            log_dir = os.path.join(_get_base_dir(), 'logs')
-            os.makedirs(log_dir, exist_ok=True)
+            log_dir = _writable_data_dir('logs')
+            if not log_dir:
+                self.log_message(
+                    "\u26a0 No writable log directory available; "
+                    "per-novel log not created."
+                )
+                return None
             stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             path = os.path.join(log_dir, f"nd_{novel_id}_{stamp}.log")
             handler = logging.FileHandler(path, encoding='utf-8')
@@ -2428,26 +2502,33 @@ class NovelpiaGUI(tk.Tk):
         # we don't have to re-download the text.
         current_fp = self._image_cache_fingerprint()
         if use_cache:
-            cache_dir = os.path.join(_get_base_dir(), '.cache')
-            os.makedirs(cache_dir, exist_ok=True)
-            cache_path = os.path.join(cache_dir, f'{novel_id}.json')
-            if os.path.exists(cache_path):
-                try:
-                    with open(cache_path, 'r', encoding='utf-8') as f:
-                        cache_data = json.load(f)
-                    stored_fp = cache_data.get('_image_fingerprint')
-                    if stored_fp and stored_fp != current_fp:
-                        self._invalidate_cached_images(cache_data)
-                        self.log_message(
-                            "\u26a0 Image settings changed since last cache "
-                            "write; dropping cached images and re-processing "
-                            "from cached JSON."
-                        )
-                    reserved = {'_meta', '_image_fingerprint'}
-                    chapter_count = sum(1 for k in cache_data if k not in reserved)
-                    self.log_message(f"Cache loaded ({chapter_count} chapters cached).")
-                except Exception:
-                    cache_data = {}
+            cache_dir = _writable_data_dir('.cache')
+            if not cache_dir:
+                self.log_message(
+                    "\u26a0 No writable cache directory available; "
+                    "proceeding without on-disk cache."
+                )
+                use_cache = False
+                cache_images = False
+            else:
+                cache_path = os.path.join(cache_dir, f'{novel_id}.json')
+                if os.path.exists(cache_path):
+                    try:
+                        with open(cache_path, 'r', encoding='utf-8') as f:
+                            cache_data = json.load(f)
+                        stored_fp = cache_data.get('_image_fingerprint')
+                        if stored_fp and stored_fp != current_fp:
+                            self._invalidate_cached_images(cache_data)
+                            self.log_message(
+                                "\u26a0 Image settings changed since last cache "
+                                "write; dropping cached images and re-processing "
+                                "from cached JSON."
+                            )
+                        reserved = {'_meta', '_image_fingerprint'}
+                        chapter_count = sum(1 for k in cache_data if k not in reserved)
+                        self.log_message(f"Cache loaded ({chapter_count} chapters cached).")
+                    except Exception:
+                        cache_data = {}
 
         # Metadata (use cache if available)
         if use_cache and '_meta' in cache_data:
