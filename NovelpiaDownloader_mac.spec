@@ -78,7 +78,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ND37',
+    name='ND38',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -96,11 +96,11 @@ exe = EXE(
 # Create macOS .app bundle
 app = BUNDLE(
     exe,
-    name='ND37.app',
+    name='ND38.app',
     icon=icon_file,
-    bundle_identifier='com.novelpiadownloader.nd37',
+    bundle_identifier='com.novelpiadownloader.nd38',
     info_plist={
-        'CFBundleName': 'ND37',
+        'CFBundleName': 'ND38',
         'CFBundleDisplayName': 'Novelpia Downloader',
         'CFBundleVersion': '3.7',
         'CFBundleShortVersionString': '3.7',

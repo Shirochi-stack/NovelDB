@@ -767,7 +767,7 @@ class NovelpiaGUI(tk.Tk):
             self.bind_class(widget_class, "<Button-4>", _block_scroll)
             self.bind_class(widget_class, "<Button-5>", _block_scroll)
 
-        self.title("ND37")
+        self.title("ND38")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()

@@ -60,20 +60,20 @@ jobs:
         run: |
           # Create a temporary directory for DMG contents
           mkdir -p dmg_contents
-          cp -R dist/ND37.app dmg_contents/
+          cp -R dist/ND38.app dmg_contents/
 
           # Create a symlink to /Applications for drag-and-drop install
           ln -s /Applications dmg_contents/Applications
 
           # Build the DMG using hdiutil
-          hdiutil create -volname "ND37" \
+          hdiutil create -volname "ND38" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
-            "ND37-macos-${{ matrix.arch }}.dmg"
+            "ND38-macos-${{ matrix.arch }}.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ND37-macos-${{ matrix.arch }}
-          path: ND37-macos-${{ matrix.arch }}.dmg
+          name: ND38-macos-${{ matrix.arch }}
+          path: ND38-macos-${{ matrix.arch }}.dmg
           retention-days: 90
