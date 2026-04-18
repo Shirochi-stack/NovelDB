@@ -100,6 +100,31 @@ class ToolTip:
             self.tipwindow.destroy()
             self.tipwindow = None
 
+def extract_novel_id(value):
+    """Accept a raw novel ID or a Novelpia novel URL and return the numeric ID.
+
+    Returns None when the input is empty or cannot be parsed into an ID.
+    Examples:
+        extract_novel_id("123456")                             -> "123456"
+        extract_novel_id("https://novelpia.com/novel/123456")  -> "123456"
+        extract_novel_id("  /novel/123456?x=1 ")              -> "123456"
+        extract_novel_id("not-an-id")                          -> None
+    """
+    if not value:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+    if value.isdigit():
+        return value
+    m = re.search(r"novelpia\.com/novel/(\d+)", value, flags=re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m = re.search(r"/novel/(\d+)", value)
+    if m:
+        return m.group(1)
+    return None
+
 def process_text_content(content_json):
     """Parse the viewer_data JSON into readable HTML paragraphs."""
     try:
@@ -805,9 +830,11 @@ class NovelpiaGUI(tk.Tk):
         ttk.Label(range_frame, text="To").pack(side="left")
         ttk.Spinbox(range_frame, textvariable=self.var_to_num, width=5, from_=1, to=99999).pack(side="left", padx=5)
 
-        # Novel ID
-        ttk.Label(dl_inner, text="Novel ID").grid(row=1, column=0, sticky="w", pady=5)
-        ttk.Entry(dl_inner, textvariable=self.var_novel_id).grid(row=1, column=1, columnspan=2, sticky="ew", padx=5)
+        # Novel ID / URL
+        ttk.Label(dl_inner, text="Novel ID / URL").grid(row=1, column=0, sticky="w", pady=5)
+        ent_novel_id = ttk.Entry(dl_inner, textvariable=self.var_novel_id)
+        ent_novel_id.grid(row=1, column=1, columnspan=2, sticky="ew", padx=5)
+        ToolTip(ent_novel_id, "Enter a numeric Novel ID (e.g. 123456) or a full Novelpia URL\n(e.g. https://novelpia.com/novel/123456). URLs are auto-resolved.")
 
         # Format
         ttk.Label(dl_inner, text="Format").grid(row=2, column=0, sticky="w", pady=5)
@@ -878,6 +905,15 @@ class NovelpiaGUI(tk.Tk):
         batch_btn_frame.grid(row=8, column=0, columnspan=3, sticky="e", pady=10)
         self.btn_tag_retrieval = ttk.Button(batch_btn_frame, text="Tag Retrieval", command=self.action_tag_retrieval)
         self.btn_tag_retrieval.pack(side="left", padx=(0, 5))
+        # Paste Batch: paste a list of IDs/URLs inline instead of using a file.
+        self.btn_paste_batch = ttk.Button(batch_btn_frame, text="Paste Batch", command=self.action_paste_batch)
+        self.btn_paste_batch.pack(side="left", padx=(0, 5))
+        ToolTip(
+            self.btn_paste_batch,
+            "Open a window to paste multiple Novel IDs or URLs,\n"
+            "then download them one after another.\n"
+            "Reuses the same engine as Batch Download.",
+        )
         self.btn_batch_download = ttk.Button(batch_btn_frame, text="Batch Download", command=self.action_batch_download)
         self.btn_batch_download.pack(side="left")
         ToolTip(
@@ -1662,6 +1698,16 @@ class NovelpiaGUI(tk.Tk):
             self.downloader.stop_signal = False
             self.btn_download.config(state="disabled")
             self.btn_tag_retrieval.config(state="disabled")
+            if hasattr(self, 'btn_paste_batch'):
+                try:
+                    self.btn_paste_batch.config(state="disabled")
+                except Exception:
+                    pass
+            if hasattr(self, 'btn_batch_download'):
+                try:
+                    self.btn_batch_download.config(state="disabled")
+                except Exception:
+                    pass
             if hasattr(self, '_tag_btn_go') and self._tag_btn_go:
                 try:
                     self._tag_btn_go.config(state="disabled")
@@ -1676,6 +1722,16 @@ class NovelpiaGUI(tk.Tk):
         else:
             self.btn_download.config(state="normal")
             self.btn_tag_retrieval.config(state="normal")
+            if hasattr(self, 'btn_paste_batch'):
+                try:
+                    self.btn_paste_batch.config(state="normal")
+                except Exception:
+                    pass
+            if hasattr(self, 'btn_batch_download'):
+                try:
+                    self.btn_batch_download.config(state="normal")
+                except Exception:
+                    pass
             if hasattr(self, '_tag_btn_go') and self._tag_btn_go:
                 try:
                     self._tag_btn_go.config(state="normal")
@@ -1704,38 +1760,108 @@ class NovelpiaGUI(tk.Tk):
     def action_show_batch_help(self):
         """Display a dialog explaining how the batch downloader works."""
         help_text = (
-            "Batch Download — How it works\n"
-            "==============================\n\n"
-            "1. Prepare a plain text (.txt) or .csv file with one entry per line.\n"
-            "   Supported line formats:\n"
-            "      Title,NovelID     (title is used for the output filename)\n"
-            "      NovelID           (title is fetched automatically)\n"
-            "      # comment         (lines starting with # are skipped)\n\n"
-            "2. Click 'Batch Download' and pick your list file.\n"
-            "   If 'Quick Download' is enabled, its folder is used as the output\n"
-            "   directory automatically. Otherwise you will be prompted to pick one.\n\n"
-            "3. For each entry, the app reuses ALL the settings currently shown\n"
-            "   in the main window — format (EPUB/TXT/PDF), range, compression,\n"
-            "   image format (WEBP/JPEG/PNG/AVIF), cover format, notices, cache,\n"
-            "   threads/interval, etc. So configure those first, then start the batch.\n\n"
-            "4. Behavior and safety:\n"
+            "Batch Download / Paste Batch \u2014 How it works\n"
+            "===========================================\n\n"
+            "Two ways to feed the batch engine:\n"
+            "  \u2022 Batch Download: pick a .txt / .csv file with one entry per line.\n"
+            "  \u2022 Paste Batch: paste the entries directly into a dialog window.\n\n"
+            "Accepted line formats (same for both):\n"
+            "   NovelID                                   -> title fetched automatically\n"
+            "   https://novelpia.com/novel/NovelID        -> URL auto-resolved\n"
+            "   Title,NovelID                             -> title used for filename\n"
+            "   Title,https://novelpia.com/novel/NovelID\n"
+            "   # comment                                 -> skipped\n\n"
+            "If 'Quick Download' is enabled, its folder is used as the output\n"
+            "directory. Otherwise you will be prompted to pick one.\n\n"
+            "For each entry, the app reuses ALL the settings currently shown\n"
+            "in the main window \u2014 format (EPUB/TXT/PDF), range, compression,\n"
+            "image format (WEBP/JPEG/PNG/AVIF), cover format, notices, cache,\n"
+            "threads/interval, etc. So configure those first, then start the batch.\n\n"
+            "Behavior and safety:\n"
             "   \u2022 Blank lines and lines starting with '#' are skipped.\n"
-            "   \u2022 Non-numeric IDs are skipped.\n"
+            "   \u2022 Entries that cannot be resolved to a numeric ID are skipped.\n"
+            "   \u2022 Novels are processed strictly one at a time (sequential).\n"
             "   \u2022 A 2-second pause is inserted between novels to reduce load.\n"
             "   \u2022 Press 'Stop' to cancel; the current novel finishes then exits.\n"
             "   \u2022 Each novel saves to '[<id>] <title>.<ext>' in the output folder.\n"
             "   \u2022 A summary 'OK / Failed / Skipped' is logged at the end.\n\n"
-            "Tip: You can generate a list automatically with 'Tag Retrieval'\n"
-            "(by tag or Top 100), then feed that file straight into Batch Download."
+            "Tip: 'Tag Retrieval' can generate a list automatically (by tag or Top 100)\n"
+            "which you can feed straight into Batch Download."
         )
-        messagebox.showinfo("Batch Download — Help", help_text)
+        messagebox.showinfo("Batch Download \u2014 Help", help_text)
+
+    def action_paste_batch(self):
+        """Open a dialog where the user can paste IDs/URLs for a sequential batch."""
+        if getattr(self, '_paste_batch_dialog', None) and self._paste_batch_dialog.winfo_exists():
+            self._paste_batch_dialog.lift()
+            self._paste_batch_dialog.focus_force()
+            return
+
+        top = tk.Toplevel(self)
+        self._paste_batch_dialog = top
+        top.title("Paste Batch")
+        top.resizable(True, True)
+
+        screen_w = top.winfo_screenwidth()
+        screen_h = top.winfo_screenheight()
+        w = max(640, int(screen_w * 0.36))
+        h = max(420, int(screen_h * 0.38))
+        top.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{(screen_h - h) // 2}")
+        top.minsize(500, 320)
+
+        main_f = ttk.Frame(top, padding=10)
+        main_f.pack(fill="both", expand=True)
+
+        ttk.Label(
+            main_f,
+            text=(
+                "Paste one Novel ID or Novelpia URL per line.\n"
+                "You can also use 'Title,ID' or 'Title,URL'. '#' lines are comments."
+            ),
+            wraplength=w - 40,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        text = tk.Text(main_f, wrap="word", height=14)
+        text.pack(fill="both", expand=True)
+        text.focus_set()
+
+        btns = ttk.Frame(main_f)
+        btns.pack(fill="x", pady=(10, 0))
+
+        def _start():
+            raw = text.get("1.0", "end").strip()
+            lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+            if not lines:
+                messagebox.showwarning(
+                    "Empty Batch",
+                    "Please paste at least one Novel ID or Novelpia URL.",
+                    parent=top,
+                )
+                return
+
+            if self.var_quick_enable.get() and self.var_quick_path.get().strip():
+                output_dir = self.var_quick_path.get().strip()
+            else:
+                output_dir = filedialog.askdirectory(title="Select output directory", parent=top)
+                if not output_dir:
+                    return
+
+            top.destroy()
+            self._paste_batch_dialog = None
+            self._start_batch_download(lines, output_dir, "pasted batch")
+
+        ttk.Button(btns, text="Start Batch", command=_start).pack(side="right")
+        ttk.Button(btns, text="Close", command=top.destroy).pack(side="right", padx=(0, 8))
 
     def action_batch_download(self):
         """Batch download multiple novels from a list file.
 
         Accepted line formats (one per line):
           Title,NovelID
+          Title,URL
           NovelID            (title is fetched automatically)
+          URL                (title is fetched automatically)
           # comment          (skipped)
 
         The current UI settings (format, range, compression, image/cover format,
@@ -1758,15 +1884,23 @@ class NovelpiaGUI(tk.Tk):
             if not output_dir:
                 return
 
+        self._start_batch_download(list_path, output_dir, f"batch file: {os.path.basename(list_path)}")
+
+    def _start_batch_download(self, batch_source, output_dir, source_label):
+        """Shared entry point: kicks off the batch worker from either a file or list."""
         if self._is_downloading:
             return
         self._set_downloading(True)
-        threading.Thread(target=self._batch_download_wrapper, args=(list_path, output_dir), daemon=True).start()
+        threading.Thread(
+            target=self._batch_download_wrapper,
+            args=(batch_source, output_dir, source_label),
+            daemon=True,
+        ).start()
 
-    def _batch_download_wrapper(self, list_path, output_dir):
+    def _batch_download_wrapper(self, batch_source, output_dir, source_label):
         """Wrapper that ensures UI state is restored after batch download."""
         try:
-            self._batch_download_worker(list_path, output_dir)
+            self._batch_download_worker(batch_source, output_dir, source_label)
         finally:
             self.after(0, lambda: self._set_downloading(False))
 
@@ -1775,22 +1909,49 @@ class NovelpiaGUI(tk.Tk):
         """Parse a batch list line into (novel_id, title_or_none).
 
         Supports:
-          Title,ID   -> ('ID', 'Title')
-          ID         -> ('ID', None)
+          Title,ID    -> ('ID', 'Title')
+          Title,URL   -> ('ID', 'Title')
+          ID          -> ('ID', None)
+          URL         -> ('ID', None)
         Returns (None, None) if the line is unusable.
         """
         if "," in line:
             parts = line.split(",", 1)
             title = parts[0].strip()
-            novel_id = parts[1].strip()
+            novel_id = extract_novel_id(parts[1].strip())
             return (novel_id, title) if novel_id else (None, None)
-        # No comma — treat the whole line as a novel ID.
-        novel_id = line.strip()
+        # No comma \u2014 resolve the whole line (accepts URL or numeric ID).
+        novel_id = extract_novel_id(line.strip())
         return (novel_id, None) if novel_id else (None, None)
 
-    def _batch_download_worker(self, list_path, output_dir):
+    @staticmethod
+    def _load_batch_lines(batch_source):
+        """Return a list of non-empty, stripped lines from a file path or list.
+
+        Files are opened with a sequence of encoding fallbacks so non-UTF-8
+        lists (e.g. cp1252 exports) parse cleanly.
+        """
+        if isinstance(batch_source, (list, tuple)):
+            return [str(ln).strip() for ln in batch_source if str(ln).strip()]
+
+        if isinstance(batch_source, str):
+            if not os.path.exists(batch_source):
+                raise FileNotFoundError(f"List file not found: {batch_source}")
+            for enc in ("utf-8-sig", "utf-8", "cp1252"):
+                try:
+                    with open(batch_source, "r", encoding=enc) as f:
+                        return [ln.strip() for ln in f if ln.strip()]
+                except UnicodeDecodeError:
+                    continue
+            with open(batch_source, "r", encoding="utf-8", errors="replace") as f:
+                return [ln.strip() for ln in f if ln.strip()]
+
+        raise ValueError("Unsupported batch source.")
+
+    def _batch_download_worker(self, batch_source, output_dir, source_label):
         self.lbl_status.config(text="Batch downloading...")
-        self.log_message(f"Batch download started: {list_path}")
+        self.log_message(f"Batch download started: {source_label}")
+        self.log_message("Batch mode: novels are processed strictly one at a time.")
 
         prev_quick_enable = self.var_quick_enable.get()
         prev_quick_path = self.var_quick_path.get()
@@ -1798,18 +1959,16 @@ class NovelpiaGUI(tk.Tk):
         succeeded, failed, skipped = 0, 0, 0
 
         try:
-            if not os.path.exists(list_path):
-                self.log_message(f"List file not found: {list_path}")
-                return
-
             os.makedirs(output_dir, exist_ok=True)
-
-            with open(list_path, "r", encoding="utf-8") as f:
-                lines = [ln.strip() for ln in f if ln.strip()]
+            try:
+                lines = self._load_batch_lines(batch_source)
+            except FileNotFoundError as e:
+                self.log_message(str(e))
+                return
 
             total = len(lines)
             if total == 0:
-                self.log_message("Batch list file is empty.")
+                self.log_message("Batch list is empty.")
                 return
 
             self.var_quick_enable.set(True)
@@ -1827,12 +1986,7 @@ class NovelpiaGUI(tk.Tk):
 
                 novel_id, title = self._parse_batch_line(line)
                 if not novel_id:
-                    self.log_message(f"[{idx}/{total}] Skipped (invalid): {line}")
-                    skipped += 1
-                    continue
-
-                if not novel_id.isdigit():
-                    self.log_message(f"[{idx}/{total}] Skipped (non-numeric ID '{novel_id}')")
+                    self.log_message(f"[{idx}/{total}] Skipped (invalid ID/URL): {line}")
                     skipped += 1
                     continue
 
@@ -1842,11 +1996,14 @@ class NovelpiaGUI(tk.Tk):
                         meta = self.downloader.fetch_metadata(novel_id)
                         title = meta.get("title", novel_id) if meta else novel_id
 
-                    self.log_message(f"[{idx}/{total}] Downloading: {title} ({novel_id})")
+                    self.log_message(f"[{idx}/{total}] Starting novel: {title} ({novel_id})")
                     self.after(0, lambda i=idx, t=total: self.lbl_batch.config(text=f"Batch: {i}/{t}"))
                     self.var_novel_id.set(novel_id)
                     self._download_worker()
                     succeeded += 1
+                    self.log_message(f"[{idx}/{total}] Finished novel: {title} ({novel_id})")
+                    if idx < total and not self._stop_requested:
+                        self.log_message(f"[{idx + 1}/{total}] Waiting to start the next novel...")
                 except Exception as e:
                     failed += 1
                     self.log_message(f"[{idx}/{total}] FAILED novel {novel_id}: {e}")
@@ -1869,11 +2026,18 @@ class NovelpiaGUI(tk.Tk):
         # Reset image counter for this download session
         with self.image_lock:
             self.image_no = 1
-        novel_id = self.var_novel_id.get().strip()
+        novel_input = self.var_novel_id.get().strip()
+        novel_id = extract_novel_id(novel_input)
         if not novel_id:
-            messagebox.showwarning("Missing Novel ID", "Please enter a Novel ID before downloading.")
+            messagebox.showwarning(
+                "Missing Novel ID",
+                "Please enter a Novel ID or Novelpia URL before downloading.",
+            )
             self.lbl_status.config(text="Idle")
             return
+        if novel_input != novel_id:
+            self.log_message(f"Resolved input to Novel ID: {novel_id}")
+            self.var_novel_id.set(novel_id)
 
         # Save novel ID to config immediately
         self._save_config()

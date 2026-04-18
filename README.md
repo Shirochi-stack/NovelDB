@@ -56,26 +56,33 @@ For even greater space savings (10-50%), you can use the Calibre EPUB editor. Co
 
 -----
 
-## 📦 Batch Download (GUI)
+## 📦 Batch Download / Paste Batch (GUI)
 
-The **Batch Download** button in the GUI lets you queue many novels from a single list file.
+Two sibling buttons feed the same sequential batch engine:
 
-**List file format** (`.txt` or `.csv`, one entry per line):
+- **Batch Download** — pick a list file (`.txt` / `.csv`).
+- **Paste Batch** — paste the list directly into a dialog window (no file needed).
 
+Both accept the same line formats, one entry per line:
+
+- `NovelID`
+- `https://novelpia.com/novel/NovelID` (URL auto-resolved)
 - `Title,NovelID` — the title is used in the output filename.
-- `NovelID` — the title is fetched automatically.
+- `Title,https://novelpia.com/novel/NovelID`
 - `# comment` — any line beginning with `#` is skipped.
+
+The main **Novel ID / URL** field in the single-download form also accepts a full Novelpia URL — it's resolved to the numeric ID automatically and written back into the field.
 
 **How it works:**
 
-1. Click **Batch Download** and pick your list file.
+1. Click **Batch Download** (and pick a list file) or **Paste Batch** (and paste entries).
 2. If **Quick Download** is enabled, its folder is used as the output directory. Otherwise you'll be prompted for one.
-3. Every novel in the list is downloaded with the **current UI settings** — format (EPUB/TXT/PDF), chapter range, compression, image format (WEBP/JPEG/PNG/**AVIF**), cover format, notices, cache, threads, and interval. Configure these **before** pressing the button.
-4. Blank lines, `#` comments, and non-numeric IDs are skipped. A 2 second pause is inserted between novels to reduce server load.
+3. Every novel is downloaded with the **current UI settings** — format (EPUB/TXT/PDF), chapter range, compression, image format (WEBP/JPEG/PNG/**AVIF**), cover format, notices, cache, threads, and interval. Configure these **before** pressing the button.
+4. Blank lines, `#` comments, and entries that cannot be resolved to a numeric ID are skipped. A 2 second pause is inserted between novels to reduce server load.
 5. Pressing **Stop** cancels the batch — the current novel finishes, then the run exits.
 6. Each novel is saved as `[<id>] <title>.<ext>` in the chosen folder. A final `OK / Failed / Skipped` summary is logged.
 
-**Tip:** you can generate a batch list automatically from **Tag Retrieval** (by tag or Top 100), then feed that file straight into Batch Download. An in-app help dialog is also available via the **?** button next to **Batch Download**.
+**Tip:** you can generate a batch list automatically from **Tag Retrieval** (by tag or Top 100), then feed that file straight into Batch Download, or copy its contents into Paste Batch. An in-app help dialog is also available via the **?** button next to **Batch Download**.
 
 ### Image format notes
 
