@@ -50,6 +50,14 @@ try:
 except Exception:
     Image = None
 
+# Register AVIF codec with Pillow (if pillow-avif-plugin is installed).
+# Importing the plugin side-effect registers AVIF support in PIL.
+try:
+    import pillow_avif  # noqa: F401
+    _AVIF_AVAILABLE = True
+except Exception:
+    _AVIF_AVAILABLE = False
+
 # Internal modules (Assumed to exist based on provided context)
 # Since this is a single file simulation, we assume these classes exist 
 # or are imported. For this script to run standalone if you have the files, 
@@ -243,7 +251,7 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
                 return None
         return None
 
-def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None):
+def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False):
     html_parts = []
     images = []
     _img_counter = [0]
@@ -288,16 +296,22 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                         if '.gif' in lo: ext = "gif"
                         elif '.png' in lo: ext = "png"
                         elif '.webp' in lo: ext = "webp"
+                        elif '.avif' in lo: ext = "avif"
                         original_size = len(img_bytes)
                         if compress_images and Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(img_bytes))
                                 out = io.BytesIO()
-                                if ext == "gif":
+                                # Default behavior: preserve GIFs as .gif so animation is kept.
+                                # If the user opted in to "Convert GIFs", fall through to the
+                                # normal format conversion path below (first frame only).
+                                if ext == "gif" and not convert_gifs:
                                     im.save(out, format="GIF", save_all=True, optimize=True)
                                     img_bytes = out.getvalue()
                                 else:
-                                    if im.mode not in ("RGB", "L"):
+                                    if im.mode not in ("RGB", "L", "RGBA"):
+                                        im = im.convert("RGBA" if image_format in ("WEBP", "PNG", "AVIF") else "RGB")
+                                    elif im.mode == "RGBA" and image_format == "JPEG":
                                         im = im.convert("RGB")
                                     if image_format == "WEBP":
                                         im.save(out, format="WEBP", quality=int(jpeg_quality))
@@ -305,12 +319,22 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                                     elif image_format == "PNG":
                                         im.save(out, format="PNG", optimize=True)
                                         ext = "png"
+                                    elif image_format == "AVIF":
+                                        if not _AVIF_AVAILABLE:
+                                            logger("  \u26a0 AVIF plugin not installed, falling back to WEBP. Install 'pillow-avif-plugin'.")
+                                            im.save(out, format="WEBP", quality=int(jpeg_quality))
+                                            ext = "webp"
+                                        else:
+                                            im.save(out, format="AVIF", quality=int(jpeg_quality))
+                                            ext = "avif"
                                     else:
+                                        if im.mode != "RGB":
+                                            im = im.convert("RGB")
                                         im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
                                         ext = "jpg"
                                     img_bytes = out.getvalue()
-                            except Exception:
-                                pass
+                            except Exception as conv_err:
+                                logger(f"  \u26a0 {lbl}: conversion failed ({conv_err}), keeping original.")
                             if len(img_bytes) < original_size:
                                 saved = (1 - len(img_bytes) / original_size) * 100
                                 logger(f"  ⚙ {lbl}: {_format_size(original_size)} → {_format_size(len(img_bytes))} ({saved:.0f}% saved)")
@@ -637,7 +661,10 @@ class NovelpiaGUI(tk.Tk):
         self.var_novel_id = tk.StringVar()
         self.var_compress_images = tk.BooleanVar(value=True)
         self.var_jpeg_quality = tk.IntVar(value=50)
-        self.var_image_format = tk.StringVar(value="WEBP")  # WEBP, JPEG, PNG
+        self.var_image_format = tk.StringVar(value="WEBP")  # WEBP, JPEG, PNG, AVIF
+        # When False (default) GIF sources are preserved as .gif (animation kept).
+        # When True, GIFs are re-encoded to the selected image_format (first frame only).
+        self.var_convert_gifs = tk.BooleanVar(value=False)
         self.var_compress_cover = tk.BooleanVar(value=False)
         self.var_cover_quality = tk.IntVar(value=90)
         self.var_cover_format = tk.StringVar(value="JPEG")  # JPEG, PNG, WEBP
@@ -681,6 +708,8 @@ class NovelpiaGUI(tk.Tk):
         
         self._build_ui()
         self._load_config()
+        # Auto-save the "Convert GIFs" toggle to config whenever the user flips it.
+        self.var_convert_gifs.trace_add("write", lambda *_: self._save_config())
         self._poll_log_queue()
         self._auto_login()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -797,7 +826,17 @@ class NovelpiaGUI(tk.Tk):
         ttk.Label(comp_frame, text="Quality").pack(side="left", padx=(15, 5))
         ttk.Spinbox(comp_frame, textvariable=self.var_jpeg_quality, from_=10, to=100, width=5).pack(side="left")
         ttk.Label(comp_frame, text="Format").pack(side="left", padx=(15, 5))
-        ttk.Combobox(comp_frame, textvariable=self.var_image_format, values=["WEBP", "JPEG", "PNG"], state="readonly", width=7).pack(side="left")
+        img_fmt_cb = ttk.Combobox(comp_frame, textvariable=self.var_image_format, values=["WEBP", "JPEG", "PNG", "AVIF"], state="readonly", width=7)
+        img_fmt_cb.pack(side="left")
+        ToolTip(img_fmt_cb, "Output format for chapter images.\nAVIF requires 'pillow-avif-plugin'.\nGIF sources are preserved as .gif unless 'Convert GIFs' is enabled.")
+        chk_convert_gifs = ttk.Checkbutton(comp_frame, text="Convert GIFs", variable=self.var_convert_gifs)
+        chk_convert_gifs.pack(side="left", padx=(15, 0))
+        ToolTip(
+            chk_convert_gifs,
+            "Off (default): GIF sources are saved as .gif and animation is preserved.\n"
+            "On: GIFs are re-encoded to the selected image format (WEBP/JPEG/PNG/AVIF);\n"
+            "only the first frame is kept \u2014 animation will be lost.",
+        )
         
         cover_frame = ttk.Frame(dl_inner)
         cover_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
@@ -805,7 +844,9 @@ class NovelpiaGUI(tk.Tk):
         ttk.Label(cover_frame, text="Quality").pack(side="left", padx=(15, 5))
         ttk.Spinbox(cover_frame, textvariable=self.var_cover_quality, from_=10, to=100, width=5).pack(side="left")
         ttk.Label(cover_frame, text="Format").pack(side="left", padx=(15, 5))
-        ttk.Combobox(cover_frame, textvariable=self.var_cover_format, values=["JPEG", "WEBP", "PNG"], state="readonly", width=7).pack(side="left")
+        cov_fmt_cb = ttk.Combobox(cover_frame, textvariable=self.var_cover_format, values=["JPEG", "WEBP", "PNG", "AVIF"], state="readonly", width=7)
+        cov_fmt_cb.pack(side="left")
+        ToolTip(cov_fmt_cb, "Output format for the cover image.\nAVIF requires 'pillow-avif-plugin'.")
         ttk.Checkbutton(cover_frame, text="ZIP Compress", variable=self.var_zip_compress_images).pack(side="left", padx=(15, 0))
 
         notices_frame = ttk.Frame(dl_inner)
@@ -837,7 +878,19 @@ class NovelpiaGUI(tk.Tk):
         batch_btn_frame.grid(row=8, column=0, columnspan=3, sticky="e", pady=10)
         self.btn_tag_retrieval = ttk.Button(batch_btn_frame, text="Tag Retrieval", command=self.action_tag_retrieval)
         self.btn_tag_retrieval.pack(side="left", padx=(0, 5))
-        ttk.Button(batch_btn_frame, text="Batch Download", command=self.action_batch_download).pack(side="left")
+        self.btn_batch_download = ttk.Button(batch_btn_frame, text="Batch Download", command=self.action_batch_download)
+        self.btn_batch_download.pack(side="left")
+        ToolTip(
+            self.btn_batch_download,
+            "Download many novels in one run from a list file.\n"
+            "Click the '?' button for full usage details.",
+        )
+        # Help button that shows a dialog explaining how batch downloading works.
+        self.btn_batch_help = ttk.Button(
+            batch_btn_frame, text="?", width=2, command=self.action_show_batch_help
+        )
+        self.btn_batch_help.pack(side="left", padx=(5, 0))
+        ToolTip(self.btn_batch_help, "How the batch downloader works")
 
         # Big Buttons (Right side of DL Frame)
         # We create a sub-frame for the buttons on the right column of the DL group
@@ -1648,12 +1701,47 @@ class NovelpiaGUI(tk.Tk):
         finally:
             self.after(0, lambda: self._set_downloading(False))
 
+    def action_show_batch_help(self):
+        """Display a dialog explaining how the batch downloader works."""
+        help_text = (
+            "Batch Download — How it works\n"
+            "==============================\n\n"
+            "1. Prepare a plain text (.txt) or .csv file with one entry per line.\n"
+            "   Supported line formats:\n"
+            "      Title,NovelID     (title is used for the output filename)\n"
+            "      NovelID           (title is fetched automatically)\n"
+            "      # comment         (lines starting with # are skipped)\n\n"
+            "2. Click 'Batch Download' and pick your list file.\n"
+            "   If 'Quick Download' is enabled, its folder is used as the output\n"
+            "   directory automatically. Otherwise you will be prompted to pick one.\n\n"
+            "3. For each entry, the app reuses ALL the settings currently shown\n"
+            "   in the main window — format (EPUB/TXT/PDF), range, compression,\n"
+            "   image format (WEBP/JPEG/PNG/AVIF), cover format, notices, cache,\n"
+            "   threads/interval, etc. So configure those first, then start the batch.\n\n"
+            "4. Behavior and safety:\n"
+            "   \u2022 Blank lines and lines starting with '#' are skipped.\n"
+            "   \u2022 Non-numeric IDs are skipped.\n"
+            "   \u2022 A 2-second pause is inserted between novels to reduce load.\n"
+            "   \u2022 Press 'Stop' to cancel; the current novel finishes then exits.\n"
+            "   \u2022 Each novel saves to '[<id>] <title>.<ext>' in the output folder.\n"
+            "   \u2022 A summary 'OK / Failed / Skipped' is logged at the end.\n\n"
+            "Tip: You can generate a list automatically with 'Tag Retrieval'\n"
+            "(by tag or Top 100), then feed that file straight into Batch Download."
+        )
+        messagebox.showinfo("Batch Download — Help", help_text)
+
     def action_batch_download(self):
         """Batch download multiple novels from a list file.
 
         Accepted line formats (one per line):
           Title,NovelID
           NovelID            (title is fetched automatically)
+          # comment          (skipped)
+
+        The current UI settings (format, range, compression, image/cover format,
+        threads, cache, notices, etc.) are applied to every novel in the list.
+        If Quick Download is enabled, its folder is used as the output directory;
+        otherwise the user is prompted.
         """
         list_path = filedialog.askopenfilename(
             title="Select batch list file",
@@ -1985,25 +2073,38 @@ table, th, td {
                     if self.var_compress_cover.get() and Image is not None:
                         try:
                             im = Image.open(io.BytesIO(data))
-                            if im.mode not in ("RGB", "L"):
-                                im = im.convert("RGB")
-                            out = io.BytesIO()
-                            
-                            # Use selected cover format
                             cover_fmt = self.var_cover_format.get()
+                            # Preserve alpha where the target format supports it
+                            if cover_fmt in ("WEBP", "PNG", "AVIF"):
+                                if im.mode not in ("RGB", "RGBA", "L"):
+                                    im = im.convert("RGBA")
+                            else:
+                                if im.mode not in ("RGB", "L"):
+                                    im = im.convert("RGB")
+                            out = io.BytesIO()
                             if cover_fmt == "WEBP":
                                 im.save(out, format="WEBP", quality=self.var_cover_quality.get())
                                 cover_ext = "webp"
                             elif cover_fmt == "PNG":
                                 im.save(out, format="PNG", optimize=True)
                                 cover_ext = "png"
+                            elif cover_fmt == "AVIF":
+                                if not _AVIF_AVAILABLE:
+                                    self.log_message("\u26a0 AVIF plugin not installed; saving cover as WEBP. Install 'pillow-avif-plugin'.")
+                                    im.save(out, format="WEBP", quality=self.var_cover_quality.get())
+                                    cover_ext = "webp"
+                                else:
+                                    im.save(out, format="AVIF", quality=self.var_cover_quality.get())
+                                    cover_ext = "avif"
                             else:  # JPEG
+                                if im.mode != "RGB":
+                                    im = im.convert("RGB")
                                 im.save(out, format="JPEG", quality=self.var_cover_quality.get(), optimize=True)
                                 cover_ext = "jpg"
-                            
+
                             data = out.getvalue()
-                        except Exception:
-                            pass
+                        except Exception as cov_err:
+                            self.log_message(f"\u26a0 Cover conversion failed: {cov_err}")
                     cover_image = {"filename": f"cover.{cover_ext}", "data": data}
                     if save_as_epub:
                         epub.add_image(f'cover.{cover_ext}', data)
@@ -2113,7 +2214,8 @@ table, th, td {
                                 self.var_compress_images.get(), self.var_jpeg_quality.get(),
                                 self.var_image_format.get(), self.log_message, next_image_no,
                                 chapter_title=chap.get('title', ''),
-                                chapter_num=self.progress_value + 1
+                                chapter_num=self.progress_value + 1,
+                                convert_gifs=self.var_convert_gifs.get(),
                             )
                             results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                             self.log_message(f"Cached: {chap['title']}")
@@ -2158,7 +2260,8 @@ table, th, td {
                                     self.var_compress_images.get(), self.var_jpeg_quality.get(),
                                     self.var_image_format.get(), self.log_message, next_image_no,
                                     chapter_title=chap.get('title', ''),
-                                    chapter_num=self.progress_value + 1
+                                    chapter_num=self.progress_value + 1,
+                                    convert_gifs=self.var_convert_gifs.get(),
                                 )
                                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                                 img_info = f" ({len(imgs)} images)" if imgs else ""
@@ -2306,6 +2409,7 @@ table, th, td {
                 self.var_compress_images.set(cfg.get("compress_images", True))
                 self.var_jpeg_quality.set(cfg.get("jpeg_quality", 50))
                 self.var_image_format.set(cfg.get("image_format", "WEBP"))
+                self.var_convert_gifs.set(cfg.get("convert_gifs", False))
                 self.var_compress_cover.set(cfg.get("compress_cover", False))
                 self.var_cover_quality.set(cfg.get("cover_quality", 90))
                 self.var_cover_format.set(cfg.get("cover_format", "JPEG"))
@@ -2371,6 +2475,7 @@ table, th, td {
             "compress_images": self.var_compress_images.get(),
             "jpeg_quality": self.var_jpeg_quality.get(),
             "image_format": self.var_image_format.get(),
+            "convert_gifs": self.var_convert_gifs.get(),
             "compress_cover": self.var_compress_cover.get(),
             "cover_quality": self.var_cover_quality.get(),
             "cover_format": self.var_cover_format.get(),

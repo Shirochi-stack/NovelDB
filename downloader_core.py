@@ -371,6 +371,8 @@ class DownloaderCore:
                 return "image/webp"
             if ext == "gif":
                 return "image/gif"
+            if ext == "avif":
+                return "image/avif"
             return "application/octet-stream"
 
         def to_data_uri(filename, data):

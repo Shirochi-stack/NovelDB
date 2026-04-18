@@ -121,6 +121,8 @@ class EpubGenerator:
                 mime = 'image/webp'
             elif ext == 'gif':
                 mime = 'image/gif'
+            elif ext == 'avif':
+                mime = 'image/avif'
             else:
                 mime = 'application/octet-stream'
             # Check if this is a cover image (any extension)

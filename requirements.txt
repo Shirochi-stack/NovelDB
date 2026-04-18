@@ -1,5 +1,6 @@
 requests>=2.31.0
 Pillow>=10.0.0
+pillow-avif-plugin>=1.4.3
 discord
 pywebview>=4.4
 weasyprint

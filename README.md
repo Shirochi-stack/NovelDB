@@ -19,7 +19,7 @@ A fork of that enhances the user experience and output quality. This version add
 
   - **Rich Metadata:** Automatically grabs and embeds tags, author names, and synopses into the EPUB file metadata.
   - **Improved EPUB Formatting:** Supports HTML tags and newlines, preserving the original formatting of the novel.
-  - **File Size Optimization:** Includes a WebP image compression feature to significantly reduce the final file size without a noticeable loss in quality.
+  - **File Size Optimization:** Includes WebP / AVIF / PNG / JPEG image compression to significantly reduce the final file size without a noticeable loss in quality. (AVIF requires the optional `pillow-avif-plugin` package; see `requirements.txt`.)
   - **Command-Line Interface:** Offers a robust command-line interface for automated and scripted downloads.
   - **Bulk Downloads:** Allows you to easily redownload your library to fix formatting, optimize file sizes, and more. (Format is ``outputname, id`` with each novel on a new line.) 
   - **Improved Downloads:** Offers one-click downloads, with novels automatically named and placed in whichever directory you choose. Also includes auto-retries and error detection.
@@ -53,6 +53,36 @@ Built-in image compression can dramatically reduce file size. Use the `-compress
 ### Post-Processing with Calibre
 
 For even greater space savings (10-50%), you can use the Calibre EPUB editor. Converting and saving a new `.epub` file with Calibre optimizes the CSS, HTML, and embedded fonts. This is a manual step, as implementing these optimizations directly is currently outside the scope of this project.
+
+-----
+
+## 📦 Batch Download (GUI)
+
+The **Batch Download** button in the GUI lets you queue many novels from a single list file.
+
+**List file format** (`.txt` or `.csv`, one entry per line):
+
+- `Title,NovelID` — the title is used in the output filename.
+- `NovelID` — the title is fetched automatically.
+- `# comment` — any line beginning with `#` is skipped.
+
+**How it works:**
+
+1. Click **Batch Download** and pick your list file.
+2. If **Quick Download** is enabled, its folder is used as the output directory. Otherwise you'll be prompted for one.
+3. Every novel in the list is downloaded with the **current UI settings** — format (EPUB/TXT/PDF), chapter range, compression, image format (WEBP/JPEG/PNG/**AVIF**), cover format, notices, cache, threads, and interval. Configure these **before** pressing the button.
+4. Blank lines, `#` comments, and non-numeric IDs are skipped. A 2 second pause is inserted between novels to reduce server load.
+5. Pressing **Stop** cancels the batch — the current novel finishes, then the run exits.
+6. Each novel is saved as `[<id>] <title>.<ext>` in the chosen folder. A final `OK / Failed / Skipped` summary is logged.
+
+**Tip:** you can generate a batch list automatically from **Tag Retrieval** (by tag or Top 100), then feed that file straight into Batch Download. An in-app help dialog is also available via the **?** button next to **Batch Download**.
+
+### Image format notes
+
+- The **Format** dropdown under *Compress Images* controls the output format for chapter images.
+- **GIFs are preserved as `.gif` by default** so that animation is kept. If you'd rather have GIFs re-encoded to the selected format (WEBP/JPEG/PNG/AVIF, first frame only), tick the **Convert GIFs** checkbox next to the format dropdown. The toggle state is saved automatically to `config.json` (`convert_gifs`).
+- The same Format dropdown applies to the cover image via *Compress Cover* → **Format**.
+- Selecting **AVIF** requires `pillow-avif-plugin` to be installed; otherwise the downloader automatically falls back to WEBP with a warning in the log.
 
 -----
 

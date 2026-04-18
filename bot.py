@@ -59,6 +59,13 @@ try:
 except Exception:
     Image = None
 
+# Register AVIF codec with Pillow if pillow-avif-plugin is installed.
+try:
+    import pillow_avif  # noqa: F401
+    _AVIF_AVAILABLE = True
+except Exception:
+    _AVIF_AVAILABLE = False
+
 from novelpia_auth import NovelpiaAuth
 from downloader_core import DownloaderCore, AccessBlockedError
 from epub_generator import EpubGenerator
@@ -395,7 +402,8 @@ def _strip_base64_blobs(text: str) -> str:
 
 
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images,
-                                       jpeg_quality, image_format, logger, next_image_no):
+                                       jpeg_quality, image_format, logger, next_image_no,
+                                       convert_gifs=False):
     html_parts = []
     images = []
     try:
@@ -441,6 +449,8 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                                 ext = 'webp'
                             elif 'gif' in mime:
                                 ext = 'gif'
+                            elif 'avif' in mime:
+                                ext = 'avif'
                             img_bytes = base64.b64decode(b64)
                         else:
                             if url.startswith("//"):
@@ -458,39 +468,51 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                             img_bytes = r.content
                             # Detect extension from URL or content
                             ext = "jpg"
-                            if url_dl.lower().endswith('.gif') or (r.headers.get('content-type', '').lower().find('gif') >= 0):
+                            ctype = r.headers.get('content-type', '').lower()
+                            if url_dl.lower().endswith('.gif') or 'gif' in ctype:
                                 ext = "gif"
-                            elif url_dl.lower().endswith('.png') or (r.headers.get('content-type', '').lower().find('png') >= 0):
+                            elif url_dl.lower().endswith('.png') or 'png' in ctype:
                                 ext = "png"
-                            elif url_dl.lower().endswith('.webp') or (r.headers.get('content-type', '').lower().find('webp') >= 0):
+                            elif url_dl.lower().endswith('.webp') or 'webp' in ctype:
                                 ext = "webp"
+                            elif url_dl.lower().endswith('.avif') or 'avif' in ctype:
+                                ext = "avif"
                         if compress_images and Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(img_bytes))
                                 out = io.BytesIO()
-                                
-                                # Special handling for GIFs to preserve animation
-                                if ext == "gif":
-                                    # Compress GIF with optimization while preserving animation
+                                # Default: preserve GIF animation. Only convert GIFs when
+                                # the caller opts in via convert_gifs=True.
+                                if ext == "gif" and not convert_gifs:
                                     im.save(out, format="GIF", save_all=True, optimize=True)
                                     img_bytes = out.getvalue()
                                 else:
-                                    # Standard compression for other formats
-                                    if im.mode not in ("RGB", "L"):
+                                    if im.mode not in ("RGB", "L", "RGBA"):
+                                        im = im.convert("RGBA" if image_format in ("WEBP", "PNG", "AVIF") else "RGB")
+                                    elif im.mode == "RGBA" and image_format == "JPEG":
                                         im = im.convert("RGB")
-                                    
                                     if image_format == "WEBP":
                                         im.save(out, format="WEBP", quality=int(jpeg_quality))
                                         ext = "webp"
                                     elif image_format == "PNG":
                                         im.save(out, format="PNG", optimize=True)
                                         ext = "png"
+                                    elif image_format == "AVIF":
+                                        if not _AVIF_AVAILABLE:
+                                            logger("\u26a0 AVIF plugin not installed, falling back to WEBP.")
+                                            im.save(out, format="WEBP", quality=int(jpeg_quality))
+                                            ext = "webp"
+                                        else:
+                                            im.save(out, format="AVIF", quality=int(jpeg_quality))
+                                            ext = "avif"
                                     else:
+                                        if im.mode != "RGB":
+                                            im = im.convert("RGB")
                                         im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
                                         ext = "jpg"
                                     img_bytes = out.getvalue()
-                            except Exception:
-                                pass
+                            except Exception as conv_err:
+                                logger(f"Image conversion failed: {conv_err}")
                         n = next_image_no()
                         fname = f"{n}.{ext}"
                         images.append((fname, img_bytes))
@@ -545,7 +567,8 @@ def run_download(user_id: int,
                  save_format: str | None = None, include_notices: bool | None = None,
                  image_format: str | None = None, cover_format: str | None = None,
                  log_sink: list[str] | None = None,
-                 passphrase: str | None = None) -> tuple[str, list[str]]:
+                 passphrase: str | None = None,
+                 convert_gifs: bool | None = None) -> tuple[str, list[str]]:
     """Blocking download workflow. Returns (output_path, logs)."""
     auth_cfg = load_user_auth(user_id, passphrase) or {}
     prefs = load_user_prefs(user_id) or {}
@@ -567,6 +590,8 @@ def run_download(user_id: int,
     include_notices = prefs.get("include_notices", True) if include_notices is None else include_notices
     image_format = prefs.get("image_format", "WEBP") if image_format is None else image_format
     cover_format = prefs.get("cover_format", "JPEG") if cover_format is None else cover_format
+    # GIFs are preserved by default; user must opt in via prefs to convert them.
+    convert_gifs = prefs.get("convert_gifs", False) if convert_gifs is None else convert_gifs
 
     logger_msgs: list[str] = []
     def logger(msg):
@@ -662,14 +687,21 @@ def run_download(user_id: int,
                             cover_ext = "webp"
                     elif "png" in mime:
                         cover_ext = "png"
+                    elif "avif" in mime:
+                        cover_ext = "avif"
                     elif "jpeg" in mime or "jpg" in mime:
                         cover_ext = "jpg"
                 else:
                     if Image is not None:
                         try:
                             im = Image.open(io.BytesIO(data))
-                            if im.mode not in ("RGB", "L"):
-                                im = im.convert("RGB")
+                            # Preserve alpha for formats that support it
+                            if cover_format in ("WEBP", "PNG", "AVIF"):
+                                if im.mode not in ("RGB", "RGBA", "L"):
+                                    im = im.convert("RGBA")
+                            else:
+                                if im.mode not in ("RGB", "L"):
+                                    im = im.convert("RGB")
                             out = io.BytesIO()
                             if cover_format == "WEBP":
                                 im.save(out, format="WEBP", quality=cover_quality)
@@ -677,7 +709,17 @@ def run_download(user_id: int,
                             elif cover_format == "PNG":
                                 im.save(out, format="PNG", optimize=True)
                                 cover_ext = "png"
+                            elif cover_format == "AVIF":
+                                if not _AVIF_AVAILABLE:
+                                    logger("\u26a0 AVIF plugin not installed; saving cover as WEBP.")
+                                    im.save(out, format="WEBP", quality=cover_quality)
+                                    cover_ext = "webp"
+                                else:
+                                    im.save(out, format="AVIF", quality=cover_quality)
+                                    cover_ext = "avif"
                             else:
+                                if im.mode != "RGB":
+                                    im = im.convert("RGB")
                                 im.save(out, format="JPEG", quality=cover_quality, optimize=True)
                                 cover_ext = "jpg"
                             data = out.getvalue()
@@ -689,6 +731,8 @@ def run_download(user_id: int,
                             cover_ext = "webp"
                         elif "png" in mime:
                             cover_ext = "png"
+                        elif "avif" in mime:
+                            cover_ext = "avif"
                 cover_image = {"filename": f"cover.{cover_ext}", "data": data}
                 if save_as_epub:
                     epub.add_image(f'cover.{cover_ext}', data)
@@ -759,7 +803,8 @@ def run_download(user_id: int,
                         hb, imgs = extract_chapter_content_and_images(
                             content_json, font_mapper, auth.session,
                             compress_images, image_quality,
-                            image_format, logger, next_img
+                            image_format, logger, next_img,
+                            convert_gifs=convert_gifs,
                         )
                         results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                         img_info = f" ({len(imgs)} images)" if imgs else ""
