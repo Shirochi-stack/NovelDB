@@ -798,6 +798,11 @@ class NovelpiaGUI(tk.Tk):
         # AVIF) is flattened to its first frame regardless of the target format.
         # Dramatically reduces file size at the cost of motion.
         self.var_static_only = tk.BooleanVar(value=False)
+        # When True, after the initial EPUB/PDF is written the app will keep
+        # re-encoding images at progressively lower quality until the output
+        # file is <= var_recompress_target_mb MB (or we hit the min quality).
+        self.var_recompress_target_enable = tk.BooleanVar(value=False)
+        self.var_recompress_target_mb = tk.DoubleVar(value=20.0)
         self.var_compress_cover = tk.BooleanVar(value=False)
         self.var_cover_quality = tk.IntVar(value=90)
         self.var_cover_format = tk.StringVar(value="JPEG")  # JPEG, PNG, WEBP
@@ -1004,6 +1009,30 @@ class NovelpiaGUI(tk.Tk):
         cov_fmt_cb.pack(side="left")
         ToolTip(cov_fmt_cb, "Output format for the cover image.\nAVIF requires 'pillow-avif-plugin'.")
         ttk.Checkbutton(cover_frame, text="ZIP Compress", variable=self.var_zip_compress_images).pack(side="left", padx=(15, 0))
+
+        # --- Target-size recompression row ---
+        target_frame = ttk.Frame(dl_inner)
+        target_frame.grid(row=9, column=0, columnspan=3, sticky="w", pady=2)
+        chk_target = ttk.Checkbutton(
+            target_frame,
+            text="Recompress to meet target size",
+            variable=self.var_recompress_target_enable,
+        )
+        chk_target.pack(side="left")
+        ToolTip(
+            chk_target,
+            "After the EPUB/PDF is generated, if it exceeds the target size\n"
+            "below, re-encode all images at progressively lower quality and\n"
+            "rebuild until the output fits (or quality hits the floor).\n"
+            "No effect on text-only TXT output or lossless PNG images.",
+        )
+        ttk.Label(target_frame, text="Target (MB)").pack(side="left", padx=(15, 5))
+        spn_target = ttk.Spinbox(
+            target_frame, from_=1.0, to=2048.0, increment=1.0,
+            textvariable=self.var_recompress_target_mb, width=7,
+        )
+        spn_target.pack(side="left")
+        ToolTip(spn_target, "Desired maximum size of the final EPUB/PDF, in megabytes.")
 
         notices_frame = ttk.Frame(dl_inner)
         notices_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
@@ -2475,7 +2504,10 @@ table, th, td {
         self.log_message(f"Preparing download: {len(selected)} chapter(s) + {len(notice_items)} notice(s) = {total_items} item(s)")
         save_as_epub = (self._output_format == 'epub')
         save_as_pdf = (self._output_format == 'pdf')
-        epub = EpubGenerator(meta, self._output_path if save_as_epub else f"temp.epub", css, self.var_zip_compress_images.get()) if save_as_epub else None
+        # Note: the EPUB/PDF is assembled from scratch by _build_output() just
+        # before writing. We only gather cover bytes + info_html here; those
+        # are passed into _build_output so that the target-size recompression
+        # pass can rebuild a fresh file without any lingering state.
 
         cover_image = None
         # cover
@@ -2500,8 +2532,6 @@ table, th, td {
                         except Exception as cov_err:
                             self.log_message(f"\u26a0 Cover conversion failed: {cov_err}")
                     cover_image = {"filename": f"cover.{cover_ext}", "data": data}
-                    if save_as_epub:
-                        epub.add_image(f'cover.{cover_ext}', data)
             except Exception:
                 pass
 
@@ -2536,8 +2566,6 @@ table, th, td {
                     info_parts.append(f"  <p>{safe}</p>\n")
 
             info_html = "\n".join(info_parts)
-            if save_as_epub:
-                epub.add_extra_page('info.xhtml', info_html)
         except Exception:
             pass
 
@@ -2734,43 +2762,25 @@ table, th, td {
             except Exception as e:
                 self.log_message(f"Cache save error: {e}")
 
-        # Saving
-        if save_as_epub:
-            for res in results:
-                if res:
-                    t, h, imgs, notice = res
-                    for name, data in imgs:
-                        epub.add_image(name, data)
-                    epub.add_chapter(t, h, is_notice=notice)
+        # Saving (initial pass uses whatever images are in `results`).
+        if save_as_epub or save_as_pdf:
             try:
-                epub.generate()
+                self._build_output(results, meta, css, cover_image, info_html)
             except Exception as e:
-                self.log_message(f"EPUB generation failed: {e}")
-        elif save_as_pdf:
-            chapters_for_pdf = []
-            image_map = {}
-            for res in results:
-                if res:
-                    t, h, imgs, notice = res
-                    for name, data in imgs:
-                        if name not in image_map:
-                            image_map[name] = data
-                    chapters_for_pdf.append({"title": t, "html": h, "is_notice": notice})
-            try:
-                self.downloader.generate_pdf(
-                    meta,
-                    self._output_path,
-                    chapters_for_pdf,
-                    css,
-                    image_map=image_map,
-                    cover_image=cover_image,
-                    info_html=info_html,
-                    show_toc=self.var_pdf_toc.get(),
-                    show_page_numbers=self.var_pdf_page_numbers.get(),
-                    use_counter_layout=self.var_pdf_counter_layout.get(),
-                )
-            except Exception as e:
-                self.log_message(f"PDF generation failed: {e}")
+                self.log_message(f"Output generation failed: {e}")
+
+            # Optional: keep re-encoding images at lower quality until the
+            # final EPUB/PDF fits the user's target size.
+            if self.var_recompress_target_enable.get():
+                try:
+                    target_mb = float(self.var_recompress_target_mb.get() or 0)
+                except (TypeError, ValueError):
+                    target_mb = 0
+                if target_mb > 0:
+                    self._recompress_to_target_size(
+                        results, meta, css, cover_image, info_html,
+                        int(target_mb * 1024 * 1024),
+                    )
         else:
             try:
                 with open(self._output_path, 'w', encoding='utf-8') as f:
@@ -2811,6 +2821,180 @@ table, th, td {
         self._reset_progress()
         self.lbl_status.config(text="Idle")
 
+    # ------------------------------------------------------------------
+    # Output builders / target-size recompressor
+    # ------------------------------------------------------------------
+    def _build_output(self, results, meta, css, cover_image, info_html):
+        """Write the current output file (EPUB or PDF) from the given results.
+
+        Called once normally, and again by `_recompress_to_target_size` after
+        the images have been re-encoded at lower quality.
+        """
+        if self._output_format == 'epub':
+            epub = EpubGenerator(
+                meta, self._output_path, css, self.var_zip_compress_images.get()
+            )
+            if cover_image and cover_image.get('data'):
+                epub.add_image(cover_image['filename'], cover_image['data'])
+            if info_html:
+                epub.add_extra_page('info.xhtml', info_html)
+            for res in results:
+                if res:
+                    t, h, imgs, notice = res
+                    for name, data in imgs:
+                        epub.add_image(name, data)
+                    epub.add_chapter(t, h, is_notice=notice)
+            epub.generate()
+        elif self._output_format == 'pdf':
+            chapters_for_pdf = []
+            image_map = {}
+            for res in results:
+                if res:
+                    t, h, imgs, notice = res
+                    for name, data in imgs:
+                        if name not in image_map:
+                            image_map[name] = data
+                    chapters_for_pdf.append({"title": t, "html": h, "is_notice": notice})
+            self.downloader.generate_pdf(
+                meta,
+                self._output_path,
+                chapters_for_pdf,
+                css,
+                image_map=image_map,
+                cover_image=cover_image,
+                info_html=info_html,
+                show_toc=self.var_pdf_toc.get(),
+                show_page_numbers=self.var_pdf_page_numbers.get(),
+                use_counter_layout=self.var_pdf_counter_layout.get(),
+            )
+
+    @staticmethod
+    def _format_from_ext(fname):
+        """Map a filename's extension to a Pillow image format identifier."""
+        ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+        return {
+            'jpg': 'JPEG', 'jpeg': 'JPEG',
+            'png': 'PNG', 'webp': 'WEBP', 'avif': 'AVIF', 'gif': 'GIF',
+        }.get(ext)
+
+    def _reencode_bytes(self, data, fname, quality, static_only):
+        """Re-encode an already-compressed image at a lower quality.
+
+        Returns (new_bytes, fname). GIF and PNG are returned unchanged
+        (GIF has no meaningful quality knob and PNG is lossless). The
+        filename is always preserved so HTML `<img src=>` references from
+        the first pass stay valid even if _encode_image_bytes decides to
+        fall back (e.g. AVIF -> WEBP when the plugin disappears mid-run).
+        """
+        fmt = self._format_from_ext(fname)
+        if fmt in (None, 'GIF', 'PNG'):
+            return data, fname
+        if Image is None:
+            return data, fname
+        try:
+            im = Image.open(io.BytesIO(data))
+            new_bytes, _new_ext = _encode_image_bytes(
+                im, fmt, quality,
+                logger=self.log_message, static_only=static_only,
+            )
+            return new_bytes, fname
+        except Exception:
+            return data, fname
+
+    def _recompress_to_target_size(self, results, meta, css, cover_image,
+                                   info_html, target_bytes):
+        """Iteratively lower image quality and rebuild until size <= target.
+
+        Uses a simple ratio-based heuristic (quality *= sqrt(target/size))
+        capped at a 10-quality floor and at most 4 passes so the feedback
+        loop stays snappy. Stops early if we can't reduce quality further.
+        """
+        try:
+            current_size = os.path.getsize(self._output_path)
+        except OSError:
+            return
+        if current_size <= target_bytes:
+            return
+
+        self.log_message(
+            f"\U0001f4c1 Output {_format_size(current_size)} exceeds target "
+            f"{_format_size(target_bytes)}; starting recompression passes..."
+        )
+
+        quality = max(10, int(self.var_jpeg_quality.get() or 50))
+        static_only = self.var_static_only.get()
+        max_passes = 4
+        min_quality = 10
+
+        for attempt in range(1, max_passes + 1):
+            ratio = target_bytes / max(current_size, 1)
+            # Quality-vs-size relationship is sub-linear; sqrt is a reasonable
+            # first-order approximation that converges fast without overshooting.
+            new_quality = max(min_quality, int(quality * (ratio ** 0.5)))
+            # Ensure we actually step down even when the ratio is already close.
+            if new_quality >= quality:
+                new_quality = max(min_quality, quality - 10)
+            if new_quality == quality:
+                self.log_message(
+                    "  Cannot reduce quality further; stopping recompression."
+                )
+                break
+            quality = new_quality
+            self.log_message(
+                f"  Pass {attempt}: re-encoding images at quality={quality}..."
+            )
+
+            # Re-encode every image in every chapter, preserving the filename
+            # so the in-document <img src="../Images/N.ext"/> references don't
+            # need to change (_encode_image_bytes only returns a new ext when
+            # we hit the AVIF->WEBP fallback, which is rare in this loop).
+            new_results = []
+            for res in results:
+                if not res:
+                    new_results.append(res)
+                    continue
+                title, html_body, imgs, is_notice = res
+                new_imgs = []
+                for name, data in imgs:
+                    new_data, new_name = self._reencode_bytes(
+                        data, name, quality, static_only
+                    )
+                    new_imgs.append((new_name, new_data))
+                new_results.append((title, html_body, new_imgs, is_notice))
+            results = new_results
+
+            # Re-encode the cover too if present (respects Compress Cover's
+            # format choice via the filename extension).
+            if cover_image and cover_image.get('data'):
+                new_data, new_name = self._reencode_bytes(
+                    cover_image['data'], cover_image['filename'],
+                    quality, static_only,
+                )
+                cover_image = {'filename': new_name, 'data': new_data}
+
+            try:
+                self._build_output(results, meta, css, cover_image, info_html)
+            except Exception as e:
+                self.log_message(f"  Rebuild failed on pass {attempt}: {e}")
+                return
+
+            try:
+                current_size = os.path.getsize(self._output_path)
+            except OSError:
+                return
+            self.log_message(
+                f"  Pass {attempt} result: {_format_size(current_size)} "
+                f"(target {_format_size(target_bytes)})"
+            )
+            if current_size <= target_bytes:
+                self.log_message("\u2705 Target size reached.")
+                return
+
+        self.log_message(
+            f"\u26a0 Could not reach target size after {max_passes} passes. "
+            f"Final output: {_format_size(current_size)}."
+        )
+
     def _load_config(self):
         cfg_path = os.path.join(_get_base_dir(), "config.json")
         if os.path.exists(cfg_path):
@@ -2838,6 +3022,11 @@ table, th, td {
                 self.var_image_format.set(cfg.get("image_format", "WEBP"))
                 self.var_convert_gifs.set(cfg.get("convert_gifs", False))
                 self.var_static_only.set(cfg.get("static_only", False))
+                self.var_recompress_target_enable.set(cfg.get("recompress_target_enable", False))
+                try:
+                    self.var_recompress_target_mb.set(float(cfg.get("recompress_target_mb", 20.0)))
+                except (TypeError, ValueError):
+                    self.var_recompress_target_mb.set(20.0)
                 self.var_compress_cover.set(cfg.get("compress_cover", False))
                 self.var_cover_quality.set(cfg.get("cover_quality", 90))
                 self.var_cover_format.set(cfg.get("cover_format", "JPEG"))
@@ -2919,6 +3108,8 @@ table, th, td {
             "image_format": self.var_image_format.get(),
             "convert_gifs": self.var_convert_gifs.get(),
             "static_only": self.var_static_only.get(),
+            "recompress_target_enable": self.var_recompress_target_enable.get(),
+            "recompress_target_mb": round(float(self.var_recompress_target_mb.get() or 0), 2),
             "compress_cover": self.var_compress_cover.get(),
             "cover_quality": self.var_cover_quality.get(),
             "cover_format": self.var_cover_format.get(),
