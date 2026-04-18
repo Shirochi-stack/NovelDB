@@ -282,6 +282,98 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
                 return None
         return None
 
+def _encode_image_bytes(im, image_format, quality, logger=None):
+    """Encode a PIL image to `image_format` and return (bytes, ext).
+
+    Preserves animation when the source has multiple frames AND the target
+    format supports it (WEBP, AVIF, PNG/APNG). JPEG drops animation
+    (first frame only) because the codec itself has no sequence support.
+
+    If `image_format` is "AVIF" but pillow-avif-plugin is missing, this
+    falls back to WEBP and logs a warning.
+    """
+    from PIL import ImageSequence
+
+    is_animated = (
+        getattr(im, "is_animated", False)
+        and getattr(im, "n_frames", 1) > 1
+    )
+
+    # Pick the working colour mode for the target format.
+    wants_alpha = image_format in ("WEBP", "PNG", "AVIF")
+    target_mode = "RGBA" if wants_alpha else "RGB"
+
+    # Collect (copies of) frames + per-frame durations. A static image produces a single-element list.
+    frames = []
+    durations = []
+    if is_animated:
+        for f in ImageSequence.Iterator(im):
+            fr = f.convert(target_mode) if f.mode != target_mode else f.copy()
+            frames.append(fr)
+            durations.append(f.info.get("duration", 100))
+    else:
+        still = im.convert(target_mode) if im.mode != target_mode else im
+        if image_format == "JPEG" and still.mode != "RGB":
+            still = still.convert("RGB")
+        frames.append(still)
+
+    loop = im.info.get("loop", 0)
+    save_animated = is_animated and image_format in ("WEBP", "PNG", "AVIF")
+
+    # Resolve AVIF availability once; fall back to WEBP uniformly.
+    target = image_format
+    if target == "AVIF" and not _AVIF_AVAILABLE:
+        if logger:
+            logger(
+                "  \u26a0 AVIF plugin not installed, falling back to WEBP. "
+                "Install 'pillow-avif-plugin'."
+            )
+        target = "WEBP"
+
+    out = io.BytesIO()
+
+    if target == "WEBP":
+        if save_animated:
+            frames[0].save(
+                out, format="WEBP", save_all=True,
+                append_images=frames[1:], duration=durations, loop=loop,
+                quality=int(quality),
+            )
+        else:
+            frames[0].save(out, format="WEBP", quality=int(quality))
+        return out.getvalue(), "webp"
+
+    if target == "PNG":
+        # save_all=True with PNG produces APNG when there are multiple frames.
+        if save_animated:
+            frames[0].save(
+                out, format="PNG", save_all=True,
+                append_images=frames[1:], duration=durations, loop=loop,
+                optimize=True,
+            )
+        else:
+            frames[0].save(out, format="PNG", optimize=True)
+        return out.getvalue(), "png"
+
+    if target == "AVIF":
+        if save_animated:
+            frames[0].save(
+                out, format="AVIF", save_all=True,
+                append_images=frames[1:], duration=durations, loop=loop,
+                quality=int(quality),
+            )
+        else:
+            frames[0].save(out, format="AVIF", quality=int(quality))
+        return out.getvalue(), "avif"
+
+    # JPEG: static only (animation flattens to first frame).
+    first = frames[0]
+    if first.mode != "RGB":
+        first = first.convert("RGB")
+    first.save(out, format="JPEG", quality=int(quality), optimize=True)
+    return out.getvalue(), "jpg"
+
+
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False):
     """Return (html, images, image_failures).
 
@@ -340,38 +432,18 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                         if compress_images and Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(img_bytes))
-                                out = io.BytesIO()
-                                # Default behavior: preserve GIFs as .gif so animation is kept.
-                                # If the user opted in to "Convert GIFs", fall through to the
-                                # normal format conversion path below (first frame only).
+                                # Default behavior: preserve GIFs as .gif so animation
+                                # is kept byte-for-byte. If the user opted in to
+                                # "Convert GIFs", fall through to the shared encoder
+                                # (which preserves animation for WEBP/AVIF/APNG too).
                                 if ext == "gif" and not convert_gifs:
+                                    out = io.BytesIO()
                                     im.save(out, format="GIF", save_all=True, optimize=True)
                                     img_bytes = out.getvalue()
                                 else:
-                                    if im.mode not in ("RGB", "L", "RGBA"):
-                                        im = im.convert("RGBA" if image_format in ("WEBP", "PNG", "AVIF") else "RGB")
-                                    elif im.mode == "RGBA" and image_format == "JPEG":
-                                        im = im.convert("RGB")
-                                    if image_format == "WEBP":
-                                        im.save(out, format="WEBP", quality=int(jpeg_quality))
-                                        ext = "webp"
-                                    elif image_format == "PNG":
-                                        im.save(out, format="PNG", optimize=True)
-                                        ext = "png"
-                                    elif image_format == "AVIF":
-                                        if not _AVIF_AVAILABLE:
-                                            logger("  \u26a0 AVIF plugin not installed, falling back to WEBP. Install 'pillow-avif-plugin'.")
-                                            im.save(out, format="WEBP", quality=int(jpeg_quality))
-                                            ext = "webp"
-                                        else:
-                                            im.save(out, format="AVIF", quality=int(jpeg_quality))
-                                            ext = "avif"
-                                    else:
-                                        if im.mode != "RGB":
-                                            im = im.convert("RGB")
-                                        im.save(out, format="JPEG", quality=int(jpeg_quality), optimize=True)
-                                        ext = "jpg"
-                                    img_bytes = out.getvalue()
+                                    img_bytes, ext = _encode_image_bytes(
+                                        im, image_format, jpeg_quality, logger=logger
+                                    )
                             except Exception as conv_err:
                                 logger(f"  \u26a0 {lbl}: conversion failed ({conv_err}), keeping original.")
                             if len(img_bytes) < original_size:
@@ -2387,35 +2459,12 @@ table, th, td {
                         try:
                             im = Image.open(io.BytesIO(data))
                             cover_fmt = self.var_cover_format.get()
-                            # Preserve alpha where the target format supports it
-                            if cover_fmt in ("WEBP", "PNG", "AVIF"):
-                                if im.mode not in ("RGB", "RGBA", "L"):
-                                    im = im.convert("RGBA")
-                            else:
-                                if im.mode not in ("RGB", "L"):
-                                    im = im.convert("RGB")
-                            out = io.BytesIO()
-                            if cover_fmt == "WEBP":
-                                im.save(out, format="WEBP", quality=self.var_cover_quality.get())
-                                cover_ext = "webp"
-                            elif cover_fmt == "PNG":
-                                im.save(out, format="PNG", optimize=True)
-                                cover_ext = "png"
-                            elif cover_fmt == "AVIF":
-                                if not _AVIF_AVAILABLE:
-                                    self.log_message("\u26a0 AVIF plugin not installed; saving cover as WEBP. Install 'pillow-avif-plugin'.")
-                                    im.save(out, format="WEBP", quality=self.var_cover_quality.get())
-                                    cover_ext = "webp"
-                                else:
-                                    im.save(out, format="AVIF", quality=self.var_cover_quality.get())
-                                    cover_ext = "avif"
-                            else:  # JPEG
-                                if im.mode != "RGB":
-                                    im = im.convert("RGB")
-                                im.save(out, format="JPEG", quality=self.var_cover_quality.get(), optimize=True)
-                                cover_ext = "jpg"
-
-                            data = out.getvalue()
+                            # Shared encoder: preserves animation when source is an
+                            # animated WEBP/AVIF and target supports it.
+                            data, cover_ext = _encode_image_bytes(
+                                im, cover_fmt, self.var_cover_quality.get(),
+                                logger=self.log_message,
+                            )
                         except Exception as cov_err:
                             self.log_message(f"\u26a0 Cover conversion failed: {cov_err}")
                     cover_image = {"filename": f"cover.{cover_ext}", "data": data}
