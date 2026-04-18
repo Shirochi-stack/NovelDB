@@ -282,6 +282,38 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
                 return None
         return None
 
+def _detect_source_ext(img_bytes, url_hint=""):
+    """Return the canonical file extension for raw image bytes.
+
+    Prefers PIL's header detection (reliable regardless of URL) and only
+    falls back to URL extension heuristics if PIL is unavailable or can't
+    identify the bytes. This is critical for Novelpia's imagebox URLs,
+    which often don't expose the extension — so URL-only detection would
+    mislabel GIFs as JPEGs and bypass the 'preserve GIF' code path.
+    """
+    fmt_to_ext = {
+        "JPEG": "jpg", "PNG": "png", "WEBP": "webp",
+        "AVIF": "avif", "GIF": "gif",
+    }
+    if Image is not None:
+        try:
+            fmt = (Image.open(io.BytesIO(img_bytes)).format or "").upper()
+            if fmt in fmt_to_ext:
+                return fmt_to_ext[fmt]
+        except Exception:
+            pass
+    lo = (url_hint or "").lower()
+    if ".gif" in lo:
+        return "gif"
+    if ".png" in lo:
+        return "png"
+    if ".webp" in lo:
+        return "webp"
+    if ".avif" in lo:
+        return "avif"
+    return "jpg"
+
+
 def _encode_image_bytes(im, image_format, quality, logger=None, static_only=False):
     """Encode a PIL image to `image_format` and return (bytes, ext).
 
@@ -361,14 +393,26 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
         return out.getvalue(), "png"
 
     if target == "AVIF":
+        # AVIF-specific encoder knobs:
+        #   speed: 0 (slowest, smallest) .. 10 (fastest, largest). Pillow default
+        #     is 6 which leaves a LOT of bytes on the table. speed=3 roughly
+        #     halves the output for a few x slower encode — a good tradeoff
+        #     when we're already re-encoding for size.
+        #   subsampling "4:2:0" is the default; keep it explicit so Pillow
+        #     versions with different defaults behave consistently.
+        avif_kwargs = dict(
+            quality=int(quality),
+            speed=3,
+            subsampling="4:2:0",
+        )
         if save_animated:
             frames[0].save(
                 out, format="AVIF", save_all=True,
                 append_images=frames[1:], duration=durations, loop=loop,
-                quality=int(quality),
+                **avif_kwargs,
             )
         else:
-            frames[0].save(out, format="AVIF", quality=int(quality))
+            frames[0].save(out, format="AVIF", **avif_kwargs)
         return out.getvalue(), "avif"
 
     # JPEG: static only (animation flattens to first frame).
@@ -431,12 +475,10 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                         if not img_bytes:
                             _img_failures[0] += 1
                             return ""
-                        ext = "jpg"
-                        lo = url_dl.lower()
-                        if '.gif' in lo: ext = "gif"
-                        elif '.png' in lo: ext = "png"
-                        elif '.webp' in lo: ext = "webp"
-                        elif '.avif' in lo: ext = "avif"
+                        # Detect the *actual* format from the downloaded bytes.
+                        # Relying on the URL extension loses GIFs served from
+                        # extension-less URLs (common on Novelpia's imagebox).
+                        ext = _detect_source_ext(img_bytes, url_dl)
                         original_size = len(img_bytes)
                         if compress_images and Image is not None:
                             try:

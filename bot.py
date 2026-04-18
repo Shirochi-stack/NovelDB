@@ -410,6 +410,35 @@ def _strip_base64_blobs(text: str) -> str:
     return text
 
 
+def _detect_source_ext(img_bytes, url_hint=""):
+    """Return the canonical file extension for raw image bytes.
+
+    PIL header detection first, URL extension as a fallback. Critical for
+    Novelpia's imagebox URLs, which often serve GIFs without a .gif suffix.
+    """
+    fmt_to_ext = {
+        "JPEG": "jpg", "PNG": "png", "WEBP": "webp",
+        "AVIF": "avif", "GIF": "gif",
+    }
+    if Image is not None:
+        try:
+            fmt = (Image.open(io.BytesIO(img_bytes)).format or "").upper()
+            if fmt in fmt_to_ext:
+                return fmt_to_ext[fmt]
+        except Exception:
+            pass
+    lo = (url_hint or "").lower()
+    if ".gif" in lo:
+        return "gif"
+    if ".png" in lo:
+        return "png"
+    if ".webp" in lo:
+        return "webp"
+    if ".avif" in lo:
+        return "avif"
+    return "jpg"
+
+
 def _encode_image_bytes(im, image_format, quality, logger=None, static_only=False):
     """Encode a PIL image to `image_format` and return (bytes, ext).
 
@@ -477,14 +506,21 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
         return out.getvalue(), "png"
 
     if target == "AVIF":
+        # speed=3 + 4:2:0 is the sweet spot for file size vs encoding time
+        # (Pillow default speed=6 produces noticeably larger files).
+        avif_kwargs = dict(
+            quality=int(quality),
+            speed=3,
+            subsampling="4:2:0",
+        )
         if save_animated:
             frames[0].save(
                 out, format="AVIF", save_all=True,
                 append_images=frames[1:], duration=durations, loop=loop,
-                quality=int(quality),
+                **avif_kwargs,
             )
         else:
-            frames[0].save(out, format="AVIF", quality=int(quality))
+            frames[0].save(out, format="AVIF", **avif_kwargs)
         return out.getvalue(), "avif"
 
     # JPEG fallback.
@@ -567,17 +603,21 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                                 img_failures[0] += 1
                                 return ""
                             img_bytes = r.content
-                            # Detect extension from URL or content
-                            ext = "jpg"
-                            ctype = r.headers.get('content-type', '').lower()
-                            if url_dl.lower().endswith('.gif') or 'gif' in ctype:
-                                ext = "gif"
-                            elif url_dl.lower().endswith('.png') or 'png' in ctype:
-                                ext = "png"
-                            elif url_dl.lower().endswith('.webp') or 'webp' in ctype:
-                                ext = "webp"
-                            elif url_dl.lower().endswith('.avif') or 'avif' in ctype:
-                                ext = "avif"
+                            # Prefer content-based detection; fall back to
+                            # URL / Content-Type when PIL can't identify the
+                            # bytes. Needed so GIFs from extension-less URLs
+                            # hit the "preserve GIF" branch below.
+                            ext = _detect_source_ext(img_bytes, url_dl)
+                            if ext == "jpg":
+                                ctype = r.headers.get('content-type', '').lower()
+                                if 'gif' in ctype:
+                                    ext = "gif"
+                                elif 'png' in ctype:
+                                    ext = "png"
+                                elif 'webp' in ctype:
+                                    ext = "webp"
+                                elif 'avif' in ctype:
+                                    ext = "avif"
                         if compress_images and Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(img_bytes))
