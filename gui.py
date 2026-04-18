@@ -2365,11 +2365,68 @@ class NovelpiaGUI(tk.Tk):
         # Save novel ID to config immediately
         self._save_config()
 
+        # Per-download log file: logs/nd_<novel_id>_<timestamp>.log
+        # Every log_message call made during this download is mirrored into
+        # this file via the root 'ND' logger, so if something goes wrong for
+        # a specific novel you have a self-contained transcript.
+        per_novel_handler = self._begin_per_novel_log(novel_id)
+        try:
+            self._download_worker_body(novel_id)
+        finally:
+            self._end_per_novel_log(per_novel_handler)
+
+    def _begin_per_novel_log(self, novel_id):
+        """Attach a FileHandler writing to logs/nd_<novel_id>_<timestamp>.log.
+
+        Returns the handler so the caller can detach it when the download
+        completes. Logs stay in `logs/` under _get_base_dir(), same folder
+        as the session-wide log.
+        """
+        try:
+            log_dir = os.path.join(_get_base_dir(), 'logs')
+            os.makedirs(log_dir, exist_ok=True)
+            stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            path = os.path.join(log_dir, f"nd_{novel_id}_{stamp}.log")
+            handler = logging.FileHandler(path, encoding='utf-8')
+            handler.setFormatter(logging.Formatter(
+                '[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
+            ))
+            handler.setLevel(logging.DEBUG)
+            _logger.addHandler(handler)
+            self._current_novel_log = path
+            self.log_message(f"\U0001f4dd Per-novel log: {path}")
+            return handler
+        except Exception as e:
+            self.log_message(f"\u26a0 Could not create per-novel log: {e}")
+            return None
+
+    def _end_per_novel_log(self, handler):
+        """Flush and detach the per-novel log handler added by _begin_per_novel_log."""
+        if handler is None:
+            return
+        try:
+            handler.flush()
+            _logger.removeHandler(handler)
+            handler.close()
+        except Exception:
+            pass
+        self._current_novel_log = None
+
+    def _download_worker_body(self, novel_id):
+        """The original _download_worker body, extracted so _download_worker
+        can wrap it with per-novel log setup/teardown."""
+
         # Cache setup (loaded early so metadata can be cached too)
         use_cache = self.var_use_cache.get()
         cache_images = use_cache and self.var_cache_images.get()
         cache_data = {}
         cache_path = None
+        # Compute a fingerprint of every setting that influences what the
+        # encoded image bytes and filenames look like. If it doesn't match
+        # what the cache was written with, we invalidate the processed
+        # html + images from each entry but keep the raw chapter JSON so
+        # we don't have to re-download the text.
+        current_fp = self._image_cache_fingerprint()
         if use_cache:
             cache_dir = os.path.join(_get_base_dir(), '.cache')
             os.makedirs(cache_dir, exist_ok=True)
@@ -2378,7 +2435,16 @@ class NovelpiaGUI(tk.Tk):
                 try:
                     with open(cache_path, 'r', encoding='utf-8') as f:
                         cache_data = json.load(f)
-                    chapter_count = sum(1 for k in cache_data if k != '_meta')
+                    stored_fp = cache_data.get('_image_fingerprint')
+                    if stored_fp and stored_fp != current_fp:
+                        self._invalidate_cached_images(cache_data)
+                        self.log_message(
+                            "\u26a0 Image settings changed since last cache "
+                            "write; dropping cached images and re-processing "
+                            "from cached JSON."
+                        )
+                    reserved = {'_meta', '_image_fingerprint'}
+                    chapter_count = sum(1 for k in cache_data if k not in reserved)
                     self.log_message(f"Cache loaded ({chapter_count} chapters cached).")
                 except Exception:
                     cache_data = {}
@@ -2799,6 +2865,9 @@ table, th, td {
         # Save cache
         if use_cache and cache_path:
             try:
+                # Stamp the fingerprint so the next run knows which image
+                # settings the cached images/html were encoded with.
+                cache_data['_image_fingerprint'] = current_fp
                 with open(cache_path, 'w', encoding='utf-8') as f:
                     json.dump(cache_data, f, ensure_ascii=False)
             except Exception as e:
@@ -2862,6 +2931,43 @@ table, th, td {
             self.log_message(f"Log saved: {_LOG_FILE}")
         self._reset_progress()
         self.lbl_status.config(text="Idle")
+
+    # ------------------------------------------------------------------
+    # Cache helpers
+    # ------------------------------------------------------------------
+    def _image_cache_fingerprint(self):
+        """Return a short hash of all settings that influence image output.
+
+        Any setting that could change the *bytes* or *filename* of a cached
+        image is included so the cache knows to invalidate on change.
+        """
+        import hashlib
+        parts = [
+            "v1",
+            str(bool(self.var_compress_images.get())),
+            str(int(self.var_jpeg_quality.get() or 0)),
+            str(self.var_image_format.get() or ""),
+            str(bool(self.var_convert_gifs.get())),
+            str(bool(self.var_static_only.get())),
+        ]
+        return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
+
+    @staticmethod
+    def _invalidate_cached_images(cache_data):
+        """Strip html+images from each chapter entry, keeping only raw json.
+
+        After this call, a full-cache entry `{json, html, images}` becomes
+        the JSON-only form (a plain string). Chapters that were already
+        JSON-only are left untouched. Reserved keys (`_meta`,
+        `_image_fingerprint`) are preserved.
+        """
+        reserved = {'_meta', '_image_fingerprint'}
+        for k, entry in list(cache_data.items()):
+            if k in reserved:
+                continue
+            if isinstance(entry, dict):
+                # Keep the raw JSON only; drop processed images/html.
+                cache_data[k] = entry.get('json', '')
 
     # ------------------------------------------------------------------
     # Output builders / target-size recompressor
