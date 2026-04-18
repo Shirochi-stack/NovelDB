@@ -413,13 +413,19 @@ def _strip_base64_blobs(text: str) -> str:
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images,
                                        jpeg_quality, image_format, logger, next_image_no,
                                        convert_gifs=False):
+    """Return (html, images, image_failures).
+
+    image_failures mirrors the gui.py extractor so higher layers can decide
+    whether to cache the processed HTML or keep only the JSON for retry.
+    """
     html_parts = []
     images = []
+    img_failures = [0]
     try:
         data = json.loads(content_json)
         segments = data.get("s")
         if not isinstance(segments, list):
-            return f"<p>{html.escape(str(data))}</p>", images
+            return f"<p>{html.escape(str(data))}</p>", images, 0
 
         img_pat = re.compile(r"<img[^>]+?(?:src|data-src|data-original)=[\"']([^\"']+)[\"'][^>]*>")
         data_url_pat = re.compile(r"data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+")
@@ -473,6 +479,7 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                             r = session.get(url_dl, timeout=15)
                             if r.status_code != 200 or not r.content:
                                 logger(f"Image fetch failed ({r.status_code}): {url_dl}")
+                                img_failures[0] += 1
                                 return ""
                             img_bytes = r.content
                             # Detect extension from URL or content
@@ -529,6 +536,7 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                         return f"<img alt=\"{n}\" src=\"../Images/{fname}\" width=\"100%\"/>"
                     except Exception as ex:
                         logger(f"Image error: {ex}")
+                        img_failures[0] += 1
                         return ""
 
                 # apply replacements for both <img> tags and raw data urls
@@ -563,10 +571,10 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                 html_parts.append(f"<p>{html.escape(text)}</p>")
 
         if not html_parts:
-            return "<p>[No text segments found in chapter]</p>", images
-        return "".join(html_parts), images
+            return "<p>[No text segments found in chapter]</p>", images, img_failures[0]
+        return "".join(html_parts), images, img_failures[0]
     except Exception as e:
-        return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>", images
+        return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>", images, img_failures[0]
 
 
 def run_download(user_id: int,
@@ -577,7 +585,8 @@ def run_download(user_id: int,
                  image_format: str | None = None, cover_format: str | None = None,
                  log_sink: list[str] | None = None,
                  passphrase: str | None = None,
-                 convert_gifs: bool | None = None) -> tuple[str, list[str]]:
+                 convert_gifs: bool | None = None,
+                 max_retries: int | None = None) -> tuple[str, list[str]]:
     """Blocking download workflow. Returns (output_path, logs)."""
     auth_cfg = load_user_auth(user_id, passphrase) or {}
     prefs = load_user_prefs(user_id) or {}
@@ -601,6 +610,13 @@ def run_download(user_id: int,
     cover_format = prefs.get("cover_format", "JPEG") if cover_format is None else cover_format
     # GIFs are preserved by default; user must opt in via prefs to convert them.
     convert_gifs = prefs.get("convert_gifs", False) if convert_gifs is None else convert_gifs
+    # Retry budget per chapter (default 5, same as downloader_core).
+    if max_retries is None:
+        max_retries = prefs.get("max_retries", 5)
+    try:
+        max_retries = max(1, int(max_retries))
+    except (TypeError, ValueError):
+        max_retries = 5
 
     logger_msgs: list[str] = []
     def logger(msg):
@@ -802,14 +818,21 @@ def run_download(user_id: int,
     with ThreadPoolExecutor(max_workers=threads) as executor:
         for i in range(0, len(selected_total), threads):
             batch = range(i, min(i + threads, len(selected_total)))
-            f_map = {executor.submit(downloader.download_chapter_content, selected_total[x]['id']): x for x in batch}
+            f_map = {
+                executor.submit(
+                    downloader.download_chapter_content,
+                    selected_total[x]['id'],
+                    max_retries,
+                ): x
+                for x in batch
+            }
             for future in as_completed(f_map):
                 idx = f_map[future]
                 chap = selected_total[idx]
                 try:
                     content_json = future.result()
                     if content_json:
-                        hb, imgs = extract_chapter_content_and_images(
+                        hb, imgs, img_fails = extract_chapter_content_and_images(
                             content_json, font_mapper, auth.session,
                             compress_images, image_quality,
                             image_format, logger, next_img,
@@ -817,6 +840,8 @@ def run_download(user_id: int,
                         )
                         results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                         img_info = f" ({len(imgs)} images)" if imgs else ""
+                        if img_fails:
+                            img_info += f", {img_fails} image failure(s)"
                         logger(f"Downloaded: {chap['title']}{img_info}")
                         if imgs:
                             total_dl_images += len(imgs)

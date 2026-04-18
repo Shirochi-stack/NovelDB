@@ -283,14 +283,21 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
         return None
 
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False):
+    """Return (html, images, image_failures).
+
+    image_failures is the number of <img> tags whose download/processing
+    failed; callers can use it to avoid baking a "hole" into the full
+    image cache (see _download_worker's cache-store logic).
+    """
     html_parts = []
     images = []
     _img_counter = [0]
+    _img_failures = [0]
     try:
         data = json.loads(content_json)
         segments = data.get("s")
         if not isinstance(segments, list):
-            return f"<p>{html.escape(str(data))}</p>", images
+            return f"<p>{html.escape(str(data))}</p>", images, 0
 
         img_pat = re.compile(r"<img[^>]+src=\"([^\"]+)\"[^>]*>")
 
@@ -321,6 +328,7 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                     try:
                         img_bytes = _download_image_with_progress(session, url_dl, logger, label=lbl)
                         if not img_bytes:
+                            _img_failures[0] += 1
                             return ""
                         ext = "jpg"
                         lo = url_dl.lower()
@@ -375,8 +383,9 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                         images.append((fname, img_bytes))
                         return f'<img alt="{n}" src="../Images/{fname}" width="100%"/>'
                     except Exception as ex:
-                        logger(f"  ✗ {lbl}: {ex}")
+                        logger(f"  \u2717 {lbl}: {ex}")
                         # Remove tag on exception to match gui.py
+                        _img_failures[0] += 1
                         return ""
 
                 text = img_pat.sub(handle_img_match, text)
@@ -403,10 +412,10 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                 html_parts.append(f"<p>{html.escape(text)}</p>")
 
         if not html_parts:
-            return "<p>[No text segments found in chapter]</p>", images
-        return "".join(html_parts), images
+            return "<p>[No text segments found in chapter]</p>", images, _img_failures[0]
+        return "".join(html_parts), images, _img_failures[0]
     except Exception as e:
-        return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>", images
+        return f"<p>[Failed to parse chapter: {html.escape(str(e))}]</p>", images, _img_failures[0]
 
 def _run_webview_login(output_path):
     import traceback
@@ -715,7 +724,9 @@ class NovelpiaGUI(tk.Tk):
         
         # New visual-only variables to match screenshot
         self.var_save_html = tk.BooleanVar(value=False)
-        self.var_retry_chapters = tk.BooleanVar(value=False)
+        # Maximum retry attempts per chapter (was a dead "Retry Chapters" checkbox).
+        # 5 is the default that matches downloader_core.DEFAULT_MAX_RETRIES.
+        self.var_max_retries = tk.IntVar(value=5)
         self.var_pdf_toc = tk.BooleanVar(value=False)
         self.var_pdf_page_numbers = tk.BooleanVar(value=False)
         self.var_pdf_counter_layout = tk.BooleanVar(value=False)
@@ -894,13 +905,32 @@ class NovelpiaGUI(tk.Tk):
         notices_frame = ttk.Frame(dl_inner)
         notices_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
         ttk.Checkbutton(notices_frame, text="Download Author Notices", variable=self.var_include_notices).pack(side="left")
-        ttk.Checkbutton(notices_frame, text="Retry Chapters", variable=self.var_retry_chapters).pack(side="left", padx=15)
+        ttk.Label(notices_frame, text="Retries").pack(side="left", padx=(15, 3))
+        spn_retries = ttk.Spinbox(
+            notices_frame, from_=1, to=20, textvariable=self.var_max_retries, width=4
+        )
+        spn_retries.pack(side="left")
+        ToolTip(
+            spn_retries,
+            "Max download attempts per chapter before giving up.\n"
+            "Novelpia's viewer endpoint can be flaky; 5 is the sensible default.\n"
+            "Each retry uses exponential backoff (1s, 2s, 4s, 8s, 8s).",
+        )
         chk_cache = ttk.Checkbutton(notices_frame, text="Use Cache", variable=self.var_use_cache)
         chk_cache.pack(side="left", padx=15)
         ToolTip(chk_cache, "Cache downloaded chapter data per novel.\nOn re-download only new chapters are fetched.")
         chk_cache_imgs = ttk.Checkbutton(notices_frame, text="Cache Images", variable=self.var_cache_images)
-        chk_cache_imgs.pack(side="left", padx=(0, 15))
+        chk_cache_imgs.pack(side="left", padx=(0, 5))
         ToolTip(chk_cache_imgs, "Also cache processed images (heavy).\nMakes re-downloads fully offline but uses more disk.")
+        btn_open_cache = ttk.Button(
+            notices_frame, text="Open Cache Folder", command=self.action_open_cache_folder
+        )
+        btn_open_cache.pack(side="left", padx=(0, 15))
+        ToolTip(
+            btn_open_cache,
+            "Open the .cache directory in your file explorer.\n"
+            "Delete per-novel JSON files here to force a fresh re-download.",
+        )
 
         pdf_group = ttk.LabelFrame(dl_inner, text="PDF Settings", padding=(6, 4))
         pdf_group.grid(row=7, column=0, columnspan=3, sticky="w", pady=4)
@@ -1731,6 +1761,33 @@ class NovelpiaGUI(tk.Tk):
             return
 
         threading.Thread(target=poll_file, daemon=True).start()
+    def action_open_cache_folder(self):
+        """Open the per-novel `.cache` directory in the OS file explorer.
+
+        Creates the directory if it doesn't yet exist so the button is
+        never a no-op. Works on Windows (explorer.exe), macOS (open), and
+        Linux (xdg-open). Any failure is logged to the console.
+        """
+        cache_dir = os.path.join(_get_base_dir(), '.cache')
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except Exception as e:
+            self.log_message(f"Could not create cache folder: {e}")
+            return
+
+        try:
+            if sys.platform == 'win32':
+                os.startfile(cache_dir)  # type: ignore[attr-defined]
+            elif sys.platform == 'darwin':
+                import subprocess
+                subprocess.Popen(['open', cache_dir])
+            else:
+                import subprocess
+                subprocess.Popen(['xdg-open', cache_dir])
+            self.log_message(f"Opened cache folder: {cache_dir}")
+        except Exception as e:
+            self.log_message(f"Failed to open cache folder ({cache_dir}): {e}")
+
     def action_browse_font(self):
         path = filedialog.askopenfilename(title="Choose font mapping file", filetypes=[("Mapping files", "*.json *.map *.txt"), ("All files", "*")])
         if path:
@@ -2432,7 +2489,7 @@ table, th, td {
                         else:
                             # JSON-only cache hit — still need to process images
                             content_json = _cache_entry_to_json(entry)
-                            hb, imgs = extract_chapter_content_and_images(
+                            hb, imgs, img_fails = extract_chapter_content_and_images(
                                 content_json, self.font_mapper, self.auth.session,
                                 self.var_compress_images.get(), self.var_jpeg_quality.get(),
                                 self.var_image_format.get(), self.log_message, next_image_no,
@@ -2442,13 +2499,23 @@ table, th, td {
                             )
                             results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                             self.log_message(f"Cached: {chap['title']}")
-                            # Upgrade entry to full cache if cache_images is now on
+                            # Upgrade entry to full cache if cache_images is now on —
+                            # but only when every image succeeded, otherwise the
+                            # failed <img> tags would be permanently baked in as gaps.
                             if cache_images:
-                                cache_data[chap_id] = {
-                                    'json': content_json,
-                                    'html': hb,
-                                    'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
-                                }
+                                if img_fails == 0:
+                                    cache_data[chap_id] = {
+                                        'json': content_json,
+                                        'html': hb,
+                                        'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
+                                    }
+                                else:
+                                    # Keep the JSON-only entry so next run re-attempts the images.
+                                    cache_data[chap_id] = content_json
+                                    self.log_message(
+                                        f"\u26a0 {chap['title']}: {img_fails} image(s) failed; "
+                                        f"keeping JSON-only cache so images will be retried next run."
+                                    )
                     except Exception as e:
                         self.log_message(f"Cache read error {chap.get('title', '?')}: {e}")
                         uncached_indices.append(idx)
@@ -2471,14 +2538,25 @@ table, th, td {
                         self.log_message("Download stopped by user.")
                         break
                     batch = uncached_indices[i:i + threads]
-                    f_map = {executor.submit(self.downloader.download_chapter_content, selected_total[x]['id']): x for x in batch}
+                    try:
+                        _retries = max(1, int(self.var_max_retries.get() or 5))
+                    except Exception:
+                        _retries = 5
+                    f_map = {
+                        executor.submit(
+                            self.downloader.download_chapter_content,
+                            selected_total[x]['id'],
+                            _retries,
+                        ): x
+                        for x in batch
+                    }
                     for future in as_completed(f_map):
                         idx = f_map[future]
                         chap = selected_total[idx]
                         try:
                             content_json = future.result()
                             if content_json:
-                                hb, imgs = extract_chapter_content_and_images(
+                                hb, imgs, img_fails = extract_chapter_content_and_images(
                                     content_json, self.font_mapper, self.auth.session,
                                     self.var_compress_images.get(), self.var_jpeg_quality.get(),
                                     self.var_image_format.get(), self.log_message, next_image_no,
@@ -2488,6 +2566,8 @@ table, th, td {
                                 )
                                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                                 img_info = f" ({len(imgs)} images)" if imgs else ""
+                                if img_fails:
+                                    img_info += f", {img_fails} image failure(s)"
                                 self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Downloaded: {chap['title']}{img_info}")
                                 # Track stats
                                 if imgs:
@@ -2495,9 +2575,12 @@ table, th, td {
                                     dl_stats.add(len(imgs), img_bytes)
                                     self._img_downloaded_count += len(imgs)
                                     self.after(0, lambda c=self._img_downloaded_count: self.lbl_img_count.config(text=f"Images: {c}"))
-                                # Store in cache
+                                # Store in cache. When cache_images is on, only
+                                # write the full-cache entry if every image
+                                # succeeded; otherwise fall back to JSON-only so
+                                # the failed images are retried on the next run.
                                 if use_cache:
-                                    if cache_images:
+                                    if cache_images and img_fails == 0:
                                         cache_data[chap['id']] = {
                                             'json': content_json,
                                             'html': hb,
@@ -2505,6 +2588,11 @@ table, th, td {
                                         }
                                     else:
                                         cache_data[chap['id']] = content_json
+                                        if cache_images and img_fails:
+                                            self.log_message(
+                                                f"\u26a0 {chap['title']}: {img_fails} image(s) failed; "
+                                                f"storing JSON-only cache so images will be retried next run."
+                                            )
                             else:
                                 # None = failed after retries
                                 dl_stats.add_failed(chap['id'], chap.get('title', '?'))
@@ -2640,7 +2728,12 @@ table, th, td {
                 self.var_include_notices.set(cfg.get("include_notices", True))
                 self.var_save_format.set(cfg.get("save_format", "epub"))
                 self.var_save_html.set(cfg.get("save_html", False))
-                self.var_retry_chapters.set(cfg.get("retry_chapters", False))
+                # "retry_chapters" was a dead boolean; migrate silently to the new
+                # "max_retries" integer (default 5 if not present).
+                try:
+                    self.var_max_retries.set(int(cfg.get("max_retries", 5)))
+                except (TypeError, ValueError):
+                    self.var_max_retries.set(5)
                 self.var_use_cache.set(cfg.get("use_cache", False))
                 self.var_cache_images.set(cfg.get("cache_images", False))
                 self.var_pdf_toc.set(cfg.get("pdf_toc", False))
@@ -2715,7 +2808,7 @@ table, th, td {
             "include_notices": self.var_include_notices.get(),
             "save_format": self.var_save_format.get(),
             "save_html": self.var_save_html.get(),
-            "retry_chapters": self.var_retry_chapters.get(),
+            "max_retries": int(self.var_max_retries.get() or 5),
             "use_cache": self.var_use_cache.get(),
             "cache_images": self.var_cache_images.get(),
             "pdf_toc": self.var_pdf_toc.get(),

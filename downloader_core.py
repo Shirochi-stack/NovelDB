@@ -195,27 +195,60 @@ class DownloaderCore:
         self.log(f"Found {len(chapters)} chapters in total.")
         return chapters
 
-    def download_chapter_content(self, chapter_id):
+    # Default retry budget. Exposed as a parameter so the caller (GUI / bot)
+    # can raise it for flaky sessions without touching downloader_core.
+    DEFAULT_MAX_RETRIES = 5
+
+    def download_chapter_content(self, chapter_id, max_retries=None):
         """
         Fetches the JSON content for a specific chapter.
         Corresponds to the 'viewer_data' call in the legacy code.
+
+        Retries up to `max_retries` times (default 5) on transient errors:
+          * HTTP status != 200
+          * empty response body
+          * network / exception
+
+        Login/age blocks raise AccessBlockedError immediately (no retry).
+        Returns the raw JSON string on success, or None if every attempt
+        fails — in which case a prominent "FAILED after N attempts" line
+        is logged so it's easy to spot in the console.
         """
+        if max_retries is None:
+            max_retries = self.DEFAULT_MAX_RETRIES
+        try:
+            max_retries = max(1, int(max_retries))
+        except (TypeError, ValueError):
+            max_retries = self.DEFAULT_MAX_RETRIES
+
         url = f"https://novelpia.com/proc/viewer_data/{chapter_id}"
-        for attempt in range(3):  # Hardcoded retry limit matching C# MAX_DOWNLOAD_RETRIES
+
+        def _schedule_retry(reason, attempt):
+            """Log a uniform "attempt i/N failed — retrying in Ys" line, OR the
+            exhausted-retries line when we're out of attempts. Sleeps with a
+            simple exponential backoff (capped at 8s)."""
+            if attempt < max_retries:
+                wait = min(8, 2 ** (attempt - 1))  # 1, 2, 4, 8, 8, ...
+                self.log(
+                    f"Chapter {chapter_id}: attempt {attempt}/{max_retries} failed ({reason}). "
+                    f"Retrying in {wait}s..."
+                )
+                time.sleep(wait)
+            else:
+                # Final failure; emit a prominent log so it's visible in the console.
+                self.log(
+                    f"\u274c Chapter {chapter_id}: FAILED after {max_retries} attempts ({reason})."
+                )
+
+        for attempt in range(1, max_retries + 1):
             try:
                 # LOGINKEY is already in session cookies via novelpia_auth.
                 # Don't manually override the Cookie header — it clobbers
                 # other cookies (USERKEY, NPK*) that the server needs.
-                response = self.auth.session.post(
-                    url,
-                    timeout=15,
-                )
+                response = self.auth.session.post(url, timeout=15)
 
                 if response.status_code != 200:
-                    self.log(
-                        f"Chapter {chapter_id}: HTTP {response.status_code} on attempt {attempt + 1}"
-                    )
-                    time.sleep(1)
+                    _schedule_retry(f"HTTP {response.status_code}", attempt)
                     continue
 
                 text = response.text or ""
@@ -228,14 +261,14 @@ class DownloaderCore:
                     resp_cookies = ", ".join(f"{c.name}={c.value[:10]}..." for c in response.cookies) or "(none)"
                     set_cookie = response.headers.get("set-cookie", "(none)")[:100]
                     self.log(
-                        f"Chapter {chapter_id}: Empty response body on attempt {attempt + 1}\n"
+                        f"Chapter {chapter_id}: empty response body on attempt {attempt}/{max_retries}\n"
                         f"  → HTTP {response.status_code} | Content-Type: {resp_ct} | Content-Length: {resp_cl}\n"
                         f"  → LOGINKEY: {loginkey_preview} | Response cookies: {resp_cookies}\n"
                         f"  → Set-Cookie header: {set_cookie}\n"
                         f"  → Raw body repr: {repr(response.content[:200])}\n"
                         f"  → Hint: If free chapters work but premium ones don't, check that you have an active subscription or have purchased this chapter."
                     )
-                    time.sleep(1)
+                    _schedule_retry("empty response body", attempt)
                     continue
 
                 # Common server-side blocks (login / age verification / generic auth).
@@ -252,15 +285,16 @@ class DownloaderCore:
                         f"Chapter {chapter_id}: login/age verification required"
                     )
 
+                if attempt > 1:
+                    # Friendly confirmation when a retry finally succeeded.
+                    self.log(f"Chapter {chapter_id}: recovered on attempt {attempt}/{max_retries}.")
                 return text  # Returns raw JSON string
 
             except AccessBlockedError:
                 raise
-            except Exception:
-                self.log(f"Retrying chapter {chapter_id} (Attempt {attempt + 1})...")
-                time.sleep(1)
-        
-        self.log(f"Failed to download chapter {chapter_id} after retries.")
+            except Exception as e:
+                _schedule_retry(f"{type(e).__name__}: {e}", attempt)
+
         return None
 
     def fetch_notices(self, novel_id):
