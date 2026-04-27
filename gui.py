@@ -2199,13 +2199,34 @@ class NovelpiaGUI(tk.Tk):
             justify="left",
         ).pack(anchor="w", pady=(0, 8))
 
-        text = tk.Text(main_f, wrap="word", height=14)
+        text = tk.Text(main_f, wrap="word", height=14, undo=True, maxundo=-1)
         text.pack(fill="both", expand=True)
+
+        # Ctrl+Z / Ctrl+Y undo/redo
+        def _undo(e):
+            try:
+                text.edit_undo()
+            except tk.TclError:
+                pass
+            return "break"
+
+        def _redo(e):
+            try:
+                text.edit_redo()
+            except tk.TclError:
+                pass
+            return "break"
+
+        text.bind("<Control-z>", _undo)
+        text.bind("<Control-y>", _redo)
+        text.bind("<Control-Z>", _undo)
+        text.bind("<Control-Y>", _redo)
 
         # Restore any text the user had previously entered.
         saved = getattr(self, '_paste_batch_text', '') or ''
         if saved:
             text.insert('1.0', saved)
+            text.edit_reset()  # Clear undo history from the restore insert
         text.focus_set()
 
         btns = ttk.Frame(main_f)
