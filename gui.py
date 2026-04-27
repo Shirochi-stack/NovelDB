@@ -633,9 +633,9 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
 def _run_webview_login(output_path):
     import traceback
 
-    # Write debug log to the logs/ directory (already created by file logging setup)
-    _log_dir = os.path.join(_get_base_dir(), 'logs')
-    os.makedirs(_log_dir, exist_ok=True)
+    # Write debug log to a writable logs directory (reuse the same
+    # fallback chain that the module-level logging setup uses).
+    _log_dir = _writable_data_dir('logs') or tempfile.gettempdir()
     debug_path = os.path.join(_log_dir, "webview_debug.log")
     def _dbg(msg):
         try:
