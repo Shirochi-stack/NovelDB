@@ -665,10 +665,20 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                 for du in data_urls:
                     replacement = handle_img_match(du)
                     text = text.replace(du, replacement)
+            # Preserve inline formatting tags through the pipeline
+            _fmt_placeholders = {}
+            _fmt_counter = [0]
+            def _save_fmt_tag(m):
+                key = f"\x00FMT{_fmt_counter[0]}\x00"
+                _fmt_counter[0] += 1
+                _fmt_placeholders[key] = m.group(0)
+                return key
+            text = re.sub(r'</?(?:b|strong|i|em|u|s|strike|del|sub|sup|ruby|rb|rt|rp|rtc)(?:\s[^>]*)?>',
+                          _save_fmt_tag, text, flags=re.IGNORECASE)
             text = re.sub(r"</?[a-zA-Z][^>]*>", "", text)
             text = text.replace("\n", "")
             text = _strip_base64_blobs(text)
-            if not text or re.fullmatch(r"[A-Za-z0-9+/=]{40,}", text):
+            if not text.replace('\x00', '').strip() or re.fullmatch(r"[A-Za-z0-9+/=]{40,}", text.replace('\x00', '')):
                 continue
             text = html.unescape(text)
             text = _strip_base64_blobs(text)
@@ -678,7 +688,11 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                 except Exception:
                     pass
             if text:
-                html_parts.append(f"<p>{html.escape(text)}</p>")
+                safe = html.escape(text)
+                # Restore preserved formatting tags
+                for key, tag in _fmt_placeholders.items():
+                    safe = safe.replace(key, tag)
+                html_parts.append(f"<p>{safe}</p>")
 
         if not html_parts:
             return "<p>[No text segments found in chapter]</p>", images, img_failures[0]

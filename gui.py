@@ -593,12 +593,22 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                 continue
 
             text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
-            # Remove only actual HTML tags (tags starting with ASCII letters)
+            # Preserve inline formatting tags through the pipeline
+            _fmt_placeholders = {}
+            _fmt_counter = [0]
+            def _save_fmt_tag(m):
+                key = f"\x00FMT{_fmt_counter[0]}\x00"
+                _fmt_counter[0] += 1
+                _fmt_placeholders[key] = m.group(0)
+                return key
+            text = re.sub(r'</?(?:b|strong|i|em|u|s|strike|del|sub|sup|ruby|rb|rt|rp|rtc)(?:\s[^>]*)?>',
+                          _save_fmt_tag, text, flags=re.IGNORECASE)
+            # Remove remaining HTML tags (tags starting with ASCII letters)
             # This preserves Korean/other text in angle brackets like <주인공>
             text = re.sub(r"</?[a-zA-Z][^>]*>", "", text)
             # Remove newlines
             text = text.replace("\n", "")
-            if not text:
+            if not text.replace('\x00', '').strip():
                 continue
             text = html.unescape(text)
             if font_mapper is not None:
@@ -608,7 +618,11 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                     pass
             if text:
                 # Escape the text for safe HTML output (this will convert < to &lt; and > to &gt;)
-                html_parts.append(f"<p>{html.escape(text)}</p>")
+                safe = html.escape(text)
+                # Restore preserved formatting tags
+                for key, tag in _fmt_placeholders.items():
+                    safe = safe.replace(key, tag)
+                html_parts.append(f"<p>{safe}</p>")
 
         if not html_parts:
             return "<p>[No text segments found in chapter]</p>", images, _img_failures[0]
