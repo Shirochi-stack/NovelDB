@@ -78,8 +78,8 @@ jobs:
           path: ND38-macos-${{ matrix.arch }}.dmg
           retention-days: 90
 
-  # Attach the freshly-built DMGs to an EXISTING GitHub Release tagged v38.
-  # This job never creates a release — you must publish v38 once manually.
+  # Attach the freshly-built DMGs to an EXISTING GitHub Release tagged v39.
+  # This job never creates a release — you must publish v39 once manually.
   # Subsequent workflow runs simply overwrite the attached DMGs so the
   # release's download URLs always point at the latest build.
   attach-to-release:
@@ -94,27 +94,27 @@ jobs:
       - name: Download all DMG artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ND38-macos-*
+          pattern: ND39-macos-*
           path: dmgs
           merge-multiple: true
 
       - name: Show collected assets
         run: ls -la dmgs
 
-      - name: Verify v38 release exists
+      - name: Verify v39 release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if ! gh release view v38 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "::error::Release 'v38' does not exist. Create it manually, then re-run."
+          if ! gh release view v39 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::Release 'v39' does not exist. Create it manually, then re-run."
             exit 1
           fi
-          echo "Release v38 found; proceeding to upload assets."
+          echo "Release v39 found; proceeding to upload assets."
 
-      - name: Upload DMGs to v38 release (overwrite existing)
+      - name: Upload DMGs to v39 release (overwrite existing)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # --clobber replaces existing assets with the same name instead of
           # failing, so re-runs always end up with the latest binary.
-          gh release upload v38 dmgs/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload v39 dmgs/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
