@@ -61,16 +61,16 @@ def _writable_data_dir(kind):
     # then a temp dir as absolute last resort.
     home = os.path.expanduser("~")
     if kind == "logs":
-        mac_standard = os.path.join(home, "Library", "Logs", "ND39")
+        mac_standard = os.path.join(home, "Library", "Logs", "ND40")
     elif kind == ".cache":
-        mac_standard = os.path.join(home, "Library", "Caches", "ND39")
+        mac_standard = os.path.join(home, "Library", "Caches", "ND40")
     else:
-        mac_standard = os.path.join(home, "Library", "Application Support", "ND39", kind)
+        mac_standard = os.path.join(home, "Library", "Application Support", "ND40", kind)
 
     candidates = [
         os.path.join(_get_base_dir(), kind),
         mac_standard,
-        os.path.join(tempfile.gettempdir(), f"ND39_{kind.lstrip('.')}"),
+        os.path.join(tempfile.gettempdir(), f"ND40_{kind.lstrip('.')}"),
     ]
     for path in candidates:
         try:
@@ -200,7 +200,7 @@ def extract_novel_id(value):
         return m.group(1)
     return None
 
-def process_text_content(content_json):
+def process_text_content(content_json, strip_leading_spaces=False):
     """Parse the viewer_data JSON into readable HTML paragraphs."""
     try:
         data = json.loads(content_json)
@@ -220,6 +220,8 @@ def process_text_content(content_json):
 
             text = re.sub(r"<img.+?>", "", text)
             text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
+            if strip_leading_spaces:
+                text = _strip_leading_whitespace(text)
             paragraph_html.append(text)
 
         if not paragraph_html:
@@ -492,7 +494,16 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
     return out.getvalue(), "jpg"
 
 
-def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False, static_only=False):
+def _strip_leading_whitespace(text):
+    """Remove leading whitespace (including \u00a0 / &nbsp;) that Novelpia
+    injects at the start of every text segment.  Works on both raw HTML
+    text and already-unescaped text."""
+    # Strip &nbsp; entities and raw \u00a0 from the very start of the string
+    text = re.sub(r'^(?:\s|\u00a0|&nbsp;)+', '', text)
+    return text
+
+
+def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False, static_only=False, strip_leading_spaces=False):
     """Return (html, images, image_failures).
 
     image_failures is the number of <img> tags whose download/processing
@@ -611,6 +622,8 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
             if not text.replace('\x00', '').strip():
                 continue
             text = html.unescape(text)
+            if strip_leading_spaces:
+                text = _strip_leading_whitespace(text)
             if font_mapper is not None:
                 try:
                     text = font_mapper.decode(text)
@@ -850,7 +863,7 @@ class NovelpiaGUI(tk.Tk):
             self.bind_class(widget_class, "<Button-4>", _block_scroll)
             self.bind_class(widget_class, "<Button-5>", _block_scroll)
 
-        self.title("ND39")
+        self.title("ND40")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -944,6 +957,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_save_format = tk.StringVar(value="epub")
         self.var_font_path = tk.StringVar()
         self.var_include_notices = tk.BooleanVar(value=True)
+        self.var_strip_leading_spaces = tk.BooleanVar(value=False)
         
         # New visual-only variables to match screenshot
         self.var_save_html = tk.BooleanVar(value=False)
@@ -1096,7 +1110,12 @@ class NovelpiaGUI(tk.Tk):
         ttk.Radiobutton(fmt_frame, text="PDF", variable=self.var_save_format, value="pdf").pack(side="left", padx=(15, 0))
 
         # Checkboxes
-        ttk.Checkbutton(dl_inner, text="Save as HTML (instead of TXT)", variable=self.var_save_html).grid(row=3, column=0, columnspan=3, sticky="w", pady=2)
+        misc_chk_frame = ttk.Frame(dl_inner)
+        misc_chk_frame.grid(row=3, column=0, columnspan=3, sticky="w", pady=2)
+        ttk.Checkbutton(misc_chk_frame, text="Save as HTML (instead of TXT)", variable=self.var_save_html).pack(side="left")
+        chk_strip = ttk.Checkbutton(misc_chk_frame, text="Remove Leading Spaces", variable=self.var_strip_leading_spaces)
+        chk_strip.pack(side="left", padx=(15, 0))
+        ToolTip(chk_strip, "Strip the leading whitespace (\u00a0 / &nbsp;) that\nNovelpia adds to the beginning of every paragraph.")
         
         comp_frame = ttk.Frame(dl_inner)
         comp_frame.grid(row=4, column=0, columnspan=3, sticky="w", pady=2)
@@ -2024,7 +2043,7 @@ class NovelpiaGUI(tk.Tk):
         The real location depends on write permissions — see
         `_writable_data_dir('.cache')` for the fallback chain. On Windows
         and Linux this is always `<base_dir>/.cache` (historical
-        behaviour). On macOS we fall back to `~/Library/Caches/ND39` if
+        behaviour). On macOS we fall back to `~/Library/Caches/ND40` if
         the bundle location is read-only.
         """
         cache_dir = _writable_data_dir('.cache')
@@ -2863,6 +2882,7 @@ table, th, td {
                                 chapter_num=self.progress_value + 1,
                                 convert_gifs=self.var_convert_gifs.get(),
                                 static_only=self.var_static_only.get(),
+                                strip_leading_spaces=self.var_strip_leading_spaces.get(),
                             )
                             results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                             self.log_message(f"Cached: {chap['title']}")
@@ -2931,6 +2951,7 @@ table, th, td {
                                     chapter_num=self.progress_value + 1,
                                     convert_gifs=self.var_convert_gifs.get(),
                                     static_only=self.var_static_only.get(),
+                                    strip_leading_spaces=self.var_strip_leading_spaces.get(),
                                 )
                                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                                 img_info = f" ({len(imgs)} images)" if imgs else ""
@@ -3296,6 +3317,7 @@ table, th, td {
                 self.var_cover_format.set(cfg.get("cover_format", "JPEG"))
                 self.var_zip_compress_images.set(cfg.get("zip_compress_images", False))
                 self.var_include_notices.set(cfg.get("include_notices", True))
+                self.var_strip_leading_spaces.set(cfg.get("strip_leading_spaces", False))
                 self.var_save_format.set(cfg.get("save_format", "epub"))
                 self.var_save_html.set(cfg.get("save_html", False))
                 # "retry_chapters" was a dead boolean; migrate silently to the new
@@ -3379,6 +3401,7 @@ table, th, td {
             "cover_format": self.var_cover_format.get(),
             "zip_compress_images": self.var_zip_compress_images.get(),
             "include_notices": self.var_include_notices.get(),
+            "strip_leading_spaces": self.var_strip_leading_spaces.get(),
             "save_format": self.var_save_format.get(),
             "save_html": self.var_save_html.get(),
             "max_retries": int(self.var_max_retries.get() or 5),

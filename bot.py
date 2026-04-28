@@ -531,9 +531,17 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
     return out.getvalue(), "jpg"
 
 
+def _strip_leading_whitespace(text):
+    """Remove leading whitespace (including \u00a0 / &nbsp;) that Novelpia
+    injects at the start of every text segment."""
+    text = re.sub(r'^(?:\s|\u00a0|&nbsp;)+', '', text)
+    return text
+
+
 def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images,
                                        jpeg_quality, image_format, logger, next_image_no,
-                                       convert_gifs=False, static_only=False):
+                                       convert_gifs=False, static_only=False,
+                                       strip_leading_spaces=False):
     """Return (html, images, image_failures).
 
     image_failures mirrors the gui.py extractor so higher layers can decide
@@ -681,6 +689,8 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
             if not text.replace('\x00', '').strip() or re.fullmatch(r"[A-Za-z0-9+/=]{40,}", text.replace('\x00', '')):
                 continue
             text = html.unescape(text)
+            if strip_leading_spaces:
+                text = _strip_leading_whitespace(text)
             text = _strip_base64_blobs(text)
             if font_mapper is not None:
                 try:
@@ -711,7 +721,8 @@ def run_download(user_id: int,
                  passphrase: str | None = None,
                  convert_gifs: bool | None = None,
                  max_retries: int | None = None,
-                 static_only: bool | None = None) -> tuple[str, list[str]]:
+                 static_only: bool | None = None,
+                 strip_leading_spaces: bool | None = None) -> tuple[str, list[str]]:
     """Blocking download workflow. Returns (output_path, logs)."""
     auth_cfg = load_user_auth(user_id, passphrase) or {}
     prefs = load_user_prefs(user_id) or {}
@@ -737,6 +748,8 @@ def run_download(user_id: int,
     convert_gifs = prefs.get("convert_gifs", False) if convert_gifs is None else convert_gifs
     # Flatten every animated source to a single frame when True.
     static_only = prefs.get("static_only", False) if static_only is None else static_only
+    # Strip leading whitespace (&nbsp;) added by Novelpia.
+    strip_leading_spaces = prefs.get("strip_leading_spaces", False) if strip_leading_spaces is None else strip_leading_spaces
     # Retry budget per chapter (default 5, same as downloader_core).
     if max_retries is None:
         max_retries = prefs.get("max_retries", 5)
@@ -943,6 +956,7 @@ def run_download(user_id: int,
                             image_format, logger, next_img,
                             convert_gifs=convert_gifs,
                             static_only=static_only,
+                            strip_leading_spaces=strip_leading_spaces,
                         )
                         results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                         img_info = f" ({len(imgs)} images)" if imgs else ""
