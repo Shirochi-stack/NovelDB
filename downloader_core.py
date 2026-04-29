@@ -199,6 +199,10 @@ class DownloaderCore:
     # can raise it for flaky sessions without touching downloader_core.
     DEFAULT_MAX_RETRIES = 5
 
+    # Escalating cooldowns applied when an entire retry round is exhausted.
+    # After all cooldown tiers are spent the chapter is marked as failed.
+    COOLDOWN_TIERS = (10, 30, 60)
+
     def download_chapter_content(self, chapter_id, max_retries=None):
         """
         Fetches the JSON content for a specific chapter.
@@ -209,10 +213,12 @@ class DownloaderCore:
           * empty response body
           * network / exception
 
+        If every attempt in a round fails, an escalating cooldown
+        (10 s \u2192 30 s \u2192 60 s) is applied before the full round is retried.
+
         Login/age blocks raise AccessBlockedError immediately (no retry).
-        Returns the raw JSON string on success, or None if every attempt
-        fails — in which case a prominent "FAILED after N attempts" line
-        is logged so it's easy to spot in the console.
+        Returns the raw JSON string on success, or None if every round
+        fails \u2014 in which case a prominent "FAILED" line is logged.
         """
         if max_retries is None:
             max_retries = self.DEFAULT_MAX_RETRIES
@@ -223,10 +229,15 @@ class DownloaderCore:
 
         url = f"https://novelpia.com/proc/viewer_data/{chapter_id}"
 
+        last_failure_reason = ""
+
         def _schedule_retry(reason, attempt):
-            """Log a uniform "attempt i/N failed — retrying in Ys" line, OR the
-            exhausted-retries line when we're out of attempts. Sleeps with a
-            simple exponential backoff (capped at 8s)."""
+            """Log a uniform "attempt i/N failed \u2014 retrying in Ys" line and
+            sleep with simple exponential backoff (capped at 8 s).
+            On the final attempt of a round the reason is only recorded \u2014
+            the outer cooldown loop decides what happens next."""
+            nonlocal last_failure_reason
+            last_failure_reason = reason
             if attempt < max_retries:
                 wait = min(8, 2 ** (attempt - 1))  # 1, 2, 4, 8, 8, ...
                 self.log(
@@ -234,66 +245,90 @@ class DownloaderCore:
                     f"Retrying in {wait}s..."
                 )
                 time.sleep(wait)
-            else:
-                # Final failure; emit a prominent log so it's visible in the console.
+
+        total_rounds = len(self.COOLDOWN_TIERS) + 1  # initial + cooldown rounds
+
+        for round_idx in range(total_rounds):
+            for attempt in range(1, max_retries + 1):
+                if self.stop_signal:
+                    return None
+                try:
+                    # LOGINKEY is already in session cookies via novelpia_auth.
+                    # Don't manually override the Cookie header — it clobbers
+                    # other cookies (USERKEY, NPK*) that the server needs.
+                    response = self.auth.session.post(url, timeout=15)
+
+                    if response.status_code != 200:
+                        _schedule_retry(f"HTTP {response.status_code}", attempt)
+                        continue
+
+                    text = response.text or ""
+                    if not text.strip():
+                        # Detailed debug info to diagnose auth/empty response issues
+                        has_loginkey = bool(self.auth.loginkey)
+                        loginkey_preview = self.auth.loginkey[:8] + "..." if has_loginkey else "(empty)"
+                        resp_ct = response.headers.get("content-type", "?")
+                        resp_cl = response.headers.get("content-length", "?")
+                        resp_cookies = ", ".join(f"{c.name}={c.value[:10]}..." for c in response.cookies) or "(none)"
+                        set_cookie = response.headers.get("set-cookie", "(none)")[:100]
+                        self.log(
+                            f"Chapter {chapter_id}: empty response body on attempt {attempt}/{max_retries}\n"
+                            f"  \u2192 HTTP {response.status_code} | Content-Type: {resp_ct} | Content-Length: {resp_cl}\n"
+                            f"  \u2192 LOGINKEY: {loginkey_preview} | Response cookies: {resp_cookies}\n"
+                            f"  \u2192 Set-Cookie header: {set_cookie}\n"
+                            f"  \u2192 Raw body repr: {repr(response.content[:200])}\n"
+                            f"  \u2192 Hint: If free chapters work but premium ones don't, check that you have an active subscription or have purchased this chapter."
+                        )
+                        _schedule_retry("empty response body", attempt)
+                        continue
+
+                    # Common server-side blocks (login / age verification / generic auth).
+                    lowered = text.lower()
+                    if (
+                        "\ubcf8\uc778\uc778\uc99d" in text  # "본인인증" in unicode form
+                        or "\ub85c\uadf8\uc778" in text      # "로그인" in unicode form
+                        or "authentication required" in lowered
+                    ):
+                        self.log(
+                            f"Chapter {chapter_id}: access appears to be blocked (login/age verification)."
+                        )
+                        raise AccessBlockedError(
+                            f"Chapter {chapter_id}: login/age verification required"
+                        )
+
+                    if attempt > 1 or round_idx > 0:
+                        # Friendly confirmation when a retry finally succeeded.
+                        self.log(
+                            f"Chapter {chapter_id}: recovered on attempt {attempt}/{max_retries}"
+                            f"{f' (cooldown round {round_idx})' if round_idx else ''}."
+                        )
+                    return text  # Returns raw JSON string
+
+                except AccessBlockedError:
+                    raise
+                except Exception as e:
+                    _schedule_retry(f"{type(e).__name__}: {e}", attempt)
+
+            # -- All attempts in this round exhausted --
+            if round_idx < len(self.COOLDOWN_TIERS):
+                cooldown = self.COOLDOWN_TIERS[round_idx]
                 self.log(
-                    f"\u274c Chapter {chapter_id}: FAILED after {max_retries} attempts ({reason})."
+                    f"\u23f3 Chapter {chapter_id}: all {max_retries} attempts failed "
+                    f"({last_failure_reason}). Cooldown {cooldown}s before round "
+                    f"{round_idx + 2}/{total_rounds}..."
                 )
-
-        for attempt in range(1, max_retries + 1):
-            try:
-                # LOGINKEY is already in session cookies via novelpia_auth.
-                # Don't manually override the Cookie header — it clobbers
-                # other cookies (USERKEY, NPK*) that the server needs.
-                response = self.auth.session.post(url, timeout=15)
-
-                if response.status_code != 200:
-                    _schedule_retry(f"HTTP {response.status_code}", attempt)
-                    continue
-
-                text = response.text or ""
-                if not text.strip():
-                    # Detailed debug info to diagnose auth/empty response issues
-                    has_loginkey = bool(self.auth.loginkey)
-                    loginkey_preview = self.auth.loginkey[:8] + "..." if has_loginkey else "(empty)"
-                    resp_ct = response.headers.get("content-type", "?")
-                    resp_cl = response.headers.get("content-length", "?")
-                    resp_cookies = ", ".join(f"{c.name}={c.value[:10]}..." for c in response.cookies) or "(none)"
-                    set_cookie = response.headers.get("set-cookie", "(none)")[:100]
-                    self.log(
-                        f"Chapter {chapter_id}: empty response body on attempt {attempt}/{max_retries}\n"
-                        f"  → HTTP {response.status_code} | Content-Type: {resp_ct} | Content-Length: {resp_cl}\n"
-                        f"  → LOGINKEY: {loginkey_preview} | Response cookies: {resp_cookies}\n"
-                        f"  → Set-Cookie header: {set_cookie}\n"
-                        f"  → Raw body repr: {repr(response.content[:200])}\n"
-                        f"  → Hint: If free chapters work but premium ones don't, check that you have an active subscription or have purchased this chapter."
-                    )
-                    _schedule_retry("empty response body", attempt)
-                    continue
-
-                # Common server-side blocks (login / age verification / generic auth).
-                lowered = text.lower()
-                if (
-                    "\ubcf8\uc778\uc778\uc99d" in text  # "본인인증" in unicode form
-                    or "\ub85c\uadf8\uc778" in text      # "로그인" in unicode form
-                    or "authentication required" in lowered
-                ):
-                    self.log(
-                        f"Chapter {chapter_id}: access appears to be blocked (login/age verification)."
-                    )
-                    raise AccessBlockedError(
-                        f"Chapter {chapter_id}: login/age verification required"
-                    )
-
-                if attempt > 1:
-                    # Friendly confirmation when a retry finally succeeded.
-                    self.log(f"Chapter {chapter_id}: recovered on attempt {attempt}/{max_retries}.")
-                return text  # Returns raw JSON string
-
-            except AccessBlockedError:
-                raise
-            except Exception as e:
-                _schedule_retry(f"{type(e).__name__}: {e}", attempt)
+                # Sleep in 1-second ticks so stop_signal stays responsive.
+                for _ in range(cooldown):
+                    if self.stop_signal:
+                        return None
+                    time.sleep(1)
+            else:
+                # Every round exhausted — emit a prominent final-failure log.
+                total_attempts = total_rounds * max_retries
+                self.log(
+                    f"\u274c Chapter {chapter_id}: FAILED after {total_attempts} total "
+                    f"attempts across {total_rounds} rounds ({last_failure_reason})."
+                )
 
         return None
 
