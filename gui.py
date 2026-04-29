@@ -61,16 +61,16 @@ def _writable_data_dir(kind):
     # then a temp dir as absolute last resort.
     home = os.path.expanduser("~")
     if kind == "logs":
-        mac_standard = os.path.join(home, "Library", "Logs", "ND40")
+        mac_standard = os.path.join(home, "Library", "Logs", "ND41")
     elif kind == ".cache":
-        mac_standard = os.path.join(home, "Library", "Caches", "ND40")
+        mac_standard = os.path.join(home, "Library", "Caches", "ND41")
     else:
-        mac_standard = os.path.join(home, "Library", "Application Support", "ND40", kind)
+        mac_standard = os.path.join(home, "Library", "Application Support", "ND41", kind)
 
     candidates = [
         os.path.join(_get_base_dir(), kind),
         mac_standard,
-        os.path.join(tempfile.gettempdir(), f"ND40_{kind.lstrip('.')}"),
+        os.path.join(tempfile.gettempdir(), f"ND41_{kind.lstrip('.')}"),
     ]
     for path in candidates:
         try:
@@ -863,7 +863,7 @@ class NovelpiaGUI(tk.Tk):
             self.bind_class(widget_class, "<Button-4>", _block_scroll)
             self.bind_class(widget_class, "<Button-5>", _block_scroll)
 
-        self.title("ND40")
+        self.title("ND41")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -2043,7 +2043,7 @@ class NovelpiaGUI(tk.Tk):
         The real location depends on write permissions — see
         `_writable_data_dir('.cache')` for the fallback chain. On Windows
         and Linux this is always `<base_dir>/.cache` (historical
-        behaviour). On macOS we fall back to `~/Library/Caches/ND40` if
+        behaviour). On macOS we fall back to `~/Library/Caches/ND41` if
         the bundle location is read-only.
         """
         cache_dir = _writable_data_dir('.cache')

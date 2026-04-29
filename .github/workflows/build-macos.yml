@@ -60,22 +60,22 @@ jobs:
         run: |
           # Create a temporary directory for DMG contents
           mkdir -p dmg_contents
-          cp -R dist/ND40.app dmg_contents/
+          cp -R dist/ND41.app dmg_contents/
 
           # Create a symlink to /Applications for drag-and-drop install
           ln -s /Applications dmg_contents/Applications
 
           # Build the DMG using hdiutil
-          hdiutil create -volname "ND40" \
+          hdiutil create -volname "ND41" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
-            "ND40-macos-${{ matrix.arch }}.dmg"
+            "ND41-macos-${{ matrix.arch }}.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ND40-macos-${{ matrix.arch }}
-          path: ND40-macos-${{ matrix.arch }}.dmg
+          name: ND41-macos-${{ matrix.arch }}
+          path: ND41-macos-${{ matrix.arch }}.dmg
           retention-days: 90
 
   # Attach the freshly-built DMGs to an EXISTING GitHub Release tagged v40.
@@ -94,7 +94,7 @@ jobs:
       - name: Download all DMG artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ND40-macos-*
+          pattern: ND41-macos-*
           path: dmgs
           merge-multiple: true
 
