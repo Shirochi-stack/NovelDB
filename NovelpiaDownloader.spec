@@ -38,19 +38,19 @@ if os.path.exists(_pw_driver):
             rel = os.path.relpath(root, _pw_dir)
             binaries.append((src, os.path.join('playwright', rel)))
 
-# Bundle Chromium browser from ms-playwright
+# Bundle Chromium browsers from ms-playwright
+# Playwright uses chromium_headless_shell for headless=True and
+# chromium for headless=False (Enter Browser). Bundle both.
 _ms_pw = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'ms-playwright')
 if os.path.exists(_ms_pw):
-    # Find the chromium directory (e.g. chromium-1208)
     for entry in os.listdir(_ms_pw):
-        if entry.startswith('chromium-') and not entry.startswith('chromium_headless'):
+        if entry.startswith('chromium'):
             _chromium_dir = os.path.join(_ms_pw, entry)
             for root, dirs, files in os.walk(_chromium_dir):
                 for f in files:
                     src = os.path.join(root, f)
                     rel = os.path.relpath(root, _ms_pw)
                     binaries.append((src, os.path.join('ms-playwright', rel)))
-            break
 
 
 a = Analysis(

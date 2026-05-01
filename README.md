@@ -7,6 +7,7 @@ A fork of that enhances the user experience and output quality. This version add
 ## 📚 Table of Contents
 
   - [✨ Features]
+  - [🌐 External Novel Downloader](#-external-novel-downloader)
   - [🚀 Usage]
   - [💾 Space-Saving Tips]
   - [🛠️ Command-Line Arguments]
@@ -26,6 +27,39 @@ A fork of that enhances the user experience and output quality. This version add
   - **Author Notices Support:** Download author notices and illustrations ! 
 
 <img width="880" height="698" alt="image" src="https://github.com/user-attachments/assets/81b5a264-cc22-4f82-8a4b-341d342c9fc3" />
+
+-----
+
+## 🌐 External Novel Downloader
+
+In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ external sites** via the built-in **External Novel** button. This feature is powered by the [novel-downloader](https://github.com/404-novel-project/novel-downloader) project's rule engine.
+
+### Supported Sites (partial list)
+
+| Platform | URL |
+|---|---|
+| Kakuyomu | kakuyomu.jp |
+| Syosetu (なろう) | ncode.syosetu.com |
+| Pixiv Novel | novel.pixiv.net |
+| Qidian | book.qidian.com |
+| JJWXC | jjwxc.net |
+| Kakao Page | page.kakao.com |
+| SFACG | book.sfacg.com |
+| Hameln | syosetu.org |
+| …and 90+ more | See [novel-downloader](https://github.com/404-novel-project/novel-downloader) |
+
+### How it works
+
+1. Click **External Novel** in the main window.
+2. Paste the novel URL and click **Fetch Info**.
+3. Choose your format (EPUB / TXT / PDF), chapter range, and thread count.
+4. Click **Download**.
+
+The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
+
+### Updating Rules
+
+The site-specific scraping rules are compiled from the upstream [novel-downloader](https://github.com/404-novel-project/novel-downloader) project. To update to the latest rules, run `update_rules.bat` in the project root. This clones/pulls the upstream repo, applies a bridge-mode patch, builds via webpack, and copies the output as `rules-lib.js`.
 
 
 ## 🚀 Usage
@@ -134,5 +168,10 @@ A: Use Moon+ Reader, ReadEra, or Calibre. Lithium and some other readers may not
 ## 📜 Legal & Disclaimer
 
 This project is a fork of CjangCjengh's NovelpiaDownloader and is intended for personal use to create backups of content you have legally accessed. I am not affiliated with Novelpia. Please respect their terms of service and copyright laws.
+
+### Credits
+
+- **[novel-downloader](https://github.com/404-novel-project/novel-downloader)** by [404-novel-project](https://github.com/404-novel-project) — Powers the external novel download feature with support for 100+ sites.
+- **[CjangCjengh/NovelpiaDownloader](https://github.com/CjangCjengh/NovelpiaDownloader)** — Original Novelpia downloader this project is forked from.
 
 -----
