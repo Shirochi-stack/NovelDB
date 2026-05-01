@@ -1,0 +1,474 @@
+"""
+external_dialog.py — Tkinter dialog for downloading novels from non-Novelpia sites.
+
+Provides a self-contained Toplevel window with:
+  - URL input
+  - Format selection (EPUB / TXT)
+  - Interval control for rate limiting
+  - Chapter range selection
+  - Fetch Info / Download / Stop buttons
+  - Book info panel and log console
+  - Progress bar with ETA
+
+Uses ExternalScraper (Playwright + novel-downloader JS rules) for fetching,
+and the existing epub_generator for EPUB output.
+"""
+
+import os
+import sys
+import re
+import time
+import threading
+import queue
+
+import tkinter as tk
+from tkinter import ttk
+
+from external_scraper import ExternalScraper
+
+
+def _get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _sanitize_filename(name):
+    """Remove characters that are invalid in filenames."""
+    name = re.sub(r'[<>:"/\\|?*]', '_', name)
+    name = name.strip('. ')
+    return name or "novel"
+
+
+class ExternalNovelDialog(tk.Toplevel):
+    """Tkinter Toplevel dialog for downloading novels from non-Novelpia sites."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("External Novel Download")
+        self.transient(parent)
+
+        # Size window
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        w = int(screen_w * 0.50)
+        h = int(screen_h * 0.60)
+        x = (screen_w - w) // 2
+        y = (screen_h - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.minsize(600, 500)
+
+        self._scraper = None
+        self._book_data = None
+        self._chapter_results = []
+        self._downloading = False
+        self._start_time = None
+        self._msg_queue = queue.Queue()
+
+        self._build_ui()
+        self._poll_queue()
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ------------------------------------------------------------------
+    # UI Construction
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        # --- URL Input ---
+        url_frame = ttk.LabelFrame(self, text="Novel URL", padding=6)
+        url_frame.pack(fill="x", padx=10, pady=(10, 5))
+        self._url_var = tk.StringVar()
+        ent_url = ttk.Entry(url_frame, textvariable=self._url_var)
+        ent_url.pack(fill="x")
+
+        # --- Settings Row ---
+        settings_frame = ttk.Frame(self)
+        settings_frame.pack(fill="x", padx=10, pady=5)
+
+        # Format
+        fmt_frame = ttk.LabelFrame(settings_frame, text="Format", padding=4)
+        fmt_frame.pack(side="left", padx=(0, 10))
+        self._var_format = tk.StringVar(value="epub")
+        ttk.Radiobutton(fmt_frame, text="EPUB", variable=self._var_format,
+                         value="epub").pack(side="left", padx=5)
+        ttk.Radiobutton(fmt_frame, text="TXT", variable=self._var_format,
+                         value="txt").pack(side="left", padx=5)
+
+        # Interval
+        int_frame = ttk.LabelFrame(settings_frame, text="Rate Limiting", padding=4)
+        int_frame.pack(side="left", padx=(0, 10))
+        ttk.Label(int_frame, text="Interval (s):").pack(side="left", padx=(0, 3))
+        self._var_interval = tk.DoubleVar(value=0.5)
+        spn = ttk.Spinbox(int_frame, from_=0.1, to=30.0, increment=0.1,
+                           textvariable=self._var_interval, width=5)
+        spn.pack(side="left")
+
+        # Range
+        rng_frame = ttk.LabelFrame(settings_frame, text="Chapter Range", padding=4)
+        rng_frame.pack(side="left")
+        self._var_from_enabled = tk.BooleanVar(value=False)
+        self._var_to_enabled = tk.BooleanVar(value=False)
+        self._var_from = tk.IntVar(value=1)
+        self._var_to = tk.IntVar(value=1)
+
+        chk_from = ttk.Checkbutton(rng_frame, text="From:", variable=self._var_from_enabled)
+        chk_from.pack(side="left")
+        self._spn_from = ttk.Spinbox(rng_frame, from_=1, to=99999,
+                                      textvariable=self._var_from, width=5,
+                                      state="disabled")
+        self._spn_from.pack(side="left", padx=(0, 10))
+        self._var_from_enabled.trace_add("write", lambda *_: self._spn_from.configure(
+            state="normal" if self._var_from_enabled.get() else "disabled"
+        ))
+
+        chk_to = ttk.Checkbutton(rng_frame, text="To:", variable=self._var_to_enabled)
+        chk_to.pack(side="left")
+        self._spn_to = ttk.Spinbox(rng_frame, from_=1, to=99999,
+                                    textvariable=self._var_to, width=5,
+                                    state="disabled")
+        self._spn_to.pack(side="left")
+        self._var_to_enabled.trace_add("write", lambda *_: self._spn_to.configure(
+            state="normal" if self._var_to_enabled.get() else "disabled"
+        ))
+
+        # --- Buttons ---
+        btn_frame = ttk.Frame(self)
+        btn_frame.pack(fill="x", padx=10, pady=5)
+
+        self._btn_fetch = ttk.Button(btn_frame, text="Fetch Info",
+                                      command=self._on_fetch)
+        self._btn_fetch.pack(side="left", padx=(0, 5), ipady=3)
+
+        self._btn_download = ttk.Button(btn_frame, text="Download",
+                                         command=self._on_download,
+                                         state="disabled")
+        self._btn_download.pack(side="left", padx=(0, 5), ipady=3)
+
+        self._btn_stop = ttk.Button(btn_frame, text="Stop",
+                                     command=self._on_stop, state="disabled")
+        self._btn_stop.pack(side="left", ipady=3)
+
+        # --- Book Info ---
+        info_frame = ttk.LabelFrame(self, text="Book Info", padding=6)
+        info_frame.pack(fill="x", padx=10, pady=5)
+
+        grid_info = ttk.Frame(info_frame)
+        grid_info.pack(fill="x")
+
+        ttk.Label(grid_info, text="Title:").grid(row=0, column=0, sticky="w")
+        self._lbl_title = ttk.Label(grid_info, text="—", wraplength=500)
+        self._lbl_title.grid(row=0, column=1, sticky="w", padx=5)
+
+        ttk.Label(grid_info, text="Author:").grid(row=1, column=0, sticky="w")
+        self._lbl_author = ttk.Label(grid_info, text="—")
+        self._lbl_author.grid(row=1, column=1, sticky="w", padx=5)
+
+        ttk.Label(grid_info, text="Chapters:").grid(row=2, column=0, sticky="w")
+        self._lbl_chapters = ttk.Label(grid_info, text="—")
+        self._lbl_chapters.grid(row=2, column=1, sticky="w", padx=5)
+
+        grid_info.columnconfigure(1, weight=1)
+
+        # --- Console ---
+        self._console = tk.Text(self, state="disabled", wrap="word",
+                                bg="#f0f0f0", relief="flat", height=12)
+        self._console.pack(fill="both", expand=True, padx=10, pady=5)
+
+        # --- Progress ---
+        prog_frame = ttk.Frame(self)
+        prog_frame.pack(fill="x", padx=10, pady=(0, 10))
+        self._progress = ttk.Progressbar(prog_frame, mode="determinate")
+        self._progress.pack(side="left", fill="x", expand=True)
+        self._lbl_eta = ttk.Label(prog_frame, text="")
+        self._lbl_eta.pack(side="left", padx=(5, 0))
+
+    # ------------------------------------------------------------------
+    # Thread-safe logging via queue
+    # ------------------------------------------------------------------
+    def _log(self, text):
+        """Thread-safe: enqueue a log message."""
+        self._msg_queue.put(("log", text))
+
+    def _poll_queue(self):
+        """Drain the message queue and update the UI."""
+        try:
+            while True:
+                kind, data = self._msg_queue.get_nowait()
+                if kind == "log":
+                    self._append_log(data)
+                elif kind == "book_parsed":
+                    self._on_book_parsed(data)
+                elif kind == "progress":
+                    self._update_progress(*data)
+                elif kind == "finished":
+                    self._on_download_finished()
+                elif kind == "error":
+                    self._append_log(f"\u274c Error: {data}")
+        except queue.Empty:
+            pass
+        if self.winfo_exists():
+            self.after(100, self._poll_queue)
+
+    def _append_log(self, text):
+        self._console.configure(state="normal")
+        self._console.insert("end", text + "\n")
+        self._console.see("end")
+        self._console.configure(state="disabled")
+
+    # ------------------------------------------------------------------
+    # Fetch Info
+    # ------------------------------------------------------------------
+    def _on_fetch(self):
+        url = self._url_var.get().strip()
+        if not url:
+            self._append_log("Please enter a URL.")
+            return
+        if not url.startswith("http"):
+            url = "https://" + url
+            self._url_var.set(url)
+
+        self._btn_fetch.configure(state="disabled")
+        self._btn_download.configure(state="disabled")
+        self._lbl_title.configure(text="Fetching...")
+        self._lbl_author.configure(text="—")
+        self._lbl_chapters.configure(text="—")
+
+        threading.Thread(
+            target=self._fetch_worker, args=(url,), daemon=True
+        ).start()
+
+    def _fetch_worker(self, url):
+        """Worker thread for fetching book info."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+                self._scraper.start()
+
+            data = self._scraper.parse_book(url)
+            if data:
+                self._msg_queue.put(("book_parsed", data))
+            else:
+                self._msg_queue.put(("error", "Failed to parse book info."))
+                self._msg_queue.put(("log", ""))  # reset state
+        except Exception as e:
+            self._msg_queue.put(("error", str(e)))
+        finally:
+            # Re-enable fetch button via queue
+            self.after(0, lambda: self._btn_fetch.configure(state="normal"))
+
+    def _on_book_parsed(self, data):
+        self._book_data = data
+        self._lbl_title.configure(text=data.get('bookname', '?'))
+        self._lbl_author.configure(text=data.get('author', '?'))
+        chapter_count = data.get('chapterCount', 0)
+        self._lbl_chapters.configure(text=str(chapter_count))
+
+        if chapter_count > 0:
+            self._var_to.set(chapter_count)
+            self._btn_download.configure(state="normal")
+
+    # ------------------------------------------------------------------
+    # Download
+    # ------------------------------------------------------------------
+    def _on_download(self):
+        if not self._book_data:
+            return
+
+        self._downloading = True
+        self._btn_fetch.configure(state="disabled")
+        self._btn_download.configure(state="disabled")
+        self._btn_stop.configure(state="normal")
+        self._progress['value'] = 0
+        self._chapter_results = []
+        self._start_time = time.time()
+
+        chapters = self._book_data.get('chapters', [])
+        start = 0
+        end = len(chapters)
+        if self._var_from_enabled.get():
+            start = max(0, self._var_from.get() - 1)
+        if self._var_to_enabled.get():
+            end = min(len(chapters), self._var_to.get())
+
+        interval = self._var_interval.get()
+        self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
+                  f"interval={interval}s")
+
+        threading.Thread(
+            target=self._download_worker,
+            args=(chapters, start, end, interval),
+            daemon=True,
+        ).start()
+
+    def _download_worker(self, chapters, start, end, interval):
+        """Worker thread for downloading chapters."""
+        try:
+            selected = chapters[start:end]
+            total = len(selected)
+            results = []
+
+            for i, ch in enumerate(selected):
+                if not self._downloading:
+                    self._log("Download stopped by user.")
+                    break
+
+                name = ch.get('name', f'Chapter {start + i + 1}')
+                self._log(f"  [{i + 1}/{total}] {name}")
+
+                data = self._scraper.parse_chapter(
+                    start + i, ch, interval=interval
+                )
+                results.append(data)
+                self._msg_queue.put(("progress", (i + 1, total)))
+
+            self._chapter_results = results
+            self._msg_queue.put(("finished", None))
+        except Exception as e:
+            self._msg_queue.put(("error", f"Download error: {e}"))
+            self._msg_queue.put(("finished", None))
+
+    def _update_progress(self, current, total):
+        if total > 0:
+            pct = int(current / total * 100)
+            self._progress['maximum'] = total
+            self._progress['value'] = current
+
+            if self._start_time and current > 0:
+                elapsed = time.time() - self._start_time
+                per_chapter = elapsed / current
+                remaining = (total - current) * per_chapter
+                mins = int(remaining // 60)
+                secs = int(remaining % 60)
+                self._lbl_eta.configure(
+                    text=f"{current}/{total} ({pct}%) — ETA: {mins}m {secs}s"
+                )
+
+    def _on_download_finished(self):
+        self._downloading = False
+        self._btn_fetch.configure(state="normal")
+        self._btn_download.configure(state="normal" if self._book_data else "disabled")
+        self._btn_stop.configure(state="disabled")
+        self._lbl_eta.configure(text="")
+
+        if not self._chapter_results:
+            self._log("No chapters downloaded.")
+            return
+
+        successes = sum(1 for r in self._chapter_results if r is not None)
+        failures = len(self._chapter_results) - successes
+        self._log(f"Download complete: {successes} succeeded, {failures} failed.")
+
+        if successes > 0:
+            self._generate_output()
+
+    # ------------------------------------------------------------------
+    # Output Generation
+    # ------------------------------------------------------------------
+    def _generate_output(self):
+        """Generate EPUB/TXT from downloaded chapter data."""
+        data = self._book_data
+        if not data:
+            return
+
+        title = _sanitize_filename(data.get('bookname', 'novel'))
+        author = data.get('author', 'Unknown')
+
+        if self._var_format.get() == "txt":
+            self._generate_txt(title, author)
+        else:
+            self._generate_epub(title, author)
+
+    def _generate_txt(self, title, author):
+        """Generate a plain text file."""
+        output_dir = _get_base_dir()
+        filename = f"{title}.txt"
+        filepath = os.path.join(output_dir, filename)
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(f"{title}\n")
+                f.write(f"Author: {author}\n")
+                f.write("=" * 60 + "\n\n")
+
+                for i, ch_data in enumerate(self._chapter_results):
+                    if ch_data is None:
+                        continue
+                    ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+                    content = ch_data.get('contentText', '')
+                    f.write(f"\n{'─' * 40}\n")
+                    f.write(f"{ch_name}\n")
+                    f.write(f"{'─' * 40}\n\n")
+                    f.write(content + "\n")
+
+            self._log(f"\u2705 Saved: {filepath}")
+        except Exception as e:
+            self._log(f"\u274c TXT generation failed: {e}")
+
+    def _generate_epub(self, title, author):
+        """Generate an EPUB file using the existing epub_generator."""
+        try:
+            from epub_generator import EpubGenerator
+        except ImportError:
+            self._log("\u274c epub_generator.py not found. Falling back to TXT.")
+            self._generate_txt(title, author)
+            return
+
+        output_dir = _get_base_dir()
+        filename = f"{title}.epub"
+        filepath = os.path.join(output_dir, filename)
+
+        try:
+            gen = EpubGenerator(title, author)
+
+            for i, ch_data in enumerate(self._chapter_results):
+                if ch_data is None:
+                    continue
+                ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+                content_html = ch_data.get('contentHtml', '')
+
+                # Process images if present
+                images = []
+                if ch_data.get('images'):
+                    import base64
+                    for img_info in ch_data['images']:
+                        img_data_url = img_info.get('data')
+                        if img_data_url and ',' in img_data_url:
+                            _, b64 = img_data_url.split(',', 1)
+                            try:
+                                raw = base64.b64decode(b64)
+                                img_name = img_info.get(
+                                    'name', f'img_{i}_{len(images)}'
+                                )
+                                images.append((img_name, raw))
+                            except Exception:
+                                pass
+
+                gen.add_chapter(ch_name, content_html, images)
+
+            gen.save(filepath)
+            self._log(f"\u2705 Saved: {filepath}")
+
+        except Exception as e:
+            self._log(f"\u274c EPUB generation failed: {e}")
+            self._log("Falling back to TXT output...")
+            self._generate_txt(title, author)
+
+    # ------------------------------------------------------------------
+    # Stop / Close
+    # ------------------------------------------------------------------
+    def _on_stop(self):
+        self._downloading = False
+        if self._scraper:
+            self._scraper._stop_requested = True
+        self._btn_stop.configure(state="disabled")
+        self._log("Stop requested.")
+
+    def _on_close(self):
+        self._downloading = False
+        if self._scraper:
+            self._scraper._stop_requested = True
+            # Clean up browser in a thread to avoid blocking
+            threading.Thread(
+                target=self._scraper.cleanup, daemon=True
+            ).start()
+        self.destroy()

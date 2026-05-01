@@ -34,6 +34,10 @@ a = Analysis(
         ('icon.ico', '.'),          # Include the icon file in the root of the bundle
         ('dpi_setup.py', '.'),      # Ship source copy alongside the exe so
                                     # config.json ↔ dpi_setup stays introspectable.
+        # External novel downloader (novel-downloader JS rule bundle)
+        ('gm_stubs.js', '.'),       # Tampermonkey/Greasemonkey API stubs
+        ('bridge.js', '.'),         # JS bridge for book/chapter parsing
+        ('rules-lib.js', '.'),      # Compiled novel-downloader rule bundle
     ],
     hiddenimports=[
         'dpi_setup',                # Ensure dpi_setup is always bundled,
@@ -57,7 +61,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ND41',
+    name='ND42',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

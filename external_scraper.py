@@ -1,0 +1,306 @@
+"""
+external_scraper.py — Playwright-based scraper for non-Novelpia sites.
+
+Uses Playwright (headless Chromium) to navigate to novel pages and inject the
+novel-downloader's compiled JavaScript rules (rules-lib.js + bridge.js).
+The JS rules run natively in the browser, supporting all 100+ sites without
+manual porting.
+
+Data flows:
+  1. Playwright navigates to the book URL
+  2. Injects rules-lib.js + bridge.js
+  3. Calls __ND_parseBook() → gets JSON metadata + chapter list
+  4. For each chapter, calls __ND_parseChapter(url) → gets JSON content + images
+  5. Results fed into the existing EPUB/PDF/TXT pipeline
+"""
+
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright, Page, Browser
+
+
+def _get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_js_file(filename):
+    """Load a JavaScript file from the app directory."""
+    path = os.path.join(_get_base_dir(), filename)
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+
+class ExternalScraper:
+    """Playwright-based scraper using novel-downloader JS rules.
+
+    Usage:
+        scraper = ExternalScraper(logger=print)
+        scraper.start()
+        book = scraper.parse_book("https://ncode.syosetu.com/n1234ab/")
+        chapters = scraper.parse_all_chapters(book['chapters'])
+        scraper.stop()
+    """
+
+    def __init__(self, logger=None):
+        self._raw_log = logger or (lambda msg: None)
+        self._stop_requested = False
+
+        # Load JS files once
+        try:
+            self._gm_stubs_js = _load_js_file('gm_stubs.js')
+            self._rules_js = _load_js_file('rules-lib.js')
+            self._bridge_js = _load_js_file('bridge.js')
+        except FileNotFoundError as e:
+            self._gm_stubs_js = None
+            self._rules_js = None
+            self._bridge_js = None
+
+        self._playwright = None
+        self._browser = None
+        self._page = None
+        self._book_data = None
+
+    def log(self, msg):
+        """Safe logging that handles encoding issues on Windows consoles."""
+        try:
+            self._raw_log(msg)
+        except UnicodeEncodeError:
+            self._raw_log(msg.encode('ascii', 'replace').decode())
+
+    def start(self):
+        """Launch headless browser."""
+        if self._browser:
+            return
+
+        self.log("Launching headless browser...")
+        self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-web-security',       # Allow cross-origin fetches
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--no-sandbox',
+            ]
+        )
+        self._page = self._browser.new_page()
+        # Suppress console noise but capture errors
+        self._page.on("console", self._on_console)
+        self.log("Browser ready.")
+
+    def _on_console(self, msg):
+        """Forward JS console messages to Python logger."""
+        if "[ND-Bridge]" in msg.text or msg.type in ("error", "warning"):
+            self.log(f"[JS] {msg.text}")
+
+    def stop(self):
+        """Request cancellation and close browser."""
+        self._stop_requested = True
+        self.cleanup()
+
+    def cleanup(self):
+        """Release browser resources."""
+        try:
+            if self._page:
+                self._page.close()
+                self._page = None
+        except Exception:
+            pass
+        try:
+            if self._browser:
+                self._browser.close()
+                self._browser = None
+        except Exception:
+            pass
+        try:
+            if self._playwright:
+                self._playwright.stop()
+                self._playwright = None
+        except Exception:
+            pass
+
+    def parse_book(self, url):
+        """Navigate to the book URL and extract metadata + chapter list.
+
+        Returns the parsed book dict or None on error.
+        """
+        if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
+            self.log(
+                "ERROR: gm_stubs.js, rules-lib.js, or bridge.js not found. "
+                "Build the novel-downloader bundle first."
+            )
+            return None
+
+        if not self._page:
+            self.start()
+
+        self._stop_requested = False
+        self.log(f"Navigating to: {url}")
+
+        try:
+            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        except Exception as e:
+            self.log(f"ERROR: Page load failed: {e}")
+            return None
+
+        self.log("Page loaded. Injecting stubs and rules...")
+
+        # Inject GM API stubs first (required by the rules bundle)
+        try:
+            self._page.evaluate(self._gm_stubs_js)
+        except Exception as e:
+            self.log(f"ERROR: GM stubs injection failed: {e}")
+            return None
+
+        # Inject the rules library
+        try:
+            self._page.evaluate(self._rules_js)
+        except Exception as e:
+            self.log(f"ERROR: Rules injection failed: {e}")
+            return None
+
+        # Inject the bridge
+        try:
+            self._page.evaluate(self._bridge_js)
+        except Exception as e:
+            self.log(f"ERROR: Bridge injection failed: {e}")
+            return None
+
+        # Check bridge is ready
+        ready = self._page.evaluate("window.__ND_BRIDGE_READY === true")
+        if not ready:
+            self.log("ERROR: Bridge not ready after injection.")
+            return None
+
+        self.log("Rules injected. Parsing book...")
+
+        # Call bookParse (async, returns promise)
+        try:
+            result_json = self._page.evaluate(
+                "window.__ND_parseBook()"
+            )
+        except Exception as e:
+            self.log(f"ERROR: bookParse failed: {e}")
+            return None
+
+        if not result_json:
+            self.log("ERROR: bookParse returned empty result.")
+            return None
+
+        try:
+            data = json.loads(result_json)
+        except (json.JSONDecodeError, TypeError) as e:
+            self.log(f"ERROR: Failed to parse bookParse result: {e}")
+            return None
+
+        if "error" in data:
+            self.log(f"ERROR: bookParse error: {data['error']}")
+            if "stack" in data:
+                self.log(f"  Stack: {data['stack'][:200]}")
+            return None
+
+        self._book_data = data
+        self.log(
+            f"Book: {data.get('bookname', '?')} by {data.get('author', '?')} "
+            f"— {data.get('chapterCount', 0)} chapters"
+        )
+        return data
+
+    def parse_chapter(self, index, chapter_info, interval=0.5):
+        """Parse a single chapter's content.
+
+        Args:
+            index: Chapter index (0-based).
+            chapter_info: Dict with 'url', 'name', 'isVIP', 'isPaid'.
+            interval: Delay in seconds after fetching (rate limiting).
+
+        Returns the parsed chapter dict or None on error.
+        """
+        if self._stop_requested:
+            return None
+
+        url = chapter_info.get('url', '')
+        name = chapter_info.get('name', '')
+        is_vip = chapter_info.get('isVIP', False)
+        is_paid = chapter_info.get('isPaid', False)
+
+        # Escape strings for JS (handle quotes and backslashes)
+        def js_escape(s):
+            return (s or '').replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '')
+
+        script = (
+            f"window.__ND_parseChapter("
+            f"'{js_escape(url)}', '{js_escape(name)}', "
+            f"{'true' if is_vip else 'false'}, "
+            f"{'true' if is_paid else 'false'}"
+            f")"
+        )
+
+        try:
+            result_json = self._page.evaluate(script)
+        except Exception as e:
+            self.log(f"  [{index + 1}] Parse error: {e}")
+            return None
+
+        if interval > 0:
+            time.sleep(interval)
+
+        if not result_json:
+            self.log(f"  [{index + 1}] Empty result for: {name}")
+            return None
+
+        try:
+            data = json.loads(result_json)
+        except (json.JSONDecodeError, TypeError) as e:
+            self.log(f"  [{index + 1}] JSON parse error for {name}: {e}")
+            return None
+
+        if "error" in data:
+            self.log(f"  [{index + 1}] Error: {data['error']}")
+            return None
+
+        return data
+
+    def parse_all_chapters(self, chapters, interval=0.5,
+                           start_idx=0, end_idx=None,
+                           progress_callback=None):
+        """Parse all chapters sequentially.
+
+        Args:
+            chapters: List of chapter info dicts from parse_book().
+            interval: Delay between chapter fetches (seconds).
+            start_idx: First chapter index (0-based).
+            end_idx: Last chapter index (exclusive). None = all.
+            progress_callback: Optional fn(current, total) for progress updates.
+
+        Returns list of parsed chapter dicts (None entries for failures).
+        """
+        if end_idx is None:
+            end_idx = len(chapters)
+
+        selected = chapters[start_idx:end_idx]
+        total = len(selected)
+        results = []
+
+        self.log(f"Downloading {total} chapters (interval: {interval}s)...")
+
+        for i, ch in enumerate(selected):
+            if self._stop_requested:
+                self.log("Download stopped by user.")
+                break
+
+            name = ch.get('name', f'Chapter {start_idx + i + 1}')
+            self.log(f"  [{i + 1}/{total}] {name}")
+
+            data = self.parse_chapter(start_idx + i, ch, interval=interval)
+            results.append(data)
+
+            if progress_callback:
+                progress_callback(i + 1, total)
+
+        return results

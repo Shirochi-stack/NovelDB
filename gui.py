@@ -61,16 +61,16 @@ def _writable_data_dir(kind):
     # then a temp dir as absolute last resort.
     home = os.path.expanduser("~")
     if kind == "logs":
-        mac_standard = os.path.join(home, "Library", "Logs", "ND41")
+        mac_standard = os.path.join(home, "Library", "Logs", "ND42")
     elif kind == ".cache":
-        mac_standard = os.path.join(home, "Library", "Caches", "ND41")
+        mac_standard = os.path.join(home, "Library", "Caches", "ND42")
     else:
-        mac_standard = os.path.join(home, "Library", "Application Support", "ND41", kind)
+        mac_standard = os.path.join(home, "Library", "Application Support", "ND42", kind)
 
     candidates = [
         os.path.join(_get_base_dir(), kind),
         mac_standard,
-        os.path.join(tempfile.gettempdir(), f"ND41_{kind.lstrip('.')}"),
+        os.path.join(tempfile.gettempdir(), f"ND42_{kind.lstrip('.')}"),
     ]
     for path in candidates:
         try:
@@ -863,7 +863,7 @@ class NovelpiaGUI(tk.Tk):
             self.bind_class(widget_class, "<Button-4>", _block_scroll)
             self.bind_class(widget_class, "<Button-5>", _block_scroll)
 
-        self.title("ND41")
+        self.title("ND42")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -1281,6 +1281,10 @@ class NovelpiaGUI(tk.Tk):
         
         btn_options = ttk.Button(dl_btns, text="Quick\nDownload\nOptions", width=12, command=self.open_quick_options)
         btn_options.pack(pady=5)
+
+        btn_external = ttk.Button(dl_btns, text="External\nNovel", width=12, command=self._open_external_dialog)
+        btn_external.pack(pady=5)
+        ToolTip(btn_external, "Download novels from non-Novelpia sites\n(syosetu, kakuyomu, biquge, etc.)\nUses the novel-downloader rule engine.")
 
         # === RIGHT PANEL (Console) ===
         right_panel = ttk.Frame(self)
@@ -2043,7 +2047,7 @@ class NovelpiaGUI(tk.Tk):
         The real location depends on write permissions — see
         `_writable_data_dir('.cache')` for the fallback chain. On Windows
         and Linux this is always `<base_dir>/.cache` (historical
-        behaviour). On macOS we fall back to `~/Library/Caches/ND41` if
+        behaviour). On macOS we fall back to `~/Library/Caches/ND42` if
         the bundle location is read-only.
         """
         cache_dir = _writable_data_dir('.cache')
@@ -3441,9 +3445,24 @@ table, th, td {
                 json.dump(cfg, f, indent=2)
         except: pass
 
+    def _open_external_dialog(self):
+        """Open the External Novel download dialog."""
+        try:
+            from external_dialog import ExternalNovelDialog
+            ExternalNovelDialog(self)
+        except ImportError as e:
+            self.log_message(f"External novel dialog unavailable: {e}")
+            self.log_message(
+                "Ensure external_scraper.py, external_dialog.py, "
+                "rules-lib.js, and bridge.js are present."
+            )
+        except Exception as e:
+            self.log_message(f"Error opening external dialog: {e}")
+
     def _on_close(self):
         self._save_config()
         self.destroy()
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

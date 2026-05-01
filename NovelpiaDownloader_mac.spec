@@ -98,7 +98,7 @@ app = BUNDLE(
     exe,
     name='ND41.app',
     icon=icon_file,
-    bundle_identifier='com.novelpiadownloader.nd40',
+    bundle_identifier='com.novelpiadownloader.nd42',
     info_plist={
         'CFBundleName': 'ND41',
         'CFBundleDisplayName': 'Novelpia Downloader',
