@@ -58,6 +58,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self.geometry(f"{w}x{h}+{x}+{y}")
         self.minsize(600, 500)
 
+        self._parent_gui = parent      # Access compression settings from main GUI
         self._scraper = None
         self._book_data = None
         self._chapter_results = []
@@ -103,12 +104,19 @@ class ExternalNovelDialog(tk.Toplevel):
         ttk.Radiobutton(fmt_frame, text="TXT", variable=self._var_format,
                          value="txt").pack(side="left", padx=5)
 
+        # Threads
+        thr_frame = ttk.LabelFrame(settings_frame, text="Threads", padding=4)
+        thr_frame.pack(side="left", padx=(0, 10))
+        self._var_ext_threads = tk.IntVar(value=4)
+        ttk.Spinbox(thr_frame, from_=1, to=16, textvariable=self._var_ext_threads,
+                     width=3).pack(side="left")
+
         # Interval
         int_frame = ttk.LabelFrame(settings_frame, text="Rate Limiting", padding=4)
         int_frame.pack(side="left", padx=(0, 10))
         ttk.Label(int_frame, text="Interval (s):").pack(side="left", padx=(0, 3))
         self._var_interval = tk.DoubleVar(value=0.5)
-        spn = ttk.Spinbox(int_frame, from_=0.1, to=30.0, increment=0.1,
+        spn = ttk.Spinbox(int_frame, from_=0.0, to=30.0, increment=0.1,
                            textvariable=self._var_interval, width=5)
         spn.pack(side="left")
 
@@ -262,26 +270,70 @@ class ExternalNovelDialog(tk.Toplevel):
         finally:
             self.after(0, lambda: self._btn_fetch.configure(state="normal"))
 
-    def _do_download(self, chapters, start, end, interval):
-        """Run chapter downloads on the worker thread."""
+    def _do_download(self, chapters, start, end, interval, num_threads=1):
+        """Run chapter downloads on the worker thread.
+
+        If num_threads > 1, creates additional browser pages and uses
+        a ThreadPoolExecutor for parallel chapter parsing.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         try:
             selected = chapters[start:end]
             total = len(selected)
-            results = []
 
-            for i, ch in enumerate(selected):
+            # Create worker pages for parallel downloads (page 0 = primary)
+            if num_threads > 1:
+                extra = num_threads - 1  # primary page is already page 0
+                self._scraper.create_worker_pages(extra)
+                actual_threads = 1 + len(self._scraper._worker_pages)
+            else:
+                actual_threads = 1
+
+            results = [None] * total
+            completed_count = [0]  # mutable counter for thread-safe updates
+
+            def _parse_one(task_index, ch, page_index):
+                """Parse a single chapter on the given page."""
                 if not self._downloading:
-                    self._log("Download stopped by user.")
-                    break
-
-                name = ch.get('name', f'Chapter {start + i + 1}')
-                self._log(f"  [{i + 1}/{total}] {name}")
-
+                    return task_index, None
+                name = ch.get('name', f'Chapter {start + task_index + 1}')
+                self._log(f"  [{task_index + 1}/{total}] {name}")
+                page = self._scraper.get_page(page_index)
                 data = self._scraper.parse_chapter(
-                    start + i, ch, interval=interval
+                    start + task_index, ch, interval=interval, page=page
                 )
-                results.append(data)
-                self._msg_queue.put(("progress", (i + 1, total)))
+                completed_count[0] += 1
+                self._msg_queue.put(("progress", (completed_count[0], total)))
+                return task_index, data
+
+            if actual_threads <= 1:
+                # Single-threaded fallback
+                for i, ch in enumerate(selected):
+                    if not self._downloading:
+                        self._log("Download stopped by user.")
+                        break
+                    idx, data = _parse_one(i, ch, 0)
+                    results[idx] = data
+            else:
+                # Multi-threaded
+                with ThreadPoolExecutor(max_workers=actual_threads) as pool:
+                    futures = {}
+                    for i, ch in enumerate(selected):
+                        if not self._downloading:
+                            break
+                        page_idx = i % actual_threads
+                        fut = pool.submit(_parse_one, i, ch, page_idx)
+                        futures[fut] = i
+
+                    for fut in as_completed(futures):
+                        if not self._downloading:
+                            break
+                        try:
+                            idx, data = fut.result()
+                            results[idx] = data
+                        except Exception as e:
+                            self._log(f"  Thread error: {e}")
 
             self._chapter_results = results
             self._msg_queue.put(("finished", None))
@@ -348,14 +400,15 @@ class ExternalNovelDialog(tk.Toplevel):
             end = min(len(chapters), self._var_to.get())
 
         interval = self._var_interval.get()
+        num_threads = max(1, self._var_ext_threads.get())
         self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
-                  f"interval={interval}s")
+                  f"threads={num_threads}, interval={interval}s")
 
-        self._download_worker(chapters, start, end, interval)
+        self._download_worker(chapters, start, end, interval, num_threads)
 
-    def _download_worker(self, chapters, start, end, interval):
+    def _download_worker(self, chapters, start, end, interval, num_threads):
         """Dispatch download to the persistent worker thread."""
-        self._work_queue.put(("download", (chapters, start, end, interval)))
+        self._work_queue.put(("download", (chapters, start, end, interval, num_threads)))
 
     def _update_progress(self, current, total):
         if total > 0:
@@ -447,8 +500,35 @@ class ExternalNovelDialog(tk.Toplevel):
         filename = f"{title}.epub"
         filepath = os.path.join(output_dir, filename)
 
+        # Read compression settings from parent GUI
+        pg = self._parent_gui
+        compress_images = getattr(pg, 'var_compress_images', None)
+        compress_images = compress_images.get() if compress_images else False
+        jpeg_quality = getattr(pg, 'var_jpeg_quality', None)
+        jpeg_quality = jpeg_quality.get() if jpeg_quality else 80
+        image_format = getattr(pg, 'var_image_format', None)
+        image_format = image_format.get() if image_format else 'WEBP'
+        zip_compress = getattr(pg, 'var_zip_compress_images', None)
+        zip_compress = zip_compress.get() if zip_compress else False
+
+        # Default CSS for external novels
+        css = """body { margin: 2%; }
+p { overflow-wrap: break-word; }
+h1, h2 { text-align: center; margin-bottom: 10%; margin-top: 10%; }
+h3, h4, h5, h6 { text-align: center; margin-bottom: 15%; margin-top: 10%; }
+img { display: block; max-width: 100%; max-height: 100%;
+      margin-left: auto; margin-right: auto; margin-bottom: 2%; margin-top: 2%; }
+"""
+
+        data = self._book_data
+        metadata = {
+            'title': data.get('bookname', title),
+            'author': data.get('author', author),
+            'cover_image': None,
+        }
+
         try:
-            gen = EpubGenerator(title, author)
+            epub = EpubGenerator(metadata, filepath, css, zip_compress)
 
             for i, ch_data in enumerate(self._chapter_results):
                 if ch_data is None:
@@ -457,7 +537,6 @@ class ExternalNovelDialog(tk.Toplevel):
                 content_html = ch_data.get('contentHtml', '')
 
                 # Process images if present
-                images = []
                 if ch_data.get('images'):
                     import base64
                     for img_info in ch_data['images']:
@@ -467,21 +546,47 @@ class ExternalNovelDialog(tk.Toplevel):
                             try:
                                 raw = base64.b64decode(b64)
                                 img_name = img_info.get(
-                                    'name', f'img_{i}_{len(images)}'
+                                    'name', f'img_{i}_{epub._normal_index}'
                                 )
-                                images.append((img_name, raw))
+                                # Apply compression if enabled
+                                if compress_images:
+                                    raw = self._compress_image(
+                                        raw, jpeg_quality, image_format
+                                    )
+                                epub.add_image(img_name, raw)
                             except Exception:
                                 pass
 
-                gen.add_chapter(ch_name, content_html, images)
+                epub.add_chapter(ch_name, content_html)
 
-            gen.save(filepath)
+            epub.generate()
             self._log(f"\u2705 Saved: {filepath}")
 
         except Exception as e:
             self._log(f"\u274c EPUB generation failed: {e}")
             self._log("Falling back to TXT output...")
             self._generate_txt(title, author)
+
+    def _compress_image(self, raw_data, quality, fmt):
+        """Compress an image using PIL, reusing parent GUI's settings."""
+        try:
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(raw_data))
+            buf = io.BytesIO()
+            if fmt.upper() == 'WEBP':
+                img.save(buf, 'WEBP', quality=quality)
+            elif fmt.upper() == 'JPEG':
+                if img.mode in ('RGBA', 'P'):
+                    img = img.convert('RGB')
+                img.save(buf, 'JPEG', quality=quality)
+            elif fmt.upper() == 'AVIF':
+                img.save(buf, 'AVIF', quality=quality)
+            else:
+                img.save(buf, 'PNG')
+            return buf.getvalue()
+        except Exception:
+            return raw_data  # Return original on failure
 
     # ------------------------------------------------------------------
     # Stop / Close

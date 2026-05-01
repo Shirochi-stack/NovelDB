@@ -268,18 +268,22 @@ class ExternalScraper:
         )
         return data
 
-    def parse_chapter(self, index, chapter_info, interval=0.5):
+    def parse_chapter(self, index, chapter_info, interval=0.5, page=None):
         """Parse a single chapter's content.
 
         Args:
             index: Chapter index (0-based).
             chapter_info: Dict with 'url', 'name', 'isVIP', 'isPaid'.
             interval: Delay in seconds after fetching (rate limiting).
+            page: Specific Playwright page to use (for parallel downloads).
+                  Defaults to the primary page.
 
         Returns the parsed chapter dict or None on error.
         """
         if self._stop_requested:
             return None
+
+        target_page = page or self._page
 
         url = chapter_info.get('url', '')
         name = chapter_info.get('name', '')
@@ -299,7 +303,7 @@ class ExternalScraper:
         )
 
         try:
-            result_json = self._page.evaluate(script)
+            result_json = target_page.evaluate(script)
         except Exception as e:
             self.log(f"  [{index + 1}] Parse error: {e}")
             return None
