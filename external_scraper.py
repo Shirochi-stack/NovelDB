@@ -62,11 +62,18 @@ class ExternalScraper:
             self._bridge_js = None
 
         self._playwright = None
-        self._browser = None
+        self._context = None      # BrowserContext (persistent)
         self._page = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
+
+    @staticmethod
+    def _get_user_data_dir():
+        """Get persistent browser data directory for cookies/localStorage."""
+        data_dir = os.path.join(_get_base_dir(), 'browser_data')
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
 
     def log(self, msg):
         """Safe logging that handles encoding issues on Windows consoles."""
@@ -76,24 +83,60 @@ class ExternalScraper:
             self._raw_log(msg.encode('ascii', 'replace').decode())
 
     def start(self):
-        """Launch headless browser."""
-        if self._browser:
+        """Launch headless browser with persistent context."""
+        if self._context:
             return
 
         self.log("Launching headless browser...")
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(
+        self._context = self._playwright.chromium.launch_persistent_context(
+            self._get_user_data_dir(),
             headless=True,
             args=[
                 '--disable-web-security',       # Allow cross-origin fetches
                 '--disable-features=IsolateOrigins,site-per-process',
                 '--no-sandbox',
-            ]
+            ],
+            ignore_https_errors=True,
         )
-        self._page = self._browser.new_page()
+        self._page = self._context.new_page()
         # Suppress console noise but capture errors
         self._page.on("console", self._on_console)
         self.log("Browser ready.")
+
+    def open_visible_browser(self, start_url="about:blank"):
+        """Open a visible browser for manual login.
+
+        Cookies and localStorage are saved to the persistent data dir.
+        The browser blocks until the user closes it.
+        """
+        # Must close any existing context first (only one per data dir)
+        self.cleanup()
+
+        self.log("Opening browser for login...")
+        self._playwright = sync_playwright().start()
+        self._context = self._playwright.chromium.launch_persistent_context(
+            self._get_user_data_dir(),
+            headless=False,
+            args=[
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--no-sandbox',
+            ],
+            ignore_https_errors=True,
+        )
+        page = self._context.pages[0] if self._context.pages else self._context.new_page()
+        page.goto(start_url)
+        self.log("Browser opened. Login to sites as needed, then close the browser.")
+
+        # Block until all pages close (user closes the browser window)
+        try:
+            page.wait_for_event("close", timeout=0)
+        except Exception:
+            pass
+
+        self.log("Browser closed. Session data saved.")
+        self.cleanup()
 
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
@@ -120,9 +163,9 @@ class ExternalScraper:
         except Exception:
             pass
         try:
-            if self._browser:
-                self._browser.close()
-                self._browser = None
+            if self._context:
+                self._context.close()
+                self._context = None
         except Exception:
             pass
         try:
@@ -157,7 +200,7 @@ class ExternalScraper:
         self.log(f"Creating {count} worker pages...")
         for i in range(count):
             try:
-                page = self._browser.new_page()
+                page = self._context.new_page()
                 page.on("console", self._on_console)
                 page.goto(self._book_url, wait_until="domcontentloaded",
                           timeout=30000)
@@ -326,6 +369,62 @@ class ExternalScraper:
             return None
 
         return data
+
+    def parse_chapter_batch(self, batch_info):
+        """Parse multiple chapters concurrently via JS Promise.all.
+
+        Args:
+            batch_info: List of dicts with 'url', 'name', 'isVIP', 'isPaid'.
+
+        Returns list of parsed chapter dicts (or None for failures).
+        The browser fires all HTTP requests in parallel.
+        """
+        if self._stop_requested or not batch_info:
+            return [None] * len(batch_info)
+
+        # Build JSON payload for the JS batch function
+        payload = json.dumps(batch_info, ensure_ascii=False)
+
+        try:
+            result_json = self._page.evaluate(
+                f"window.__ND_parseChapterBatch('{self._js_escape(payload)}')"
+            )
+        except Exception as e:
+            self.log(f"  Batch parse error: {e}")
+            return [None] * len(batch_info)
+
+        if not result_json:
+            return [None] * len(batch_info)
+
+        try:
+            # result_json is a JSON string containing an array of JSON strings
+            raw_results = json.loads(result_json)
+        except (json.JSONDecodeError, TypeError) as e:
+            self.log(f"  Batch JSON error: {e}")
+            return [None] * len(batch_info)
+
+        # Parse each individual result
+        parsed = []
+        for r in raw_results:
+            if not r:
+                parsed.append(None)
+                continue
+            try:
+                data = json.loads(r) if isinstance(r, str) else r
+                if "error" in data:
+                    self.log(f"  Chapter error: {data['error']}")
+                    parsed.append(None)
+                else:
+                    parsed.append(data)
+            except (json.JSONDecodeError, TypeError):
+                parsed.append(None)
+
+        return parsed
+
+    @staticmethod
+    def _js_escape(s):
+        """Escape a string for embedding in a JS single-quoted string."""
+        return (s or '').replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '')
 
     def parse_all_chapters(self, chapters, interval=0.5,
                            start_idx=0, end_idx=None,

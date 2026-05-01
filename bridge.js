@@ -183,6 +183,33 @@
     }
   };
 
+  // ------------------------------------------------------------------
+  // Batch chapter parsing (concurrent via Promise.all)
+  // ------------------------------------------------------------------
+
+  window.__ND_parseChapterBatch = async function (chaptersJson) {
+    try {
+      var chapters = JSON.parse(chaptersJson);
+      var promises = chapters.map(function (ch) {
+        return window
+          .__ND_parseChapter(ch.url, ch.name, ch.isVIP, ch.isPaid)
+          .catch(function (err) {
+            return JSON.stringify({
+              error: err.message || String(err),
+              chapterName: ch.name,
+            });
+          });
+      });
+      var results = await Promise.all(promises);
+      return JSON.stringify(results);
+    } catch (err) {
+      return JSON.stringify({
+        error: err.message || String(err),
+        stack: err.stack || "",
+      });
+    }
+  };
+
   // Mark bridge as ready
   window.__ND_BRIDGE_READY = true;
   console.log("[ND-Bridge] bridge.js loaded");

@@ -163,7 +163,11 @@ class ExternalNovelDialog(tk.Toplevel):
 
         self._btn_stop = ttk.Button(btn_frame, text="Stop",
                                      command=self._on_stop, state="disabled")
-        self._btn_stop.pack(side="left", ipady=3)
+        self._btn_stop.pack(side="left", padx=(0, 5), ipady=3)
+
+        self._btn_browser = ttk.Button(btn_frame, text="Enter Browser",
+                                        command=self._on_enter_browser)
+        self._btn_browser.pack(side="left", padx=(0, 5), ipady=3)
 
         # --- Book Info ---
         info_frame = ttk.LabelFrame(self, text="Book Info", padding=6)
@@ -219,6 +223,8 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._update_progress(*data)
                 elif kind == "finished":
                     self._on_download_finished()
+                elif kind == "browser_closed":
+                    self._on_browser_closed()
                 elif kind == "error":
                     self._append_log(f"\u274c Error: {data}")
         except queue.Empty:
@@ -252,6 +258,8 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._do_fetch(payload)
             elif kind == "download":
                 self._do_download(*payload)
+            elif kind == "browser":
+                self._do_open_browser()
 
     def _do_fetch(self, url):
         """Run parse_book on the worker thread."""
@@ -273,73 +281,79 @@ class ExternalNovelDialog(tk.Toplevel):
     def _do_download(self, chapters, start, end, interval, num_threads=1):
         """Run chapter downloads on the worker thread.
 
-        If num_threads > 1, creates additional browser pages and uses
-        a ThreadPoolExecutor for parallel chapter parsing.
+        Chapters are split into batches of `num_threads` size.
+        Each batch fires concurrent HTTP requests inside the browser
+        via JS Promise.all — no Python threading needed.
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         try:
             selected = chapters[start:end]
             total = len(selected)
-
-            # Create worker pages for parallel downloads (page 0 = primary)
-            if num_threads > 1:
-                extra = num_threads - 1  # primary page is already page 0
-                self._scraper.create_worker_pages(extra)
-                actual_threads = 1 + len(self._scraper._worker_pages)
-            else:
-                actual_threads = 1
-
             results = [None] * total
-            completed_count = [0]  # mutable counter for thread-safe updates
+            batch_size = max(1, num_threads)
+            completed = 0
 
-            def _parse_one(task_index, ch, page_index):
-                """Parse a single chapter on the given page."""
+            for batch_start in range(0, total, batch_size):
                 if not self._downloading:
-                    return task_index, None
-                name = ch.get('name', f'Chapter {start + task_index + 1}')
-                self._log(f"  [{task_index + 1}/{total}] {name}")
-                page = self._scraper.get_page(page_index)
-                data = self._scraper.parse_chapter(
-                    start + task_index, ch, interval=interval, page=page
-                )
-                completed_count[0] += 1
-                self._msg_queue.put(("progress", (completed_count[0], total)))
-                return task_index, data
+                    self._log("Download stopped by user.")
+                    break
 
-            if actual_threads <= 1:
-                # Single-threaded fallback
-                for i, ch in enumerate(selected):
-                    if not self._downloading:
-                        self._log("Download stopped by user.")
-                        break
-                    idx, data = _parse_one(i, ch, 0)
-                    results[idx] = data
-            else:
-                # Multi-threaded
-                with ThreadPoolExecutor(max_workers=actual_threads) as pool:
-                    futures = {}
-                    for i, ch in enumerate(selected):
-                        if not self._downloading:
-                            break
-                        page_idx = i % actual_threads
-                        fut = pool.submit(_parse_one, i, ch, page_idx)
-                        futures[fut] = i
+                batch_end = min(batch_start + batch_size, total)
+                batch = selected[batch_start:batch_end]
 
-                    for fut in as_completed(futures):
-                        if not self._downloading:
-                            break
-                        try:
-                            idx, data = fut.result()
-                            results[idx] = data
-                        except Exception as e:
-                            self._log(f"  Thread error: {e}")
+                # Log which chapters we're fetching
+                for i, ch in enumerate(batch):
+                    idx = batch_start + i
+                    name = ch.get('name', f'Chapter {start + idx + 1}')
+                    self._log(f"  [{idx + 1}/{total}] {name}")
+
+                # Fire batch concurrently in JS
+                batch_results = self._scraper.parse_chapter_batch(batch)
+
+                for i, data in enumerate(batch_results):
+                    results[batch_start + i] = data
+
+                completed += len(batch)
+                self._msg_queue.put(("progress", (completed, total)))
+
+                # Rate limiting between batches
+                if interval > 0 and batch_end < total:
+                    time.sleep(interval)
 
             self._chapter_results = results
             self._msg_queue.put(("finished", None))
         except Exception as e:
             self._msg_queue.put(("error", f"Download error: {e}"))
             self._msg_queue.put(("finished", None))
+
+    def _do_open_browser(self):
+        """Open a visible browser on the worker thread for manual login."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+            self._scraper.open_visible_browser()
+        except Exception as e:
+            self._msg_queue.put(("error", f"Browser error: {e}"))
+        finally:
+            self._msg_queue.put(("browser_closed", None))
+
+    # ------------------------------------------------------------------
+    # Enter Browser (manual login)
+    # ------------------------------------------------------------------
+    def _on_enter_browser(self):
+        """Open a visible browser window for manual site login."""
+        self._btn_fetch.configure(state="disabled")
+        self._btn_download.configure(state="disabled")
+        self._btn_browser.configure(state="disabled")
+        self._append_log("Opening browser for login... Close the browser when done.")
+        self._work_queue.put(("browser", None))
+
+    def _on_browser_closed(self):
+        """Re-enable buttons after the visible browser session ends."""
+        self._btn_fetch.configure(state="normal")
+        self._btn_browser.configure(state="normal")
+        if self._book_data:
+            self._btn_download.configure(state="normal")
+        self._append_log("Browser session ended. Session data saved.")
 
     # ------------------------------------------------------------------
     # Fetch Info
