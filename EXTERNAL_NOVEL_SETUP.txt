@@ -1,0 +1,110 @@
+================================================================================
+  External Novel Downloader — Setup & Update Guide
+================================================================================
+
+This feature lets NpiaDownloader download novels from 100+ non-Novelpia sites
+(jjwxc, syosetu, kakuyomu, qidian, etc.) by reusing the open-source
+"novel-downloader" browser extension's rule engine.
+
+
+HOW IT WORKS
+------------
+NpiaDownloader uses Playwright (headless Chrome) to load the target novel page,
+then injects the novel-downloader's compiled JavaScript rules into the page.
+The rules extract book metadata, chapter lists, and chapter content — all
+without needing the actual browser extension installed.
+
+Three JS files are required in the NpiaDownloader folder:
+
+  gm_stubs.js   — Provides fake Tampermonkey/Greasemonkey APIs so the rules
+                   think they're running inside a browser extension.
+
+  bridge.js     — Adapter layer that connects the rules to NpiaDownloader's
+                   Python code.
+
+  rules-lib.js  — The compiled novel-downloader rule bundle. This is the file
+                   that contains all the site-specific scraping logic.
+
+
+FIRST-TIME SETUP
+----------------
+1. Install Playwright (one-time):
+
+     pip install playwright
+     playwright install chromium
+
+2. Clone the novel-downloader source (NO fork needed):
+
+     git clone https://github.com/404-novel-project/novel-downloader.git
+
+3. Run the update script from the NpiaDownloader folder:
+
+     update_rules.bat [path_to_novel_downloader]
+
+   Example:
+     update_rules.bat D:\Projects\novel-downloader
+
+   This script automatically:
+     - Pulls the latest code
+     - Applies the bridge-mode patch to src/index.ts
+     - Builds the bundle with webpack
+     - Copies the result as rules-lib.js
+
+
+UPDATING THE RULES
+------------------
+When the novel-downloader project is updated (new sites added, bugs fixed),
+just run the same script again:
+
+     update_rules.bat D:\Projects\novel-downloader
+
+That's it! The script handles patching, building, and copying automatically.
+No fork maintenance required.
+
+
+SUPPORTED SITES
+---------------
+The rule bundle supports 100+ sites including:
+
+  Chinese:   jjwxc, qidian, zongheng, ciweimao, sfacg, 17k, shuhai, tadu,
+             gongzicp, linovel, qimao, cool18, and many biquge mirrors
+  Japanese:  syosetu (ncode), kakuyomu, alphapolis, akatsuki-novels, novelup
+  Korean:    novelpia.jp
+  Other:     pixiv, lofter, masiro, readmoo, penana, and more
+
+For the full list, see the novel-downloader project's router file:
+  src/router/download.ts
+
+
+AUTHENTICATION (Enter Browser)
+-------------------------------
+Some sites require login to access paid/VIP chapters. Use the "Enter Browser"
+button in the External Novel Download dialog:
+
+  1. Click "Enter Browser" — a visible Chrome window opens
+  2. Navigate to any site and log in normally
+  3. Close the browser window when done
+
+Your login session (cookies, localStorage) is saved in the browser_data/
+folder and persists across app restarts. The headless scraper reuses this
+data, so you stay authenticated without entering credentials again.
+
+
+TROUBLESHOOTING
+---------------
+  "rules-lib.js not found"
+    → Run update_rules.bat to build and copy the rules bundle.
+
+  "X is not defined" on bundle load
+    → The bundle expects a library that isn't stubbed. Open gm_stubs.js
+      and add a stub for the missing global (similar to the Vue/nunjucks stubs).
+
+  Page timeout / connection errors
+    → Some sites may be blocked in your region or behind Cloudflare.
+      Try with a VPN or check if the site is accessible in a normal browser.
+
+  "No matching rule for this URL"
+    → The site isn't supported by the novel-downloader rules.
+      Check the supported sites list above.
+
+================================================================================
