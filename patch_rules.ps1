@@ -1,64 +1,129 @@
-# patch_rules.ps1 — Download and patch novel-downloader rules for bridge mode
+# patch_rules.ps1 — Patch, build, and copy novel-downloader rules for bridge mode
+#
+# Usage: .\patch_rules.ps1 [-NdDir "D:\Projects\novel-downloader"]
+# If no NdDir given, defaults to D:\Projects\novel-downloader
 param(
-    [string]$NpiaDir = $PSScriptRoot
+    [string]$NpiaDir = $PSScriptRoot,
+    [string]$NdDir = "D:\Projects\novel-downloader"
 )
-
-$bundleUrl = "https://github.com/yingziwu/novel-downloader/raw/gh-pages/bundle.user.js"
-$tempFile  = Join-Path $NpiaDir "rules-lib.tmp.js"
-$outFile   = Join-Path $NpiaDir "rules-lib.js"
 
 Write-Host ""
 Write-Host "========================================"
 Write-Host "  NpiaDownloader - Rules Update Script"
 Write-Host "========================================"
 Write-Host ""
+Write-Host "  Novel-Downloader: $NdDir"
+Write-Host "  NpiaDownloader:   $NpiaDir"
+Write-Host ""
 
-# Step 1: Download
-Write-Host "[1/2] Downloading latest bundle from GitHub..."
-try {
-    Invoke-WebRequest -Uri $bundleUrl -OutFile $tempFile -UseBasicParsing
-    Write-Host "  Downloaded OK."
-} catch {
-    Write-Host "  ERROR: Download failed! $_"
-    exit 1
+$repoUrl = "https://github.com/404-novel-project/novel-downloader.git"
+$indexTs = Join-Path $NdDir "src\index.ts"
+$outFile = Join-Path $NpiaDir "rules-lib.js"
+
+# --- Step 1: Clone or Pull ---
+if (Test-Path $indexTs) {
+    Write-Host "[1/4] Pulling latest novel-downloader..."
+    Push-Location $NdDir
+    git pull 2>&1 | ForEach-Object { Write-Host "  $_" }
+    Pop-Location
+} else {
+    Write-Host "[1/4] Cloning novel-downloader from GitHub..."
+    git clone $repoUrl $NdDir 2>&1 | ForEach-Object { Write-Host "  $_" }
+    if (-not (Test-Path $indexTs)) {
+        Write-Host "  ERROR: Clone failed!"
+        exit 1
+    }
 }
 
-if (-not (Test-Path $tempFile)) {
-    Write-Host "  ERROR: File not found after download!"
-    exit 1
-}
-
-# Step 2: Patch
-Write-Host "[2/2] Patching for bridge mode..."
-$content = [System.IO.File]::ReadAllText($tempFile)
+# --- Step 2: Apply bridge-mode patch ---
+Write-Host "[2/4] Applying bridge-mode patch to src/index.ts..."
+$content = Get-Content $indexTs -Raw
 
 if ($content -match '__ND_BRIDGE_MODE') {
     Write-Host "  Already patched - skipping."
 } else {
-    # The stock bundle's entry point ends with something like:
-    #   "loading"===document.readyState?document.addEventListener("DOMContentLoaded",X):X()
-    # where X is the minified name of the main() function.
-    # We wrap it in a bridge-mode check.
-    $pattern = '"loading"===document\.readyState\?document\.addEventListener\("DOMContentLoaded",(\w+)\):\1\(\)'
-    $m = [regex]::Match($content, $pattern)
+    # The stock index.ts ends with:
+    #   if (document.readyState === "loading") {
+    #     document.addEventListener("DOMContentLoaded", main);
+    #   } else {
+    #     main();
+    #   }
+    # We replace it with bridge-mode aware version.
+    $oldPattern = 'if \(document\.readyState === "loading"\) \{\s*document\.addEventListener\("DOMContentLoaded", main\);\s*\} else \{\s*// noinspection JSIgnoredPromiseFromCall\s*main\(\);\s*\}'
 
-    if ($m.Success) {
-        $mainVar = $m.Groups[1].Value
-        $oldCode = $m.Value
-        $newCode = 'window.__ND_BRIDGE_MODE?(window.__ND_getRule=getRule,window.__ND_getHtmlDOM=getHtmlDOM,window.__ND_READY=!0,console.log("[Init] Bridge mode active")):("loading"===document.readyState?document.addEventListener("DOMContentLoaded",' + $mainVar + '):' + $mainVar + '())'
-        $content = $content.Replace($oldCode, $newCode)
-        Write-Host "  Patch applied successfully (main=$mainVar)."
+    $newCode = @'
+// Bridge mode: skip full UI init, just expose getRule for external callers.
+if ((window as any).__ND_BRIDGE_MODE) {
+  (window as any).__ND_getRule = getRule;
+  (window as any).__ND_getHtmlDOM = getHtmlDOM;
+  (window as any).__ND_READY = true;
+  log.info("[Init] Bridge mode - skipping UI init, getRule exposed.");
+} else if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", main);
+} else {
+  // noinspection JSIgnoredPromiseFromCall
+  main();
+}
+'@
+
+    $result = [regex]::Replace($content, $oldPattern, $newCode)
+    if ($result -eq $content) {
+        Write-Host "  WARNING: Pattern not found. index.ts structure may have changed."
+        Write-Host "  Trying to append bridge mode at end of file..."
+
+        # Fallback: just replace the simple if/else at the bottom
+        $simpleOld = 'if (document.readyState === "loading") {'
+        if ($content.Contains($simpleOld)) {
+            $content = $content.Replace(
+                'if (document.readyState === "loading") {' + "`n" +
+                '  document.addEventListener("DOMContentLoaded", main);' + "`n" +
+                '} else {' + "`n" +
+                '  // noinspection JSIgnoredPromiseFromCall' + "`n" +
+                '  main();' + "`n" +
+                '}',
+                $newCode
+            )
+            Set-Content $indexTs $content -NoNewline
+            Write-Host "  Patch applied (fallback method)."
+        } else {
+            Write-Host "  ERROR: Could not patch. Manual patching required."
+            exit 1
+        }
     } else {
-        Write-Host "  WARNING: Could not find main() pattern in bundle."
-        Write-Host "  The bundle format may have changed. Using as-is."
+        Set-Content $indexTs $result -NoNewline
+        Write-Host "  Patch applied successfully."
     }
 }
 
-[System.IO.File]::WriteAllText($outFile, $content)
-Write-Host "  Saved: $outFile"
+# --- Step 3: Build ---
+Write-Host "[3/4] Building rules bundle..."
+Push-Location $NdDir
 
-# Cleanup
-if (Test-Path $tempFile) { Remove-Item $tempFile }
+if (-not (Test-Path "node_modules")) {
+    Write-Host "  Installing dependencies (first time only)..."
+    npm install 2>&1 | Select-Object -Last 5 | ForEach-Object { Write-Host "  $_" }
+}
+
+Write-Host "  Running webpack..."
+npx webpack 2>&1 | Select-Object -Last 5 | ForEach-Object { Write-Host "  $_" }
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ERROR: Build failed!"
+    Pop-Location
+    exit 1
+}
+Pop-Location
+
+# --- Step 4: Copy bundle ---
+Write-Host "[4/4] Copying rules-lib.js..."
+$bundlePath = Join-Path $NdDir "dist\bundle.user.js"
+if (Test-Path $bundlePath) {
+    Copy-Item $bundlePath $outFile -Force
+    $size = [Math]::Round((Get-Item $outFile).Length / 1KB)
+    Write-Host "  Done! ($size KB)"
+} else {
+    Write-Host "  ERROR: dist\bundle.user.js not found!"
+    exit 1
+}
 
 Write-Host ""
 Write-Host "========================================"
