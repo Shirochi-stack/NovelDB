@@ -15,4 +15,6 @@ docs/data/novels_full.json
 !docs/data/*.txt
 # Except the raw descriptions file (too large, only .gz is committed)
 docs/data/sfacg_descriptions.txt
-browser_data/ 
+
+# External novel browser session data (cookies, localStorage)
+browser_data/

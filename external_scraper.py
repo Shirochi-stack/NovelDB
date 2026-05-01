@@ -140,8 +140,12 @@ class ExternalScraper:
 
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
-        if "[ND-Bridge]" in msg.text or msg.type in ("error", "warning"):
-            self.log(f"[JS] {msg.text}")
+        text = msg.text
+        # Only show our bridge messages and actual JS runtime errors
+        if "[ND-Bridge]" in text:
+            self.log(f"[JS] {text}")
+        elif msg.type == "error" and "Failed to load resource" not in text:
+            self.log(f"[JS] {text}")
 
     def stop(self):
         """Request cancellation and close browser."""
