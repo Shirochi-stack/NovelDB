@@ -64,7 +64,9 @@ class ExternalScraper:
         self._playwright = None
         self._browser = None
         self._page = None
+        self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
+        self._book_url = None     # Stored for initialising worker pages
 
     def log(self, msg):
         """Safe logging that handles encoding issues on Windows consoles."""
@@ -105,6 +107,12 @@ class ExternalScraper:
 
     def cleanup(self):
         """Release browser resources."""
+        for wp in self._worker_pages:
+            try:
+                wp.close()
+            except Exception:
+                pass
+        self._worker_pages = []
         try:
             if self._page:
                 self._page.close()
@@ -123,6 +131,54 @@ class ExternalScraper:
                 self._playwright = None
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Multi-page support for parallel chapter downloads
+    # ------------------------------------------------------------------
+    def create_worker_pages(self, count):
+        """Create additional browser pages for parallel chapter downloads.
+
+        Each page navigates to the book URL, gets stubs/rules/bridge
+        injected, and has its own rule instance ready for chapterParse.
+
+        Must be called AFTER parse_book() succeeds.
+        """
+        if count <= 0 or not self._book_url:
+            return
+
+        # Close any existing worker pages
+        for wp in self._worker_pages:
+            try:
+                wp.close()
+            except Exception:
+                pass
+        self._worker_pages = []
+
+        self.log(f"Creating {count} worker pages...")
+        for i in range(count):
+            try:
+                page = self._browser.new_page()
+                page.on("console", self._on_console)
+                page.goto(self._book_url, wait_until="domcontentloaded",
+                          timeout=30000)
+                page.evaluate(self._gm_stubs_js)
+                page.evaluate(self._rules_js)
+                page.evaluate(self._bridge_js)
+                # Initialise the rule instance on this page
+                page.evaluate("window.__ND_parseBook()")
+                self._worker_pages.append(page)
+            except Exception as e:
+                self.log(f"  Worker page {i} failed: {e}")
+        self.log(f"{len(self._worker_pages)} worker pages ready.")
+
+    def get_page(self, index):
+        """Get a page by index. 0 = primary, 1..N = worker pages."""
+        if index == 0:
+            return self._page
+        wi = index - 1
+        if wi < len(self._worker_pages):
+            return self._worker_pages[wi]
+        return self._page  # fallback to primary
 
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
@@ -205,6 +261,7 @@ class ExternalScraper:
             return None
 
         self._book_data = data
+        self._book_url = url
         self.log(
             f"Book: {data.get('bookname', '?')} by {data.get('author', '?')} "
             f"— {data.get('chapterCount', 0)} chapters"
