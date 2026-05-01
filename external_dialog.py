@@ -475,9 +475,20 @@ class ExternalNovelDialog(tk.Toplevel):
         else:
             self._generate_epub(title, author)
 
+    def _get_output_dir(self):
+        """Get output directory — respects parent GUI's Quick Download path."""
+        pg = self._parent_gui
+        quick_enable = getattr(pg, 'var_quick_enable', None)
+        quick_path = getattr(pg, 'var_quick_path', None)
+        if quick_enable and quick_path and quick_enable.get() and quick_path.get().strip():
+            path = quick_path.get().strip()
+            os.makedirs(path, exist_ok=True)
+            return path
+        return _get_base_dir()
+
     def _generate_txt(self, title, author):
         """Generate a plain text file."""
-        output_dir = _get_base_dir()
+        output_dir = self._get_output_dir()
         filename = f"{title}.txt"
         filepath = os.path.join(output_dir, filename)
 
@@ -510,7 +521,7 @@ class ExternalNovelDialog(tk.Toplevel):
             self._generate_txt(title, author)
             return
 
-        output_dir = _get_base_dir()
+        output_dir = self._get_output_dir()
         filename = f"{title}.epub"
         filepath = os.path.join(output_dir, filename)
 

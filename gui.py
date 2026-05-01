@@ -973,6 +973,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_quick_path = tk.StringVar()
         self.var_naming_mode = tk.StringVar(value="title") # title or id
         self.var_append_range = tk.BooleanVar(value=False)
+        self.var_auto_login = tk.BooleanVar(value=True)
         self.var_use_cache = tk.BooleanVar(value=True)
         self.var_cache_images = tk.BooleanVar(value=False)
 
@@ -1001,7 +1002,8 @@ class NovelpiaGUI(tk.Tk):
         self.var_convert_gifs.trace_add("write", lambda *_: self._save_config())
         self.var_static_only.trace_add("write", lambda *_: self._save_config())
         self._poll_log_queue()
-        self._auto_login()
+        if self.var_auto_login.get():
+            self._auto_login()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def log_message(self, message):
@@ -1058,6 +1060,11 @@ class NovelpiaGUI(tk.Tk):
         # Google Login Button (opens browser, then prompt for LOGINKEY)
         btn_google = ttk.Button(login_frame, text="Login with Google", command=self.action_google_login)
         btn_google.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+
+        # Auto-Login toggle
+        ttk.Checkbutton(login_frame, text="Auto-login on startup",
+                        variable=self.var_auto_login).grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # 2. Font & Threads Group (Visual separation like image)
         # Font Mapping
@@ -3347,6 +3354,7 @@ table, th, td {
                 self.var_quick_path.set(cfg.get("quick_path", ""))
                 self.var_naming_mode.set(cfg.get("naming_mode", "title"))
                 self.var_append_range.set(cfg.get("append_range", False))
+                self.var_auto_login.set(cfg.get("auto_login", True))
 
                 # DPI / UI scaling (consumed by dpi_setup at next startup).
                 self.var_auto_dpi_scale.set(cfg.get("auto_dpi_scale", True))
@@ -3426,6 +3434,7 @@ table, th, td {
             "quick_path": self.var_quick_path.get(),
             "naming_mode": self.var_naming_mode.get(),
             "append_range": self.var_append_range.get(),
+            "auto_login": self.var_auto_login.get(),
 
             # DPI / UI scaling (read by dpi_setup on next startup)
             "auto_dpi_scale": self.var_auto_dpi_scale.get(),
