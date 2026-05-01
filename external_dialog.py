@@ -103,6 +103,8 @@ class ExternalNovelDialog(tk.Toplevel):
                          value="epub").pack(side="left", padx=5)
         ttk.Radiobutton(fmt_frame, text="TXT", variable=self._var_format,
                          value="txt").pack(side="left", padx=5)
+        ttk.Radiobutton(fmt_frame, text="PDF", variable=self._var_format,
+                         value="pdf").pack(side="left", padx=5)
 
         # Threads
         thr_frame = ttk.LabelFrame(settings_frame, text="Threads", padding=4)
@@ -470,8 +472,11 @@ class ExternalNovelDialog(tk.Toplevel):
         title = _sanitize_filename(data.get('bookname', 'novel'))
         author = data.get('author', 'Unknown')
 
-        if self._var_format.get() == "txt":
+        fmt = self._var_format.get()
+        if fmt == "txt":
             self._generate_txt(title, author)
+        elif fmt == "pdf":
+            self._generate_pdf(title, author)
         else:
             self._generate_epub(title, author)
 
@@ -612,6 +617,90 @@ img { display: block; max-width: 100%; max-height: 100%;
             return buf.getvalue()
         except Exception:
             return raw_data  # Return original on failure
+
+    def _generate_pdf(self, title, author):
+        """Generate a PDF file using downloader_core's generate_pdf."""
+        try:
+            from downloader_core import NovelpiaDownloader
+        except ImportError:
+            self._log("\u274c downloader_core.py not found. Falling back to TXT.")
+            self._generate_txt(title, author)
+            return
+
+        output_dir = self._get_output_dir()
+        filename = f"{title}.pdf"
+        filepath = os.path.join(output_dir, filename)
+
+        # Default CSS
+        css = """body { margin: 2%; }
+p { overflow-wrap: break-word; }
+h1, h2 { text-align: center; margin-bottom: 10%; margin-top: 10%; }
+h3, h4, h5, h6 { text-align: center; margin-bottom: 15%; margin-top: 10%; }
+img { display: block; max-width: 100%; max-height: 100%;
+      margin-left: auto; margin-right: auto; margin-bottom: 2%; margin-top: 2%; }
+"""
+
+        data = self._book_data
+        metadata = {
+            'title': data.get('bookname', title),
+            'author': data.get('author', author),
+        }
+
+        # Build chapter list and image map
+        chapters_for_pdf = []
+        image_map = {}
+        for i, ch_data in enumerate(self._chapter_results):
+            if ch_data is None:
+                continue
+            ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+            content_html = ch_data.get('contentHtml', '')
+
+            # Process images
+            if ch_data.get('images'):
+                import base64
+                for img_info in ch_data['images']:
+                    img_data_url = img_info.get('data')
+                    if img_data_url and ',' in img_data_url:
+                        _, b64 = img_data_url.split(',', 1)
+                        try:
+                            raw = base64.b64decode(b64)
+                            img_name = img_info.get('name', f'img_{i}')
+                            image_map[img_name] = raw
+                        except Exception:
+                            pass
+
+            chapters_for_pdf.append({
+                "title": ch_name,
+                "html": content_html,
+                "is_notice": False,
+            })
+
+        # Read PDF settings from parent GUI
+        pg = self._parent_gui
+        show_toc = getattr(pg, 'var_pdf_toc', None)
+        show_toc = show_toc.get() if show_toc else False
+        show_pages = getattr(pg, 'var_pdf_page_numbers', None)
+        show_pages = show_pages.get() if show_pages else False
+        counter_layout = getattr(pg, 'var_pdf_counter_layout', None)
+        counter_layout = counter_layout.get() if counter_layout else False
+
+        try:
+            downloader = NovelpiaDownloader(log_callback=self._log)
+            downloader.generate_pdf(
+                metadata,
+                filepath,
+                chapters_for_pdf,
+                css,
+                image_map=image_map,
+                show_toc=show_toc,
+                show_page_numbers=show_pages,
+                use_counter_layout=counter_layout,
+            )
+            self._log(f"\u2705 Saved: {filepath}")
+        except Exception as e:
+            self._log(f"\u274c PDF generation failed: {e}")
+            self._log("Falling back to TXT output...")
+            self._generate_txt(title, author)
 
     # ------------------------------------------------------------------
     # Stop / Close

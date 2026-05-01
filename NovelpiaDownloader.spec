@@ -26,6 +26,22 @@ if msys2_bin and os.path.exists(msys2_bin):
     for dll in glob.glob(os.path.join(msys2_bin, '*.dll')):
         binaries.append((dll, '.'))
 
+# --- Playwright driver (node.exe + JS package) ---
+# Playwright's Python package ships a bundled Node.js driver that it
+# communicates with via subprocess.  PyInstaller doesn't detect it
+# automatically, so we add it explicitly.
+# NOTE: The browser itself (Chromium) is NOT bundled — users must run
+#       `playwright install chromium` once after first launch.
+import playwright
+_pw_dir = os.path.dirname(playwright.__file__)
+_pw_driver = os.path.join(_pw_dir, 'driver')
+if os.path.exists(_pw_driver):
+    for root, dirs, files in os.walk(_pw_driver):
+        for f in files:
+            src = os.path.join(root, f)
+            rel = os.path.relpath(root, _pw_dir)
+            binaries.append((src, os.path.join('playwright', rel)))
+
 a = Analysis(
     ['gui.py'],  # Main entry point script
     pathex=[],
@@ -42,6 +58,14 @@ a = Analysis(
     hiddenimports=[
         'dpi_setup',                # Ensure dpi_setup is always bundled,
                                     # even if only imported conditionally.
+        'playwright',
+        'playwright.sync_api',
+        'playwright._impl',
+        'playwright._impl._connection',
+        'playwright._impl._driver',
+        'playwright._impl._transport',
+        'greenlet',                 # Required by playwright's sync API
+        'pyee',                     # Event emitter used by playwright
     ],
     hookspath=[],
     hooksconfig={},
