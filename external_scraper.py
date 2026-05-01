@@ -20,6 +20,14 @@ import sys
 import time
 from pathlib import Path
 
+# When running from a PyInstaller bundle, point Playwright to the
+# bundled Chromium browser so users don't need to install anything.
+if getattr(sys, 'frozen', False):
+    _base = sys._MEIPASS
+    _bundled_browsers = os.path.join(_base, 'ms-playwright')
+    if os.path.exists(_bundled_browsers):
+        os.environ['PLAYWRIGHT_BROWSERS_PATH'] = _bundled_browsers
+
 from playwright.sync_api import sync_playwright, Page, Browser
 
 
