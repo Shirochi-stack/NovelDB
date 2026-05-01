@@ -65,6 +65,15 @@ class ExternalNovelDialog(tk.Toplevel):
         self._start_time = None
         self._msg_queue = queue.Queue()
 
+        # Single persistent worker thread for all Playwright calls.
+        # Playwright's sync API is thread-bound, so fetch + download
+        # must both run on the same thread.
+        self._work_queue = queue.Queue()
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop, daemon=True
+        )
+        self._worker_thread.start()
+
         self._build_ui()
         self._poll_queue()
 
@@ -216,6 +225,71 @@ class ExternalNovelDialog(tk.Toplevel):
         self._console.configure(state="disabled")
 
     # ------------------------------------------------------------------
+    # Persistent worker thread (all Playwright calls run here)
+    # ------------------------------------------------------------------
+    def _worker_loop(self):
+        """Single long-lived thread that owns the Playwright browser.
+
+        Commands arrive via self._work_queue as (kind, payload) tuples.
+        """
+        while True:
+            try:
+                kind, payload = self._work_queue.get()
+            except Exception:
+                break
+
+            if kind == "quit":
+                break
+            elif kind == "fetch":
+                self._do_fetch(payload)
+            elif kind == "download":
+                self._do_download(*payload)
+
+    def _do_fetch(self, url):
+        """Run parse_book on the worker thread."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+                self._scraper.start()
+
+            data = self._scraper.parse_book(url)
+            if data:
+                self._msg_queue.put(("book_parsed", data))
+            else:
+                self._msg_queue.put(("error", "Failed to parse book info."))
+        except Exception as e:
+            self._msg_queue.put(("error", str(e)))
+        finally:
+            self.after(0, lambda: self._btn_fetch.configure(state="normal"))
+
+    def _do_download(self, chapters, start, end, interval):
+        """Run chapter downloads on the worker thread."""
+        try:
+            selected = chapters[start:end]
+            total = len(selected)
+            results = []
+
+            for i, ch in enumerate(selected):
+                if not self._downloading:
+                    self._log("Download stopped by user.")
+                    break
+
+                name = ch.get('name', f'Chapter {start + i + 1}')
+                self._log(f"  [{i + 1}/{total}] {name}")
+
+                data = self._scraper.parse_chapter(
+                    start + i, ch, interval=interval
+                )
+                results.append(data)
+                self._msg_queue.put(("progress", (i + 1, total)))
+
+            self._chapter_results = results
+            self._msg_queue.put(("finished", None))
+        except Exception as e:
+            self._msg_queue.put(("error", f"Download error: {e}"))
+            self._msg_queue.put(("finished", None))
+
+    # ------------------------------------------------------------------
     # Fetch Info
     # ------------------------------------------------------------------
     def _on_fetch(self):
@@ -233,28 +307,11 @@ class ExternalNovelDialog(tk.Toplevel):
         self._lbl_author.configure(text="—")
         self._lbl_chapters.configure(text="—")
 
-        threading.Thread(
-            target=self._fetch_worker, args=(url,), daemon=True
-        ).start()
+        self._fetch_worker(url)
 
     def _fetch_worker(self, url):
-        """Worker thread for fetching book info."""
-        try:
-            if self._scraper is None:
-                self._scraper = ExternalScraper(logger=self._log)
-                self._scraper.start()
-
-            data = self._scraper.parse_book(url)
-            if data:
-                self._msg_queue.put(("book_parsed", data))
-            else:
-                self._msg_queue.put(("error", "Failed to parse book info."))
-                self._msg_queue.put(("log", ""))  # reset state
-        except Exception as e:
-            self._msg_queue.put(("error", str(e)))
-        finally:
-            # Re-enable fetch button via queue
-            self.after(0, lambda: self._btn_fetch.configure(state="normal"))
+        """Dispatch fetch to the persistent worker thread."""
+        self._work_queue.put(("fetch", url))
 
     def _on_book_parsed(self, data):
         self._book_data = data
@@ -294,38 +351,11 @@ class ExternalNovelDialog(tk.Toplevel):
         self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
                   f"interval={interval}s")
 
-        threading.Thread(
-            target=self._download_worker,
-            args=(chapters, start, end, interval),
-            daemon=True,
-        ).start()
+        self._download_worker(chapters, start, end, interval)
 
     def _download_worker(self, chapters, start, end, interval):
-        """Worker thread for downloading chapters."""
-        try:
-            selected = chapters[start:end]
-            total = len(selected)
-            results = []
-
-            for i, ch in enumerate(selected):
-                if not self._downloading:
-                    self._log("Download stopped by user.")
-                    break
-
-                name = ch.get('name', f'Chapter {start + i + 1}')
-                self._log(f"  [{i + 1}/{total}] {name}")
-
-                data = self._scraper.parse_chapter(
-                    start + i, ch, interval=interval
-                )
-                results.append(data)
-                self._msg_queue.put(("progress", (i + 1, total)))
-
-            self._chapter_results = results
-            self._msg_queue.put(("finished", None))
-        except Exception as e:
-            self._msg_queue.put(("error", f"Download error: {e}"))
-            self._msg_queue.put(("finished", None))
+        """Dispatch download to the persistent worker thread."""
+        self._work_queue.put(("download", (chapters, start, end, interval)))
 
     def _update_progress(self, current, total):
         if total > 0:
@@ -467,7 +497,9 @@ class ExternalNovelDialog(tk.Toplevel):
         self._downloading = False
         if self._scraper:
             self._scraper._stop_requested = True
-            # Clean up browser in a thread to avoid blocking
+        # Signal the worker thread to exit and clean up the browser
+        self._work_queue.put(("quit", None))
+        if self._scraper:
             threading.Thread(
                 target=self._scraper.cleanup, daemon=True
             ).start()
