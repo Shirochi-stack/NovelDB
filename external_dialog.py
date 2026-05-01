@@ -621,7 +621,7 @@ img { display: block; max-width: 100%; max-height: 100%;
     def _generate_pdf(self, title, author):
         """Generate a PDF file using downloader_core's generate_pdf."""
         try:
-            from downloader_core import NovelpiaDownloader
+            from downloader_core import DownloaderCore
         except ImportError:
             self._log("\u274c downloader_core.py not found. Falling back to TXT.")
             self._generate_txt(title, author)
@@ -685,7 +685,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         counter_layout = counter_layout.get() if counter_layout else False
 
         try:
-            downloader = NovelpiaDownloader(log_callback=self._log)
+            downloader = DownloaderCore(None, self._log)
             downloader.generate_pdf(
                 metadata,
                 filepath,
