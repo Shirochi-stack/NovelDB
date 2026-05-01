@@ -32,14 +32,22 @@ from playwright.sync_api import sync_playwright, Page, Browser
 
 
 def _get_base_dir():
+    """Get the directory where the exe lives (for user-created files like browser_data)."""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _get_bundle_dir():
+    """Get the directory where bundled data files are extracted (JS files etc)."""
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def _load_js_file(filename):
-    """Load a JavaScript file from the app directory."""
-    path = os.path.join(_get_base_dir(), filename)
+    """Load a JavaScript file from the bundle directory."""
+    path = os.path.join(_get_bundle_dir(), filename)
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
