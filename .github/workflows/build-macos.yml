@@ -41,6 +41,24 @@ jobs:
         run: |
           playwright install chromium
 
+      - name: Strip Chromium code signatures (PyInstaller compat)
+        run: |
+          # PyInstaller tries to ad-hoc codesign every bundled binary, but
+          # Playwright's Chromium ships with Google's existing signature.
+          # Replacing it fails ("bundle format unrecognized"), so we strip
+          # the signatures first and let PyInstaller re-sign from scratch.
+          PW_CACHE="$HOME/Library/Caches/ms-playwright"
+          if [ -d "$PW_CACHE" ]; then
+            find "$PW_CACHE" -type f \( -perm +111 -o -name "*.dylib" -o -name "*.so" \) | while read bin; do
+              codesign --remove-signature "$bin" 2>/dev/null || true
+            done
+            # Also handle the .app bundle(s) specifically
+            find "$PW_CACHE" -name "*.app" -type d | while read app; do
+              codesign --remove-signature "$app" 2>/dev/null || true
+            done
+            echo "Stripped code signatures from Chromium binaries."
+          fi
+
       - name: Convert icon.ico to icon.icns
         run: |
           mkdir -p icon.iconset
