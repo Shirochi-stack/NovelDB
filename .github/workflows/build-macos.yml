@@ -35,7 +35,11 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller playwright greenlet pyee
+
+      - name: Install Playwright Chromium
+        run: |
+          playwright install chromium
 
       - name: Convert icon.ico to icon.icns
         run: |
@@ -52,30 +56,46 @@ jobs:
             iconutil -c icns icon.iconset -o icon.icns
           fi
 
-      - name: Build with PyInstaller
+      - name: Build ND42 (Full + Playwright)
         run: |
           pyinstaller NovelpiaDownloader_mac.spec --clean
 
-      - name: Create DMG
+      - name: Build ND42_Lite (No Playwright)
         run: |
-          # Create a temporary directory for DMG contents
+          pyinstaller NovelpiaDownloader_mac_lite.spec --clean
+
+      - name: Create DMG (Full)
+        run: |
           mkdir -p dmg_contents
           cp -R dist/ND42.app dmg_contents/
-
-          # Create a symlink to /Applications for drag-and-drop install
           ln -s /Applications dmg_contents/Applications
-
-          # Build the DMG using hdiutil
           hdiutil create -volname "ND42" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
             "ND42-macos-${{ matrix.arch }}.dmg"
 
-      - name: Upload artifact
+      - name: Create DMG (Lite)
+        run: |
+          mkdir -p dmg_lite_contents
+          cp -R dist/ND42_Lite.app dmg_lite_contents/
+          ln -s /Applications dmg_lite_contents/Applications
+          hdiutil create -volname "ND42_Lite" \
+            -srcfolder dmg_lite_contents \
+            -ov -format UDZO \
+            "ND42_Lite-macos-${{ matrix.arch }}.dmg"
+
+      - name: Upload Full artifact
         uses: actions/upload-artifact@v4
         with:
           name: ND42-macos-${{ matrix.arch }}
           path: ND42-macos-${{ matrix.arch }}.dmg
+          retention-days: 90
+
+      - name: Upload Lite artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ND42_Lite-macos-${{ matrix.arch }}
+          path: ND42_Lite-macos-${{ matrix.arch }}.dmg
           retention-days: 90
 
   # Attach the freshly-built DMGs to an EXISTING GitHub Release tagged v42.
@@ -94,7 +114,7 @@ jobs:
       - name: Download all DMG artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ND42-macos-*
+          pattern: ND42*-macos-*
           path: dmgs
           merge-multiple: true
 
