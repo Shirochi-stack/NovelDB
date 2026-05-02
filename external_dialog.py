@@ -580,6 +580,19 @@ class ExternalNovelDialog(tk.Toplevel):
         zip_compress = getattr(pg, 'var_zip_compress_images', None)
         zip_compress = zip_compress.get() if zip_compress else False
 
+        # Cover-specific compression settings
+        compress_cover = getattr(pg, 'var_compress_cover', None)
+        compress_cover = compress_cover.get() if compress_cover else False
+        cover_quality = getattr(pg, 'var_cover_quality', None)
+        cover_quality = cover_quality.get() if cover_quality else 90
+        cover_format = getattr(pg, 'var_cover_format', None)
+        cover_format = cover_format.get() if cover_format else 'JPEG'
+
+        self._log(f"  Image compression: {'ON' if compress_images else 'OFF'}"
+                  f" ({image_format} q{jpeg_quality})")
+        self._log(f"  Cover compression: {'ON' if compress_cover else 'OFF'}"
+                  f" ({cover_format} q{cover_quality})")
+
         # Default CSS for external novels
         css = """body { margin: 2%; }
 p { overflow-wrap: break-word; }
@@ -626,10 +639,15 @@ img { display: block; max-width: 100%; max-height: 100%;
                         ext = 'png'
                     elif cover_bytes[:4] == b'RIFF':
                         ext = 'webp'
-                    if compress_images:
+                    # Use cover-specific compression settings
+                    if compress_cover:
                         cover_bytes = self._compress_image(
-                            cover_bytes, jpeg_quality, image_format
+                            cover_bytes, cover_quality, cover_format
                         )
+                        # Update ext to match the compressed format
+                        ext = cover_format.lower()
+                        if ext == 'jpeg':
+                            ext = 'jpg'
                     epub.add_image(f'cover.{ext}', cover_bytes)
                     cover_added = True
 
@@ -641,6 +659,7 @@ img { display: block; max-width: 100%; max-height: 100%;
 
                 # Process images: use browser-provided base64 data when
                 # available, fall back to Python-side download otherwise.
+                rename_map = {}  # original_name → compressed_name
                 if ch_data.get('images'):
                     for img_info in ch_data['images']:
                         img_url = img_info.get('url', '')
@@ -665,14 +684,23 @@ img { display: block; max-width: 100%; max-height: 100%;
 
                         if raw:
                             img_counter[0] += 1
-                            img_name = img_info.get(
+                            orig_name = img_info.get(
                                 'name', f'img_{i}_{img_counter[0]}'
                             )
+                            img_name = orig_name
                             # Apply compression if enabled
                             if compress_images:
                                 raw = self._compress_image(
                                     raw, jpeg_quality, image_format
                                 )
+                                # Update extension to match compressed format
+                                new_ext = image_format.lower()
+                                if new_ext == 'jpeg':
+                                    new_ext = 'jpg'
+                                base = orig_name.rsplit('.', 1)[0]
+                                img_name = f'{base}.{new_ext}'
+                                if img_name != orig_name:
+                                    rename_map[orig_name] = img_name
                             epub.add_image(img_name, raw)
                             # Replace the URL in content_html with the
                             # local EPUB path so the image actually renders
@@ -691,7 +719,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                 # Fix novel-downloader's img format for EPUB rendering:
                 # cleanDOM outputs <img data-src-address="name.jpeg" alt="..."
                 # title="..."> with NO src attribute.  EPUB readers need src.
-                content_html = self._fix_nd_img_tags(content_html)
+                content_html = self._fix_nd_img_tags(
+                    content_html, rename_map
+                )
 
                 epub.add_chapter(ch_name, content_html)
 
@@ -779,8 +809,7 @@ img { display: block; max-width: 100%; max-height: 100%;
 
         return html_str
 
-    @staticmethod
-    def _fix_nd_img_tags(html_str):
+    def _fix_nd_img_tags(self, html_str, rename_map=None):
         """Fix novel-downloader's img tags for EPUB rendering.
 
         The novel-downloader's cleanDOM outputs images as:
@@ -788,9 +817,14 @@ img { display: block; max-width: 100%; max-height: 100%;
                title="../Images/name.jpeg">
         EPUB readers need a proper src attribute:
           <img src="../Images/name.jpeg" alt="name.jpeg" />
+
+        If rename_map is provided (e.g. {'name.jpeg': 'name.webp'}),
+        filenames will be updated to match compressed output.
         """
         if not html_str:
             return html_str
+
+        rmap = rename_map or {}
 
         # Convert <img data-src-address="X" ...> to <img src="../Images/X" />
         def fix_img(m):
@@ -799,6 +833,8 @@ img { display: block; max-width: 100%; max-height: 100%;
             ds = re.search(r'data-src-address="([^"]+)"', tag)
             if ds:
                 filename = ds.group(1)
+                # Apply rename if compression changed the extension
+                filename = rmap.get(filename, filename)
                 src = f'../Images/{filename}'
                 # Build a clean self-closing img tag
                 return f'<img src="{src}" alt="{filename}" />'
