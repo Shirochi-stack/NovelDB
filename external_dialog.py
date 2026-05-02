@@ -615,6 +615,7 @@ img { display: block; max-width: 100%; max-height: 100%;
 
             # Download and add cover image via the correct API
             # (EpubGenerator looks for images named 'cover.*')
+            cover_added = False
             if cover_url:
                 cover_bytes = self._download_image_python(
                     cover_url, "Cover", session=img_session
@@ -630,6 +631,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                             cover_bytes, jpeg_quality, image_format
                         )
                     epub.add_image(f'cover.{ext}', cover_bytes)
+                    cover_added = True
 
             for i, ch_data in enumerate(self._chapter_results):
                 if ch_data is None:
@@ -692,6 +694,14 @@ img { display: block; max-width: 100%; max-height: 100%;
                 content_html = self._fix_nd_img_tags(content_html)
 
                 epub.add_chapter(ch_name, content_html)
+
+            # Fallback: if no cover was found, use the first chapter
+            # image larger than 400px as the cover.
+            if not cover_added and epub.images:
+                self._log("No cover URL found, scanning chapter images...")
+                cover_added = self._try_cover_from_images(
+                    epub, compress_images, jpeg_quality, image_format
+                )
 
             epub.generate()
             self._log(f"✅ Saved: {filepath}")
@@ -809,6 +819,39 @@ img { display: block; max-width: 100%; max-height: 100%;
                           flags=re.IGNORECASE)
 
         return html_str
+
+    def _try_cover_from_images(self, epub, compress, quality, fmt):
+        """Scan existing EPUB images for one wider/taller than 400px.
+
+        If found, add a copy named 'cover.ext' so EpubGenerator renders
+        it on the cover page.  Returns True if a cover was added.
+        """
+        try:
+            from PIL import Image as PILImage
+            import io
+        except ImportError:
+            return False
+
+        for img_entry in epub.images:
+            if img_entry['filename'].startswith('cover.'):
+                return True  # Already have one
+            try:
+                im = PILImage.open(io.BytesIO(img_entry['data']))
+                w, h = im.size
+                if w >= 400 or h >= 400:
+                    ext = img_entry['filename'].rsplit('.', 1)[-1]
+                    raw = img_entry['data']
+                    if compress:
+                        raw = self._compress_image(raw, quality, fmt)
+                    epub.add_image(f'cover.{ext}', raw)
+                    self._log(
+                        f"  📷 Cover fallback: using {img_entry['filename']}"
+                        f" ({w}x{h}px)"
+                    )
+                    return True
+            except Exception:
+                continue
+        return False
 
     def _compress_image(self, raw_data, quality, fmt):
         """Compress an image using PIL, reusing parent GUI's settings."""

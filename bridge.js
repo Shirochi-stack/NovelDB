@@ -60,10 +60,48 @@
 
       // bookParse() reads the current DOM to extract metadata + chapter list
       var book = await rule.bookParse();
-      // Extract cover URL if available
+
+      // Extract cover URL — the cover attachment is set via .then() so it
+      // may take a moment to populate.  Wait briefly then fall back to DOM.
       var coverUrl = null;
       if (book.additionalMetadate && book.additionalMetadate.cover) {
-        coverUrl = book.additionalMetadate.cover.url || null;
+        var coverAtt = book.additionalMetadate.cover;
+        coverUrl = coverAtt.url || null;
+        // If the attachment is still downloading, wait for it
+        if (coverAtt.status === 1 && typeof coverAtt.init === 'function') {
+          try { await coverAtt.init(); } catch(e) {}
+        }
+      } else {
+        // Wait 500ms for async getAttachment .then() to resolve
+        await new Promise(function(r) { setTimeout(r, 500); });
+        if (book.additionalMetadate && book.additionalMetadate.cover) {
+          coverUrl = book.additionalMetadate.cover.url || null;
+        }
+      }
+      // DOM fallback: look for common cover image selectors
+      if (!coverUrl) {
+        var coverSelectors = [
+          '#hasTicket div.pic img',           // SFACG
+          '.book-cover img',                  // Generic
+          '.novel-cover img',                 // Generic
+          'img.cover',                        // Generic
+          '.book-info img[src*="cover"]',     // Generic
+          'meta[property="og:image"]',        // OpenGraph
+        ];
+        for (var s = 0; s < coverSelectors.length; s++) {
+          var el = document.querySelector(coverSelectors[s]);
+          if (el) {
+            if (el.tagName === 'META') {
+              coverUrl = el.getAttribute('content') || null;
+            } else {
+              coverUrl = el.src || el.getAttribute('data-src') || null;
+            }
+            if (coverUrl) {
+              console.log('[ND-Bridge] Cover found via DOM: ' + coverSelectors[s]);
+              break;
+            }
+          }
+        }
       }
 
       // Serialise chapter list
