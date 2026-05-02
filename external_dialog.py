@@ -286,6 +286,7 @@ class ExternalNovelDialog(tk.Toplevel):
         Chapters are split into batches of `num_threads` size.
         Each batch fires concurrent HTTP requests inside the browser
         via JS Promise.all — no Python threading needed.
+        Failed chapters are retried individually after the main pass.
         """
         try:
             selected = chapters[start:end]
@@ -320,6 +321,42 @@ class ExternalNovelDialog(tk.Toplevel):
                 # Rate limiting between batches
                 if interval > 0 and batch_end < total:
                     time.sleep(interval)
+
+            # --- Retry failed chapters individually ---
+            failed_indices = [i for i, r in enumerate(results) if r is None
+                              and self._downloading]
+            if failed_indices and self._downloading:
+                max_retries = 2
+                for retry_pass in range(1, max_retries + 1):
+                    if not failed_indices or not self._downloading:
+                        break
+                    self._log(
+                        f"Retry pass {retry_pass}/{max_retries}: "
+                        f"{len(failed_indices)} failed chapter(s)..."
+                    )
+                    still_failed = []
+                    for idx in failed_indices:
+                        if not self._downloading:
+                            break
+                        ch = selected[idx]
+                        name = ch.get('name', f'Chapter {start + idx + 1}')
+                        self._log(f"  Retrying [{idx + 1}/{total}] {name}")
+                        # Use longer interval for retries
+                        data = self._scraper.parse_chapter(
+                            start + idx, ch, interval=max(interval, 1.0)
+                        )
+                        if data:
+                            results[idx] = data
+                            self._log(f"  Retry OK: {name}")
+                        else:
+                            still_failed.append(idx)
+                    failed_indices = still_failed
+
+                if failed_indices:
+                    self._log(
+                        f"WARNING: {len(failed_indices)} chapter(s) failed "
+                        f"after all retries."
+                    )
 
             self._chapter_results = results
             self._msg_queue.put(("finished", None))

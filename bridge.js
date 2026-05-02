@@ -142,12 +142,19 @@
       // Collect image data from contentImages (AttachmentClass instances)
       var images = [];
       if (result.contentImages && result.contentImages.length > 0) {
+        console.log('[ND-Bridge] ' + result.contentImages.length + ' image(s) to download for: ' + (result.chapterName || chapterName));
         for (var i = 0; i < result.contentImages.length; i++) {
           var img = result.contentImages[i];
+          console.log('[ND-Bridge] Image ' + (i + 1) + '/' + result.contentImages.length + ': ' + (img.url || img.name));
           // Wait for the image to finish downloading if it hasn't yet
           if (img.status === 1) {
             // Status.downloading
-            await img.init();
+            try {
+              await img.init();
+              console.log('[ND-Bridge] Image OK: ' + (img.name || img.url));
+            } catch (imgErr) {
+              console.log('[ND-Bridge] Image FAILED: ' + (img.name || img.url) + ' — ' + imgErr.message);
+            }
           }
           var imgData = null;
           if (img.imageBlob) {

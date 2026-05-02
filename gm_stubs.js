@@ -13,6 +13,43 @@
 // real window object. In our headless context, we ARE the page context.
 window.unsafeWindow = window;
 
+// Wrap window.fetch with automatic retry for failed requests.
+// The novel-downloader's getHtmlDOM → getText calls fetch() and throws
+// "Bad response!" on non-ok status.  Transient 403/429/5xx errors are
+// common on sites like SFACG under concurrent load.
+// This wrapper is installed BEFORE rules-lib.js, which wraps it further
+// in a logging Proxy — the chain is: rules Proxy → our retry → real fetch.
+(function() {
+  var _realFetch = window.fetch.bind(window);
+  var MAX_RETRIES = 3;
+  var RETRY_DELAYS = [1000, 2000, 3000]; // ms
+
+  window.fetch = function(input, init) {
+    var attempt = 0;
+    function tryFetch() {
+      return _realFetch(input, init).then(function(resp) {
+        if (resp.ok || attempt >= MAX_RETRIES) {
+          return resp;
+        }
+        // Retry on server errors (5xx) and rate limiting (429, 403)
+        var status = resp.status;
+        if (status === 429 || status === 403 || status >= 500) {
+          attempt++;
+          var delay = RETRY_DELAYS[attempt - 1] || 3000;
+          console.log('[ND-Fetch] Retry ' + attempt + '/' + MAX_RETRIES +
+                      ' for ' + (typeof input === 'string' ? input : input.url) +
+                      ' (HTTP ' + status + ') in ' + delay + 'ms');
+          return new Promise(function(resolve) {
+            setTimeout(resolve, delay);
+          }).then(tryFetch);
+        }
+        return resp;
+      });
+    }
+    return tryFetch();
+  };
+})();
+
 // GM_info — script metadata (version, scriptHandler, etc.)
 window.GM_info = {
   script: {
