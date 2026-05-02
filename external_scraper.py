@@ -176,8 +176,8 @@ class ExternalScraper:
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
         text = msg.text
-        # Only show our bridge messages and actual JS runtime errors
-        if "[ND-Bridge]" in text:
+        # Show bridge messages, fetch retries, init info, and actual errors
+        if "[ND-Bridge]" in text or "[ND-Fetch]" in text or "[Init]" in text:
             self.log(f"[JS] {text}")
         elif msg.type == "error" and "Failed to load resource" not in text:
             self.log(f"[JS] {text}")

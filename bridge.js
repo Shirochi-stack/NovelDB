@@ -1,13 +1,18 @@
 /**
  * bridge.js — NpiaDownloader ↔ novel-downloader rules bridge
  *
- * Injected into QWebEngineView AFTER rules-lib.js.
- * Provides two entry points callable from Python via QWebChannel:
+ * Injected into Playwright browser page AFTER gm_stubs.js and rules-lib.js.
+ * Provides entry points callable from Python via page.evaluate():
  *
- *   1. __ND_parseBook()  — extract metadata + chapter list from the current page
- *   2. __ND_parseChapter(chapterUrl) — fetch and parse a single chapter
+ *   1. __ND_parseBook()           — extract metadata + chapter list
+ *   2. __ND_parseChapter(...)     — fetch and parse a single chapter
+ *   3. __ND_parseChapterBatch(..) — parse multiple chapters concurrently
+ *   4. __ND_getDiagnostics()      — check bundle status and rule match
  *
- * Results are posted back to Python via the `ndBridge` QWebChannel object.
+ * The rules-lib.js bundle exposes (via patch_rules.ps1):
+ *   - window.__ND_getRule()    — returns the matching rule for the current host
+ *   - window.__ND_getHtmlDOM() — fetches a URL and returns a DOM document
+ *   - window.__ND_cleanDOM()   — sanitises DOM for EPUB-safe XHTML (optional)
  */
 
 (function () {
@@ -26,17 +31,59 @@
     return "";
   }
 
-  /** Collect all <img> src URLs from an HTML string. */
-  function extractImageUrls(html) {
-    var urls = [];
-    if (!html) return urls;
-    var re = /<img[^>]+src=["']([^"']+)["']/gi;
-    var m;
-    while ((m = re.exec(html)) !== null) {
-      urls.push(m[1]);
-    }
-    return urls;
+  /** Get the constructor/class name of a rule for logging. */
+  function ruleName(rule) {
+    if (!rule) return "unknown";
+    return rule.constructor ? rule.constructor.name : typeof rule;
   }
+
+  // ------------------------------------------------------------------
+  // Site listing (diagnostics)
+  // ------------------------------------------------------------------
+
+  /**
+   * Diagnostics: check bundle status, current rule match, and version info.
+   * Call from Python to verify everything is loaded correctly before scraping.
+   */
+  window.__ND_getDiagnostics = async function () {
+    try {
+      var diag = {
+        bundleReady: !!window.__ND_READY,
+        bridgeReady: !!window.__ND_BRIDGE_READY,
+        hasGetRule: typeof window.__ND_getRule === "function",
+        hasGetHtmlDOM: typeof window.__ND_getHtmlDOM === "function",
+        currentUrl: window.location.href,
+        currentHost: window.location.hostname,
+        ruleMatch: null,
+        bundleVersion: null,
+      };
+
+      // Extract bundle version from GM_info stub
+      if (window.GM_info && window.GM_info.script) {
+        diag.bundleVersion = window.GM_info.script.version;
+      }
+
+      // Try to match a rule for the current page
+      if (diag.hasGetRule) {
+        try {
+          var ruleResult = await window.__ND_getRule();
+          if (ruleResult) {
+            var r =
+              typeof ruleResult === "function"
+                ? new ruleResult()
+                : ruleResult;
+            diag.ruleMatch = ruleName(r);
+          }
+        } catch (e) {
+          diag.ruleMatch = "error: " + e.message;
+        }
+      }
+
+      return JSON.stringify(diag);
+    } catch (err) {
+      return JSON.stringify({ error: err.message || String(err) });
+    }
+  };
 
   // ------------------------------------------------------------------
   // Book parsing (metadata + chapter list)
@@ -58,6 +105,9 @@
         rule = ruleResult;
       }
 
+      var rName = ruleName(rule);
+      console.log("[ND-Bridge] Rule matched: " + rName);
+
       // bookParse() reads the current DOM to extract metadata + chapter list
       var book = await rule.bookParse();
 
@@ -70,13 +120,17 @@
       if (meta && meta.cover) {
         coverUrl = meta.cover.url || null;
         // If the attachment is still downloading, wait for it
-        if (meta.cover.status === 1 && typeof meta.cover.init === 'function') {
-          try { await meta.cover.init(); } catch(e) {}
+        if (meta.cover.status === 1 && typeof meta.cover.init === "function") {
+          try {
+            await meta.cover.init();
+          } catch (e) {}
         }
       } else {
         // Poll up to 2s for the async getAttachment .then() to resolve
         for (var poll = 0; poll < 4; poll++) {
-          await new Promise(function(r) { setTimeout(r, 500); });
+          await new Promise(function (r) {
+            setTimeout(r, 500);
+          });
           meta = book.additionalMetadate;
           if (meta && meta.cover) {
             coverUrl = meta.cover.url || null;
@@ -85,9 +139,15 @@
         }
       }
       if (coverUrl) {
-        console.log('[ND-Bridge] Cover URL: ' + coverUrl);
+        console.log("[ND-Bridge] Cover URL: " + coverUrl);
       } else {
-        console.log('[ND-Bridge] No cover found from rule');
+        console.log("[ND-Bridge] No cover found from rule");
+      }
+
+      // Extract introduction HTML (may contain images)
+      var introHtml = "";
+      if (book.introductionHTML) {
+        introHtml = domToHtml(book.introductionHTML);
       }
 
       // Serialise chapter list
@@ -114,10 +174,11 @@
         bookname: book.bookname,
         author: book.author,
         introduction: book.introduction || "",
+        introductionHTML: introHtml,
         coverUrl: coverUrl,
-        tags: (book.additionalMetadate && book.additionalMetadate.tags) || [],
-        language:
-          (book.additionalMetadate && book.additionalMetadate.language) || "zh",
+        ruleName: rName,
+        tags: (meta && meta.tags) || [],
+        language: (meta && meta.language) || "zh",
         chapterCount: chapters.length,
         chapters: chapters,
       });
@@ -142,7 +203,9 @@
     try {
       var rule = window.__ND_ruleInstance;
       if (!rule) {
-        return JSON.stringify({ error: "No rule instance — call parseBook first" });
+        return JSON.stringify({
+          error: "No rule instance — call parseBook first",
+        });
       }
 
       var charset = rule.charset || document.characterSet || "utf-8";
@@ -163,21 +226,42 @@
       var contentHtml = domToHtml(result.contentHTML);
       var contentText = result.contentText || "";
 
-      // Collect image data from contentImages (AttachmentClass instances)
+      // Collect image data from contentImages (AttachmentClass instances).
+      // Each AttachmentClass has: url, name, imageBlob, status, init()
+      // The name corresponds to the data-src-address in contentHtml.
       var images = [];
       if (result.contentImages && result.contentImages.length > 0) {
-        console.log('[ND-Bridge] ' + result.contentImages.length + ' image(s) to download for: ' + (result.chapterName || chapterName));
+        console.log(
+          "[ND-Bridge] " +
+            result.contentImages.length +
+            " image(s) to download for: " +
+            (result.chapterName || chapterName)
+        );
         for (var i = 0; i < result.contentImages.length; i++) {
           var img = result.contentImages[i];
-          console.log('[ND-Bridge] Image ' + (i + 1) + '/' + result.contentImages.length + ': ' + (img.url || img.name));
+          console.log(
+            "[ND-Bridge] Image " +
+              (i + 1) +
+              "/" +
+              result.contentImages.length +
+              ": " +
+              (img.url || img.name)
+          );
           // Wait for the image to finish downloading if it hasn't yet
           if (img.status === 1) {
             // Status.downloading
             try {
               await img.init();
-              console.log('[ND-Bridge] Image OK: ' + (img.name || img.url));
+              console.log(
+                "[ND-Bridge] Image OK: " + (img.name || img.url)
+              );
             } catch (imgErr) {
-              console.log('[ND-Bridge] Image FAILED: ' + (img.name || img.url) + ' — ' + imgErr.message);
+              console.log(
+                "[ND-Bridge] Image FAILED: " +
+                  (img.name || img.url) +
+                  " — " +
+                  imgErr.message
+              );
             }
           }
           var imgData = null;
@@ -210,6 +294,7 @@
       return JSON.stringify({
         error: err.message || String(err),
         stack: err.stack || "",
+        ruleName: ruleName(window.__ND_ruleInstance),
       });
     }
   };
