@@ -262,6 +262,57 @@ class ExternalScraper:
             return self._worker_pages[wi]
         return self._page  # fallback to primary
 
+    def _ensure_page(self):
+        """Verify the primary page is alive; restart if needed.
+
+        Returns True if the page is usable, False if recovery failed.
+        Called before any page.evaluate() to handle browser crashes
+        or disconnected pages mid-download.
+        """
+        if self._page is not None:
+            # Quick liveness check
+            try:
+                self._page.evaluate("1")
+                return True
+            except Exception:
+                self.log("Page disconnected, attempting recovery...")
+                self._page = None
+
+        # Page is None — try to recover
+        if self._context is None:
+            try:
+                self.start()
+            except Exception as e:
+                self.log(f"ERROR: Could not restart browser: {e}")
+                return False
+
+        # Create a new page in the existing context
+        try:
+            self._page = self._context.new_page()
+            self._page.on("console", self._on_console)
+        except Exception as e:
+            self.log(f"ERROR: Could not create new page: {e}")
+            return False
+
+        # Re-navigate and re-inject JS if we have a book URL
+        if self._book_url:
+            try:
+                self._page.goto(self._book_url,
+                                wait_until="domcontentloaded", timeout=30000)
+                self._page.evaluate(self._gm_stubs_js)
+                self._page.evaluate(self._rules_js)
+                self._page.evaluate(self._bridge_js)
+                # Re-initialise the rule instance
+                self._page.evaluate("window.__ND_parseBook()")
+                self.log("Page recovered and bridge re-injected.")
+                return True
+            except Exception as e:
+                self.log(f"ERROR: Page recovery failed: {e}")
+                return False
+
+        self.log("Page recovered (no book URL to re-inject).")
+        return True
+
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
 
@@ -366,6 +417,13 @@ class ExternalScraper:
             return None
 
         target_page = page or self._page
+        if target_page is None:
+            # Primary page lost — try to recover
+            if page is None and self._ensure_page():
+                target_page = self._page
+            else:
+                self.log(f"  [{index + 1}] No browser page available.")
+                return None
 
         url = chapter_info.get('url', '')
         name = chapter_info.get('name', '')
@@ -419,6 +477,11 @@ class ExternalScraper:
         The browser fires all HTTP requests in parallel.
         """
         if self._stop_requested or not batch_info:
+            return [None] * len(batch_info)
+
+        # Ensure the browser page is still alive
+        if not self._ensure_page():
+            self.log("  Batch aborted: no browser page available.")
             return [None] * len(batch_info)
 
         # Build JSON payload for the JS batch function
