@@ -61,47 +61,33 @@
       // bookParse() reads the current DOM to extract metadata + chapter list
       var book = await rule.bookParse();
 
-      // Extract cover URL — the cover attachment is set via .then() so it
-      // may take a moment to populate.  Wait briefly then fall back to DOM.
+      // Extract cover URL — each site rule's bookParse() calls
+      // getAttachment() to set additionalMetadate.cover, but it's
+      // async (.then()) so the attachment may not be populated yet.
+      // We poll briefly to give it time to resolve.
       var coverUrl = null;
-      if (book.additionalMetadate && book.additionalMetadate.cover) {
-        var coverAtt = book.additionalMetadate.cover;
-        coverUrl = coverAtt.url || null;
+      var meta = book.additionalMetadate;
+      if (meta && meta.cover) {
+        coverUrl = meta.cover.url || null;
         // If the attachment is still downloading, wait for it
-        if (coverAtt.status === 1 && typeof coverAtt.init === 'function') {
-          try { await coverAtt.init(); } catch(e) {}
+        if (meta.cover.status === 1 && typeof meta.cover.init === 'function') {
+          try { await meta.cover.init(); } catch(e) {}
         }
       } else {
-        // Wait 500ms for async getAttachment .then() to resolve
-        await new Promise(function(r) { setTimeout(r, 500); });
-        if (book.additionalMetadate && book.additionalMetadate.cover) {
-          coverUrl = book.additionalMetadate.cover.url || null;
-        }
-      }
-      // DOM fallback: look for common cover image selectors
-      if (!coverUrl) {
-        var coverSelectors = [
-          '#hasTicket div.pic img',           // SFACG
-          '.book-cover img',                  // Generic
-          '.novel-cover img',                 // Generic
-          'img.cover',                        // Generic
-          '.book-info img[src*="cover"]',     // Generic
-          'meta[property="og:image"]',        // OpenGraph
-        ];
-        for (var s = 0; s < coverSelectors.length; s++) {
-          var el = document.querySelector(coverSelectors[s]);
-          if (el) {
-            if (el.tagName === 'META') {
-              coverUrl = el.getAttribute('content') || null;
-            } else {
-              coverUrl = el.src || el.getAttribute('data-src') || null;
-            }
-            if (coverUrl) {
-              console.log('[ND-Bridge] Cover found via DOM: ' + coverSelectors[s]);
-              break;
-            }
+        // Poll up to 2s for the async getAttachment .then() to resolve
+        for (var poll = 0; poll < 4; poll++) {
+          await new Promise(function(r) { setTimeout(r, 500); });
+          meta = book.additionalMetadate;
+          if (meta && meta.cover) {
+            coverUrl = meta.cover.url || null;
+            break;
           }
         }
+      }
+      if (coverUrl) {
+        console.log('[ND-Bridge] Cover URL: ' + coverUrl);
+      } else {
+        console.log('[ND-Bridge] No cover found from rule');
       }
 
       // Serialise chapter list
