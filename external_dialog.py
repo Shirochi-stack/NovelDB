@@ -17,6 +17,7 @@ and the existing epub_generator for EPUB output.
 import os
 import sys
 import re
+import json
 import time
 import threading
 import queue
@@ -76,6 +77,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._worker_thread.start()
 
         self._build_ui()
+        self._load_ext_config()
         self._poll_queue()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -878,6 +880,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         self._log("Stop requested.")
 
     def _on_close(self):
+        self._save_ext_config()
         self._downloading = False
         if self._scraper:
             self._scraper._stop_requested = True
@@ -888,3 +891,53 @@ img { display: block; max-width: 100%; max-height: 100%;
                 target=self._scraper.cleanup, daemon=True
             ).start()
         self.destroy()
+
+    # ------------------------------------------------------------------
+    # Settings Persistence
+    # ------------------------------------------------------------------
+    def _load_ext_config(self):
+        """Load external dialog settings from config.json (ext_* keys)."""
+        cfg_path = os.path.join(_get_base_dir(), "config.json")
+        if not os.path.exists(cfg_path):
+            return
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            self._url_var.set(cfg.get("ext_url", ""))
+            self._var_format.set(cfg.get("ext_format", "epub"))
+            self._var_ext_threads.set(cfg.get("ext_threads", 4))
+            self._var_interval.set(cfg.get("ext_interval", 0.5))
+            self._var_from_enabled.set(cfg.get("ext_from_enabled", False))
+            self._var_to_enabled.set(cfg.get("ext_to_enabled", False))
+            self._var_from.set(cfg.get("ext_from", 1))
+            self._var_to.set(cfg.get("ext_to", 1))
+        except Exception:
+            pass
+
+    def _save_ext_config(self):
+        """Save external dialog settings into config.json (ext_* keys).
+
+        Merges with the existing config so the main GUI's settings are
+        not overwritten.
+        """
+        cfg_path = os.path.join(_get_base_dir(), "config.json")
+        cfg = {}
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                pass
+        cfg["ext_url"] = self._url_var.get()
+        cfg["ext_format"] = self._var_format.get()
+        cfg["ext_threads"] = self._var_ext_threads.get()
+        cfg["ext_interval"] = self._var_interval.get()
+        cfg["ext_from_enabled"] = self._var_from_enabled.get()
+        cfg["ext_to_enabled"] = self._var_to_enabled.get()
+        cfg["ext_from"] = self._var_from.get()
+        cfg["ext_to"] = self._var_to.get()
+        try:
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception:
+            pass
