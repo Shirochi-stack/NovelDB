@@ -3450,8 +3450,17 @@ table, th, td {
         }
         try:
             cfg_path = os.path.join(_get_base_dir(), "config.json")
+            # Read existing config to preserve ext_* keys from external dialog
+            existing = {}
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                except Exception:
+                    pass
+            existing.update(cfg)
             with open(cfg_path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
+                json.dump(existing, f, indent=2)
         except: pass
 
     def _open_external_dialog(self):

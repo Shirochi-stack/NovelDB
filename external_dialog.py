@@ -429,7 +429,9 @@ class ExternalNovelDialog(tk.Toplevel):
         self._lbl_chapters.configure(text=str(chapter_count))
 
         if chapter_count > 0:
-            self._var_to.set(chapter_count)
+            # Only auto-fill 'To' if the user hasn't explicitly set a range
+            if not self._var_to_enabled.get():
+                self._var_to.set(chapter_count)
             self._btn_download.configure(state="normal")
 
     # ------------------------------------------------------------------
