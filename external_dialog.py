@@ -686,6 +686,11 @@ img { display: block; max-width: 100%; max-height: 100%;
                     compress_images, jpeg_quality, image_format, i
                 )
 
+                # Fix novel-downloader's img format for EPUB rendering:
+                # cleanDOM outputs <img data-src-address="name.jpeg" alt="..."
+                # title="..."> with NO src attribute.  EPUB readers need src.
+                content_html = self._fix_nd_img_tags(content_html)
+
                 epub.add_chapter(ch_name, content_html)
 
             epub.generate()
@@ -761,6 +766,47 @@ img { display: block; max-width: 100%; max-height: 100%;
                     raw = self._compress_image(raw, quality, fmt)
                 epub.add_image(name, raw)
                 html_str = html_str.replace(url, f'../Images/{name}')
+
+        return html_str
+
+    @staticmethod
+    def _fix_nd_img_tags(html_str):
+        """Fix novel-downloader's img tags for EPUB rendering.
+
+        The novel-downloader's cleanDOM outputs images as:
+          <img data-src-address="name.jpeg" alt="../Images/name.jpeg"
+               title="../Images/name.jpeg">
+        EPUB readers need a proper src attribute:
+          <img src="../Images/name.jpeg" alt="name.jpeg" />
+        """
+        if not html_str:
+            return html_str
+
+        # Convert <img data-src-address="X" ...> to <img src="../Images/X" />
+        def fix_img(m):
+            tag = m.group(0)
+            # Extract data-src-address value
+            ds = re.search(r'data-src-address="([^"]+)"', tag)
+            if ds:
+                filename = ds.group(1)
+                src = f'../Images/{filename}'
+                # Build a clean self-closing img tag
+                return f'<img src="{src}" alt="{filename}" />'
+            # If no data-src-address, check if src is missing but alt has path
+            alt = re.search(r'alt="(\.\./Images/[^"]+)"', tag)
+            if alt and 'src=' not in tag:
+                return f'<img src="{alt.group(1)}" alt="" />'
+            # Already has src — just ensure self-closing for XHTML
+            if not tag.rstrip().endswith('/>'):
+                tag = tag.rstrip().rstrip('>') + ' />'
+            return tag
+
+        html_str = re.sub(r'<img\b[^>]*>', fix_img, html_str,
+                          flags=re.IGNORECASE)
+
+        # Also fix bare <br> tags → <br/> for valid XHTML
+        html_str = re.sub(r'<br\s*(?!/)>', '<br/>', html_str,
+                          flags=re.IGNORECASE)
 
         return html_str
 
