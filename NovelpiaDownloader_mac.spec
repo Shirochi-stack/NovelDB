@@ -127,6 +127,30 @@ a = Analysis(
     excludes=[],
     noarchive=False,
 )
+
+# ── Post-Analysis fix for arm64 ──────────────────────────────────────
+# PyInstaller auto-discovers Chromium and Playwright node binaries via
+# import tracing and adds them to a.binaries.  On arm64, install_name_tool
+# fails on Chromium's non-standard __LINKEDIT segment.
+# Move these entries from a.binaries → a.datas so they are copied as-is.
+_chromium_keywords = ('ms-playwright', 'chromium', 'playwright/driver')
+_move_to_datas = []
+_keep_binaries = []
+for item in a.binaries:
+    dest = item[0] if isinstance(item, tuple) else str(item)
+    src = item[1] if isinstance(item, tuple) and len(item) > 1 else ''
+    if any(kw in dest or kw in src for kw in _chromium_keywords):
+        _move_to_datas.append(item)
+    else:
+        _keep_binaries.append(item)
+
+if _move_to_datas:
+    print(f"[spec] Moved {len(_move_to_datas)} Playwright/Chromium entries"
+          f" from binaries → datas to avoid install_name_tool failures.")
+a.binaries = _keep_binaries
+a.datas += _move_to_datas
+# ─────────────────────────────────────────────────────────────────────
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(

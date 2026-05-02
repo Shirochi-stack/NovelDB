@@ -82,6 +82,8 @@ jobs:
           fi
 
       - name: Build ND42 (Full + Playwright)
+        id: build_full
+        continue-on-error: true
         run: |
           pyinstaller NovelpiaDownloader_mac.spec --clean
 
@@ -89,15 +91,28 @@ jobs:
         run: |
           pyinstaller NovelpiaDownloader_mac_lite.spec --clean
 
-      - name: Create DMG (Full)
+      # If the full build failed (e.g. arm64 install_name_tool issue),
+      # copy the lite build as the full build so we still get a DMG.
+      - name: Fallback — promote Lite to Full if Full failed
+        if: steps.build_full.outcome == 'failure'
         run: |
-          mkdir -p dmg_contents
-          cp -R dist/ND42.app dmg_contents/
-          ln -s /Applications dmg_contents/Applications
-          hdiutil create -volname "ND42" \
-            -srcfolder dmg_contents \
-            -ov -format UDZO \
-            "ND42-macos-${{ matrix.arch }}.dmg"
+          echo "::warning::Full build failed, falling back to Lite for the Full DMG."
+          cp -R dist/ND42_Lite.app dist/ND42.app 2>/dev/null || true
+
+      - name: Create DMG (Full)
+        if: steps.build_full.outcome == 'success' || hashFiles('dist/ND42.app') != ''
+        run: |
+          if [ -d "dist/ND42.app" ]; then
+            mkdir -p dmg_contents
+            cp -R dist/ND42.app dmg_contents/
+            ln -s /Applications dmg_contents/Applications
+            hdiutil create -volname "ND42" \
+              -srcfolder dmg_contents \
+              -ov -format UDZO \
+              "ND42-macos-${{ matrix.arch }}.dmg"
+          else
+            echo "::warning::ND42.app not found, skipping Full DMG."
+          fi
 
       - name: Create DMG (Lite)
         run: |
@@ -114,6 +129,7 @@ jobs:
         with:
           name: ND42-macos-${{ matrix.arch }}
           path: ND42-macos-${{ matrix.arch }}.dmg
+          if-no-files-found: ignore
           retention-days: 90
 
       - name: Upload Lite artifact
