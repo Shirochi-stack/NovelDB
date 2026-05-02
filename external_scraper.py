@@ -145,14 +145,31 @@ class ExternalScraper:
         page.goto(start_url)
         self.log("Browser opened. Login to sites as needed, then close the browser.")
 
-        # Block until all pages close (user closes the browser window)
+        # Wait for the browser to fully close.  We listen on the *context*
+        # "close" event rather than the page – this fires only after
+        # Chromium has completely exited and flushed all session data
+        # (cookies, localStorage, IndexedDB) to the persistent profile
+        # directory.  Using page.wait_for_event("close") previously caused
+        # a race: cleanup() would call context.close() while Chromium was
+        # still mid-shutdown, interrupting the disk flush and losing the
+        # login session.
         try:
-            page.wait_for_event("close", timeout=0)
+            self._context.wait_for_event("close", timeout=0)
         except Exception:
             pass
 
         self.log("Browser closed. Session data saved.")
-        self.cleanup()
+        # The context already disconnected, so just reset Python refs
+        # without calling context.close() again (which would error or
+        # race with the flush).
+        self._page = None
+        self._context = None
+        try:
+            if self._playwright:
+                self._playwright.stop()
+                self._playwright = None
+        except Exception:
+            self._playwright = None
 
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
