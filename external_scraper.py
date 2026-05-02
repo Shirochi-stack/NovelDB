@@ -111,6 +111,7 @@ class ExternalScraper:
             args=[
                 '--disable-web-security',       # Allow cross-origin fetches
                 '--disable-features=IsolateOrigins,site-per-process',
+                '--allow-running-insecure-content',  # Allow HTTP images on HTTPS pages
                 '--no-sandbox',
             ],
             ignore_https_errors=True,
@@ -137,6 +138,7 @@ class ExternalScraper:
             args=[
                 '--disable-web-security',
                 '--disable-features=IsolateOrigins,site-per-process',
+                '--allow-running-insecure-content',
                 '--no-sandbox',
             ],
             ignore_https_errors=True,

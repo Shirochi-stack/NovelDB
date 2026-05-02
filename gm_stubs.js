@@ -35,6 +35,12 @@ window.GM.info = window.GM_info;
 // In our headless context we use standard fetch (CORS disabled), so we
 // route GM_xmlhttpRequest through fetch().
 window.GM_xmlhttpRequest = function(details) {
+  // Upgrade http:// to https:// to avoid mixed content blocking
+  // (matches the novel-downloader's own getText() upgrade logic)
+  var url = details.url;
+  if (url && url.indexOf('http://') === 0 && document.location.protocol === 'https:') {
+    url = url.replace('http://', 'https://');
+  }
   var init = {
     method: details.method || "GET",
     headers: details.headers || {},
@@ -43,7 +49,7 @@ window.GM_xmlhttpRequest = function(details) {
     init.body = details.data;
   }
   if (details.responseType === "arraybuffer" || details.responseType === "blob") {
-    fetch(details.url, init)
+    fetch(url, init)
       .then(function(r) {
         return details.responseType === "arraybuffer" ? r.arrayBuffer() : r.blob();
       })
@@ -56,7 +62,7 @@ window.GM_xmlhttpRequest = function(details) {
             response: data,
             readyState: 4,
             responseHeaders: "",
-            finalUrl: details.url,
+            finalUrl: url,
           });
         }
       })
@@ -64,7 +70,7 @@ window.GM_xmlhttpRequest = function(details) {
         if (details.onerror) details.onerror({ error: e.message });
       });
   } else {
-    fetch(details.url, init)
+    fetch(url, init)
       .then(function(r) { return r.text().then(function(t) { return { r: r, t: t }; }); })
       .then(function(obj) {
         if (details.onload) {
@@ -75,7 +81,7 @@ window.GM_xmlhttpRequest = function(details) {
             response: obj.t,
             readyState: 4,
             responseHeaders: "",
-            finalUrl: details.url,
+            finalUrl: url,
           });
         }
       })
