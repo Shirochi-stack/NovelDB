@@ -559,7 +559,7 @@ class ExternalNovelDialog(tk.Toplevel):
         try:
             from epub_generator import EpubGenerator
         except ImportError:
-            self._log("\u274c epub_generator.py not found. Falling back to TXT.")
+            self._log("❌ epub_generator.py not found. Falling back to TXT.")
             self._generate_txt(title, author)
             return
 
@@ -588,14 +588,46 @@ img { display: block; max-width: 100%; max-height: 100%;
 """
 
         data = self._book_data
+        cover_url = data.get('coverUrl', '')
+
         metadata = {
             'title': data.get('bookname', title),
             'author': data.get('author', author),
-            'cover_image': None,
         }
+
+        import base64
+        import requests as _req
+
+        # Session for Python-side image downloads (reuse connections)
+        img_session = _req.Session()
+        img_session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/120.0.0.0 Safari/537.36',
+            'Referer': data.get('bookUrl', ''),
+        })
+        img_counter = [0]
 
         try:
             epub = EpubGenerator(metadata, filepath, css, zip_compress)
+
+            # Download and add cover image via the correct API
+            # (EpubGenerator looks for images named 'cover.*')
+            if cover_url:
+                cover_bytes = self._download_image_python(
+                    cover_url, "Cover", session=img_session
+                )
+                if cover_bytes:
+                    ext = 'jpg'
+                    if cover_bytes[:4] == b'\x89PNG':
+                        ext = 'png'
+                    elif cover_bytes[:4] == b'RIFF':
+                        ext = 'webp'
+                    if compress_images:
+                        cover_bytes = self._compress_image(
+                            cover_bytes, jpeg_quality, image_format
+                        )
+                    epub.add_image(f'cover.{ext}', cover_bytes)
 
             for i, ch_data in enumerate(self._chapter_results):
                 if ch_data is None:
@@ -603,36 +635,132 @@ img { display: block; max-width: 100%; max-height: 100%;
                 ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
                 content_html = ch_data.get('contentHtml', '')
 
-                # Process images if present
+                # Process images: use browser-provided base64 data when
+                # available, fall back to Python-side download otherwise.
                 if ch_data.get('images'):
-                    import base64
                     for img_info in ch_data['images']:
+                        img_url = img_info.get('url', '')
                         img_data_url = img_info.get('data')
+                        raw = None
+
+                        # Try browser-provided base64 data first
                         if img_data_url and ',' in img_data_url:
                             _, b64 = img_data_url.split(',', 1)
                             try:
                                 raw = base64.b64decode(b64)
-                                img_name = img_info.get(
-                                    'name', f'img_{i}_{epub._normal_index}'
-                                )
-                                # Apply compression if enabled
-                                if compress_images:
-                                    raw = self._compress_image(
-                                        raw, jpeg_quality, image_format
-                                    )
-                                epub.add_image(img_name, raw)
                             except Exception:
                                 pass
+
+                        # Fall back to Python-side download
+                        if not raw and img_url:
+                            raw = self._download_image_python(
+                                img_url,
+                                f"Ch{i+1} image",
+                                session=img_session
+                            )
+
+                        if raw:
+                            img_counter[0] += 1
+                            img_name = img_info.get(
+                                'name', f'img_{i}_{img_counter[0]}'
+                            )
+                            # Apply compression if enabled
+                            if compress_images:
+                                raw = self._compress_image(
+                                    raw, jpeg_quality, image_format
+                                )
+                            epub.add_image(img_name, raw)
+                            # Replace the URL in content_html with the
+                            # local EPUB path so the image actually renders
+                            if img_url and content_html:
+                                content_html = content_html.replace(
+                                    img_url, f'../Images/{img_name}'
+                                )
+
+                # Also handle any <img src="..."> in contentHtml that
+                # weren't in the images array (e.g. inline images)
+                content_html = self._download_inline_images(
+                    content_html, epub, img_session, img_counter,
+                    compress_images, jpeg_quality, image_format, i
+                )
 
                 epub.add_chapter(ch_name, content_html)
 
             epub.generate()
-            self._log(f"\u2705 Saved: {filepath}")
+            self._log(f"✅ Saved: {filepath}")
 
         except Exception as e:
-            self._log(f"\u274c EPUB generation failed: {e}")
+            self._log(f"❌ EPUB generation failed: {e}")
             self._log("Falling back to TXT output...")
             self._generate_txt(title, author)
+        finally:
+            img_session.close()
+
+    def _download_image_python(self, url, label="Image", session=None,
+                               max_retries=3):
+        """Download an image using requests (no CORS/mixed-content issues).
+
+        Automatically upgrades http:// to https:// and retries on failure.
+        Returns raw bytes or None.
+        """
+        import requests as _req
+
+        # Upgrade http to https (many sites serve images on http but
+        # support https — and some block http entirely)
+        if url.startswith('http://'):
+            url = url.replace('http://', 'https://', 1)
+
+        sess = session or _req
+        for attempt in range(max_retries):
+            try:
+                r = sess.get(url, timeout=15)
+                if r.status_code == 200 and len(r.content) > 100:
+                    self._log(f"  📷 {label}: OK ({len(r.content)} bytes)")
+                    return r.content
+                # Try original http:// URL as fallback on last attempt
+                if attempt == max_retries - 2 and url.startswith('https://'):
+                    url = url.replace('https://', 'http://', 1)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    self._log(f"  📷 {label}: FAILED ({e})")
+        return None
+
+    def _download_inline_images(self, html_str, epub, session, counter,
+                                compress, quality, fmt, ch_idx):
+        """Find <img src="http..."> in HTML, download, and replace with
+        local EPUB paths.  Skips images already pointing to ../Images/."""
+        import re
+        if not html_str:
+            return html_str
+
+        img_pat = re.compile(r'<img[^>]+src="(https?://[^"]+)"[^>]*/?>',
+                             re.IGNORECASE)
+        matches = img_pat.findall(html_str)
+        if not matches:
+            return html_str
+
+        for url in matches:
+            if '../Images/' in url:
+                continue  # Already replaced
+            raw = self._download_image_python(
+                url, f"Ch{ch_idx+1} inline img", session=session
+            )
+            if raw:
+                counter[0] += 1
+                ext = 'jpg'  # Default
+                if raw[:4] == b'\x89PNG':
+                    ext = 'png'
+                elif raw[:4] == b'RIFF':
+                    ext = 'webp'
+                elif raw[:3] == b'GIF':
+                    ext = 'gif'
+                name = f'img_{ch_idx}_{counter[0]}.{ext}'
+                if compress:
+                    raw = self._compress_image(raw, quality, fmt)
+                epub.add_image(name, raw)
+                html_str = html_str.replace(url, f'../Images/{name}')
+
+        return html_str
 
     def _compress_image(self, raw_data, quality, fmt):
         """Compress an image using PIL, reusing parent GUI's settings."""
