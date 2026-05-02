@@ -17,6 +17,7 @@ and the existing epub_generator for EPUB output.
 import os
 import sys
 import re
+import html
 import json
 import time
 import threading
@@ -608,6 +609,9 @@ img { display: block; max-width: 100%; max-height: 100%;
         metadata = {
             'title': data.get('bookname', title),
             'author': data.get('author', author),
+            'description': data.get('introduction', ''),
+            'tags': data.get('tags', []),
+            'language': data.get('language', 'zh'),
         }
 
         import base64
@@ -650,6 +654,25 @@ img { display: block; max-width: 100%; max-height: 100%;
                             ext = 'jpg'
                     epub.add_image(f'cover.{ext}', cover_bytes)
                     cover_added = True
+
+            # Add introduction page if available (synopsis/description)
+            intro_html = data.get('introductionHTML', '')
+            if intro_html:
+                intro_page = f"""<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"
+  "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Introduction</title>
+<link href="../Styles/style.css" type="text/css" rel="stylesheet"/>
+</head>
+<body>
+<h2>{html.escape(data.get('bookname', title))}</h2>
+<h3>{html.escape(data.get('author', author))}</h3>
+<hr/>
+{intro_html}
+</body>
+</html>"""
+                epub.add_extra_page('info.xhtml', intro_page)
 
             for i, ch_data in enumerate(self._chapter_results):
                 if ch_data is None:

@@ -148,7 +148,7 @@ class EpubGenerator:
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
     <dc:title>{html.escape(self.meta['title'])}</dc:title>
     <dc:creator opf:role="aut">{html.escape(self.meta['author'])}</dc:creator>
-    <dc:language>ko</dc:language>
+    <dc:language>{self.meta.get('language', 'ko')}</dc:language>
     <dc:identifier id="BookId" opf:scheme="UUID">urn:uuid:{self.book_uuid}</dc:identifier>{description_xml}{subjects}{cover_meta}
 </metadata>
 <manifest>
