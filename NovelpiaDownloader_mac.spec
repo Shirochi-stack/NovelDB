@@ -51,15 +51,18 @@ if brew_lib and os.path.isdir(brew_lib):
                 binaries.append((dylib, '.'))
 
 # --- Playwright driver (node + JS package) ---
+# Added as datas (not binaries) to avoid install_name_tool issues
+# with the bundled Node binary on arm64.
 import playwright
 _pw_dir = os.path.dirname(playwright.__file__)
 _pw_driver = os.path.join(_pw_dir, 'driver')
+_pw_datas = []
 if os.path.exists(_pw_driver):
     for root, dirs, files in os.walk(_pw_driver):
         for f in files:
             src = os.path.join(root, f)
             rel = os.path.relpath(root, _pw_dir)
-            binaries.append((src, os.path.join('playwright', rel)))
+            _pw_datas.append((src, os.path.join('playwright', rel)))
 
 # --- Bundle Chromium browsers from ms-playwright ---
 # On macOS, browsers live in ~/Library/Caches/ms-playwright
@@ -73,16 +76,6 @@ for _candidate in _ms_pw_candidates:
         _ms_pw = _candidate
         break
 
-if _ms_pw:
-    for entry in os.listdir(_ms_pw):
-        if entry.startswith('chromium'):
-            _chromium_dir = os.path.join(_ms_pw, entry)
-            for root, dirs, files in os.walk(_chromium_dir):
-                for f in files:
-                    src = os.path.join(root, f)
-                    rel = os.path.relpath(root, _ms_pw)
-                    binaries.append((src, os.path.join('ms-playwright', rel)))
-
 # Icon: expect icon.icns to be generated at build time from icon.ico
 icon_file = 'icon.icns' if os.path.exists('icon.icns') else None
 
@@ -93,6 +86,24 @@ if icon_file:
 for js in ['gm_stubs.js', 'bridge.js', 'rules-lib.js']:
     if os.path.exists(js):
         _datas.append((js, '.'))
+# Merge Playwright driver files collected earlier
+_datas.extend(_pw_datas)
+
+if _ms_pw:
+    for entry in os.listdir(_ms_pw):
+        if entry.startswith('chromium'):
+            _chromium_dir = os.path.join(_ms_pw, entry)
+            for root, dirs, files in os.walk(_chromium_dir):
+                for f in files:
+                    src = os.path.join(root, f)
+                    rel = os.path.relpath(root, _ms_pw)
+                    # Add as datas (not binaries) so PyInstaller copies
+                    # them as-is without running install_name_tool.
+                    # Chromium's __LINKEDIT segment is non-standard and
+                    # causes install_name_tool to fail on arm64.
+                    _datas.append((src, os.path.join('ms-playwright', rel)))
+
+
 
 a = Analysis(
     ['gui.py'],
