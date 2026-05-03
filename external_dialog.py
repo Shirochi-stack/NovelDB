@@ -630,14 +630,15 @@ class ExternalNovelDialog(tk.Toplevel):
         lbl = ttk.Label(top, text="Paste one URL per line:")
         lbl.pack(anchor="w", padx=10, pady=(10, 3))
 
+        # Pin buttons to the bottom (packed BEFORE text so they're always visible)
+        btns = ttk.Frame(top)
+        btns.pack(side="bottom", fill="x", padx=10, pady=(5, 10))
+
         text = tk.Text(top, wrap="word", undo=True, maxundo=-1)
         text.pack(fill="both", expand=True, padx=10)
         if self._paste_batch_text:
             text.insert("1.0", self._paste_batch_text)
             text.edit_reset()  # clear undo stack so pre-fill isn't undoable
-
-        btns = ttk.Frame(top)
-        btns.pack(fill="x", padx=10, pady=(5, 10))
 
         def _snapshot():
             try:
