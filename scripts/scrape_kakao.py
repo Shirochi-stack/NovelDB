@@ -12,12 +12,15 @@ Usage:
 Output: docs/data/kakao_novels.json
 """
 
-import sys, os, json, time, re, argparse
+import sys, os, json, time, re, argparse, gzip, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 sys.stdout.reconfigure(encoding='utf-8')
 
 BFF_SEARCH_URL = 'https://bff-page.kakao.com/api/gateway/api/v1/search/series'
+BFF_PRODUCT_LIST_URL = 'https://bff-page.kakao.com/api/gateway/api/v2/content/product/list'
+KAKAO_DESCRIPTIONS_PATH = os.path.join("docs", "data", "kakao_descriptions.txt")
 
 # Korean syllable blocks cover all possible title prefixes
 SEARCH_TERMS = [
@@ -25,6 +28,7 @@ SEARCH_TERMS = [
 ]
 
 THUMB_PREFIX = 'https://dn-img-page.kakao.com/download/resource?kid='
+_thread_local = threading.local()
 
 
 def make_session():
@@ -36,6 +40,113 @@ def make_session():
         'Origin': 'https://page.kakao.com',
     })
     return s
+
+
+def get_thread_session():
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = make_session()
+        _thread_local.session = session
+    return session
+
+
+def normalize_description(text):
+    if not text:
+        return ""
+    text = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def load_existing_descriptions(path=KAKAO_DESCRIPTIONS_PATH):
+    """Load existing raw descriptions and English translations."""
+    rows = {}
+    source = None
+    if os.path.exists(path):
+        source = path
+        opener = open
+        mode = "r"
+    elif os.path.exists(path + ".gz"):
+        source = path + ".gz"
+        opener = gzip.open
+        mode = "rt"
+    else:
+        return rows
+
+    with opener(source, mode, encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\r\n")
+            if not line:
+                continue
+            parts = line.split("|||")
+            nid = parts[0].strip()
+            if not nid:
+                continue
+            raw = parts[1] if len(parts) >= 2 else ""
+            en = parts[2].strip() if len(parts) >= 3 else ""
+            rows[nid] = (raw.replace("\\n", "\n"), en)
+    if rows:
+        print(f"Loaded {len(rows)} existing descriptions from {source}")
+    return rows
+
+
+def fetch_series_description(series_id):
+    """Fetch one KakaoPage series description from the product-list BFF API."""
+    session = get_thread_session()
+    r = session.get(BFF_PRODUCT_LIST_URL, params={
+        'series_id': series_id,
+        'cursor_index': 0,
+        'cursor_direction': 'ANCHOR',
+        'window_size': 0,
+    }, timeout=15)
+    if r.status_code != 200:
+        return ""
+    result = r.json().get("result", {})
+    series_item = result.get("series_item", {})
+    return normalize_description(series_item.get("description", ""))
+
+
+def fetch_descriptions(all_novels, existing, workers=12):
+    """Fill descriptions, using existing rows as a cache on rescrapes."""
+    workers = max(1, workers)
+    cached = 0
+    missing = []
+
+    for sid, novel in all_novels.items():
+        cached_raw = existing.get(sid, ("", ""))[0]
+        if cached_raw:
+            novel["description"] = normalize_description(cached_raw)
+            cached += 1
+        else:
+            missing.append(sid)
+
+    print(f"\nDescriptions: {cached:,} cached, {len(missing):,} to fetch")
+    if not missing:
+        return
+
+    fetched = 0
+    failed = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(fetch_series_description, sid): sid for sid in missing}
+        for i, fut in enumerate(as_completed(futures), 1):
+            sid = futures[fut]
+            try:
+                desc = fut.result()
+            except Exception:
+                desc = ""
+
+            if desc:
+                all_novels[sid]["description"] = desc
+                fetched += 1
+            else:
+                failed += 1
+
+            if i % 500 == 0 or i == len(missing):
+                print(
+                    f"  descriptions {i:,}/{len(missing):,} "
+                    f"fetched={fetched:,} empty/failed={failed:,}",
+                    flush=True,
+                )
 
 
 def scrape_search_term(session, keyword, all_novels, delay=0.3, page_size=100):
@@ -135,10 +246,50 @@ def save_novels(all_novels, path="docs/data/kakao_novels.json"):
     print(f"\nSaved {len(optimized)} novels to {path} ({size_mb:.1f} MB)")
 
 
+def save_descriptions(all_novels, existing, path=KAKAO_DESCRIPTIONS_PATH):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    translated = []
+    untranslated = []
+    for n in all_novels.values():
+        nid = str(n.get("id", ""))
+        if not nid:
+            continue
+
+        desc = normalize_description(n.get("description", ""))
+        en = existing.get(nid, ("", ""))[1]
+        if not desc and not en:
+            continue
+
+        flat = desc.replace("\n", "\\n")
+        row = f"{nid}|||{flat}|||{en}\n"
+        if en:
+            translated.append(row)
+        else:
+            untranslated.append(row)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(translated)
+        f.writelines(untranslated)
+
+    gz_path = path + ".gz"
+    with open(path, "rb") as f_in:
+        raw = f_in.read()
+    with open(gz_path, "wb") as f_out:
+        f_out.write(gzip.compress(raw, compresslevel=6))
+
+    print(f"Saved {len(translated) + len(untranslated):,} descriptions to {path}")
+    print(f"  Translated: {len(translated):,}, Untranslated: {len(untranslated):,}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Scrape KakaoPage novels via BFF API")
     parser.add_argument("--delay", type=float, default=0.3, help="Delay between requests")
     parser.add_argument("--page-size", type=int, default=100, help="Results per page (max 100)")
+    parser.add_argument("--skip-descriptions", action="store_true",
+                        help="Only scrape catalog metadata; do not fetch raw synopsis text")
+    parser.add_argument("--description-workers", type=int, default=12,
+                        help="Parallel workers for fetching Kakao descriptions")
     args = parser.parse_args()
 
     session = make_session()
@@ -166,7 +317,12 @@ def main():
         print(f" → +{new} (total: {len(all_novels)})")
 
     print(f"\nTotal: {len(all_novels)} unique novels")
+    existing_descriptions = load_existing_descriptions()
+    if not args.skip_descriptions:
+        fetch_descriptions(all_novels, existing_descriptions, workers=args.description_workers)
     save_novels(all_novels)
+    if not args.skip_descriptions:
+        save_descriptions(all_novels, existing_descriptions)
 
 
 if __name__ == "__main__":

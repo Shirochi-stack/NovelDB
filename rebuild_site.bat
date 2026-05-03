@@ -27,7 +27,7 @@ if errorlevel 1 goto :error
 echo.
 
 echo [5/5] Chunking Kakao data...
-python scripts/chunk_and_compress.py --input docs/data/kakao_novels.json --prefix kakao_chunk --output-dir docs/data -n 3 --translations docs/data/kakao_titles_en.txt
+python scripts/chunk_and_compress.py --input docs/data/kakao_novels.json --prefix kakao_chunk --output-dir docs/data -n 3 --translations docs/data/kakao_titles_en.txt --descriptions docs/data/kakao_descriptions.txt
 if errorlevel 1 echo   (Kakao data not found or failed — skipping)
 echo.
 
