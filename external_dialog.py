@@ -858,6 +858,31 @@ class ExternalNovelDialog(tk.Toplevel):
         except Exception as e:
             self._log(f"\u274c TXT generation failed: {e}")
 
+    def _kakao_extra_css(self):
+        """Collect original Kakao viewer CSS from downloaded chapters."""
+        if not (self._book_data and self._book_data.get('_kakaopage')):
+            return ''
+
+        css_parts = ["""
+body {
+  background-color: #fff;
+  color: #000;
+}
+body > h1:first-child,
+.chapter > h1:first-child {
+  display: none;
+}
+""".strip()]
+        seen = set()
+        for ch_data in self._chapter_results or []:
+            if not ch_data or ch_data.get('_locked'):
+                continue
+            css = (ch_data.get('contentCss') or '').strip()
+            if css and css not in seen:
+                seen.add(css)
+                css_parts.append(css)
+        return '\n\n'.join(css_parts)
+
     def _generate_epub(self, title, author):
         """Generate an EPUB file using the existing epub_generator."""
         try:
@@ -903,6 +928,9 @@ h3, h4, h5, h6 { text-align: center; margin-bottom: 15%; margin-top: 10%; }
 img { display: block; max-width: 100%; max-height: 100%;
       margin-left: auto; margin-right: auto; margin-bottom: 2%; margin-top: 2%; }
 """
+        kakao_css = self._kakao_extra_css()
+        if kakao_css:
+            css = f"{css}\n\n/* KakaoPage original viewer CSS */\n{kakao_css}\n"
 
         data = self._book_data
         cover_url = data.get('coverUrl', '')
@@ -1255,6 +1283,9 @@ h3, h4, h5, h6 { text-align: center; margin-bottom: 15%; margin-top: 10%; }
 img { display: block; max-width: 100%; max-height: 100%;
       margin-left: auto; margin-right: auto; margin-bottom: 2%; margin-top: 2%; }
 """
+        kakao_css = self._kakao_extra_css()
+        if kakao_css:
+            css = f"{css}\n\n/* KakaoPage original viewer CSS */\n{kakao_css}\n"
 
         data = self._book_data
         metadata = {

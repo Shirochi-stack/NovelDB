@@ -19,6 +19,8 @@ import os
 import re
 import sys
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 # When running from a PyInstaller bundle, point Playwright to the
@@ -84,6 +86,7 @@ class ExternalScraper:
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
+        self._kakao_css_cache = {}
 
     @staticmethod
     def _get_user_data_dir():
@@ -693,15 +696,16 @@ class ExternalScraper:
 
             raw_chunks = api_result.get('chunks', [])
             json_chunks = [r.encode('utf-8') for r in raw_chunks]
-            para_tuples = self._kakao_extract_from_json(json_chunks)
+            para_tuples, content_css = self._kakao_extract_from_json(
+                json_chunks)
             if para_tuples:
-                para_tuples = self._kakao_strip_headings(para_tuples)
                 full_text, content_html = self._kakao_build_output(
                     para_tuples)
                 return {
                     'chapterName': chapter_name,
                     'contentText': full_text,
                     'contentHtml': content_html,
+                    'contentCss': content_css,
                     'images': [],
                 }
 
@@ -731,15 +735,16 @@ class ExternalScraper:
             return None
         target.remove_listener('response', _capture_response)
 
-        para_tuples = self._kakao_extract_from_json(json_chunks_fb)
+        para_tuples, content_css = self._kakao_extract_from_json(
+            json_chunks_fb)
         if para_tuples:
-            para_tuples = self._kakao_strip_headings(para_tuples)
             full_text, content_html = self._kakao_build_output(
                 para_tuples)
             return {
                 'chapterName': chapter_name,
                 'contentText': full_text,
                 'contentHtml': content_html,
+                'contentCss': content_css,
                 'images': [],
             }
 
@@ -785,7 +790,7 @@ class ExternalScraper:
         return cleaned
 
     @staticmethod
-    def _kakao_build_output(para_tuples):
+    def _kakao_build_output_legacy(para_tuples):
         """Convert (plain_text, html_fragment, type, style) tuples to
         full text and HTML output.
 
@@ -815,6 +820,86 @@ class ExternalScraper:
         return '\n'.join(text_parts), '\n'.join(html_parts)
 
     @staticmethod
+    def _kakao_build_output(para_tuples):
+        """Convert parsed Kakao paragraph tuples to full text and HTML."""
+        from html import escape as _esc
+
+        def _attrs_to_html(attrs, style):
+            attrs = attrs or {}
+            style = style or {}
+            parts = []
+
+            cls = attrs.get('class') or attrs.get('className') or ''
+            if cls:
+                parts.append(f' class="{_esc(str(cls), quote=True)}"')
+
+            style_parts = []
+            raw_style = attrs.get('style') or ''
+            if raw_style:
+                style_parts.append(str(raw_style).strip().rstrip(';'))
+
+            align = attrs.get('align') or ''
+            if align:
+                style_parts.append(f'text-align:{str(align).lower()}')
+
+            color = (style.get('color') or style.get('fontColor')
+                     or style.get('textColor') or '')
+            if color:
+                if not color.startswith('#') and not color.startswith('rgb'):
+                    color = '#' + color
+                style_parts.append(f'color:{color}')
+
+            bg = style.get('backgroundColor') or style.get('highlight') or ''
+            if bg:
+                if not bg.startswith('#') and not bg.startswith('rgb'):
+                    bg = '#' + bg
+                style_parts.append(f'background-color:{bg}')
+
+            fs = style.get('fontSize') or style.get('size') or ''
+            if fs:
+                style_parts.append(f'font-size:{fs}px'
+                                   if isinstance(fs, (int, float))
+                                   else f'font-size:{fs}')
+
+            text_align = style.get('textAlign') or style.get('align') or ''
+            if text_align:
+                style_parts.append(f'text-align:{str(text_align).lower()}')
+
+            if (style.get('lineThrough') or style.get('strikethrough')
+                    or style.get('strike')):
+                style_parts.append('text-decoration:line-through')
+
+            if style_parts:
+                safe_style = _esc('; '.join(
+                    p for p in style_parts if p), quote=True)
+                parts.append(f' style="{safe_style}"')
+
+            return ''.join(parts)
+
+        def _tag_for(p_type):
+            tag = (p_type or '').lower()
+            if tag in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                       'p', 'div', 'blockquote', 'li'}:
+                return tag
+            if tag in {'head', 'heading', 'title'}:
+                return 'h3'
+            return 'p'
+
+        text_parts = []
+        html_parts = []
+        for item in para_tuples:
+            plain, html_frag, p_type = item[0], item[1], item[2]
+            p_style = item[3] if len(item) > 3 else {}
+            p_attrs = item[4] if len(item) > 4 else {}
+            if not plain.strip() and '<br' not in html_frag.lower():
+                continue
+            text_parts.append(plain)
+            tag = _tag_for(p_type)
+            attr_html = _attrs_to_html(p_attrs, p_style)
+            html_parts.append(f'<{tag}{attr_html}>{html_frag}</{tag}>')
+        return '\n'.join(text_parts), '\n'.join(html_parts)
+
+    @staticmethod
     def _is_colophon_chunk(paragraphs_text):
         """Check if a chunk's combined text looks like publisher boilerplate.
 
@@ -831,6 +916,48 @@ class ExternalScraper:
                    '발 행 처', '기획 / 편집', '표 지']
         hits = sum(1 for m in markers if m in paragraphs_text)
         return hits >= 2
+
+    def _kakao_fetch_css_resource(self, style_info):
+        """Download a Kakao EPUB CSS resource referenced by styleList."""
+        src = (style_info or {}).get('src') or ''
+        if not src:
+            return ''
+        file_name = (style_info or {}).get('fileName') or 'style.css'
+        cache_key = f'{src}|{file_name}'
+        if cache_key in self._kakao_css_cache:
+            return self._kakao_css_cache[cache_key]
+
+        if src.startswith('http://') or src.startswith('https://'):
+            url = src
+        else:
+            kid = urllib.parse.quote(src, safe='/')
+            fname = urllib.parse.quote(file_name)
+            url = (
+                'https://dn-img-page.kakao.com/download/resource'
+                f'?kid={kid}&filename={fname}'
+            )
+
+        try:
+            req = urllib.request.Request(url, headers={
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                    'Chrome/120.0.0.0 Safari/537.36'
+                ),
+                'Referer': 'https://page.kakao.com/',
+            })
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read()
+            css = raw.decode('utf-8-sig', errors='replace')
+            css = re.sub(r'@charset\s+["\']UTF-8["\'];?', '', css,
+                         flags=re.IGNORECASE)
+            css = css.replace('\r\n', '\n').replace('\r', '\n').strip()
+        except Exception as e:
+            self.log(f"  [KakaoPage] CSS fetch failed: {file_name}: {e}")
+            css = ''
+
+        self._kakao_css_cache[cache_key] = css
+        return css
 
     def _kakao_extract_from_json(self, json_chunks):
         """Parse paragraphList from intercepted JSON API responses.
@@ -859,8 +986,6 @@ class ExternalScraper:
             producing &amp;lt; in the output.
             """
             return _esc(_unesc(text))
-
-        _logged_styles = set()  # track unknown style keys for debugging
 
         def _style_to_css(style):
             """Convert KakaoPage style dict to an inline CSS string."""
@@ -914,24 +1039,45 @@ class ExternalScraper:
                 h = f'<u>{h}</u>'
             return h
 
-        def _wrap_with_style(h, style):
+        def _wrap_with_style(h, style, attrs=None):
             """Apply inline CSS and semantic tags to an HTML fragment."""
+            attrs = attrs or {}
+            css_parts = []
+            attr_style = attrs.get('style') or ''
+            if attr_style:
+                css_parts.append(str(attr_style).strip().rstrip(';'))
             css = _style_to_css(style)
-            h = _apply_tags(h, style)
             if css:
-                h = f'<span style="{css}">{h}</span>'
+                css_parts.append(css)
+            h = _apply_tags(h, style)
+            attr_parts = []
+            cls = attrs.get('class') or attrs.get('className') or ''
+            if cls:
+                attr_parts.append(f' class="{_esc(str(cls), quote=True)}"')
+            if css_parts:
+                safe_css = _esc('; '.join(css_parts), quote=True)
+                attr_parts.append(f' style="{safe_css}"')
+            if attr_parts:
+                h = f'<span{"".join(attr_parts)}>{h}</span>'
             return h
 
-        def _collect_html(node):
+        def _collect_html(node, is_root=False):
             """Recursively collect HTML from a paragraph node and children."""
+            n_type = (node.get('type') or '').upper()
+            if n_type == 'BR':
+                return '<br />'
+            if n_type == 'IMG':
+                return ''
+
             text = (node.get('text') or '')
             children = node.get('childParagraphList') or []
             style = node.get('style') or {}
+            attrs = node.get('attributes') or {}
 
             # Leaf node with text
             if text and not children:
                 h = _safe_escape(text)
-                return _wrap_with_style(h, style)
+                return _wrap_with_style(h, style, None if is_root else attrs)
 
             # Parent node: collect children
             parts = []
@@ -944,7 +1090,7 @@ class ExternalScraper:
             result = ''.join(parts)
 
             # Apply style to the whole group
-            return _wrap_with_style(result, style)
+            return _wrap_with_style(result, style, None if is_root else attrs)
 
         def _collect_text(node):
             """Recursively collect plain text."""
@@ -956,28 +1102,44 @@ class ExternalScraper:
                 parts.extend(_collect_text(child))
             return parts
 
+        def _node_has_image(node):
+            if (node.get('type') or '').upper() == 'IMG':
+                return True
+            return any(_node_has_image(child)
+                       for child in (node.get('childParagraphList') or []))
+
         all_paras = []
-        for raw in json_chunks:
+        css_parts = []
+        seen_css = set()
+        for chunk_index, raw in enumerate(json_chunks):
             try:
                 data = _json.loads(raw)
                 info = data.get('contentInfo', {})
                 content_id = info.get('contentId', 0)
                 para_list = info.get('paragraphList', [])
+                for style_info in (info.get('styleList') or []):
+                    css = self._kakao_fetch_css_resource(style_info)
+                    if css and css not in seen_css:
+                        seen_css.add(css)
+                        css_parts.append(css)
 
                 chunk_paras = []
                 for p in para_list:
                     p_id = int(p.get('id', 0))
                     p_type = (p.get('type') or '').upper()
                     p_style = p.get('style') or {}
+                    p_attrs = p.get('attributes') or {}
                     plain = ''.join(_collect_text(p))
-                    html_frag = _collect_html(p)
-                    if plain.strip():
+                    html_frag = _collect_html(p, is_root=True)
+                    if _node_has_image(p) and not plain.strip():
+                        continue
+                    if plain.strip() or '<br' in html_frag.lower():
                         chunk_paras.append(
-                            (content_id, p_id, plain, html_frag,
-                             p_type, p_style))
+                            (chunk_index, content_id, p_id, plain,
+                             html_frag, p_type, p_style, p_attrs))
 
                 # Skip publisher colophon/copyright chunks
-                combined = ' '.join(t for _, _, t, _, _, _ in chunk_paras)
+                combined = ' '.join(t for _, _, _, t, _, _, _, _ in chunk_paras)
                 if self._is_colophon_chunk(combined):
                     continue
 
@@ -986,11 +1148,14 @@ class ExternalScraper:
                 continue
 
         if not all_paras:
-            return []
+            return [], '\n\n'.join(css_parts)
 
-        # Sort by (contentId, paragraphId) to maintain correct order
-        all_paras.sort(key=lambda x: (x[0], x[1]))
-        return [(p[2], p[3], p[4], p[5]) for p in all_paras]
+        # Sort by chunk order first. Some Kakao chapters have multiple
+        # contentId=0 resources (cover, then body), so contentId alone can
+        # interleave unrelated pages.
+        all_paras.sort(key=lambda x: (x[0], x[1], x[2]))
+        return ([(p[3], p[4], p[5], p[6], p[7]) for p in all_paras],
+                '\n\n'.join(css_parts))
 
     def _kakao_extract_from_shadow(self, target):
         """Extract text from the KakaoPage viewer's Shadow DOM.
