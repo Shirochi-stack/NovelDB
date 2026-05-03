@@ -15,6 +15,7 @@ Data flows:
 """
 
 import json
+import html
 import os
 import re
 import sys
@@ -468,7 +469,7 @@ class ExternalScraper:
         try:
             episodes = self._page.evaluate("""
                 async (seriesId) => {
-                    const url = `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000`;
+                    const url = `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000&sort_opt=asc`;
                     const resp = await fetch(url);
                     const data = await resp.json();
                     const list = (data.result || {}).list || [];
@@ -485,6 +486,8 @@ class ExternalScraper:
                             isVIP: !item.is_free,
                             isPaid: null,
                             order: item.order_value || 0,
+                            productId: item.product_id || 0,
+                            slideType: item.slide_type || '',
                         };
                     });
                 }
@@ -496,9 +499,10 @@ class ExternalScraper:
         if not episodes:
             self.log("WARNING: No episodes found on page.")
 
-        # Sort by order_value ascending (chapter 1 first).
-        # The API may return episodes in any order depending on the novel.
-        episodes.sort(key=lambda ep: ep.get('order', 0))
+        # Sort oldest-to-newest like Kakao's first-episode-first option. Some Kakao
+        # responses mix cursor order, missing order_value, and title-only
+        # numbering, so use every stable signal we have.
+        episodes.sort(key=self._kakao_episode_sort_key)
 
         # Fix relative URLs to absolute
         for ep in episodes:
@@ -551,6 +555,86 @@ class ExternalScraper:
         self._book_data = data
         self._book_url = url
         return data
+
+    @staticmethod
+    def _kakao_title_number(title):
+        """Best-effort episode number from Korean/Arabic Kakao titles."""
+        if not title:
+            return 0
+        m = re.search(r'(\d+)\s*화', str(title))
+        if m:
+            try:
+                return int(m.group(1))
+            except Exception:
+                return 0
+        return 0
+
+    def _kakao_episode_sort_key(self, ep):
+        """Oldest-to-newest sort key for Kakao episode rows."""
+        order = ep.get('order') or 0
+        if not order:
+            order = self._kakao_title_number(
+                ep.get('fullName') or ep.get('name') or ''
+            )
+        product_id = ep.get('productId') or 0
+        return (order or 10**12, product_id)
+
+    def _kakao_build_image_chapter(self, image_files, chapter_name):
+        """Build standard chapter data from Kakao ImageViewerData files."""
+        images = []
+        html_parts = ['<div class="kakao-image-chapter">']
+        text_parts = []
+
+        ordered = sorted(
+            image_files or [],
+            key=lambda f: (f.get('no') or 0, f.get('url') or '')
+        )
+        for idx, info in enumerate(ordered, 1):
+            img_url = info.get('url') or ''
+            if not img_url:
+                continue
+
+            filename = urllib.parse.unquote(info.get('filename') or '')
+            filename = filename.split('?', 1)[0].split('&', 1)[0]
+            filename = re.sub(r'[^A-Za-z0-9._-]+', '_', filename).strip('._')
+            if not filename or '.' not in filename:
+                filename = f'kakao_image_{idx:04d}.jpg'
+
+            images.append({'url': img_url, 'name': filename})
+            alt = f"{chapter_name} image {idx}"
+            width = info.get('width') or ''
+            height = info.get('height') or ''
+            size_attrs = ''
+            if width:
+                size_attrs += f' width="{int(width)}"'
+            if height:
+                size_attrs += f' height="{int(height)}"'
+            html_parts.append(
+                '<div class="kakao-image-page">'
+                f'<img src="{img_url}" '
+                f'alt="{html.escape(alt, quote=True)}"{size_attrs}/>'
+                '</div>'
+            )
+            text_parts.append(f'[Image {idx}]')
+
+        html_parts.append('</div>')
+        if not images:
+            return None
+
+        return {
+            'chapterName': chapter_name,
+            'sourceChapterName': chapter_name,
+            'contentText': '\n'.join(text_parts),
+            'contentHtml': '\n'.join(html_parts),
+            'contentCss': (
+                '.kakao-image-chapter { text-align: center; }\n'
+                '.kakao-image-page { margin: 0 auto 0.5rem; '
+                'page-break-inside: avoid; }\n'
+                '.kakao-image-page img { display: block; max-width: 100%; '
+                'height: auto; margin: 0 auto; }'
+            ),
+            'images': images,
+        }
 
     def _kakao_load_all_episodes(self, expected_count):
         """Expand the episode list on a KakaoPage content page.
@@ -683,12 +767,29 @@ class ExternalScraper:
                 const vd = vData.viewerData || {};
                 const baseUrl = vd.atsServerUrl || '';
                 const contents = vd.contentsList || [];
+                const imageData = vd.imageDownloadData || {};
+                const imageFiles = imageData.files || [];
                 const msg = vData.message || vData.msg || null;
 
-                // No viewerData or empty contentsList → locked/no access
-                if (!baseUrl || !contents.length)
+                // No text chunks and no image files means locked/no access.
+                if ((!baseUrl || !contents.length) && !imageFiles.length)
                     return { locked: true, chunks: [], httpStatus, msg,
                              pageUrl: location.href };
+
+                if (imageFiles.length) {
+                    return {
+                        locked: false,
+                        chunks: [],
+                        imageFiles: imageFiles.map((f, idx) => ({
+                            no: f.no || idx + 1,
+                            url: f.secureUrl || '',
+                            width: f.width || 0,
+                            height: f.height || 0,
+                            filename: ((f.secureUrl || '').match(/filename=([^&]+)/) || [])[1] || ''
+                        })).filter(f => f.url),
+                        httpStatus, msg, pageUrl: location.href
+                    };
+                }
 
                 const fetches = contents.map(async (c) => {
                     if (!c.secureUrl) return null;
@@ -700,8 +801,8 @@ class ExternalScraper:
                     } catch(e) { return null; }
                 });
                 const results = (await Promise.all(fetches)).filter(r => r !== null);
-                return { locked: false, chunks: results, httpStatus, msg,
-                         pageUrl: location.href };
+                return { locked: false, chunks: results, imageFiles: [],
+                         httpStatus, msg, pageUrl: location.href };
             }
             """, [s_id, p_id])
         except Exception as e:
@@ -717,6 +818,11 @@ class ExternalScraper:
                     f"(HTTP {http_st}, msg={api_msg}, page={page_url})"
                 )
                 return {'_locked': True, 'chapterName': chapter_name}
+
+            image_files = api_result.get('imageFiles') or []
+            if image_files:
+                return self._kakao_build_image_chapter(
+                    image_files, chapter_name)
 
             raw_chunks = api_result.get('chunks', [])
             json_chunks = [r.encode('utf-8') for r in raw_chunks]

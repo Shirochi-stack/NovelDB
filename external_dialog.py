@@ -22,6 +22,7 @@ import json
 import time
 import threading
 import queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -118,6 +119,15 @@ class ExternalNovelDialog(tk.Toplevel):
         self._var_ext_threads = tk.IntVar(value=4)
         ttk.Spinbox(thr_frame, from_=1, to=16, textvariable=self._var_ext_threads,
                      width=3).pack(side="left")
+
+        # EPUB image workers
+        img_thr_frame = ttk.LabelFrame(settings_frame, text="Image Workers", padding=4)
+        img_thr_frame.pack(side="left", padx=(0, 10))
+        self._var_ext_image_workers = tk.IntVar(value=8)
+        ttk.Spinbox(
+            img_thr_frame, from_=1, to=32,
+            textvariable=self._var_ext_image_workers, width=3
+        ).pack(side="left")
 
         # Interval
         int_frame = ttk.LabelFrame(settings_frame, text="Rate Limiting", padding=4)
@@ -338,9 +348,11 @@ class ExternalNovelDialog(tk.Toplevel):
             completed = 0
 
             # Pre-filter paid chapters if the user opted to skip them.
-            # Uses the is_free flag from the episode list API (instant,
-            # no per-chapter API call needed).
-            if skip_paid:
+            # For Kakao, item.is_free only means "free for everyone"; it is
+            # still false for chapters the current account has purchased.
+            # Let the viewer API decide access so purchased chapters work.
+            is_kakao = bool(self._book_data and self._book_data.get('_kakaopage'))
+            if skip_paid and not is_kakao:
                 skipped = 0
                 for i, ch in enumerate(selected):
                     if ch.get('isVIP', False):
@@ -349,6 +361,11 @@ class ExternalNovelDialog(tk.Toplevel):
                         skipped += 1
                 if skipped:
                     self._log(f"  Skipped {skipped} paid chapter(s).")
+            elif skip_paid and is_kakao:
+                self._log(
+                    "  Kakao skip-paid: checking access with viewer API "
+                    "(purchased chapters are not pre-skipped)."
+                )
 
             for batch_start in range(0, total, batch_size):
                 if not self._downloading:
@@ -613,13 +630,18 @@ class ExternalNovelDialog(tk.Toplevel):
                           skip_paid)
 
         # Generate output and signal completion
-        successes = sum(1 for r in self._chapter_results
-                        if r is not None and not r.get('_locked'))
-        if successes > 0:
-            self._book_data = data
-            self._generate_output()
-
-        self._msg_queue.put(("finished", None))
+        try:
+            successes = sum(1 for r in self._chapter_results
+                            if r is not None and not r.get('_locked'))
+            if successes > 0:
+                self._book_data = data
+                self._log(f"Generating output from {successes} chapter(s)...")
+                self._generate_output()
+        except Exception as e:
+            self._log(f"❌ Output generation error: {e}")
+        finally:
+            self._log("Finished.")
+            self._msg_queue.put(("finished", None))
 
     # ------------------------------------------------------------------
     # Paste Batch
@@ -807,10 +829,16 @@ class ExternalNovelDialog(tk.Toplevel):
                 # Temporarily set _book_data for output generation
                 old_book = self._book_data
                 self._book_data = data
-                self._generate_output()
-                self._book_data = old_book
+                try:
+                    self._log(f"Generating output from {successes} chapter(s)...")
+                    self._generate_output()
+                except Exception as e:
+                    self._log(f"❌ Output generation error: {e}")
+                finally:
+                    self._book_data = old_book
 
         self._log(f"\nBatch complete: processed {total_urls} URL(s).")
+        self._log("Finished.")
         self._msg_queue.put(("finished", None))
 
     # ------------------------------------------------------------------
@@ -1035,12 +1063,32 @@ img { display: block; max-width: 100%; max-height: 100%;
                     continue
                 ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
                 content_html = ch_data.get('contentHtml', '')
+                img_total = len(ch_data.get('images') or [])
+                if img_total:
+                    self._log(
+                        f"  Building EPUB chapter {i + 1}: {ch_name} "
+                        f"({img_total} image(s))"
+                    )
+                else:
+                    self._log(f"  Building EPUB chapter {i + 1}: {ch_name}")
 
                 # Process images: use browser-provided base64 data when
                 # available, fall back to Python-side download otherwise.
                 rename_map = {}  # original_name → compressed_name
                 if ch_data.get('images'):
-                    for img_info in ch_data['images']:
+                    image_items = list(enumerate(ch_data['images'], 1))
+                    image_workers = min(
+                        32, max(1, self._var_ext_image_workers.get()),
+                        len(image_items)
+                    )
+                    if len(image_items) > 1:
+                        self._log(
+                            f"    Downloading/compressing {len(image_items)} "
+                            f"image(s) with {image_workers} worker(s)..."
+                        )
+
+                    def process_image(item):
+                        img_idx, img_info = item
                         img_url = img_info.get('url', '')
                         img_data_url = img_info.get('data')
                         raw = None
@@ -1053,40 +1101,91 @@ img { display: block; max-width: 100%; max-height: 100%;
                             except Exception:
                                 pass
 
-                        # Fall back to Python-side download
+                        # Fall back to Python-side download. Use one Session
+                        # per worker call; requests.Session is not thread-safe.
                         if not raw and img_url:
-                            raw = self._download_image_python(
-                                img_url,
-                                f"Ch{i+1} image",
-                                session=img_session
+                            dl_session = _req.Session()
+                            dl_session.headers.update(img_session.headers)
+                            try:
+                                raw = self._download_image_python(
+                                    img_url,
+                                    f"Ch{i+1} image {img_idx}/"
+                                    f"{len(image_items)}",
+                                    session=dl_session
+                                )
+                            finally:
+                                dl_session.close()
+
+                        if not raw:
+                            return img_idx, None
+
+                        orig_name = img_info.get(
+                            'name', f'img_{i}_{img_idx}.jpg'
+                        )
+                        safe_orig = re.sub(
+                            r'[^A-Za-z0-9._-]+', '_', orig_name
+                        ).strip('._') or f'img_{i}_{img_idx}.jpg'
+                        base = safe_orig.rsplit('.', 1)[0]
+                        ext = safe_orig.rsplit('.', 1)[1].lower() \
+                            if '.' in safe_orig else 'jpg'
+                        img_name = f'ch{i+1:04d}_{img_idx:04d}_{base}.{ext}'
+
+                        if compress_images:
+                            raw = self._compress_image(
+                                raw, jpeg_quality, image_format
+                            )
+                            new_ext = image_format.lower()
+                            if new_ext == 'jpeg':
+                                new_ext = 'jpg'
+                            img_name = (
+                                f'ch{i+1:04d}_{img_idx:04d}_{base}.{new_ext}'
                             )
 
-                        if raw:
-                            img_counter[0] += 1
-                            orig_name = img_info.get(
-                                'name', f'img_{i}_{img_counter[0]}'
+                        return img_idx, {
+                            'raw': raw,
+                            'orig_name': orig_name,
+                            'img_name': img_name,
+                            'url': img_url,
+                        }
+
+                    image_results = {}
+                    if image_workers > 1:
+                        with ThreadPoolExecutor(max_workers=image_workers) as pool:
+                            futures = {
+                                pool.submit(process_image, item): item[0]
+                                for item in image_items
+                            }
+                            done = 0
+                            for fut in as_completed(futures):
+                                img_idx, result = fut.result()
+                                image_results[img_idx] = result
+                                done += 1
+                                if done % 5 == 0 or done == len(image_items):
+                                    self._log(
+                                        f"    Images ready: {done}/"
+                                        f"{len(image_items)}"
+                                    )
+                    else:
+                        for item in image_items:
+                            img_idx, result = process_image(item)
+                            image_results[img_idx] = result
+
+                    for img_idx, result in sorted(image_results.items()):
+                        if not result:
+                            continue
+                        img_counter[0] += 1
+                        img_name = result['img_name']
+                        epub.add_image(img_name, result['raw'])
+
+                        orig_name = result['orig_name']
+                        if img_name != orig_name:
+                            rename_map[orig_name] = img_name
+
+                        img_url = result['url']
+                        if img_url and content_html:
+                            content_html = content_html.replace(
+                                img_url, f'../Images/{img_name}'
                             )
-                            img_name = orig_name
-                            # Apply compression if enabled
-                            if compress_images:
-                                raw = self._compress_image(
-                                    raw, jpeg_quality, image_format
-                                )
-                                # Update extension to match compressed format
-                                new_ext = image_format.lower()
-                                if new_ext == 'jpeg':
-                                    new_ext = 'jpg'
-                                base = orig_name.rsplit('.', 1)[0]
-                                img_name = f'{base}.{new_ext}'
-                                if img_name != orig_name:
-                                    rename_map[orig_name] = img_name
-                            epub.add_image(img_name, raw)
-                            # Replace the URL in content_html with the
-                            # local EPUB path so the image actually renders
-                            if img_url and content_html:
-                                content_html = content_html.replace(
-                                    img_url, f'../Images/{img_name}'
-                                )
 
                 # Also handle any <img src="..."> in contentHtml that
                 # weren't in the images array (e.g. inline images)
@@ -1425,6 +1524,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._url_var.set(cfg.get("ext_url", ""))
             self._var_format.set(cfg.get("ext_format", "epub"))
             self._var_ext_threads.set(cfg.get("ext_threads", 4))
+            self._var_ext_image_workers.set(cfg.get("ext_image_workers", 8))
             self._var_interval.set(cfg.get("ext_interval", 0.5))
             self._var_from_enabled.set(cfg.get("ext_from_enabled", False))
             self._var_to_enabled.set(cfg.get("ext_to_enabled", False))
@@ -1451,6 +1551,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_url"] = self._url_var.get().strip()
         cfg["ext_format"] = self._var_format.get()
         cfg["ext_threads"] = self._var_ext_threads.get()
+        cfg["ext_image_workers"] = self._var_ext_image_workers.get()
         cfg["ext_interval"] = self._var_interval.get()
         cfg["ext_from_enabled"] = self._var_from_enabled.get()
         cfg["ext_to_enabled"] = self._var_to_enabled.get()
