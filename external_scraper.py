@@ -473,18 +473,54 @@ class ExternalScraper:
                     const resp = await fetch(url);
                     const data = await resp.json();
                     const list = (data.result || {}).list || [];
+                    const hasUserAccessFlag = (obj) => {
+                        const seen = new Set();
+                        const walk = (value, path) => {
+                            if (!value || typeof value !== 'object') return false;
+                            if (seen.has(value)) return false;
+                            seen.add(value);
+                            for (const [rawKey, v] of Object.entries(value)) {
+                                const key = String(rawKey || '').toLowerCase();
+                                const full = path ? `${path}.${key}` : key;
+                                if (/price|count|blocked|lock|free_change/.test(full)) {
+                                    continue;
+                                }
+                                const accessKey = /purchas|bought|owned|rented|rental|ticket|pass|usable|useable|access|viewable|readable/.test(full);
+                                if (accessKey) {
+                                    if (v === true) return true;
+                                    if (typeof v === 'number' && v > 0) return true;
+                                    if (typeof v === 'string') {
+                                        const s = v.trim().toLowerCase();
+                                        if (/^(yes|y|true|1|buy|bought|purchase|purchased|yes[_-]?purchase|yes[_-]?purchased|rent|rented|rental|yes[_-]?rent|yes[_-]?rented|ticket|pass|owned|available|viewable|readable|accessible)$/.test(s)) {
+                                            return true;
+                                        }
+                                        if (/^(false|no|n|none|null|0|not[_-]?purchased|not[_-]?rented|no[_-]?purchase|no[_-]?rent|unowned|unavailable|expired)$/.test(s)) {
+                                            continue;
+                                        }
+                                    }
+                                }
+                                if (v && typeof v === 'object' && walk(v, full)) return true;
+                            }
+                            return false;
+                        };
+                        return walk(obj, '');
+                    };
                     return list.map(entry => {
                         const item = entry.item || {};
                         const fullTitle = item.title || '';
                         const epMatch = fullTitle.match(/([0-9]+화.*)$/);
                         const shortName = epMatch ? epMatch[1]
                             : (fullTitle || 'Episode ' + (item.order_value || 0));
+                        const isFree = !!item.is_free;
+                        const isAccessible = isFree || hasUserAccessFlag(item);
                         return {
                             url: `/content/${seriesId}/viewer/${item.product_id}`,
                             name: shortName,
                             fullName: fullTitle,
-                            isVIP: !item.is_free,
-                            isPaid: null,
+                            isVIP: !isAccessible,
+                            isPaid: !isAccessible,
+                            isFree: isFree,
+                            isAccessible: isAccessible,
                             order: item.order_value || 0,
                             productId: item.product_id || 0,
                             slideType: item.slide_type || '',
@@ -510,6 +546,15 @@ class ExternalScraper:
                 ep['url'] = 'https://page.kakao.com' + ep['url']
 
         self.log(f"[KakaoPage] Found {len(episodes)} episodes.")
+        paid_accessible = sum(
+            1 for ep in episodes
+            if ep.get('isAccessible') and not ep.get('isFree')
+        )
+        if paid_accessible:
+            self.log(
+                f"[KakaoPage] Detected {paid_accessible} rented/purchased "
+                "episode(s) as accessible."
+            )
 
         # --- Extract tags from the About tab ---
         tags = []

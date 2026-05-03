@@ -348,24 +348,18 @@ class ExternalNovelDialog(tk.Toplevel):
             completed = 0
 
             # Pre-filter paid chapters if the user opted to skip them.
-            # For Kakao, item.is_free only means "free for everyone"; it is
-            # still false for chapters the current account has purchased.
-            # Let the viewer API decide access so purchased chapters work.
-            is_kakao = bool(self._book_data and self._book_data.get('_kakaopage'))
-            if skip_paid and not is_kakao:
+            # For Kakao, skip only rows that the product list marks as not
+            # accessible to this account. Purchased/rented rows are kept.
+            if skip_paid:
                 skipped = 0
                 for i, ch in enumerate(selected):
-                    if ch.get('isVIP', False):
+                    if (ch.get('isVIP', False)
+                            and not ch.get('isAccessible', False)):
                         results[i] = {'_locked': True,
                                       'chapterName': ch.get('name', '')}
                         skipped += 1
                 if skipped:
                     self._log(f"  Skipped {skipped} paid chapter(s).")
-            elif skip_paid and is_kakao:
-                self._log(
-                    "  Kakao skip-paid: checking access with viewer API "
-                    "(purchased chapters are not pre-skipped)."
-                )
 
             for batch_start in range(0, total, batch_size):
                 if not self._downloading:
@@ -607,6 +601,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._msg_queue.put(("finished", None))
                 return
 
+            self._book_data = data
             self._msg_queue.put(("book_parsed", data))
         except Exception as e:
             self._msg_queue.put(("error", str(e)))
@@ -801,6 +796,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._log("\u274c Failed to parse book info, skipping.")
                 continue
 
+            self._book_data = data
             self._msg_queue.put(("book_parsed", data))
             title = _sanitize_filename(data.get('bookname', 'novel'))
             self._log(f"Title: {title}, Chapters: {data.get('chapterCount', 0)}")
