@@ -14,6 +14,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Load app version
+        id: version
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import app_version
+          print(f"app_name={app_version.APP_NAME}")
+          print(f"app_name_lite={app_version.APP_NAME_LITE}")
+          print(f"release_tag={app_version.RELEASE_TAG}")
+          PY
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -74,66 +84,68 @@ jobs:
             iconutil -c icns icon.iconset -o icon.icns
           fi
 
-      - name: Build ND43 (Full + Playwright)
+      - name: Build ${{ steps.version.outputs.app_name }} (Full + Playwright)
         id: build_full
         continue-on-error: true
         run: |
           pyinstaller NovelpiaDownloader_mac.spec --clean
 
-      - name: Build ND43_Lite (No Playwright)
+      - name: Build ${{ steps.version.outputs.app_name_lite }} (No Playwright)
         run: |
           pyinstaller NovelpiaDownloader_mac_lite.spec --clean
 
       # If the full build failed (e.g. arm64 install_name_tool issue),
       # copy the lite build as the full build so we still get a DMG.
-      - name: Fallback — promote Lite to Full if Full failed
+      - name: Fallback - promote Lite to Full if Full failed
         if: steps.build_full.outcome == 'failure'
         run: |
           echo "::warning::Full build failed, falling back to Lite for the Full DMG."
-          cp -R dist/ND43_Lite.app dist/ND43.app 2>/dev/null || true
+          cp -R "dist/${{ steps.version.outputs.app_name_lite }}.app" "dist/${{ steps.version.outputs.app_name }}.app" 2>/dev/null || true
 
       - name: Create DMG (Full)
-        if: steps.build_full.outcome == 'success' || hashFiles('dist/ND43.app') != ''
+        if: steps.build_full.outcome == 'success' || hashFiles(format('dist/{0}.app/**', steps.version.outputs.app_name)) != ''
         run: |
-          if [ -d "dist/ND43.app" ]; then
+          APP_NAME="${{ steps.version.outputs.app_name }}"
+          if [ -d "dist/${APP_NAME}.app" ]; then
             mkdir -p dmg_contents
-            cp -R dist/ND43.app dmg_contents/
+            cp -R "dist/${APP_NAME}.app" dmg_contents/
             ln -s /Applications dmg_contents/Applications
-            hdiutil create -volname "ND43" \
+            hdiutil create -volname "${APP_NAME}" \
               -srcfolder dmg_contents \
               -ov -format UDZO \
-              "ND43-macos-${{ matrix.arch }}.dmg"
+              "${APP_NAME}-macos-${{ matrix.arch }}.dmg"
           else
-            echo "::warning::ND43.app not found, skipping Full DMG."
+            echo "::warning::${APP_NAME}.app not found, skipping Full DMG."
           fi
 
       - name: Create DMG (Lite)
         run: |
+          APP_NAME_LITE="${{ steps.version.outputs.app_name_lite }}"
           mkdir -p dmg_lite_contents
-          cp -R dist/ND43_Lite.app dmg_lite_contents/
+          cp -R "dist/${APP_NAME_LITE}.app" dmg_lite_contents/
           ln -s /Applications dmg_lite_contents/Applications
-          hdiutil create -volname "ND43_Lite" \
+          hdiutil create -volname "${APP_NAME_LITE}" \
             -srcfolder dmg_lite_contents \
             -ov -format UDZO \
-            "ND43_Lite-macos-${{ matrix.arch }}.dmg"
+            "${APP_NAME_LITE}-macos-${{ matrix.arch }}.dmg"
 
       - name: Upload Full artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ND43-macos-${{ matrix.arch }}
-          path: ND43-macos-${{ matrix.arch }}.dmg
+          name: ${{ steps.version.outputs.app_name }}-macos-${{ matrix.arch }}
+          path: ${{ steps.version.outputs.app_name }}-macos-${{ matrix.arch }}.dmg
           if-no-files-found: ignore
           retention-days: 90
 
       - name: Upload Lite artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ND43_Lite-macos-${{ matrix.arch }}
-          path: ND43_Lite-macos-${{ matrix.arch }}.dmg
+          name: ${{ steps.version.outputs.app_name_lite }}-macos-${{ matrix.arch }}
+          path: ${{ steps.version.outputs.app_name_lite }}-macos-${{ matrix.arch }}.dmg
           retention-days: 90
 
-  # Attach the freshly-built DMGs to an EXISTING GitHub Release tagged v43.
-  # This job never creates a release — you must publish v43 once manually.
+  # Attach the freshly-built DMGs to the existing GitHub Release from
+  # app_version.RELEASE_TAG. This job never creates the release.
   # Subsequent workflow runs simply overwrite the attached DMGs so the
   # release's download URLs always point at the latest build.
   attach-to-release:
@@ -145,30 +157,40 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Load app version
+        id: version
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import app_version
+          print(f"app_name={app_version.APP_NAME}")
+          print(f"release_tag={app_version.RELEASE_TAG}")
+          PY
+
       - name: Download all DMG artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ND43*-macos-*
+          pattern: ${{ steps.version.outputs.app_name }}*-macos-*
           path: dmgs
           merge-multiple: true
 
       - name: Show collected assets
         run: ls -la dmgs
 
-      - name: Verify v43 release exists
+      - name: Verify ${{ steps.version.outputs.release_tag }} release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if ! gh release view v43 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "::error::Release 'v43' does not exist. Create it manually, then re-run."
+          RELEASE_TAG="${{ steps.version.outputs.release_tag }}"
+          if ! gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::Release '${RELEASE_TAG}' does not exist. Create it manually, then re-run."
             exit 1
           fi
-          echo "Release v43 found; proceeding to upload assets."
+          echo "Release ${RELEASE_TAG} found; proceeding to upload assets."
 
-      - name: Upload DMGs to v43 release (overwrite existing)
+      - name: Upload DMGs to ${{ steps.version.outputs.release_tag }} release (overwrite existing)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # --clobber replaces existing assets with the same name instead of
           # failing, so re-runs always end up with the latest binary.
-          gh release upload v43 dmgs/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "${{ steps.version.outputs.release_tag }}" dmgs/*.dmg --clobber --repo "$GITHUB_REPOSITORY"

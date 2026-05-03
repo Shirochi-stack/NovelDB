@@ -22,6 +22,8 @@ import tempfile
 import logging
 from datetime import datetime
 
+from app_version import APP_NAME
+
 # ---------------------------------------------------------------------------
 # File logging setup (freeze / .exe aware)
 # Only runs in main process to avoid issues with multiprocessing child processes
@@ -61,16 +63,16 @@ def _writable_data_dir(kind):
     # then a temp dir as absolute last resort.
     home = os.path.expanduser("~")
     if kind == "logs":
-        mac_standard = os.path.join(home, "Library", "Logs", "ND43")
+        mac_standard = os.path.join(home, "Library", "Logs", APP_NAME)
     elif kind == ".cache":
-        mac_standard = os.path.join(home, "Library", "Caches", "ND43")
+        mac_standard = os.path.join(home, "Library", "Caches", APP_NAME)
     else:
-        mac_standard = os.path.join(home, "Library", "Application Support", "ND43", kind)
+        mac_standard = os.path.join(home, "Library", "Application Support", APP_NAME, kind)
 
     candidates = [
         os.path.join(_get_base_dir(), kind),
         mac_standard,
-        os.path.join(tempfile.gettempdir(), f"ND43_{kind.lstrip('.')}"),
+        os.path.join(tempfile.gettempdir(), f"{APP_NAME}_{kind.lstrip('.')}"),
     ]
     for path in candidates:
         try:
@@ -863,7 +865,7 @@ class NovelpiaGUI(tk.Tk):
             self.bind_class(widget_class, "<Button-4>", _block_scroll)
             self.bind_class(widget_class, "<Button-5>", _block_scroll)
 
-        self.title("ND43")
+        self.title(APP_NAME)
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()
@@ -2054,7 +2056,7 @@ class NovelpiaGUI(tk.Tk):
         The real location depends on write permissions — see
         `_writable_data_dir('.cache')` for the fallback chain. On Windows
         and Linux this is always `<base_dir>/.cache` (historical
-        behaviour). On macOS we fall back to `~/Library/Caches/ND42` if
+        behaviour). On macOS we fall back to `~/Library/Caches/<APP_NAME>` if
         the bundle location is read-only.
         """
         cache_dir = _writable_data_dir('.cache')

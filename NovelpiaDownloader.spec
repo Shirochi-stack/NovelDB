@@ -2,6 +2,7 @@
 
 import os
 import glob
+from app_version import APP_NAME
 
 block_cipher = None
 
@@ -96,7 +97,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ND43',
+    name=APP_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

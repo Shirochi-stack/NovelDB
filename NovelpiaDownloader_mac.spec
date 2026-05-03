@@ -5,6 +5,7 @@ import os
 import sys
 import glob
 import subprocess
+from app_version import APP_NAME, BUNDLE_ID, BUNDLE_VERSION
 
 block_cipher = None
 
@@ -176,7 +177,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ND43',
+    name=APP_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -198,20 +199,20 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name='ND43',
+    name=APP_NAME,
 )
 
 # Create macOS .app bundle
 app = BUNDLE(
     coll,
-    name='ND43.app',
+    name=f'{APP_NAME}.app',
     icon=icon_file,
-    bundle_identifier='com.novelpiadownloader.nd43',
+    bundle_identifier=BUNDLE_ID,
     info_plist={
-        'CFBundleName': 'ND43',
+        'CFBundleName': APP_NAME,
         'CFBundleDisplayName': 'Novelpia Downloader',
-        'CFBundleVersion': '3.8',
-        'CFBundleShortVersionString': '3.8',
+        'CFBundleVersion': BUNDLE_VERSION,
+        'CFBundleShortVersionString': BUNDLE_VERSION,
         'NSHighResolutionCapable': True,
     },
 )

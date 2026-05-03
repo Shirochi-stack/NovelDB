@@ -1,8 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
-# ND42_Lite — No Playwright/Chromium bundled (smaller exe, no external novel support)
+# Lite build - No Playwright/Chromium bundled (smaller exe, no external novel support)
 
 import os
 import glob
+from app_version import APP_NAME_LITE
 
 block_cipher = None
 
@@ -62,7 +63,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ND43_Lite',
+    name=APP_NAME_LITE,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
