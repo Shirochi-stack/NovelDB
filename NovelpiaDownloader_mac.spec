@@ -164,13 +164,16 @@ a.datas += _move_to_datas
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Use COLLECT (onedir) instead of onefile.
+# In onefile mode, PyInstaller's PKG stage still runs install_name_tool
+# on Mach-O binaries found inside datas, which fails on Chromium's
+# non-standard __LINKEDIT segment.  Onedir avoids this entirely by
+# copying files as-is to the output directory.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='ND42',
     debug=False,
     bootloader_ignore_signals=False,
@@ -186,9 +189,19 @@ exe = EXE(
     icon=icon_file,
 )
 
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    name='ND42',
+)
+
 # Create macOS .app bundle
 app = BUNDLE(
-    exe,
+    coll,
     name='ND42.app',
     icon=icon_file,
     bundle_identifier='com.novelpiadownloader.nd42',
