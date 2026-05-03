@@ -5,7 +5,7 @@ import os
 import glob
 import sys
 
-spec_dir = os.path.dirname(os.path.abspath(__file__))
+spec_dir = os.path.abspath(globals().get('SPECPATH') or os.getcwd())
 if spec_dir not in sys.path:
     sys.path.insert(0, spec_dir)
 
