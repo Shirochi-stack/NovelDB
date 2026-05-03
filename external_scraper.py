@@ -786,24 +786,32 @@ class ExternalScraper:
 
     @staticmethod
     def _kakao_build_output(para_tuples):
-        """Convert (plain_text, html_fragment, type) tuples to full text
-        and HTML output.
+        """Convert (plain_text, html_fragment, type, style) tuples to
+        full text and HTML output.
 
         Uses paragraph type to choose the appropriate HTML tag:
         - HEAD/HEADING → <h3>
-        - LINE_BREAK/EMPTY → <br/>
         - Everything else → <p>
+        Paragraph-level style (text-align) is applied via inline CSS.
         """
         text_parts = []
         html_parts = []
-        for plain, html_frag, p_type in para_tuples:
+        for item in para_tuples:
+            plain, html_frag, p_type = item[0], item[1], item[2]
+            p_style = item[3] if len(item) > 3 else {}
             if not plain.strip():
                 continue
             text_parts.append(plain)
+
+            # Paragraph-level inline CSS (text-align)
+            align = (p_style.get('textAlign') or p_style.get('align')
+                     or '') if p_style else ''
+            style_attr = f' style="text-align:{align.lower()}"' if align else ''
+
             if p_type in ('HEAD', 'HEADING', 'TITLE'):
-                html_parts.append(f'<h3>{html_frag}</h3>')
+                html_parts.append(f'<h3{style_attr}>{html_frag}</h3>')
             else:
-                html_parts.append(f'<p>{html_frag}</p>')
+                html_parts.append(f'<p{style_attr}>{html_frag}</p>')
         return '\n'.join(text_parts), '\n'.join(html_parts)
 
     @staticmethod
@@ -852,6 +860,68 @@ class ExternalScraper:
             """
             return _esc(_unesc(text))
 
+        _logged_styles = set()  # track unknown style keys for debugging
+
+        def _style_to_css(style):
+            """Convert KakaoPage style dict to an inline CSS string."""
+            css_parts = []
+            # Color — check multiple possible field names
+            color = (style.get('color') or style.get('fontColor')
+                     or style.get('textColor') or '')
+            if color:
+                # Ensure # prefix for hex colors
+                if color and not color.startswith('#') and not color.startswith('rgb'):
+                    color = '#' + color
+                css_parts.append(f'color:{color}')
+
+            # Background / highlight
+            bg = style.get('backgroundColor') or style.get('highlight') or ''
+            if bg:
+                if bg and not bg.startswith('#') and not bg.startswith('rgb'):
+                    bg = '#' + bg
+                css_parts.append(f'background-color:{bg}')
+
+            # Font size
+            fs = style.get('fontSize') or style.get('size') or ''
+            if fs:
+                css_parts.append(f'font-size:{fs}px' if isinstance(fs, (int, float))
+                                 else f'font-size:{fs}')
+
+            # Text alignment (paragraph-level, will be applied via wrapper)
+            align = style.get('textAlign') or style.get('align') or ''
+            if align:
+                css_parts.append(f'text-align:{align.lower()}')
+
+            # Line-through / strikethrough via CSS
+            line_through = (style.get('lineThrough')
+                            or style.get('strikethrough')
+                            or style.get('strike'))
+            if line_through:
+                css_parts.append('text-decoration:line-through')
+
+            # Underline via CSS (backup if not using <u>)
+            # (handled separately with <u> tag below)
+
+            return '; '.join(css_parts)
+
+        def _apply_tags(h, style):
+            """Wrap HTML fragment in semantic tags for bold/italic/underline."""
+            if style.get('bold') or style.get('fontWeight') == 'bold':
+                h = f'<b>{h}</b>'
+            if style.get('italic') or style.get('fontStyle') == 'italic':
+                h = f'<i>{h}</i>'
+            if style.get('underline'):
+                h = f'<u>{h}</u>'
+            return h
+
+        def _wrap_with_style(h, style):
+            """Apply inline CSS and semantic tags to an HTML fragment."""
+            css = _style_to_css(style)
+            h = _apply_tags(h, style)
+            if css:
+                h = f'<span style="{css}">{h}</span>'
+            return h
+
         def _collect_html(node):
             """Recursively collect HTML from a paragraph node and children."""
             text = (node.get('text') or '')
@@ -861,15 +931,7 @@ class ExternalScraper:
             # Leaf node with text
             if text and not children:
                 h = _safe_escape(text)
-                if style.get('bold'):
-                    h = f'<b>{h}</b>'
-                if style.get('italic'):
-                    h = f'<i>{h}</i>'
-                if style.get('underline'):
-                    h = f'<u>{h}</u>'
-                if style.get('strikethrough'):
-                    h = f'<s>{h}</s>'
-                return h
+                return _wrap_with_style(h, style)
 
             # Parent node: collect children
             parts = []
@@ -882,15 +944,7 @@ class ExternalScraper:
             result = ''.join(parts)
 
             # Apply style to the whole group
-            if style.get('bold'):
-                result = f'<b>{result}</b>'
-            if style.get('italic'):
-                result = f'<i>{result}</i>'
-            if style.get('underline'):
-                result = f'<u>{result}</u>'
-            if style.get('strikethrough'):
-                result = f'<s>{result}</s>'
-            return result
+            return _wrap_with_style(result, style)
 
         def _collect_text(node):
             """Recursively collect plain text."""
@@ -914,14 +968,16 @@ class ExternalScraper:
                 for p in para_list:
                     p_id = int(p.get('id', 0))
                     p_type = (p.get('type') or '').upper()
+                    p_style = p.get('style') or {}
                     plain = ''.join(_collect_text(p))
                     html_frag = _collect_html(p)
                     if plain.strip():
                         chunk_paras.append(
-                            (content_id, p_id, plain, html_frag, p_type))
+                            (content_id, p_id, plain, html_frag,
+                             p_type, p_style))
 
                 # Skip publisher colophon/copyright chunks
-                combined = ' '.join(t for _, _, t, _, _ in chunk_paras)
+                combined = ' '.join(t for _, _, t, _, _, _ in chunk_paras)
                 if self._is_colophon_chunk(combined):
                     continue
 
@@ -934,7 +990,7 @@ class ExternalScraper:
 
         # Sort by (contentId, paragraphId) to maintain correct order
         all_paras.sort(key=lambda x: (x[0], x[1]))
-        return [(p[2], p[3], p[4]) for p in all_paras]
+        return [(p[2], p[3], p[4], p[5]) for p in all_paras]
 
     def _kakao_extract_from_shadow(self, target):
         """Extract text from the KakaoPage viewer's Shadow DOM.
