@@ -9,8 +9,8 @@ Environment:
     OPENAI_API_KEY            - fallback API key
     GROK_API_KEY              - fallback API key for xAI/Grok
     DEEPSEEK_API_KEY          - fallback API key for DeepSeek
-    TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL
-                               (default: https://api.x.ai/v1)
+    TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL; leave blank
+                               to infer from model/key name
     TRANSLATION_OUTPUT_TOKEN_LIMIT - API completion token limit
                                      (default: 384000)
     TRANSLATION_COMPRESSION_FACTOR - chunk divisor for output token limit
@@ -30,6 +30,8 @@ import tiktoken
 _enc = tiktoken.get_encoding("cl100k_base")
 
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
+OPENAI_API_BASE_URL = "https://api.openai.com/v1"
+DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 # API output cap and derived chunk size.
@@ -159,12 +161,38 @@ Rules:
 
 def normalize_chat_completions_url(base_url):
     """Return a /chat/completions endpoint for an OpenAI-compatible base URL."""
-    base_url = (base_url or DEFAULT_API_BASE_URL).strip().rstrip("/")
+    base_url = (base_url or "").strip().rstrip("/")
+    if not base_url:
+        raise ValueError("base_url is required after provider routing")
     if base_url.endswith("/chat/completions"):
         return base_url
     if base_url.endswith("/v1"):
         return f"{base_url}/chat/completions"
     return f"{base_url}/v1/chat/completions"
+
+
+def infer_api_base_url(model):
+    """Infer provider route from model name or configured API-key variable."""
+    hint = " ".join([
+        model or "",
+        os.environ.get("TRANSLATION_API_KEY_NAME", ""),
+    ]).lower()
+
+    if "deepseek" in hint:
+        return DEEPSEEK_API_BASE_URL
+    if "grok" in hint or "xai" in hint or "x-ai" in hint:
+        return DEFAULT_API_BASE_URL
+    if "openai" in hint or "gpt-" in hint or "o1" in hint or "o3" in hint:
+        return OPENAI_API_BASE_URL
+
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return DEEPSEEK_API_BASE_URL
+    if os.environ.get("GROK_API_KEY") or os.environ.get("XAI_API_KEY"):
+        return DEFAULT_API_BASE_URL
+    if os.environ.get("OPENAI_API_KEY"):
+        return OPENAI_API_BASE_URL
+
+    return DEFAULT_API_BASE_URL
 
 
 def resolve_api_key(api_key_env=None):
@@ -193,15 +221,17 @@ def resolve_api_key(api_key_env=None):
     sys.exit(1)
 
 
-def resolve_api_base_url(cli_base_url=None):
-    return (
+def resolve_api_base_url(model, cli_base_url=None):
+    manual_base_url = (
         cli_base_url
         or os.environ.get("TRANSLATION_API_BASE_URL")
         or os.environ.get("OPENAI_BASE_URL")
         or os.environ.get("GROK_API_BASE_URL")
         or os.environ.get("DEEPSEEK_API_BASE_URL")
-        or DEFAULT_API_BASE_URL
     )
+    if manual_base_url and manual_base_url.strip():
+        return manual_base_url
+    return infer_api_base_url(model)
 
 
 def env_int(name):
@@ -307,7 +337,7 @@ def main():
         default=None,
         help=(
             "OpenAI-compatible base URL or full /chat/completions URL "
-            "(default: TRANSLATION_API_BASE_URL or xAI)"
+            "(blank: infer from model/API-key name)"
         ),
     )
     parser.add_argument(
@@ -343,7 +373,7 @@ def main():
 
     model = args.model or os.environ.get("MODEL", DEFAULT_MODEL)
     api_key = resolve_api_key(args.api_key_env)
-    api_base_url = resolve_api_base_url(args.api_base_url)
+    api_base_url = resolve_api_base_url(model, args.api_base_url)
     api_url = normalize_chat_completions_url(api_base_url)
     output_token_limit = (
         args.output_token_limit

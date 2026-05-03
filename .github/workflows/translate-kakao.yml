@@ -9,9 +9,9 @@ on:
         default: 'grok-4-1-fast-reasoning'
         type: string
       api_base_url:
-        description: 'OpenAI-compatible base URL (DeepSeek: https://api.deepseek.com)'
+        description: 'OpenAI-compatible base URL (blank = auto route)'
         required: false
-        default: 'https://api.x.ai/v1'
+        default: ''
         type: string
       api_key_secret:
         description: 'GitHub secret name containing the API key'
@@ -73,9 +73,11 @@ jobs:
       - name: Translate Kakao titles
         env:
           TRANSLATION_API_KEY: ${{ secrets[github.event.inputs.api_key_secret || 'GROK_API_KEY'] }}
+          TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key_secret || 'GROK_API_KEY' }}
+          TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '384000' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/kakao_titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --api-base-url ${{ github.event.inputs.api_base_url || 'https://api.x.ai/v1' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/kakao_titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated Kakao titles
         run: python scripts/merge_translated_kakao_titles.py
@@ -90,9 +92,11 @@ jobs:
       - name: Translate Kakao descriptions
         env:
           TRANSLATION_API_KEY: ${{ secrets[github.event.inputs.api_key_secret || 'GROK_API_KEY'] }}
+          TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key_secret || 'GROK_API_KEY' }}
+          TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '384000' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/kakao_descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --api-base-url ${{ github.event.inputs.api_base_url || 'https://api.x.ai/v1' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/kakao_descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated Kakao descriptions
         run: python scripts/merge_translated_kakao_descriptions.py
