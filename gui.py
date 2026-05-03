@@ -2229,6 +2229,10 @@ class NovelpiaGUI(tk.Tk):
             justify="left",
         ).pack(anchor="w", pady=(0, 8))
 
+        # Pin buttons to bottom (packed BEFORE text so always visible)
+        btns = ttk.Frame(main_f)
+        btns.pack(side="bottom", fill="x", pady=(10, 0))
+
         text = tk.Text(main_f, wrap="word", height=14, undo=True, maxundo=-1)
         text.pack(fill="both", expand=True)
 
@@ -2259,8 +2263,7 @@ class NovelpiaGUI(tk.Tk):
             text.edit_reset()  # Clear undo history from the restore insert
         text.focus_set()
 
-        btns = ttk.Frame(main_f)
-        btns.pack(fill="x", pady=(10, 0))
+
 
         def _snapshot_text():
             """Copy the widget's current content to the instance attribute so
