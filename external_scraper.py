@@ -563,11 +563,13 @@ class ExternalScraper:
     def _kakao_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Scrape a single KakaoPage chapter from the viewer.
 
-        Uses two extraction strategies:
-          1. Intercept the JSON API responses (sdownload/resource) that carry
-             the structured paragraphList with the actual text.
-          2. Fallback: read the Shadow DOM innerHTML after the EPUB viewer
-             renders the content.
+        Uses a fast API-only approach:
+          1. Call the BFF viewer data API to get sdownload resource URLs.
+          2. Fetch all content JSONs in parallel via Promise.all.
+          3. Parse the paragraphList from each JSON chunk.
+
+        No page navigation needed — runs ~15x faster than loading the
+        full React SPA for each chapter.
 
         Returns the standard chapter data dict or None on error.
         """
@@ -575,8 +577,62 @@ class ExternalScraper:
         if target is None:
             return None
 
-        # Collect JSON content responses during page load
-        json_chunks = []
+        # Extract series_id and product_id from the chapter URL
+        m = re.search(r'/content/(\d+)/viewer/(\d+)', chapter_url)
+        if not m:
+            self.log(f"  [KakaoPage] Invalid viewer URL: {chapter_url}")
+            return None
+        s_id, p_id = m.group(1), m.group(2)
+
+        # ---- Strategy 1: Direct API fetch (fast, no navigation) ----
+        try:
+            raw_chunks = target.evaluate("""
+            async ([seriesId, productId]) => {
+                const vResp = await fetch(
+                    `https://bff-page.kakao.com/api/gateway/api/v1/viewer/data`
+                    + `?series_id=${seriesId}&product_id=${productId}`
+                );
+                const vData = await vResp.json();
+                const vd = vData.viewerData || {};
+                const baseUrl = vd.atsServerUrl || '';
+                const contents = vd.contentsList || [];
+                if (!baseUrl || !contents.length) return [];
+
+                const fetches = contents.map(async (c) => {
+                    if (!c.secureUrl) return null;
+                    try {
+                        const r = await fetch(baseUrl + c.secureUrl);
+                        const ct = r.headers.get('content-type') || '';
+                        if (!ct.includes('json')) return null;
+                        return await r.text();
+                    } catch(e) { return null; }
+                });
+                return (await Promise.all(fetches)).filter(r => r !== null);
+            }
+            """, [s_id, p_id])
+        except Exception as e:
+            self.log(f"  [KakaoPage] API fetch error: {e}")
+            raw_chunks = []
+
+        if raw_chunks:
+            json_chunks = [r.encode('utf-8') for r in raw_chunks]
+            paragraphs = self._kakao_extract_from_json(json_chunks)
+            if paragraphs:
+                paragraphs = self._kakao_strip_headings(paragraphs)
+                full_text = '\n'.join(paragraphs)
+                html_parts = [f'<p>{p}</p>' for p in paragraphs
+                              if p.strip()]
+                content_html = '\n'.join(html_parts)
+                return {
+                    'chapterName': chapter_name,
+                    'contentText': full_text,
+                    'contentHtml': content_html,
+                    'images': [],
+                }
+
+        # ---- Strategy 2: Full page load fallback ----
+        # Only used when the API approach fails (e.g. auth issues).
+        json_chunks_fb = []
 
         def _capture_response(response):
             try:
@@ -585,31 +641,23 @@ class ExternalScraper:
                 if ('sdownload/resource' in url and 'json' in ct):
                     body = response.body()
                     if body:
-                        json_chunks.append(body)
+                        json_chunks_fb.append(body)
             except Exception:
                 pass
 
         target.on('response', _capture_response)
-
         try:
             target.goto(chapter_url, wait_until="domcontentloaded",
                         timeout=30000)
-            # Wait just long enough for the JSON content responses to
-            # arrive.  They fire during/shortly after page load — no
-            # need for full networkidle (which stalls on ads/analytics).
             target.wait_for_timeout(4000)
         except Exception as e:
-            self.log(f"  [KakaoPage] Page load error: {e}")
+            self.log(f"  [KakaoPage] Fallback page load error: {e}")
             target.remove_listener('response', _capture_response)
             return None
-
         target.remove_listener('response', _capture_response)
 
-        # ---- Strategy 1: Parse intercepted JSON paragraphs ----
-        paragraphs = self._kakao_extract_from_json(json_chunks)
+        paragraphs = self._kakao_extract_from_json(json_chunks_fb)
         if paragraphs:
-            # Strip redundant episode heading (e.g. "제3화") — the
-            # chapter title from the API already carries this info.
             paragraphs = self._kakao_strip_headings(paragraphs)
             full_text = '\n'.join(paragraphs)
             html_parts = [f'<p>{p}</p>' for p in paragraphs if p.strip()]
@@ -621,7 +669,7 @@ class ExternalScraper:
                 'images': [],
             }
 
-        # ---- Strategy 2: Extract from Shadow DOM ----
+        # ---- Strategy 3: Shadow DOM extraction ----
         shadow_text = self._kakao_extract_from_shadow(target)
         if shadow_text:
             paragraphs = [p.strip() for p in shadow_text.split('\n')

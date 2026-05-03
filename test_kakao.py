@@ -1,9 +1,9 @@
-"""Test getting all 703 episodes in one BFF API call."""
-import sys, json, tempfile, shutil, os
+"""Full API-only chapter fetch — no page navigation needed."""
+import sys, json, tempfile, shutil, os, time
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
-tmp_dir = os.path.join(tempfile.gettempdir(), 'kakao_api5')
+tmp_dir = os.path.join(tempfile.gettempdir(), 'kakao_fast')
 if os.path.exists(tmp_dir):
     shutil.rmtree(tmp_dir, ignore_errors=True)
 os.makedirs(tmp_dir, exist_ok=True)
@@ -17,38 +17,64 @@ ctx = pw.chromium.launch_persistent_context(
 page = ctx.new_page()
 
 series_id = '56510701'
+# Load book page once
 page.goto(f'https://page.kakao.com/content/{series_id}',
           wait_until="domcontentloaded", timeout=30000)
-page.wait_for_timeout(3000)
+page.wait_for_timeout(2000)
 
-# Try window_size=2000 to get all at once
-result = page.evaluate("""
-async (seriesId) => {
-    const url = `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=2000`;
-    const resp = await fetch(url);
-    return await resp.json();
-}
-""", series_id)
+# Test 3 free chapters
+chapters = [
+    ('56523944', 'Ch1'),
+    ('56523947', 'Ch2'),
+    ('56559096', 'Ch3'),
+]
 
-r = result.get('result', {})
-eps = r.get('list', [])
-print(f"total_count: {r.get('total_count')}")
-print(f"Returned: {len(eps)}, has_next: {r.get('has_next')}")
-
-if eps:
-    # Build viewer URLs
-    first_item = eps[0].get('item', {})
-    last_item = eps[-1].get('item', {})
-    free_count = sum(1 for e in eps if e.get('item', {}).get('is_free'))
+for product_id, label in chapters:
+    t0 = time.time()
     
-    print(f"\nFree: {free_count}, Paid: {len(eps) - free_count}")
-    print(f"First: #{first_item.get('order_value')} '{first_item.get('title','')[:50]}' (product_id={first_item.get('product_id')})")
-    print(f"Last:  #{last_item.get('order_value')} '{last_item.get('title','')[:50]}' (product_id={last_item.get('product_id')})")
+    # Step 1: Get viewer data (contains sdownload URLs)
+    result = page.evaluate("""
+    async ([s, p]) => {
+        const resp = await fetch(`https://bff-page.kakao.com/api/gateway/api/v1/viewer/data?series_id=${s}&product_id=${p}`);
+        const data = await resp.json();
+        const vd = data.viewerData || {};
+        const baseUrl = vd.atsServerUrl || '';
+        const contents = vd.contentsList || [];
+        
+        // Fetch all content JSONs in parallel
+        const fetches = contents.map(async (c) => {
+            if (!c.secureUrl) return null;
+            const url = baseUrl + c.secureUrl;
+            try {
+                const r = await fetch(url);
+                const ct = r.headers.get('content-type') || '';
+                if (!ct.includes('json')) return null;
+                return await r.text();
+            } catch(e) { return null; }
+        });
+        
+        const results = await Promise.all(fetches);
+        return results.filter(r => r !== null);
+    }
+    """, [series_id, product_id])
     
-    # Show how to build viewer URL
-    pid = first_item.get('product_id')
-    viewer_url = f"https://page.kakao.com/content/{series_id}/viewer/{pid}"
-    print(f"\nViewer URL for ch1: {viewer_url}")
+    t1 = time.time()
+    
+    # Parse the JSON chunks using our scraper logic
+    from external_scraper import ExternalScraper
+    scraper = ExternalScraper(logger=lambda m: None)
+    
+    # Convert string results to bytes for the parser
+    json_chunks = [r.encode('utf-8') for r in result if r]
+    paragraphs = scraper._kakao_extract_from_json(json_chunks)
+    paragraphs = scraper._kakao_strip_headings(paragraphs)
+    
+    real_paras = [p for p in paragraphs if p.strip() and p != '&nbsp;']
+    
+    print(f"[{label}] {t1-t0:.2f}s — {len(json_chunks)} chunks, {len(real_paras)} real paragraphs")
+    if real_paras:
+        print(f"  First: {real_paras[0][:80]}")
+        print(f"  Last:  {real_paras[-1][:80]}")
 
 page.close(); ctx.close(); pw.stop()
 shutil.rmtree(tmp_dir, ignore_errors=True)
