@@ -17,9 +17,9 @@ on:
         default: ''
         type: string
       api_key_secret:
-        description: 'GitHub secret name containing the API key'
+        description: 'GitHub secret name containing the API key (blank = GROK_API_KEY)'
         required: false
-        default: 'GROK_API_KEY'
+        default: ''
         type: string
       workers:
         description: 'Parallel translation workers'
