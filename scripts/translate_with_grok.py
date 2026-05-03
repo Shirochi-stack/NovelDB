@@ -1,12 +1,17 @@
-"""Translate untranslated titles/descriptions using the xAI (Grok) API.
+"""Translate untranslated titles/descriptions using an OpenAI-compatible API.
 
 Simple, reliable translation script for CI/CD workflows.
-Uses requests directly with proper timeouts — no internal retry on bad results.
+Uses requests directly with proper timeouts - no internal retry on bad results.
 Accepts whatever the model returns and moves on.
 
 Environment:
-    GROK_API_KEY  — required API key (set via GitHub secret)
-    MODEL         — override model name (optional)
+    TRANSLATION_API_KEY       - preferred API key for any provider
+    OPENAI_API_KEY            - fallback API key
+    GROK_API_KEY              - fallback API key for xAI/Grok
+    DEEPSEEK_API_KEY          - fallback API key for DeepSeek
+    TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL
+                               (default: https://api.x.ai/v1)
+    MODEL                    - override model name (optional)
 
 Usage:
     python scripts/translate_with_grok.py <input_file> [--lang korean|chinese] [--type titles|descriptions]
@@ -20,13 +25,14 @@ sys.stdout.reconfigure(encoding="utf-8")
 import tiktoken
 _enc = tiktoken.get_encoding("cl100k_base")
 
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
+DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
-# ── Token budgets ──
-# Grok has a 2M context window. These are for chunk sizing only.
+# Token budgets. These are for chunk sizing only.
 MAX_INPUT_TOKENS = 200_000
 EFFECTIVE_OUTPUT_TOKENS = 60_000
+DEEPSEEK_MAX_INPUT_TOKENS = 50_000
+DEEPSEEK_EFFECTIVE_OUTPUT_TOKENS = 8_000
 
 # Hard cap on lines per chunk
 MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400, "tags": 2000}
@@ -70,7 +76,8 @@ def build_prompt(rows, lang, content_type):
 
 
 
-def chunk_rows(rows, content_type):
+def chunk_rows(rows, content_type, max_input_tokens=MAX_INPUT_TOKENS,
+               effective_output_tokens=EFFECTIVE_OUTPUT_TOKENS):
     """Split rows into chunks based on token budget."""
     max_lines = MAX_LINES_PER_CHUNK.get(content_type, 500)
     avg_out = estimate_output_per_line(rows, content_type)
@@ -85,8 +92,8 @@ def chunk_rows(rows, content_type):
         row_out = avg_out
 
         if cur and (len(cur) >= max_lines
-                    or cur_in + row_in > MAX_INPUT_TOKENS
-                    or cur_out + row_out > EFFECTIVE_OUTPUT_TOKENS):
+                    or cur_in + row_in > max_input_tokens
+                    or cur_out + row_out > effective_output_tokens):
             chunks.append(cur)
             cur, cur_in, cur_out = [], 0, 0
 
@@ -167,7 +174,73 @@ Rules:
 - Output ONLY translated lines — no commentary, headers, or explanations"""
 
 
-def call_api(prompt, api_key, model, content_type="titles"):
+def normalize_chat_completions_url(base_url):
+    """Return a /chat/completions endpoint for an OpenAI-compatible base URL."""
+    base_url = (base_url or DEFAULT_API_BASE_URL).strip().rstrip("/")
+    if base_url.endswith("/chat/completions"):
+        return base_url
+    if base_url.endswith("/v1"):
+        return f"{base_url}/chat/completions"
+    return f"{base_url}/v1/chat/completions"
+
+
+def resolve_api_key(api_key_env=None):
+    """Resolve API key from a named env var or common provider fallbacks."""
+    if api_key_env:
+        key = os.environ.get(api_key_env)
+        if not key:
+            print(f"Error: {api_key_env} not set")
+            sys.exit(1)
+        return key
+
+    for env_name in (
+        "TRANSLATION_API_KEY",
+        "OPENAI_API_KEY",
+        "GROK_API_KEY",
+        "DEEPSEEK_API_KEY",
+    ):
+        key = os.environ.get(env_name)
+        if key:
+            return key
+
+    print(
+        "Error: no API key set. Use TRANSLATION_API_KEY, OPENAI_API_KEY, "
+        "GROK_API_KEY, DEEPSEEK_API_KEY, or --api-key-env."
+    )
+    sys.exit(1)
+
+
+def resolve_api_base_url(cli_base_url=None):
+    return (
+        cli_base_url
+        or os.environ.get("TRANSLATION_API_BASE_URL")
+        or os.environ.get("OPENAI_BASE_URL")
+        or os.environ.get("GROK_API_BASE_URL")
+        or os.environ.get("DEEPSEEK_API_BASE_URL")
+        or DEFAULT_API_BASE_URL
+    )
+
+
+def env_int(name):
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        print(f"Error: {name} must be an integer, got {value!r}")
+        sys.exit(1)
+
+
+def default_token_budgets(model, api_base_url):
+    """Pick safe chunk budgets for known providers."""
+    provider_hint = f"{model} {api_base_url}".lower()
+    if "deepseek" in provider_hint:
+        return DEEPSEEK_MAX_INPUT_TOKENS, DEEPSEEK_EFFECTIVE_OUTPUT_TOKENS
+    return MAX_INPUT_TOKENS, EFFECTIVE_OUTPUT_TOKENS
+
+
+def call_api(prompt, api_key, model, api_url, content_type="titles"):
     """Single API call with proper timeout. No retries — accept what we get."""
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -185,7 +258,7 @@ def call_api(prompt, api_key, model, content_type="titles"):
     }
 
     # (connect_timeout=30s, read_timeout=300s)
-    resp = requests.post(GROK_API_URL, headers=headers, json=payload,
+    resp = requests.post(api_url, headers=headers, json=payload,
                          timeout=(30, 300))
     resp.raise_for_status()
 
@@ -196,13 +269,14 @@ def call_api(prompt, api_key, model, content_type="titles"):
     return content
 
 
-def process_chunk(idx, chunk, total, lang, content_type, api_key, model):
+def process_chunk(idx, chunk, total, lang, content_type, api_key, model,
+                  api_url):
     """Process one chunk. Single attempt, accept whatever comes back."""
     _tprint(f"\n  Chunk {idx+1}/{total} ({len(chunk)} lines)...")
 
     try:
         prompt = build_prompt(chunk, lang, content_type)
-        response = call_api(prompt, api_key, model, content_type)
+        response = call_api(prompt, api_key, model, api_url, content_type)
         translations = parse_response(response, chunk)
 
         _tprint(f"  Chunk {idx+1}/{total}: got {len(translations)} translations (expected {len(chunk)})")
@@ -218,20 +292,63 @@ def process_chunk(idx, chunk, total, lang, content_type, api_key, model):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Translate with Grok API")
+    parser = argparse.ArgumentParser(
+        description="Translate with an OpenAI-compatible chat API"
+    )
     parser.add_argument("input_file", help="Path to untranslated file")
     parser.add_argument("--lang", default="korean", choices=["korean", "chinese"])
     parser.add_argument("--type", dest="content_type", default="titles",
                         choices=["titles", "descriptions", "tags"])
     parser.add_argument("--model", default=None)
+    parser.add_argument(
+        "--api-base-url",
+        default=None,
+        help=(
+            "OpenAI-compatible base URL or full /chat/completions URL "
+            "(default: TRANSLATION_API_BASE_URL or xAI)"
+        ),
+    )
+    parser.add_argument(
+        "--api-key-env",
+        default=None,
+        help=(
+            "Environment variable containing the API key. If omitted, checks "
+            "TRANSLATION_API_KEY, OPENAI_API_KEY, GROK_API_KEY, DEEPSEEK_API_KEY."
+        ),
+    )
+    parser.add_argument(
+        "--max-input-tokens",
+        type=int,
+        default=None,
+        help="Chunk input-token budget. Defaults to provider-aware value.",
+    )
+    parser.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=None,
+        help="Chunk output-token budget. Defaults to provider-aware value.",
+    )
     parser.add_argument("--workers", type=int, default=MAX_WORKERS)
     parser.add_argument("--delay", type=float, default=STAGGER_DELAY)
     args = parser.parse_args()
 
     model = args.model or os.environ.get("MODEL", DEFAULT_MODEL)
-    api_key = os.environ.get("GROK_API_KEY")
-    if not api_key:
-        print("Error: GROK_API_KEY not set"); sys.exit(1)
+    api_key = resolve_api_key(args.api_key_env)
+    api_base_url = resolve_api_base_url(args.api_base_url)
+    api_url = normalize_chat_completions_url(api_base_url)
+    default_input_budget, default_output_budget = default_token_budgets(
+        model, api_base_url
+    )
+    max_input_tokens = (
+        args.max_input_tokens
+        or env_int("TRANSLATION_MAX_INPUT_TOKENS")
+        or default_input_budget
+    )
+    max_output_tokens = (
+        args.max_output_tokens
+        or env_int("TRANSLATION_MAX_OUTPUT_TOKENS")
+        or default_output_budget
+    )
     if not os.path.exists(args.input_file):
         print(f"Error: {args.input_file} not found"); sys.exit(1)
 
@@ -253,13 +370,16 @@ def main():
 
     print(f"Found {len(rows)} untranslated rows in {args.input_file}")
     print(f"Using model: {model}")
+    print(f"Using API endpoint: {api_url}")
 
-    chunks = chunk_rows(rows, args.content_type)
+    chunks = chunk_rows(
+        rows, args.content_type, max_input_tokens, max_output_tokens
+    )
     sizes = [len(c) for c in chunks]
     avg_out = estimate_output_per_line(rows, args.content_type)
 
     print(f"Split into {len(chunks)} chunks (lines per chunk: {min(sizes)}-{max(sizes)})")
-    print(f"Token budgets — input: {MAX_INPUT_TOKENS:,} | output (effective): {EFFECTIVE_OUTPUT_TOKENS:,} | est. output/line: {avg_out}")
+    print(f"Token budgets — input: {max_input_tokens:,} | output (effective): {max_output_tokens:,} | est. output/line: {avg_out}")
     print(f"Parallel mode: {args.workers} workers, {args.delay}s stagger delay")
 
     # Translate in parallel
@@ -273,7 +393,8 @@ def main():
             if i > 0:
                 time.sleep(args.delay)
             fut = pool.submit(process_chunk, i, chunk, len(chunks),
-                              args.lang, args.content_type, api_key, model)
+                              args.lang, args.content_type, api_key, model,
+                              api_url)
             futures[fut] = i
 
         for fut in as_completed(futures):

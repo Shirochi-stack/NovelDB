@@ -7,9 +7,39 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: 'Grok model to use'
+        description: 'OpenAI-compatible model to use'
         required: false
         default: 'grok-4-1-fast-reasoning'
+        type: string
+      api_base_url:
+        description: 'OpenAI-compatible base URL (DeepSeek: https://api.deepseek.com)'
+        required: false
+        default: 'https://api.x.ai/v1'
+        type: string
+      api_key_secret:
+        description: 'GitHub secret name containing the API key'
+        required: false
+        default: 'GROK_API_KEY'
+        type: string
+      workers:
+        description: 'Parallel translation workers'
+        required: false
+        default: '67'
+        type: string
+      delay:
+        description: 'Seconds to stagger translation chunks'
+        required: false
+        default: '5'
+        type: string
+      max_input_tokens:
+        description: 'Optional chunk input-token budget'
+        required: false
+        default: ''
+        type: string
+      max_output_tokens:
+        description: 'Optional chunk output-token budget'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -43,10 +73,12 @@ jobs:
       - name: Extract untranslated SFACG titles
         run: python scripts/extract_untranslated_sfacg_titles.py
 
-      - name: Translate SFACG titles with Grok
+      - name: Translate SFACG titles
         env:
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-        run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }}
+          TRANSLATION_API_KEY: ${{ secrets[github.event.inputs.api_key_secret || 'GROK_API_KEY'] }}
+          TRANSLATION_MAX_INPUT_TOKENS: ${{ github.event.inputs.max_input_tokens || '' }}
+          TRANSLATION_MAX_OUTPUT_TOKENS: ${{ github.event.inputs.max_output_tokens || '' }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --api-base-url ${{ github.event.inputs.api_base_url || 'https://api.x.ai/v1' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated SFACG titles
         run: python scripts/merge_translated_sfacg_titles.py
@@ -55,10 +87,12 @@ jobs:
       - name: Extract untranslated SFACG descriptions
         run: python scripts/extract_untranslated_sfacg_descriptions.py
 
-      - name: Translate SFACG descriptions with Grok
+      - name: Translate SFACG descriptions
         env:
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-        run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }}
+          TRANSLATION_API_KEY: ${{ secrets[github.event.inputs.api_key_secret || 'GROK_API_KEY'] }}
+          TRANSLATION_MAX_INPUT_TOKENS: ${{ github.event.inputs.max_input_tokens || '' }}
+          TRANSLATION_MAX_OUTPUT_TOKENS: ${{ github.event.inputs.max_output_tokens || '' }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --api-base-url ${{ github.event.inputs.api_base_url || 'https://api.x.ai/v1' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated SFACG descriptions
         run: python scripts/merge_translated_sfacg_descriptions.py
