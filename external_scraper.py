@@ -283,11 +283,31 @@ class ExternalScraper:
         self.log("Opening browser for login...")
         self.log(f"Browser profile: {user_data_dir}")
         self._playwright = sync_playwright().start()
-        self._context = self._playwright.chromium.launch_persistent_context(
-            user_data_dir,
-            headless=False,
-            ignore_https_errors=True,
-        )
+        try:
+            self._context = self._playwright.chromium.launch_persistent_context(
+                user_data_dir,
+                channel="chrome",
+                headless=False,
+                ignore_https_errors=True,
+            )
+            self.log("Using installed Google Chrome for login.")
+        except Exception as chrome_error:
+            self.log(
+                "Installed Chrome unavailable for login; "
+                "falling back to bundled Chromium."
+            )
+            self.log(f"Chrome launch warning: {chrome_error}")
+            self._context = self._playwright.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=False,
+                args=[
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--allow-running-insecure-content',
+                    '--no-sandbox',
+                ],
+                ignore_https_errors=True,
+            )
         self._restore_storage_state()
         page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page = page
