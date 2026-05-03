@@ -421,7 +421,12 @@ class ExternalNovelDialog(tk.Toplevel):
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
-            self._scraper.open_visible_browser()
+            # Open to the book URL if we already fetched one,
+            # otherwise a sensible default.
+            start_url = (self._scraper._book_url
+                         or self._url_var.get().strip()
+                         or 'https://www.google.com')
+            self._scraper.open_visible_browser(start_url=start_url)
         except Exception as e:
             self._msg_queue.put(("error", f"Browser error: {e}"))
         finally:
