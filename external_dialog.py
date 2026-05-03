@@ -182,6 +182,28 @@ class ExternalNovelDialog(tk.Toplevel):
             settings_frame, text="Keep filler",
             variable=self._var_kakao_keep_filler,
         ).pack(side="left", padx=(10, 0))
+        dedupe_frame = ttk.Frame(settings_frame)
+        dedupe_frame.pack(side="left", padx=(10, 0))
+        self._var_kakao_dedupe_images = tk.BooleanVar(value=True)
+        self._var_kakao_dedupe_leading_images = tk.IntVar(value=2)
+        ttk.Checkbutton(
+            dedupe_frame, text="Dedupe images",
+            variable=self._var_kakao_dedupe_images,
+        ).pack(side="left")
+        self._spn_kakao_dedupe_leading = ttk.Spinbox(
+            dedupe_frame, from_=1, to=10,
+            textvariable=self._var_kakao_dedupe_leading_images, width=3
+        )
+        self._spn_kakao_dedupe_leading.pack(side="left", padx=(3, 0))
+        self._var_kakao_dedupe_images.trace_add(
+            "write",
+            lambda *_: self._spn_kakao_dedupe_leading.configure(
+                state=(
+                    "normal" if self._var_kakao_dedupe_images.get()
+                    else "disabled"
+                )
+            )
+        )
 
         # --- Action Buttons ---
         btn_frame = ttk.Frame(self)
@@ -1318,8 +1340,13 @@ img { display: block; max-width: 100%; max-height: 100%;
                     ch_name, content_html, show_title=not is_kakao
                 )
 
-            if is_kakao:
-                self._remove_kakao_duplicate_cover_pages(epub)
+            if is_kakao and self._var_kakao_dedupe_images.get():
+                max_positions = max(
+                    1, min(10, self._var_kakao_dedupe_leading_images.get())
+                )
+                self._remove_kakao_duplicate_cover_pages(
+                    epub, max_positions=max_positions
+                )
 
             # Fallback: if no cover was found, use the first chapter
             # image larger than 400px as the cover.
@@ -1373,13 +1400,13 @@ img { display: block; max-width: 100%; max-height: 100%;
         if copied:
             self._log(f"  Using {copied} browser cookie(s) for image downloads.")
 
-    def _remove_kakao_duplicate_cover_pages(self, epub):
+    def _remove_kakao_duplicate_cover_pages(self, epub, max_positions=2):
         """Remove repeated Kakao boilerplate images by exact bytes.
 
-        This does not download or probe anything. It only looks at already
-        first two embedded images of Kakao image chapters, then removes
-        later occurrences whose bytes are identical while keeping the first
-        copy. This avoids extension-based false positives.
+        This does not download or probe anything. It only looks at the
+        configured number of leading images from Kakao image chapters, then
+        removes later occurrences whose bytes are identical while keeping the
+        first copy. This avoids extension-based false positives.
         """
         image_data = {
             img.get('filename'): img.get('data')
@@ -1399,7 +1426,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                 content,
                 flags=re.IGNORECASE,
             )
-            for pos, src in enumerate(matches[:2], 1):
+            for pos, src in enumerate(matches[:max_positions], 1):
                 filename = html.unescape(src)
                 data = image_data.get(filename)
                 if data:
@@ -1793,6 +1820,18 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_kakao_keep_filler.set(
                 cfg.get("ext_kakao_keep_filler", False)
             )
+            self._var_kakao_dedupe_images.set(
+                cfg.get("ext_kakao_dedupe_images", True)
+            )
+            self._var_kakao_dedupe_leading_images.set(
+                cfg.get("ext_kakao_dedupe_leading_images", 2)
+            )
+            self._spn_kakao_dedupe_leading.configure(
+                state=(
+                    "normal" if self._var_kakao_dedupe_images.get()
+                    else "disabled"
+                )
+            )
         except Exception:
             pass
 
@@ -1824,6 +1863,12 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_kakao_skip_last_page.get()
         )
         cfg["ext_kakao_keep_filler"] = self._var_kakao_keep_filler.get()
+        cfg["ext_kakao_dedupe_images"] = (
+            self._var_kakao_dedupe_images.get()
+        )
+        cfg["ext_kakao_dedupe_leading_images"] = max(
+            1, min(10, self._var_kakao_dedupe_leading_images.get())
+        )
         try:
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
