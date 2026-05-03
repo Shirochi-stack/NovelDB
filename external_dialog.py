@@ -163,9 +163,9 @@ class ExternalNovelDialog(tk.Toplevel):
             variable=self._var_skip_paid,
         ).pack(side="left", padx=(10, 0))
 
-        # --- Buttons ---
+        # --- Buttons row 1 ---
         btn_frame = ttk.Frame(self)
-        btn_frame.pack(fill="x", padx=10, pady=5)
+        btn_frame.pack(fill="x", padx=10, pady=(5, 2))
 
         self._btn_download = ttk.Button(btn_frame, text="Download",
                                          command=self._on_download)
