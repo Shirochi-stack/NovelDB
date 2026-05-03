@@ -16,8 +16,8 @@ on:
         required: false
         default: ''
         type: string
-      api_key_secret:
-        description: 'GitHub secret name containing the API key (blank = GROK_API_KEY)'
+      api_key:
+        description: 'API key (blank = GROK_API_KEY secret)'
         required: false
         default: ''
         type: string
@@ -66,13 +66,17 @@ jobs:
       - name: Install dependencies
         run: pip install requests tiktoken
 
+      - name: Mask pasted API key
+        if: ${{ github.event.inputs.api_key != '' }}
+        run: echo "::add-mask::${{ github.event.inputs.api_key }}"
+
       - name: Extract untranslated tags
         run: python scripts/extract_untranslated_tags.py
 
       - name: Translate tags
         env:
-          TRANSLATION_API_KEY: ${{ secrets[github.event.inputs.api_key_secret || 'GROK_API_KEY'] }}
-          TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key_secret || 'GROK_API_KEY' }}
+          TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || secrets.GROK_API_KEY }}
+          TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || 'GROK_API_KEY' }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '384000' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
