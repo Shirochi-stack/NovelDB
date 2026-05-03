@@ -37,7 +37,6 @@ from playwright.sync_api import (
     sync_playwright,
     Page,
     Browser,
-    TimeoutError as PlaywrightTimeoutError,
 )
 
 APP_DATA_NAME = "NpiaDownloader"
@@ -284,17 +283,31 @@ class ExternalScraper:
         self.log("Opening browser for login...")
         self.log(f"Browser profile: {user_data_dir}")
         self._playwright = sync_playwright().start()
-        self._context = self._playwright.chromium.launch_persistent_context(
-            user_data_dir,
-            headless=False,
-            args=[
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--allow-running-insecure-content',
-                '--no-sandbox',
-            ],
-            ignore_https_errors=True,
-        )
+        try:
+            self._context = self._playwright.chromium.launch_persistent_context(
+                user_data_dir,
+                channel="chrome",
+                headless=False,
+                ignore_https_errors=True,
+            )
+            self.log("Using installed Google Chrome for login.")
+        except Exception as chrome_error:
+            self.log(
+                "Installed Chrome unavailable for login; "
+                "falling back to bundled Chromium."
+            )
+            self.log(f"Chrome launch warning: {chrome_error}")
+            self._context = self._playwright.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=False,
+                args=[
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--allow-running-insecure-content',
+                    '--no-sandbox',
+                ],
+                ignore_https_errors=True,
+            )
         self._restore_storage_state()
         page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page = page
@@ -320,15 +333,16 @@ class ExternalScraper:
         # a race: cleanup() would call context.close() while Chromium was
         # still mid-shutdown, interrupting the disk flush and losing the
         # login session.
-        while self._context:
-            self._backup_storage_state()
-            try:
-                self._context.wait_for_event("close", timeout=2000)
-                break
-            except PlaywrightTimeoutError:
-                continue
-            except Exception:
-                break
+        try:
+            self._context.wait_for_event("close", timeout=0)
+        except Exception:
+            pass
+
+        # Chromium's persistent profile should already be flushed at this
+        # point. Take one explicit storage snapshot after close/disconnect as
+        # a best-effort fallback, but do not poll storage_state() while the
+        # visible browser is open because it can disturb live tabs.
+        self._backup_storage_state()
 
         self.log("Browser closed. Session data saved.")
         # The context already disconnected, so just reset Python refs
