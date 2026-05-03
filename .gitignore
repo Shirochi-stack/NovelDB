@@ -3,6 +3,7 @@ build/
 __pycache__/
 *.pyc
 *.pyo
+*.png
 *.exe
 .cache/
 config.json

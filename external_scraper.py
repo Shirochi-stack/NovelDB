@@ -672,14 +672,26 @@ class ExternalScraper:
           { contentInfo: {
               paragraphList: [{
                 id, type, text,
-                childParagraphList: [{id, type, text, ...}]
+                childParagraphList: [{id, type, text,
+                  childParagraphList: [{id, type, text, ...}]
+                }]
               }, ...]
           } }
-        The actual text is in childParagraphList[].text (the parent's
-        text field is empty).
+        Text nodes can be nested arbitrarily deep (e.g. P → SPAN → TEXT).
         Returns a list of text paragraphs sorted by content order.
         """
         import json as _json
+
+        def _collect_text(node):
+            """Recursively collect text from a paragraph node and its children."""
+            parts = []
+            text = (node.get('text') or '').strip()
+            if text:
+                parts.append(text)
+            children = node.get('childParagraphList') or []
+            for child in children:
+                parts.extend(_collect_text(child))
+            return parts
 
         all_paras = []
         for raw in json_chunks:
@@ -691,16 +703,7 @@ class ExternalScraper:
                 for p in para_list:
                     p_id = int(p.get('id', 0))
                     p_type = p.get('type', '')
-                    # Text can be on the paragraph itself or in children
-                    text = p.get('text', '').strip()
-                    if not text:
-                        children = p.get('childParagraphList') or []
-                        parts = []
-                        for child in children:
-                            ct = child.get('text', '').strip()
-                            if ct:
-                                parts.append(ct)
-                        text = ''.join(parts)
+                    text = ''.join(_collect_text(p))
                     if text:
                         all_paras.append((content_id, p_id, text, p_type))
             except Exception:
