@@ -293,6 +293,27 @@ class ExternalNovelDialog(tk.Toplevel):
         Failed chapters are retried individually after the main pass.
         """
         try:
+            # Ensure the headless browser is alive.  After "Enter Browser"
+            # the context is destroyed; start() re-launches it with fresh
+            # cookies from browser_data (including any new login sessions).
+            if self._scraper and not self._scraper._context:
+                self._scraper.start()
+                # Navigate to the book page so that JS fetch() calls
+                # originate from the kakao.com domain.  The BFF API
+                # returns 403 Forbidden for requests from about:blank.
+                if (self._scraper._page and self._book_data
+                        and self._book_data.get('_kakaopage')
+                        and self._scraper._book_url):
+                    try:
+                        self._scraper._page.goto(
+                            self._scraper._book_url,
+                            wait_until="domcontentloaded",
+                            timeout=30000,
+                        )
+                        self._scraper._page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+
             selected = chapters[start:end]
             total = len(selected)
             results = [None] * total

@@ -583,10 +583,28 @@ class ExternalScraper:
             self.log(f"  [KakaoPage] Invalid viewer URL: {chapter_url}")
             return None
         s_id, p_id = m.group(1), m.group(2)
+        # Ensure the page is on the kakao.com domain so that fetch()
+        # sends the correct cookies.  After "Enter Browser" restarts the
+        # headless browser, the page is on about:blank — the BFF API
+        # returns 403 Forbidden for requests from a null origin.
+        try:
+            current_url = target.url or ''
+        except Exception:
+            current_url = ''
+        if 'kakao.com' not in current_url:
+            try:
+                target.goto(
+                    f'https://page.kakao.com/content/{s_id}',
+                    wait_until="domcontentloaded", timeout=30000,
+                )
+                target.wait_for_timeout(1000)
+            except Exception as e:
+                self.log(f"  [KakaoPage] Failed to navigate to book page: {e}")
 
         # ---- Strategy 1: Direct API fetch (fast, no navigation) ----
+        api_result = None
         try:
-            raw_chunks = target.evaluate("""
+            api_result = target.evaluate("""
             async ([seriesId, productId]) => {
                 const vResp = await fetch(
                     `https://bff-page.kakao.com/api/gateway/api/v1/viewer/data`
@@ -596,7 +614,10 @@ class ExternalScraper:
                 const vd = vData.viewerData || {};
                 const baseUrl = vd.atsServerUrl || '';
                 const contents = vd.contentsList || [];
-                if (!baseUrl || !contents.length) return [];
+
+                // No viewerData or empty contentsList → locked/no access
+                if (!baseUrl || !contents.length)
+                    return { locked: true, chunks: [] };
 
                 const fetches = contents.map(async (c) => {
                     if (!c.secureUrl) return null;
@@ -607,14 +628,19 @@ class ExternalScraper:
                         return await r.text();
                     } catch(e) { return null; }
                 });
-                return (await Promise.all(fetches)).filter(r => r !== null);
+                const results = (await Promise.all(fetches)).filter(r => r !== null);
+                return { locked: false, chunks: results };
             }
             """, [s_id, p_id])
         except Exception as e:
             self.log(f"  [KakaoPage] API fetch error: {e}")
-            raw_chunks = []
 
-        if raw_chunks:
+        if api_result:
+            if api_result.get('locked'):
+                self.log(f"  [KakaoPage] LOCKED (paid): {chapter_name}")
+                return {'_locked': True, 'chapterName': chapter_name}
+
+            raw_chunks = api_result.get('chunks', [])
             json_chunks = [r.encode('utf-8') for r in raw_chunks]
             paragraphs = self._kakao_extract_from_json(json_chunks)
             if paragraphs:
@@ -943,10 +969,6 @@ class ExternalScraper:
         if self._book_data and self._book_data.get('_kakaopage'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('name', '')
-            is_vip = chapter_info.get('isVIP', False)
-            if is_vip:
-                self.log(f"  [{index + 1}] LOCKED (paid): {name}")
-                return {'_locked': True, 'chapterName': name}
             target_page = page or self._page
             result = self._kakao_parse_chapter(url, name, page=target_page)
             if interval > 0:
@@ -1024,11 +1046,6 @@ class ExternalScraper:
             for i, ch in enumerate(batch_info):
                 if self._stop_requested:
                     results.append(None)
-                    continue
-                if ch.get('isVIP', False):
-                    name = ch.get('name', '')
-                    self.log(f"  LOCKED (paid): {name}")
-                    results.append({'_locked': True, 'chapterName': name})
                     continue
                 data = self._kakao_parse_chapter(
                     ch.get('url', ''), ch.get('name', ''),
