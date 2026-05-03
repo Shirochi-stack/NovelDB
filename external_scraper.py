@@ -457,7 +457,8 @@ class ExternalScraper:
                             url: `/content/${seriesId}/viewer/${item.product_id}`,
                             name: shortName,
                             isVIP: !item.is_free,
-                            isPaid: null
+                            isPaid: null,
+                            order: item.order_value || 0
                         };
                     });
                 }
@@ -469,8 +470,9 @@ class ExternalScraper:
         if not episodes:
             self.log("WARNING: No episodes found on page.")
 
-        # API returns newest-first; reverse to chapter-1-first order.
-        episodes.reverse()
+        # Sort by order_value ascending (chapter 1 first).
+        # The API may return episodes in any order depending on the novel.
+        episodes.sort(key=lambda ep: ep.get('order', 0))
 
         # Fix relative URLs to absolute
         for ep in episodes:
