@@ -74,13 +74,13 @@ jobs:
             iconutil -c icns icon.iconset -o icon.icns
           fi
 
-      - name: Build ND42 (Full + Playwright)
+      - name: Build ND43 (Full + Playwright)
         id: build_full
         continue-on-error: true
         run: |
           pyinstaller NovelpiaDownloader_mac.spec --clean
 
-      - name: Build ND42_Lite (No Playwright)
+      - name: Build ND43_Lite (No Playwright)
         run: |
           pyinstaller NovelpiaDownloader_mac_lite.spec --clean
 
@@ -90,50 +90,50 @@ jobs:
         if: steps.build_full.outcome == 'failure'
         run: |
           echo "::warning::Full build failed, falling back to Lite for the Full DMG."
-          cp -R dist/ND42_Lite.app dist/ND42.app 2>/dev/null || true
+          cp -R dist/ND43_Lite.app dist/ND43.app 2>/dev/null || true
 
       - name: Create DMG (Full)
-        if: steps.build_full.outcome == 'success' || hashFiles('dist/ND42.app') != ''
+        if: steps.build_full.outcome == 'success' || hashFiles('dist/ND43.app') != ''
         run: |
-          if [ -d "dist/ND42.app" ]; then
+          if [ -d "dist/ND43.app" ]; then
             mkdir -p dmg_contents
-            cp -R dist/ND42.app dmg_contents/
+            cp -R dist/ND43.app dmg_contents/
             ln -s /Applications dmg_contents/Applications
-            hdiutil create -volname "ND42" \
+            hdiutil create -volname "ND43" \
               -srcfolder dmg_contents \
               -ov -format UDZO \
-              "ND42-macos-${{ matrix.arch }}.dmg"
+              "ND43-macos-${{ matrix.arch }}.dmg"
           else
-            echo "::warning::ND42.app not found, skipping Full DMG."
+            echo "::warning::ND43.app not found, skipping Full DMG."
           fi
 
       - name: Create DMG (Lite)
         run: |
           mkdir -p dmg_lite_contents
-          cp -R dist/ND42_Lite.app dmg_lite_contents/
+          cp -R dist/ND43_Lite.app dmg_lite_contents/
           ln -s /Applications dmg_lite_contents/Applications
-          hdiutil create -volname "ND42_Lite" \
+          hdiutil create -volname "ND43_Lite" \
             -srcfolder dmg_lite_contents \
             -ov -format UDZO \
-            "ND42_Lite-macos-${{ matrix.arch }}.dmg"
+            "ND43_Lite-macos-${{ matrix.arch }}.dmg"
 
       - name: Upload Full artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ND42-macos-${{ matrix.arch }}
-          path: ND42-macos-${{ matrix.arch }}.dmg
+          name: ND43-macos-${{ matrix.arch }}
+          path: ND43-macos-${{ matrix.arch }}.dmg
           if-no-files-found: ignore
           retention-days: 90
 
       - name: Upload Lite artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ND42_Lite-macos-${{ matrix.arch }}
-          path: ND42_Lite-macos-${{ matrix.arch }}.dmg
+          name: ND43_Lite-macos-${{ matrix.arch }}
+          path: ND43_Lite-macos-${{ matrix.arch }}.dmg
           retention-days: 90
 
-  # Attach the freshly-built DMGs to an EXISTING GitHub Release tagged v42.
-  # This job never creates a release — you must publish v42 once manually.
+  # Attach the freshly-built DMGs to an EXISTING GitHub Release tagged v43.
+  # This job never creates a release — you must publish v43 once manually.
   # Subsequent workflow runs simply overwrite the attached DMGs so the
   # release's download URLs always point at the latest build.
   attach-to-release:
@@ -148,27 +148,27 @@ jobs:
       - name: Download all DMG artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ND42*-macos-*
+          pattern: ND43*-macos-*
           path: dmgs
           merge-multiple: true
 
       - name: Show collected assets
         run: ls -la dmgs
 
-      - name: Verify v42 release exists
+      - name: Verify v43 release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if ! gh release view v42 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "::error::Release 'v42' does not exist. Create it manually, then re-run."
+          if ! gh release view v43 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::Release 'v43' does not exist. Create it manually, then re-run."
             exit 1
           fi
-          echo "Release v42 found; proceeding to upload assets."
+          echo "Release v43 found; proceeding to upload assets."
 
-      - name: Upload DMGs to v42 release (overwrite existing)
+      - name: Upload DMGs to v43 release (overwrite existing)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # --clobber replaces existing assets with the same name instead of
           # failing, so re-runs always end up with the latest binary.
-          gh release upload v42 dmgs/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload v43 dmgs/*.dmg --clobber --repo "$GITHUB_REPOSITORY"

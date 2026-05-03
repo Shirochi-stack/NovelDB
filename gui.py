@@ -61,16 +61,16 @@ def _writable_data_dir(kind):
     # then a temp dir as absolute last resort.
     home = os.path.expanduser("~")
     if kind == "logs":
-        mac_standard = os.path.join(home, "Library", "Logs", "ND42")
+        mac_standard = os.path.join(home, "Library", "Logs", "ND43")
     elif kind == ".cache":
-        mac_standard = os.path.join(home, "Library", "Caches", "ND42")
+        mac_standard = os.path.join(home, "Library", "Caches", "ND43")
     else:
-        mac_standard = os.path.join(home, "Library", "Application Support", "ND42", kind)
+        mac_standard = os.path.join(home, "Library", "Application Support", "ND43", kind)
 
     candidates = [
         os.path.join(_get_base_dir(), kind),
         mac_standard,
-        os.path.join(tempfile.gettempdir(), f"ND42_{kind.lstrip('.')}"),
+        os.path.join(tempfile.gettempdir(), f"ND43_{kind.lstrip('.')}"),
     ]
     for path in candidates:
         try:
@@ -863,7 +863,7 @@ class NovelpiaGUI(tk.Tk):
             self.bind_class(widget_class, "<Button-4>", _block_scroll)
             self.bind_class(widget_class, "<Button-5>", _block_scroll)
 
-        self.title("ND42")
+        self.title("ND43")
         
         # Get screen dimensions and calculate window size as percentage
         screen_width = self.winfo_screenwidth()

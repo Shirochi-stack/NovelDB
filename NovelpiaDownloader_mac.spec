@@ -176,7 +176,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ND42',
+    name='ND43',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -198,17 +198,17 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name='ND42',
+    name='ND43',
 )
 
 # Create macOS .app bundle
 app = BUNDLE(
     coll,
-    name='ND42.app',
+    name='ND43.app',
     icon=icon_file,
-    bundle_identifier='com.novelpiadownloader.nd42',
+    bundle_identifier='com.novelpiadownloader.nd43',
     info_plist={
-        'CFBundleName': 'ND42',
+        'CFBundleName': 'ND43',
         'CFBundleDisplayName': 'Novelpia Downloader',
         'CFBundleVersion': '3.8',
         'CFBundleShortVersionString': '3.8',

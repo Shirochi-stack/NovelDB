@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# ND42_Lite macOS — No Playwright/Chromium bundled (smaller app, no external novel support)
+# ND43_Lite macOS — No Playwright/Chromium bundled (smaller app, no external novel support)
 
 import os
 import sys
@@ -79,7 +79,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ND42_Lite',
+    name='ND43_Lite',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -96,11 +96,11 @@ exe = EXE(
 
 app = BUNDLE(
     exe,
-    name='ND42_Lite.app',
+    name='ND43_Lite.app',
     icon=icon_file,
-    bundle_identifier='com.novelpiadownloader.nd42lite',
+    bundle_identifier='com.novelpiadownloader.nd43lite',
     info_plist={
-        'CFBundleName': 'ND42_Lite',
+        'CFBundleName': 'ND43_Lite',
         'CFBundleDisplayName': 'Novelpia Downloader Lite',
         'CFBundleVersion': '3.8',
         'CFBundleShortVersionString': '3.8',
