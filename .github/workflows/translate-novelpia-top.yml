@@ -34,7 +34,7 @@ on:
       output_token_limit:
         description: 'Output token limit'
         required: false
-        default: '384000'
+        default: '80000'
         type: string
       compression_factor:
         description: 'Compression factor'
@@ -82,7 +82,7 @@ jobs:
           TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || secrets.GROK_API_KEY }}
           TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || 'GROK_API_KEY' }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
-          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '384000' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '80000' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
         run: python scripts/translate_with_grok.py docs/data/titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
@@ -98,7 +98,7 @@ jobs:
           TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || secrets.GROK_API_KEY }}
           TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || 'GROK_API_KEY' }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
-          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '384000' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '80000' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
         run: python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 

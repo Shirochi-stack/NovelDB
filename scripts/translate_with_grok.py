@@ -12,7 +12,7 @@ Environment:
     TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL; leave blank
                                to infer from model/key name
     TRANSLATION_OUTPUT_TOKEN_LIMIT - API completion token limit
-                                     (default: 384000)
+                                     (default: 80000)
     TRANSLATION_COMPRESSION_FACTOR - chunk divisor for output token limit
                                      (default: 2.0)
     MODEL                    - override model name (optional)
@@ -35,7 +35,7 @@ DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 # API output cap and derived chunk size.
-DEFAULT_OUTPUT_TOKEN_LIMIT = 384_000
+DEFAULT_OUTPUT_TOKEN_LIMIT = 80_000
 DEFAULT_COMPRESSION_FACTOR = 2.0
 
 # Concurrency
@@ -108,55 +108,61 @@ def parse_response(text, original_rows):
     return translations
 
 
-SYSTEM_PROMPT_DEFAULT = """You are translating text to English. Each line has this exact 3-column format:
+FORMAT_RULES = """Format rules:
+- Every input line has exactly this 3-column format: ID|||ORIGINAL|||ENGLISH
+- Column 1 (ID): copy exactly.
+- Column 2 (ORIGINAL): copy exactly; keep it in the original language.
+- Column 3 (ENGLISH): fill only this column with the English translation.
+- Use ||| as the only delimiter; every output line must have exactly two |||.
+- Preserve row order. Do not skip, merge, split, renumber, or add rows.
+- Literal \\n sequences inside column 2 must remain literal \\n sequences.
+- Output only translated rows. No markdown, notes, headers, or commentary."""
 
-ID|||ORIGINAL|||ENGLISH
 
-INPUT example:
-390198|||어쩌다 보니 캄피오네 가 되버린 주인공의 모험기|||
+def build_system_prompt(content_type, lang):
+    source_language = {
+        "korean": "Korean",
+        "chinese": "Chinese",
+    }.get(lang, lang or "the source language")
 
-OUTPUT example:
-390198|||어쩌다 보니 캄피오네 가 되버린 주인공의 모험기|||The Adventure of a Protagonist Who Accidentally Became a Campione
+    if content_type == "titles":
+        return f"""You translate {source_language} web novel titles into natural English titles.
 
-Rules:
-- Column 1 (ID): Copy EXACTLY, do not change
-- Column 2 (ORIGINAL): Copy EXACTLY, do not change — this MUST remain in the original language
-- Column 3 (ENGLISH): Write your English translation here
-- Use ||| as the ONLY delimiter between columns — every line must have exactly two |||
-- Translate naturally, not robotically
-- Romanize proper nouns (e.g. 김철수 → Kim Cheolsu)
-- If text is already English, keep as-is
-- Literal \\n in column 2 are line breaks — do NOT remove them, copy them exactly
-- Output ALL lines — do not skip, merge, or reorder
-- Output ONLY translated lines — no commentary, headers, or explanations"""
+Title translation goals:
+- Make the title sound like a real English web novel title, not a word-by-word gloss.
+- Preserve genre signals, jokes, and common tropes like regression, reincarnation, possession, academy, dungeon, hunter, villainess, and overpowered protagonist.
+- Keep titles concise and readable. Do not add summaries or explanations.
+- Romanize names, places, fandoms, brands, and invented terms when translation would be awkward.
+- Use Title Case unless the title naturally needs sentence case.
+- If the original is already English or a Latin-script proper noun, keep it as-is.
 
-SYSTEM_PROMPT_TAGS = """You are translating Korean web novel tags/genres into English. Each line has this exact 3-column format:
+{FORMAT_RULES}"""
 
-ID|||KOREAN_TAG|||ENGLISH_TAG
+    if content_type == "descriptions":
+        return f"""You translate {source_language} web novel descriptions and synopses into fluent English.
 
-INPUT example:
-42|||현대판타지|||
-15|||블루아카이브|||
-99|||먼치킨|||
+Description translation goals:
+- Preserve the full meaning, tone, genre hooks, warnings, and promotional style.
+- Write natural English prose. Avoid stiff machine-translation phrasing.
+- Keep paragraph breaks and literal \\n markers exactly where they appear in column 2.
+- Do not censor, summarize, soften, add spoilers, or invent details.
+- Romanize character names, place names, series titles, and proper nouns consistently.
+- If text is already English, keep it as-is.
 
-OUTPUT example:
-42|||현대판타지|||Modern Fantasy
-15|||블루아카이브|||Blue Archive
-99|||먼치킨|||Munchkin/OP MC
+{FORMAT_RULES}"""
 
-Rules:
-- Column 1 (ID): Copy EXACTLY, do not change
-- Column 2 (KOREAN_TAG): Copy EXACTLY, do not change
-- Column 3 (ENGLISH_TAG): Write the English translation here
-- Use ||| as the ONLY delimiter — every line must have exactly two |||
-- These are web novel genre tags, so translate in that context (e.g. 회귀 = Regression, 빙의 = Possession, 성장 = Growth)
-- If a tag is a proper noun or brand name, romanize it (e.g. 블루아카이브 → Blue Archive, 원신 → Genshin)
-- If you cannot translate a tag meaningfully, romanize it to Latin script (e.g. 야스 → Yasu)
-- ALL output must be in Latin script — no Korean/CJK characters in column 3
-- If text is already in English/Latin, keep as-is
-- Keep translations SHORT — these are tags, not sentences. 1-3 words ideal
-- Output EVERY line — you MUST NOT skip any lines. Every input line needs an output line
-- Output ONLY translated lines — no commentary, headers, or explanations"""
+    return f"""You translate {source_language} web novel tags and genre labels into English.
+
+Tag translation goals:
+- Keep each tag short: usually 1-3 words.
+- Prefer common English genre/tag wording used by web novel readers.
+- Translate tropes in context, not literally.
+- Romanize proper nouns, franchise names, memes, or untranslatable slang.
+- Column 3 should be Latin-script English whenever possible.
+- Use concise Title Case tags such as Modern Fantasy, Regression, Possession, Academy, Dungeon, Overpowered MC.
+- If the tag is already English or a Latin-script name, keep it as-is.
+
+{FORMAT_RULES}"""
 
 
 def normalize_chat_completions_url(base_url):
@@ -267,13 +273,13 @@ def derive_chunk_token_limit(output_token_limit, compression_factor):
 
 
 def call_api(prompt, api_key, model, api_url, content_type="titles",
-             output_token_limit=None):
+             lang="korean", output_token_limit=None):
     """Single API call with proper timeout. No retries — accept what we get."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    system_prompt = SYSTEM_PROMPT_TAGS if content_type == "tags" else SYSTEM_PROMPT_DEFAULT
+    system_prompt = build_system_prompt(content_type, lang)
 
     payload = {
         "model": model,
@@ -307,7 +313,7 @@ def process_chunk(idx, chunk, total, lang, content_type, api_key, model,
         prompt = build_prompt(chunk, lang, content_type)
         response = call_api(
             prompt, api_key, model, api_url, content_type,
-            output_token_limit
+            lang, output_token_limit
         )
         translations = parse_response(response, chunk)
 
