@@ -1037,6 +1037,12 @@ img { display: block; max-width: 100%; max-height: 100%;
                           'Chrome/120.0.0.0 Safari/537.36',
             'Referer': data.get('bookUrl', ''),
         })
+        if is_kakao:
+            img_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://page.kakao.com/',
+                'Origin': 'https://page.kakao.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
         img_counter = [0]
 
         try:
@@ -1137,7 +1143,7 @@ img { display: block; max-width: 100%; max-height: 100%;
 
                     def process_image(item):
                         img_idx, img_info = item
-                        img_url = img_info.get('url', '')
+                        img_url = html.unescape(img_info.get('url', '')).strip()
                         img_data_url = img_info.get('data')
                         raw = None
 
@@ -1166,6 +1172,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                                     f"{len(image_items)}",
                                     session=dl_session,
                                     log_success=False,
+                                    log_failure=(img_idx <= 3),
                                 )
                             finally:
                                 if session_pool is not None and dl_session:
@@ -1227,12 +1234,32 @@ img { display: block; max-width: 100%; max-height: 100%;
                             for item in image_items:
                                 img_idx, result = process_image(item)
                                 image_results[img_idx] = result
+                                done = len(image_results)
+                                if done % 5 == 0 or done == len(image_items):
+                                    self._log(
+                                        f"    Images ready: {done}/"
+                                        f"{len(image_items)}"
+                                    )
                     finally:
                         for s in pooled_sessions:
                             try:
                                 s.close()
                             except Exception:
                                 pass
+                        session_pool = None
+
+                    failed_items = [
+                        item for item in image_items
+                        if not image_results.get(item[0])
+                    ]
+                    if failed_items and image_workers > 1:
+                        self._log(
+                            f"    Retrying {len(failed_items)} failed "
+                            "image(s) sequentially..."
+                        )
+                        for item in failed_items:
+                            img_idx, result = process_image(item)
+                            image_results[img_idx] = result
 
                     for img_idx, result in sorted(image_results.items()):
                         if not result:
@@ -1251,17 +1278,27 @@ img { display: block; max-width: 100%; max-height: 100%;
                             content_html = content_html.replace(
                                 img_url, f'../Images/{img_name}'
                             )
+                            content_html = content_html.replace(
+                                html.escape(img_url, quote=True),
+                                f'../Images/{img_name}'
+                            )
                     if image_items:
                         elapsed = max(0.01, time.time() - image_start)
                         mb = image_bytes / (1024 * 1024)
                         ready_count = sum(
                             1 for result in image_results.values() if result
                         )
+                        failed_count = len(image_items) - ready_count
                         self._log(
                             f"    Images embedded: {ready_count}/"
                             f"{len(image_items)}, "
                             f"{mb:.1f} MB for this chapter in {elapsed:.1f}s"
                         )
+                        if failed_count:
+                            self._log(
+                                f"    {failed_count} image(s) were left for "
+                                "inline fallback retry."
+                            )
 
                 # Also handle any <img src="..."> in contentHtml that
                 # weren't in the images array (e.g. inline images)
@@ -1281,6 +1318,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                     ch_name, content_html, show_title=not is_kakao
                 )
 
+            if is_kakao:
+                self._remove_kakao_duplicate_cover_pages(epub)
+
             # Fallback: if no cover was found, use the first chapter
             # image larger than 400px as the cover.
             if not cover_added and epub.images:
@@ -1299,8 +1339,122 @@ img { display: block; max-width: 100%; max-height: 100%;
         finally:
             img_session.close()
 
+    def _copy_browser_cookies_to_session(self, session):
+        """Copy Playwright browser cookies into a requests session."""
+        scraper = getattr(self, '_scraper', None)
+        context = getattr(scraper, '_context', None)
+        if not context:
+            return
+
+        try:
+            cookies = context.cookies()
+        except Exception as e:
+            self._log(f"  Could not read browser cookies for images: {e}")
+            return
+
+        copied = 0
+        for cookie in cookies or []:
+            name = cookie.get('name')
+            value = cookie.get('value')
+            domain = cookie.get('domain')
+            if not name or value is None:
+                continue
+            try:
+                session.cookies.set(
+                    name,
+                    value,
+                    domain=domain,
+                    path=cookie.get('path') or '/',
+                )
+                copied += 1
+            except Exception:
+                pass
+
+        if copied:
+            self._log(f"  Using {copied} browser cookie(s) for image downloads.")
+
+    def _remove_kakao_duplicate_cover_pages(self, epub):
+        """Remove repeated Kakao image-title pages from the finished EPUB data.
+
+        This does not download or probe anything. It looks at the first image
+        in the first Kakao image chapter after normal embedding, then removes
+        every chapter image with the exact same bytes.
+        """
+        first_src = None
+        for chap in epub.chapters:
+            content = chap.get('content') or ''
+            if 'kakao-image-chapter' not in content:
+                continue
+            match = re.search(
+                r'<img\b[^>]*\bsrc=["\']\.\./Images/([^"\']+)["\']',
+                content,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                first_src = html.unescape(match.group(1))
+                break
+
+        if not first_src:
+            return
+
+        reference = None
+        for img in epub.images:
+            if img.get('filename') == first_src:
+                reference = img.get('data')
+                break
+        if not reference:
+            return
+
+        duplicate_names = {
+            img.get('filename') for img in epub.images
+            if img.get('filename')
+            and not img.get('filename', '').startswith('cover.')
+            and img.get('data') == reference
+        }
+        if len(duplicate_names) < 2:
+            return
+
+        for chap in epub.chapters:
+            content = chap.get('content') or ''
+            for name in duplicate_names:
+                content = self._remove_image_page_by_filename(content, name)
+            chap['content'] = content
+
+        epub.images = [
+            img for img in epub.images
+            if img.get('filename') not in duplicate_names
+        ]
+        self._log(
+            f"  Removed {len(duplicate_names)} duplicate Kakao "
+            "cover/title page image(s)."
+        )
+
+    def _remove_image_page_by_filename(self, html_str, filename):
+        """Remove a Kakao image-page wrapper, falling back to the img tag."""
+        if not html_str or not filename:
+            return html_str
+
+        sources = {
+            f'../Images/{filename}',
+            f'../Images/{html.escape(filename, quote=True)}',
+        }
+        for src in sources:
+            pattern = (
+                r'\s*<div class="kakao-image-page">\s*'
+                r'<img\b[^>]*\bsrc=["\']' + re.escape(src) +
+                r'["\'][^>]*/?>\s*</div>'
+            )
+            html_str = re.sub(pattern, '', html_str, flags=re.IGNORECASE)
+            img_pattern = (
+                r'\s*<img\b[^>]*\bsrc=["\']' + re.escape(src) +
+                r'["\'][^>]*/?>'
+            )
+            html_str = re.sub(img_pattern, '', html_str, flags=re.IGNORECASE)
+        return html_str
+
     def _download_image_python(self, url, label="Image", session=None,
-                               max_retries=3, log_success=True):
+                               max_retries=3, log_success=True,
+                               log_failure=False):
         """Download an image using requests (no CORS/mixed-content issues).
 
         Automatically upgrades http:// to https:// and retries on failure.
@@ -1308,15 +1462,24 @@ img { display: block; max-width: 100%; max-height: 100%;
         """
         import requests as _req
 
+        url = html.unescape((url or '').strip())
+
         # Upgrade http to https (many sites serve images on http but
         # support https — and some block http entirely)
         if url.startswith('http://'):
             url = url.replace('http://', 'https://', 1)
 
         sess = session or _req
+        last_status = None
+        last_length = None
+        last_type = ''
+        last_error = None
         for attempt in range(max_retries):
             try:
                 r = sess.get(url, timeout=15)
+                last_status = r.status_code
+                last_length = len(r.content)
+                last_type = r.headers.get('content-type', '')
                 if r.status_code == 200 and len(r.content) > 100:
                     if log_success:
                         self._log(
@@ -1327,8 +1490,15 @@ img { display: block; max-width: 100%; max-height: 100%;
                 if attempt == max_retries - 2 and url.startswith('https://'):
                     url = url.replace('https://', 'http://', 1)
             except Exception as e:
-                if attempt == max_retries - 1:
+                last_error = e
+                if attempt == max_retries - 1 and (log_success or log_failure):
                     self._log(f"  📷 {label}: FAILED ({e})")
+        if log_failure and last_error is None:
+            self._log(
+                f"  Image {label}: FAILED "
+                f"(HTTP {last_status}, {last_length or 0} bytes, "
+                f"{last_type or 'unknown content-type'})"
+            )
         return None
 
     def _download_inline_images(self, html_str, epub, session, counter,

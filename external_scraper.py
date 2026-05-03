@@ -791,7 +791,7 @@ class ExternalScraper:
             key=lambda f: (f.get('no') or 0, f.get('url') or '')
         )
         for idx, info in enumerate(ordered, 1):
-            img_url = info.get('url') or ''
+            img_url = html.unescape((info.get('url') or '').strip())
             if not img_url:
                 continue
 
@@ -812,7 +812,7 @@ class ExternalScraper:
                 size_attrs += f' height="{int(height)}"'
             html_parts.append(
                 '<div class="kakao-image-page">'
-                f'<img src="{img_url}" '
+                f'<img src="{html.escape(img_url, quote=True)}" '
                 f'alt="{html.escape(alt, quote=True)}"{size_attrs}/>'
                 '</div>'
             )
