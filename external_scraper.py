@@ -610,14 +610,21 @@ class ExternalScraper:
                     `https://bff-page.kakao.com/api/gateway/api/v1/viewer/data`
                     + `?series_id=${seriesId}&product_id=${productId}`
                 );
-                const vData = await vResp.json();
+                const httpStatus = vResp.status;
+                let vData;
+                try { vData = await vResp.json(); } catch(e) {
+                    return { locked: true, chunks: [], httpStatus,
+                             msg: 'Non-JSON response', pageUrl: location.href };
+                }
                 const vd = vData.viewerData || {};
                 const baseUrl = vd.atsServerUrl || '';
                 const contents = vd.contentsList || [];
+                const msg = vData.message || vData.msg || null;
 
                 // No viewerData or empty contentsList → locked/no access
                 if (!baseUrl || !contents.length)
-                    return { locked: true, chunks: [] };
+                    return { locked: true, chunks: [], httpStatus, msg,
+                             pageUrl: location.href };
 
                 const fetches = contents.map(async (c) => {
                     if (!c.secureUrl) return null;
@@ -629,15 +636,22 @@ class ExternalScraper:
                     } catch(e) { return null; }
                 });
                 const results = (await Promise.all(fetches)).filter(r => r !== null);
-                return { locked: false, chunks: results };
+                return { locked: false, chunks: results, httpStatus, msg,
+                         pageUrl: location.href };
             }
             """, [s_id, p_id])
         except Exception as e:
             self.log(f"  [KakaoPage] API fetch error: {e}")
 
         if api_result:
+            http_st = api_result.get('httpStatus', '?')
+            page_url = api_result.get('pageUrl', '?')
+            api_msg = api_result.get('msg', '')
             if api_result.get('locked'):
-                self.log(f"  [KakaoPage] LOCKED (paid): {chapter_name}")
+                self.log(
+                    f"  [KakaoPage] LOCKED: {chapter_name} "
+                    f"(HTTP {http_st}, msg={api_msg}, page={page_url})"
+                )
                 return {'_locked': True, 'chapterName': chapter_name}
 
             raw_chunks = api_result.get('chunks', [])
