@@ -88,6 +88,8 @@ class ExternalScraper:
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
         self._kakao_css_cache = {}
+        self.kakao_keep_filler = False
+        self.kakao_skip_last_page = False
 
     @staticmethod
     def _get_user_data_dir():
@@ -1139,10 +1141,45 @@ class ExternalScraper:
             paragraphs_text: concatenated text of all paragraphs in a chunk.
         Returns True if the chunk is publisher boilerplate.
         """
-        markers = ['ISBN', 'ⓒ', '저작권법', '재가공할 수 없습니다',
-                   '발 행 처', '기획 / 편집', '표 지']
-        hits = sum(1 for m in markers if m in paragraphs_text)
-        return hits >= 2
+        text = paragraphs_text or ''
+        compact = re.sub(r'\s+', '', text)
+        lower = text.lower()
+        lower_compact = compact.lower()
+
+        # Strong legal/identifier markers. One of these plus ordinary
+        # publisher/contact labels is enough to identify a colophon page.
+        strong_markers = [
+            'ISBN', 'UCI', 'ⓒ', '©', '저작권법',
+            '재가공할 수 없습니다', '서면 허락',
+            '이 책의 내용을 이용하지 못합니다',
+        ]
+        publisher_markers = [
+            '발행인', '발행처', '펴낸곳', '펴낸 곳',
+            '기획/편집', '기획 / 편집', '책임편집',
+            '표지', '주소',
+        ]
+        contact_markers = [
+            '블로그', '트위터', '투고', 'blog.naver.com',
+            'dreambook', 'samyangcnc',
+        ]
+
+        def _has(marker):
+            marker_compact = re.sub(r'\s+', '', marker)
+            return (marker in text or marker_compact in compact
+                    or marker.lower() in lower
+                    or marker_compact.lower() in lower_compact)
+
+        strong_hits = sum(1 for marker in strong_markers if _has(marker))
+        publisher_hits = sum(1 for marker in publisher_markers if _has(marker))
+        contact_hits = sum(1 for marker in contact_markers if _has(marker))
+
+        if strong_hits >= 1 and (publisher_hits + contact_hits) >= 2:
+            return True
+        if publisher_hits >= 3 and contact_hits >= 1:
+            return True
+        if publisher_hits >= 2 and contact_hits >= 2:
+            return True
+        return False
 
     def _kakao_fetch_css_resource(self, style_info):
         """Download a Kakao EPUB CSS resource referenced by styleList."""
@@ -1348,7 +1385,7 @@ class ExternalScraper:
             return any(_node_has_image(child)
                        for child in (node.get('childParagraphList') or []))
 
-        all_paras = []
+        parsed_chunks = []
         css_parts = []
         seen_css = set()
         for chunk_index, raw in enumerate(json_chunks):
@@ -1378,14 +1415,28 @@ class ExternalScraper:
                             (chunk_index, content_id, p_id, plain,
                              html_frag, p_type, p_style, p_attrs))
 
+                if chunk_paras:
+                    parsed_chunks.append((chunk_index, chunk_paras))
+            except Exception:
+                continue
+
+        skip_last_index = None
+        if (self.kakao_skip_last_page and not self.kakao_keep_filler
+                and len(parsed_chunks) > 1):
+            skip_last_index = parsed_chunks[-1][0]
+
+        all_paras = []
+        for chunk_index, chunk_paras in parsed_chunks:
+            combined = ' '.join(t for _, _, _, t, _, _, _, _ in chunk_paras)
+            if not self.kakao_keep_filler:
+                if skip_last_index is not None and chunk_index == skip_last_index:
+                    continue
+
                 # Skip publisher colophon/copyright chunks
-                combined = ' '.join(t for _, _, _, t, _, _, _, _ in chunk_paras)
                 if self._is_colophon_chunk(combined):
                     continue
 
-                all_paras.extend(chunk_paras)
-            except Exception:
-                continue
+            all_paras.extend(chunk_paras)
 
         if not all_paras:
             return [], '\n\n'.join(css_parts)

@@ -172,6 +172,16 @@ class ExternalNovelDialog(tk.Toplevel):
             settings_frame, text="Skip paid",
             variable=self._var_skip_paid,
         ).pack(side="left", padx=(10, 0))
+        self._var_kakao_skip_last_page = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            settings_frame, text="Skip last page",
+            variable=self._var_kakao_skip_last_page,
+        ).pack(side="left", padx=(10, 0))
+        self._var_kakao_keep_filler = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            settings_frame, text="Keep filler",
+            variable=self._var_kakao_keep_filler,
+        ).pack(side="left", padx=(10, 0))
 
         # --- Action Buttons ---
         btn_frame = ttk.Frame(self)
@@ -238,6 +248,15 @@ class ExternalNovelDialog(tk.Toplevel):
         """Thread-safe: enqueue a log message."""
         self._msg_queue.put(("log", text))
 
+    def _apply_scraper_options(self):
+        """Copy current dialog options into the scraper instance."""
+        if not self._scraper:
+            return
+        self._scraper.kakao_skip_last_page = (
+            self._var_kakao_skip_last_page.get()
+        )
+        self._scraper.kakao_keep_filler = self._var_kakao_keep_filler.get()
+
     def _poll_queue(self):
         """Drain the message queue and update the UI."""
         try:
@@ -299,6 +318,7 @@ class ExternalNovelDialog(tk.Toplevel):
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
                 self._scraper.start()
+            self._apply_scraper_options()
 
             data = self._scraper.parse_book(url)
             if data:
@@ -340,6 +360,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         self._scraper._page.wait_for_timeout(1000)
                     except Exception:
                         pass
+            self._apply_scraper_options()
 
             selected = chapters[start:end]
             total = len(selected)
@@ -594,6 +615,7 @@ class ExternalNovelDialog(tk.Toplevel):
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
                 self._scraper.start()
+            self._apply_scraper_options()
 
             data = self._scraper.parse_book(url)
             if not data:
@@ -767,10 +789,12 @@ class ExternalNovelDialog(tk.Toplevel):
         if self._scraper is None:
             self._scraper = ExternalScraper(logger=self._log)
             self._scraper.start()
+        self._apply_scraper_options()
 
         # Ensure the headless browser is alive
         if not self._scraper._context:
             self._scraper.start()
+            self._apply_scraper_options()
 
         total_urls = len(urls)
         for url_idx, url in enumerate(urls):
@@ -1586,6 +1610,12 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_from.set(cfg.get("ext_from", 1))
             self._var_to.set(cfg.get("ext_to", 1))
             self._var_skip_paid.set(cfg.get("ext_skip_paid", False))
+            self._var_kakao_skip_last_page.set(
+                cfg.get("ext_kakao_skip_last_page", False)
+            )
+            self._var_kakao_keep_filler.set(
+                cfg.get("ext_kakao_keep_filler", False)
+            )
         except Exception:
             pass
 
@@ -1613,6 +1643,10 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_from"] = self._var_from.get()
         cfg["ext_to"] = self._var_to.get()
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
+        cfg["ext_kakao_skip_last_page"] = (
+            self._var_kakao_skip_last_page.get()
+        )
+        cfg["ext_kakao_keep_filler"] = self._var_kakao_keep_filler.get()
         try:
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
