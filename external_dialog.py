@@ -179,6 +179,14 @@ class ExternalNovelDialog(tk.Toplevel):
                                         command=self._on_enter_browser)
         self._btn_browser.pack(side="left", padx=(0, 5), ipady=3)
 
+        self._btn_paste_batch = ttk.Button(btn_frame, text="Paste Batch",
+                                            command=self._on_paste_batch)
+        self._btn_paste_batch.pack(side="left", padx=(0, 5), ipady=3)
+
+        self._btn_batch_file = ttk.Button(btn_frame, text="Batch Download",
+                                           command=self._on_batch_file)
+        self._btn_batch_file.pack(side="left", padx=(0, 5), ipady=3)
+
         # --- Book Info ---
         info_frame = ttk.LabelFrame(self, text="Book Info", padding=6)
         info_frame.pack(fill="x", padx=10, pady=5)
@@ -200,34 +208,18 @@ class ExternalNovelDialog(tk.Toplevel):
 
         grid_info.columnconfigure(1, weight=1)
 
-        # ============================================================
-        # Bottom-pinned bar (packed BEFORE console so Tk always shows it)
-        # ============================================================
-        bottom_bar = ttk.Frame(self)
-        bottom_bar.pack(side="bottom", fill="x", padx=10, pady=(0, 10))
-
-        # Progress
-        self._progress = ttk.Progressbar(bottom_bar, mode="determinate")
-        self._progress.pack(fill="x", pady=(0, 4))
-
-        bottom_btns = ttk.Frame(bottom_bar)
-        bottom_btns.pack(fill="x")
-
-        self._lbl_eta = ttk.Label(bottom_btns, text="")
-        self._lbl_eta.pack(side="left")
-
-        self._btn_batch_file = ttk.Button(bottom_btns, text="Batch Download",
-                                           command=self._on_batch_file)
-        self._btn_batch_file.pack(side="right", padx=(5, 0), ipady=3)
-
-        self._btn_paste_batch = ttk.Button(bottom_btns, text="Paste Batch",
-                                            command=self._on_paste_batch)
-        self._btn_paste_batch.pack(side="right", ipady=3)
-
-        # --- Console (fills remaining space, between top controls and pinned bottom) ---
+        # --- Console ---
         self._console = tk.Text(self, state="disabled", wrap="word",
                                 bg="#f0f0f0", relief="flat", height=12)
         self._console.pack(fill="both", expand=True, padx=10, pady=5)
+
+        # --- Progress ---
+        prog_frame = ttk.Frame(self)
+        prog_frame.pack(fill="x", padx=10, pady=(0, 10))
+        self._progress = ttk.Progressbar(prog_frame, mode="determinate")
+        self._progress.pack(side="left", fill="x", expand=True)
+        self._lbl_eta = ttk.Label(prog_frame, text="")
+        self._lbl_eta.pack(side="left", padx=(5, 0))
 
     # ------------------------------------------------------------------
     # Thread-safe logging via queue
