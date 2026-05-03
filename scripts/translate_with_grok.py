@@ -11,6 +11,10 @@ Environment:
     DEEPSEEK_API_KEY          - fallback API key for DeepSeek
     TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL
                                (default: https://api.x.ai/v1)
+    TRANSLATION_OUTPUT_TOKEN_LIMIT - API completion token limit
+                                     (default: 384000)
+    TRANSLATION_COMPRESSION_FACTOR - chunk divisor for output token limit
+                                     (default: 2.0)
     MODEL                    - override model name (optional)
 
 Usage:
@@ -28,14 +32,9 @@ _enc = tiktoken.get_encoding("cl100k_base")
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
-# Token budgets. These are for chunk sizing only.
-MAX_INPUT_TOKENS = 200_000
-EFFECTIVE_OUTPUT_TOKENS = 60_000
-DEEPSEEK_MAX_INPUT_TOKENS = 50_000
-DEEPSEEK_EFFECTIVE_OUTPUT_TOKENS = 8_000
-
-# Hard cap on lines per chunk
-MAX_LINES_PER_CHUNK = {"titles": 1500, "descriptions": 400, "tags": 2000}
+# API output cap and derived chunk size.
+DEFAULT_OUTPUT_TOKEN_LIMIT = 384_000
+DEFAULT_COMPRESSION_FACTOR = 2.0
 
 # Concurrency
 MAX_WORKERS = 67
@@ -54,56 +53,40 @@ def count_tokens(text):
     return len(_enc.encode(text))
 
 
-def estimate_output_per_line(rows, content_type):
-    """Estimate output tokens per translated line."""
-    if not rows:
-        return 50
-    sample = rows[:100]
-    total = 0
-    for row in sample:
-        parts = row.split("|||")
-        original = parts[1].strip() if len(parts) >= 2 else ""
-        orig_tokens = count_tokens(original)
-        ratio = 0.8 if content_type == "descriptions" else 1.5
-        total += 5 + orig_tokens + int(orig_tokens * ratio)
-    return max(10, total // len(sample))
-
-
-
 def build_prompt(rows, lang, content_type):
     """Build the user prompt — just the raw lines to translate."""
     return "\n".join(rows)
 
 
 
-def chunk_rows(rows, content_type, max_input_tokens=MAX_INPUT_TOKENS,
-               effective_output_tokens=EFFECTIVE_OUTPUT_TOKENS):
-    """Split rows into chunks based on token budget."""
-    max_lines = MAX_LINES_PER_CHUNK.get(content_type, 500)
-    avg_out = estimate_output_per_line(rows, content_type)
+def chunk_rows(rows, chunk_token_limit):
+    """Pack complete rows into chunks up to a soft token limit.
 
+    Rows are never split. A single row larger than the limit is kept as one
+    chunk because there is no safe row boundary inside it.
+    """
     chunks = []
     cur = []
-    cur_in = 0
-    cur_out = 0
+    cur_tokens = 0
 
     for row in rows:
-        row_in = count_tokens(row + "\n")
-        row_out = avg_out
+        row_tokens = count_tokens(row + "\n")
 
-        if cur and (len(cur) >= max_lines
-                    or cur_in + row_in > max_input_tokens
-                    or cur_out + row_out > effective_output_tokens):
+        if cur and cur_tokens + row_tokens > chunk_token_limit:
             chunks.append(cur)
-            cur, cur_in, cur_out = [], 0, 0
+            cur = []
+            cur_tokens = 0
 
         cur.append(row)
-        cur_in += row_in
-        cur_out += row_out
+        cur_tokens += row_tokens
 
     if cur:
         chunks.append(cur)
     return chunks
+
+
+def chunk_token_counts(chunks):
+    return [count_tokens("\n".join(chunk)) for chunk in chunks]
 
 
 def parse_response(text, original_rows):
@@ -232,15 +215,29 @@ def env_int(name):
         sys.exit(1)
 
 
-def default_token_budgets(model, api_base_url):
-    """Pick safe chunk budgets for known providers."""
-    provider_hint = f"{model} {api_base_url}".lower()
-    if "deepseek" in provider_hint:
-        return DEEPSEEK_MAX_INPUT_TOKENS, DEEPSEEK_EFFECTIVE_OUTPUT_TOKENS
-    return MAX_INPUT_TOKENS, EFFECTIVE_OUTPUT_TOKENS
+def env_float(name):
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        print(f"Error: {name} must be a number, got {value!r}")
+        sys.exit(1)
 
 
-def call_api(prompt, api_key, model, api_url, content_type="titles"):
+def derive_chunk_token_limit(output_token_limit, compression_factor):
+    if output_token_limit <= 0:
+        print("Error: output token limit must be greater than 0")
+        sys.exit(1)
+    if compression_factor <= 0:
+        print("Error: compression factor must be greater than 0")
+        sys.exit(1)
+    return max(1, int(output_token_limit / compression_factor))
+
+
+def call_api(prompt, api_key, model, api_url, content_type="titles",
+             output_token_limit=None):
     """Single API call with proper timeout. No retries — accept what we get."""
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -256,6 +253,8 @@ def call_api(prompt, api_key, model, api_url, content_type="titles"):
         ],
         "temperature": 0.3,
     }
+    if output_token_limit:
+        payload["max_tokens"] = output_token_limit
 
     # (connect_timeout=30s, read_timeout=300s)
     resp = requests.post(api_url, headers=headers, json=payload,
@@ -270,13 +269,16 @@ def call_api(prompt, api_key, model, api_url, content_type="titles"):
 
 
 def process_chunk(idx, chunk, total, lang, content_type, api_key, model,
-                  api_url):
+                  api_url, output_token_limit=None):
     """Process one chunk. Single attempt, accept whatever comes back."""
     _tprint(f"\n  Chunk {idx+1}/{total} ({len(chunk)} lines)...")
 
     try:
         prompt = build_prompt(chunk, lang, content_type)
-        response = call_api(prompt, api_key, model, api_url, content_type)
+        response = call_api(
+            prompt, api_key, model, api_url, content_type,
+            output_token_limit
+        )
         translations = parse_response(response, chunk)
 
         _tprint(f"  Chunk {idx+1}/{total}: got {len(translations)} translations (expected {len(chunk)})")
@@ -317,16 +319,23 @@ def main():
         ),
     )
     parser.add_argument(
-        "--max-input-tokens",
+        "--output-token-limit",
         type=int,
         default=None,
-        help="Chunk input-token budget. Defaults to provider-aware value.",
+        help=(
+            "API max_tokens / completion-token limit per request "
+            f"(default: {DEFAULT_OUTPUT_TOKEN_LIMIT})."
+        ),
     )
     parser.add_argument(
-        "--max-output-tokens",
-        type=int,
+        "--compression-factor",
+        type=float,
         default=None,
-        help="Chunk output-token budget. Defaults to provider-aware value.",
+        help=(
+            "Chunk-size divisor. Chunk token target is "
+            "output_token_limit / compression_factor "
+            f"(default: {DEFAULT_COMPRESSION_FACTOR})."
+        ),
     )
     parser.add_argument("--workers", type=int, default=MAX_WORKERS)
     parser.add_argument("--delay", type=float, default=STAGGER_DELAY)
@@ -336,18 +345,18 @@ def main():
     api_key = resolve_api_key(args.api_key_env)
     api_base_url = resolve_api_base_url(args.api_base_url)
     api_url = normalize_chat_completions_url(api_base_url)
-    default_input_budget, default_output_budget = default_token_budgets(
-        model, api_base_url
+    output_token_limit = (
+        args.output_token_limit
+        or env_int("TRANSLATION_OUTPUT_TOKEN_LIMIT")
+        or DEFAULT_OUTPUT_TOKEN_LIMIT
     )
-    max_input_tokens = (
-        args.max_input_tokens
-        or env_int("TRANSLATION_MAX_INPUT_TOKENS")
-        or default_input_budget
+    compression_factor = (
+        args.compression_factor
+        or env_float("TRANSLATION_COMPRESSION_FACTOR")
+        or DEFAULT_COMPRESSION_FACTOR
     )
-    max_output_tokens = (
-        args.max_output_tokens
-        or env_int("TRANSLATION_MAX_OUTPUT_TOKENS")
-        or default_output_budget
+    chunk_token_limit = derive_chunk_token_limit(
+        output_token_limit, compression_factor
     )
     if not os.path.exists(args.input_file):
         print(f"Error: {args.input_file} not found"); sys.exit(1)
@@ -372,14 +381,20 @@ def main():
     print(f"Using model: {model}")
     print(f"Using API endpoint: {api_url}")
 
-    chunks = chunk_rows(
-        rows, args.content_type, max_input_tokens, max_output_tokens
-    )
+    chunks = chunk_rows(rows, chunk_token_limit)
     sizes = [len(c) for c in chunks]
-    avg_out = estimate_output_per_line(rows, args.content_type)
+    token_sizes = chunk_token_counts(chunks)
 
     print(f"Split into {len(chunks)} chunks (lines per chunk: {min(sizes)}-{max(sizes)})")
-    print(f"Token budgets — input: {max_input_tokens:,} | output (effective): {max_output_tokens:,} | est. output/line: {avg_out}")
+    print(
+        f"Output token limit: {output_token_limit:,} | "
+        f"compression factor: {compression_factor:g} | "
+        f"soft chunk target: {chunk_token_limit:,} tokens"
+    )
+    print(
+        f"Actual chunk token range: {min(token_sizes):,}-"
+        f"{max(token_sizes):,}"
+    )
     print(f"Parallel mode: {args.workers} workers, {args.delay}s stagger delay")
 
     # Translate in parallel
@@ -394,7 +409,7 @@ def main():
                 time.sleep(args.delay)
             fut = pool.submit(process_chunk, i, chunk, len(chunks),
                               args.lang, args.content_type, api_key, model,
-                              api_url)
+                              api_url, output_token_limit)
             futures[fut] = i
 
         for fut in as_completed(futures):
