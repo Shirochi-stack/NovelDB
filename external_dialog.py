@@ -328,8 +328,11 @@ class ExternalNovelDialog(tk.Toplevel):
                     time.sleep(interval)
 
             # --- Retry failed chapters individually ---
-            failed_indices = [i for i, r in enumerate(results) if r is None
-                              and self._downloading]
+            # Locked (paid) chapters are not retried — only truly failed ones.
+            failed_indices = [
+                i for i, r in enumerate(results)
+                if r is None and self._downloading
+            ]
             if failed_indices and self._downloading:
                 max_retries = 2
                 for retry_pass in range(1, max_retries + 1):
@@ -362,6 +365,28 @@ class ExternalNovelDialog(tk.Toplevel):
                         f"WARNING: {len(failed_indices)} chapter(s) failed "
                         f"after all retries."
                     )
+
+            # --- Summary ---
+            locked = sum(1 for r in results
+                         if r and r.get('_locked'))
+            succeeded = sum(1 for r in results
+                            if r and not r.get('_locked'))
+            failed = sum(1 for r in results if r is None)
+
+            if locked:
+                self._log(
+                    f"Download complete: {succeeded} succeeded, "
+                    f"{locked} locked (paid), {failed} failed."
+                )
+                self._log(
+                    "⚠ Locked chapters require a KakaoPage subscription "
+                    "or ticket purchase to access."
+                )
+            elif failed:
+                self._log(
+                    f"Download complete: {succeeded} succeeded, "
+                    f"{failed} failed."
+                )
 
             self._chapter_results = results
             self._msg_queue.put(("finished", None))
@@ -497,9 +522,11 @@ class ExternalNovelDialog(tk.Toplevel):
             self._log("No chapters downloaded.")
             return
 
-        successes = sum(1 for r in self._chapter_results if r is not None)
-        failures = len(self._chapter_results) - successes
-        self._log(f"Download complete: {successes} succeeded, {failures} failed.")
+        successes = sum(1 for r in self._chapter_results
+                        if r is not None and not r.get('_locked'))
+        locked = sum(1 for r in self._chapter_results
+                     if r and r.get('_locked'))
+        failures = len(self._chapter_results) - successes - locked
 
         if successes > 0:
             self._generate_output()
@@ -548,7 +575,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 f.write("=" * 60 + "\n\n")
 
                 for i, ch_data in enumerate(self._chapter_results):
-                    if ch_data is None:
+                    if ch_data is None or ch_data.get('_locked'):
                         continue
                     ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
                     content = ch_data.get('contentText', '')
@@ -679,7 +706,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                 epub.add_extra_page('info.xhtml', intro_page)
 
             for i, ch_data in enumerate(self._chapter_results):
-                if ch_data is None:
+                if ch_data is None or ch_data.get('_locked'):
                     continue
                 ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
                 content_html = ch_data.get('contentHtml', '')
@@ -969,7 +996,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         chapters_for_pdf = []
         image_map = {}
         for i, ch_data in enumerate(self._chapter_results):
-            if ch_data is None:
+            if ch_data is None or ch_data.get('_locked'):
                 continue
             ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
             content_html = ch_data.get('contentHtml', '')

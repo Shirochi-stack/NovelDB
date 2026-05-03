@@ -608,6 +608,9 @@ class ExternalScraper:
         # ---- Strategy 1: Parse intercepted JSON paragraphs ----
         paragraphs = self._kakao_extract_from_json(json_chunks)
         if paragraphs:
+            # Strip redundant episode heading (e.g. "제3화") — the
+            # chapter title from the API already carries this info.
+            paragraphs = self._kakao_strip_headings(paragraphs)
             full_text = '\n'.join(paragraphs)
             html_parts = [f'<p>{p}</p>' for p in paragraphs if p.strip()]
             content_html = '\n'.join(html_parts)
@@ -635,6 +638,29 @@ class ExternalScraper:
 
         self.log(f"  [KakaoPage] No text extracted from: {chapter_name}")
         return None
+
+    @staticmethod
+    def _kakao_strip_headings(paragraphs):
+        """Remove redundant episode heading paragraphs from chapter text.
+
+        KakaoPage chapters start with a heading like '제1화' or '제103화'
+        that duplicates info already in the chapter title.  Strip these
+        and any surrounding &nbsp; spacers from the very beginning.
+
+        Returns the trimmed paragraph list (may be unchanged).
+        """
+        import re
+        cleaned = list(paragraphs)
+        # Strip leading &nbsp; and episode headings (제N화, 제N화.)
+        while cleaned:
+            text = cleaned[0].strip()
+            if not text or text == '&nbsp;':
+                cleaned.pop(0)
+            elif re.fullmatch(r'제\d+화\.?', text):
+                cleaned.pop(0)
+            else:
+                break
+        return cleaned
 
     @staticmethod
     def _is_colophon_chunk(paragraphs_text):
@@ -869,6 +895,10 @@ class ExternalScraper:
         if self._book_data and self._book_data.get('_kakaopage'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('name', '')
+            is_vip = chapter_info.get('isVIP', False)
+            if is_vip:
+                self.log(f"  [{index + 1}] LOCKED (paid): {name}")
+                return {'_locked': True, 'chapterName': name}
             target_page = page or self._page
             result = self._kakao_parse_chapter(url, name, page=target_page)
             if interval > 0:
@@ -946,6 +976,11 @@ class ExternalScraper:
             for i, ch in enumerate(batch_info):
                 if self._stop_requested:
                     results.append(None)
+                    continue
+                if ch.get('isVIP', False):
+                    name = ch.get('name', '')
+                    self.log(f"  LOCKED (paid): {name}")
+                    results.append({'_locked': True, 'chapterName': name})
                     continue
                 data = self._kakao_parse_chapter(
                     ch.get('url', ''), ch.get('name', ''),
