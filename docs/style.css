@@ -66,7 +66,7 @@ header {
 
 /* === Main === */
 main {
-    max-width: 1400px;
+    max-width: 1500px;
     margin: 0 auto;
     padding: 1.5rem;
 }
@@ -379,9 +379,21 @@ main {
 /* === Results Grid === */
 .results-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 1rem;
     transition: opacity 0.15s ease;
+}
+
+@media (max-width: 1240px) {
+    .results-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 980px) {
+    .results-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 .results-grid.fading {

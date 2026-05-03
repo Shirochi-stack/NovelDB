@@ -5533,12 +5533,13 @@
     let orTags = new Set();
     let excludeTags = new Set();
     let tagMode = "AND";
-    let displayCount = 32;
+    let displayCount = 30;
     let allTagCounts = {};   // full tag -> count for all loaded novels
     let top80Tags = new Set(); // tags shown in the default top-80 cloud
-    let BATCH = 32;
+    let BATCH = 30;
     let currentPage = 1;
     let pendingImageTimers = [];
+    const BATCH_OPTIONS = new Set(["30", "60", "120", "250"]);
 
     // === DOM refs ===
     const $ = (sel) => document.querySelector(sel);
@@ -5559,6 +5560,13 @@
     const batchSelect = $("#batchSelect");
     const statusSelect = $("#statusSelect");
     const audienceSelect = $("#audienceSelect");
+
+    function setBatch(value) {
+        const normalized = BATCH_OPTIONS.has(String(value)) ? String(value) : "30";
+        batchSelect.value = normalized;
+        BATCH = parseInt(normalized, 10);
+        displayCount = BATCH;
+    }
 
     // Track which specific card+tag was clicked for highlight
     let focusedCard = null; // { id, source, tag }
@@ -6035,10 +6043,10 @@
                 resultsEl.appendChild(renderCard(filtered[i]));
             }
 
-            // Stagger image loading: load 4 at a time with 100ms gaps
+            // Stagger image loading: load one visible desktop row at a time.
             const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
             imgs.forEach((img, idx) => {
-                const tid = setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 4) * 100);
+                const tid = setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 5) * 100);
                 pendingImageTimers.push(tid);
             });
 
@@ -6200,7 +6208,7 @@
     audienceSelect.addEventListener("change", applyFilters);
 
     batchSelect.addEventListener("change", () => {
-        BATCH = parseInt(batchSelect.value);
+        setBatch(batchSelect.value);
         currentPage = 1;
         render();
     });
@@ -6718,7 +6726,7 @@
         if (orderSelect.value !== "desc") state.order = orderSelect.value;
         if (statusSelect.value !== "all") state.status = statusSelect.value;
         if (audienceSelect.value !== "all") state.audience = audienceSelect.value;
-        if (batchSelect.value !== "50") state.batch = batchSelect.value;
+        if (batchSelect.value !== "30") state.batch = batchSelect.value;
         if (currentPage > 1) state.page = currentPage;
         if (sourceSelect.value !== "all") state.src = sourceSelect.value;
         if (andTags.size > 0) state.tags = [...andTags].join(",");
@@ -6752,7 +6760,7 @@
         orderSelect.value = params.order || "desc";
         statusSelect.value = params.status || "all";
         audienceSelect.value = params.audience || "all";
-        if (params.batch) { batchSelect.value = params.batch; BATCH = parseInt(params.batch); }
+        if (params.batch) setBatch(params.batch);
         currentPage = params.page ? parseInt(params.page) : 1;
         if (params.tmode) tagMode = params.tmode;
 
@@ -6805,7 +6813,7 @@
         if (params.order) orderSelect.value = params.order;
         if (params.status) statusSelect.value = params.status;
         if (params.audience) audienceSelect.value = params.audience;
-        if (params.batch) { batchSelect.value = params.batch; BATCH = parseInt(params.batch); }
+        if (params.batch) setBatch(params.batch);
         if (params.page) currentPage = parseInt(params.page);
         if (params.src) sourceSelect.value = params.src;
 
