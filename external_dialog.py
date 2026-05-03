@@ -965,10 +965,18 @@ body {
         cover_format = getattr(pg, 'var_cover_format', None)
         cover_format = cover_format.get() if cover_format else 'JPEG'
 
-        self._log(f"  Image compression: {'ON' if compress_images else 'OFF'}"
-                  f" ({image_format} q{jpeg_quality})")
-        self._log(f"  Cover compression: {'ON' if compress_cover else 'OFF'}"
-                  f" ({cover_format} q{cover_quality})")
+        if compress_images:
+            self._log(
+                f"  Image compression: ON ({image_format} q{jpeg_quality})"
+            )
+        else:
+            self._log("  Image compression: OFF")
+        if compress_cover:
+            self._log(
+                f"  Cover compression: ON ({cover_format} q{cover_quality})"
+            )
+        else:
+            self._log("  Cover compression: OFF")
 
         # Default CSS for external novels
         css = """body { margin: 2%; }
@@ -1077,11 +1085,31 @@ img { display: block; max-width: 100%; max-height: 100%;
                         32, max(1, self._var_ext_image_workers.get()),
                         len(image_items)
                     )
+                    action_label = (
+                        "Downloading/compressing"
+                        if compress_images else "Downloading"
+                    )
                     if len(image_items) > 1:
                         self._log(
-                            f"    Downloading/compressing {len(image_items)} "
+                            f"    {action_label} {len(image_items)} "
                             f"image(s) with {image_workers} worker(s)..."
                         )
+                    image_start = time.time()
+                    image_bytes = 0
+
+                    # Reuse HTTP sessions across image tasks. Creating a new
+                    # TLS connection for every Kakao page image is expensive,
+                    # especially when compression is disabled and downloading
+                    # is the dominant cost.
+                    session_pool = None
+                    pooled_sessions = []
+                    if image_workers > 1:
+                        session_pool = queue.Queue()
+                        for _ in range(image_workers):
+                            s = _req.Session()
+                            s.headers.update(img_session.headers)
+                            pooled_sessions.append(s)
+                            session_pool.put(s)
 
                     def process_image(item):
                         img_idx, img_info = item
@@ -1098,19 +1126,26 @@ img { display: block; max-width: 100%; max-height: 100%;
                                 pass
 
                         # Fall back to Python-side download. Use one Session
-                        # per worker call; requests.Session is not thread-safe.
+                        # per worker. requests.Session should not be shared
+                        # concurrently, but pooled per-worker reuse keeps
+                        # connections warm.
                         if not raw and img_url:
-                            dl_session = _req.Session()
-                            dl_session.headers.update(img_session.headers)
+                            dl_session = None
                             try:
+                                if session_pool is not None:
+                                    dl_session = session_pool.get()
+                                else:
+                                    dl_session = img_session
                                 raw = self._download_image_python(
                                     img_url,
                                     f"Ch{i+1} image {img_idx}/"
                                     f"{len(image_items)}",
-                                    session=dl_session
+                                    session=dl_session,
+                                    log_success=False,
                                 )
                             finally:
-                                dl_session.close()
+                                if session_pool is not None and dl_session:
+                                    session_pool.put(dl_session)
 
                         if not raw:
                             return img_idx, None
@@ -1145,32 +1180,42 @@ img { display: block; max-width: 100%; max-height: 100%;
                         }
 
                     image_results = {}
-                    if image_workers > 1:
-                        with ThreadPoolExecutor(max_workers=image_workers) as pool:
-                            futures = {
-                                pool.submit(process_image, item): item[0]
-                                for item in image_items
-                            }
-                            done = 0
-                            for fut in as_completed(futures):
-                                img_idx, result = fut.result()
+                    try:
+                        if image_workers > 1:
+                            with ThreadPoolExecutor(
+                                max_workers=image_workers
+                            ) as pool:
+                                futures = {
+                                    pool.submit(process_image, item): item[0]
+                                    for item in image_items
+                                }
+                                done = 0
+                                for fut in as_completed(futures):
+                                    img_idx, result = fut.result()
+                                    image_results[img_idx] = result
+                                    done += 1
+                                    if done % 5 == 0 or done == len(image_items):
+                                        self._log(
+                                            f"    Images ready: {done}/"
+                                            f"{len(image_items)}"
+                                        )
+                        else:
+                            for item in image_items:
+                                img_idx, result = process_image(item)
                                 image_results[img_idx] = result
-                                done += 1
-                                if done % 5 == 0 or done == len(image_items):
-                                    self._log(
-                                        f"    Images ready: {done}/"
-                                        f"{len(image_items)}"
-                                    )
-                    else:
-                        for item in image_items:
-                            img_idx, result = process_image(item)
-                            image_results[img_idx] = result
+                    finally:
+                        for s in pooled_sessions:
+                            try:
+                                s.close()
+                            except Exception:
+                                pass
 
                     for img_idx, result in sorted(image_results.items()):
                         if not result:
                             continue
                         img_counter[0] += 1
                         img_name = result['img_name']
+                        image_bytes += len(result['raw'])
                         epub.add_image(img_name, result['raw'])
 
                         orig_name = result['orig_name']
@@ -1182,6 +1227,17 @@ img { display: block; max-width: 100%; max-height: 100%;
                             content_html = content_html.replace(
                                 img_url, f'../Images/{img_name}'
                             )
+                    if image_items:
+                        elapsed = max(0.01, time.time() - image_start)
+                        mb = image_bytes / (1024 * 1024)
+                        ready_count = sum(
+                            1 for result in image_results.values() if result
+                        )
+                        self._log(
+                            f"    Images embedded: {ready_count}/"
+                            f"{len(image_items)}, "
+                            f"{mb:.1f} MB for this chapter in {elapsed:.1f}s"
+                        )
 
                 # Also handle any <img src="..."> in contentHtml that
                 # weren't in the images array (e.g. inline images)
@@ -1220,7 +1276,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             img_session.close()
 
     def _download_image_python(self, url, label="Image", session=None,
-                               max_retries=3):
+                               max_retries=3, log_success=True):
         """Download an image using requests (no CORS/mixed-content issues).
 
         Automatically upgrades http:// to https:// and retries on failure.
@@ -1238,7 +1294,10 @@ img { display: block; max-width: 100%; max-height: 100%;
             try:
                 r = sess.get(url, timeout=15)
                 if r.status_code == 200 and len(r.content) > 100:
-                    self._log(f"  📷 {label}: OK ({len(r.content)} bytes)")
+                    if log_success:
+                        self._log(
+                            f"  📷 {label}: OK ({len(r.content)} bytes)"
+                        )
                     return r.content
                 # Try original http:// URL as fallback on last attempt
                 if attempt == max_retries - 2 and url.startswith('https://'):
