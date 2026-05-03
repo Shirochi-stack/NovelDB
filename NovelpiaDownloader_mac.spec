@@ -159,7 +159,9 @@ if _move_to_datas:
     if len(_move_to_datas) > 5:
         print(f"  ... and {len(_move_to_datas) - 5} more.")
 a.binaries = _keep_binaries
-a.datas += _move_to_datas
+# Force typecode to 'DATA' so COLLECT copies them as-is without
+# running install_name_tool (which fails on Chromium's __LINKEDIT).
+a.datas += [(name, src, 'DATA') for name, src, _tc in _move_to_datas]
 # ─────────────────────────────────────────────────────────────────────
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
