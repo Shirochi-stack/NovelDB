@@ -1160,6 +1160,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                         for _ in range(image_workers):
                             s = _req.Session()
                             s.headers.update(img_session.headers)
+                            s.cookies.update(img_session.cookies)
                             pooled_sessions.append(s)
                             session_pool.put(s)
 
