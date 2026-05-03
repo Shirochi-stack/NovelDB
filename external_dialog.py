@@ -1370,6 +1370,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_to_enabled.set(cfg.get("ext_to_enabled", False))
             self._var_from.set(cfg.get("ext_from", 1))
             self._var_to.set(cfg.get("ext_to", 1))
+            self._var_skip_paid.set(cfg.get("ext_skip_paid", False))
         except Exception:
             pass
 
@@ -1395,6 +1396,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_to_enabled"] = self._var_to_enabled.get()
         cfg["ext_from"] = self._var_from.get()
         cfg["ext_to"] = self._var_to.get()
+        cfg["ext_skip_paid"] = self._var_skip_paid.get()
         try:
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
