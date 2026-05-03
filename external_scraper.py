@@ -665,6 +665,24 @@ class ExternalScraper:
         self.log(f"  [KakaoPage] No text extracted from: {chapter_name}")
         return None
 
+    @staticmethod
+    def _is_colophon_chunk(paragraphs_text):
+        """Check if a chunk's combined text looks like publisher boilerplate.
+
+        KakaoPage embeds a copyright/colophon page in every chapter EPUB
+        with ISBN, copyright notices, and publisher info.  These share
+        contentId=0 with the actual chapter-title paragraphs, so we
+        can't filter by ID alone — we detect them by content markers.
+
+        Args:
+            paragraphs_text: concatenated text of all paragraphs in a chunk.
+        Returns True if the chunk is publisher boilerplate.
+        """
+        markers = ['ISBN', 'ⓒ', '저작권법', '재가공할 수 없습니다',
+                   '발 행 처', '기획 / 편집', '표 지']
+        hits = sum(1 for m in markers if m in paragraphs_text)
+        return hits >= 2
+
     def _kakao_extract_from_json(self, json_chunks):
         """Parse paragraphList from intercepted JSON API responses.
 
@@ -700,12 +718,22 @@ class ExternalScraper:
                 info = data.get('contentInfo', {})
                 content_id = info.get('contentId', 0)
                 para_list = info.get('paragraphList', [])
+
+                # Extract all paragraphs from this chunk first
+                chunk_paras = []
                 for p in para_list:
                     p_id = int(p.get('id', 0))
                     p_type = p.get('type', '')
                     text = ''.join(_collect_text(p))
                     if text:
-                        all_paras.append((content_id, p_id, text, p_type))
+                        chunk_paras.append((content_id, p_id, text, p_type))
+
+                # Skip publisher colophon/copyright chunks
+                combined = ' '.join(t for _, _, t, _ in chunk_paras)
+                if self._is_colophon_chunk(combined):
+                    continue
+
+                all_paras.extend(chunk_paras)
             except Exception:
                 continue
 
