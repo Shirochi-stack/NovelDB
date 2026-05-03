@@ -454,6 +454,7 @@ class ExternalScraper:
                         return {
                             url: `/content/${seriesId}/viewer/${item.product_id}`,
                             name: shortName,
+                            fullName: fullTitle,
                             isVIP: !item.is_free,
                             isPaid: null,
                             order: item.order_value || 0,
@@ -692,13 +693,11 @@ class ExternalScraper:
 
             raw_chunks = api_result.get('chunks', [])
             json_chunks = [r.encode('utf-8') for r in raw_chunks]
-            paragraphs = self._kakao_extract_from_json(json_chunks)
-            if paragraphs:
-                paragraphs = self._kakao_strip_headings(paragraphs)
-                full_text = '\n'.join(paragraphs)
-                html_parts = [f'<p>{p}</p>' for p in paragraphs
-                              if p.strip()]
-                content_html = '\n'.join(html_parts)
+            para_tuples = self._kakao_extract_from_json(json_chunks)
+            if para_tuples:
+                para_tuples = self._kakao_strip_headings(para_tuples)
+                full_text, content_html = self._kakao_build_output(
+                    para_tuples)
                 return {
                     'chapterName': chapter_name,
                     'contentText': full_text,
@@ -732,12 +731,11 @@ class ExternalScraper:
             return None
         target.remove_listener('response', _capture_response)
 
-        paragraphs = self._kakao_extract_from_json(json_chunks_fb)
-        if paragraphs:
-            paragraphs = self._kakao_strip_headings(paragraphs)
-            full_text = '\n'.join(paragraphs)
-            html_parts = [f'<p>{p}</p>' for p in paragraphs if p.strip()]
-            content_html = '\n'.join(html_parts)
+        para_tuples = self._kakao_extract_from_json(json_chunks_fb)
+        if para_tuples:
+            para_tuples = self._kakao_strip_headings(para_tuples)
+            full_text, content_html = self._kakao_build_output(
+                para_tuples)
             return {
                 'chapterName': chapter_name,
                 'contentText': full_text,
@@ -764,20 +762,20 @@ class ExternalScraper:
         return None
 
     @staticmethod
-    def _kakao_strip_headings(paragraphs):
+    def _kakao_strip_headings(para_tuples):
         """Remove redundant episode heading paragraphs from chapter text.
 
         KakaoPage chapters start with a heading like '제1화' or '제103화'
         that duplicates info already in the chapter title.  Strip these
         and any surrounding &nbsp; spacers from the very beginning.
 
-        Returns the trimmed paragraph list (may be unchanged).
+        para_tuples: list of (plain_text, html_fragment, type) tuples.
+        Returns the trimmed list (may be unchanged).
         """
         import re
-        cleaned = list(paragraphs)
-        # Strip leading &nbsp; and episode headings (제N화, 제N화.)
+        cleaned = list(para_tuples)
         while cleaned:
-            text = cleaned[0].strip()
+            text = cleaned[0][0].strip()
             if not text or text == '&nbsp;':
                 cleaned.pop(0)
             elif re.fullmatch(r'제\d+화\.?', text):
@@ -785,6 +783,28 @@ class ExternalScraper:
             else:
                 break
         return cleaned
+
+    @staticmethod
+    def _kakao_build_output(para_tuples):
+        """Convert (plain_text, html_fragment, type) tuples to full text
+        and HTML output.
+
+        Uses paragraph type to choose the appropriate HTML tag:
+        - HEAD/HEADING → <h3>
+        - LINE_BREAK/EMPTY → <br/>
+        - Everything else → <p>
+        """
+        text_parts = []
+        html_parts = []
+        for plain, html_frag, p_type in para_tuples:
+            if not plain.strip():
+                continue
+            text_parts.append(plain)
+            if p_type in ('HEAD', 'HEADING', 'TITLE'):
+                html_parts.append(f'<h3>{html_frag}</h3>')
+            else:
+                html_parts.append(f'<p>{html_frag}</p>')
+        return '\n'.join(text_parts), '\n'.join(html_parts)
 
     @staticmethod
     def _is_colophon_chunk(paragraphs_text):
@@ -811,24 +831,74 @@ class ExternalScraper:
           { contentInfo: {
               paragraphList: [{
                 id, type, text,
-                childParagraphList: [{id, type, text,
-                  childParagraphList: [{id, type, text, ...}]
-                }]
+                style: { bold, italic, underline, ... },
+                childParagraphList: [...]
               }, ...]
           } }
         Text nodes can be nested arbitrarily deep (e.g. P → SPAN → TEXT).
-        Returns a list of text paragraphs sorted by content order.
+        Returns a list of (plain_text, html_fragment) tuples sorted by
+        content order.
         """
         import json as _json
+        from html import escape as _esc
+        from html import unescape as _unesc
+
+        def _safe_escape(text):
+            """Unescape first, then re-escape to avoid double-encoding.
+
+            The API text may already contain HTML entities like &lt; &gt;
+            &nbsp;.  A plain html.escape() would turn & into &amp;,
+            producing &amp;lt; in the output.
+            """
+            return _esc(_unesc(text))
+
+        def _collect_html(node):
+            """Recursively collect HTML from a paragraph node and children."""
+            text = (node.get('text') or '')
+            children = node.get('childParagraphList') or []
+            style = node.get('style') or {}
+
+            # Leaf node with text
+            if text and not children:
+                h = _safe_escape(text)
+                if style.get('bold'):
+                    h = f'<b>{h}</b>'
+                if style.get('italic'):
+                    h = f'<i>{h}</i>'
+                if style.get('underline'):
+                    h = f'<u>{h}</u>'
+                if style.get('strikethrough'):
+                    h = f'<s>{h}</s>'
+                return h
+
+            # Parent node: collect children
+            parts = []
+            if text:
+                parts.append(_safe_escape(text))
+            for child in children:
+                ch = _collect_html(child)
+                if ch:
+                    parts.append(ch)
+            result = ''.join(parts)
+
+            # Apply style to the whole group
+            if style.get('bold'):
+                result = f'<b>{result}</b>'
+            if style.get('italic'):
+                result = f'<i>{result}</i>'
+            if style.get('underline'):
+                result = f'<u>{result}</u>'
+            if style.get('strikethrough'):
+                result = f'<s>{result}</s>'
+            return result
 
         def _collect_text(node):
-            """Recursively collect text from a paragraph node and its children."""
+            """Recursively collect plain text."""
             parts = []
             text = (node.get('text') or '').strip()
             if text:
-                parts.append(text)
-            children = node.get('childParagraphList') or []
-            for child in children:
+                parts.append(_unesc(text))
+            for child in (node.get('childParagraphList') or []):
                 parts.extend(_collect_text(child))
             return parts
 
@@ -840,17 +910,18 @@ class ExternalScraper:
                 content_id = info.get('contentId', 0)
                 para_list = info.get('paragraphList', [])
 
-                # Extract all paragraphs from this chunk first
                 chunk_paras = []
                 for p in para_list:
                     p_id = int(p.get('id', 0))
-                    p_type = p.get('type', '')
-                    text = ''.join(_collect_text(p))
-                    if text:
-                        chunk_paras.append((content_id, p_id, text, p_type))
+                    p_type = (p.get('type') or '').upper()
+                    plain = ''.join(_collect_text(p))
+                    html_frag = _collect_html(p)
+                    if plain.strip():
+                        chunk_paras.append(
+                            (content_id, p_id, plain, html_frag, p_type))
 
                 # Skip publisher colophon/copyright chunks
-                combined = ' '.join(t for _, _, t, _ in chunk_paras)
+                combined = ' '.join(t for _, _, t, _, _ in chunk_paras)
                 if self._is_colophon_chunk(combined):
                     continue
 
@@ -863,7 +934,7 @@ class ExternalScraper:
 
         # Sort by (contentId, paragraphId) to maintain correct order
         all_paras.sort(key=lambda x: (x[0], x[1]))
-        return [p[2] for p in all_paras]
+        return [(p[2], p[3], p[4]) for p in all_paras]
 
     def _kakao_extract_from_shadow(self, target):
         """Extract text from the KakaoPage viewer's Shadow DOM.
@@ -1019,8 +1090,10 @@ class ExternalScraper:
         if self._book_data and self._book_data.get('_kakaopage'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('name', '')
+            full_name = chapter_info.get('fullName', '') or name
             target_page = page or self._page
-            result = self._kakao_parse_chapter(url, name, page=target_page)
+            result = self._kakao_parse_chapter(url, full_name,
+                                               page=target_page)
             if interval > 0:
                 time.sleep(interval)
             return result
@@ -1098,7 +1171,8 @@ class ExternalScraper:
                     results.append(None)
                     continue
                 data = self._kakao_parse_chapter(
-                    ch.get('url', ''), ch.get('name', ''),
+                    ch.get('url', ''),
+                    ch.get('fullName', '') or ch.get('name', ''),
                     page=self._page
                 )
                 results.append(data)
