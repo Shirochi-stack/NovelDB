@@ -1,10 +1,9 @@
-"""Verify colophon filtering works — no more interleaved copyright."""
-import sys, os, json, tempfile, shutil
+"""Test getting all 703 episodes in one BFF API call."""
+import sys, json, tempfile, shutil, os
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
-from external_scraper import ExternalScraper
 
-tmp_dir = os.path.join(tempfile.gettempdir(), 'kakao_test_filter')
+tmp_dir = os.path.join(tempfile.gettempdir(), 'kakao_api5')
 if os.path.exists(tmp_dir):
     shutil.rmtree(tmp_dir, ignore_errors=True)
 os.makedirs(tmp_dir, exist_ok=True)
@@ -17,72 +16,40 @@ ctx = pw.chromium.launch_persistent_context(
 )
 page = ctx.new_page()
 
-ch_url = 'https://page.kakao.com/content/56510701/viewer/56523944'
-json_chunks = []
+series_id = '56510701'
+page.goto(f'https://page.kakao.com/content/{series_id}',
+          wait_until="domcontentloaded", timeout=30000)
+page.wait_for_timeout(3000)
 
-def on_response(response):
-    url = response.url
-    ct = response.headers.get('content-type', '')
-    if 'sdownload/resource' in url and 'json' in ct:
-        try:
-            body = response.body()
-            if body: json_chunks.append(body)
-        except Exception: pass
+# Try window_size=2000 to get all at once
+result = page.evaluate("""
+async (seriesId) => {
+    const url = `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=2000`;
+    const resp = await fetch(url);
+    return await resp.json();
+}
+""", series_id)
 
-page.on('response', on_response)
-try:
-    page.goto(ch_url, wait_until="networkidle", timeout=60000)
-    page.wait_for_timeout(5000)
-    for _ in range(5):
-        try:
-            page.evaluate("""(function(){
-                var vw = window.innerWidth; var vh = window.innerHeight;
-                var el = document.elementFromPoint(vw * 0.85, vh * 0.5);
-                if(el) el.click();
-            })()""")
-            page.wait_for_timeout(1500)
-        except Exception:
-            break
-except Exception as e:
-    print(f"Navigation issue: {e}")
+r = result.get('result', {})
+eps = r.get('list', [])
+print(f"total_count: {r.get('total_count')}")
+print(f"Returned: {len(eps)}, has_next: {r.get('has_next')}")
 
-page.remove_listener('response', on_response)
+if eps:
+    # Build viewer URLs
+    first_item = eps[0].get('item', {})
+    last_item = eps[-1].get('item', {})
+    free_count = sum(1 for e in eps if e.get('item', {}).get('is_free'))
+    
+    print(f"\nFree: {free_count}, Paid: {len(eps) - free_count}")
+    print(f"First: #{first_item.get('order_value')} '{first_item.get('title','')[:50]}' (product_id={first_item.get('product_id')})")
+    print(f"Last:  #{last_item.get('order_value')} '{last_item.get('title','')[:50]}' (product_id={last_item.get('product_id')})")
+    
+    # Show how to build viewer URL
+    pid = first_item.get('product_id')
+    viewer_url = f"https://page.kakao.com/content/{series_id}/viewer/{pid}"
+    print(f"\nViewer URL for ch1: {viewer_url}")
 
-scraper = ExternalScraper(logger=lambda m: None)
-paragraphs = scraper._kakao_extract_from_json(json_chunks)
-
-print(f"JSON chunks captured: {len(json_chunks)}")
-print(f"Extracted {len(paragraphs)} paragraphs (after colophon filtering)\n")
-
-# Check for boilerplate
-boilerplate = ['글쟁이S', '다온크리에이티브', '979-11', 'ISBN', 'ⓒ', '저작권법', '재가공']
-found_boilerplate = []
-for i, p in enumerate(paragraphs):
-    for m in boilerplate:
-        if m in p:
-            found_boilerplate.append(f"  [{i}] {p[:100]}")
-            break
-
-if found_boilerplate:
-    print(f"WARNING: {len(found_boilerplate)} boilerplate paragraphs still present:")
-    for fb in found_boilerplate:
-        print(fb)
-else:
-    print("✅ No boilerplate found in output!")
-
-print(f"\n--- First 15 paragraphs ---")
-for i, p in enumerate(paragraphs[:15]):
-    print(f"  [{i}] {p[:120]}")
-
-print(f"\n--- Last 5 paragraphs ---")
-for i, p in enumerate(paragraphs[-5:]):
-    print(f"  [{len(paragraphs)-5+i}] {p[:120]}")
-
-try:
-    page.close()
-    ctx.close()
-    pw.stop()
-except Exception:
-    pass
+page.close(); ctx.close(); pw.stop()
 shutil.rmtree(tmp_dir, ignore_errors=True)
 print("\nDone.")

@@ -433,45 +433,29 @@ class ExternalScraper:
         self.log(f"[KakaoPage] Title: {title}, Author: {author}, "
                  f"Episodes: {total_episodes}")
 
-        # --- Expand the episode list ---
-        # The page initially shows ~5 episodes. We need to click the
-        # expand chevron and scroll to load all episodes.
-        self.log("[KakaoPage] Loading episode list...")
-        try:
-            self._kakao_load_all_episodes(total_episodes)
-        except Exception as e:
-            self.log(f"WARNING: Episode list expansion failed: {e}")
-
-        # --- Extract episode links ---
+        # --- Fetch episode list via BFF API ---
+        # The DOM only shows ~5-6 episodes initially and expanding is
+        # unreliable.  Instead, call the BFF API directly from the
+        # browser context to get ALL episodes in a single request.
+        self.log("[KakaoPage] Fetching episode list via API...")
         try:
             episodes = self._page.evaluate("""
-                (function() {
-                    var links = document.querySelectorAll('a[href*="/viewer/"]');
-                    var result = [];
-                    var seen = {};
-                    for (var i = 0; i < links.length; i++) {
-                        var a = links[i];
-                        var href = a.getAttribute('href') || '';
-                        if (seen[href]) continue;
-                        seen[href] = true;
-                        var text = a.innerText.trim();
-                        // Parse episode name and free/paid status
-                        var lines = text.split('\\n').filter(function(l) {
-                            return l.trim().length > 0;
-                        });
-                        var name = lines[0] || ('Episode ' + (result.length + 1));
-                        // Check for free marker (무료) or paid marker (coin icon)
-                        var isFree = text.includes('무료');
-                        result.push({
-                            url: href,
-                            name: name,
-                            isVIP: !isFree,
+                async (seriesId) => {
+                    const url = `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000`;
+                    const resp = await fetch(url);
+                    const data = await resp.json();
+                    const list = (data.result || {}).list || [];
+                    return list.map(entry => {
+                        const item = entry.item || {};
+                        return {
+                            url: `/content/${seriesId}/viewer/${item.product_id}`,
+                            name: item.title || ('Episode ' + (item.order_value || 0)),
+                            isVIP: !item.is_free,
                             isPaid: null
-                        });
-                    }
-                    return result;
-                })()
-            """)
+                        };
+                    });
+                }
+            """, series_id)
         except Exception as e:
             self.log(f"ERROR: Episode extraction failed: {e}")
             return None
@@ -608,29 +592,16 @@ class ExternalScraper:
         target.on('response', _capture_response)
 
         try:
-            target.goto(chapter_url, wait_until="networkidle",
-                        timeout=45000)
-            target.wait_for_timeout(3000)
+            target.goto(chapter_url, wait_until="domcontentloaded",
+                        timeout=30000)
+            # Wait just long enough for the JSON content responses to
+            # arrive.  They fire during/shortly after page load — no
+            # need for full networkidle (which stalls on ads/analytics).
+            target.wait_for_timeout(4000)
         except Exception as e:
             self.log(f"  [KakaoPage] Page load error: {e}")
             target.remove_listener('response', _capture_response)
             return None
-
-        # Click right a few times to trigger lazy-loaded content chunks
-        for _ in range(5):
-            if self._stop_requested:
-                target.remove_listener('response', _capture_response)
-                return None
-            try:
-                target.evaluate("""(function(){
-                    var vw = window.innerWidth;
-                    var vh = window.innerHeight;
-                    var el = document.elementFromPoint(vw*0.85, vh*0.5);
-                    if(el) el.click();
-                })()""")
-                target.wait_for_timeout(1500)
-            except Exception:
-                break
 
         target.remove_listener('response', _capture_response)
 
