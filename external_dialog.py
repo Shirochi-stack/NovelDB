@@ -19,6 +19,7 @@ import sys
 import re
 import html
 import json
+import hashlib
 import time
 import threading
 import queue
@@ -1038,9 +1039,15 @@ img { display: block; max-width: 100%; max-height: 100%;
             'Referer': data.get('bookUrl', ''),
         })
         img_counter = [0]
+        kakao_skip_image_urls = set()
+        kakao_preloaded_images = {}
 
         try:
             epub = EpubGenerator(metadata, filepath, css, zip_compress)
+            if is_kakao:
+                kakao_skip_image_urls, kakao_preloaded_images = (
+                    self._detect_repeated_kakao_first_images(img_session)
+                )
 
             # Download and add cover image via the correct API
             # (EpubGenerator looks for images named 'cover.*')
@@ -1104,7 +1111,19 @@ img { display: block; max-width: 100%; max-height: 100%;
                 # available, fall back to Python-side download otherwise.
                 rename_map = {}  # original_name → compressed_name
                 if ch_data.get('images'):
-                    image_items = list(enumerate(ch_data['images'], 1))
+                    image_items = [
+                        item for item in enumerate(ch_data['images'], 1)
+                        if item[1].get('url', '') not in kakao_skip_image_urls
+                    ]
+                    if len(image_items) != len(ch_data['images']):
+                        for img_info in ch_data['images']:
+                            img_url = img_info.get('url', '')
+                            if img_url in kakao_skip_image_urls:
+                                content_html = (
+                                    self._remove_kakao_image_page_html(
+                                        content_html, img_url
+                                    )
+                                )
                     image_workers = min(
                         32, max(1, self._var_ext_image_workers.get()),
                         len(image_items)
@@ -1153,6 +1172,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                         # per worker. requests.Session should not be shared
                         # concurrently, but pooled per-worker reuse keeps
                         # connections warm.
+                        if not raw and img_url:
+                            raw = kakao_preloaded_images.pop(img_url, None)
                         if not raw and img_url:
                             dl_session = None
                             try:
@@ -1298,6 +1319,72 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._generate_txt(title, author)
         finally:
             img_session.close()
+
+    def _detect_repeated_kakao_first_images(self, session):
+        """Detect repeated first-page title/cover images in Kakao chapters."""
+        first_images = []
+        for idx, ch_data in enumerate(self._chapter_results or []):
+            if not ch_data or ch_data.get('_locked'):
+                continue
+            if 'kakao-image-chapter' not in (ch_data.get('contentHtml') or ''):
+                continue
+            images = ch_data.get('images') or []
+            if not images:
+                continue
+            first = images[0]
+            if first.get('url'):
+                first_images.append((idx, first))
+
+        if len(first_images) < 2:
+            return set(), {}
+
+        raw_by_url = {}
+        by_hash = {}
+        for idx, img_info in first_images:
+            url = img_info.get('url', '')
+            raw = self._download_image_python(
+                url,
+                f"Kakao first-page check {idx + 1}",
+                session=session,
+                log_success=False,
+            )
+            if not raw:
+                continue
+            raw_by_url[url] = raw
+            digest = hashlib.sha1(raw).hexdigest()
+            by_hash.setdefault(digest, []).append(url)
+
+        skip_urls = {
+            url
+            for urls in by_hash.values()
+            if len(urls) >= 2
+            for url in urls
+        }
+        if skip_urls:
+            self._log(
+                f"  Filtered {len(skip_urls)} repeated Kakao "
+                "first-page image(s)."
+            )
+        preload = {
+            url: raw for url, raw in raw_by_url.items()
+            if url not in skip_urls
+        }
+        return skip_urls, preload
+
+    def _remove_kakao_image_page_html(self, html_str, img_url):
+        """Remove the wrapper div for a skipped Kakao image page."""
+        if not html_str or not img_url:
+            return html_str
+
+        sources = {img_url, html.escape(img_url, quote=True)}
+        for src in sources:
+            pattern = (
+                r'\s*<div class="kakao-image-page">\s*'
+                r'<img\b[^>]*\bsrc="' + re.escape(src) + r'"[^>]*/?>\s*'
+                r'</div>'
+            )
+            html_str = re.sub(pattern, '', html_str, flags=re.IGNORECASE)
+        return html_str
 
     def _download_image_python(self, url, label="Image", session=None,
                                max_retries=3, log_success=True):
