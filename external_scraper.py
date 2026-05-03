@@ -18,6 +18,7 @@ import json
 import html
 import os
 import re
+import shutil
 import sys
 import time
 import urllib.parse
@@ -32,7 +33,14 @@ if getattr(sys, 'frozen', False):
     if os.path.exists(_bundled_browsers):
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = _bundled_browsers
 
-from playwright.sync_api import sync_playwright, Page, Browser
+from playwright.sync_api import (
+    sync_playwright,
+    Page,
+    Browser,
+    TimeoutError as PlaywrightTimeoutError,
+)
+
+APP_DATA_NAME = "NpiaDownloader"
 
 
 def _get_base_dir():
@@ -47,6 +55,47 @@ def _get_bundle_dir():
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def _get_app_data_dir():
+    """Return a stable per-user data dir that survives app folder changes."""
+    override = os.environ.get("NPIA_BROWSER_DATA_DIR")
+    if override:
+        return override
+
+    if sys.platform == "win32":
+        root = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(root, APP_DATA_NAME)
+    if sys.platform == "darwin":
+        return os.path.join(
+            os.path.expanduser("~"),
+            "Library",
+            "Application Support",
+            APP_DATA_NAME,
+        )
+    return os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        APP_DATA_NAME,
+    )
+
+
+def _is_writable_dir(path):
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, ".write_probe")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("")
+        os.remove(probe)
+        return True
+    except Exception:
+        return False
+
+
+def _dir_has_entries(path):
+    try:
+        return os.path.isdir(path) and any(os.scandir(path))
+    except Exception:
+        return False
 
 
 def _load_js_file(filename):
@@ -93,10 +142,89 @@ class ExternalScraper:
 
     @staticmethod
     def _get_user_data_dir():
-        """Get persistent browser data directory for cookies/localStorage."""
-        data_dir = os.path.join(_get_base_dir(), 'browser_data')
-        os.makedirs(data_dir, exist_ok=True)
-        return data_dir
+        """Get persistent browser data directory for cookies/localStorage.
+
+        Older builds kept browser_data next to the exe. That breaks when a
+        user extracts a new release into a different folder or runs from a
+        read-only install location, so new builds use a stable per-user app
+        data path and migrate the old folder once when possible.
+        """
+        legacy_dir = os.path.join(_get_base_dir(), 'browser_data')
+        stable_dir = os.path.join(_get_app_data_dir(), 'browser_data')
+
+        if (os.path.abspath(legacy_dir) != os.path.abspath(stable_dir)
+                and _dir_has_entries(legacy_dir)
+                and not _dir_has_entries(stable_dir)):
+            try:
+                os.makedirs(os.path.dirname(stable_dir), exist_ok=True)
+                shutil.copytree(legacy_dir, stable_dir, dirs_exist_ok=True)
+            except Exception:
+                pass
+
+        if _is_writable_dir(stable_dir):
+            return stable_dir
+        if _is_writable_dir(legacy_dir):
+            return legacy_dir
+
+        fallback = os.path.join(
+            os.path.expanduser("~"), f".{APP_DATA_NAME}", "browser_data"
+        )
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+    @classmethod
+    def _get_storage_state_path(cls):
+        return os.path.join(cls._get_user_data_dir(), 'nd_storage_state.json')
+
+    def _backup_storage_state(self):
+        """Persist cookies/localStorage as an extra guard against profile loss."""
+        if not self._context:
+            return
+        try:
+            self._context.storage_state(path=self._get_storage_state_path())
+        except Exception:
+            pass
+
+    def _restore_storage_state(self):
+        """Restore the explicit storage backup into the current context."""
+        if not self._context:
+            return
+        path = self._get_storage_state_path()
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+        except Exception:
+            return
+
+        cookies = state.get('cookies') or []
+        if cookies:
+            try:
+                self._context.add_cookies(cookies)
+            except Exception:
+                pass
+
+        origins = state.get('origins') or []
+        if origins:
+            script = """
+(() => {
+  const origins = __ORIGINS__;
+  const current = origins.find((entry) => entry.origin === location.origin);
+  if (!current || !Array.isArray(current.localStorage)) {
+    return;
+  }
+  for (const item of current.localStorage) {
+    try {
+      localStorage.setItem(item.name, item.value);
+    } catch (e) {}
+  }
+})();
+""".replace("__ORIGINS__", json.dumps(origins))
+            try:
+                self._context.add_init_script(script=script)
+            except Exception:
+                pass
 
     def log(self, msg):
         """Safe logging that handles encoding issues on Windows consoles."""
@@ -122,10 +250,12 @@ class ExternalScraper:
             except Exception:
                 self.cleanup()
 
+        user_data_dir = self._get_user_data_dir()
         self.log("Launching headless browser...")
+        self.log(f"Browser profile: {user_data_dir}")
         self._playwright = sync_playwright().start()
         self._context = self._playwright.chromium.launch_persistent_context(
-            self._get_user_data_dir(),
+            user_data_dir,
             headless=True,
             args=[
                 '--disable-web-security',       # Allow cross-origin fetches
@@ -135,6 +265,7 @@ class ExternalScraper:
             ],
             ignore_https_errors=True,
         )
+        self._restore_storage_state()
         self._page = self._context.new_page()
         # Suppress console noise but capture errors
         self._page.on("console", self._on_console)
@@ -149,10 +280,12 @@ class ExternalScraper:
         # Must close any existing context first (only one per data dir)
         self.cleanup()
 
+        user_data_dir = self._get_user_data_dir()
         self.log("Opening browser for login...")
+        self.log(f"Browser profile: {user_data_dir}")
         self._playwright = sync_playwright().start()
         self._context = self._playwright.chromium.launch_persistent_context(
-            self._get_user_data_dir(),
+            user_data_dir,
             headless=False,
             args=[
                 '--disable-web-security',
@@ -162,6 +295,7 @@ class ExternalScraper:
             ],
             ignore_https_errors=True,
         )
+        self._restore_storage_state()
         page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page = page
         try:
@@ -186,10 +320,15 @@ class ExternalScraper:
         # a race: cleanup() would call context.close() while Chromium was
         # still mid-shutdown, interrupting the disk flush and losing the
         # login session.
-        try:
-            self._context.wait_for_event("close", timeout=0)
-        except Exception:
-            pass
+        while self._context:
+            self._backup_storage_state()
+            try:
+                self._context.wait_for_event("close", timeout=2000)
+                break
+            except PlaywrightTimeoutError:
+                continue
+            except Exception:
+                break
 
         self.log("Browser closed. Session data saved.")
         # The context already disconnected, so just reset Python refs
@@ -220,6 +359,7 @@ class ExternalScraper:
 
     def cleanup(self):
         """Release browser resources."""
+        self._backup_storage_state()
         for wp in self._worker_pages:
             try:
                 wp.close()
