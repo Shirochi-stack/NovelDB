@@ -579,8 +579,11 @@ class ExternalScraper:
     def _kakao_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Scrape a single KakaoPage chapter from the viewer.
 
-        Navigates to the viewer URL and clicks through all paginated text
-        pages, extracting text content from each.
+        Uses two extraction strategies:
+          1. Intercept the JSON API responses (sdownload/resource) that carry
+             the structured paragraphList with the actual text.
+          2. Fallback: read the Shadow DOM innerHTML after the EPUB viewer
+             renders the content.
 
         Returns the standard chapter data dict or None on error.
         """
@@ -588,156 +591,169 @@ class ExternalScraper:
         if target is None:
             return None
 
-        try:
-            target.goto(chapter_url, wait_until="domcontentloaded",
-                        timeout=30000)
-            target.wait_for_timeout(3000)
-        except Exception as e:
-            self.log(f"  [KakaoPage] Page load error: {e}")
-            return None
+        # Collect JSON content responses during page load
+        json_chunks = []
 
-        all_texts = []
-        max_pages = 300  # Safety limit per chapter
-        seen_texts = set()
-
-        for page_num in range(max_pages):
-            if self._stop_requested:
-                return None
-
-            # Extract visible text content from the viewer
+        def _capture_response(response):
             try:
-                page_text = target.evaluate("""
-                    (function() {
-                        // The viewer renders text in the central content area.
-                        // We look for the largest text-containing div that
-                        // isn't a navigation/header element.
-                        var candidates = [];
-                        var divs = document.querySelectorAll('div, p, section');
-                        for (var i = 0; i < divs.length; i++) {
-                            var d = divs[i];
-                            var t = (d.innerText || '').trim();
-                            // Skip navigation, headers, empty divs
-                            if (t.length < 20) continue;
-                            if (d.closest('nav') || d.closest('header')) continue;
-                            // Skip if this div contains too many child divs
-                            // (likely a container, not content)
-                            var childDivs = d.querySelectorAll('div');
-                            if (childDivs.length > 20) continue;
-                            candidates.push({
-                                el: d,
-                                len: t.length,
-                                text: t
-                            });
-                        }
-                        // Sort by text length descending
-                        candidates.sort(function(a, b) {
-                            return b.len - a.len;
-                        });
-                        // Pick the best candidate — the one with longest text
-                        // that isn't the entire body
-                        for (var j = 0; j < candidates.length; j++) {
-                            var c = candidates[j];
-                            if (c.el.tagName === 'BODY') continue;
-                            // Verify it contains actual prose content
-                            // (Korean text, not just UI elements)
-                            var koreanMatch = c.text.match(/[가-힣]/g);
-                            if (koreanMatch && koreanMatch.length > 10) {
-                                return c.text;
-                            }
-                        }
-                        return '';
-                    })()
-                """)
-            except Exception:
-                page_text = ''
-
-            if page_text:
-                # Deduplicate: viewer may show same text on click
-                text_hash = page_text[:200]
-                if text_hash not in seen_texts:
-                    seen_texts.add(text_hash)
-                    all_texts.append(page_text)
-
-            # Try to advance to the next page by clicking the right side
-            try:
-                has_next = target.evaluate("""
-                    (function() {
-                        // Check for "다음화" (next episode) button in header
-                        // If we see "이전화" (prev) but no next-page content
-                        // indicator, we may be at the last page.
-
-                        // Click the right 1/3 of the viewport to advance
-                        var vw = window.innerWidth;
-                        var vh = window.innerHeight;
-                        var clickX = Math.round(vw * 0.85);
-                        var clickY = Math.round(vh * 0.5);
-
-                        var el = document.elementFromPoint(clickX, clickY);
-                        if (el) {
-                            el.click();
-                            return true;
-                        }
-                        return false;
-                    })()
-                """)
-            except Exception:
-                has_next = False
-
-            if not has_next:
-                break
-
-            # Wait for page transition
-            target.wait_for_timeout(400)
-
-            # Check if we've reached the end of this chapter
-            # (viewer shows a "next episode" prompt or the text repeats)
-            try:
-                end_check = target.evaluate("""
-                    (function() {
-                        var text = document.body.innerText;
-                        // End-of-chapter indicators
-                        if (text.includes('다음 회를 기다려주세요') ||
-                            text.includes('연재 완결') ||
-                            text.includes('다음화 보기') ||
-                            text.includes('이전화 보기')) {
-                            // Check if this is a navigation prompt, not content
-                            var viewers = document.querySelectorAll(
-                                '[class*="viewer"], [class*="episode"]'
-                            );
-                            // If there's very little Korean text, likely end
-                            var korean = text.match(/[가-힣]/g) || [];
-                            if (korean.length < 50) return true;
-                        }
-                        return false;
-                    })()
-                """)
-                if end_check:
-                    break
+                url = response.url
+                ct = response.headers.get('content-type', '')
+                if ('sdownload/resource' in url and 'json' in ct):
+                    body = response.body()
+                    if body:
+                        json_chunks.append(body)
             except Exception:
                 pass
 
-        if not all_texts:
-            self.log(f"  [KakaoPage] No text extracted from: {chapter_name}")
+        target.on('response', _capture_response)
+
+        try:
+            target.goto(chapter_url, wait_until="networkidle",
+                        timeout=45000)
+            target.wait_for_timeout(3000)
+        except Exception as e:
+            self.log(f"  [KakaoPage] Page load error: {e}")
+            target.remove_listener('response', _capture_response)
             return None
 
-        # Combine all page texts, deduplicate paragraphs
-        full_text = '\n\n'.join(all_texts)
+        # Click right a few times to trigger lazy-loaded content chunks
+        for _ in range(5):
+            if self._stop_requested:
+                target.remove_listener('response', _capture_response)
+                return None
+            try:
+                target.evaluate("""(function(){
+                    var vw = window.innerWidth;
+                    var vh = window.innerHeight;
+                    var el = document.elementFromPoint(vw*0.85, vh*0.5);
+                    if(el) el.click();
+                })()""")
+                target.wait_for_timeout(1500)
+            except Exception:
+                break
 
-        # Build HTML content
-        paragraphs = full_text.split('\n')
-        html_parts = []
-        for p in paragraphs:
-            p = p.strip()
-            if p:
-                html_parts.append(f'<p>{p}</p>')
-        content_html = '\n'.join(html_parts)
+        target.remove_listener('response', _capture_response)
 
-        return {
-            'chapterName': chapter_name,
-            'contentText': full_text,
-            'contentHtml': content_html,
-            'images': [],
-        }
+        # ---- Strategy 1: Parse intercepted JSON paragraphs ----
+        paragraphs = self._kakao_extract_from_json(json_chunks)
+        if paragraphs:
+            full_text = '\n'.join(paragraphs)
+            html_parts = [f'<p>{p}</p>' for p in paragraphs if p.strip()]
+            content_html = '\n'.join(html_parts)
+            return {
+                'chapterName': chapter_name,
+                'contentText': full_text,
+                'contentHtml': content_html,
+                'images': [],
+            }
+
+        # ---- Strategy 2: Extract from Shadow DOM ----
+        shadow_text = self._kakao_extract_from_shadow(target)
+        if shadow_text:
+            paragraphs = [p.strip() for p in shadow_text.split('\n')
+                          if p.strip()]
+            full_text = '\n'.join(paragraphs)
+            html_parts = [f'<p>{p}</p>' for p in paragraphs]
+            content_html = '\n'.join(html_parts)
+            return {
+                'chapterName': chapter_name,
+                'contentText': full_text,
+                'contentHtml': content_html,
+                'images': [],
+            }
+
+        self.log(f"  [KakaoPage] No text extracted from: {chapter_name}")
+        return None
+
+    def _kakao_extract_from_json(self, json_chunks):
+        """Parse paragraphList from intercepted JSON API responses.
+
+        Each JSON chunk has structure:
+          { contentInfo: {
+              paragraphList: [{
+                id, type, text,
+                childParagraphList: [{id, type, text, ...}]
+              }, ...]
+          } }
+        The actual text is in childParagraphList[].text (the parent's
+        text field is empty).
+        Returns a list of text paragraphs sorted by content order.
+        """
+        import json as _json
+
+        all_paras = []
+        for raw in json_chunks:
+            try:
+                data = _json.loads(raw)
+                info = data.get('contentInfo', {})
+                content_id = info.get('contentId', 0)
+                para_list = info.get('paragraphList', [])
+                for p in para_list:
+                    p_id = int(p.get('id', 0))
+                    p_type = p.get('type', '')
+                    # Text can be on the paragraph itself or in children
+                    text = p.get('text', '').strip()
+                    if not text:
+                        children = p.get('childParagraphList') or []
+                        parts = []
+                        for child in children:
+                            ct = child.get('text', '').strip()
+                            if ct:
+                                parts.append(ct)
+                        text = ''.join(parts)
+                    if text:
+                        all_paras.append((content_id, p_id, text, p_type))
+            except Exception:
+                continue
+
+        if not all_paras:
+            return []
+
+        # Sort by (contentId, paragraphId) to maintain correct order
+        all_paras.sort(key=lambda x: (x[0], x[1]))
+        return [p[2] for p in all_paras]
+
+    def _kakao_extract_from_shadow(self, target):
+        """Extract text from the KakaoPage viewer's Shadow DOM.
+
+        The viewer renders EPUB content inside a shadow root with
+        class DC1CN/DC2CN. The full chapter HTML is in this shadow DOM,
+        paginated via CSS columns with overflow:hidden.
+        """
+        try:
+            text = target.evaluate("""
+                (function() {
+                    var all = document.querySelectorAll('*');
+                    for (var i = 0; i < all.length; i++) {
+                        if (!all[i].shadowRoot) continue;
+                        var sr = all[i].shadowRoot;
+                        // Get all text-bearing elements from the shadow DOM
+                        var els = sr.querySelectorAll(
+                            'p, h1, h2, h3, h4, h5, h6, div.cover'
+                        );
+                        if (els.length === 0) continue;
+                        var texts = [];
+                        for (var j = 0; j < els.length; j++) {
+                            var el = els[j];
+                            // Skip cover image div
+                            if (el.classList.contains('cover')) continue;
+                            var t = (el.innerText || el.textContent || '')
+                                    .trim();
+                            // Skip empty and non-breaking-space-only
+                            if (t && t !== '\\u00a0' && t.length > 0) {
+                                texts.push(t);
+                            }
+                        }
+                        if (texts.length > 0) return texts.join('\\n');
+                    }
+                    return '';
+                })()
+            """)
+            return text if text else ''
+        except Exception:
+            return ''
+
+
 
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
