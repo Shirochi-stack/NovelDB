@@ -620,17 +620,21 @@ class ExternalNovelDialog(tk.Toplevel):
 
         top = tk.Toplevel(self)
         top.title("Paste Batch — External Download")
-        top.geometry("600x400")
+        dw, dh = 600, 400
+        sx = (top.winfo_screenwidth() - dw) // 2
+        sy = (top.winfo_screenheight() - dh) // 2
+        top.geometry(f"{dw}x{dh}+{sx}+{sy}")
         top.transient(self)
         self._paste_batch_dialog = top
 
         lbl = ttk.Label(top, text="Paste one URL per line:")
         lbl.pack(anchor="w", padx=10, pady=(10, 3))
 
-        text = tk.Text(top, wrap="word")
+        text = tk.Text(top, wrap="word", undo=True, maxundo=-1)
         text.pack(fill="both", expand=True, padx=10)
         if self._paste_batch_text:
             text.insert("1.0", self._paste_batch_text)
+            text.edit_reset()  # clear undo stack so pre-fill isn't undoable
 
         btns = ttk.Frame(top)
         btns.pack(fill="x", padx=10, pady=(5, 10))
