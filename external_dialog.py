@@ -281,7 +281,7 @@ class ExternalNovelDialog(tk.Toplevel):
             elif kind == "batch":
                 self._do_batch(payload)
             elif kind == "browser":
-                self._do_open_browser()
+                self._do_open_browser(payload)
 
     def _do_fetch(self, url):
         """Run parse_book on the worker thread."""
@@ -452,15 +452,14 @@ class ExternalNovelDialog(tk.Toplevel):
         except Exception as e:
             self._log(f"\u274c Download error: {e}")
 
-    def _do_open_browser(self):
+    def _do_open_browser(self, start_url=None):
         """Open a visible browser on the worker thread for manual login."""
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
-            # Open to the book URL if we already fetched one,
-            # otherwise a sensible default.
-            start_url = (self._scraper._book_url
-                         or self._url_var.get().strip()
+            # Prefer the current text field URL.  The scraper's _book_url may
+            # still point at a previously fetched book.
+            start_url = (start_url or self._scraper._book_url
                          or 'https://www.google.com')
             self._scraper.open_visible_browser(start_url=start_url)
         except Exception as e:
@@ -473,12 +472,19 @@ class ExternalNovelDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     def _on_enter_browser(self):
         """Open a visible browser window for manual site login."""
+        start_url = self._normalised_url()
+        if start_url:
+            self._url_var.set(start_url)
+            self._save_ext_config()
+        else:
+            start_url = None
+
         self._btn_download.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
         self._append_log("Opening browser for login... Close the browser when done.")
-        self._work_queue.put(("browser", None))
+        self._work_queue.put(("browser", start_url))
 
     def _on_browser_closed(self):
         """Re-enable buttons after the visible browser session ends."""
@@ -506,14 +512,20 @@ class ExternalNovelDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     # Download (combined fetch → download)
     # ------------------------------------------------------------------
-    def _on_download(self):
+    def _normalised_url(self):
+        """Return the current URL field value with an http scheme if needed."""
         url = self._url_var.get().strip()
+        if url and not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        return url
+
+    def _on_download(self):
+        url = self._normalised_url()
         if not url:
             self._append_log("Please enter a URL.")
             return
-        if not url.startswith("http"):
-            url = "https://" + url
-            self._url_var.set(url)
+        self._url_var.set(url)
+        self._save_ext_config()
 
         self._downloading = True
         self._btn_download.configure(state="disabled")
@@ -1436,7 +1448,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     cfg = json.load(f)
             except Exception:
                 pass
-        cfg["ext_url"] = self._url_var.get()
+        cfg["ext_url"] = self._url_var.get().strip()
         cfg["ext_format"] = self._var_format.get()
         cfg["ext_threads"] = self._var_ext_threads.get()
         cfg["ext_interval"] = self._var_interval.get()

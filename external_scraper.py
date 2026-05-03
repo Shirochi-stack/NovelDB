@@ -724,9 +724,12 @@ class ExternalScraper:
                 json_chunks)
             if para_tuples:
                 full_text, content_html = self._kakao_build_output(
+                    para_tuples)
+                display_name = self._kakao_heading_title(
                     para_tuples, chapter_name)
                 return {
-                    'chapterName': chapter_name,
+                    'chapterName': display_name,
+                    'sourceChapterName': chapter_name,
                     'contentText': full_text,
                     'contentHtml': content_html,
                     'contentCss': content_css,
@@ -763,9 +766,12 @@ class ExternalScraper:
             json_chunks_fb)
         if para_tuples:
             full_text, content_html = self._kakao_build_output(
+                para_tuples)
+            display_name = self._kakao_heading_title(
                 para_tuples, chapter_name)
             return {
-                'chapterName': chapter_name,
+                'chapterName': display_name,
+                'sourceChapterName': chapter_name,
                 'contentText': full_text,
                 'contentHtml': content_html,
                 'contentCss': content_css,
@@ -844,7 +850,18 @@ class ExternalScraper:
         return '\n'.join(text_parts), '\n'.join(html_parts)
 
     @staticmethod
-    def _kakao_build_output(para_tuples, chapter_title=None):
+    def _kakao_heading_title(para_tuples, fallback):
+        """Use the first source heading as the EPUB title/TOC label."""
+        for item in para_tuples:
+            plain = (item[0] or '').strip()
+            p_type = (item[2] or '').lower()
+            if plain and (p_type in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+                          or p_type in {'head', 'heading', 'title'}):
+                return plain
+        return fallback
+
+    @staticmethod
+    def _kakao_build_output(para_tuples):
         """Convert parsed Kakao paragraph tuples to full text and HTML."""
         from html import escape as _esc
 
@@ -949,9 +966,6 @@ class ExternalScraper:
                 first_heading_seen = True
                 pending_heading_break = True
                 extra_class = 'kakao-source-heading'
-                if chapter_title:
-                    text_plain = chapter_title
-                    html_frag = _esc(chapter_title)
 
             text_parts.append(text_plain)
             attr_html = _attrs_to_html(p_attrs, p_style, extra_class)
