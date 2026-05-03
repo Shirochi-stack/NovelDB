@@ -1,10 +1,10 @@
 # patch_rules.ps1 — Patch, build, and copy novel-downloader rules for bridge mode
 #
-# Usage: .\patch_rules.ps1 [-NdDir "D:\Projects\novel-downloader"]
-# If no NdDir given, defaults to D:\Projects\novel-downloader
+# Usage: .\patch_rules.ps1 [-NdDir "D:\Projects\novel-downloader-official"]
+# If no NdDir given, defaults to the official novel-downloader checkout.
 param(
     [string]$NpiaDir = $PSScriptRoot,
-    [string]$NdDir = "D:\Projects\novel-downloader"
+    [string]$NdDir = "D:\Projects\novel-downloader-official"
 )
 
 Write-Host ""
@@ -18,16 +18,28 @@ Write-Host ""
 
 $repoUrl = "https://github.com/404-novel-project/novel-downloader.git"
 $indexTs = Join-Path $NdDir "src\index.ts"
+$webpackConfig = Join-Path $NdDir "webpack.config.js"
 $outFile = Join-Path $NpiaDir "rules-lib.js"
 
-# --- Step 1: Clone or Pull ---
-if (Test-Path $indexTs) {
-    Write-Host "[1/4] Pulling latest novel-downloader..."
+# --- Step 1: Clone or refresh ---
+$gitDir = Join-Path $NdDir ".git"
+if (Test-Path $gitDir) {
+    Write-Host "[1/4] Fetching latest official novel-downloader..."
     Push-Location $NdDir
-    git pull 2>&1 | ForEach-Object { Write-Host "  $_" }
+    git remote set-url origin $repoUrl 2>&1 | ForEach-Object { Write-Host "  $_" }
+    git fetch origin --prune 2>&1 | ForEach-Object { Write-Host "  $_" }
+    $defaultRef = (git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
+    if (-not $defaultRef) { $defaultRef = "origin/main" }
+    Write-Host "  Resetting checkout to $defaultRef..."
+    git reset --hard $defaultRef 2>&1 | ForEach-Object { Write-Host "  $_" }
     Pop-Location
 } else {
-    Write-Host "[1/4] Cloning novel-downloader from GitHub..."
+    if (Test-Path $NdDir) {
+        Write-Host "  ERROR: $NdDir exists but is not a git checkout."
+        Write-Host "  Move or delete it, then run this script again."
+        exit 1
+    }
+    Write-Host "[1/4] Cloning official novel-downloader from GitHub..."
     git clone $repoUrl $NdDir 2>&1 | ForEach-Object { Write-Host "  $_" }
     if (-not (Test-Path $indexTs)) {
         Write-Host "  ERROR: Clone failed!"
@@ -39,8 +51,20 @@ if (Test-Path $indexTs) {
 Write-Host "[2/4] Applying bridge-mode patch to src/index.ts..."
 $content = Get-Content $indexTs -Raw
 
+$bridgeImports = @(
+    'import { getRule } from "./router/download";',
+    'import { getHtmlDOM } from "./lib/http";',
+    'import { cleanDOM } from "./lib/cleanDOM";'
+)
+foreach ($importLine in $bridgeImports) {
+    if (-not $content.Contains($importLine)) {
+        $content = $importLine + "`n" + $content
+    }
+}
+
 if ($content -match '__ND_BRIDGE_MODE') {
-    Write-Host "  Already patched - skipping."
+    Set-Content $indexTs $content -NoNewline
+    Write-Host "  Already patched - imports refreshed."
 } else {
     # The stock index.ts ends with:
     #   if (document.readyState === "loading") {
@@ -100,18 +124,33 @@ if ((window as any).__ND_BRIDGE_MODE) {
     }
 }
 
+Write-Host "  Patching webpack ts-loader for transpile-only builds..."
+$webpackContent = Get-Content $webpackConfig -Raw
+if ($webpackContent -notmatch 'transpileOnly:\s*true') {
+    $webpackContent = $webpackContent.Replace(
+        'use: ["ts-loader"],',
+        'use: [{ loader: "ts-loader", options: { transpileOnly: true } }],'
+    )
+    Set-Content $webpackConfig $webpackContent -NoNewline
+    Write-Host "  webpack.config.js patched."
+} else {
+    Write-Host "  webpack.config.js already patched."
+}
+
 # --- Step 3: Build ---
 Write-Host "[3/4] Building rules bundle..."
 Push-Location $NdDir
 
 if (-not (Test-Path "node_modules")) {
     Write-Host "  Installing dependencies (first time only)..."
-    npm install 2>&1 | Select-Object -Last 5 | ForEach-Object { Write-Host "  $_" }
+    npm.cmd install 2>&1 | ForEach-Object { Write-Host "  $_" }
 }
 
 Write-Host "  Running webpack..."
-npx webpack 2>&1 | Select-Object -Last 5 | ForEach-Object { Write-Host "  $_" }
-if ($LASTEXITCODE -ne 0) {
+$webpackOutput = npx.cmd webpack --stats-error-details 2>&1
+$webpackExit = $LASTEXITCODE
+$webpackOutput | ForEach-Object { Write-Host "  $_" }
+if ($webpackExit -ne 0) {
     Write-Host "  ERROR: Build failed!"
     Pop-Location
     exit 1
@@ -129,6 +168,22 @@ if (Test-Path $bundlePath) {
     Write-Host "  ERROR: dist\bundle.user.js not found!"
     exit 1
 }
+
+Write-Host "  Verifying bridge files..."
+$requiredBridgeFiles = @("gm_stubs.js", "bridge.js", "rules-lib.js")
+$missingBridgeFiles = @()
+foreach ($fileName in $requiredBridgeFiles) {
+    $filePath = Join-Path $NpiaDir $fileName
+    if (-not (Test-Path $filePath)) {
+        $missingBridgeFiles += $filePath
+    }
+}
+if ($missingBridgeFiles.Count -gt 0) {
+    Write-Host "  ERROR: Missing required bridge file(s):"
+    $missingBridgeFiles | ForEach-Object { Write-Host "    $_" }
+    exit 1
+}
+Write-Host "  Bridge files OK."
 
 Write-Host ""
 Write-Host "========================================"
