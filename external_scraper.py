@@ -447,9 +447,15 @@ class ExternalScraper:
                     const list = (data.result || {}).list || [];
                     return list.map(entry => {
                         const item = entry.item || {};
+                        const fullTitle = item.title || '';
+                        // Extract just the episode part (e.g. "4화", "3화 [삽화]")
+                        // from titles like "백호 가문의 아기 솜뭉치 4화"
+                        const epMatch = fullTitle.match(/([0-9]+화.*)$/);
+                        const shortName = epMatch ? epMatch[1]
+                            : (fullTitle || 'Episode ' + (item.order_value || 0));
                         return {
                             url: `/content/${seriesId}/viewer/${item.product_id}`,
-                            name: item.title || ('Episode ' + (item.order_value || 0)),
+                            name: shortName,
                             isVIP: !item.is_free,
                             isPaid: null
                         };
