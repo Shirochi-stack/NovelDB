@@ -924,11 +924,13 @@ class ExternalScraper:
 
         return data
 
-    def parse_chapter_batch(self, batch_info):
+    def parse_chapter_batch(self, batch_info, interval=0.5):
         """Parse multiple chapters concurrently via JS Promise.all.
 
         Args:
             batch_info: List of dicts with 'url', 'name', 'isVIP', 'isPaid'.
+            interval: Delay between chapters (seconds). Used by KakaoPage
+                      sequential fallback; normal batch uses JS Promise.all.
 
         Returns list of parsed chapter dicts (or None for failures).
         The browser fires all HTTP requests in parallel.
@@ -948,7 +950,8 @@ class ExternalScraper:
                     page=self._page
                 )
                 results.append(data)
-                time.sleep(0.5)
+                if interval > 0 and i < len(batch_info) - 1:
+                    time.sleep(interval)
             return results
 
         # Ensure the browser page is still alive

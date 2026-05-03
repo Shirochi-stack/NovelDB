@@ -313,7 +313,9 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._log(f"  [{idx + 1}/{total}] {name}")
 
                 # Fire batch concurrently in JS
-                batch_results = self._scraper.parse_chapter_batch(batch)
+                batch_results = self._scraper.parse_chapter_batch(
+                    batch, interval=interval
+                )
 
                 for i, data in enumerate(batch_results):
                     results[batch_start + i] = data
