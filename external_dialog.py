@@ -24,7 +24,7 @@ import threading
 import queue
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
 
 from external_scraper import ExternalScraper
 
@@ -67,6 +67,8 @@ class ExternalNovelDialog(tk.Toplevel):
         self._downloading = False
         self._start_time = None
         self._msg_queue = queue.Queue()
+        self._paste_batch_text = ''      # persisted between dialog opens
+        self._paste_batch_dialog = None
 
         # Single persistent worker thread for all Playwright calls.
         # Playwright's sync API is thread-bound, so fetch + download
@@ -165,13 +167,8 @@ class ExternalNovelDialog(tk.Toplevel):
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill="x", padx=10, pady=5)
 
-        self._btn_fetch = ttk.Button(btn_frame, text="Fetch Info",
-                                      command=self._on_fetch)
-        self._btn_fetch.pack(side="left", padx=(0, 5), ipady=3)
-
         self._btn_download = ttk.Button(btn_frame, text="Download",
-                                         command=self._on_download,
-                                         state="disabled")
+                                         command=self._on_download)
         self._btn_download.pack(side="left", padx=(0, 5), ipady=3)
 
         self._btn_stop = ttk.Button(btn_frame, text="Stop",
@@ -181,6 +178,14 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_browser = ttk.Button(btn_frame, text="Enter Browser",
                                         command=self._on_enter_browser)
         self._btn_browser.pack(side="left", padx=(0, 5), ipady=3)
+
+        self._btn_paste_batch = ttk.Button(btn_frame, text="Paste Batch",
+                                            command=self._on_paste_batch)
+        self._btn_paste_batch.pack(side="left", padx=(0, 5), ipady=3)
+
+        self._btn_batch_file = ttk.Button(btn_frame, text="Batch Download",
+                                           command=self._on_batch_file)
+        self._btn_batch_file.pack(side="left", padx=(0, 5), ipady=3)
 
         # --- Book Info ---
         info_frame = ttk.LabelFrame(self, text="Book Info", padding=6)
@@ -271,6 +276,10 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._do_fetch(payload)
             elif kind == "download":
                 self._do_download(*payload)
+            elif kind == "fetch_and_download":
+                self._do_fetch_and_download(*payload)
+            elif kind == "batch":
+                self._do_batch(payload)
             elif kind == "browser":
                 self._do_open_browser()
 
@@ -289,7 +298,7 @@ class ExternalNovelDialog(tk.Toplevel):
         except Exception as e:
             self._msg_queue.put(("error", str(e)))
         finally:
-            self.after(0, lambda: self._btn_fetch.configure(state="normal"))
+            self.after(0, lambda: self._btn_download.configure(state="normal"))
 
     def _do_download(self, chapters, start, end, interval, num_threads=1,
                       skip_paid=False):
@@ -440,10 +449,8 @@ class ExternalNovelDialog(tk.Toplevel):
                 )
 
             self._chapter_results = results
-            self._msg_queue.put(("finished", None))
         except Exception as e:
-            self._msg_queue.put(("error", f"Download error: {e}"))
-            self._msg_queue.put(("finished", None))
+            self._log(f"\u274c Download error: {e}")
 
     def _do_open_browser(self):
         """Open a visible browser on the worker thread for manual login."""
@@ -466,44 +473,24 @@ class ExternalNovelDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     def _on_enter_browser(self):
         """Open a visible browser window for manual site login."""
-        self._btn_fetch.configure(state="disabled")
         self._btn_download.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
+        self._btn_paste_batch.configure(state="disabled")
+        self._btn_batch_file.configure(state="disabled")
         self._append_log("Opening browser for login... Close the browser when done.")
         self._work_queue.put(("browser", None))
 
     def _on_browser_closed(self):
         """Re-enable buttons after the visible browser session ends."""
-        self._btn_fetch.configure(state="normal")
         self._btn_browser.configure(state="normal")
-        if self._book_data:
-            self._btn_download.configure(state="normal")
+        self._btn_download.configure(state="normal")
+        self._btn_paste_batch.configure(state="normal")
+        self._btn_batch_file.configure(state="normal")
         self._append_log("Browser session ended. Session data saved.")
 
     # ------------------------------------------------------------------
-    # Fetch Info
+    # Fetch Info (internal helper — called from workers)
     # ------------------------------------------------------------------
-    def _on_fetch(self):
-        url = self._url_var.get().strip()
-        if not url:
-            self._append_log("Please enter a URL.")
-            return
-        if not url.startswith("http"):
-            url = "https://" + url
-            self._url_var.set(url)
-
-        self._btn_fetch.configure(state="disabled")
-        self._btn_download.configure(state="disabled")
-        self._lbl_title.configure(text="Fetching...")
-        self._lbl_author.configure(text="—")
-        self._lbl_chapters.configure(text="—")
-
-        self._fetch_worker(url)
-
-    def _fetch_worker(self, url):
-        """Dispatch fetch to the persistent worker thread."""
-        self._work_queue.put(("fetch", url))
-
     def _on_book_parsed(self, data):
         self._book_data = data
         self._lbl_title.configure(text=data.get('bookname', '?'))
@@ -515,46 +502,39 @@ class ExternalNovelDialog(tk.Toplevel):
             # Only auto-fill 'To' if the user hasn't explicitly set a range
             if not self._var_to_enabled.get():
                 self._var_to.set(chapter_count)
-            self._btn_download.configure(state="normal")
 
     # ------------------------------------------------------------------
-    # Download
+    # Download (combined fetch → download)
     # ------------------------------------------------------------------
     def _on_download(self):
-        if not self._book_data:
+        url = self._url_var.get().strip()
+        if not url:
+            self._append_log("Please enter a URL.")
             return
+        if not url.startswith("http"):
+            url = "https://" + url
+            self._url_var.set(url)
 
         self._downloading = True
-        self._btn_fetch.configure(state="disabled")
         self._btn_download.configure(state="disabled")
         self._btn_stop.configure(state="normal")
+        self._btn_browser.configure(state="disabled")
+        self._btn_paste_batch.configure(state="disabled")
+        self._btn_batch_file.configure(state="disabled")
         self._progress['value'] = 0
         self._chapter_results = []
         self._start_time = time.time()
 
-        chapters = self._book_data.get('chapters', [])
-        start = 0
-        end = len(chapters)
-        if self._var_from_enabled.get():
-            start = max(0, self._var_from.get() - 1)
-        if self._var_to_enabled.get():
-            end = min(len(chapters), self._var_to.get())
+        self._lbl_title.configure(text="Fetching...")
+        self._lbl_author.configure(text="—")
+        self._lbl_chapters.configure(text="—")
 
         interval = self._var_interval.get()
         num_threads = max(1, self._var_ext_threads.get())
         skip_paid = self._var_skip_paid.get()
-        self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
-                  f"threads={num_threads}, interval={interval}s"
-                  + (', skipping paid' if skip_paid else ''))
 
-        self._download_worker(chapters, start, end, interval, num_threads,
-                              skip_paid)
-
-    def _download_worker(self, chapters, start, end, interval, num_threads,
-                         skip_paid=False):
-        """Dispatch download to the persistent worker thread."""
-        self._work_queue.put(("download", (chapters, start, end, interval,
-                                           num_threads, skip_paid)))
+        self._work_queue.put(("fetch_and_download", (url, interval,
+                                                      num_threads, skip_paid)))
 
     def _update_progress(self, current, total):
         if total > 0:
@@ -574,23 +554,240 @@ class ExternalNovelDialog(tk.Toplevel):
 
     def _on_download_finished(self):
         self._downloading = False
-        self._btn_fetch.configure(state="normal")
-        self._btn_download.configure(state="normal" if self._book_data else "disabled")
+        self._btn_download.configure(state="normal")
         self._btn_stop.configure(state="disabled")
+        self._btn_browser.configure(state="normal")
+        self._btn_paste_batch.configure(state="normal")
+        self._btn_batch_file.configure(state="normal")
         self._lbl_eta.configure(text="")
 
-        if not self._chapter_results:
-            self._log("No chapters downloaded.")
+    # ------------------------------------------------------------------
+    # Combined fetch + download worker
+    # ------------------------------------------------------------------
+    def _do_fetch_and_download(self, url, interval, num_threads, skip_paid):
+        """Fetch metadata then download chapters — runs on worker thread."""
+        # Step 1: Fetch metadata
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+                self._scraper.start()
+
+            data = self._scraper.parse_book(url)
+            if not data:
+                self._msg_queue.put(("error", "Failed to parse book info."))
+                self._msg_queue.put(("finished", None))
+                return
+
+            self._msg_queue.put(("book_parsed", data))
+        except Exception as e:
+            self._msg_queue.put(("error", str(e)))
+            self._msg_queue.put(("finished", None))
             return
 
+        # Step 2: Download chapters
+        chapters = data.get('chapters', [])
+        start = 0
+        end = len(chapters)
+        if self._var_from_enabled.get():
+            start = max(0, self._var_from.get() - 1)
+        if self._var_to_enabled.get():
+            end = min(len(chapters), self._var_to.get())
+
+        self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
+                  f"threads={num_threads}, interval={interval}s"
+                  + (', skipping paid' if skip_paid else ''))
+
+        self._do_download(chapters, start, end, interval, num_threads,
+                          skip_paid)
+
+        # Generate output and signal completion
         successes = sum(1 for r in self._chapter_results
                         if r is not None and not r.get('_locked'))
-        locked = sum(1 for r in self._chapter_results
-                     if r and r.get('_locked'))
-        failures = len(self._chapter_results) - successes - locked
-
         if successes > 0:
+            self._book_data = data
             self._generate_output()
+
+        self._msg_queue.put(("finished", None))
+
+    # ------------------------------------------------------------------
+    # Paste Batch
+    # ------------------------------------------------------------------
+    def _on_paste_batch(self):
+        """Open a text dialog for pasting multiple URLs."""
+        if self._paste_batch_dialog and self._paste_batch_dialog.winfo_exists():
+            self._paste_batch_dialog.lift()
+            return
+
+        top = tk.Toplevel(self)
+        top.title("Paste Batch — External Download")
+        top.geometry("600x400")
+        top.transient(self)
+        self._paste_batch_dialog = top
+
+        lbl = ttk.Label(top, text="Paste one URL per line:")
+        lbl.pack(anchor="w", padx=10, pady=(10, 3))
+
+        text = tk.Text(top, wrap="word")
+        text.pack(fill="both", expand=True, padx=10)
+        if self._paste_batch_text:
+            text.insert("1.0", self._paste_batch_text)
+
+        btns = ttk.Frame(top)
+        btns.pack(fill="x", padx=10, pady=(5, 10))
+
+        def _snapshot():
+            try:
+                self._paste_batch_text = text.get('1.0', 'end-1c')
+            except Exception:
+                pass
+
+        def _close():
+            _snapshot()
+            top.destroy()
+            self._paste_batch_dialog = None
+
+        def _clear():
+            text.delete('1.0', 'end')
+            self._paste_batch_text = ''
+
+        def _start():
+            raw = text.get("1.0", "end").strip()
+            lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+            if not lines:
+                messagebox.showwarning(
+                    "Empty Batch",
+                    "Please paste at least one URL.",
+                    parent=top,
+                )
+                return
+            _snapshot()
+            top.destroy()
+            self._paste_batch_dialog = None
+            self._start_batch(lines)
+
+        top.protocol("WM_DELETE_WINDOW", _close)
+        ttk.Button(btns, text="Start Batch", command=_start).pack(
+            side="right")
+        ttk.Button(btns, text="Close", command=_close).pack(
+            side="right", padx=(0, 8))
+        ttk.Button(btns, text="Clear", command=_clear).pack(
+            side="right", padx=(0, 8))
+
+    # ------------------------------------------------------------------
+    # Batch Download (file-based)
+    # ------------------------------------------------------------------
+    def _on_batch_file(self):
+        """Open a file picker and batch-download all URLs from the file."""
+        path = filedialog.askopenfilename(
+            title="Select batch file",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = [ln.strip() for ln in f if ln.strip()
+                         and not ln.strip().startswith('#')]
+        except Exception as e:
+            self._append_log(f"\u274c Failed to read batch file: {e}")
+            return
+        if not lines:
+            self._append_log("Batch file is empty.")
+            return
+        self._start_batch(lines)
+
+    # ------------------------------------------------------------------
+    # Shared batch launcher
+    # ------------------------------------------------------------------
+    def _start_batch(self, urls):
+        """Start batch processing a list of URLs."""
+        self._downloading = True
+        self._btn_download.configure(state="disabled")
+        self._btn_stop.configure(state="normal")
+        self._btn_browser.configure(state="disabled")
+        self._btn_paste_batch.configure(state="disabled")
+        self._btn_batch_file.configure(state="disabled")
+        self._progress['value'] = 0
+        self._start_time = time.time()
+
+        interval = self._var_interval.get()
+        num_threads = max(1, self._var_ext_threads.get())
+        skip_paid = self._var_skip_paid.get()
+
+        self._log(f"Starting batch: {len(urls)} URL(s), "
+                  f"threads={num_threads}, interval={interval}s"
+                  + (', skipping paid' if skip_paid else ''))
+
+        self._work_queue.put(("batch", (urls, interval, num_threads,
+                                         skip_paid)))
+
+    # ------------------------------------------------------------------
+    # Batch worker (runs on worker thread)
+    # ------------------------------------------------------------------
+    def _do_batch(self, payload):
+        """Process multiple URLs sequentially on the worker thread."""
+        urls, interval, num_threads, skip_paid = payload
+        output_dir = self._get_output_dir()
+
+        if self._scraper is None:
+            self._scraper = ExternalScraper(logger=self._log)
+            self._scraper.start()
+
+        # Ensure the headless browser is alive
+        if not self._scraper._context:
+            self._scraper.start()
+
+        total_urls = len(urls)
+        for url_idx, url in enumerate(urls):
+            if not self._downloading:
+                self._log("Batch stopped by user.")
+                break
+
+            url = url.strip()
+            if not url.startswith("http"):
+                url = "https://" + url
+
+            self._log(f"\n{'='*50}")
+            self._log(f"[{url_idx + 1}/{total_urls}] {url}")
+            self._log(f"{'='*50}")
+
+            # Fetch metadata
+            try:
+                data = self._scraper.parse_book(url)
+            except Exception as e:
+                self._log(f"\u274c Fetch failed: {e}")
+                continue
+            if not data:
+                self._log("\u274c Failed to parse book info, skipping.")
+                continue
+
+            self._msg_queue.put(("book_parsed", data))
+            title = _sanitize_filename(data.get('bookname', 'novel'))
+            self._log(f"Title: {title}, Chapters: {data.get('chapterCount', 0)}")
+
+            # Download all chapters (no range in batch mode)
+            chapters = data.get('chapters', [])
+            if not chapters:
+                self._log("No chapters found, skipping.")
+                continue
+
+            self._chapter_results = []
+            self._do_download(chapters, 0, len(chapters), interval,
+                              num_threads, skip_paid)
+
+            # Generate output if any succeeded
+            successes = sum(1 for r in self._chapter_results
+                            if r is not None and not r.get('_locked'))
+            if successes > 0:
+                # Temporarily set _book_data for output generation
+                old_book = self._book_data
+                self._book_data = data
+                self._generate_output()
+                self._book_data = old_book
+
+        self._log(f"\nBatch complete: processed {total_urls} URL(s).")
+        self._msg_queue.put(("finished", None))
 
     # ------------------------------------------------------------------
     # Output Generation
