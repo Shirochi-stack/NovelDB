@@ -16,6 +16,7 @@ Data flows:
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -313,11 +314,441 @@ class ExternalScraper:
         self.log("Page recovered (no book URL to re-inject).")
         return True
 
+    # ------------------------------------------------------------------
+    # KakaoPage native scraper (fallback for unsupported JS rules)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def is_kakaopage(url):
+        """Check if the URL is a KakaoPage content URL."""
+        return bool(url and re.match(
+            r'https?://page\.kakao\.com/content/\d+', url
+        ))
+
+    def _kakao_parse_book(self, url):
+        """Scrape book metadata + episode list from a KakaoPage content page.
+
+        Uses Playwright DOM scraping instead of novel-downloader JS rules.
+        Returns the standard book data dict or None on error.
+        """
+        if not self._page:
+            self.start()
+
+        self._stop_requested = False
+        self.log(f"[KakaoPage] Navigating to: {url}")
+
+        # Extract series ID from URL
+        m = re.search(r'/content/(\d+)', url)
+        series_id = m.group(1) if m else ''
+
+        try:
+            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            # Wait for the SPA to render content
+            self._page.wait_for_timeout(3000)
+        except Exception as e:
+            self.log(f"ERROR: Page load failed: {e}")
+            return None
+
+        self.log("[KakaoPage] Extracting metadata...")
+
+        # --- Extract metadata via JS ---
+        try:
+            meta = self._page.evaluate("""
+                (function() {
+                    var og = function(prop) {
+                        var el = document.querySelector('meta[property="og:' + prop + '"]');
+                        return el ? el.content : '';
+                    };
+                    // Title: try og:title first, then first h2
+                    var title = og('title') || '';
+                    // Clean "- 웹소설 | 카카오페이지" suffix from og:title
+                    title = title.replace(/\\s*[-–]\\s*(웹소설|웹툰).*$/i, '').trim();
+                    if (!title) {
+                        var h2 = document.querySelector('h2');
+                        if (h2) title = h2.innerText.trim();
+                    }
+                    // Author: look for text near the title
+                    var author = '';
+                    var spans = document.querySelectorAll('span, div, a');
+                    for (var i = 0; i < spans.length; i++) {
+                        var s = spans[i];
+                        var t = s.innerText.trim();
+                        // Author is typically a short name appearing after the title
+                        if (s.previousElementSibling) {
+                            var prev = s.previousElementSibling;
+                            if (prev.tagName === 'H2' ||
+                                (prev.innerText && prev.innerText.trim() === title)) {
+                                if (t.length > 0 && t.length < 50 && !t.includes('|')) {
+                                    author = t;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // Fallback: look for author pattern in page text
+                    if (!author) {
+                        var bodyText = document.body.innerText;
+                        // Pattern: title followed by author name on next line
+                        var idx = bodyText.indexOf(title);
+                        if (idx >= 0) {
+                            var after = bodyText.substring(idx + title.length, idx + title.length + 200);
+                            var lines = after.split('\\n').filter(function(l) {
+                                return l.trim().length > 0;
+                            });
+                            if (lines.length > 0 && lines[0].trim().length < 50) {
+                                author = lines[0].trim();
+                            }
+                        }
+                    }
+                    var cover = og('image') || '';
+                    var desc = og('description') || '';
+
+                    // Total episode count: look for "전체 NNN" text
+                    var totalText = document.body.innerText;
+                    var totalMatch = totalText.match(/전체\\s+(\\d+)/);
+                    var totalEpisodes = totalMatch ? parseInt(totalMatch[1]) : 0;
+
+                    return {
+                        title: title,
+                        author: author,
+                        cover: cover,
+                        description: desc,
+                        totalEpisodes: totalEpisodes
+                    };
+                })()
+            """)
+        except Exception as e:
+            self.log(f"ERROR: Metadata extraction failed: {e}")
+            return None
+
+        title = meta.get('title', '')
+        author = meta.get('author', '')
+        cover = meta.get('cover', '')
+        description = meta.get('description', '')
+        total_episodes = meta.get('totalEpisodes', 0)
+
+        if not title:
+            self.log("ERROR: Could not extract title from KakaoPage.")
+            return None
+
+        self.log(f"[KakaoPage] Title: {title}, Author: {author}, "
+                 f"Episodes: {total_episodes}")
+
+        # --- Expand the episode list ---
+        # The page initially shows ~5 episodes. We need to click the
+        # expand chevron and scroll to load all episodes.
+        self.log("[KakaoPage] Loading episode list...")
+        try:
+            self._kakao_load_all_episodes(total_episodes)
+        except Exception as e:
+            self.log(f"WARNING: Episode list expansion failed: {e}")
+
+        # --- Extract episode links ---
+        try:
+            episodes = self._page.evaluate("""
+                (function() {
+                    var links = document.querySelectorAll('a[href*="/viewer/"]');
+                    var result = [];
+                    var seen = {};
+                    for (var i = 0; i < links.length; i++) {
+                        var a = links[i];
+                        var href = a.getAttribute('href') || '';
+                        if (seen[href]) continue;
+                        seen[href] = true;
+                        var text = a.innerText.trim();
+                        // Parse episode name and free/paid status
+                        var lines = text.split('\\n').filter(function(l) {
+                            return l.trim().length > 0;
+                        });
+                        var name = lines[0] || ('Episode ' + (result.length + 1));
+                        // Check for free marker (무료) or paid marker (coin icon)
+                        var isFree = text.includes('무료');
+                        result.push({
+                            url: href,
+                            name: name,
+                            isVIP: !isFree,
+                            isPaid: null
+                        });
+                    }
+                    return result;
+                })()
+            """)
+        except Exception as e:
+            self.log(f"ERROR: Episode extraction failed: {e}")
+            return None
+
+        if not episodes:
+            self.log("WARNING: No episodes found on page.")
+
+        # Fix relative URLs to absolute
+        for ep in episodes:
+            if ep['url'] and not ep['url'].startswith('http'):
+                ep['url'] = 'https://page.kakao.com' + ep['url']
+
+        self.log(f"[KakaoPage] Found {len(episodes)} episodes.")
+
+        data = {
+            'bookname': title,
+            'author': author,
+            'coverUrl': cover,
+            'introduction': description,
+            'introductionHTML': f'<p>{description}</p>' if description else '',
+            'bookUrl': url,
+            'chapterCount': len(episodes),
+            'chapters': episodes,
+            'language': 'ko',
+            'tags': [],
+            '_kakaopage': True,  # Flag for chapter parser
+        }
+
+        self._book_data = data
+        self._book_url = url
+        return data
+
+    def _kakao_load_all_episodes(self, expected_count):
+        """Expand the episode list on a KakaoPage content page.
+
+        Clicks the expand chevron and scrolls until all episodes are visible.
+        """
+        max_attempts = 100  # Safety limit for expansion clicks/scrolls
+        last_count = 0
+
+        for attempt in range(max_attempts):
+            if self._stop_requested:
+                break
+
+            # Count current visible episode links
+            count = self._page.evaluate(
+                "document.querySelectorAll('a[href*=\"/viewer/\"]').length"
+            )
+
+            if expected_count > 0 and count >= expected_count:
+                break
+            if count == last_count and attempt > 5:
+                # No new episodes loaded after several attempts
+                break
+            last_count = count
+
+            # Try clicking expand/chevron/load-more buttons
+            clicked = self._page.evaluate("""
+                (function() {
+                    // Look for SVG chevron-down or expand button near episode list
+                    var svgs = document.querySelectorAll('svg');
+                    for (var i = 0; i < svgs.length; i++) {
+                        var svg = svgs[i];
+                        var parent = svg.closest('button') || svg.closest('a')
+                                     || svg.parentElement;
+                        if (!parent) continue;
+                        var rect = parent.getBoundingClientRect();
+                        // The expand chevron is typically centered below the
+                        // last visible episode, with a small height
+                        if (rect.height > 10 && rect.height < 80 &&
+                            rect.width > 10 && rect.width < 200 &&
+                            rect.top > 300) {
+                            // Check if it looks like a down-arrow area
+                            var path = svg.querySelector('path');
+                            if (path) {
+                                parent.click();
+                                return true;
+                            }
+                        }
+                    }
+                    // Fallback: look for a "more" or expand button by text
+                    var buttons = document.querySelectorAll('button');
+                    for (var j = 0; j < buttons.length; j++) {
+                        var b = buttons[j];
+                        var t = b.innerText.trim();
+                        if (t.includes('더보기') || t.includes('전체') ||
+                            t.includes('펼치기')) {
+                            b.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                })()
+            """)
+
+            if clicked:
+                self._page.wait_for_timeout(1000)
+            else:
+                # Scroll down to trigger lazy loading
+                self._page.evaluate(
+                    "window.scrollBy(0, window.innerHeight)"
+                )
+                self._page.wait_for_timeout(800)
+
+    def _kakao_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Scrape a single KakaoPage chapter from the viewer.
+
+        Navigates to the viewer URL and clicks through all paginated text
+        pages, extracting text content from each.
+
+        Returns the standard chapter data dict or None on error.
+        """
+        target = page or self._page
+        if target is None:
+            return None
+
+        try:
+            target.goto(chapter_url, wait_until="domcontentloaded",
+                        timeout=30000)
+            target.wait_for_timeout(3000)
+        except Exception as e:
+            self.log(f"  [KakaoPage] Page load error: {e}")
+            return None
+
+        all_texts = []
+        max_pages = 300  # Safety limit per chapter
+        seen_texts = set()
+
+        for page_num in range(max_pages):
+            if self._stop_requested:
+                return None
+
+            # Extract visible text content from the viewer
+            try:
+                page_text = target.evaluate("""
+                    (function() {
+                        // The viewer renders text in the central content area.
+                        // We look for the largest text-containing div that
+                        // isn't a navigation/header element.
+                        var candidates = [];
+                        var divs = document.querySelectorAll('div, p, section');
+                        for (var i = 0; i < divs.length; i++) {
+                            var d = divs[i];
+                            var t = (d.innerText || '').trim();
+                            // Skip navigation, headers, empty divs
+                            if (t.length < 20) continue;
+                            if (d.closest('nav') || d.closest('header')) continue;
+                            // Skip if this div contains too many child divs
+                            // (likely a container, not content)
+                            var childDivs = d.querySelectorAll('div');
+                            if (childDivs.length > 20) continue;
+                            candidates.push({
+                                el: d,
+                                len: t.length,
+                                text: t
+                            });
+                        }
+                        // Sort by text length descending
+                        candidates.sort(function(a, b) {
+                            return b.len - a.len;
+                        });
+                        // Pick the best candidate — the one with longest text
+                        // that isn't the entire body
+                        for (var j = 0; j < candidates.length; j++) {
+                            var c = candidates[j];
+                            if (c.el.tagName === 'BODY') continue;
+                            // Verify it contains actual prose content
+                            // (Korean text, not just UI elements)
+                            var koreanMatch = c.text.match(/[가-힣]/g);
+                            if (koreanMatch && koreanMatch.length > 10) {
+                                return c.text;
+                            }
+                        }
+                        return '';
+                    })()
+                """)
+            except Exception:
+                page_text = ''
+
+            if page_text:
+                # Deduplicate: viewer may show same text on click
+                text_hash = page_text[:200]
+                if text_hash not in seen_texts:
+                    seen_texts.add(text_hash)
+                    all_texts.append(page_text)
+
+            # Try to advance to the next page by clicking the right side
+            try:
+                has_next = target.evaluate("""
+                    (function() {
+                        // Check for "다음화" (next episode) button in header
+                        // If we see "이전화" (prev) but no next-page content
+                        // indicator, we may be at the last page.
+
+                        // Click the right 1/3 of the viewport to advance
+                        var vw = window.innerWidth;
+                        var vh = window.innerHeight;
+                        var clickX = Math.round(vw * 0.85);
+                        var clickY = Math.round(vh * 0.5);
+
+                        var el = document.elementFromPoint(clickX, clickY);
+                        if (el) {
+                            el.click();
+                            return true;
+                        }
+                        return false;
+                    })()
+                """)
+            except Exception:
+                has_next = False
+
+            if not has_next:
+                break
+
+            # Wait for page transition
+            target.wait_for_timeout(400)
+
+            # Check if we've reached the end of this chapter
+            # (viewer shows a "next episode" prompt or the text repeats)
+            try:
+                end_check = target.evaluate("""
+                    (function() {
+                        var text = document.body.innerText;
+                        // End-of-chapter indicators
+                        if (text.includes('다음 회를 기다려주세요') ||
+                            text.includes('연재 완결') ||
+                            text.includes('다음화 보기') ||
+                            text.includes('이전화 보기')) {
+                            // Check if this is a navigation prompt, not content
+                            var viewers = document.querySelectorAll(
+                                '[class*="viewer"], [class*="episode"]'
+                            );
+                            // If there's very little Korean text, likely end
+                            var korean = text.match(/[가-힣]/g) || [];
+                            if (korean.length < 50) return true;
+                        }
+                        return false;
+                    })()
+                """)
+                if end_check:
+                    break
+            except Exception:
+                pass
+
+        if not all_texts:
+            self.log(f"  [KakaoPage] No text extracted from: {chapter_name}")
+            return None
+
+        # Combine all page texts, deduplicate paragraphs
+        full_text = '\n\n'.join(all_texts)
+
+        # Build HTML content
+        paragraphs = full_text.split('\n')
+        html_parts = []
+        for p in paragraphs:
+            p = p.strip()
+            if p:
+                html_parts.append(f'<p>{p}</p>')
+        content_html = '\n'.join(html_parts)
+
+        return {
+            'chapterName': chapter_name,
+            'contentText': full_text,
+            'contentHtml': content_html,
+            'images': [],
+        }
+
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
 
         Returns the parsed book dict or None on error.
         """
+        # KakaoPage: use native scraper instead of JS rules
+        if self.is_kakaopage(url):
+            self.log("[KakaoPage] Detected KakaoPage URL, using native scraper.")
+            return self._kakao_parse_book(url)
+
         if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
             self.log(
                 "ERROR: gm_stubs.js, rules-lib.js, or bridge.js not found. "
@@ -416,6 +847,16 @@ class ExternalScraper:
         if self._stop_requested:
             return None
 
+        # KakaoPage: use native viewer scraping
+        if self._book_data and self._book_data.get('_kakaopage'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('name', '')
+            target_page = page or self._page
+            result = self._kakao_parse_chapter(url, name, page=target_page)
+            if interval > 0:
+                time.sleep(interval)
+            return result
+
         target_page = page or self._page
         if target_page is None:
             # Primary page lost — try to recover
@@ -478,6 +919,21 @@ class ExternalScraper:
         """
         if self._stop_requested or not batch_info:
             return [None] * len(batch_info)
+
+        # KakaoPage: no batch API — fall back to sequential downloads
+        if self._book_data and self._book_data.get('_kakaopage'):
+            results = []
+            for i, ch in enumerate(batch_info):
+                if self._stop_requested:
+                    results.append(None)
+                    continue
+                data = self._kakao_parse_chapter(
+                    ch.get('url', ''), ch.get('name', ''),
+                    page=self._page
+                )
+                results.append(data)
+                time.sleep(0.5)
+            return results
 
         # Ensure the browser page is still alive
         if not self._ensure_page():
