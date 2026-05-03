@@ -481,6 +481,33 @@ class ExternalScraper:
 
         self.log(f"[KakaoPage] Found {len(episodes)} episodes.")
 
+        # --- Extract tags from the About tab ---
+        tags = []
+        try:
+            about_url = re.sub(r'(\?.*)?$', '?tab_type=about', url)
+            self._page.goto(about_url, wait_until="domcontentloaded",
+                            timeout=15000)
+            self._page.wait_for_timeout(2000)
+            tags = self._page.evaluate("""
+                (function() {
+                    // Tags appear as "#태그" links under the 키워드 heading
+                    var tags = [];
+                    var links = document.querySelectorAll('a, span, div');
+                    for (var i = 0; i < links.length; i++) {
+                        var t = links[i].innerText.trim();
+                        if (t.startsWith('#') && t.length > 1 && t.length < 30) {
+                            var tag = t.substring(1);  // strip leading #
+                            if (tags.indexOf(tag) === -1) tags.push(tag);
+                        }
+                    }
+                    return tags;
+                })()
+            """) or []
+            if tags:
+                self.log(f"[KakaoPage] Tags: {', '.join(tags)}")
+        except Exception:
+            pass  # Tags are optional
+
         data = {
             'bookname': title,
             'author': author,
@@ -491,7 +518,7 @@ class ExternalScraper:
             'chapterCount': len(episodes),
             'chapters': episodes,
             'language': 'ko',
-            'tags': [],
+            'tags': tags,
             '_kakaopage': True,  # Flag for chapter parser
         }
 
