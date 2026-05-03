@@ -1374,44 +1374,51 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._log(f"  Using {copied} browser cookie(s) for image downloads.")
 
     def _remove_kakao_duplicate_cover_pages(self, epub):
-        """Remove repeated Kakao image-title pages from the finished EPUB data.
+        """Remove repeated Kakao boilerplate images by exact bytes.
 
-        This does not download or probe anything. It looks at the first image
-        in the first Kakao image chapter after normal embedding, then removes
-        every chapter image with the exact same bytes.
+        This does not download or probe anything. It only looks at already
+        first two embedded images of Kakao image chapters, then removes
+        later occurrences whose bytes are identical while keeping the first
+        copy. This avoids extension-based false positives.
         """
-        first_src = None
-        for chap in epub.chapters:
+        image_data = {
+            img.get('filename'): img.get('data')
+            for img in epub.images
+            if img.get('filename') and not img.get('filename', '').startswith('cover.')
+        }
+        if not image_data:
+            return
+
+        occurrences_by_bytes = {}
+        for chap_idx, chap in enumerate(epub.chapters):
             content = chap.get('content') or ''
             if 'kakao-image-chapter' not in content:
                 continue
-            match = re.search(
+            matches = re.findall(
                 r'<img\b[^>]*\bsrc=["\']\.\./Images/([^"\']+)["\']',
                 content,
                 flags=re.IGNORECASE,
             )
-            if match:
-                first_src = html.unescape(match.group(1))
-                break
+            for pos, src in enumerate(matches[:2], 1):
+                filename = html.unescape(src)
+                data = image_data.get(filename)
+                if data:
+                    occurrences_by_bytes.setdefault(data, []).append({
+                        'chapter_index': chap_idx,
+                        'position': pos,
+                        'filename': filename,
+                    })
 
-        if not first_src:
-            return
+        duplicate_names = set()
+        for occurrences in occurrences_by_bytes.values():
+            chapter_count = len({item['chapter_index'] for item in occurrences})
+            if chapter_count < 2:
+                continue
+            # Keep the first copy in reading order and remove later repeats.
+            for item in occurrences[1:]:
+                duplicate_names.add(item['filename'])
 
-        reference = None
-        for img in epub.images:
-            if img.get('filename') == first_src:
-                reference = img.get('data')
-                break
-        if not reference:
-            return
-
-        duplicate_names = {
-            img.get('filename') for img in epub.images
-            if img.get('filename')
-            and not img.get('filename', '').startswith('cover.')
-            and img.get('data') == reference
-        }
-        if len(duplicate_names) < 2:
+        if not duplicate_names:
             return
 
         for chap in epub.chapters:
@@ -1426,7 +1433,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         ]
         self._log(
             f"  Removed {len(duplicate_names)} duplicate Kakao "
-            "cover/title page image(s)."
+            "boilerplate image occurrence(s), keeping the first copy."
         )
 
     def _remove_image_page_by_filename(self, html_str, filename):
