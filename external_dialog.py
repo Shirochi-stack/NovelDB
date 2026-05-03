@@ -78,10 +78,11 @@ class ExternalNovelDialog(tk.Toplevel):
         self._worker_thread.start()
 
         self._build_ui()
+
+        # Hide on close instead of destroying — state is preserved.
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._load_ext_config()
         self._poll_queue()
-
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------
     # UI Construction
@@ -1059,6 +1060,16 @@ img { display: block; max-width: 100%; max-height: 100%;
         self._log("Stop requested.")
 
     def _on_close(self):
+        """Called when the user clicks the X button — just hide."""
+        self._save_ext_config()
+        self.withdraw()
+
+    def _on_app_exit(self):
+        """Called when the main application is shutting down.
+
+        Tears down the worker thread, Playwright browser, and destroys
+        the window for real.
+        """
         self._save_ext_config()
         self._downloading = False
         if self._scraper:

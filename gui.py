@@ -3466,8 +3466,16 @@ table, th, td {
     def _open_external_dialog(self):
         """Open the External Novel download dialog."""
         try:
+            # Reuse an existing dialog if it's still alive (just hidden)
+            dlg = getattr(self, '_external_dlg', None)
+            if dlg is not None and dlg.winfo_exists():
+                dlg.deiconify()
+                dlg.lift()
+                dlg.focus_force()
+                return
+
             from external_dialog import ExternalNovelDialog
-            ExternalNovelDialog(self)
+            self._external_dlg = ExternalNovelDialog(self)
         except ImportError as e:
             self.log_message(f"External novel dialog unavailable: {e}")
             self.log_message(
@@ -3479,6 +3487,13 @@ table, th, td {
 
     def _on_close(self):
         self._save_config()
+        # Clean up the external dialog's worker thread / browser if alive
+        dlg = getattr(self, '_external_dlg', None)
+        if dlg is not None:
+            try:
+                dlg._on_app_exit()
+            except Exception:
+                pass
         self.destroy()
 
 
