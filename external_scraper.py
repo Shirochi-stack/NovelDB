@@ -463,6 +463,9 @@ class ExternalScraper:
         if not episodes:
             self.log("WARNING: No episodes found on page.")
 
+        # API returns newest-first; reverse to chapter-1-first order.
+        episodes.reverse()
+
         # Fix relative URLs to absolute
         for ep in episodes:
             if ep['url'] and not ep['url'].startswith('http'):

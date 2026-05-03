@@ -154,6 +154,13 @@ class ExternalNovelDialog(tk.Toplevel):
             state="normal" if self._var_to_enabled.get() else "disabled"
         ))
 
+        # Skip paid
+        self._var_skip_paid = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            settings_frame, text="Skip paid",
+            variable=self._var_skip_paid,
+        ).pack(side="left", padx=(10, 0))
+
         # --- Buttons ---
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill="x", padx=10, pady=5)
@@ -284,7 +291,8 @@ class ExternalNovelDialog(tk.Toplevel):
         finally:
             self.after(0, lambda: self._btn_fetch.configure(state="normal"))
 
-    def _do_download(self, chapters, start, end, interval, num_threads=1):
+    def _do_download(self, chapters, start, end, interval, num_threads=1,
+                      skip_paid=False):
         """Run chapter downloads on the worker thread.
 
         Chapters are split into batches of `num_threads` size.
@@ -320,29 +328,50 @@ class ExternalNovelDialog(tk.Toplevel):
             batch_size = max(1, num_threads)
             completed = 0
 
+            # Pre-filter paid chapters if the user opted to skip them.
+            # Uses the is_free flag from the episode list API (instant,
+            # no per-chapter API call needed).
+            if skip_paid:
+                skipped = 0
+                for i, ch in enumerate(selected):
+                    if ch.get('isVIP', False):
+                        results[i] = {'_locked': True,
+                                      'chapterName': ch.get('name', '')}
+                        skipped += 1
+                if skipped:
+                    self._log(f"  Skipped {skipped} paid chapter(s).")
+
             for batch_start in range(0, total, batch_size):
                 if not self._downloading:
                     self._log("Download stopped by user.")
                     break
 
                 batch_end = min(batch_start + batch_size, total)
-                batch = selected[batch_start:batch_end]
+
+                # Collect only chapters that haven't been pre-filtered
+                batch_indices = [i for i in range(batch_start, batch_end)
+                                 if results[i] is None]
+                if not batch_indices:
+                    completed += (batch_end - batch_start)
+                    self._msg_queue.put(("progress", (completed, total)))
+                    continue
+
+                batch = [selected[i] for i in batch_indices]
 
                 # Log which chapters we're fetching
-                for i, ch in enumerate(batch):
-                    idx = batch_start + i
-                    name = ch.get('name', f'Chapter {start + idx + 1}')
-                    self._log(f"  [{idx + 1}/{total}] {name}")
+                for i in batch_indices:
+                    name = selected[i].get('name', f'Chapter {start + i + 1}')
+                    self._log(f"  [{i + 1}/{total}] {name}")
 
                 # Fire batch concurrently in JS
                 batch_results = self._scraper.parse_chapter_batch(
                     batch, interval=interval
                 )
 
-                for i, data in enumerate(batch_results):
-                    results[batch_start + i] = data
+                for j, data in enumerate(batch_results):
+                    results[batch_indices[j]] = data
 
-                completed += len(batch)
+                completed += (batch_end - batch_start)
                 self._msg_queue.put(("progress", (completed, total)))
 
                 # Rate limiting between batches
@@ -513,14 +542,19 @@ class ExternalNovelDialog(tk.Toplevel):
 
         interval = self._var_interval.get()
         num_threads = max(1, self._var_ext_threads.get())
+        skip_paid = self._var_skip_paid.get()
         self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
-                  f"threads={num_threads}, interval={interval}s")
+                  f"threads={num_threads}, interval={interval}s"
+                  + (', skipping paid' if skip_paid else ''))
 
-        self._download_worker(chapters, start, end, interval, num_threads)
+        self._download_worker(chapters, start, end, interval, num_threads,
+                              skip_paid)
 
-    def _download_worker(self, chapters, start, end, interval, num_threads):
+    def _download_worker(self, chapters, start, end, interval, num_threads,
+                         skip_paid=False):
         """Dispatch download to the persistent worker thread."""
-        self._work_queue.put(("download", (chapters, start, end, interval, num_threads)))
+        self._work_queue.put(("download", (chapters, start, end, interval,
+                                           num_threads, skip_paid)))
 
     def _update_progress(self, current, total):
         if total > 0:
