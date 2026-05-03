@@ -3,6 +3,12 @@
 
 import os
 import glob
+import sys
+
+spec_dir = os.path.dirname(os.path.abspath(__file__))
+if spec_dir not in sys.path:
+    sys.path.insert(0, spec_dir)
+
 from app_version import APP_NAME_LITE
 
 block_cipher = None
