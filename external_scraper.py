@@ -105,7 +105,19 @@ class ExternalScraper:
     def start(self):
         """Launch headless browser with persistent context."""
         if self._context:
-            return
+            if self._page:
+                try:
+                    self._page.evaluate("1")
+                    return
+                except Exception:
+                    self._page = None
+            try:
+                self._page = self._context.new_page()
+                self._page.on("console", self._on_console)
+                self.log("Browser ready.")
+                return
+            except Exception:
+                self.cleanup()
 
         self.log("Launching headless browser...")
         self._playwright = sync_playwright().start()
@@ -148,7 +160,19 @@ class ExternalScraper:
             ignore_https_errors=True,
         )
         page = self._context.pages[0] if self._context.pages else self._context.new_page()
-        page.goto(start_url)
+        self._page = page
+        try:
+            page.goto(start_url)
+        except Exception as e:
+            msg = str(e)
+            benign = (
+                'ERR_ABORTED' in msg
+                or 'frame was detached' in msg
+                or 'Target page, context or browser has been closed' in msg
+                or 'Browser has been closed' in msg
+            )
+            if not benign:
+                self.log(f"Browser navigation warning: {e}")
         self.log("Browser opened. Login to sites as needed, then close the browser.")
 
         # Wait for the browser to fully close.  We listen on the *context*
@@ -700,7 +724,7 @@ class ExternalScraper:
                 json_chunks)
             if para_tuples:
                 full_text, content_html = self._kakao_build_output(
-                    para_tuples)
+                    para_tuples, chapter_name)
                 return {
                     'chapterName': chapter_name,
                     'contentText': full_text,
@@ -739,7 +763,7 @@ class ExternalScraper:
             json_chunks_fb)
         if para_tuples:
             full_text, content_html = self._kakao_build_output(
-                para_tuples)
+                para_tuples, chapter_name)
             return {
                 'chapterName': chapter_name,
                 'contentText': full_text,
@@ -820,16 +844,18 @@ class ExternalScraper:
         return '\n'.join(text_parts), '\n'.join(html_parts)
 
     @staticmethod
-    def _kakao_build_output(para_tuples):
+    def _kakao_build_output(para_tuples, chapter_title=None):
         """Convert parsed Kakao paragraph tuples to full text and HTML."""
         from html import escape as _esc
 
-        def _attrs_to_html(attrs, style):
+        def _attrs_to_html(attrs, style, extra_class=''):
             attrs = attrs or {}
             style = style or {}
             parts = []
 
             cls = attrs.get('class') or attrs.get('className') or ''
+            if extra_class:
+                cls = f'{cls} {extra_class}'.strip()
             if cls:
                 parts.append(f' class="{_esc(str(cls), quote=True)}"')
 
@@ -885,18 +911,54 @@ class ExternalScraper:
                 return 'h3'
             return 'p'
 
+        def _append_page_break(parts):
+            if parts and parts[-1] != '<div class="kakao-page-break">&#160;</div>':
+                parts.append('<div class="kakao-page-break">&#160;</div>')
+
         text_parts = []
         html_parts = []
+        previous_chunk = None
+        first_heading_seen = False
+        pending_heading_break = False
+        inserted_heading_break = False
         for item in para_tuples:
             plain, html_frag, p_type = item[0], item[1], item[2]
             p_style = item[3] if len(item) > 3 else {}
             p_attrs = item[4] if len(item) > 4 else {}
+            p_meta = item[5] if len(item) > 5 else {}
             if not plain.strip() and '<br' not in html_frag.lower():
                 continue
-            text_parts.append(plain)
             tag = _tag_for(p_type)
-            attr_html = _attrs_to_html(p_attrs, p_style)
+
+            chunk_index = p_meta.get('chunkIndex') if p_meta else None
+            if (previous_chunk is not None and chunk_index is not None
+                    and chunk_index != previous_chunk):
+                _append_page_break(html_parts)
+
+            is_blank = not plain.strip() and '<br' in html_frag.lower()
+            is_heading = tag in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+            if (pending_heading_break and not inserted_heading_break
+                    and not is_blank and not is_heading):
+                _append_page_break(html_parts)
+                inserted_heading_break = True
+                pending_heading_break = False
+
+            text_plain = plain
+            extra_class = ''
+            if is_heading and not first_heading_seen:
+                first_heading_seen = True
+                pending_heading_break = True
+                extra_class = 'kakao-source-heading'
+                if chapter_title:
+                    text_plain = chapter_title
+                    html_frag = _esc(chapter_title)
+
+            text_parts.append(text_plain)
+            attr_html = _attrs_to_html(p_attrs, p_style, extra_class)
             html_parts.append(f'<{tag}{attr_html}>{html_frag}</{tag}>')
+
+            if chunk_index is not None:
+                previous_chunk = chunk_index
         return '\n'.join(text_parts), '\n'.join(html_parts)
 
     @staticmethod
@@ -1018,9 +1080,16 @@ class ExternalScraper:
                 css_parts.append(f'text-align:{align.lower()}')
 
             # Line-through / strikethrough via CSS
+            decoration = str(
+                style.get('textDecoration') or style.get('text-decoration')
+                or style.get('textDecorationLine')
+                or style.get('text-decoration-line') or ''
+            ).lower()
             line_through = (style.get('lineThrough')
+                            or style.get('line-through')
                             or style.get('strikethrough')
-                            or style.get('strike'))
+                            or style.get('strike')
+                            or 'line-through' in decoration)
             if line_through:
                 css_parts.append('text-decoration:line-through')
 
@@ -1077,7 +1146,10 @@ class ExternalScraper:
             # Leaf node with text
             if text and not children:
                 h = _safe_escape(text)
-                return _wrap_with_style(h, style, None if is_root else attrs)
+                h = _wrap_with_style(h, style, None if is_root else attrs)
+                if n_type in {'S', 'STRIKE', 'DEL'}:
+                    h = f'<s>{h}</s>'
+                return h
 
             # Parent node: collect children
             parts = []
@@ -1090,7 +1162,10 @@ class ExternalScraper:
             result = ''.join(parts)
 
             # Apply style to the whole group
-            return _wrap_with_style(result, style, None if is_root else attrs)
+            result = _wrap_with_style(result, style, None if is_root else attrs)
+            if n_type in {'S', 'STRIKE', 'DEL'}:
+                result = f'<s>{result}</s>'
+            return result
 
         def _collect_text(node):
             """Recursively collect plain text."""
@@ -1154,7 +1229,11 @@ class ExternalScraper:
         # contentId=0 resources (cover, then body), so contentId alone can
         # interleave unrelated pages.
         all_paras.sort(key=lambda x: (x[0], x[1], x[2]))
-        return ([(p[3], p[4], p[5], p[6], p[7]) for p in all_paras],
+        return ([
+                    (p[3], p[4], p[5], p[6], p[7],
+                     {'chunkIndex': p[0], 'contentId': p[1], 'paragraphId': p[2]})
+                    for p in all_paras
+                ],
                 '\n\n'.join(css_parts))
 
     def _kakao_extract_from_shadow(self, target):

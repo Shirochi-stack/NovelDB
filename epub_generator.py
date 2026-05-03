@@ -22,7 +22,8 @@ class EpubGenerator:
         self._normal_index = 1
         self._notice_index = 1
 
-    def add_chapter(self, title, html_content, is_notice: bool = False):
+    def add_chapter(self, title, html_content, is_notice: bool = False,
+                    show_title: bool = True):
         """Add a chapter to the book.
 
         Normal chapters are named chapter0001.xhtml, chapter0002.xhtml, ...
@@ -34,7 +35,12 @@ class EpubGenerator:
         else:
             filename = f"chapter{self._normal_index:04d}.xhtml"
             self._normal_index += 1
-        self.chapters.append({"title": title, "content": html_content, "filename": filename})
+        self.chapters.append({
+            "title": title,
+            "content": html_content,
+            "filename": filename,
+            "show_title": show_title,
+        })
 
     def add_image(self, filename, data):
         self.images.append({"filename": filename, "data": data})
@@ -195,11 +201,15 @@ class EpubGenerator:
 
             # 6. Chapters
             for idx, chap in enumerate(self.chapters):
+                title_html = (
+                    f"<h1>{html.escape(chap['title'])}</h1>"
+                    if chap.get('show_title', True) else ''
+                )
                 xhtml = f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>{html.escape(chap['title'])}</title><link href="../Styles/style.css" type="text/css" rel="stylesheet"/></head>
-<body><h1>{html.escape(chap['title'])}</h1>{chap['content']}</body></html>"""
+<body>{title_html}{chap['content']}</body></html>"""
                 zf.writestr(f"OEBPS/Text/{chap['filename']}", xhtml, compress_type=zipfile.ZIP_DEFLATED)
                 
             # 6. Images (use ZIP_STORED by default, ZIP_DEFLATED if user enables it)

@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo  KakaoPage Rescrape
+echo  A Certain site Rescrape
 echo ============================================
 echo.
 echo  Requires: Korean VPN active

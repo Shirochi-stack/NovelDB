@@ -868,9 +868,23 @@ body {
   background-color: #fff;
   color: #000;
 }
-body > h1:first-child,
 .chapter > h1:first-child {
   display: none;
+}
+.kakao-source-heading {
+  margin-top: 4vh !important;
+  margin-bottom: 3vh !important;
+  text-align: center !important;
+}
+.kakao-page-break {
+  display: block;
+  height: 0;
+  line-height: 0;
+  font-size: 0;
+  margin: 0;
+  padding: 0;
+  page-break-after: always;
+  break-after: page;
 }
 """.strip()]
         seen = set()
@@ -933,6 +947,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             css = f"{css}\n\n/* KakaoPage original viewer CSS */\n{kakao_css}\n"
 
         data = self._book_data
+        is_kakao = bool(data.get('_kakaopage'))
         cover_url = data.get('coverUrl', '')
 
         metadata = {
@@ -1075,7 +1090,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                     content_html, rename_map
                 )
 
-                epub.add_chapter(ch_name, content_html)
+                epub.add_chapter(
+                    ch_name, content_html, show_title=not is_kakao
+                )
 
             # Fallback: if no cover was found, use the first chapter
             # image larger than 400px as the cover.
