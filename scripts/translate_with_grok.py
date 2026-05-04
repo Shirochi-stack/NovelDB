@@ -22,7 +22,7 @@ Usage:
 """
 
 import os, sys, json, time, argparse, requests, threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -106,6 +106,38 @@ def parse_response(text, original_rows):
             translations[nid] = parts[2].strip()
 
     return translations
+
+
+def write_translations(input_file, translations):
+    """Persist known translations into the source patch file atomically."""
+    if not translations:
+        return
+
+    output_lines = []
+    with open(input_file, "r", encoding="utf-8") as f:
+        for line in f:
+            s = line.rstrip("\r\n")
+            newline = "\n" if line.endswith("\n") else ""
+            if not s:
+                output_lines.append(s + newline)
+                continue
+            parts = s.split("|||")
+            nid = parts[0].strip()
+            if len(parts) >= 3 and parts[2].strip():
+                output_lines.append(s + newline)
+                continue
+            if nid in translations:
+                original = parts[1] if len(parts) >= 2 else ""
+                output_lines.append(
+                    f"{nid}|||{original}|||{translations[nid]}\n"
+                )
+            else:
+                output_lines.append(s + newline)
+
+    tmp_file = f"{input_file}.tmp"
+    with open(tmp_file, "w", encoding="utf-8") as f:
+        f.writelines(output_lines)
+    os.replace(tmp_file, input_file)
 
 
 FORMAT_RULES = """Format rules:
@@ -433,53 +465,71 @@ def main():
     )
     print(f"Parallel mode: {args.workers} workers, {args.delay}s stagger delay")
 
-    # Translate in parallel
+    # Translate in parallel and checkpoint as chunks finish.
     all_translations = {}
     total_expected = 0
     failed = []
+    completed_chunks = 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {}
-        for i, chunk in enumerate(chunks):
-            if i > 0:
-                time.sleep(args.delay)
-            fut = pool.submit(process_chunk, i, chunk, len(chunks),
-                              args.lang, args.content_type, api_key, model,
-                              api_url, output_token_limit)
-            futures[fut] = i
+        next_chunk = 0
+        next_submit_at = 0.0
 
-        for fut in as_completed(futures):
-            idx, translations, size = fut.result()
-            all_translations.update(translations)
-            total_expected += size
-            if not translations:
-                failed.append(idx + 1)
+        while next_chunk < len(chunks) or futures:
+            now = time.monotonic()
+            while (
+                next_chunk < len(chunks)
+                and len(futures) < args.workers
+                and now >= next_submit_at
+            ):
+                fut = pool.submit(
+                    process_chunk, next_chunk, chunks[next_chunk], len(chunks),
+                    args.lang, args.content_type, api_key, model,
+                    api_url, output_token_limit
+                )
+                futures[fut] = next_chunk
+                next_chunk += 1
+                next_submit_at = time.monotonic() + max(0.0, args.delay)
+                now = time.monotonic()
+
+            if not futures:
+                sleep_for = max(0.0, next_submit_at - time.monotonic())
+                if sleep_for:
+                    time.sleep(sleep_for)
+                continue
+
+            timeout = None
+            if next_chunk < len(chunks) and len(futures) < args.workers:
+                timeout = max(0.0, next_submit_at - time.monotonic())
+
+            done, _ = wait(
+                futures, timeout=timeout, return_when=FIRST_COMPLETED
+            )
+            if not done:
+                continue
+
+            for fut in done:
+                futures.pop(fut, None)
+                idx, translations, size = fut.result()
+                completed_chunks += 1
+                all_translations.update(translations)
+                total_expected += size
+                if translations:
+                    write_translations(args.input_file, translations)
+                    _tprint(
+                        f"  Checkpointed chunk {idx+1}/{len(chunks)} "
+                        f"({completed_chunks}/{len(chunks)} complete)"
+                    )
+                else:
+                    failed.append(idx + 1)
 
     print(f"\nTotal translations: {len(all_translations)} / {total_expected}")
     if failed:
         print(f"Failed chunks: {sorted(failed)}")
 
-    # Write results back
-    output_lines = []
-    with open(args.input_file, "r", encoding="utf-8") as f:
-        for line in f:
-            s = line.rstrip("\r\n")
-            if not s:
-                output_lines.append(s + "\n")
-                continue
-            parts = s.split("|||")
-            nid = parts[0].strip()
-            if len(parts) >= 3 and parts[2].strip():
-                output_lines.append(s + "\n")
-                continue
-            if nid in all_translations:
-                original = parts[1] if len(parts) >= 2 else ""
-                output_lines.append(f"{nid}|||{original}|||{all_translations[nid]}\n")
-            else:
-                output_lines.append(s + "\n")
-
-    with open(args.input_file, "w", encoding="utf-8") as f:
-        f.writelines(output_lines)
+    # Final write is still useful if multiple translations arrived together.
+    write_translations(args.input_file, all_translations)
 
     print(f"Updated {args.input_file}")
 
