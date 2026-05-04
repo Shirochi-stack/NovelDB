@@ -292,9 +292,9 @@ def call_api(prompt, api_key, model, api_url, content_type="titles",
     if output_token_limit:
         payload["max_tokens"] = output_token_limit
 
-    # (connect_timeout=30s, read_timeout=300s)
+    # (connect_timeout=30s, read_timeout=900s)
     resp = requests.post(api_url, headers=headers, json=payload,
-                         timeout=(30, 300))
+                         timeout=(30, 900))
     resp.raise_for_status()
 
     data = resp.json()
