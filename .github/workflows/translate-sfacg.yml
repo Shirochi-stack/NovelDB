@@ -46,7 +46,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sfacg-data
+  group: data-write-lock
   cancel-in-progress: false
 
 jobs:
