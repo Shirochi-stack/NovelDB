@@ -5531,6 +5531,56 @@
 
     function tl(tag) { return TAG_MAP[tag] || tag; }
 
+    const TAG_KEY_CACHE = new Map();
+    function normalizeTagText(value) {
+        return String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/['’]/g, "")
+            .replace(/[^a-z0-9\u3131-\uD79D\u4E00-\u9FFF]+/g, "");
+    }
+
+    function baseTagGroup(tag) {
+        const raw = String(tag || "").trim().toLowerCase();
+        const label = normalizeTagText(tl(tag));
+        if (raw === "하렘" || raw === "后宫" || raw === "гарем" || label === "harem") {
+            return "group:harem";
+        }
+        if (
+            raw === "백합" || raw === "百合" || raw === "橘味" || raw === "gl" ||
+            label === "yurigl" || label === "glyuri" || label === "girlslove"
+        ) {
+            return "group:yuri-gl";
+        }
+        return "";
+    }
+
+    function tagMatchKeys(tag) {
+        const cacheKey = String(tag || "");
+        if (TAG_KEY_CACHE.has(cacheKey)) return TAG_KEY_CACHE.get(cacheKey);
+        const raw = normalizeTagText(cacheKey);
+        const keys = [`raw:${raw}`, `label:${normalizeTagText(tl(tag))}`];
+        const group = baseTagGroup(tag);
+        if (group) keys.push(group);
+        TAG_KEY_CACHE.set(cacheKey, keys);
+        return keys;
+    }
+
+    function makeNovelTagKeys(tags) {
+        const keys = new Set();
+        for (const tag of tags || []) {
+            for (const key of tagMatchKeys(tag)) keys.add(key);
+        }
+        return keys;
+    }
+
+    function novelMatchesTag(novelTagKeys, selectedTag) {
+        for (const key of tagMatchKeys(selectedTag)) {
+            if (novelTagKeys.has(key)) return true;
+        }
+        return false;
+    }
+
     // === State ===
     let allNovels = [];
     let titleTranslations = {};  // id -> english title
@@ -5806,18 +5856,18 @@
             const hasAndTags = andTags.size > 0;
             const hasOrTags = orTags.size > 0;
             if (hasAndTags || hasOrTags) {
-                const novelTags = new Set(n.tags);
+                const novelTags = n._tagKeys || makeNovelTagKeys(n.tags);
                 // All AND tags must match
                 if (hasAndTags) {
                     for (const t of andTags) {
-                        if (!novelTags.has(t)) return false;
+                        if (!novelMatchesTag(novelTags, t)) return false;
                     }
                 }
                 // At least one OR tag must match (if any OR tags selected)
                 if (hasOrTags) {
                     let match = false;
                     for (const t of orTags) {
-                        if (novelTags.has(t)) { match = true; break; }
+                        if (novelMatchesTag(novelTags, t)) { match = true; break; }
                     }
                     if (!match) return false;
                 }
@@ -5825,8 +5875,9 @@
 
             // Tag filter (exclude)
             if (excludeTags.size > 0) {
+                const novelTags = n._tagKeys || makeNovelTagKeys(n.tags);
                 for (const t of excludeTags) {
-                    if (n.tags.includes(t)) return false;
+                    if (novelMatchesTag(novelTags, t)) return false;
                 }
             }
 
@@ -6448,6 +6499,7 @@
         return raw.map((r) => {
             let tags = r[4];
             if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
+            const tagKeys = makeNovelTagKeys(tags);
             if (sfacg) {
                 // SFACG: index 10=age, 11-14=ranks, 15=synopsis
                 return {
@@ -6474,6 +6526,7 @@
                     synopsis: r[17] ? String(r[17]).replace(/\\n/g, "\n") : "",
                     titleEn: "",
                     source: sourceName,
+                    _tagKeys: tagKeys,
                 };
             }
             // Novelpia / Kakao: index 10=weeklyRank, 11=age, 12+=more ranks
@@ -6502,6 +6555,7 @@
                 synopsis: "",
                 titleEn: "",
                 source: sourceName,
+                _tagKeys: tagKeys,
             };
         });
     }
