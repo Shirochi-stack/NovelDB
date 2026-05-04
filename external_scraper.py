@@ -19,6 +19,8 @@ import html
 import os
 import re
 import shutil
+import socket
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -130,8 +132,10 @@ class ExternalScraper:
             self._bridge_js = None
 
         self._playwright = None
+        self._browser = None
         self._context = None      # BrowserContext (persistent)
         self._page = None
+        self._chrome_process = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
@@ -174,6 +178,96 @@ class ExternalScraper:
     @classmethod
     def _get_storage_state_path(cls):
         return os.path.join(cls._get_user_data_dir(), 'nd_storage_state.json')
+
+    @classmethod
+    def _get_ntk_user_data_dir(cls):
+        """Dedicated Chrome profile for NewToki Cloudflare/CDP sessions."""
+        path = os.path.join(_get_app_data_dir(), 'ntk_chrome_profile')
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    @staticmethod
+    def _find_chrome_executable():
+        """Find an installed Chrome/Edge executable for anti-bot login pages."""
+        env_path = os.environ.get("NPIA_CHROME_PATH")
+        candidates = [env_path] if env_path else []
+        if sys.platform == "win32":
+            program_files = [
+                os.environ.get("PROGRAMFILES"),
+                os.environ.get("PROGRAMFILES(X86)"),
+                os.environ.get("LOCALAPPDATA"),
+            ]
+            for root in filter(None, program_files):
+                candidates.extend([
+                    os.path.join(root, "Google", "Chrome", "Application",
+                                 "chrome.exe"),
+                    os.path.join(root, "Microsoft", "Edge", "Application",
+                                 "msedge.exe"),
+                ])
+        elif sys.platform == "darwin":
+            candidates.extend([
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            ])
+        else:
+            candidates.extend([
+                shutil.which("google-chrome"),
+                shutil.which("google-chrome-stable"),
+                shutil.which("chromium"),
+                shutil.which("chromium-browser"),
+                shutil.which("microsoft-edge"),
+            ])
+
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+        return None
+
+    @staticmethod
+    def _get_free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    @staticmethod
+    def _wait_for_cdp(port, timeout=15):
+        deadline = time.time() + timeout
+        url = f"http://127.0.0.1:{port}/json/version"
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(url, timeout=1) as r:
+                    if r.status == 200:
+                        return True
+            except Exception:
+                time.sleep(0.25)
+        return False
+
+    def _open_system_chrome(self, start_url, remote_debugging=False,
+                            user_data_dir=None):
+        """Open installed Chrome as a normal process using our profile."""
+        chrome_path = self._find_chrome_executable()
+        if not chrome_path:
+            return None, None
+
+        user_data_dir = user_data_dir or self._get_user_data_dir()
+        os.makedirs(user_data_dir, exist_ok=True)
+        args = [
+            chrome_path,
+            f"--user-data-dir={user_data_dir}",
+            "--no-first-run",
+            "--disable-background-mode",
+            "--disable-features=Translate",
+            "--new-window",
+            start_url or "about:blank",
+        ]
+        port = None
+        if remote_debugging:
+            port = self._get_free_port()
+            args.insert(2, f"--remote-debugging-port={port}")
+            args.insert(3, "--remote-allow-origins=*")
+
+        proc = subprocess.Popen(args)
+        return proc, port
 
     def _backup_storage_state(self):
         """Persist cookies/localStorage as an extra guard against profile loss."""
@@ -270,6 +364,73 @@ class ExternalScraper:
         self._page.on("console", self._on_console)
         self.log("Browser ready.")
 
+    def _start_ntk_browser(self, start_url):
+        """Launch normal visible Chrome and attach over CDP for NewToki."""
+        if self._context and self._page:
+            try:
+                self._page.evaluate("1")
+                return True
+            except Exception:
+                self.cleanup()
+
+        self.cleanup()
+        self.log("Launching normal Chrome for NewToki...")
+        user_data_dir = self._get_ntk_user_data_dir()
+        self.log(f"Browser profile: {user_data_dir}")
+        proc, port = self._open_system_chrome(
+            start_url,
+            remote_debugging=True,
+            user_data_dir=user_data_dir,
+        )
+        if not proc or not port:
+            self.log(
+                "ERROR: Installed Chrome/Edge was not found. NewToki's "
+                "Cloudflare challenge usually will not pass in bundled "
+                "headless Chromium."
+            )
+            return False
+
+        self._chrome_process = proc
+        if not self._wait_for_cdp(port):
+            exit_code = proc.poll()
+            if exit_code is not None:
+                self.log(
+                    "ERROR: Chrome exited before remote debugging started "
+                    f"(exit code {exit_code})."
+                )
+            else:
+                self.log(
+                    "ERROR: Chrome remote debugging endpoint did not start."
+                )
+            self.log(
+                "Close any NewToki Chrome windows opened by the app and try "
+                "again. The scraper now uses a dedicated ntk profile to avoid "
+                "Chrome profile locking."
+            )
+            return False
+
+        self._playwright = sync_playwright().start()
+        try:
+            self._browser = self._playwright.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{port}"
+            )
+            self._context = (
+                self._browser.contexts[0]
+                if self._browser.contexts
+                else self._browser.new_context()
+            )
+            pages = self._context.pages
+            self._page = pages[0] if pages else self._context.new_page()
+            self._page.on("console", self._on_console)
+            self.log(
+                "Normal Chrome attached. If a verification page appears, "
+                "complete it in the visible window."
+            )
+            return True
+        except Exception as e:
+            self.log(f"ERROR: Could not attach to Chrome: {e}")
+            return False
+
     def open_visible_browser(self, start_url="about:blank"):
         """Open a visible browser for manual login.
 
@@ -279,9 +440,38 @@ class ExternalScraper:
         # Must close any existing context first (only one per data dir)
         self.cleanup()
 
-        user_data_dir = self._get_user_data_dir()
+        if self.is_ntk_novel(start_url):
+            user_data_dir = self._get_ntk_user_data_dir()
+        else:
+            user_data_dir = self._get_user_data_dir()
         self.log("Opening browser for login...")
         self.log(f"Browser profile: {user_data_dir}")
+        if self.is_ntk_novel(start_url):
+            proc, _ = self._open_system_chrome(
+                start_url,
+                remote_debugging=False,
+                user_data_dir=user_data_dir,
+            )
+            if proc:
+                self.log(
+                    "Using normal installed Chrome for NewToki Cloudflare "
+                    "verification."
+                )
+                self.log(
+                    "Browser opened. Complete the check, confirm the novel "
+                    "page loads, then close this Chrome window."
+                )
+                try:
+                    proc.wait()
+                except Exception:
+                    pass
+                self.log("Browser closed. Session data saved.")
+                return
+            self.log(
+                "Normal Chrome was not found; falling back to Playwright "
+                "browser."
+            )
+
         self._playwright = sync_playwright().start()
         try:
             self._context = self._playwright.chromium.launch_persistent_context(
@@ -393,11 +583,27 @@ class ExternalScraper:
         except Exception:
             pass
         try:
+            if self._browser:
+                self._browser.close()
+                self._browser = None
+        except Exception:
+            self._browser = None
+        try:
             if self._playwright:
                 self._playwright.stop()
                 self._playwright = None
         except Exception:
             pass
+        try:
+            if self._chrome_process and self._chrome_process.poll() is None:
+                self._chrome_process.terminate()
+                try:
+                    self._chrome_process.wait(timeout=5)
+                except Exception:
+                    self._chrome_process.kill()
+            self._chrome_process = None
+        except Exception:
+            self._chrome_process = None
 
     # ------------------------------------------------------------------
     # Multi-page support for parallel chapter downloads
@@ -484,6 +690,9 @@ class ExternalScraper:
             try:
                 self._page.goto(self._book_url,
                                 wait_until="domcontentloaded", timeout=30000)
+                if self._book_data and self._book_data.get('_ntk_novel'):
+                    self.log("Page recovered for NewToki scraper.")
+                    return True
                 self._page.evaluate(self._gm_stubs_js)
                 self._page.evaluate(self._rules_js)
                 self._page.evaluate(self._bridge_js)
@@ -507,6 +716,353 @@ class ExternalScraper:
         return bool(url and re.match(
             r'https?://page\.kakao\.com/content/\d+', url
         ))
+
+    @staticmethod
+    def is_ntk_novel(url):
+        """Check if the URL is a NewToki/ntk novel page."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.netloc or '').lower()
+        return bool(
+            re.fullmatch(r'(?:www\.)?ntk\d+\.com', host)
+            and re.match(r'^/novel/\d+(?:/\d+)?/?$', parsed.path or '')
+        )
+
+    def _ntk_is_challenge_page(self, page):
+        """Detect Cloudflare's interstitial so users get a useful message."""
+        try:
+            title = (page.title() or '').strip().lower()
+            if 'just a moment' in title:
+                return True
+        except Exception:
+            pass
+        try:
+            text = page.locator('body').inner_text(timeout=3000).lower()
+            return (
+                'enable javascript and cookies to continue' in text
+                or 'checking your browser' in text
+                or 'cf-challenge' in text
+            )
+        except Exception:
+            return False
+
+    def _ntk_wait_for_access(self, page, timeout=180):
+        """Wait for the visible Chrome window to clear Cloudflare."""
+        if not self._ntk_is_challenge_page(page):
+            return True
+        self.log(
+            "[NewToki] Waiting for Cloudflare verification in the visible "
+            "Chrome window..."
+        )
+        deadline = time.time() + timeout
+        while time.time() < deadline and not self._stop_requested:
+            if not self._ntk_is_challenge_page(page):
+                self.log("[NewToki] Verification cleared.")
+                return True
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                time.sleep(1)
+        return not self._ntk_is_challenge_page(page)
+
+    def _ntk_parse_book(self, url):
+        """Scrape ntk novel metadata and episode list from the DOM."""
+        if not self._start_ntk_browser(url):
+            return None
+
+        self._stop_requested = False
+        self.log("[NewToki] Detected ntk novel URL, using native scraper.")
+        self.log(f"Navigating to: {url}")
+        try:
+            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            self._page.wait_for_timeout(1500)
+        except Exception as e:
+            self.log(f"ERROR: [NewToki] Page load failed: {e}")
+            return None
+
+        if not self._ntk_wait_for_access(self._page):
+            self.log(
+                "ERROR: [NewToki] Cloudflare verification did not clear. "
+                "Try the URL in your normal browser, or wait and retry; the "
+                "site is rejecting automated access from this profile."
+            )
+            return None
+
+        try:
+            data = self._page.evaluate(r"""
+(() => {
+  const abs = (href) => {
+    try { return new URL(href, location.href).href; } catch (e) { return ''; }
+  };
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const pathMatch = location.pathname.match(/^\/novel\/(\d+)/);
+  const bookId = pathMatch ? pathMatch[1] : '';
+
+  const meta = (name) => {
+    const el = document.querySelector(
+      `meta[property="${name}"], meta[name="${name}"]`
+    );
+    return el ? clean(el.getAttribute('content')) : '';
+  };
+
+  const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
+  }[c]));
+
+  const h1 = document.querySelector('h1');
+  let title = clean(h1 && h1.innerText) || meta('og:title') ||
+    clean(document.title).replace(/\s*[|-]\s*뉴토끼\s*$/i, '');
+
+  const coverEl = Array.from(document.images).find((img) => {
+    const alt = clean(img.alt);
+    const src = img.currentSrc || img.src || '';
+    return src && (!title || alt === title || alt.includes(title) ||
+      /cover|thumb|poster|novel/i.test(src + ' ' + img.className));
+  }) || document.querySelector('meta[property="og:image"]');
+  let cover = '';
+  if (coverEl) {
+    cover = coverEl.tagName === 'META'
+      ? abs(coverEl.getAttribute('content'))
+      : abs(coverEl.currentSrc || coverEl.src);
+  }
+
+  const shortTexts = Array.from(document.querySelectorAll('main *, article *, body *'))
+    .map((el) => clean(el.innerText || el.textContent))
+    .filter((t, i, arr) => t && t.length < 220 && arr.indexOf(t) === i);
+
+  const infoLine = shortTexts.find((t) =>
+    t.includes('·') && /\d+\s*화/.test(t) && t.length < 220
+  ) || '';
+  let author = '';
+  let tags = [];
+  if (infoLine) {
+    const parts = infoLine.split('·').map(clean).filter(Boolean);
+    author = parts[0] || '';
+    if (parts.length > 1) {
+      tags = parts.slice(1, -1)
+        .join(',')
+        .split(',')
+        .map(clean)
+        .filter((t) => t && !/\d+\s*화/.test(t));
+    }
+  }
+
+  const introNode = Array.from(
+    document.querySelectorAll('main p, article p, main div, article div')
+  ).map((el) => ({ el, text: clean(el.innerText || el.textContent) }))
+    .filter(({ text }) =>
+      text.length >= 40 &&
+      !text.includes('에피소드') &&
+      !text.includes('1화부터 보기') &&
+      !text.includes('최신화부터') &&
+      (text.match(/화/g) || []).length < 4
+    )
+    .sort((a, b) => b.text.length - a.text.length)[0];
+  const intro = introNode ? introNode.text : meta('description');
+
+  const seen = new Set();
+  const chapters = [];
+  const rx = new RegExp(`^/novel/${bookId}/\\d+/?$`);
+  for (const a of Array.from(document.querySelectorAll('a[href]'))) {
+    const href = abs(a.getAttribute('href'));
+    if (!href) continue;
+    let parsed;
+    try { parsed = new URL(href); } catch (e) { continue; }
+    if (!rx.test(parsed.pathname) || seen.has(parsed.href)) continue;
+    seen.add(parsed.href);
+
+    let text = clean(a.innerText || a.textContent);
+    text = text
+      .replace(/▶\s*보기/g, '')
+      .replace(/[›»]+/g, '')
+      .replace(/\bNEW\b/gi, '')
+      .replace(/\d{2}\.?\s*\d{2}\.?\s*\d{2}\.?\s*$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text) text = `Chapter ${chapters.length + 1}`;
+    const m = text.match(/(\d+)\s*화/);
+    const number = m ? Number(m[1]) : chapters.length + 1;
+    chapters.push({
+      url: parsed.href,
+      name: text,
+      fullName: text,
+      number,
+      isVIP: false,
+      isPaid: false
+    });
+  }
+
+  chapters.sort((a, b) => {
+    const an = a.number || 0;
+    const bn = b.number || 0;
+    if (an && bn && an !== bn) return an - bn;
+    return a.url.localeCompare(b.url, undefined, { numeric: true });
+  });
+
+  return {
+    bookUrl: location.href,
+    bookname: title,
+    author,
+    coverUrl: cover,
+    introduction: intro || '',
+    introductionHTML: intro ? `<p>${escapeHtml(intro)}</p>` : '',
+    language: 'ko',
+    tags,
+    chapterCount: chapters.length,
+    chapters
+  };
+})()
+            """)
+        except Exception as e:
+            self.log(f"ERROR: [NewToki] Book parse failed: {e}")
+            return None
+
+        chapters = data.get('chapters') or []
+        if not chapters:
+            self.log("ERROR: [NewToki] No episode links found on page.")
+            return None
+
+        data['_ntk_novel'] = True
+        self._book_data = data
+        self._book_url = url
+        self.log(
+            f"[NewToki] Book: {data.get('bookname', '?')} by "
+            f"{data.get('author', '?')} - {len(chapters)} chapters"
+        )
+        return data
+
+    def _ntk_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Scrape one ntk novel reader page into text and HTML."""
+        target = page or self._page
+        if target is None:
+            if not self._ensure_page():
+                return None
+            target = self._page
+
+        try:
+            target.goto(chapter_url, wait_until="domcontentloaded",
+                        timeout=30000)
+            target.wait_for_timeout(1000)
+        except Exception as e:
+            self.log(f"  [NewToki] Page load failed: {e}")
+            return None
+
+        if not self._ntk_wait_for_access(target):
+            self.log(
+                "  [NewToki] Cloudflare verification did not clear."
+            )
+            return None
+
+        try:
+            data = target.evaluate(r"""
+(fallbackName) => {
+  const clean = (s) => (s || '').replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
+  }[c]));
+  const titleText = clean(
+    (document.querySelector('h1, h2') || {}).innerText ||
+    document.title.replace(/\s*[|-]\s*뉴토끼\s*$/i, '')
+  ) || fallbackName || 'Chapter';
+
+  const selectors = [
+    'article', 'main article', 'main',
+    '.novel-content', '.episode-content', '.view-content',
+    '.viewer', '.reader', '.content', '#content',
+    '.wr_content', '#bo_v_con', '.board-view'
+  ];
+  const candidates = [];
+  for (const sel of selectors) {
+    for (const el of Array.from(document.querySelectorAll(sel))) {
+      const text = clean(el.innerText || el.textContent);
+      if (text.length < 120) continue;
+      const linkText = Array.from(el.querySelectorAll('a'))
+        .map((a) => clean(a.innerText || a.textContent)).join(' ');
+      const navHits = (text.match(/이전화|다음화|목록|즐겨찾기|댓글|추천/g) || []).length;
+      const score = text.length - linkText.length * 1.5 - navHits * 250;
+      candidates.push({ el, text, score });
+    }
+  }
+  if (!candidates.length) {
+    const text = clean(document.body && document.body.innerText);
+    candidates.push({ el: document.body, text, score: text.length - 1000 });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+
+  const clone = candidates[0].el.cloneNode(true);
+  const junk = [
+    'script', 'style', 'noscript', 'iframe', 'form', 'button', 'input',
+    'select', 'textarea', 'nav', 'header', 'footer', 'aside',
+    '[class*="comment" i]', '[id*="comment" i]', '[class*="reply" i]',
+    '[id*="reply" i]', '[class*="episode" i]', '[id*="episode" i]',
+    '[class*="list" i]', '[id*="list" i]', '[class*="breadcrumb" i]',
+    '[class*="paging" i]', '[class*="pagination" i]',
+    '[class*="recommend" i]', '[class*="share" i]',
+    '[class*="ads" i]', '[class*="ad-" i]', '[id*="ads" i]',
+    '[class*="nav" i]', '[id*="nav" i]'
+  ].join(',');
+  clone.querySelectorAll(junk).forEach((el) => el.remove());
+
+  clone.querySelectorAll('a').forEach((a) => {
+    const t = clean(a.innerText || a.textContent);
+    if (/^(이전화|다음화|목록|즐겨찾기|최신화|첫화)/.test(t)) {
+      const parent = a.parentElement;
+      a.remove();
+      if (parent && clean(parent.innerText).length < 20) parent.remove();
+    }
+  });
+  clone.querySelectorAll('h1,h2').forEach((h) => {
+    const t = clean(h.innerText || h.textContent);
+    if (t === titleText || titleText.includes(t)) h.remove();
+  });
+
+  let rawLines = Array.from(clone.querySelectorAll('p'))
+    .map((p) => clean(p.innerText || p.textContent))
+    .filter(Boolean);
+  if (!rawLines.length) {
+    rawLines = clean(clone.innerText || clone.textContent)
+      .split(/\n+/)
+      .map(clean);
+  }
+  const lines = rawLines
+    .filter((line) =>
+      line &&
+      line !== titleText &&
+      !/^(이전화|다음화|목록|즐겨찾기|추천|댓글)$/.test(line) &&
+      !/^\d+\s*화\s*$/.test(line)
+    );
+
+  const text = lines.join('\n\n').trim();
+  const parts = [];
+  for (const img of Array.from(clone.querySelectorAll('img[src], img[data-src]'))) {
+    const src = img.currentSrc || img.src || img.getAttribute('data-src');
+    if (src) {
+      parts.push(`<p><img src="${escapeHtml(new URL(src, location.href).href)}" alt="${escapeHtml(img.alt || titleText)}"/></p>`);
+    }
+  }
+  if (lines.length) {
+    parts.push(...lines.map((line) => `<p>${escapeHtml(line)}</p>`));
+  }
+
+  return {
+    chapterName: titleText,
+    sourceChapterName: fallbackName || titleText,
+    contentText: text,
+    contentHtml: parts.join('\n')
+  };
+}
+            """, chapter_name)
+        except Exception as e:
+            self.log(f"  [NewToki] Chapter parse failed: {e}")
+            return None
+
+        if not data or not (data.get('contentText') or data.get('contentHtml')):
+            self.log(f"  [NewToki] Empty chapter content: {chapter_name}")
+            return None
+        return data
 
     def _kakao_parse_book(self, url):
         """Scrape book metadata + episode list from a KakaoPage content page.
@@ -1657,6 +2213,8 @@ class ExternalScraper:
         if self.is_kakaopage(url):
             self.log("[KakaoPage] Detected KakaoPage URL, using native scraper.")
             return self._kakao_parse_book(url)
+        if self.is_ntk_novel(url):
+            return self._ntk_parse_book(url)
 
         if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
             self.log(
@@ -1767,6 +2325,14 @@ class ExternalScraper:
             if interval > 0:
                 time.sleep(interval)
             return result
+        if self._book_data and self._book_data.get('_ntk_novel'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            target_page = page or self._page
+            result = self._ntk_parse_chapter(url, name, page=target_page)
+            if interval > 0:
+                time.sleep(interval)
+            return result
 
         target_page = page or self._page
         if target_page is None:
@@ -1841,6 +2407,21 @@ class ExternalScraper:
                     results.append(None)
                     continue
                 data = self._kakao_parse_chapter(
+                    ch.get('url', ''),
+                    ch.get('fullName', '') or ch.get('name', ''),
+                    page=self._page
+                )
+                results.append(data)
+                if interval > 0 and i < len(batch_info) - 1:
+                    time.sleep(interval)
+            return results
+        if self._book_data and self._book_data.get('_ntk_novel'):
+            results = []
+            for i, ch in enumerate(batch_info):
+                if self._stop_requested:
+                    results.append(None)
+                    continue
+                data = self._ntk_parse_chapter(
                     ch.get('url', ''),
                     ch.get('fullName', '') or ch.get('name', ''),
                     page=self._page
