@@ -431,7 +431,8 @@ class ExternalScraper:
             self.log(f"ERROR: Could not attach to Chrome: {e}")
             return False
 
-    def open_visible_browser(self, start_url="about:blank"):
+    def open_visible_browser(self, start_url="about:blank",
+                             regular_browser=False):
         """Open a visible browser for manual login.
 
         Cookies and localStorage are saved to the persistent data dir.
@@ -440,13 +441,14 @@ class ExternalScraper:
         # Must close any existing context first (only one per data dir)
         self.cleanup()
 
-        if self.is_ntk_novel(start_url):
+        use_regular = regular_browser or self.is_ntk_novel(start_url)
+        if use_regular and self.is_ntk_novel(start_url):
             user_data_dir = self._get_ntk_user_data_dir()
         else:
             user_data_dir = self._get_user_data_dir()
         self.log("Opening browser for login...")
         self.log(f"Browser profile: {user_data_dir}")
-        if self.is_ntk_novel(start_url):
+        if use_regular:
             proc, _ = self._open_system_chrome(
                 start_url,
                 remote_debugging=False,
@@ -454,12 +456,11 @@ class ExternalScraper:
             )
             if proc:
                 self.log(
-                    "Using normal installed Chrome for NewToki Cloudflare "
-                    "verification."
+                    "Using normal installed Chrome for browser session."
                 )
                 self.log(
-                    "Browser opened. Complete the check, confirm the novel "
-                    "page loads, then close this Chrome window."
+                    "Browser opened. Complete any login or verification, "
+                    "then close this Chrome window."
                 )
                 try:
                     proc.wait()

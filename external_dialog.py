@@ -221,6 +221,14 @@ class ExternalNovelDialog(tk.Toplevel):
                                         command=self._on_enter_browser)
         self._btn_browser.pack(side="left", padx=(0, 5), ipady=3)
 
+        self._var_regular_browser = tk.BooleanVar(value=False)
+        self._chk_regular_browser = ttk.Checkbutton(
+            btn_frame,
+            text="Regular browser",
+            variable=self._var_regular_browser,
+        )
+        self._chk_regular_browser.pack(side="left", padx=(0, 10))
+
         self._btn_paste_batch = ttk.Button(btn_frame, text="Paste Batch",
                                             command=self._on_paste_batch)
         self._btn_paste_batch.pack(side="left", padx=(0, 5), ipady=3)
@@ -332,7 +340,13 @@ class ExternalNovelDialog(tk.Toplevel):
             elif kind == "batch":
                 self._do_batch(payload)
             elif kind == "browser":
-                self._do_open_browser(payload)
+                if isinstance(payload, dict):
+                    self._do_open_browser(
+                        payload.get("url"),
+                        payload.get("regular", False),
+                    )
+                else:
+                    self._do_open_browser(payload)
 
     def _do_fetch(self, url):
         """Run parse_book on the worker thread."""
@@ -506,7 +520,7 @@ class ExternalNovelDialog(tk.Toplevel):
         except Exception as e:
             self._log(f"\u274c Download error: {e}")
 
-    def _do_open_browser(self, start_url=None):
+    def _do_open_browser(self, start_url=None, regular_browser=False):
         """Open a visible browser on the worker thread for manual login."""
         try:
             if self._scraper is None:
@@ -515,7 +529,10 @@ class ExternalNovelDialog(tk.Toplevel):
             # still point at a previously fetched book.
             start_url = (start_url or self._scraper._book_url
                          or 'https://www.google.com')
-            self._scraper.open_visible_browser(start_url=start_url)
+            self._scraper.open_visible_browser(
+                start_url=start_url,
+                regular_browser=regular_browser,
+            )
         except Exception as e:
             self._msg_queue.put(("error", f"Browser error: {e}"))
         finally:
@@ -535,14 +552,28 @@ class ExternalNovelDialog(tk.Toplevel):
 
         self._btn_download.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
+        self._chk_regular_browser.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
-        self._append_log("Opening browser for login... Close the browser when done.")
-        self._work_queue.put(("browser", start_url))
+        regular_browser = self._var_regular_browser.get()
+        if regular_browser:
+            self._append_log(
+                "Opening regular browser for login... Close the browser "
+                "when done."
+            )
+        else:
+            self._append_log(
+                "Opening browser for login... Close the browser when done."
+            )
+        self._work_queue.put(("browser", {
+            "url": start_url,
+            "regular": regular_browser,
+        }))
 
     def _on_browser_closed(self):
         """Re-enable buttons after the visible browser session ends."""
         self._btn_browser.configure(state="normal")
+        self._chk_regular_browser.configure(state="normal")
         self._btn_download.configure(state="normal")
         self._btn_paste_batch.configure(state="normal")
         self._btn_batch_file.configure(state="normal")
