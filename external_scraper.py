@@ -144,6 +144,7 @@ class ExternalScraper:
         self._context = None      # BrowserContext (persistent)
         self._page = None
         self._chrome_process = None
+        self._ntk_temp_chrome = False
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
@@ -551,6 +552,7 @@ class ExternalScraper:
             return False
 
         self._chrome_process = proc
+        self._ntk_temp_chrome = True
         if not self._wait_for_cdp(port):
             exit_code = proc.poll()
             if exit_code is not None:
@@ -765,6 +767,19 @@ class ExternalScraper:
             self._chrome_process = None
         except Exception:
             self._chrome_process = None
+        if self._ntk_temp_chrome:
+            try:
+                closed = self._close_ntk_profile_chrome(
+                    self._get_ntk_user_data_dir()
+                )
+                if closed:
+                    self.log(
+                        f"[NewToki] Closed {closed} temporary Chrome "
+                        "process(es)."
+                    )
+            except Exception:
+                pass
+            self._ntk_temp_chrome = False
 
     # ------------------------------------------------------------------
     # Multi-page support for parallel chapter downloads
