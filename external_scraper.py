@@ -260,6 +260,40 @@ class ExternalScraper:
                 time.sleep(0.25)
         return False
 
+    def _close_ntk_profile_chrome(self, user_data_dir):
+        """Close Chrome instances that own the dedicated NewToki profile."""
+        if sys.platform != "win32":
+            return 0
+        profile = os.path.abspath(user_data_dir).replace("'", "''")
+        script = (
+            "$needle = '" + profile + "'.ToLowerInvariant();\n"
+            "$matches = @(Get-CimInstance Win32_Process -Filter "
+            "\"name = 'chrome.exe'\" | Where-Object { "
+            "$_.CommandLine -and "
+            "$_.CommandLine.ToLowerInvariant().Contains($needle) "
+            "});\n"
+            "$count = $matches.Count;\n"
+            "foreach ($p in $matches) { "
+            "try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } "
+            "catch {} "
+            "};\n"
+            "$count\n"
+        )
+        try:
+            output = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", script],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=8,
+                errors="ignore",
+            ).strip()
+            count = int(output.splitlines()[-1]) if output else 0
+        except Exception:
+            return 0
+        if count:
+            time.sleep(1.0)
+        return count
+
     def _focus_system_chrome_window(self):
         """Best-effort: bring the visible Chrome window to the foreground."""
         if sys.platform != "win32" or not self._chrome_process:
@@ -497,6 +531,12 @@ class ExternalScraper:
         self.log("Launching normal Chrome for NewToki...")
         user_data_dir = self._get_ntk_user_data_dir()
         self.log(f"Browser profile: {user_data_dir}")
+        closed = self._close_ntk_profile_chrome(user_data_dir)
+        if closed:
+            self.log(
+                f"[NewToki] Closed {closed} stale Chrome process(es) using "
+                "the dedicated ntk profile."
+            )
         proc, port = self._open_system_chrome(
             start_url,
             remote_debugging=True,
