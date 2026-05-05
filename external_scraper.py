@@ -158,6 +158,7 @@ class ExternalScraper:
                         self.ntk_curl_command = f.read().strip()
             except Exception:
                 self.ntk_curl_command = ""
+        self.ntk_prefer_novelpia_cover = False
         self._kakao_css_cache = {}
         self.kakao_keep_filler = False
         self.kakao_skip_last_page = False
@@ -1650,6 +1651,69 @@ class ExternalScraper:
             return candidates[0][1]
         return first_content_image
 
+    def _ntk_novelpia_id_from_cover_url(self, cover_url):
+        match = re.search(r'/novel_thumb/(\d+)', cover_url or '', re.I)
+        return match.group(1) if match else ''
+
+    def _ntk_fetch_novelpia_cover_url(self, novelpia_id):
+        if not novelpia_id:
+            return ''
+        url = f'https://novelpia.com/novel/{novelpia_id}'
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/120.0.0.0 Safari/537.36'
+            ),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Referer': 'https://novelpia.com/',
+        }
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as response:
+                text = response.read().decode('utf-8', 'ignore')
+        except Exception as e:
+            self.log(
+                f"[NewToki] Novelpia cover lookup failed for "
+                f"{novelpia_id}: {e}"
+            )
+            return ''
+        patterns = (
+            r'"(//images\.novelpia\.com/imagebox/original/[^"]+)"',
+            r'"(//images\.novelpia\.com/imagebox/cover/[^"]+)"',
+            r'(https?:)?(//images\.novelpia\.com/imagebox/original/[^\s"\'<>]+)',
+            r'(https?:)?(//images\.novelpia\.com/imagebox/cover/[^\s"\'<>]+)',
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, re.I)
+            if not match:
+                continue
+            if len(match.groups()) >= 2:
+                value = (match.group(1) or 'https:') + match.group(2)
+            else:
+                value = 'https:' + match.group(1)
+            return html.unescape(value).replace('\\/', '/')
+        return ''
+
+    def _ntk_prefer_novelpia_cover_url(self, cover_url):
+        if not self.ntk_prefer_novelpia_cover:
+            return cover_url
+        novelpia_id = self._ntk_novelpia_id_from_cover_url(cover_url)
+        if not novelpia_id:
+            return cover_url
+        novelpia_cover = self._ntk_fetch_novelpia_cover_url(novelpia_id)
+        if novelpia_cover:
+            self.log(
+                f"[NewToki] Using Novelpia cover for mapped ID "
+                f"{novelpia_id}: {novelpia_cover}"
+            )
+            return novelpia_cover
+        self.log(
+            f"[NewToki] Novelpia cover unavailable for mapped ID "
+            f"{novelpia_id}; using NewToki cover."
+        )
+        return cover_url
+
     def _ntk_clean_tag(self, value):
         value = self._ntk_plain_fragment(value).strip(' #,./\\|[](){}')
         value = value.replace('\\n', ' ').replace('\\r', ' ')
@@ -2064,6 +2128,9 @@ class ExternalScraper:
             self.log("ERROR: [NewToki] No episode links found on page.")
             return None
 
+        data['coverUrl'] = self._ntk_prefer_novelpia_cover_url(
+            data.get('coverUrl', '')
+        )
         if data.get('coverUrl'):
             self.log(f"[NewToki] Cover URL: {data.get('coverUrl')}")
         else:

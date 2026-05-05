@@ -172,6 +172,12 @@ class ExternalNovelDialog(tk.Toplevel):
             settings_frame, text="Skip paid",
             variable=self._var_skip_paid,
         ).pack(side="left", padx=(10, 0))
+        self._var_ntk_novelpia_cover = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            settings_frame,
+            text="Prefer source cover",
+            variable=self._var_ntk_novelpia_cover,
+        ).pack(side="left", padx=(10, 0))
         self._var_kakao_skip_last_page = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             settings_frame, text="Skip last page",
@@ -286,6 +292,9 @@ class ExternalNovelDialog(tk.Toplevel):
             self._var_kakao_skip_last_page.get()
         )
         self._scraper.kakao_keep_filler = self._var_kakao_keep_filler.get()
+        self._scraper.ntk_prefer_novelpia_cover = (
+            self._var_ntk_novelpia_cover.get()
+        )
 
     def _poll_queue(self):
         """Drain the message queue and update the UI."""
@@ -1870,6 +1879,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_from.set(cfg.get("ext_from", 1))
             self._var_to.set(cfg.get("ext_to", 1))
             self._var_skip_paid.set(cfg.get("ext_skip_paid", False))
+            self._var_ntk_novelpia_cover.set(
+                cfg.get("ext_ntk_novelpia_cover", False)
+            )
             self._var_kakao_skip_last_page.set(
                 cfg.get("ext_kakao_skip_last_page", False)
             )
@@ -1915,6 +1927,9 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_from"] = self._var_from.get()
         cfg["ext_to"] = self._var_to.get()
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
+        cfg["ext_ntk_novelpia_cover"] = (
+            self._var_ntk_novelpia_cover.get()
+        )
         cfg["ext_kakao_skip_last_page"] = (
             self._var_kakao_skip_last_page.get()
         )
