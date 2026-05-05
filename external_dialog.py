@@ -112,6 +112,8 @@ class ExternalNovelDialog(tk.Toplevel):
                          value="txt").pack(side="left", padx=5)
         ttk.Radiobutton(fmt_frame, text="PDF", variable=self._var_format,
                          value="pdf").pack(side="left", padx=5)
+        ttk.Radiobutton(fmt_frame, text="CBZ", variable=self._var_format,
+                         value="cbz").pack(side="left", padx=5)
 
         # Threads
         thr_frame = ttk.LabelFrame(settings_frame, text="Threads", padding=4)
@@ -190,14 +192,16 @@ class ExternalNovelDialog(tk.Toplevel):
         ).pack(side="left", padx=(10, 0))
         dedupe_frame = ttk.Frame(settings_frame)
         dedupe_frame.pack(side="left", padx=(10, 0))
+        dedupe_top_frame = ttk.Frame(dedupe_frame)
+        dedupe_top_frame.pack(anchor="w")
         self._var_kakao_dedupe_images = tk.BooleanVar(value=True)
         self._var_kakao_dedupe_leading_images = tk.IntVar(value=2)
         ttk.Checkbutton(
-            dedupe_frame, text="Dedupe images",
+            dedupe_top_frame, text="Dedupe images",
             variable=self._var_kakao_dedupe_images,
         ).pack(side="left")
         self._spn_kakao_dedupe_leading = ttk.Spinbox(
-            dedupe_frame, from_=1, to=10,
+            dedupe_top_frame, from_=1, to=10,
             textvariable=self._var_kakao_dedupe_leading_images, width=3
         )
         self._spn_kakao_dedupe_leading.pack(side="left", padx=(3, 0))
@@ -210,6 +214,12 @@ class ExternalNovelDialog(tk.Toplevel):
                 )
             )
         )
+        self._var_long_image_layout = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            dedupe_frame,
+            text="Long image layout",
+            variable=self._var_long_image_layout,
+        ).pack(anchor="w")
 
         # --- Action Buttons ---
         btn_frame = ttk.Frame(self)
@@ -942,6 +952,10 @@ class ExternalNovelDialog(tk.Toplevel):
             self._generate_txt(title, author)
         elif fmt == "pdf":
             self._generate_pdf(title, author)
+        elif fmt == "cbz":
+            self._generate_image_archive(title, author)
+        elif self._var_long_image_layout.get() and self._has_long_image_chapters():
+            self._generate_image_archive(title, author)
         else:
             self._generate_epub(title, author)
 
@@ -982,6 +996,202 @@ class ExternalNovelDialog(tk.Toplevel):
         except Exception as e:
             self._log(f"\u274c TXT generation failed: {e}")
 
+    def _image_ext_from_bytes(self, raw_data, default='jpg'):
+        """Infer a usable image extension from raw bytes."""
+        if not raw_data:
+            return default
+        if raw_data[:4] == b'\x89PNG':
+            return 'png'
+        if raw_data[:4] == b'RIFF':
+            return 'webp'
+        if raw_data[:4] == b'GIF8':
+            return 'gif'
+        if raw_data[:12] == b'\x00\x00\x00\x18ftypavif':
+            return 'avif'
+        if raw_data[:3] == b'\xff\xd8\xff':
+            return 'jpg'
+        return default
+
+    def _format_ext(self, fmt):
+        ext = (fmt or '').lower()
+        return 'jpg' if ext == 'jpeg' else (ext or 'jpg')
+
+    def _generate_image_archive(self, title, author):
+        """Generate a CBZ image archive for webtoon-style image chapters."""
+        output_dir = self._get_output_dir()
+        filename = f"{title}.cbz"
+        filepath = os.path.join(output_dir, filename)
+
+        pg = self._parent_gui
+        compress_images = getattr(pg, 'var_compress_images', None)
+        compress_images = compress_images.get() if compress_images else False
+        jpeg_quality = getattr(pg, 'var_jpeg_quality', None)
+        jpeg_quality = jpeg_quality.get() if jpeg_quality else 80
+        image_format = getattr(pg, 'var_image_format', None)
+        image_format = image_format.get() if image_format else 'WEBP'
+        zip_compress = getattr(pg, 'var_zip_compress_images', None)
+        zip_compress = zip_compress.get() if zip_compress else False
+
+        compress_cover = getattr(pg, 'var_compress_cover', None)
+        compress_cover = compress_cover.get() if compress_cover else False
+        cover_quality = getattr(pg, 'var_cover_quality', None)
+        cover_quality = cover_quality.get() if cover_quality else 90
+        cover_format = getattr(pg, 'var_cover_format', None)
+        cover_format = cover_format.get() if cover_format else 'JPEG'
+
+        data = self._book_data or {}
+
+        import base64
+        import requests as _req
+        import zipfile
+
+        img_session = _req.Session()
+        img_session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/120.0.0.0 Safari/537.36',
+            'Referer': data.get('bookUrl', ''),
+        })
+        img_compress_type = (
+            zipfile.ZIP_DEFLATED if zip_compress else zipfile.ZIP_STORED
+        )
+
+        def fetch_image(img_url, label, img_data_url=None, log_failure=False):
+            raw = None
+            if img_data_url and ',' in img_data_url:
+                _, b64 = img_data_url.split(',', 1)
+                try:
+                    raw = base64.b64decode(b64)
+                except Exception:
+                    raw = None
+            if raw:
+                return raw
+            if data.get('_ntk_novel') and self._scraper and img_url:
+                fetch_ntk_binary = getattr(self._scraper, 'fetch_ntk_binary', None)
+                if fetch_ntk_binary:
+                    raw = fetch_ntk_binary(img_url, data.get('bookUrl') or '')
+                    if raw:
+                        return raw
+            if img_url:
+                return self._download_image_python(
+                    img_url,
+                    label,
+                    session=img_session,
+                    log_success=False,
+                    log_failure=log_failure,
+                )
+            return None
+
+        try:
+            self._log("  Long image layout: saving CBZ image archive")
+            written = 0
+            with zipfile.ZipFile(filepath, "w") as zf:
+                cover_url = data.get('coverUrl', '')
+                if cover_url:
+                    cover_raw = fetch_image(cover_url, "Cover", log_failure=True)
+                    if cover_raw:
+                        cover_ext = self._image_ext_from_bytes(cover_raw)
+                        if compress_cover:
+                            cover_raw = self._compress_image(
+                                cover_raw, cover_quality, cover_format
+                            )
+                            cover_ext = self._format_ext(cover_format)
+                        zf.writestr(
+                            f"0000_cover.{cover_ext}",
+                            cover_raw,
+                            compress_type=img_compress_type,
+                        )
+
+                comic_info = f"""<?xml version="1.0" encoding="utf-8"?>
+<ComicInfo>
+  <Title>{html.escape(data.get('bookname', title))}</Title>
+  <Writer>{html.escape(data.get('author', author))}</Writer>
+  <Summary>{html.escape(data.get('introduction', ''))}</Summary>
+</ComicInfo>
+"""
+                zf.writestr(
+                    "ComicInfo.xml",
+                    comic_info,
+                    compress_type=zipfile.ZIP_DEFLATED,
+                )
+
+                for i, ch_data in enumerate(self._chapter_results):
+                    if ch_data is None or ch_data.get('_locked'):
+                        continue
+                    ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+                    safe_ch = _sanitize_filename(ch_name)
+                    images = ch_data.get('images') or []
+                    if not images:
+                        self._log(
+                            f"  Skipping CBZ chapter {i + 1}: "
+                            f"{ch_name} (no images)"
+                        )
+                        continue
+                    self._log(
+                        f"  Building CBZ chapter {i + 1}: {ch_name} "
+                        f"({len(images)} image(s))"
+                    )
+                    chapter_start = time.time()
+                    chapter_bytes = 0
+                    failed_count = 0
+                    for img_idx, img_info in enumerate(images, 1):
+                        img_url = html.unescape(
+                            img_info.get('url', '')
+                        ).strip()
+                        raw = fetch_image(
+                            img_url,
+                            f"Ch{i+1} image {img_idx}/{len(images)}",
+                            img_data_url=img_info.get('data'),
+                            log_failure=(img_idx <= 3),
+                        )
+                        if not raw:
+                            failed_count += 1
+                            continue
+                        ext = self._image_ext_from_bytes(raw)
+                        if compress_images:
+                            raw = self._compress_image(
+                                raw, jpeg_quality, image_format
+                            )
+                            ext = self._format_ext(image_format)
+                        archive_name = (
+                            f"{i+1:04d}_{safe_ch}/{img_idx:04d}.{ext}"
+                        )
+                        zf.writestr(
+                            archive_name,
+                            raw,
+                            compress_type=img_compress_type,
+                        )
+                        chapter_bytes += len(raw)
+                        written += 1
+                        if img_idx % 5 == 0 or img_idx == len(images):
+                            self._log(
+                                f"    Images ready: {img_idx}/"
+                                f"{len(images)}"
+                            )
+                    elapsed = max(0.01, time.time() - chapter_start)
+                    mb = chapter_bytes / (1024 * 1024)
+                    ready_count = len(images) - failed_count
+                    self._log(
+                        f"    Images embedded: {ready_count}/"
+                        f"{len(images)}, {mb:.1f} MB for this chapter "
+                        f"in {elapsed:.1f}s"
+                    )
+                    if failed_count:
+                        self._log(
+                            f"    {failed_count} image(s) failed for "
+                            "this CBZ chapter."
+                        )
+            if written:
+                self._log(f"\u2705 Saved: {filepath}")
+            else:
+                self._log("\u274c CBZ generation failed: no images were downloaded.")
+        except Exception as e:
+            self._log(f"\u274c CBZ generation failed: {e}")
+            self._log("Falling back to EPUB output...")
+            self._generate_epub(title, author)
+        finally:
+            img_session.close()
+
     def _kakao_extra_css(self):
         """Collect original Kakao viewer CSS from downloaded chapters."""
         if not (self._book_data and self._book_data.get('_kakaopage')):
@@ -1020,6 +1230,67 @@ body {
                 seen.add(css)
                 css_parts.append(css)
         return '\n\n'.join(css_parts)
+
+    def _chapter_extra_css(self):
+        """Collect scraper-provided CSS from downloaded chapters."""
+        css_parts = []
+        seen = set()
+        for ch_data in self._chapter_results or []:
+            if not ch_data or ch_data.get('_locked'):
+                continue
+            css = (ch_data.get('contentCss') or '').strip()
+            if css and css not in seen:
+                seen.add(css)
+                css_parts.append(css)
+        return '\n\n'.join(css_parts)
+
+    def _has_long_image_chapters(self):
+        """Return True when chapters look like vertical image-strip content."""
+        data = self._book_data or {}
+        if data.get('_ntk_kind') == 'webtoon':
+            return True
+        for ch_data in self._chapter_results or []:
+            if not ch_data or ch_data.get('_locked'):
+                continue
+            content_html = ch_data.get('contentHtml') or ''
+            content_css = ch_data.get('contentCss') or ''
+            if (
+                'ntk-webtoon-page' in content_html
+                or 'ntk-webtoon-page' in content_css
+            ):
+                return True
+        return False
+
+    def _long_image_layout_css(self):
+        """CSS for webtoon-style chapters made of tall image strips."""
+        return """
+body {
+  margin: 0;
+  padding: 0;
+}
+.ntk-webtoon-page {
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  line-height: 0;
+}
+.ntk-webtoon-page img,
+.chapter > img,
+p > img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  height: auto;
+  margin: 0 auto;
+  padding: 0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.ntk-webtoon-page + .ntk-webtoon-page {
+  margin-top: 0;
+}
+""".strip()
 
     def _generate_epub(self, title, author):
         """Generate an EPUB file using the existing epub_generator."""
@@ -1066,6 +1337,13 @@ body {
         else:
             self._log("  Cover compression: OFF")
 
+        data = self._book_data
+        is_kakao = bool(data.get('_kakaopage'))
+        use_long_image_layout = (
+            bool(self._var_long_image_layout.get())
+            and self._has_long_image_chapters()
+        )
+
         # Default CSS for external novels
         css = """body { margin: 2%; }
 p { overflow-wrap: break-word; }
@@ -1074,12 +1352,18 @@ h3, h4, h5, h6 { text-align: center; margin-bottom: 15%; margin-top: 10%; }
 img { display: block; max-width: 100%; max-height: 100%;
       margin-left: auto; margin-right: auto; margin-bottom: 2%; margin-top: 2%; }
 """
+        chapter_css = self._chapter_extra_css()
+        if chapter_css and not is_kakao:
+            css = f"{css}\n\n/* Scraper-provided chapter CSS */\n{chapter_css}\n"
+        if use_long_image_layout:
+            css = (
+                f"{css}\n\n/* Long image layout */\n"
+                f"{self._long_image_layout_css()}\n"
+            )
+            self._log("  Long image layout: ON")
         kakao_css = self._kakao_extra_css()
         if kakao_css:
             css = f"{css}\n\n/* KakaoPage original viewer CSS */\n{kakao_css}\n"
-
-        data = self._book_data
-        is_kakao = bool(data.get('_kakaopage'))
         cover_url = data.get('coverUrl', '')
 
         metadata = {
@@ -1401,8 +1685,11 @@ img { display: block; max-width: 100%; max-height: 100%;
                     content_html, rename_map
                 )
 
+                show_chapter_title = not is_kakao
+                if use_long_image_layout and ch_data.get('images'):
+                    show_chapter_title = False
                 epub.add_chapter(
-                    ch_name, content_html, show_title=not is_kakao
+                    ch_name, content_html, show_title=show_chapter_title
                 )
 
             if is_kakao and self._var_kakao_dedupe_images.get():
@@ -1882,6 +2169,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_ntk_novelpia_cover.set(
                 cfg.get("ext_ntk_novelpia_cover", False)
             )
+            self._var_long_image_layout.set(
+                cfg.get("ext_long_image_layout", False)
+            )
             self._var_kakao_skip_last_page.set(
                 cfg.get("ext_kakao_skip_last_page", False)
             )
@@ -1930,6 +2220,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_ntk_novelpia_cover"] = (
             self._var_ntk_novelpia_cover.get()
         )
+        cfg["ext_long_image_layout"] = self._var_long_image_layout.get()
         cfg["ext_kakao_skip_last_page"] = (
             self._var_kakao_skip_last_page.get()
         )
