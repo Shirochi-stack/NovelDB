@@ -23,9 +23,11 @@ import os
 import re
 import shutil
 import shlex
+import sqlite3
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -966,6 +968,125 @@ class ExternalScraper:
                     cookies[key] = value
         return headers, cookies
 
+    @staticmethod
+    def _ntk_windows_dpapi_unprotect(data):
+        if sys.platform != "win32" or not data:
+            return None
+        try:
+            class DATA_BLOB(ctypes.Structure):
+                _fields_ = [
+                    ("cbData", ctypes.c_uint),
+                    ("pbData", ctypes.POINTER(ctypes.c_char)),
+                ]
+
+            in_buffer = ctypes.create_string_buffer(data, len(data))
+            in_blob = DATA_BLOB(
+                len(data),
+                ctypes.cast(in_buffer, ctypes.POINTER(ctypes.c_char)),
+            )
+            out_blob = DATA_BLOB()
+            ok = ctypes.windll.crypt32.CryptUnprotectData(
+                ctypes.byref(in_blob),
+                None,
+                None,
+                None,
+                None,
+                0,
+                ctypes.byref(out_blob),
+            )
+            if not ok:
+                return None
+            try:
+                return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+            finally:
+                ctypes.windll.kernel32.LocalFree(out_blob.pbData)
+        except Exception:
+            return None
+
+    def _ntk_chrome_master_key(self, profile_dir):
+        local_state = os.path.join(profile_dir, "Local State")
+        try:
+            with open(local_state, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            encrypted_key = data.get("os_crypt", {}).get("encrypted_key", "")
+            raw = base64.b64decode(encrypted_key)
+            if raw.startswith(b"DPAPI"):
+                raw = raw[5:]
+            return self._ntk_windows_dpapi_unprotect(raw)
+        except Exception:
+            return None
+
+    def _ntk_decrypt_chrome_cookie(self, host_key, encrypted_value, key):
+        if not encrypted_value:
+            return ""
+        try:
+            if encrypted_value.startswith((b"v10", b"v11")) and key:
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+                nonce = encrypted_value[3:15]
+                ciphertext = encrypted_value[15:]
+                plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
+                host_hash = hashlib.sha256((host_key or "").encode()).digest()
+                if plaintext.startswith(host_hash):
+                    plaintext = plaintext[32:]
+                return plaintext.decode("utf-8", "ignore")
+            if sys.platform == "win32":
+                plaintext = self._ntk_windows_dpapi_unprotect(encrypted_value)
+                return plaintext.decode("utf-8", "ignore") if plaintext else ""
+        except Exception:
+            return ""
+        return ""
+
+    def _ntk_load_profile_cookies(self, url):
+        """Read Cloudflare/NewToki cookies from the dedicated Chrome profile."""
+        profile_dir = self._get_ntk_user_data_dir()
+        cookies_db = os.path.join(profile_dir, "Default", "Network", "Cookies")
+        if not os.path.exists(cookies_db):
+            return {}
+        key = self._ntk_chrome_master_key(profile_dir)
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lstrip(".")
+        if not host:
+            return {}
+        now_chrome = int((time.time() + 11644473600) * 1000000)
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(prefix="ntk_cookies_", suffix=".db")
+            os.close(fd)
+            shutil.copy2(cookies_db, tmp_path)
+            conn = sqlite3.connect(tmp_path)
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT host_key, name, value, encrypted_value, expires_utc
+                    FROM cookies
+                    WHERE host_key = ? OR host_key = ? OR host_key LIKE ?
+                    """,
+                    (host, "." + host, "%." + host),
+                ).fetchall()
+            finally:
+                conn.close()
+            out = {}
+            for host_key, name, value, encrypted_value, expires_utc in rows:
+                if expires_utc and expires_utc < now_chrome:
+                    continue
+                cookie_value = value or self._ntk_decrypt_chrome_cookie(
+                    host_key,
+                    encrypted_value,
+                    key,
+                )
+                if name and cookie_value:
+                    out[name] = cookie_value
+            return out
+        except Exception as e:
+            self.log(f"[NewToki] Chrome profile cookie import failed: {e}")
+            return {}
+        finally:
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
     def _ntk_default_headers_and_cookies(self, url):
         parsed = urllib.parse.urlparse(url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -981,6 +1102,9 @@ class ExternalScraper:
         curl_headers, curl_cookies = self._ntk_parse_curl_command(
             self.ntk_curl_command
         )
+        profile_cookies = self._ntk_load_profile_cookies(url)
+        merged_cookies = dict(profile_cookies)
+        merged_cookies.update(curl_cookies)
 
         def header(name, fallback):
             for key, value in curl_headers.items():
@@ -1026,11 +1150,12 @@ class ExternalScraper:
         return {
             'origin': origin,
             'host': parsed.netloc,
-            'cookies': curl_cookies,
+            'cookies': merged_cookies,
             'user_agent': user_agent,
             'doc_headers': {k: v for k, v in doc_headers.items() if v},
             'api_headers': {k: v for k, v in api_headers.items() if v},
             'from_curl': bool(curl_headers or curl_cookies),
+            'from_profile_cookies': bool(profile_cookies),
         }
 
     def _ntk_browser_headers_and_cookies(self, url):
@@ -1150,6 +1275,9 @@ class ExternalScraper:
         state['index_url'] = index_url
         state['session'] = self._ntk_create_api_session(state)
         self._ntk_issue_nv(state, index_url)
+        if state.get('from_profile_cookies'):
+            names = ', '.join(sorted((state.get('cookies') or {}).keys()))
+            self.log(f"[NewToki] Imported Chrome profile cookies: {names}")
         self._ntk_api_state = state
         return state
 
@@ -1297,6 +1425,36 @@ class ExternalScraper:
             )
             return None
         return response.text
+
+    def _ntk_refresh_cloudflare_session(self, url):
+        """Automated fallback: refresh CF cookies in real Chrome, then reuse API."""
+        self.log(
+            "[NewToki] Direct API request was blocked; refreshing "
+            "Cloudflare clearance with installed Chrome..."
+        )
+        if not self._start_ntk_browser(url):
+            return False
+        try:
+            if self._page:
+                try:
+                    self._page.goto(url, wait_until="domcontentloaded",
+                                    timeout=30000)
+                except Exception:
+                    pass
+                if not self._ntk_wait_for_access(self._page, timeout=120):
+                    self.log(
+                        "[NewToki] Chrome clearance refresh did not clear "
+                        "Cloudflare."
+                    )
+                    return False
+                try:
+                    self._page.wait_for_timeout(1500)
+                except Exception:
+                    time.sleep(1.5)
+            return True
+        except Exception as e:
+            self.log(f"[NewToki] Chrome clearance refresh failed: {e}")
+            return False
 
     def _ntk_fetch_chapter_api(self, chapter_url, chapter_name, state=None):
         state = state or self._ntk_api_state
@@ -1449,12 +1607,21 @@ class ExternalScraper:
 
         index_html = self._ntk_fetch_index_via_api_session(url, state)
         if not index_html:
-            self.log(
-                "ERROR: [NewToki] Direct curl_cffi index fetch failed. "
-                "If Cloudflare is stricter on your IP, set NPIA_NTK_CURL "
-                "to a copied Chrome cURL request and retry."
-            )
-            return None
+            if self._ntk_refresh_cloudflare_session(url):
+                state = self._ntk_prepare_api_state(url, novel_id)
+                index_html = self._ntk_fetch_index_via_api_session(url, state)
+                try:
+                    self.cleanup()
+                except Exception:
+                    pass
+            if not index_html:
+                self.log(
+                    "ERROR: [NewToki] Direct curl_cffi index fetch failed "
+                    "after automated Cloudflare refresh. If Cloudflare is "
+                    "stricter on your IP, set NPIA_NTK_CURL to a copied "
+                    "Chrome cURL request and retry."
+                )
+                return None
         data = self._ntk_parse_index_html(index_html, url)
         chapters = data.get('chapters') or []
         if not chapters:
