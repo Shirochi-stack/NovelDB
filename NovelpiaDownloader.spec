@@ -84,6 +84,8 @@ a = Analysis(
         'playwright._impl._transport',
         'greenlet',                 # Required by playwright's sync API
         'pyee',                     # Event emitter used by playwright
+        'curl_cffi',
+        'curl_cffi.requests',
     ],
     hookspath=[],
     hooksconfig={},

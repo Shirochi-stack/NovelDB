@@ -16,9 +16,13 @@ Data flows:
 
 import json
 import html
+import base64
+import hashlib
+import hmac
 import os
 import re
 import shutil
+import shlex
 import socket
 import subprocess
 import sys
@@ -141,6 +145,16 @@ class ExternalScraper:
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
+        self._ntk_api_state = None
+        self.ntk_curl_command = os.environ.get("NPIA_NTK_CURL", "")
+        if not self.ntk_curl_command:
+            try:
+                curl_path = os.path.join(_get_base_dir(), "ntk_curl.txt")
+                if os.path.exists(curl_path):
+                    with open(curl_path, "r", encoding="utf-8") as f:
+                        self.ntk_curl_command = f.read().strip()
+            except Exception:
+                self.ntk_curl_command = ""
         self._kakao_css_cache = {}
         self.kakao_keep_filler = False
         self.kakao_skip_last_page = False
@@ -723,6 +737,8 @@ class ExternalScraper:
         """
         if count <= 0 or not self._book_url:
             return
+        if self._book_data and self._book_data.get('_ntk_novel'):
+            return
 
         # Close any existing worker pages
         for wp in self._worker_pages:
@@ -872,1849 +888,601 @@ class ExternalScraper:
                 time.sleep(1)
         return not self._ntk_is_challenge_page(page)
 
-    def _ntk_refresh_load_errors(self, page, max_attempts=4):
-        """Click NewToki's in-page refresh/retry button on load errors."""
-        def _has_reader_content():
-            try:
-                return bool(page.evaluate(r"""
-() => {
-  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  const loadErrorRe = /본문을\s*불러올\s*수\s*없습니다|unable to load content|content failed to load/i;
-  const candidates = Array.from(document.querySelectorAll([
-    'article.novel-viewer', '.novel-viewer'
-  ].join(',')));
-  return candidates.some((el) => {
-    const text = clean(el.innerText || el.textContent);
-    if (text.length <= 300 || loadErrorRe.test(text)) return false;
-    if (/댓글을\s*작성하려면|로그인|회원가입/.test(text) && text.length < 1000) return false;
-    const r = el.getBoundingClientRect();
-    if (r.width < 350 || r.height < 120) return false;
-    const linkText = Array.from(el.querySelectorAll('a'))
-      .map((a) => clean(a.innerText || a.textContent)).join(' ');
-    return linkText.length < text.length * 0.5;
-  });
-}
-                """))
-            except Exception:
-                return False
+    @staticmethod
+    def _ntk_b64url_encode(data):
+        return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
 
-        if _has_reader_content():
-            return True
+    @staticmethod
+    def _ntk_b64url_decode(data):
+        padding = '=' * ((4 - len(data) % 4) % 4)
+        return base64.urlsafe_b64decode(data + padding)
 
-        for attempt in range(max_attempts):
-            try:
-                state = page.evaluate(r"""
-() => {
-  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  const errorRe = /본문을\s*불러올\s*수\s*없습니다|unable to load content|content failed to load/i;
-  const refreshRe = /refresh|reload|retry|try again|새로고침|다시\s*시도|재시도/i;
-  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
-  if (!viewer) {
-    return { hasLoadError: false, clicked: false, reason: 'no-viewer' };
-  }
-  const viewerText = clean(viewer.innerText || viewer.textContent);
-  if (
-    viewerText.length > 300 &&
-    !errorRe.test(viewerText) &&
-    !/댓글을\s*작성하려면|로그인|회원가입/.test(viewerText)
-  ) {
-    return { hasLoadError: false, clicked: false, reason: 'viewer-has-content' };
-  }
-  const hasLoadError = errorRe.test(viewerText);
-  if (!hasLoadError) {
-    return { hasLoadError: false, clicked: false };
-  }
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    const style = getComputedStyle(el);
-    return (
-      style.display !== 'none' &&
-      style.visibility !== 'hidden' &&
-      r.width > 0 &&
-      r.height > 0
-    );
-  };
-  const clickTarget = (target) => {
-    target.scrollIntoView({ block: 'center', inline: 'center' });
-    for (const type of ['mouseover', 'mousedown', 'mouseup', 'click']) {
-      target.dispatchEvent(new MouseEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        view: window
-      }));
-    }
-    return target;
-  };
-  const clickTextNode = () => {
-    const walker = document.createTreeWalker(
-      viewer,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          if (!/새로고침|refresh|reload|retry|try again|다시\s*시도|재시도/i.test(node.nodeValue || '')) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          const parent = node.parentElement;
-          if (!parent || !visible(parent)) return NodeFilter.FILTER_REJECT;
-          const region = parent.closest('article.novel-viewer, .novel-viewer, div, section') || parent;
-          const regionText = clean(region.innerText || region.textContent);
-          if (!errorRe.test(regionText)) return NodeFilter.FILTER_REJECT;
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
-    const node = walker.nextNode();
-    if (!node) return null;
-    const parent = node.parentElement;
-    parent.scrollIntoView({ block: 'center', inline: 'center' });
-    return clickTarget(parent);
-  };
-  const textTarget = clickTextNode();
-  if (textTarget) {
-    return {
-      hasLoadError: true,
-      clicked: true,
-      label: '새로고침',
-      method: 'text-node',
-      tag: textTarget.tagName
-    };
-  }
-  const controls = Array.from(viewer.querySelectorAll(
-    'button, a, span, strong, em, b, div, [role="button"], input[type="button"], input[type="submit"]'
-  )).map((el) => {
-    const label = clean(
-      el.innerText ||
-      el.textContent ||
-      el.value ||
-      el.getAttribute('aria-label') ||
-      el.getAttribute('title')
-    );
-    return { el, label };
-  }).filter(({ el, label }) => {
-    if (!label || label.length > 80 || !refreshRe.test(label)) return false;
-    if (!visible(el)) return false;
-    const region = el.closest('div, section, article, main') || el;
-    const regionText = clean(region.innerText || region.textContent);
-    return errorRe.test(regionText) && refreshRe.test(regionText);
-  }).sort((a, b) => {
-    const aExact = /^새로고침$|^refresh$/i.test(a.label) ? 0 : 1;
-    const bExact = /^새로고침$|^refresh$/i.test(b.label) ? 0 : 1;
-    return aExact - bExact || a.label.length - b.label.length;
-  });
-  for (const el of controls) {
-    const target = clickTarget(el.el);
-    return {
-      hasLoadError: true,
-      clicked: true,
-      label: el.label,
-      method: 'reader-dom',
-      tag: target.tagName
-    };
-  }
-  return { hasLoadError: true, clicked: false };
-}
-                """)
-            except Exception:
-                return False
+    @staticmethod
+    def _ntk_novel_id_from_url(url):
+        try:
+            match = re.search(r'/novel/(\d+)', urllib.parse.urlparse(url).path)
+            return match.group(1) if match else ''
+        except Exception:
+            return ''
 
-            if not state or not state.get('hasLoadError'):
-                return True
+    @staticmethod
+    def _ntk_episode_id_from_url(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path.rstrip('/')
+            return path.rsplit('/', 1)[-1]
+        except Exception:
+            return ''
 
-            if state.get('clicked'):
-                label = state.get('label') or 'refresh'
-                method = state.get('method') or 'dom'
-                self.log(
-                    f"  [NewToki] Load error detected; clicked {label} "
-                    f"via {method} "
-                    f"({attempt + 1}/{max_attempts})."
-                )
-                # The refresh handler fetches content asynchronously into
-                # article.novel-viewer without navigating.
-                for _ in range(80):
-                    if _has_reader_content():
-                        return True
-                    try:
-                        page.wait_for_timeout(500)
-                    except Exception:
-                        time.sleep(0.5)
-                try:
-                    page.wait_for_load_state("networkidle", timeout=5000)
-                except Exception:
-                    pass
-                if _has_reader_content():
-                    return True
+    @staticmethod
+    def _ntk_requests_module():
+        try:
+            from curl_cffi import requests as curl_requests
+            return curl_requests, True
+        except Exception:
+            import requests as std_requests
+            return std_requests, False
+
+    @staticmethod
+    def _ntk_parse_curl_command(curl_command):
+        headers = {}
+        cookies = {}
+        if not curl_command:
+            return headers, cookies
+        try:
+            args = shlex.split(curl_command)
+        except ValueError:
+            return headers, cookies
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg in ('-H', '--header') and i + 1 < len(args):
+                header = args[i + 1]
+                if ':' in header:
+                    key, value = header.split(':', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    if key.lower() != 'accept-encoding':
+                        headers[key] = value
+                i += 2
                 continue
-
-            self.log(
-                "  [NewToki] Load error detected, but no refresh button was "
-                "found."
-            )
-            return False
-        return False
-
-    def _ntk_open_chapter_via_list(self, page, chapter_url, chapter_name):
-        """Open a chapter by clicking its row from the novel episode list."""
-        if not self._book_url:
-            return False
-        def _target_path(url):
-            try:
-                return urllib.parse.urlparse(url or '').path.rstrip('/')
-            except Exception:
-                return ''
-
-        target_path = _target_path(chapter_url)
-
-        def _click_matching_link():
-            try:
-                return page.evaluate(r"""
-({ chapterUrl, chapterName }) => {
-  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  let targetPath = '';
-  try {
-    targetPath = new URL(chapterUrl, location.href).pathname.replace(/\/$/, '');
-  } catch (e) {}
-  const links = Array.from(document.querySelectorAll('a[href]'));
-  let match = null;
-  for (const a of links) {
-    let path = '';
-    try {
-      path = new URL(a.getAttribute('href'), location.href).pathname.replace(/\/$/, '');
-    } catch (e) {}
-    if (targetPath && path === targetPath) {
-      match = a;
-      break;
-    }
-  }
-  if (!match && chapterName) {
-    const wanted = clean(chapterName)
-      .replace(/\s+\d+(?:\.\d+)?\s+\d+$/, '')
-      .replace(/\s+/g, ' ');
-    match = links.find((a) => clean(a.innerText || a.textContent).includes(wanted));
-  }
-  if (!match) return false;
-  match.click();
-  return true;
-}
-                """, {
-                    'chapterUrl': chapter_url,
-                    'chapterName': chapter_name,
-                })
-            except Exception:
-                return False
-
-        try:
-            current = urllib.parse.urlparse(page.url)
-            book = urllib.parse.urlparse(self._book_url)
-            if current.path.rstrip('/') == target_path:
-                return True
-            if _click_matching_link():
-                self.log(
-                    f"  [NewToki] Opened chapter via page link: "
-                    f"{chapter_name}"
-                )
-                try:
-                    page.wait_for_url(
-                        lambda url: _target_path(url) == target_path,
-                        timeout=15000,
-                    )
-                except Exception:
-                    pass
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception:
-                    pass
-                try:
-                    page.wait_for_timeout(800)
-                except Exception:
-                    time.sleep(0.8)
-                return True
-
-            if current.path.rstrip('/') != book.path.rstrip('/'):
-                page.goto(self._book_url, wait_until="domcontentloaded",
-                          timeout=30000)
-                page.wait_for_timeout(1000)
-        except Exception:
-            return False
-
-        if not self._ntk_wait_for_access(page):
-            return False
-
-        clicked = _click_matching_link()
-
-        if not clicked:
-            return False
-
-        self.log(f"  [NewToki] Opened chapter via episode link: {chapter_name}")
-        try:
-            page.wait_for_url(
-                lambda url: _target_path(url) == target_path,
-                timeout=15000,
-            )
-        except Exception:
-            pass
-        try:
-            page.wait_for_load_state("domcontentloaded", timeout=10000)
-        except Exception:
-            pass
-        try:
-            page.wait_for_timeout(1500)
-        except Exception:
-            time.sleep(1.5)
-        return True
-
-    def _ntk_extract_visible_reader_text(self, page, chapter_name):
-        """Fallback: use the rendered viewer text, like selecting the page."""
-        try:
-            data = page.evaluate(r"""
-(fallbackName) => {
-  const clean = (s) => (s || '').replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+/g, ' ').trim();
-  const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
-  }[c]));
-  const titleText = clean(
-    (document.querySelector('h1.ne-h1, h1, h2') || {}).innerText ||
-    fallbackName ||
-    document.title.replace(/\s*[|-]\s*뉴토끼\s*$/i, '')
-  );
-  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
-  if (!viewer) return null;
-  const raw = viewer.innerText || viewer.textContent || '';
-  const lines = raw
-    .split(/\n+/)
-    .map(clean)
-    .filter((line) =>
-      line &&
-      line !== titleText &&
-      !/본문을\s*불러올\s*수\s*없습니다|새로고침/.test(line) &&
-      !/^(글자|기본|[+\u2212-]|\d+\s*px)$/.test(line) &&
-      !/^(이전화|다음화|목록|책갈피|추천|댓글)$/.test(line)
-    );
-  const text = lines.join('\n\n').trim();
-  if (text.length < 40) return null;
-  return {
-    chapterName: titleText || fallbackName || 'Chapter',
-    sourceChapterName: fallbackName || titleText || 'Chapter',
-    contentText: text,
-    contentHtml: lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n'),
-    _debugSelector: 'article.novel-viewer.innerText'
-  };
-}
-            """, chapter_name)
-        except Exception:
-            return None
-        return data
-
-    def _ntk_extract_browser_selection_text(self, page, chapter_name):
-        """Fallback: drive Chrome with Ctrl+A and read the visible selection."""
-        try:
-            old_clipboard = self._windows_clipboard_get_text()
-            self._focus_system_chrome_window()
-            page.bring_to_front()
-            page.evaluate(r"""
-() => {
-  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
-  if (viewer) {
-    viewer.scrollIntoView({ block: 'center', inline: 'center' });
-  }
-}
-            """)
-            page.wait_for_timeout(300)
-            box = page.evaluate(r"""
-() => {
-  const viewer = document.querySelector('article.novel-viewer, .novel-viewer')
-  if (!viewer) return null;
-  const r = viewer.getBoundingClientRect();
-  // Click the blank page gutter next to the reader, not inside text. This
-  // keeps focus on the document so Ctrl+A selects the page selection range.
-  let vx = r.left - 24;
-  if (vx < 20) vx = r.right + 24;
-  if (vx > window.innerWidth - 20) vx = Math.max(20, r.left + 24);
-  const vy = Math.max(20, Math.min(window.innerHeight - 20, r.top + 80));
-  const chromeLeft = window.screenX + Math.max(0, (window.outerWidth - window.innerWidth) / 2);
-  const chromeTop = window.screenY + Math.max(0, window.outerHeight - window.innerHeight - chromeLeft + window.screenX);
-  return {
-    x: vx,
-    y: vy,
-    screenX: chromeLeft + vx,
-    screenY: chromeTop + vy
-  };
-}
-            """)
-            if not box:
-                return None
-            page.evaluate("""
-() => {
-  const active = document.activeElement;
-  if (active && typeof active.blur === 'function') active.blur();
-}
-            """)
-            if sys.platform == "win32" and self._focus_system_chrome_window():
-                clicked = self._windows_click_screen(
-                    box.get('screenX', 0),
-                    box.get('screenY', 0),
-                )
-                if not clicked:
-                    page.mouse.click(box['x'], box['y'])
-            else:
-                page.mouse.click(box['x'], box['y'])
-            page.wait_for_timeout(250)
-            if sys.platform == "win32" and self._focus_system_chrome_window():
-                vk_ctrl = 0x11
-                vk_a = 0x41
-                keyeventf_keyup = 0x0002
-                ctypes.windll.user32.keybd_event(vk_ctrl, 0, 0, 0)
-                time.sleep(0.12)
-                ctypes.windll.user32.keybd_event(vk_a, 0, 0, 0)
-                time.sleep(0.12)
-                ctypes.windll.user32.keybd_event(vk_a, 0, keyeventf_keyup, 0)
-                time.sleep(0.12)
-                ctypes.windll.user32.keybd_event(vk_a, 0, 0, 0)
-                time.sleep(0.12)
-                ctypes.windll.user32.keybd_event(vk_a, 0, keyeventf_keyup, 0)
-                time.sleep(0.05)
-                ctypes.windll.user32.keybd_event(
-                    vk_ctrl, 0, keyeventf_keyup, 0
-                )
-            else:
-                page.keyboard.down("Control")
-                page.wait_for_timeout(120)
-                page.keyboard.press("A")
-                page.wait_for_timeout(120)
-                page.keyboard.press("A")
-                page.wait_for_timeout(120)
-                page.keyboard.up("Control")
-            # Leave the highlight visible long enough that the controlled
-            # browser action is observable in the Chrome window.
-            page.wait_for_timeout(800)
-            if sys.platform == "win32" and self._focus_system_chrome_window():
-                vk_ctrl = 0x11
-                vk_c = 0x43
-                keyeventf_keyup = 0x0002
-                ctypes.windll.user32.keybd_event(vk_ctrl, 0, 0, 0)
-                time.sleep(0.08)
-                ctypes.windll.user32.keybd_event(vk_c, 0, 0, 0)
-                time.sleep(0.08)
-                ctypes.windll.user32.keybd_event(vk_c, 0, keyeventf_keyup, 0)
-                time.sleep(0.05)
-                ctypes.windll.user32.keybd_event(
-                    vk_ctrl, 0, keyeventf_keyup, 0
-                )
-                time.sleep(0.3)
-                selected = self._windows_clipboard_get_text() or ''
-                if old_clipboard is not None:
-                    self._windows_clipboard_set_text(old_clipboard)
-            else:
-                page.keyboard.press("Control+C")
-                page.wait_for_timeout(300)
-                selected = page.evaluate(r"""
-() => {
-  const sel = window.getSelection && window.getSelection();
-  return sel ? String(sel.toString() || '') : '';
-}
-                """)
-            page.wait_for_timeout(1200)
-            if not selected:
-                selected = page.evaluate(r"""
-() => {
-  const sel = window.getSelection && window.getSelection();
-  return sel ? String(sel.toString() || '') : '';
-}
-                """)
-        except Exception:
-            return None
-
-        if not selected or len(selected.strip()) < 80:
-            return None
-
-        # The selection is captured at this point; parsing below is pure text
-        # cleanup.
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            selected = selected
-        except Exception:
-            return None
-
-        try:
-            # fall through to common selection cleanup below
-            pass
-        except Exception:
-            return None
-
-        try:
-            # Keep this block shape small; older code below expects selected.
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-
-        try:
-            pass
-        except Exception:
-            return None
-            selected = page.evaluate(r"""
-() => {
-  const sel = window.getSelection && window.getSelection();
-  return sel ? String(sel.toString() || '') : '';
-}
-            """)
-        except Exception:
-            return None
-
-        if not selected or len(selected.strip()) < 80:
-            return None
-
-        def clean_line(value):
-            return re.sub(r'\s+', ' ', value or '').strip()
-
-        raw_lines = [
-            clean_line(line)
-            for line in re.split(r'[\r\n]+', selected)
-        ]
-        raw_lines = [line for line in raw_lines if line]
-
-        title = clean_line(chapter_name)
-        start = None
-        for i, line in enumerate(raw_lines):
-            if line == '기본':
-                start = i + 1
-                break
-        if start is None:
-            for i, line in enumerate(raw_lines):
-                if title and (line == title or title in line):
-                    start = i + 1
-                    break
-        if start is None:
-            start = 0
-
-        end = len(raw_lines)
-        for i in range(start, len(raw_lines)):
-            line = raw_lines[i]
-            if (
-                line.startswith('💬 댓글')
-                or line == '댓글'
-                or line.startswith('댓글을 작성하려면')
-            ):
-                end = i
-                break
-            if line == '‹ 이전화' and i > start + 3:
-                end = i
-                break
-
-        skip_re = re.compile(
-            r'^(글자|기본|[+\-−]|[0-9]+\s*px|‹ 이전화|이전화|'
-            r'목록|책갈피|다음화 ›|다음화|홈|웹툰|완결웹툰|만화|'
-            r'소설|애니|랭킹|북마크|최근본작품|로그인|회원가입)$'
+            if arg in ('-b', '--cookie') and i + 1 < len(args):
+                for item in args[i + 1].split(';'):
+                    if '=' in item:
+                        key, value = item.strip().split('=', 1)
+                        cookies[key] = value
+                i += 2
+                continue
+            i += 1
+
+        cookie_key = next(
+            (key for key in headers if key.lower() == 'cookie'),
+            None,
         )
-        lines = []
-        for line in raw_lines[start:end]:
-            if skip_re.match(line):
-                continue
-            if '본문을 불러올 수 없습니다' in line or '새로고침' in line:
-                continue
-            lines.append(line)
+        if cookie_key:
+            cookie_value = headers.pop(cookie_key)
+            for item in cookie_value.split(';'):
+                if '=' in item:
+                    key, value = item.strip().split('=', 1)
+                    cookies[key] = value
+        return headers, cookies
 
-        text = '\n\n'.join(lines).strip()
-        if len(text) < 80:
+    def _ntk_default_headers_and_cookies(self, url):
+        parsed = urllib.parse.urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        user_agent = (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/120.0.0.0 Safari/537.36'
+        )
+        accept_language = 'en-US,en;q=0.9'
+        sec_ch_ua = '"Chromium";v="120", "Google Chrome";v="120", "Not?A_Brand";v="99"'
+        sec_ch_mobile = '?0'
+        sec_ch_platform = '"Windows"'
+        curl_headers, curl_cookies = self._ntk_parse_curl_command(
+            self.ntk_curl_command
+        )
+
+        def header(name, fallback):
+            for key, value in curl_headers.items():
+                if key.lower() == name.lower():
+                    return value
+            return fallback
+
+        user_agent = header('user-agent', user_agent)
+        accept_language = header('accept-language', accept_language)
+        sec_ch_ua = header('sec-ch-ua', sec_ch_ua)
+        sec_ch_mobile = header('sec-ch-ua-mobile', sec_ch_mobile)
+        sec_ch_platform = header('sec-ch-ua-platform', sec_ch_platform)
+
+        doc_headers = {
+            'User-Agent': user_agent,
+            'Accept': header(
+                'accept',
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,*/*;q=0.8',
+            ),
+            'Accept-Language': accept_language,
+            'sec-ch-ua': sec_ch_ua,
+            'sec-ch-ua-mobile': sec_ch_mobile,
+            'sec-ch-ua-platform': sec_ch_platform,
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'same-origin',
+            'upgrade-insecure-requests': '1',
+        }
+        api_headers = {
+            'User-Agent': user_agent,
+            'Accept': '*/*',
+            'Accept-Language': accept_language,
+            'sec-ch-ua': sec_ch_ua,
+            'sec-ch-ua-mobile': sec_ch_mobile,
+            'sec-ch-ua-platform': sec_ch_platform,
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'x-novel-client': 'shadow-v2',
+            'Content-Type': 'application/json',
+        }
+        return {
+            'origin': origin,
+            'host': parsed.netloc,
+            'cookies': curl_cookies,
+            'user_agent': user_agent,
+            'doc_headers': {k: v for k, v in doc_headers.items() if v},
+            'api_headers': {k: v for k, v in api_headers.items() if v},
+            'from_curl': bool(curl_headers or curl_cookies),
+        }
+
+    def _ntk_browser_headers_and_cookies(self, url):
+        """Collect the verified visible Chrome session for API requests."""
+        if not self._page or not self._context:
             return None
+        parsed = urllib.parse.urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        try:
+            cookies = {
+                c.get('name'): c.get('value')
+                for c in self._context.cookies(origin)
+                if c.get('name') and c.get('value') is not None
+            }
+        except Exception:
+            cookies = {}
+        try:
+            ua_info = self._page.evaluate(r"""
+() => {
+  const uaData = navigator.userAgentData || null;
+  const brands = uaData && Array.isArray(uaData.brands)
+    ? uaData.brands.map((b) => `"${b.brand}";v="${b.version}"`).join(', ')
+    : '';
+  return {
+    userAgent: navigator.userAgent || '',
+    language: navigator.language || 'en-US,en;q=0.9',
+    brands,
+    mobile: uaData ? (uaData.mobile ? '?1' : '?0') : '?0',
+    platform: uaData && uaData.platform ? `"${uaData.platform}"` : '"Windows"'
+  };
+}
+            """) or {}
+        except Exception:
+            ua_info = {}
+        user_agent = ua_info.get('userAgent') or (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        )
+        accept_language = ua_info.get('language') or 'en-US,en;q=0.9'
+        sec_ch_ua = ua_info.get('brands') or '"Chromium";v="120", "Google Chrome";v="120"'
+        sec_ch_mobile = ua_info.get('mobile') or '?0'
+        sec_ch_platform = ua_info.get('platform') or '"Windows"'
 
+        doc_headers = {
+            'User-Agent': user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': accept_language,
+            'sec-ch-ua': sec_ch_ua,
+            'sec-ch-ua-mobile': sec_ch_mobile,
+            'sec-ch-ua-platform': sec_ch_platform,
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'same-origin',
+            'upgrade-insecure-requests': '1',
+        }
+        api_headers = {
+            'User-Agent': user_agent,
+            'Accept': '*/*',
+            'Accept-Language': accept_language,
+            'sec-ch-ua': sec_ch_ua,
+            'sec-ch-ua-mobile': sec_ch_mobile,
+            'sec-ch-ua-platform': sec_ch_platform,
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'x-novel-client': 'shadow-v2',
+            'Content-Type': 'application/json',
+        }
+        return {
+            'origin': origin,
+            'host': parsed.netloc,
+            'cookies': cookies,
+            'user_agent': user_agent,
+            'doc_headers': {k: v for k, v in doc_headers.items() if v},
+            'api_headers': {k: v for k, v in api_headers.items() if v},
+        }
+
+    def _ntk_create_api_session(self, state):
+        req, is_curl = self._ntk_requests_module()
+        try:
+            session = req.Session(impersonate='chrome120') if is_curl else req.Session()
+        except TypeError:
+            session = req.Session()
+        host = state.get('host') or 'ntk01.com'
+        for name, value in (state.get('cookies') or {}).items():
+            if name and name.lower() != 'nv':
+                try:
+                    session.cookies.set(name, value, domain=host)
+                except Exception:
+                    session.cookies.set(name, value)
+        return session
+
+    def _ntk_issue_nv(self, state, referer):
+        session = state.get('session')
+        if not session:
+            return False
+        headers = dict(state['api_headers'])
+        headers['Referer'] = referer or state.get('index_url') or state['origin']
+        try:
+            session.post(
+                state['origin'] + '/api/nv-issue',
+                headers=headers,
+                timeout=15,
+            )
+            return bool(session.cookies.get('nv'))
+        except Exception as e:
+            self.log(f"  [NewToki] nv issue failed: {e}")
+            return False
+
+    def _ntk_prepare_api_state(self, index_url, novel_id=None):
+        state = self._ntk_default_headers_and_cookies(index_url)
+        if self._page and self._context and not state.get('from_curl'):
+            browser_state = self._ntk_browser_headers_and_cookies(index_url)
+            if browser_state:
+                state = browser_state
+        state['novel_id'] = novel_id or self._ntk_novel_id_from_url(index_url)
+        state['index_url'] = index_url
+        state['session'] = self._ntk_create_api_session(state)
+        self._ntk_issue_nv(state, index_url)
+        self._ntk_api_state = state
+        return state
+
+    def _ntk_clone_api_state(self):
+        """Create an independent API session for a worker thread."""
+        base = self._ntk_api_state
+        if not base:
+            return None
+        state = {
+            key: value
+            for key, value in base.items()
+            if key != 'session'
+        }
+        state['session'] = self._ntk_create_api_session(state)
+        self._ntk_issue_nv(state, state.get('index_url') or state['origin'])
+        return state
+
+    def _ntk_request_get(self, session, url, headers):
+        return session.get(url, headers=headers, timeout=30)
+
+    def _ntk_request_post_json(self, session, url, payload, headers):
+        return session.post(url, json=payload, headers=headers, timeout=30)
+
+    def _ntk_clean_plaintext(self, text):
+        text = (text or '').replace('\r\n', '\n').replace('\r', '\n')
+        text = text.replace('\u200b', '').replace('\ufeff', '')
+        lines = [re.sub(r'[ \t]+', ' ', line).strip() for line in text.split('\n')]
+        chunks = []
+        blank = False
+        for line in lines:
+            if not line:
+                if chunks and not blank:
+                    chunks.append('')
+                blank = True
+                continue
+            chunks.append(line)
+            blank = False
+        return '\n'.join(chunks).strip()
+
+    def _ntk_build_text_chapter(self, title, plaintext, selector):
+        text = self._ntk_clean_plaintext(plaintext)
+        if not text:
+            return None
+        paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
+        if not paragraphs:
+            paragraphs = [line.strip() for line in text.split('\n') if line.strip()]
         content_html = '\n'.join(
-            f'<p>{html.escape(line)}</p>' for line in lines
+            f'<p>{html.escape(p).replace(chr(10), "<br/>")}</p>'
+            for p in paragraphs
         )
         return {
-            'chapterName': title or chapter_name or 'Chapter',
-            'sourceChapterName': chapter_name or title or 'Chapter',
+            'chapterName': title or 'Chapter',
+            'sourceChapterName': title or 'Chapter',
             'contentText': text,
             'contentHtml': content_html,
-            '_debugSelector': 'browser-selection Ctrl+A',
+            '_debugSelector': selector,
         }
 
+    def _ntk_parse_index_html(self, html_text, index_url):
+        novel_id = self._ntk_novel_id_from_url(index_url)
+        title_match = re.search(
+            r'<meta\s+property=["\']og:title["\']\s+content=["\']([^"\']+)',
+            html_text,
+            re.I,
+        ) or re.search(r'<title>([^<]+)</title>', html_text, re.I)
+        raw_title = html.unescape(title_match.group(1)).strip() if title_match else f'Novel_{novel_id}'
+        raw_title = re.split(r'\s+[-|]\s+', raw_title)[0].strip()
+
+        desc_match = re.search(
+            r'<meta\s+(?:name|property)=["\'](?:description|og:description)["\']\s+content=["\']([^"\']*)',
+            html_text,
+            re.I,
+        )
+        intro = html.unescape(desc_match.group(1)).strip() if desc_match else ''
+        cover_match = re.search(
+            r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)',
+            html_text,
+            re.I,
+        )
+        cover = urllib.parse.urljoin(index_url, html.unescape(cover_match.group(1))) if cover_match else ''
+
+        ep_blocks = re.findall(
+            r'<li\s+data-ep=["\'](\d+)["\'][^>]*>.*?href=["\']([^"\']+)["\'].*?<span\s+class=["\']ne-title["\']>(.*?)</span>',
+            html_text,
+            re.I | re.S,
+        )
+        chapters = []
+        seen = set()
+        for ep_num, href, ep_title in ep_blocks:
+            url = urllib.parse.urljoin(index_url, html.unescape(href))
+            ep_id = self._ntk_episode_id_from_url(url)
+            if not ep_id or ep_id in seen:
+                continue
+            seen.add(ep_id)
+            title = re.sub(r'<[^>]+>', '', ep_title)
+            title = html.unescape(re.sub(r'\s+', ' ', title)).strip()
+            try:
+                number = int(ep_num)
+            except Exception:
+                number = len(chapters) + 1
+            name = title or f'{number}\ud654'
+            chapters.append({
+                'url': url,
+                'name': name,
+                'fullName': name,
+                'number': number,
+                'episodeId': ep_id,
+                'isVIP': False,
+                'isPaid': False,
+            })
+        chapters.sort(key=lambda ch: (ch.get('number') or 10**12, ch.get('episodeId') or ''))
+        return {
+            'bookUrl': index_url,
+            'bookname': raw_title,
+            'author': '',
+            'coverUrl': cover,
+            'introduction': intro,
+            'introductionHTML': f'<p>{html.escape(intro)}</p>' if intro else '',
+            'language': 'ko',
+            'tags': [],
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+        }
+
+    def _ntk_fetch_index_via_api_session(self, url, state):
+        session = state.get('session')
+        headers = dict(state['doc_headers'])
+        headers['Referer'] = state['origin'] + '/'
+        try:
+            response = self._ntk_request_get(session, url, headers)
+        except Exception as e:
+            self.log(f"ERROR: [NewToki] Index request failed: {e}")
+            return None
+        cf_keywords = ('cf-browser-verification', 'Just a moment', 'Ray ID')
+        if response.status_code in (403, 503) or any(k in response.text for k in cf_keywords):
+            self.log(
+                f"ERROR: [NewToki] Cloudflare blocked API-session index "
+                f"request (HTTP {response.status_code})."
+            )
+            return None
+        if response.status_code != 200:
+            self.log(
+                f"ERROR: [NewToki] Index request returned HTTP "
+                f"{response.status_code}."
+            )
+            return None
+        return response.text
+
+    def _ntk_fetch_chapter_api(self, chapter_url, chapter_name, state=None):
+        state = state or self._ntk_api_state
+        if not state:
+            state = self._ntk_prepare_api_state(self._book_url or chapter_url)
+        if not state or not state.get('session'):
+            self.log("  [NewToki] API session is not ready.")
+            return None
+
+        session = state['session']
+        novel_id = state.get('novel_id') or self._ntk_novel_id_from_url(chapter_url)
+        episode_id = self._ntk_episode_id_from_url(chapter_url)
+        if not novel_id or not episode_id:
+            self.log(f"  [NewToki] Invalid chapter URL: {chapter_url}")
+            return None
+
+        for attempt in range(1, 7):
+            if self._stop_requested:
+                return None
+            try:
+                doc_headers = dict(state['doc_headers'])
+                doc_headers['Referer'] = state.get('index_url') or self._book_url or state['origin']
+                cache_bust = int(time.time() * 1000)
+                chapter_page_url = f"{chapter_url}?cb={cache_bust}"
+                chapter_res = self._ntk_request_get(session, chapter_page_url, doc_headers)
+                if (
+                    chapter_res.status_code != 200
+                    or 'Just a moment' in chapter_res.text
+                    or 'cf-browser-verification' in chapter_res.text
+                ):
+                    self.log(
+                        f"  [NewToki] Chapter HTML blocked/failed "
+                        f"(attempt {attempt}/6, HTTP {chapter_res.status_code})."
+                    )
+                    time.sleep(0.5)
+                    continue
+
+                if '\ubcf8\ubb38\uc774 \uc544\uc9c1 \uc900\ube44\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4' in chapter_res.text:
+                    self.log(f"  [NewToki] Chapter not ready: {chapter_name}")
+                    return None
+
+                token_match = re.search(r'\\"token\\":\\"([^\\"]+)\\"', chapter_res.text)
+                if not token_match:
+                    token_match = re.search(r'"token"\s*:\s*"([^"]+)"', chapter_res.text)
+                if not token_match:
+                    self.log(f"  [NewToki] No content token found (attempt {attempt}/6).")
+                    time.sleep(0.4)
+                    continue
+                token = token_match.group(1)
+
+                nv_cookie = session.cookies.get('nv')
+                if not nv_cookie:
+                    self._ntk_issue_nv(state, chapter_url)
+                    nv_cookie = session.cookies.get('nv')
+                if not nv_cookie:
+                    self.log(f"  [NewToki] nv cookie missing (attempt {attempt}/6).")
+                    time.sleep(0.4)
+                    continue
+
+                nonce = self._ntk_b64url_encode(os.urandom(24))
+                message = f"{token}.{nonce}.{state['user_agent']}".encode('utf-8')
+                proof = self._ntk_b64url_encode(
+                    hmac.new(nv_cookie.encode('utf-8'), message, hashlib.sha256).digest()
+                )
+                payload = {
+                    'novelId': novel_id,
+                    'episodeId': episode_id,
+                    'token': token,
+                    'nonce': nonce,
+                    'proof': proof,
+                }
+                api_headers = dict(state['api_headers'])
+                api_headers['Referer'] = chapter_url
+                content_res = self._ntk_request_post_json(
+                    session,
+                    state['origin'] + '/api/novel-content',
+                    payload,
+                    api_headers,
+                )
+                try:
+                    content_json = content_res.json()
+                except Exception:
+                    self.log(f"  [NewToki] Content API returned non-JSON (attempt {attempt}/6).")
+                    time.sleep(0.4)
+                    continue
+
+                if not content_json.get('ok'):
+                    error = content_json.get('error') or 'unknown'
+                    if error == 'expired':
+                        self._ntk_issue_nv(state, chapter_url)
+                    elif error == 'blocked':
+                        self.log("  [NewToki] Content API reported blocked.")
+                        return None
+                    else:
+                        self.log(f"  [NewToki] Content API error: {error}")
+                    time.sleep(0.5)
+                    continue
+
+                encrypted_payload = content_json.get('payload') or ''
+                key_text = nv_cookie.split('.')[0]
+                key = self._ntk_b64url_decode(key_text)
+                encrypted = self._ntk_b64url_decode(encrypted_payload)
+                decrypted = bytearray(len(encrypted))
+                for i, value in enumerate(encrypted):
+                    decrypted[i] = value ^ key[i % len(key)]
+                plaintext = decrypted.decode('utf-8')
+                data = self._ntk_build_text_chapter(
+                    chapter_name,
+                    plaintext,
+                    'ntk api/novel-content',
+                )
+                if data and len(data.get('contentText', '')) >= 40:
+                    return data
+                self.log(f"  [NewToki] Decrypted content was empty/short (attempt {attempt}/6).")
+            except Exception as e:
+                self.log(f"  [NewToki] API chapter attempt {attempt}/6 failed: {e}")
+            time.sleep(0.5)
+        return None
+
     def _ntk_dump_debug_page(self, page, label):
-        """Save rendered NewToki page state for selector debugging."""
+        """Save rendered NewToki page state for debugging only."""
         try:
             logs_dir = os.path.join(_get_base_dir(), 'logs')
             os.makedirs(logs_dir, exist_ok=True)
             safe_label = re.sub(r'[^A-Za-z0-9._-]+', '_', label or 'chapter')
             safe_label = safe_label.strip('._')[:80] or 'chapter'
             stamp = time.strftime('%Y%m%d_%H%M%S')
-            base = os.path.join(logs_dir, f'ntk_debug_{stamp}_{safe_label}')
-
-            html_path = base + '.html'
-            text_path = base + '.txt'
-            summary_path = base + '_summary.json'
-
-            try:
-                html_text = page.content()
-            except Exception:
-                html_text = ''
+            html_path = os.path.join(logs_dir, f'ntk_debug_{stamp}_{safe_label}.html')
             with open(html_path, 'w', encoding='utf-8') as f:
-                f.write(html_text)
-
-            try:
-                visible_text = page.locator('body').inner_text(timeout=3000)
-            except Exception:
-                visible_text = ''
-            with open(text_path, 'w', encoding='utf-8') as f:
-                f.write(visible_text)
-
-            try:
-                summary = page.evaluate(r"""
-() => {
-  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  const css = (el) => {
-    const id = el.id ? '#' + el.id : '';
-    let cls = '';
-    if (typeof el.className === 'string' && el.className) {
-      cls = '.' + el.className.replace(/\s+/g, '.').slice(0, 180);
-    }
-    return el.tagName.toLowerCase() + id + cls;
-  };
-  const rect = (el) => {
-    const r = el.getBoundingClientRect();
-    return [
-      Math.round(r.x), Math.round(r.y),
-      Math.round(r.width), Math.round(r.height)
-    ];
-  };
-  const nodes = Array.from(document.querySelectorAll('body *'))
-    .map((el) => {
-      const text = clean(el.innerText || el.textContent);
-      const style = getComputedStyle(el);
-      return {
-        selector: css(el),
-        parent: el.parentElement ? css(el.parentElement) : '',
-        textLength: text.length,
-        htmlLength: (el.innerHTML || '').length,
-        pCount: el.querySelectorAll('p').length,
-        brCount: el.querySelectorAll('br').length,
-        imgCount: el.querySelectorAll('img').length,
-        childCount: el.children.length,
-        visible: (
-          style.display !== 'none' &&
-          style.visibility !== 'hidden' &&
-          rect(el)[2] > 0 &&
-          rect(el)[3] > 0
-        ),
-        rect: rect(el),
-        sample: text.slice(0, 160)
-      };
-    })
-    .filter((item) => item.textLength > 20 || item.htmlLength > 500)
-    .sort((a, b) => {
-      const as = a.textLength + a.pCount * 500 + a.brCount * 80;
-      const bs = b.textLength + b.pCount * 500 + b.brCount * 80;
-      return bs - as;
-    })
-    .slice(0, 150);
-  return {
-    url: location.href,
-    title: document.title,
-    bodyTextLength: clean(document.body && document.body.innerText).length,
-    nodes
-  };
-}
-                """)
-            except Exception as e:
-                summary = {'error': str(e)}
-            with open(summary_path, 'w', encoding='utf-8') as f:
-                json.dump(summary, f, ensure_ascii=False, indent=2)
-
+                f.write(page.content() if page else '')
             self.log(f"  [NewToki] Debug dump saved: {html_path}")
-            self.log(f"  [NewToki] Debug text saved: {text_path}")
-            self.log(f"  [NewToki] Debug summary saved: {summary_path}")
             return html_path
         except Exception as e:
             self.log(f"  [NewToki] Debug dump failed: {e}")
             return None
 
     def _ntk_parse_book(self, url):
-        """Scrape ntk novel metadata and episode list from the DOM."""
-        if not self._start_ntk_browser(url):
-            return None
-
+        """Scrape ntk metadata using the site's encrypted content API."""
         self._stop_requested = False
-        self.log("[NewToki] Detected ntk novel URL, using native scraper.")
-        self.log(f"Navigating to: {url}")
-        try:
-            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            self._page.wait_for_timeout(1500)
-        except Exception as e:
-            self.log(f"ERROR: [NewToki] Page load failed: {e}")
+        self.log(
+            "[NewToki] Detected ntk novel URL, using curl_cffi API scraper."
+        )
+        self.log(f"[NewToki] Fetching index via Chrome-impersonated HTTP: {url}")
+
+        novel_id = self._ntk_novel_id_from_url(url)
+        state = self._ntk_prepare_api_state(url, novel_id)
+        if not state:
+            self.log("ERROR: [NewToki] Could not create API session.")
             return None
 
-        if not self._ntk_wait_for_access(self._page):
+        index_html = self._ntk_fetch_index_via_api_session(url, state)
+        if not index_html:
             self.log(
-                "ERROR: [NewToki] Cloudflare verification did not clear. "
-                "Try the URL in your normal browser, or wait and retry; the "
-                "site is rejecting automated access from this profile."
+                "ERROR: [NewToki] Direct curl_cffi index fetch failed. "
+                "If Cloudflare is stricter on your IP, set NPIA_NTK_CURL "
+                "to a copied Chrome cURL request and retry."
             )
             return None
-
-        try:
-            data = self._page.evaluate(r"""
-(() => {
-  const abs = (href) => {
-    try { return new URL(href, location.href).href; } catch (e) { return ''; }
-  };
-  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  const pathMatch = location.pathname.match(/^\/novel\/(\d+)/);
-  const bookId = pathMatch ? pathMatch[1] : '';
-
-  const meta = (name) => {
-    const el = document.querySelector(
-      `meta[property="${name}"], meta[name="${name}"]`
-    );
-    return el ? clean(el.getAttribute('content')) : '';
-  };
-
-  const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
-  }[c]));
-
-  const h1 = document.querySelector('h1');
-  let title = clean(h1 && h1.innerText) || meta('og:title') ||
-    clean(document.title).replace(/\s*[|-]\s*뉴토끼\s*$/i, '');
-
-  const coverEl = Array.from(document.images).find((img) => {
-    const alt = clean(img.alt);
-    const src = img.currentSrc || img.src || '';
-    return src && (!title || alt === title || alt.includes(title) ||
-      /cover|thumb|poster|novel/i.test(src + ' ' + img.className));
-  }) || document.querySelector('meta[property="og:image"]');
-  let cover = '';
-  if (coverEl) {
-    cover = coverEl.tagName === 'META'
-      ? abs(coverEl.getAttribute('content'))
-      : abs(coverEl.currentSrc || coverEl.src);
-  }
-
-  const shortTexts = Array.from(document.querySelectorAll('main *, article *, body *'))
-    .map((el) => clean(el.innerText || el.textContent))
-    .filter((t, i, arr) => t && t.length < 220 && arr.indexOf(t) === i);
-
-  const infoLine = shortTexts.find((t) =>
-    t.includes('·') && /\d+\s*화/.test(t) && t.length < 220
-  ) || '';
-  let author = '';
-  let tags = [];
-  if (infoLine) {
-    const parts = infoLine.split('·').map(clean).filter(Boolean);
-    author = parts[0] || '';
-    if (parts.length > 1) {
-      tags = parts.slice(1, -1)
-        .join(',')
-        .split(',')
-        .map(clean)
-        .filter((t) => t && !/\d+\s*화/.test(t));
-    }
-  }
-
-  const introNode = Array.from(
-    document.querySelectorAll('main p, article p, main div, article div')
-  ).map((el) => ({ el, text: clean(el.innerText || el.textContent) }))
-    .filter(({ text }) =>
-      text.length >= 40 &&
-      !text.includes('에피소드') &&
-      !text.includes('1화부터 보기') &&
-      !text.includes('최신화부터') &&
-      (text.match(/화/g) || []).length < 4
-    )
-    .sort((a, b) => b.text.length - a.text.length)[0];
-  const intro = introNode ? introNode.text : meta('description');
-
-  const seen = new Set();
-  const chapters = [];
-  const rx = new RegExp(`^/novel/${bookId}/\\d+/?$`);
-  for (const a of Array.from(document.querySelectorAll('a[href]'))) {
-    const href = abs(a.getAttribute('href'));
-    if (!href) continue;
-    let parsed;
-    try { parsed = new URL(href); } catch (e) { continue; }
-    if (!rx.test(parsed.pathname) || seen.has(parsed.href)) continue;
-    seen.add(parsed.href);
-
-    let text = clean(a.innerText || a.textContent);
-    if (/^(최신화부터)/.test(text)) {
-      continue;
-    }
-    text = text
-      .replace(/▶\s*보기/g, '')
-      .replace(/[›»]+/g, '')
-      .replace(/\bNEW\b/gi, '')
-      .replace(/\d{2}\.?\s*\d{2}\.?\s*\d{2}\.?\s*$/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!text) text = `Chapter ${chapters.length + 1}`;
-    if (/^(최신화부터)/.test(text)) {
-      continue;
-    }
-    if (/^(1\s*화부터\s*보기|첫화부터|처음부터)/.test(text)) {
-      text = '1화';
-    }
-    const m = text.match(/(\d+)\s*화/);
-    const number = m ? Number(m[1]) : chapters.length + 1;
-    chapters.push({
-      url: parsed.href,
-      name: text,
-      fullName: text,
-      number,
-      isVIP: false,
-      isPaid: false
-    });
-  }
-
-  chapters.sort((a, b) => {
-    const an = a.number || 0;
-    const bn = b.number || 0;
-    if (an && bn && an !== bn) return an - bn;
-    return a.url.localeCompare(b.url, undefined, { numeric: true });
-  });
-
-  return {
-    bookUrl: location.href,
-    bookname: title,
-    author,
-    coverUrl: cover,
-    introduction: intro || '',
-    introductionHTML: intro ? `<p>${escapeHtml(intro)}</p>` : '',
-    language: 'ko',
-    tags,
-    chapterCount: chapters.length,
-    chapters
-  };
-})()
-            """)
-        except Exception as e:
-            self.log(f"ERROR: [NewToki] Book parse failed: {e}")
-            return None
-
+        data = self._ntk_parse_index_html(index_html, url)
         chapters = data.get('chapters') or []
         if not chapters:
             self.log("ERROR: [NewToki] No episode links found on page.")
             return None
 
         data['_ntk_novel'] = True
+        data['_ntk_api'] = True
+        data['_ntk_novel_id'] = novel_id
         self._book_data = data
         self._book_url = url
         self.log(
-            f"[NewToki] Book: {data.get('bookname', '?')} by "
-            f"{data.get('author', '?')} - {len(chapters)} chapters"
+            f"[NewToki] Book: {data.get('bookname', '?')} - "
+            f"{len(chapters)} chapters"
         )
         return data
 
     def _ntk_parse_chapter(self, chapter_url, chapter_name, page=None):
-        """Scrape one ntk novel reader page into text and HTML."""
-        target = page or self._page
-        if target is None:
-            if not self._ensure_page():
-                return None
-            target = self._page
-
-        opened_via_list = self._ntk_open_chapter_via_list(
-            target, chapter_url, chapter_name
-        )
-        if not opened_via_list:
-            self.log(
-                f"  [NewToki] Episode list click failed; direct-opening: "
-                f"{chapter_name}"
-            )
-            try:
-                target.goto(chapter_url, wait_until="domcontentloaded",
-                            timeout=30000)
-                target.wait_for_timeout(1000)
-            except Exception as e:
-                self.log(f"  [NewToki] Page load failed: {e}")
-                return None
-
-        if not self._ntk_wait_for_access(target):
-            self.log(
-                "  [NewToki] Cloudflare verification did not clear."
-            )
-            return None
-        try:
-            target.wait_for_function(r"""
-() => {
-  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
-  if (!viewer) return false;
-  const text = clean(viewer.innerText || viewer.textContent);
-  return (
-    text.length > 120
-  );
-}
-            """, timeout=8000)
-        except Exception:
-            pass
-
-        for attempt in range(3):
-            data = self._ntk_extract_browser_selection_text(
-                target, chapter_name
-            )
-            if data:
-                self.log(
-                    "  [NewToki] Used visible browser Ctrl+A selection "
-                    "extraction."
-                )
-                debug_selector = data.pop('_debugSelector', '')
-                if debug_selector:
-                    self.log(f"  [NewToki] Content selector: {debug_selector}")
-                return data
-            self.log(
-                f"  [NewToki] Visible Ctrl+A selection attempt "
-                f"{attempt + 1}/3 did not capture chapter text."
-            )
-            try:
-                target.wait_for_timeout(3000)
-            except Exception:
-                time.sleep(3)
-
-        self.log(
-            f"  [NewToki] Visible browser selection failed: {chapter_name}"
-        )
-        self._ntk_dump_debug_page(target, chapter_name)
+        """Fetch one ntk chapter through /api/novel-content."""
+        data = self._ntk_fetch_chapter_api(chapter_url, chapter_name)
+        if data:
+            debug_selector = data.pop('_debugSelector', '')
+            self.log("  [NewToki] Used encrypted content API.")
+            if debug_selector:
+                self.log(f"  [NewToki] Content selector: {debug_selector}")
+            return data
+        self.log(f"  [NewToki] API chapter fetch failed: {chapter_name}")
         return None
-
-        try:
-            data = target.evaluate(r"""
-(fallbackName) => {
-  const clean = (s) => (s || '').replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
-  const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
-  }[c]));
-  const commentLogin = '\ub313\uae00\uc744 \uc791\uc131\ud558\ub824\uba74 \ub85c\uadf8\uc778\uc774 \ud544\uc694\ud569\ub2c8\ub2e4';
-  const badTextRe = new RegExp([
-    commentLogin,
-    '\ub313\uae00', '\ub85c\uadf8\uc778', '\ud68c\uc6d0\uac00\uc785',
-    'comment', 'reply'
-  ].join('|'), 'i');
-  const navTextRe = new RegExp([
-    '\uc774\uc804\ud654', '\ub2e4\uc74c\ud654', '\ubaa9\ub85d',
-    '\uc990\uaca8\ucc3e\uae30', '\ucd94\ucc9c', '\ub313\uae00'
-  ].join('|'), 'g');
-  const titleText = clean(
-    (document.querySelector('h1, h2') || {}).innerText ||
-    document.title.replace(/\s*[|-]\s*뉴토끼\s*$/i, '')
-  ) || fallbackName || 'Chapter';
-
-  const selectors = [
-    '#novel_content', '.novel_content', '.novel-content',
-    'article.novel-viewer', '.novel-viewer',
-    '#novel_view', '.novel_view', '.novel-view',
-    '#view_content', '.view_content', '.view-content',
-    '#bo_v_con', '.bo_v_con', '.wr_content',
-    '.view-padding', '.view-wrap', '.view_area', '.view-area',
-    '.toon-content', '.reading-content', '.entry-content',
-    'article', 'main article', 'main',
-    '.novel-content', '.episode-content', '.view-content',
-    '.viewer', '.reader', '.content', '#content',
-    '.wr_content', '#bo_v_con', '.board-view',
-    'main div', 'main section'
-  ];
-  const candidates = [];
-  for (const sel of selectors) {
-    for (const el of Array.from(document.querySelectorAll(sel))) {
-      const text = clean(el.innerText || el.textContent);
-      if (text.length < 120) continue;
-      if (/본문을\s*불러올\s*수\s*없습니다|새로고침/.test(text)) continue;
-      const ident = `${el.tagName}#${el.id}.${el.className}`;
-      if (badTextRe.test(text) && text.length < 800) continue;
-      const rect = el.getBoundingClientRect();
-      if (rect.width < 300 || rect.height < 80) continue;
-      const linkText = Array.from(el.querySelectorAll('a'))
-        .map((a) => clean(a.innerText || a.textContent)).join(' ');
-      const paragraphCount = el.querySelectorAll('p, br').length;
-      const navHits = (text.match(navTextRe) || []).length;
-      const badHits = badTextRe.test(text + ' ' + ident) ? 1 : 0;
-      const selectorBonus = /novel|view|bo_v_con|wr_content|reader|toon|reading|entry/i.test(ident) ? 900 : 0;
-      const bodyPenalty = el === document.body || el.tagName === 'MAIN' ? 500 : 0;
-      const cardBonus = (
-        el.tagName === 'DIV' &&
-        rect.width >= 500 &&
-        rect.height >= 250 &&
-        linkText.length < text.length * 0.25
-      ) ? 1200 : 0;
-      const score = (
-        text.length +
-        paragraphCount * 120 +
-        selectorBonus +
-        cardBonus -
-        linkText.length * 2 -
-        navHits * 350 -
-        badHits * 5000 -
-        bodyPenalty
-      );
-      candidates.push({ el, text, score, ident });
-    }
-  }
-  if (!candidates.length) {
-    const bodyClone = document.body.cloneNode(true);
-    bodyClone.querySelectorAll([
-      'script', 'style', 'noscript', 'iframe', 'form', 'button', 'input',
-      'select', 'textarea', 'nav', 'header', 'footer', 'aside',
-      '[class*="comment" i]', '[id*="comment" i]', '[class*="reply" i]',
-      '[id*="reply" i]', '[class*="login" i]', '[id*="login" i]'
-    ].join(',')).forEach((el) => el.remove());
-    const text = clean(bodyClone.innerText || bodyClone.textContent);
-    candidates.push({
-      el: bodyClone,
-      text,
-      score: text.length - 1000,
-      ident: 'body-fallback'
-    });
-  }
-  candidates.sort((a, b) => b.score - a.score);
-
-  const selected = candidates[0];
-  const clone = selected.el.cloneNode(true);
-  const junk = [
-    'script', 'style', 'noscript', 'iframe', 'form', 'button', 'input',
-    'select', 'textarea', 'nav', 'header', 'footer', 'aside',
-    '[class*="comment" i]', '[id*="comment" i]', '[class*="reply" i]',
-    '[id*="reply" i]', '[class*="login" i]', '[id*="login" i]',
-    '[class*="episode" i]', '[id*="episode" i]',
-    '[class*="list" i]', '[id*="list" i]', '[class*="breadcrumb" i]',
-    '[class*="paging" i]', '[class*="pagination" i]',
-    '[class*="recommend" i]', '[class*="share" i]',
-    '[class*="ads" i]', '[class*="ad-" i]', '[id*="ads" i]',
-    '[class*="nav" i]', '[id*="nav" i]'
-  ].join(',');
-  clone.querySelectorAll(junk).forEach((el) => el.remove());
-
-  clone.querySelectorAll('a').forEach((a) => {
-    const t = clean(a.innerText || a.textContent);
-    if (/^(이전화|다음화|목록|즐겨찾기|최신화|첫화)/.test(t)) {
-      const parent = a.parentElement;
-      a.remove();
-      if (parent && clean(parent.innerText).length < 20) parent.remove();
-    }
-  });
-  clone.querySelectorAll('h1,h2').forEach((h) => {
-    const t = clean(h.innerText || h.textContent);
-    if (t === titleText || titleText.includes(t)) h.remove();
-  });
-
-  let rawLines = Array.from(clone.querySelectorAll('p'))
-    .map((p) => clean(p.innerText || p.textContent))
-    .filter(Boolean);
-  if (!rawLines.length) {
-    rawLines = clean(clone.innerText || clone.textContent)
-      .split(/\n+/)
-      .map(clean);
-  }
-  const lines = rawLines
-    .filter((line) =>
-      line &&
-      line !== titleText &&
-      line !== commentLogin &&
-      !line.includes(commentLogin) &&
-      !/^(이전화|다음화|목록|즐겨찾기|추천|댓글)$/.test(line) &&
-      !/^\d+\s*화\s*$/.test(line)
-    );
-
-  const text = lines.join('\n\n').trim();
-  const parts = [];
-  for (const img of Array.from(clone.querySelectorAll('img[src], img[data-src]'))) {
-    const src = img.currentSrc || img.src || img.getAttribute('data-src');
-    if (src) {
-      parts.push(`<p><img src="${escapeHtml(new URL(src, location.href).href)}" alt="${escapeHtml(img.alt || titleText)}"/></p>`);
-    }
-  }
-  if (lines.length) {
-    parts.push(...lines.map((line) => `<p>${escapeHtml(line)}</p>`));
-  }
-
-  return {
-    chapterName: titleText,
-    sourceChapterName: fallbackName || titleText,
-    contentText: text,
-    contentHtml: parts.join('\n'),
-    _debugSelector: selected.ident || '',
-    _debugScore: selected.score || 0
-  };
-}
-            """, chapter_name)
-        except Exception as e:
-            self.log(f"  [NewToki] Chapter parse failed: {e}")
-            return None
-
-        if not data or not (data.get('contentText') or data.get('contentHtml')):
-            fallback = self._ntk_extract_visible_reader_text(
-                target, chapter_name
-            )
-            if fallback:
-                self.log("  [NewToki] Used visible reader text fallback.")
-                data = fallback
-            else:
-                fallback = self._ntk_extract_browser_selection_text(
-                    target, chapter_name
-                )
-                if fallback:
-                    self.log(
-                        "  [NewToki] Used browser Ctrl+A selection fallback."
-                    )
-                    data = fallback
-
-        if not data or not (data.get('contentText') or data.get('contentHtml')):
-            self.log(f"  [NewToki] Empty chapter content: {chapter_name}")
-            self._ntk_dump_debug_page(target, chapter_name)
-            return None
-        text = (data.get('contentText') or '').strip()
-        comment_login = '댓글을 작성하려면 로그인이 필요합니다'
-        load_error = '본문을 불러올 수 없습니다'
-        if text == comment_login or (comment_login in text and len(text) < 800):
-            self.log(
-                "  [NewToki] Rejected comment/login block instead of "
-                f"chapter body: {chapter_name}"
-            )
-            self._ntk_dump_debug_page(target, chapter_name)
-            return None
-        if load_error in text or '새로고침' in text:
-            fallback = self._ntk_extract_visible_reader_text(
-                target, chapter_name
-            )
-            if fallback:
-                self.log("  [NewToki] Used visible reader text fallback.")
-                data = fallback
-                text = (data.get('contentText') or '').strip()
-            else:
-                fallback = self._ntk_extract_browser_selection_text(
-                    target, chapter_name
-                )
-                if fallback:
-                    self.log(
-                        "  [NewToki] Used browser Ctrl+A selection fallback."
-                    )
-                    data = fallback
-                    text = (data.get('contentText') or '').strip()
-                else:
-                    self.log(
-                        "  [NewToki] Rejected load-error block instead of "
-                        f"chapter body: {chapter_name}"
-                    )
-                    self._ntk_dump_debug_page(target, chapter_name)
-                    return None
-        if load_error in text or '새로고침' in text:
-            self.log(
-                "  [NewToki] Rejected load-error block instead of "
-                f"chapter body: {chapter_name}"
-            )
-            self._ntk_dump_debug_page(target, chapter_name)
-            return None
-        if len(text) < 40 and not data.get('images'):
-            self.log(f"  [NewToki] Chapter content too short: {chapter_name}")
-            self._ntk_dump_debug_page(target, chapter_name)
-            return None
-        debug_selector = data.pop('_debugSelector', '')
-        data.pop('_debugScore', None)
-        if debug_selector:
-            self.log(f"  [NewToki] Content selector: {debug_selector}")
-        if debug_selector == 'body-fallback':
-            self._ntk_dump_debug_page(target, chapter_name)
-        return data
 
     def _kakao_parse_book(self, url):
         """Scrape book metadata + episode list from a KakaoPage content page.
@@ -3983,7 +2751,7 @@ class ExternalScraper:
             target_page = page or self._page
             result = self._ntk_parse_chapter(url, name, page=target_page)
             if interval > 0:
-                time.sleep(interval)
+                time.sleep(min(interval, 0.15))
             return result
 
         target_page = page or self._page
@@ -4068,20 +2836,21 @@ class ExternalScraper:
                     time.sleep(interval)
             return results
         if self._book_data and self._book_data.get('_ntk_novel'):
-            results = []
-            for i, ch in enumerate(batch_info):
+            from concurrent.futures import ThreadPoolExecutor
+
+            def fetch_one(ch):
                 if self._stop_requested:
-                    results.append(None)
-                    continue
-                data = self._ntk_parse_chapter(
+                    return None
+                state = self._ntk_clone_api_state() or self._ntk_api_state
+                return self._ntk_fetch_chapter_api(
                     ch.get('url', ''),
                     ch.get('fullName', '') or ch.get('name', ''),
-                    page=self._page
+                    state=state,
                 )
-                results.append(data)
-                if interval > 0 and i < len(batch_info) - 1:
-                    time.sleep(interval)
-            return results
+
+            max_workers = max(1, min(5, len(batch_info)))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                return list(executor.map(fetch_one, batch_info))
 
         # Ensure the browser page is still alive
         if not self._ensure_page():

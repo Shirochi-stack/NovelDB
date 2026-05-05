@@ -172,6 +172,7 @@ This project is a fork of CjangCjengh's NovelpiaDownloader and is intended for p
 ### Credits
 
 - **[novel-downloader](https://github.com/404-novel-project/novel-downloader)** by [404-novel-project](https://github.com/404-novel-project) — Powers the external novel download feature with support for 100+ sites.
+- **[NTKDownloader](https://github.com/tyuop077/NTKDownloader/tree/main)** by [tyuop077](https://github.com/tyuop077) — Reference implementation for the NewToki `curl_cffi` Chrome impersonation, `nv` issue flow, HMAC-signed `/api/novel-content` requests, and payload decryption approach used by this project.
 - **[CjangCjengh/NovelpiaDownloader](https://github.com/CjangCjengh/NovelpiaDownloader)** — Original Novelpia downloader this project is forked from.
 
 -----

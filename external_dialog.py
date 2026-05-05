@@ -353,7 +353,8 @@ class ExternalNovelDialog(tk.Toplevel):
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
-                self._scraper.start()
+                if not self._scraper.is_ntk_novel(url):
+                    self._scraper.start()
             self._apply_scraper_options()
 
             data = self._scraper.parse_book(url)
@@ -379,7 +380,10 @@ class ExternalNovelDialog(tk.Toplevel):
             # Ensure the headless browser is alive.  After "Enter Browser"
             # the context is destroyed; start() re-launches it with fresh
             # cookies from browser_data (including any new login sessions).
-            if self._scraper and not self._scraper._context:
+            is_ntk = bool(
+                self._book_data and self._book_data.get("_ntk_novel")
+            )
+            if self._scraper and not self._scraper._context and not is_ntk:
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
                 # originate from the kakao.com domain.  The BFF API
@@ -667,7 +671,8 @@ class ExternalNovelDialog(tk.Toplevel):
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
-                self._scraper.start()
+                if not self._scraper.is_ntk_novel(url):
+                    self._scraper.start()
             self._apply_scraper_options()
 
             data = self._scraper.parse_book(url)
@@ -841,13 +846,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
         if self._scraper is None:
             self._scraper = ExternalScraper(logger=self._log)
-            self._scraper.start()
         self._apply_scraper_options()
-
-        # Ensure the headless browser is alive
-        if not self._scraper._context:
-            self._scraper.start()
-            self._apply_scraper_options()
 
         total_urls = len(urls)
         for url_idx, url in enumerate(urls):
@@ -865,6 +864,9 @@ class ExternalNovelDialog(tk.Toplevel):
 
             # Fetch metadata
             try:
+                if not self._scraper.is_ntk_novel(url) and not self._scraper._context:
+                    self._scraper.start()
+                    self._apply_scraper_options()
                 data = self._scraper.parse_book(url)
             except Exception as e:
                 self._log(f"\u274c Fetch failed: {e}")
