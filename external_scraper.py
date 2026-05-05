@@ -268,10 +268,12 @@ class ExternalScraper:
         profile = os.path.abspath(user_data_dir).replace("'", "''")
         script = (
             "$needle = '" + profile + "'.ToLowerInvariant();\n"
+            "$profileName = 'ntk_chrome_profile';\n"
             "$matches = @(Get-CimInstance Win32_Process -Filter "
             "\"name = 'chrome.exe'\" | Where-Object { "
             "$_.CommandLine -and "
-            "$_.CommandLine.ToLowerInvariant().Contains($needle) "
+            "($_.CommandLine.ToLowerInvariant().Contains($needle) -or "
+            "$_.CommandLine.ToLowerInvariant().Contains($profileName)) "
             "});\n"
             "$count = $matches.Count;\n"
             "foreach ($p in $matches) { "
@@ -294,6 +296,37 @@ class ExternalScraper:
         if count:
             time.sleep(1.0)
         return count
+
+    def _close_ntk_temp_chrome_now(self):
+        """Force-close the temporary NTK Chrome without waiting on storage APIs."""
+        try:
+            if self._chrome_process and self._chrome_process.poll() is None:
+                self._chrome_process.terminate()
+                try:
+                    self._chrome_process.wait(timeout=1.5)
+                except Exception:
+                    self._chrome_process.kill()
+        except Exception:
+            pass
+        closed = 0
+        try:
+            closed = self._close_ntk_profile_chrome(
+                self._get_ntk_user_data_dir()
+            )
+        except Exception:
+            closed = 0
+        self._page = None
+        self._context = None
+        self._browser = None
+        self._chrome_process = None
+        self._ntk_temp_chrome = False
+        try:
+            if self._playwright:
+                self._playwright.stop()
+        except Exception:
+            pass
+        self._playwright = None
+        return closed
 
     def _focus_system_chrome_window(self):
         """Best-effort: bring the visible Chrome window to the foreground."""
@@ -584,10 +617,7 @@ class ExternalScraper:
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on("console", self._on_console)
-            self.log(
-                "Normal Chrome attached. If a verification page appears, "
-                "complete it in the visible window."
-            )
+            self.log("Chrome session ready.")
             return True
         except Exception as e:
             self.log(f"ERROR: Could not attach to Chrome: {e}")
@@ -713,6 +743,8 @@ class ExternalScraper:
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
         text = msg.text
+        if 'whoas.xyz/collect' in text:
+            return
         # Show bridge messages, fetch retries, init info, and actual errors
         if "[ND-Bridge]" in text or "[ND-Fetch]" in text or "[Init]" in text:
             self.log(f"[JS] {text}")
@@ -1328,10 +1360,18 @@ class ExternalScraper:
         state = None
         if self._page and self._context and not self.ntk_curl_command:
             state = self._ntk_browser_headers_and_cookies(index_url)
+            if state:
+                state['from_live_browser'] = True
         if not state:
             state = self._ntk_default_headers_and_cookies(index_url)
         state['novel_id'] = novel_id or self._ntk_novel_id_from_url(index_url)
         state['index_url'] = index_url
+        if state.get('from_live_browser') and self._ntk_temp_chrome:
+            self.log("[NewToki] Captured live Chrome session cookies; closing Chrome.")
+            closed = self._close_ntk_temp_chrome_now()
+            self.log(
+                f"[NewToki] Closed {closed} temporary Chrome process(es)."
+            )
         state['session'] = self._ntk_create_api_session(state)
         self._ntk_issue_nv(state, index_url)
         if state.get('from_profile_cookies'):
@@ -1523,6 +1563,7 @@ class ExternalScraper:
 
     def _ntk_clean_tag(self, value):
         value = self._ntk_plain_fragment(value).strip(' #,./\\|[](){}')
+        value = value.replace('\\n', ' ').replace('\\r', ' ')
         value = re.sub(r'\s+', ' ', value).strip()
         if not value or len(value) > 40:
             return ''
@@ -1549,6 +1590,20 @@ class ExternalScraper:
 
         for match in re.finditer(
             r'<a\b[^>]*href=["\'][^"\']*(?:tag|genre|keyword)[^"\']*["\'][^>]*>(.*?)</a>',
+            html_text or '',
+            re.I | re.S,
+        ):
+            add(match.group(1))
+
+        for match in re.finditer(
+            r'(?:href|to)=\\?["\'][^"\']*(?:/novel\?g=|genre|tag|keyword)[^"\']*\\?["\'][^{}]{0,300}?children\\?["\']?\s*:\s*(?:\[\\?["\']#\\?["\']\s*,\s*)?\\?["\']([^"\'\\]+)',
+            html_text or '',
+            re.I | re.S,
+        ):
+            add(match.group(1))
+
+        for match in re.finditer(
+            r'hero-v2-tag[^{}]{0,500}?children\\?["\']?\s*:\s*(?:\[\\?["\']#\\?["\']\s*,\s*)?\\?["\']([^"\'\\]+)',
             html_text or '',
             re.I | re.S,
         ):
@@ -1689,9 +1744,9 @@ class ExternalScraper:
                 except Exception:
                     pass
                 try:
-                    self._page.wait_for_timeout(1000)
+                    self._page.wait_for_timeout(2500)
                 except Exception:
-                    time.sleep(1.0)
+                    time.sleep(2.5)
             return True
         except Exception as e:
             self.log(f"[NewToki] Chrome clearance refresh failed: {e}")
@@ -1889,6 +1944,17 @@ class ExternalScraper:
         state = self._ntk_prepare_api_state(url, novel_id)
         try:
             self.cleanup()
+        except Exception:
+            pass
+        try:
+            closed = self._close_ntk_profile_chrome(
+                self._get_ntk_user_data_dir()
+            )
+            if closed:
+                self.log(
+                    f"[NewToki] Closed {closed} temporary Chrome "
+                    "process(es)."
+                )
         except Exception:
             pass
         if not state:
