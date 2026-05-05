@@ -508,22 +508,35 @@ class ExternalScraper:
             port = self._get_free_port()
             args.insert(2, f"--remote-debugging-port={port}")
             args.insert(3, "--remote-allow-origins=*")
-        if hidden and sys.platform == "win32":
-            args.insert(4 if remote_debugging else 1, "--start-minimized")
-            args.insert(5 if remote_debugging else 2, "--window-position=-32000,-32000")
-            args.insert(6 if remote_debugging else 3, "--window-size=1,1")
+        if hidden:
+            insert_at = 4 if remote_debugging else 1
+            hidden_args = [
+                "--start-minimized",
+                "--window-position=-32000,-32000",
+                "--window-size=1,1",
+            ]
+            for offset, arg in enumerate(hidden_args):
+                args.insert(insert_at + offset, arg)
 
         popen_kwargs = {}
-        if hidden and sys.platform == "win32":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
-            popen_kwargs["startupinfo"] = startupinfo
-            popen_kwargs["creationflags"] = getattr(
-                subprocess,
-                "CREATE_NO_WINDOW",
-                0,
-            )
+        if hidden:
+            popen_kwargs.update({
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            })
+            if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0  # SW_HIDE
+                popen_kwargs["startupinfo"] = startupinfo
+                popen_kwargs["creationflags"] = getattr(
+                    subprocess,
+                    "CREATE_NO_WINDOW",
+                    0,
+                )
+            else:
+                popen_kwargs["start_new_session"] = True
 
         proc = subprocess.Popen(args, **popen_kwargs)
         return proc, port
