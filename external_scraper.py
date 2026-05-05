@@ -1078,7 +1078,11 @@ class ExternalScraper:
                     out[name] = cookie_value
             return out
         except Exception as e:
-            self.log(f"[NewToki] Chrome profile cookie import failed: {e}")
+            # Chrome locks its Cookies DB while the visible clearance window is
+            # open. That is expected during the automatic fallback; live browser
+            # cookies are collected separately.
+            if getattr(e, "winerror", None) != 32:
+                self.log(f"[NewToki] Chrome profile cookie import failed: {e}")
             return {}
         finally:
             if tmp_path:
@@ -1266,11 +1270,11 @@ class ExternalScraper:
             return False
 
     def _ntk_prepare_api_state(self, index_url, novel_id=None):
-        state = self._ntk_default_headers_and_cookies(index_url)
-        if self._page and self._context and not state.get('from_curl'):
-            browser_state = self._ntk_browser_headers_and_cookies(index_url)
-            if browser_state:
-                state = browser_state
+        state = None
+        if self._page and self._context and not self.ntk_curl_command:
+            state = self._ntk_browser_headers_and_cookies(index_url)
+        if not state:
+            state = self._ntk_default_headers_and_cookies(index_url)
         state['novel_id'] = novel_id or self._ntk_novel_id_from_url(index_url)
         state['index_url'] = index_url
         state['session'] = self._ntk_create_api_session(state)
@@ -1336,28 +1340,180 @@ class ExternalScraper:
             '_debugSelector': selector,
         }
 
+    def _ntk_html_attrs(self, tag):
+        attrs = {}
+        for name, _quote, value in re.findall(
+            r'([:\w-]+)\s*=\s*(["\'])(.*?)\2',
+            tag or '',
+            re.S,
+        ):
+            attrs[name.lower()] = html.unescape(value).strip()
+        return attrs
+
+    def _ntk_meta_contents(self, html_text, names):
+        wanted = {name.lower() for name in names}
+        values = []
+        for tag in re.findall(r'<meta\b[^>]*>', html_text or '', re.I | re.S):
+            attrs = self._ntk_html_attrs(tag)
+            keys = {
+                (attrs.get('name') or '').lower(),
+                (attrs.get('property') or '').lower(),
+                (attrs.get('itemprop') or '').lower(),
+            }
+            content = attrs.get('content') or ''
+            if content and wanted.intersection(keys):
+                values.append(content.strip())
+        return values
+
+    def _ntk_meta_content(self, html_text, names):
+        values = self._ntk_meta_contents(html_text, names)
+        return values[0] if values else ''
+
+    def _ntk_plain_fragment(self, value):
+        value = re.sub(r'<[^>]+>', ' ', value or '')
+        return html.unescape(re.sub(r'\s+', ' ', value)).strip()
+
+    def _ntk_abs_url(self, base_url, value):
+        value = html.unescape((value or '').strip())
+        if not value or value.startswith(('data:', 'javascript:')):
+            return ''
+        if ',' in value and re.search(r'\s+\d+[wx](?:,|$)', value):
+            value = value.split(',', 1)[0].strip()
+        if ' ' in value and re.search(r'\s+\d+[wx]$', value):
+            value = value.split()[0].strip()
+        return urllib.parse.urljoin(base_url, value)
+
+    def _ntk_extract_cover_url(self, html_text, index_url):
+        cover = self._ntk_meta_content(
+            html_text,
+            ('og:image', 'twitter:image', 'twitter:image:src', 'image'),
+        )
+        if cover:
+            return self._ntk_abs_url(index_url, cover)
+
+        for match in re.finditer(
+            r'"(?:image|thumbnail|cover)"\s*:\s*"([^"]+)"',
+            html_text or '',
+            re.I,
+        ):
+            cover = self._ntk_abs_url(index_url, match.group(1).replace('\\/', '/'))
+            if cover:
+                return cover
+
+        candidates = []
+        for tag in re.findall(r'<img\b[^>]*>', html_text or '', re.I | re.S):
+            attrs = self._ntk_html_attrs(tag)
+            src = (
+                attrs.get('data-src')
+                or attrs.get('data-original')
+                or attrs.get('data-lazy-src')
+                or attrs.get('srcset')
+                or attrs.get('src')
+                or ''
+            )
+            src = self._ntk_abs_url(index_url, src)
+            if not src:
+                continue
+            haystack = ' '.join(
+                str(attrs.get(k) or '')
+                for k in ('class', 'id', 'alt', 'title', 'src', 'data-src')
+            ).lower()
+            score = 0
+            if any(word in haystack for word in ('cover', 'poster', 'thumbnail', 'thumb', 'book', 'novel')):
+                score += 4
+            if any(word in src.lower() for word in ('cover', 'poster', 'thumbnail', 'thumb', 'book', 'novel', 'upload')):
+                score += 2
+            if any(word in haystack for word in ('logo', 'icon', 'avatar', 'profile')):
+                score -= 6
+            candidates.append((score, src))
+        candidates.sort(reverse=True)
+        return candidates[0][1] if candidates and candidates[0][0] > 0 else ''
+
+    def _ntk_clean_tag(self, value):
+        value = self._ntk_plain_fragment(value).strip(' #,./\\|[](){}')
+        value = re.sub(r'\s+', ' ', value).strip()
+        if not value or len(value) > 40:
+            return ''
+        if re.fullmatch(r'[\d\s.,:;+\-]+', value):
+            return ''
+        if re.search(r'https?://|ntk\d+\.com|newtoki', value, re.I):
+            return ''
+        return value
+
+    def _ntk_extract_tags(self, html_text):
+        tags = []
+
+        def add(value):
+            value = self._ntk_clean_tag(value)
+            if value and value not in tags:
+                tags.append(value)
+
+        for meta_value in self._ntk_meta_contents(
+            html_text,
+            ('keywords', 'news_keywords', 'article:tag', 'book:tag'),
+        ):
+            for part in re.split(r'[,#|/]+', meta_value):
+                add(part)
+
+        for match in re.finditer(
+            r'<a\b[^>]*href=["\'][^"\']*(?:tag|genre|keyword)[^"\']*["\'][^>]*>(.*?)</a>',
+            html_text or '',
+            re.I | re.S,
+        ):
+            add(match.group(1))
+
+        page_text = self._ntk_plain_fragment(html_text)
+        for match in re.finditer(r'(?:^|\s)#([^\s#]{1,40})', page_text):
+            add(match.group(1))
+        return tags[:20]
+
+    def _ntk_extract_author(self, html_text):
+        author = self._ntk_meta_content(
+            html_text,
+            ('author', 'article:author', 'book:author'),
+        )
+        if author:
+            return self._ntk_clean_tag(author)
+        page_text = self._ntk_plain_fragment(html_text)
+        for pattern in (
+            r'(?:작가|저자)\s*[:：]\s*([^\n\r|·ㆍ]{1,60})',
+            r'\bby\s+([^\n\r|·ㆍ]{1,60})',
+        ):
+            match = re.search(pattern, page_text, re.I)
+            if match:
+                author = self._ntk_clean_tag(match.group(1))
+                if author:
+                    return author
+        return ''
+
+    def _ntk_merge_book_metadata(self, primary, fallback):
+        if not primary or not fallback:
+            return primary
+        for key in ('author', 'coverUrl', 'introduction', 'introductionHTML'):
+            if not primary.get(key) and fallback.get(key):
+                primary[key] = fallback[key]
+        if not primary.get('tags') and fallback.get('tags'):
+            primary['tags'] = fallback['tags']
+        return primary
+
     def _ntk_parse_index_html(self, html_text, index_url):
         novel_id = self._ntk_novel_id_from_url(index_url)
-        title_match = re.search(
-            r'<meta\s+property=["\']og:title["\']\s+content=["\']([^"\']+)',
+        raw_title = self._ntk_meta_content(
             html_text,
-            re.I,
-        ) or re.search(r'<title>([^<]+)</title>', html_text, re.I)
-        raw_title = html.unescape(title_match.group(1)).strip() if title_match else f'Novel_{novel_id}'
+            ('og:title', 'twitter:title', 'title'),
+        )
+        if not raw_title:
+            title_match = re.search(r'<title>([^<]+)</title>', html_text, re.I)
+            raw_title = html.unescape(title_match.group(1)).strip() if title_match else f'Novel_{novel_id}'
         raw_title = re.split(r'\s+[-|]\s+', raw_title)[0].strip()
 
-        desc_match = re.search(
-            r'<meta\s+(?:name|property)=["\'](?:description|og:description)["\']\s+content=["\']([^"\']*)',
+        intro = self._ntk_meta_content(
             html_text,
-            re.I,
+            ('description', 'og:description', 'twitter:description'),
         )
-        intro = html.unescape(desc_match.group(1)).strip() if desc_match else ''
-        cover_match = re.search(
-            r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)',
-            html_text,
-            re.I,
-        )
-        cover = urllib.parse.urljoin(index_url, html.unescape(cover_match.group(1))) if cover_match else ''
+        cover = self._ntk_extract_cover_url(html_text, index_url)
+        tags = self._ntk_extract_tags(html_text)
+        author = self._ntk_extract_author(html_text)
 
         ep_blocks = re.findall(
             r'<li\s+data-ep=["\'](\d+)["\'][^>]*>.*?href=["\']([^"\']+)["\'].*?<span\s+class=["\']ne-title["\']>(.*?)</span>',
@@ -1392,12 +1548,12 @@ class ExternalScraper:
         return {
             'bookUrl': index_url,
             'bookname': raw_title,
-            'author': '',
+            'author': author,
             'coverUrl': cover,
             'introduction': intro,
             'introductionHTML': f'<p>{html.escape(intro)}</p>' if intro else '',
             'language': 'ko',
-            'tags': [],
+            'tags': tags,
             'chapterCount': len(chapters),
             'chapters': chapters,
         }
@@ -1414,8 +1570,8 @@ class ExternalScraper:
         cf_keywords = ('cf-browser-verification', 'Just a moment', 'Ray ID')
         if response.status_code in (403, 503) or any(k in response.text for k in cf_keywords):
             self.log(
-                f"ERROR: [NewToki] Cloudflare blocked API-session index "
-                f"request (HTTP {response.status_code})."
+                f"[NewToki] Cloudflare blocked direct API index request "
+                f"(HTTP {response.status_code}); trying clearance fallback."
             )
             return None
         if response.status_code != 200:
@@ -1605,9 +1761,15 @@ class ExternalScraper:
             self.log("ERROR: [NewToki] Could not create API session.")
             return None
 
+        rendered_html = ''
         index_html = self._ntk_fetch_index_via_api_session(url, state)
         if not index_html:
             if self._ntk_refresh_cloudflare_session(url):
+                try:
+                    if self._page:
+                        rendered_html = self._page.content()
+                except Exception:
+                    rendered_html = ''
                 state = self._ntk_prepare_api_state(url, novel_id)
                 index_html = self._ntk_fetch_index_via_api_session(url, state)
                 try:
@@ -1623,6 +1785,11 @@ class ExternalScraper:
                 )
                 return None
         data = self._ntk_parse_index_html(index_html, url)
+        if rendered_html:
+            data = self._ntk_merge_book_metadata(
+                data,
+                self._ntk_parse_index_html(rendered_html, url),
+            )
         chapters = data.get('chapters') or []
         if not chapters:
             self.log("ERROR: [NewToki] No episode links found on page.")
