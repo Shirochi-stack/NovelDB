@@ -1107,15 +1107,37 @@ img { display: block; max-width: 100%; max-height: 100%;
             # (EpubGenerator looks for images named 'cover.*')
             cover_added = False
             if cover_url:
-                cover_bytes = self._download_image_python(
-                    cover_url, "Cover", session=img_session
-                )
+                cover_bytes = None
+                if data.get('_ntk_novel') and self._scraper:
+                    fetch_ntk_binary = getattr(
+                        self._scraper, 'fetch_ntk_binary', None
+                    )
+                    if fetch_ntk_binary:
+                        cover_bytes = fetch_ntk_binary(
+                            cover_url,
+                            data.get('bookUrl') or '',
+                        )
+                        if cover_bytes:
+                            self._log(
+                                f"  📷 Cover: OK ({len(cover_bytes)} bytes)"
+                            )
+                if not cover_bytes:
+                    cover_bytes = self._download_image_python(
+                        cover_url,
+                        "Cover",
+                        session=img_session,
+                        log_failure=True,
+                    )
                 if cover_bytes:
                     ext = 'jpg'
                     if cover_bytes[:4] == b'\x89PNG':
                         ext = 'png'
                     elif cover_bytes[:4] == b'RIFF':
                         ext = 'webp'
+                    elif cover_bytes[:4] == b'GIF8':
+                        ext = 'gif'
+                    elif cover_bytes[:12] == b'\x00\x00\x00\x18ftypavif':
+                        ext = 'avif'
                     # Use cover-specific compression settings
                     if compress_cover:
                         cover_bytes = self._compress_image(

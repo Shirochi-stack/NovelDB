@@ -1430,6 +1430,8 @@ class ExternalScraper:
 
     def _ntk_abs_url(self, base_url, value):
         value = html.unescape((value or '').strip())
+        value = value.replace('\\/', '/').replace('\\\\/', '/')
+        value = value.strip(' \t\r\n"\'\\')
         if not value or value.startswith(('data:', 'javascript:')):
             return ''
         if ',' in value and re.search(r'\s+\d+[wx](?:,|$)', value):
@@ -1438,13 +1440,38 @@ class ExternalScraper:
             value = value.split()[0].strip()
         return urllib.parse.urljoin(base_url, value)
 
+    def _ntk_is_site_image(self, url):
+        url = (url or '').lower()
+        return any(
+            token in url
+            for token in (
+                'og-default',
+                'favicon',
+                'apple-touch-icon',
+                'newtoki-logo',
+                '/logo',
+                'logo.',
+            )
+        )
+
     def _ntk_extract_cover_url(self, html_text, index_url):
         cover = self._ntk_meta_content(
             html_text,
             ('og:image', 'twitter:image', 'twitter:image:src', 'image'),
         )
         if cover:
-            return self._ntk_abs_url(index_url, cover)
+            cover = self._ntk_abs_url(index_url, cover)
+            if cover and not self._ntk_is_site_image(cover):
+                return cover
+
+        for match in re.finditer(
+            r'https?:\\?/\\?/[^"\'\s<>]+novel_thumb[^"\'\s<>]+',
+            html_text or '',
+            re.I,
+        ):
+            cover = self._ntk_abs_url(index_url, match.group(0))
+            if cover and not self._ntk_is_site_image(cover):
+                return cover
 
         for match in re.finditer(
             r'"(?:image|thumbnail|cover)"\s*:\s*"([^"]+)"',
@@ -1456,6 +1483,7 @@ class ExternalScraper:
                 return cover
 
         candidates = []
+        first_content_image = ''
         for tag in re.findall(r'<img\b[^>]*>', html_text or '', re.I | re.S):
             attrs = self._ntk_html_attrs(tag)
             src = (
@@ -1469,20 +1497,29 @@ class ExternalScraper:
             src = self._ntk_abs_url(index_url, src)
             if not src:
                 continue
+            if self._ntk_is_site_image(src):
+                continue
+            src_lower = src.lower()
             haystack = ' '.join(
                 str(attrs.get(k) or '')
                 for k in ('class', 'id', 'alt', 'title', 'src', 'data-src')
             ).lower()
+            if any(word in haystack for word in ('logo', 'icon', 'avatar', 'profile')):
+                continue
+            if any(word in src_lower for word in ('logo', 'icon', 'avatar', 'profile', 'favicon', 'emoji')):
+                continue
+            if not first_content_image:
+                first_content_image = src
             score = 0
             if any(word in haystack for word in ('cover', 'poster', 'thumbnail', 'thumb', 'book', 'novel')):
                 score += 4
-            if any(word in src.lower() for word in ('cover', 'poster', 'thumbnail', 'thumb', 'book', 'novel', 'upload')):
+            if any(word in src_lower for word in ('cover', 'poster', 'thumbnail', 'thumb', 'book', 'novel', 'upload', '/data/', '/file/')):
                 score += 2
-            if any(word in haystack for word in ('logo', 'icon', 'avatar', 'profile')):
-                score -= 6
             candidates.append((score, src))
         candidates.sort(reverse=True)
-        return candidates[0][1] if candidates and candidates[0][0] > 0 else ''
+        if candidates and candidates[0][0] > 0:
+            return candidates[0][1]
+        return first_content_image
 
     def _ntk_clean_tag(self, value):
         value = self._ntk_plain_fragment(value).strip(' #,./\\|[](){}')
@@ -1625,8 +1662,8 @@ class ExternalScraper:
         cf_keywords = ('cf-browser-verification', 'Just a moment', 'Ray ID')
         if response.status_code in (403, 503) or any(k in response.text for k in cf_keywords):
             self.log(
-                f"[NewToki] Cloudflare blocked direct API index request "
-                f"(HTTP {response.status_code}); trying clearance fallback."
+                f"[NewToki] API index request blocked "
+                f"(HTTP {response.status_code})."
             )
             return None
         if response.status_code != 200:
@@ -1640,8 +1677,7 @@ class ExternalScraper:
     def _ntk_refresh_cloudflare_session(self, url):
         """Automated fallback: refresh CF cookies in real Chrome, then reuse API."""
         self.log(
-            "[NewToki] Direct API request was blocked; refreshing "
-            "Cloudflare clearance with installed Chrome..."
+            "[NewToki] Refreshing Cloudflare clearance with installed Chrome..."
         )
         if not self._start_ntk_browser(url):
             return False
@@ -1652,16 +1688,10 @@ class ExternalScraper:
                                     timeout=30000)
                 except Exception:
                     pass
-                if not self._ntk_wait_for_access(self._page, timeout=120):
-                    self.log(
-                        "[NewToki] Chrome clearance refresh did not clear "
-                        "Cloudflare."
-                    )
-                    return False
                 try:
-                    self._page.wait_for_timeout(1500)
+                    self._page.wait_for_timeout(1000)
                 except Exception:
-                    time.sleep(1.5)
+                    time.sleep(1.0)
             return True
         except Exception as e:
             self.log(f"[NewToki] Chrome clearance refresh failed: {e}")
@@ -1785,6 +1815,47 @@ class ExternalScraper:
             time.sleep(0.5)
         return None
 
+    def fetch_ntk_binary(self, url, referer=None):
+        """Fetch a NewToki binary asset with the verified API session."""
+        state = self._ntk_api_state
+        if not state or not state.get('session') or not url:
+            return None
+        headers = dict(state.get('doc_headers') or {})
+        headers.update({
+            'Accept': (
+                'image/avif,image/webp,image/apng,image/svg+xml,'
+                'image/*,*/*;q=0.8'
+            ),
+            'Referer': referer or state.get('index_url') or state.get('origin') or '',
+            'sec-fetch-dest': 'image',
+            'sec-fetch-mode': 'no-cors',
+            'sec-fetch-site': 'same-origin',
+        })
+        try:
+            response = self._ntk_request_get(state['session'], url, headers)
+            content_type = response.headers.get('content-type', '')
+            if (
+                response.status_code == 200
+                and len(response.content) > 100
+                and (
+                    content_type.startswith('image/')
+                    or response.content[:4] == b'\x89PNG'
+                    or response.content[:3] == b'\xff\xd8\xff'
+                    or response.content[:4] == b'RIFF'
+                    or response.content[:4] == b'GIF8'
+                    or response.content[:12] == b'\x00\x00\x00\x18ftypavif'
+                )
+            ):
+                return response.content
+            self.log(
+                f"  [NewToki] Cover asset fetch failed "
+                f"(HTTP {response.status_code}, {len(response.content)} bytes, "
+                f"{content_type or 'unknown content-type'})."
+            )
+        except Exception as e:
+            self.log(f"  [NewToki] Cover asset fetch failed: {e}")
+        return None
+
     def _ntk_dump_debug_page(self, page, label):
         """Save rendered NewToki page state for debugging only."""
         try:
@@ -1811,27 +1882,20 @@ class ExternalScraper:
         self.log(f"[NewToki] Refreshing Chrome clearance before API fetch: {url}")
 
         novel_id = self._ntk_novel_id_from_url(url)
-        rendered_html = ''
         index_html = None
         if not self._ntk_refresh_cloudflare_session(url):
             self.log("ERROR: [NewToki] Could not refresh Chrome clearance.")
             return None
-        try:
-            if self._page:
-                rendered_html = self._page.content()
-        except Exception:
-            rendered_html = ''
         state = self._ntk_prepare_api_state(url, novel_id)
-        if not state:
-            self.log("ERROR: [NewToki] Could not create API session.")
-            self.cleanup()
-            return None
-        self.log("[NewToki] Fetching index via verified Chrome session.")
-        index_html = self._ntk_fetch_index_via_api_session(url, state)
         try:
             self.cleanup()
         except Exception:
             pass
+        if not state:
+            self.log("ERROR: [NewToki] Could not create API session.")
+            return None
+        self.log("[NewToki] Fetching index via verified Chrome session.")
+        index_html = self._ntk_fetch_index_via_api_session(url, state)
         if not index_html:
             self.log(
                 "ERROR: [NewToki] API index fetch failed after Chrome "
@@ -1840,15 +1904,15 @@ class ExternalScraper:
             )
             return None
         data = self._ntk_parse_index_html(index_html, url)
-        if rendered_html:
-            data = self._ntk_merge_book_metadata(
-                data,
-                self._ntk_parse_index_html(rendered_html, url),
-            )
         chapters = data.get('chapters') or []
         if not chapters:
             self.log("ERROR: [NewToki] No episode links found on page.")
             return None
+
+        if data.get('coverUrl'):
+            self.log(f"[NewToki] Cover URL: {data.get('coverUrl')}")
+        else:
+            self.log("[NewToki] Cover URL not found on index page.")
 
         data['_ntk_novel'] = True
         data['_ntk_api'] = True
