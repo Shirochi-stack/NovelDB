@@ -376,6 +376,61 @@ class ExternalScraper:
         except Exception:
             return False
 
+    def _hide_ntk_chrome_windows(self):
+        """Best-effort: hide windows created by the temporary NTK Chrome."""
+        if sys.platform != "win32":
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            profile = os.path.normcase(self._get_ntk_user_data_dir())
+            chrome_pids = set()
+
+            try:
+                script = (
+                    "$needle = '" + profile.replace("'", "''") + "'.ToLowerInvariant();"
+                    "Get-CimInstance Win32_Process -Filter \"name = 'chrome.exe'\" | "
+                    "Where-Object { $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($needle) } | "
+                    "Select-Object -ExpandProperty ProcessId"
+                )
+                output = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-Command", script],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    errors="ignore",
+                )
+                for line in output.splitlines():
+                    try:
+                        chrome_pids.add(int(line.strip()))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            if self._chrome_process:
+                chrome_pids.add(int(self._chrome_process.pid))
+            if not chrome_pids:
+                return False
+
+            hidden = []
+            EnumWindowsProc = ctypes.WINFUNCTYPE(
+                ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+            )
+
+            def callback(hwnd, _):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if int(pid.value) in chrome_pids:
+                    user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                    hidden.append(hwnd)
+                return True
+
+            user32.EnumWindows(EnumWindowsProc(callback), 0)
+            return bool(hidden)
+        except Exception:
+            return False
+
     @staticmethod
     def _windows_click_screen(x, y):
         """Perform a real OS mouse click at screen coordinates."""
@@ -431,7 +486,7 @@ class ExternalScraper:
             return False
 
     def _open_system_chrome(self, start_url, remote_debugging=False,
-                            user_data_dir=None):
+                            user_data_dir=None, hidden=False):
         """Open installed Chrome as a normal process using our profile."""
         chrome_path = self._find_chrome_executable()
         if not chrome_path:
@@ -453,8 +508,24 @@ class ExternalScraper:
             port = self._get_free_port()
             args.insert(2, f"--remote-debugging-port={port}")
             args.insert(3, "--remote-allow-origins=*")
+        if hidden and sys.platform == "win32":
+            args.insert(4 if remote_debugging else 1, "--start-minimized")
+            args.insert(5 if remote_debugging else 2, "--window-position=-32000,-32000")
+            args.insert(6 if remote_debugging else 3, "--window-size=1,1")
 
-        proc = subprocess.Popen(args)
+        popen_kwargs = {}
+        if hidden and sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0  # SW_HIDE
+            popen_kwargs["startupinfo"] = startupinfo
+            popen_kwargs["creationflags"] = getattr(
+                subprocess,
+                "CREATE_NO_WINDOW",
+                0,
+            )
+
+        proc = subprocess.Popen(args, **popen_kwargs)
         return proc, port
 
     def _backup_storage_state(self):
@@ -562,7 +633,7 @@ class ExternalScraper:
                 self.cleanup()
 
         self.cleanup()
-        self.log("Launching normal Chrome for NewToki...")
+        self.log("Launching background Chrome for NewToki...")
         user_data_dir = self._get_ntk_user_data_dir()
         self.log(f"Browser profile: {user_data_dir}")
         closed = self._close_ntk_profile_chrome(user_data_dir)
@@ -575,6 +646,7 @@ class ExternalScraper:
             start_url,
             remote_debugging=True,
             user_data_dir=user_data_dir,
+            hidden=True,
         )
         if not proc or not port:
             self.log(
@@ -603,6 +675,8 @@ class ExternalScraper:
                 "Chrome profile locking."
             )
             return False
+        if self._ntk_temp_chrome:
+            self._hide_ntk_chrome_windows()
 
         self._playwright = sync_playwright().start()
         try:
@@ -617,6 +691,8 @@ class ExternalScraper:
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on("console", self._on_console)
+            if self._ntk_temp_chrome:
+                self._hide_ntk_chrome_windows()
             self.log("Chrome session ready.")
             return True
         except Exception as e:
