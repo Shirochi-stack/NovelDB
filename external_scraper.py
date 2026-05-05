@@ -26,6 +26,8 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+if sys.platform == "win32":
+    import ctypes
 
 # When running from a PyInstaller bundle, point Playwright to the
 # bundled Chromium browser so users don't need to install anything.
@@ -241,6 +243,108 @@ class ExternalScraper:
             except Exception:
                 time.sleep(0.25)
         return False
+
+    def _focus_system_chrome_window(self):
+        """Best-effort: bring the visible Chrome window to the foreground."""
+        if sys.platform != "win32" or not self._chrome_process:
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            target_pid = int(self._chrome_process.pid)
+            found = []
+
+            EnumWindowsProc = ctypes.WINFUNCTYPE(
+                ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+            )
+
+            def _title(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length <= 0:
+                    return ""
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                return buf.value
+
+            def callback(hwnd, _):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                title = _title(hwnd)
+                if pid.value == target_pid or (
+                    "Chrome" in title and (
+                        "ntk" in title.lower()
+                        or "뉴토끼" in title
+                        or "용사파티" in title
+                    )
+                ):
+                    found.append(hwnd)
+                    return False
+                return True
+
+            user32.EnumWindows(EnumWindowsProc(callback), 0)
+            if not found:
+                return False
+            hwnd = found[0]
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _windows_click_screen(x, y):
+        """Perform a real OS mouse click at screen coordinates."""
+        if sys.platform != "win32":
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            user32.SetCursorPos(int(x), int(y))
+            time.sleep(0.08)
+            mouseeventf_leftdown = 0x0002
+            mouseeventf_leftup = 0x0004
+            user32.mouse_event(mouseeventf_leftdown, 0, 0, 0, 0)
+            time.sleep(0.06)
+            user32.mouse_event(mouseeventf_leftup, 0, 0, 0, 0)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _windows_clipboard_get_text():
+        if sys.platform != "win32":
+            return None
+        try:
+            import tkinter as _tk
+            root = _tk.Tk()
+            root.withdraw()
+            try:
+                return root.clipboard_get()
+            except Exception:
+                return ''
+            finally:
+                root.destroy()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _windows_clipboard_set_text(text):
+        if sys.platform != "win32":
+            return False
+        try:
+            import tkinter as _tk
+            root = _tk.Tk()
+            root.withdraw()
+            try:
+                root.clipboard_clear()
+                if text:
+                    root.clipboard_append(text)
+                root.update()
+                return True
+            finally:
+                root.destroy()
+        except Exception:
+            return False
 
     def _open_system_chrome(self, start_url, remote_debugging=False,
                             user_data_dir=None):
@@ -768,6 +872,1364 @@ class ExternalScraper:
                 time.sleep(1)
         return not self._ntk_is_challenge_page(page)
 
+    def _ntk_refresh_load_errors(self, page, max_attempts=4):
+        """Click NewToki's in-page refresh/retry button on load errors."""
+        def _has_reader_content():
+            try:
+                return bool(page.evaluate(r"""
+() => {
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const loadErrorRe = /본문을\s*불러올\s*수\s*없습니다|unable to load content|content failed to load/i;
+  const candidates = Array.from(document.querySelectorAll([
+    'article.novel-viewer', '.novel-viewer'
+  ].join(',')));
+  return candidates.some((el) => {
+    const text = clean(el.innerText || el.textContent);
+    if (text.length <= 300 || loadErrorRe.test(text)) return false;
+    if (/댓글을\s*작성하려면|로그인|회원가입/.test(text) && text.length < 1000) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 350 || r.height < 120) return false;
+    const linkText = Array.from(el.querySelectorAll('a'))
+      .map((a) => clean(a.innerText || a.textContent)).join(' ');
+    return linkText.length < text.length * 0.5;
+  });
+}
+                """))
+            except Exception:
+                return False
+
+        if _has_reader_content():
+            return True
+
+        for attempt in range(max_attempts):
+            try:
+                state = page.evaluate(r"""
+() => {
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const errorRe = /본문을\s*불러올\s*수\s*없습니다|unable to load content|content failed to load/i;
+  const refreshRe = /refresh|reload|retry|try again|새로고침|다시\s*시도|재시도/i;
+  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
+  if (!viewer) {
+    return { hasLoadError: false, clicked: false, reason: 'no-viewer' };
+  }
+  const viewerText = clean(viewer.innerText || viewer.textContent);
+  if (
+    viewerText.length > 300 &&
+    !errorRe.test(viewerText) &&
+    !/댓글을\s*작성하려면|로그인|회원가입/.test(viewerText)
+  ) {
+    return { hasLoadError: false, clicked: false, reason: 'viewer-has-content' };
+  }
+  const hasLoadError = errorRe.test(viewerText);
+  if (!hasLoadError) {
+    return { hasLoadError: false, clicked: false };
+  }
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return (
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      r.width > 0 &&
+      r.height > 0
+    );
+  };
+  const clickTarget = (target) => {
+    target.scrollIntoView({ block: 'center', inline: 'center' });
+    for (const type of ['mouseover', 'mousedown', 'mouseup', 'click']) {
+      target.dispatchEvent(new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      }));
+    }
+    return target;
+  };
+  const clickTextNode = () => {
+    const walker = document.createTreeWalker(
+      viewer,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          if (!/새로고침|refresh|reload|retry|try again|다시\s*시도|재시도/i.test(node.nodeValue || '')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          const parent = node.parentElement;
+          if (!parent || !visible(parent)) return NodeFilter.FILTER_REJECT;
+          const region = parent.closest('article.novel-viewer, .novel-viewer, div, section') || parent;
+          const regionText = clean(region.innerText || region.textContent);
+          if (!errorRe.test(regionText)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+    const node = walker.nextNode();
+    if (!node) return null;
+    const parent = node.parentElement;
+    parent.scrollIntoView({ block: 'center', inline: 'center' });
+    return clickTarget(parent);
+  };
+  const textTarget = clickTextNode();
+  if (textTarget) {
+    return {
+      hasLoadError: true,
+      clicked: true,
+      label: '새로고침',
+      method: 'text-node',
+      tag: textTarget.tagName
+    };
+  }
+  const controls = Array.from(viewer.querySelectorAll(
+    'button, a, span, strong, em, b, div, [role="button"], input[type="button"], input[type="submit"]'
+  )).map((el) => {
+    const label = clean(
+      el.innerText ||
+      el.textContent ||
+      el.value ||
+      el.getAttribute('aria-label') ||
+      el.getAttribute('title')
+    );
+    return { el, label };
+  }).filter(({ el, label }) => {
+    if (!label || label.length > 80 || !refreshRe.test(label)) return false;
+    if (!visible(el)) return false;
+    const region = el.closest('div, section, article, main') || el;
+    const regionText = clean(region.innerText || region.textContent);
+    return errorRe.test(regionText) && refreshRe.test(regionText);
+  }).sort((a, b) => {
+    const aExact = /^새로고침$|^refresh$/i.test(a.label) ? 0 : 1;
+    const bExact = /^새로고침$|^refresh$/i.test(b.label) ? 0 : 1;
+    return aExact - bExact || a.label.length - b.label.length;
+  });
+  for (const el of controls) {
+    const target = clickTarget(el.el);
+    return {
+      hasLoadError: true,
+      clicked: true,
+      label: el.label,
+      method: 'reader-dom',
+      tag: target.tagName
+    };
+  }
+  return { hasLoadError: true, clicked: false };
+}
+                """)
+            except Exception:
+                return False
+
+            if not state or not state.get('hasLoadError'):
+                return True
+
+            if state.get('clicked'):
+                label = state.get('label') or 'refresh'
+                method = state.get('method') or 'dom'
+                self.log(
+                    f"  [NewToki] Load error detected; clicked {label} "
+                    f"via {method} "
+                    f"({attempt + 1}/{max_attempts})."
+                )
+                # The refresh handler fetches content asynchronously into
+                # article.novel-viewer without navigating.
+                for _ in range(80):
+                    if _has_reader_content():
+                        return True
+                    try:
+                        page.wait_for_timeout(500)
+                    except Exception:
+                        time.sleep(0.5)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
+                if _has_reader_content():
+                    return True
+                continue
+
+            self.log(
+                "  [NewToki] Load error detected, but no refresh button was "
+                "found."
+            )
+            return False
+        return False
+
+    def _ntk_open_chapter_via_list(self, page, chapter_url, chapter_name):
+        """Open a chapter by clicking its row from the novel episode list."""
+        if not self._book_url:
+            return False
+        def _target_path(url):
+            try:
+                return urllib.parse.urlparse(url or '').path.rstrip('/')
+            except Exception:
+                return ''
+
+        target_path = _target_path(chapter_url)
+
+        def _click_matching_link():
+            try:
+                return page.evaluate(r"""
+({ chapterUrl, chapterName }) => {
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  let targetPath = '';
+  try {
+    targetPath = new URL(chapterUrl, location.href).pathname.replace(/\/$/, '');
+  } catch (e) {}
+  const links = Array.from(document.querySelectorAll('a[href]'));
+  let match = null;
+  for (const a of links) {
+    let path = '';
+    try {
+      path = new URL(a.getAttribute('href'), location.href).pathname.replace(/\/$/, '');
+    } catch (e) {}
+    if (targetPath && path === targetPath) {
+      match = a;
+      break;
+    }
+  }
+  if (!match && chapterName) {
+    const wanted = clean(chapterName)
+      .replace(/\s+\d+(?:\.\d+)?\s+\d+$/, '')
+      .replace(/\s+/g, ' ');
+    match = links.find((a) => clean(a.innerText || a.textContent).includes(wanted));
+  }
+  if (!match) return false;
+  match.click();
+  return true;
+}
+                """, {
+                    'chapterUrl': chapter_url,
+                    'chapterName': chapter_name,
+                })
+            except Exception:
+                return False
+
+        try:
+            current = urllib.parse.urlparse(page.url)
+            book = urllib.parse.urlparse(self._book_url)
+            if current.path.rstrip('/') == target_path:
+                return True
+            if _click_matching_link():
+                self.log(
+                    f"  [NewToki] Opened chapter via page link: "
+                    f"{chapter_name}"
+                )
+                try:
+                    page.wait_for_url(
+                        lambda url: _target_path(url) == target_path,
+                        timeout=15000,
+                    )
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(800)
+                except Exception:
+                    time.sleep(0.8)
+                return True
+
+            if current.path.rstrip('/') != book.path.rstrip('/'):
+                page.goto(self._book_url, wait_until="domcontentloaded",
+                          timeout=30000)
+                page.wait_for_timeout(1000)
+        except Exception:
+            return False
+
+        if not self._ntk_wait_for_access(page):
+            return False
+
+        clicked = _click_matching_link()
+
+        if not clicked:
+            return False
+
+        self.log(f"  [NewToki] Opened chapter via episode link: {chapter_name}")
+        try:
+            page.wait_for_url(
+                lambda url: _target_path(url) == target_path,
+                timeout=15000,
+            )
+        except Exception:
+            pass
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception:
+            pass
+        try:
+            page.wait_for_timeout(1500)
+        except Exception:
+            time.sleep(1.5)
+        return True
+
+    def _ntk_extract_visible_reader_text(self, page, chapter_name):
+        """Fallback: use the rendered viewer text, like selecting the page."""
+        try:
+            data = page.evaluate(r"""
+(fallbackName) => {
+  const clean = (s) => (s || '').replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+/g, ' ').trim();
+  const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
+  }[c]));
+  const titleText = clean(
+    (document.querySelector('h1.ne-h1, h1, h2') || {}).innerText ||
+    fallbackName ||
+    document.title.replace(/\s*[|-]\s*뉴토끼\s*$/i, '')
+  );
+  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
+  if (!viewer) return null;
+  const raw = viewer.innerText || viewer.textContent || '';
+  const lines = raw
+    .split(/\n+/)
+    .map(clean)
+    .filter((line) =>
+      line &&
+      line !== titleText &&
+      !/본문을\s*불러올\s*수\s*없습니다|새로고침/.test(line) &&
+      !/^(글자|기본|[+\u2212-]|\d+\s*px)$/.test(line) &&
+      !/^(이전화|다음화|목록|책갈피|추천|댓글)$/.test(line)
+    );
+  const text = lines.join('\n\n').trim();
+  if (text.length < 40) return null;
+  return {
+    chapterName: titleText || fallbackName || 'Chapter',
+    sourceChapterName: fallbackName || titleText || 'Chapter',
+    contentText: text,
+    contentHtml: lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n'),
+    _debugSelector: 'article.novel-viewer.innerText'
+  };
+}
+            """, chapter_name)
+        except Exception:
+            return None
+        return data
+
+    def _ntk_extract_browser_selection_text(self, page, chapter_name):
+        """Fallback: drive Chrome with Ctrl+A and read the visible selection."""
+        try:
+            old_clipboard = self._windows_clipboard_get_text()
+            self._focus_system_chrome_window()
+            page.bring_to_front()
+            page.evaluate(r"""
+() => {
+  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
+  if (viewer) {
+    viewer.scrollIntoView({ block: 'center', inline: 'center' });
+  }
+}
+            """)
+            page.wait_for_timeout(300)
+            box = page.evaluate(r"""
+() => {
+  const viewer = document.querySelector('article.novel-viewer, .novel-viewer')
+  if (!viewer) return null;
+  const r = viewer.getBoundingClientRect();
+  // Click the blank page gutter next to the reader, not inside text. This
+  // keeps focus on the document so Ctrl+A selects the page selection range.
+  let vx = r.left - 24;
+  if (vx < 20) vx = r.right + 24;
+  if (vx > window.innerWidth - 20) vx = Math.max(20, r.left + 24);
+  const vy = Math.max(20, Math.min(window.innerHeight - 20, r.top + 80));
+  const chromeLeft = window.screenX + Math.max(0, (window.outerWidth - window.innerWidth) / 2);
+  const chromeTop = window.screenY + Math.max(0, window.outerHeight - window.innerHeight - chromeLeft + window.screenX);
+  return {
+    x: vx,
+    y: vy,
+    screenX: chromeLeft + vx,
+    screenY: chromeTop + vy
+  };
+}
+            """)
+            if not box:
+                return None
+            page.evaluate("""
+() => {
+  const active = document.activeElement;
+  if (active && typeof active.blur === 'function') active.blur();
+}
+            """)
+            if sys.platform == "win32" and self._focus_system_chrome_window():
+                clicked = self._windows_click_screen(
+                    box.get('screenX', 0),
+                    box.get('screenY', 0),
+                )
+                if not clicked:
+                    page.mouse.click(box['x'], box['y'])
+            else:
+                page.mouse.click(box['x'], box['y'])
+            page.wait_for_timeout(250)
+            if sys.platform == "win32" and self._focus_system_chrome_window():
+                vk_ctrl = 0x11
+                vk_a = 0x41
+                keyeventf_keyup = 0x0002
+                ctypes.windll.user32.keybd_event(vk_ctrl, 0, 0, 0)
+                time.sleep(0.12)
+                ctypes.windll.user32.keybd_event(vk_a, 0, 0, 0)
+                time.sleep(0.12)
+                ctypes.windll.user32.keybd_event(vk_a, 0, keyeventf_keyup, 0)
+                time.sleep(0.12)
+                ctypes.windll.user32.keybd_event(vk_a, 0, 0, 0)
+                time.sleep(0.12)
+                ctypes.windll.user32.keybd_event(vk_a, 0, keyeventf_keyup, 0)
+                time.sleep(0.05)
+                ctypes.windll.user32.keybd_event(
+                    vk_ctrl, 0, keyeventf_keyup, 0
+                )
+            else:
+                page.keyboard.down("Control")
+                page.wait_for_timeout(120)
+                page.keyboard.press("A")
+                page.wait_for_timeout(120)
+                page.keyboard.press("A")
+                page.wait_for_timeout(120)
+                page.keyboard.up("Control")
+            # Leave the highlight visible long enough that the controlled
+            # browser action is observable in the Chrome window.
+            page.wait_for_timeout(800)
+            if sys.platform == "win32" and self._focus_system_chrome_window():
+                vk_ctrl = 0x11
+                vk_c = 0x43
+                keyeventf_keyup = 0x0002
+                ctypes.windll.user32.keybd_event(vk_ctrl, 0, 0, 0)
+                time.sleep(0.08)
+                ctypes.windll.user32.keybd_event(vk_c, 0, 0, 0)
+                time.sleep(0.08)
+                ctypes.windll.user32.keybd_event(vk_c, 0, keyeventf_keyup, 0)
+                time.sleep(0.05)
+                ctypes.windll.user32.keybd_event(
+                    vk_ctrl, 0, keyeventf_keyup, 0
+                )
+                time.sleep(0.3)
+                selected = self._windows_clipboard_get_text() or ''
+                if old_clipboard is not None:
+                    self._windows_clipboard_set_text(old_clipboard)
+            else:
+                page.keyboard.press("Control+C")
+                page.wait_for_timeout(300)
+                selected = page.evaluate(r"""
+() => {
+  const sel = window.getSelection && window.getSelection();
+  return sel ? String(sel.toString() || '') : '';
+}
+                """)
+            page.wait_for_timeout(1200)
+            if not selected:
+                selected = page.evaluate(r"""
+() => {
+  const sel = window.getSelection && window.getSelection();
+  return sel ? String(sel.toString() || '') : '';
+}
+                """)
+        except Exception:
+            return None
+
+        if not selected or len(selected.strip()) < 80:
+            return None
+
+        # The selection is captured at this point; parsing below is pure text
+        # cleanup.
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            selected = selected
+        except Exception:
+            return None
+
+        try:
+            # fall through to common selection cleanup below
+            pass
+        except Exception:
+            return None
+
+        try:
+            # Keep this block shape small; older code below expects selected.
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+
+        try:
+            pass
+        except Exception:
+            return None
+            selected = page.evaluate(r"""
+() => {
+  const sel = window.getSelection && window.getSelection();
+  return sel ? String(sel.toString() || '') : '';
+}
+            """)
+        except Exception:
+            return None
+
+        if not selected or len(selected.strip()) < 80:
+            return None
+
+        def clean_line(value):
+            return re.sub(r'\s+', ' ', value or '').strip()
+
+        raw_lines = [
+            clean_line(line)
+            for line in re.split(r'[\r\n]+', selected)
+        ]
+        raw_lines = [line for line in raw_lines if line]
+
+        title = clean_line(chapter_name)
+        start = None
+        for i, line in enumerate(raw_lines):
+            if line == '기본':
+                start = i + 1
+                break
+        if start is None:
+            for i, line in enumerate(raw_lines):
+                if title and (line == title or title in line):
+                    start = i + 1
+                    break
+        if start is None:
+            start = 0
+
+        end = len(raw_lines)
+        for i in range(start, len(raw_lines)):
+            line = raw_lines[i]
+            if (
+                line.startswith('💬 댓글')
+                or line == '댓글'
+                or line.startswith('댓글을 작성하려면')
+            ):
+                end = i
+                break
+            if line == '‹ 이전화' and i > start + 3:
+                end = i
+                break
+
+        skip_re = re.compile(
+            r'^(글자|기본|[+\-−]|[0-9]+\s*px|‹ 이전화|이전화|'
+            r'목록|책갈피|다음화 ›|다음화|홈|웹툰|완결웹툰|만화|'
+            r'소설|애니|랭킹|북마크|최근본작품|로그인|회원가입)$'
+        )
+        lines = []
+        for line in raw_lines[start:end]:
+            if skip_re.match(line):
+                continue
+            if '본문을 불러올 수 없습니다' in line or '새로고침' in line:
+                continue
+            lines.append(line)
+
+        text = '\n\n'.join(lines).strip()
+        if len(text) < 80:
+            return None
+
+        content_html = '\n'.join(
+            f'<p>{html.escape(line)}</p>' for line in lines
+        )
+        return {
+            'chapterName': title or chapter_name or 'Chapter',
+            'sourceChapterName': chapter_name or title or 'Chapter',
+            'contentText': text,
+            'contentHtml': content_html,
+            '_debugSelector': 'browser-selection Ctrl+A',
+        }
+
+    def _ntk_dump_debug_page(self, page, label):
+        """Save rendered NewToki page state for selector debugging."""
+        try:
+            logs_dir = os.path.join(_get_base_dir(), 'logs')
+            os.makedirs(logs_dir, exist_ok=True)
+            safe_label = re.sub(r'[^A-Za-z0-9._-]+', '_', label or 'chapter')
+            safe_label = safe_label.strip('._')[:80] or 'chapter'
+            stamp = time.strftime('%Y%m%d_%H%M%S')
+            base = os.path.join(logs_dir, f'ntk_debug_{stamp}_{safe_label}')
+
+            html_path = base + '.html'
+            text_path = base + '.txt'
+            summary_path = base + '_summary.json'
+
+            try:
+                html_text = page.content()
+            except Exception:
+                html_text = ''
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_text)
+
+            try:
+                visible_text = page.locator('body').inner_text(timeout=3000)
+            except Exception:
+                visible_text = ''
+            with open(text_path, 'w', encoding='utf-8') as f:
+                f.write(visible_text)
+
+            try:
+                summary = page.evaluate(r"""
+() => {
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const css = (el) => {
+    const id = el.id ? '#' + el.id : '';
+    let cls = '';
+    if (typeof el.className === 'string' && el.className) {
+      cls = '.' + el.className.replace(/\s+/g, '.').slice(0, 180);
+    }
+    return el.tagName.toLowerCase() + id + cls;
+  };
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return [
+      Math.round(r.x), Math.round(r.y),
+      Math.round(r.width), Math.round(r.height)
+    ];
+  };
+  const nodes = Array.from(document.querySelectorAll('body *'))
+    .map((el) => {
+      const text = clean(el.innerText || el.textContent);
+      const style = getComputedStyle(el);
+      return {
+        selector: css(el),
+        parent: el.parentElement ? css(el.parentElement) : '',
+        textLength: text.length,
+        htmlLength: (el.innerHTML || '').length,
+        pCount: el.querySelectorAll('p').length,
+        brCount: el.querySelectorAll('br').length,
+        imgCount: el.querySelectorAll('img').length,
+        childCount: el.children.length,
+        visible: (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          rect(el)[2] > 0 &&
+          rect(el)[3] > 0
+        ),
+        rect: rect(el),
+        sample: text.slice(0, 160)
+      };
+    })
+    .filter((item) => item.textLength > 20 || item.htmlLength > 500)
+    .sort((a, b) => {
+      const as = a.textLength + a.pCount * 500 + a.brCount * 80;
+      const bs = b.textLength + b.pCount * 500 + b.brCount * 80;
+      return bs - as;
+    })
+    .slice(0, 150);
+  return {
+    url: location.href,
+    title: document.title,
+    bodyTextLength: clean(document.body && document.body.innerText).length,
+    nodes
+  };
+}
+                """)
+            except Exception as e:
+                summary = {'error': str(e)}
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                json.dump(summary, f, ensure_ascii=False, indent=2)
+
+            self.log(f"  [NewToki] Debug dump saved: {html_path}")
+            self.log(f"  [NewToki] Debug text saved: {text_path}")
+            self.log(f"  [NewToki] Debug summary saved: {summary_path}")
+            return html_path
+        except Exception as e:
+            self.log(f"  [NewToki] Debug dump failed: {e}")
+            return None
+
     def _ntk_parse_book(self, url):
         """Scrape ntk novel metadata and episode list from the DOM."""
         if not self._start_ntk_browser(url):
@@ -875,6 +2337,9 @@ class ExternalScraper:
     seen.add(parsed.href);
 
     let text = clean(a.innerText || a.textContent);
+    if (/^(최신화부터)/.test(text)) {
+      continue;
+    }
     text = text
       .replace(/▶\s*보기/g, '')
       .replace(/[›»]+/g, '')
@@ -883,6 +2348,12 @@ class ExternalScraper:
       .replace(/\s+/g, ' ')
       .trim();
     if (!text) text = `Chapter ${chapters.length + 1}`;
+    if (/^(최신화부터)/.test(text)) {
+      continue;
+    }
+    if (/^(1\s*화부터\s*보기|첫화부터|처음부터)/.test(text)) {
+      text = '1화';
+    }
     const m = text.match(/(\d+)\s*화/);
     const number = m ? Number(m[1]) : chapters.length + 1;
     chapters.push({
@@ -942,19 +2413,69 @@ class ExternalScraper:
                 return None
             target = self._page
 
-        try:
-            target.goto(chapter_url, wait_until="domcontentloaded",
-                        timeout=30000)
-            target.wait_for_timeout(1000)
-        except Exception as e:
-            self.log(f"  [NewToki] Page load failed: {e}")
-            return None
+        opened_via_list = self._ntk_open_chapter_via_list(
+            target, chapter_url, chapter_name
+        )
+        if not opened_via_list:
+            self.log(
+                f"  [NewToki] Episode list click failed; direct-opening: "
+                f"{chapter_name}"
+            )
+            try:
+                target.goto(chapter_url, wait_until="domcontentloaded",
+                            timeout=30000)
+                target.wait_for_timeout(1000)
+            except Exception as e:
+                self.log(f"  [NewToki] Page load failed: {e}")
+                return None
 
         if not self._ntk_wait_for_access(target):
             self.log(
                 "  [NewToki] Cloudflare verification did not clear."
             )
             return None
+        try:
+            target.wait_for_function(r"""
+() => {
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const viewer = document.querySelector('article.novel-viewer, .novel-viewer');
+  if (!viewer) return false;
+  const text = clean(viewer.innerText || viewer.textContent);
+  return (
+    text.length > 120
+  );
+}
+            """, timeout=8000)
+        except Exception:
+            pass
+
+        for attempt in range(3):
+            data = self._ntk_extract_browser_selection_text(
+                target, chapter_name
+            )
+            if data:
+                self.log(
+                    "  [NewToki] Used visible browser Ctrl+A selection "
+                    "extraction."
+                )
+                debug_selector = data.pop('_debugSelector', '')
+                if debug_selector:
+                    self.log(f"  [NewToki] Content selector: {debug_selector}")
+                return data
+            self.log(
+                f"  [NewToki] Visible Ctrl+A selection attempt "
+                f"{attempt + 1}/3 did not capture chapter text."
+            )
+            try:
+                target.wait_for_timeout(3000)
+            except Exception:
+                time.sleep(3)
+
+        self.log(
+            f"  [NewToki] Visible browser selection failed: {chapter_name}"
+        )
+        self._ntk_dump_debug_page(target, chapter_name)
+        return None
 
         try:
             data = target.evaluate(r"""
@@ -964,41 +2485,97 @@ class ExternalScraper:
   const escapeHtml = (s) => (s || '').replace(/[&<>"]/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
   }[c]));
+  const commentLogin = '\ub313\uae00\uc744 \uc791\uc131\ud558\ub824\uba74 \ub85c\uadf8\uc778\uc774 \ud544\uc694\ud569\ub2c8\ub2e4';
+  const badTextRe = new RegExp([
+    commentLogin,
+    '\ub313\uae00', '\ub85c\uadf8\uc778', '\ud68c\uc6d0\uac00\uc785',
+    'comment', 'reply'
+  ].join('|'), 'i');
+  const navTextRe = new RegExp([
+    '\uc774\uc804\ud654', '\ub2e4\uc74c\ud654', '\ubaa9\ub85d',
+    '\uc990\uaca8\ucc3e\uae30', '\ucd94\ucc9c', '\ub313\uae00'
+  ].join('|'), 'g');
   const titleText = clean(
     (document.querySelector('h1, h2') || {}).innerText ||
     document.title.replace(/\s*[|-]\s*뉴토끼\s*$/i, '')
   ) || fallbackName || 'Chapter';
 
   const selectors = [
+    '#novel_content', '.novel_content', '.novel-content',
+    'article.novel-viewer', '.novel-viewer',
+    '#novel_view', '.novel_view', '.novel-view',
+    '#view_content', '.view_content', '.view-content',
+    '#bo_v_con', '.bo_v_con', '.wr_content',
+    '.view-padding', '.view-wrap', '.view_area', '.view-area',
+    '.toon-content', '.reading-content', '.entry-content',
     'article', 'main article', 'main',
     '.novel-content', '.episode-content', '.view-content',
     '.viewer', '.reader', '.content', '#content',
-    '.wr_content', '#bo_v_con', '.board-view'
+    '.wr_content', '#bo_v_con', '.board-view',
+    'main div', 'main section'
   ];
   const candidates = [];
   for (const sel of selectors) {
     for (const el of Array.from(document.querySelectorAll(sel))) {
       const text = clean(el.innerText || el.textContent);
       if (text.length < 120) continue;
+      if (/본문을\s*불러올\s*수\s*없습니다|새로고침/.test(text)) continue;
+      const ident = `${el.tagName}#${el.id}.${el.className}`;
+      if (badTextRe.test(text) && text.length < 800) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 300 || rect.height < 80) continue;
       const linkText = Array.from(el.querySelectorAll('a'))
         .map((a) => clean(a.innerText || a.textContent)).join(' ');
-      const navHits = (text.match(/이전화|다음화|목록|즐겨찾기|댓글|추천/g) || []).length;
-      const score = text.length - linkText.length * 1.5 - navHits * 250;
-      candidates.push({ el, text, score });
+      const paragraphCount = el.querySelectorAll('p, br').length;
+      const navHits = (text.match(navTextRe) || []).length;
+      const badHits = badTextRe.test(text + ' ' + ident) ? 1 : 0;
+      const selectorBonus = /novel|view|bo_v_con|wr_content|reader|toon|reading|entry/i.test(ident) ? 900 : 0;
+      const bodyPenalty = el === document.body || el.tagName === 'MAIN' ? 500 : 0;
+      const cardBonus = (
+        el.tagName === 'DIV' &&
+        rect.width >= 500 &&
+        rect.height >= 250 &&
+        linkText.length < text.length * 0.25
+      ) ? 1200 : 0;
+      const score = (
+        text.length +
+        paragraphCount * 120 +
+        selectorBonus +
+        cardBonus -
+        linkText.length * 2 -
+        navHits * 350 -
+        badHits * 5000 -
+        bodyPenalty
+      );
+      candidates.push({ el, text, score, ident });
     }
   }
   if (!candidates.length) {
-    const text = clean(document.body && document.body.innerText);
-    candidates.push({ el: document.body, text, score: text.length - 1000 });
+    const bodyClone = document.body.cloneNode(true);
+    bodyClone.querySelectorAll([
+      'script', 'style', 'noscript', 'iframe', 'form', 'button', 'input',
+      'select', 'textarea', 'nav', 'header', 'footer', 'aside',
+      '[class*="comment" i]', '[id*="comment" i]', '[class*="reply" i]',
+      '[id*="reply" i]', '[class*="login" i]', '[id*="login" i]'
+    ].join(',')).forEach((el) => el.remove());
+    const text = clean(bodyClone.innerText || bodyClone.textContent);
+    candidates.push({
+      el: bodyClone,
+      text,
+      score: text.length - 1000,
+      ident: 'body-fallback'
+    });
   }
   candidates.sort((a, b) => b.score - a.score);
 
-  const clone = candidates[0].el.cloneNode(true);
+  const selected = candidates[0];
+  const clone = selected.el.cloneNode(true);
   const junk = [
     'script', 'style', 'noscript', 'iframe', 'form', 'button', 'input',
     'select', 'textarea', 'nav', 'header', 'footer', 'aside',
     '[class*="comment" i]', '[id*="comment" i]', '[class*="reply" i]',
-    '[id*="reply" i]', '[class*="episode" i]', '[id*="episode" i]',
+    '[id*="reply" i]', '[class*="login" i]', '[id*="login" i]',
+    '[class*="episode" i]', '[id*="episode" i]',
     '[class*="list" i]', '[id*="list" i]', '[class*="breadcrumb" i]',
     '[class*="paging" i]', '[class*="pagination" i]',
     '[class*="recommend" i]', '[class*="share" i]',
@@ -1032,6 +2609,8 @@ class ExternalScraper:
     .filter((line) =>
       line &&
       line !== titleText &&
+      line !== commentLogin &&
+      !line.includes(commentLogin) &&
       !/^(이전화|다음화|목록|즐겨찾기|추천|댓글)$/.test(line) &&
       !/^\d+\s*화\s*$/.test(line)
     );
@@ -1052,7 +2631,9 @@ class ExternalScraper:
     chapterName: titleText,
     sourceChapterName: fallbackName || titleText,
     contentText: text,
-    contentHtml: parts.join('\n')
+    contentHtml: parts.join('\n'),
+    _debugSelector: selected.ident || '',
+    _debugScore: selected.score || 0
   };
 }
             """, chapter_name)
@@ -1061,8 +2642,78 @@ class ExternalScraper:
             return None
 
         if not data or not (data.get('contentText') or data.get('contentHtml')):
+            fallback = self._ntk_extract_visible_reader_text(
+                target, chapter_name
+            )
+            if fallback:
+                self.log("  [NewToki] Used visible reader text fallback.")
+                data = fallback
+            else:
+                fallback = self._ntk_extract_browser_selection_text(
+                    target, chapter_name
+                )
+                if fallback:
+                    self.log(
+                        "  [NewToki] Used browser Ctrl+A selection fallback."
+                    )
+                    data = fallback
+
+        if not data or not (data.get('contentText') or data.get('contentHtml')):
             self.log(f"  [NewToki] Empty chapter content: {chapter_name}")
+            self._ntk_dump_debug_page(target, chapter_name)
             return None
+        text = (data.get('contentText') or '').strip()
+        comment_login = '댓글을 작성하려면 로그인이 필요합니다'
+        load_error = '본문을 불러올 수 없습니다'
+        if text == comment_login or (comment_login in text and len(text) < 800):
+            self.log(
+                "  [NewToki] Rejected comment/login block instead of "
+                f"chapter body: {chapter_name}"
+            )
+            self._ntk_dump_debug_page(target, chapter_name)
+            return None
+        if load_error in text or '새로고침' in text:
+            fallback = self._ntk_extract_visible_reader_text(
+                target, chapter_name
+            )
+            if fallback:
+                self.log("  [NewToki] Used visible reader text fallback.")
+                data = fallback
+                text = (data.get('contentText') or '').strip()
+            else:
+                fallback = self._ntk_extract_browser_selection_text(
+                    target, chapter_name
+                )
+                if fallback:
+                    self.log(
+                        "  [NewToki] Used browser Ctrl+A selection fallback."
+                    )
+                    data = fallback
+                    text = (data.get('contentText') or '').strip()
+                else:
+                    self.log(
+                        "  [NewToki] Rejected load-error block instead of "
+                        f"chapter body: {chapter_name}"
+                    )
+                    self._ntk_dump_debug_page(target, chapter_name)
+                    return None
+        if load_error in text or '새로고침' in text:
+            self.log(
+                "  [NewToki] Rejected load-error block instead of "
+                f"chapter body: {chapter_name}"
+            )
+            self._ntk_dump_debug_page(target, chapter_name)
+            return None
+        if len(text) < 40 and not data.get('images'):
+            self.log(f"  [NewToki] Chapter content too short: {chapter_name}")
+            self._ntk_dump_debug_page(target, chapter_name)
+            return None
+        debug_selector = data.pop('_debugSelector', '')
+        data.pop('_debugScore', None)
+        if debug_selector:
+            self.log(f"  [NewToki] Content selector: {debug_selector}")
+        if debug_selector == 'body-fallback':
+            self._ntk_dump_debug_page(target, chapter_name)
         return data
 
     def _kakao_parse_book(self, url):
