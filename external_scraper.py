@@ -1808,37 +1808,37 @@ class ExternalScraper:
         self.log(
             "[NewToki] Detected ntk novel URL, using curl_cffi API scraper."
         )
-        self.log(f"[NewToki] Fetching index via Chrome-impersonated HTTP: {url}")
+        self.log(f"[NewToki] Refreshing Chrome clearance before API fetch: {url}")
 
         novel_id = self._ntk_novel_id_from_url(url)
+        rendered_html = ''
+        index_html = None
+        if not self._ntk_refresh_cloudflare_session(url):
+            self.log("ERROR: [NewToki] Could not refresh Chrome clearance.")
+            return None
+        try:
+            if self._page:
+                rendered_html = self._page.content()
+        except Exception:
+            rendered_html = ''
         state = self._ntk_prepare_api_state(url, novel_id)
         if not state:
             self.log("ERROR: [NewToki] Could not create API session.")
+            self.cleanup()
             return None
-
-        rendered_html = ''
+        self.log("[NewToki] Fetching index via verified Chrome session.")
         index_html = self._ntk_fetch_index_via_api_session(url, state)
+        try:
+            self.cleanup()
+        except Exception:
+            pass
         if not index_html:
-            if self._ntk_refresh_cloudflare_session(url):
-                try:
-                    if self._page:
-                        rendered_html = self._page.content()
-                except Exception:
-                    rendered_html = ''
-                state = self._ntk_prepare_api_state(url, novel_id)
-                index_html = self._ntk_fetch_index_via_api_session(url, state)
-                try:
-                    self.cleanup()
-                except Exception:
-                    pass
-            if not index_html:
-                self.log(
-                    "ERROR: [NewToki] Direct curl_cffi index fetch failed "
-                    "after automated Cloudflare refresh. If Cloudflare is "
-                    "stricter on your IP, set NPIA_NTK_CURL to a copied "
-                    "Chrome cURL request and retry."
-                )
-                return None
+            self.log(
+                "ERROR: [NewToki] API index fetch failed after Chrome "
+                "clearance refresh. If Cloudflare is stricter on your IP, "
+                "set NPIA_NTK_CURL to a copied Chrome cURL request and retry."
+            )
+            return None
         data = self._ntk_parse_index_html(index_html, url)
         if rendered_html:
             data = self._ntk_merge_book_metadata(
