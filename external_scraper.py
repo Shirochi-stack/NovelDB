@@ -1019,7 +1019,7 @@ class ExternalScraper:
 
     @staticmethod
     def is_ntk_novel(url):
-        """Check if the URL is a NewToki/ntk novel page."""
+        """Check if the URL is a NewToki/ntk novel or webtoon page."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
@@ -1027,8 +1027,16 @@ class ExternalScraper:
         host = (parsed.netloc or '').lower()
         return bool(
             re.fullmatch(r'(?:www\.)?ntk\d+\.com', host)
-            and re.match(r'^/novel/\d+(?:/\d+)?/?$', parsed.path or '')
+            and re.match(r'^/(?:novel|webtoon)/\d+(?:/\d+)?/?$', parsed.path or '')
         )
+
+    @staticmethod
+    def _ntk_content_kind_from_url(url):
+        try:
+            match = re.search(r'^/(novel|webtoon)/', urllib.parse.urlparse(url or '').path)
+            return match.group(1) if match else 'novel'
+        except Exception:
+            return 'novel'
 
     def _ntk_is_challenge_page(self, page):
         """Detect Cloudflare's interstitial so users get a useful message."""
@@ -1079,7 +1087,7 @@ class ExternalScraper:
     @staticmethod
     def _ntk_novel_id_from_url(url):
         try:
-            match = re.search(r'/novel/(\d+)', urllib.parse.urlparse(url).path)
+            match = re.search(r'/(?:novel|webtoon)/(\d+)', urllib.parse.urlparse(url).path)
             return match.group(1) if match else ''
         except Exception:
             return ''
@@ -1595,7 +1603,7 @@ class ExternalScraper:
                 return cover
 
         for match in re.finditer(
-            r'https?:\\?/\\?/[^"\'\s<>]+novel_thumb[^"\'\s<>]+',
+            r'https?:\\?/\\?/[^"\'\s<>]+(?:novel|webtoon)_thumb[^"\'\s<>]+',
             html_text or '',
             re.I,
         ):
@@ -1820,6 +1828,31 @@ class ExternalScraper:
             html_text,
             re.I | re.S,
         )
+        if not ep_blocks:
+            ep_blocks = re.findall(
+                r'data-ep\\?["\']?\s*[:=]\s*(\d+).*?href\\?["\']?\s*[:=]\s*\\?["\']([^"\']+).*?className\\?["\']?\s*:\s*\\?["\'][^"\']*(?:ne-title|ep-title)[^"\']*.*?children\\?["\']?\s*:\s*\\?["\']([^"\\]+)',
+                html_text,
+                re.I | re.S,
+            )
+        kind = self._ntk_content_kind_from_url(index_url)
+        if not ep_blocks and kind == 'webtoon':
+            base_id = self._ntk_novel_id_from_url(index_url)
+            webtoon_links = []
+            for match in re.finditer(
+                rf'((?:https?:\\?/\\?/[^"\'\s<>]+)?/webtoon/{re.escape(base_id)}/(\d+))',
+                html_text or '',
+                re.I,
+            ):
+                href = self._ntk_abs_url(index_url, match.group(1))
+                ep_id = match.group(2)
+                if href and ep_id:
+                    webtoon_links.append((ep_id, href))
+            seen_links = set()
+            for idx, (ep_id, href) in enumerate(webtoon_links, 1):
+                if href in seen_links:
+                    continue
+                seen_links.add(href)
+                ep_blocks.append((str(idx), href, f'{idx}\ud654'))
         chapters = []
         seen = set()
         for ep_num, href, ep_title in ep_blocks:
@@ -1841,6 +1874,7 @@ class ExternalScraper:
                 'fullName': name,
                 'number': number,
                 'episodeId': ep_id,
+                'kind': kind,
                 'isVIP': False,
                 'isPaid': False,
             })
@@ -1856,6 +1890,7 @@ class ExternalScraper:
             'tags': tags,
             'chapterCount': len(chapters),
             'chapters': chapters,
+            '_ntk_kind': kind,
         }
 
     def _ntk_fetch_index_via_api_session(self, url, state):
@@ -2023,6 +2058,128 @@ class ExternalScraper:
             time.sleep(0.5)
         return None
 
+    def _ntk_image_url_candidates(self, html_text, base_url):
+        urls = []
+
+        def add(value):
+            value = self._ntk_abs_url(base_url, value)
+            if not value or self._ntk_is_site_image(value):
+                return
+            lower = value.lower()
+            if not re.search(r'\.(?:jpg|jpeg|png|webp|gif|avif)(?:[?#]|$)', lower):
+                return
+            if any(skip in lower for skip in ('favicon', 'avatar', 'profile', 'emoji')):
+                return
+            if value not in urls:
+                urls.append(value)
+
+        for tag in re.findall(r'<img\b[^>]*>', html_text or '', re.I | re.S):
+            attrs = self._ntk_html_attrs(tag)
+            for key in ('data-src', 'data-original', 'data-lazy-src', 'srcset', 'src'):
+                if attrs.get(key):
+                    add(attrs[key])
+                    break
+
+        for match in re.finditer(
+            r'https?:\\?/\\?/[^"\'\s<>]+(?:toonflix|ntk|newtoki|imagebox)[^"\'\s<>]+',
+            html_text or '',
+            re.I,
+        ):
+            add(match.group(0))
+
+        for match in re.finditer(
+            r'["\']((?:/[^"\'\s<>]+)?/(?:data|upload|uploads|webtoon|toon|image|images|file)/[^"\'\s<>]+\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"\'\s<>]*)?)["\']',
+            html_text or '',
+            re.I,
+        ):
+            add(match.group(1))
+
+        page_images = [
+            url for url in urls
+            if not re.search(r'(?:novel|webtoon)_thumb|og-default', url, re.I)
+        ]
+        return page_images or urls
+
+    def _ntk_build_image_chapter(self, title, image_urls, selector):
+        if not image_urls:
+            return None
+        images = []
+        html_parts = []
+        for idx, img_url in enumerate(image_urls, 1):
+            parsed = urllib.parse.urlparse(img_url)
+            name = os.path.basename(parsed.path) or f'page_{idx:04d}.jpg'
+            name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
+            if '.' not in name:
+                name += '.jpg'
+            name = f'ntk_webtoon_{idx:04d}_{name}'
+            images.append({'url': img_url, 'name': name})
+            html_parts.append(
+                f'<div class="ntk-webtoon-page">'
+                f'<img src="{html.escape(img_url, quote=True)}" alt="page {idx}" />'
+                f'</div>'
+            )
+        return {
+            'chapterName': title or 'Chapter',
+            'sourceChapterName': title or 'Chapter',
+            'contentText': '',
+            'contentHtml': '\n'.join(html_parts),
+            'images': images,
+            'contentCss': (
+                '.ntk-webtoon-page { margin: 0; padding: 0; text-align: center; } '
+                '.ntk-webtoon-page img { display: block; width: 100%; '
+                'max-width: 100%; height: auto; margin: 0 auto; }'
+            ),
+            '_debugSelector': selector,
+        }
+
+    def _ntk_fetch_webtoon_chapter(self, chapter_url, chapter_name, state=None):
+        state = state or self._ntk_api_state
+        if not state:
+            state = self._ntk_prepare_api_state(self._book_url or chapter_url)
+        if not state or not state.get('session'):
+            self.log("  [NewToki] API session is not ready.")
+            return None
+        session = state['session']
+        headers = dict(state['doc_headers'])
+        headers['Referer'] = state.get('index_url') or self._book_url or state['origin']
+        for attempt in range(1, 5):
+            try:
+                url = f"{chapter_url}?cb={int(time.time() * 1000)}"
+                response = self._ntk_request_get(session, url, headers)
+                if (
+                    response.status_code != 200
+                    or 'Just a moment' in response.text
+                    or 'cf-browser-verification' in response.text
+                ):
+                    self.log(
+                        f"  [NewToki] Webtoon HTML blocked/failed "
+                        f"(attempt {attempt}/4, HTTP {response.status_code})."
+                    )
+                    time.sleep(0.5)
+                    continue
+                image_urls = self._ntk_image_url_candidates(
+                    response.text,
+                    chapter_url,
+                )
+                data = self._ntk_build_image_chapter(
+                    chapter_name,
+                    image_urls,
+                    'ntk webtoon image scrape',
+                )
+                if data:
+                    return data
+                self.log(
+                    f"  [NewToki] No webtoon images found "
+                    f"(attempt {attempt}/4)."
+                )
+            except Exception as e:
+                self.log(
+                    f"  [NewToki] Webtoon chapter attempt "
+                    f"{attempt}/4 failed: {e}"
+                )
+            time.sleep(0.5)
+        return None
+
     def fetch_ntk_binary(self, url, referer=None):
         """Fetch a NewToki binary asset with the verified API session."""
         state = self._ntk_api_state
@@ -2084,8 +2241,9 @@ class ExternalScraper:
     def _ntk_parse_book(self, url):
         """Scrape ntk metadata using the site's encrypted content API."""
         self._stop_requested = False
+        kind = self._ntk_content_kind_from_url(url)
         self.log(
-            "[NewToki] Detected ntk novel URL, using curl_cffi API scraper."
+            f"[NewToki] Detected ntk {kind} URL, using curl_cffi API scraper."
         )
         self.log(f"[NewToki] Refreshing Chrome clearance before API fetch: {url}")
 
@@ -2126,6 +2284,20 @@ class ExternalScraper:
         chapters = data.get('chapters') or []
         if not chapters:
             self.log("ERROR: [NewToki] No episode links found on page.")
+            try:
+                logs_dir = os.path.join(_get_base_dir(), 'logs')
+                os.makedirs(logs_dir, exist_ok=True)
+                kind = data.get('_ntk_kind') or self._ntk_content_kind_from_url(url)
+                stamp = time.strftime('%Y%m%d_%H%M%S')
+                path = os.path.join(
+                    logs_dir,
+                    f'ntk_{kind}_index_debug_{stamp}_{novel_id}.html',
+                )
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(index_html or '')
+                self.log(f"[NewToki] Index debug saved: {path}")
+            except Exception:
+                pass
             return None
 
         data['coverUrl'] = self._ntk_prefer_novelpia_cover_url(
@@ -2139,6 +2311,7 @@ class ExternalScraper:
         data['_ntk_novel'] = True
         data['_ntk_api'] = True
         data['_ntk_novel_id'] = novel_id
+        data['_ntk_kind'] = kind
         self._book_data = data
         self._book_url = url
         self.log(
@@ -2148,7 +2321,17 @@ class ExternalScraper:
         return data
 
     def _ntk_parse_chapter(self, chapter_url, chapter_name, page=None):
-        """Fetch one ntk chapter through /api/novel-content."""
+        """Fetch one ntk novel/webtoon chapter."""
+        if self._book_data and self._book_data.get('_ntk_kind') == 'webtoon':
+            data = self._ntk_fetch_webtoon_chapter(chapter_url, chapter_name)
+            if data:
+                debug_selector = data.pop('_debugSelector', '')
+                self.log("  [NewToki] Used webtoon image scrape.")
+                if debug_selector:
+                    self.log(f"  [NewToki] Content selector: {debug_selector}")
+                return data
+            self.log(f"  [NewToki] Webtoon chapter fetch failed: {chapter_name}")
+            return None
         data = self._ntk_fetch_chapter_api(chapter_url, chapter_name)
         if data:
             debug_selector = data.pop('_debugSelector', '')
@@ -3517,6 +3700,12 @@ class ExternalScraper:
                 if self._stop_requested:
                     return None
                 state = self._ntk_clone_api_state() or self._ntk_api_state
+                if self._book_data.get('_ntk_kind') == 'webtoon':
+                    return self._ntk_fetch_webtoon_chapter(
+                        ch.get('url', ''),
+                        ch.get('fullName', '') or ch.get('name', ''),
+                        state=state,
+                    )
                 return self._ntk_fetch_chapter_api(
                     ch.get('url', ''),
                     ch.get('fullName', '') or ch.get('name', ''),
