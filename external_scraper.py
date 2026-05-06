@@ -35,6 +35,19 @@ from pathlib import Path
 if sys.platform == "win32":
     import ctypes
 
+
+def _hidden_windows_subprocess_kwargs():
+    """Hide console windows for child processes launched by the GUI exe."""
+    if sys.platform != "win32":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0  # SW_HIDE
+    return {
+        "startupinfo": startupinfo,
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+
 # When running from a PyInstaller bundle, point Playwright to the
 # bundled Chromium browser so users don't need to install anything.
 if getattr(sys, 'frozen', False):
@@ -290,6 +303,7 @@ class ExternalScraper:
                 stderr=subprocess.DEVNULL,
                 timeout=8,
                 errors="ignore",
+                **_hidden_windows_subprocess_kwargs(),
             ).strip()
             count = int(output.splitlines()[-1]) if output else 0
         except Exception:
@@ -399,6 +413,7 @@ class ExternalScraper:
                     stderr=subprocess.DEVNULL,
                     timeout=5,
                     errors="ignore",
+                    **_hidden_windows_subprocess_kwargs(),
                 )
                 for line in output.splitlines():
                     try:
@@ -527,15 +542,7 @@ class ExternalScraper:
                 "stderr": subprocess.DEVNULL,
             })
             if sys.platform == "win32":
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = 0  # SW_HIDE
-                popen_kwargs["startupinfo"] = startupinfo
-                popen_kwargs["creationflags"] = getattr(
-                    subprocess,
-                    "CREATE_NO_WINDOW",
-                    0,
-                )
+                popen_kwargs.update(_hidden_windows_subprocess_kwargs())
             else:
                 popen_kwargs["start_new_session"] = True
 
