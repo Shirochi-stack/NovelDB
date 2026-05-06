@@ -372,7 +372,8 @@ class ExternalNovelDialog(tk.Toplevel):
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
-                if not self._scraper.is_ntk_novel(url):
+                if (not self._scraper.is_ntk_novel(url)
+                        and not self._scraper.is_yeduji(url)):
                     self._scraper.start()
             self._apply_scraper_options()
 
@@ -402,7 +403,11 @@ class ExternalNovelDialog(tk.Toplevel):
             is_ntk = bool(
                 self._book_data and self._book_data.get("_ntk_novel")
             )
-            if self._scraper and not self._scraper._context and not is_ntk:
+            is_yeduji = bool(
+                self._book_data and self._book_data.get("_yeduji")
+            )
+            if (self._scraper and not self._scraper._context
+                    and not is_ntk and not is_yeduji):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
                 # originate from the kakao.com domain.  The BFF API
@@ -530,7 +535,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     f"{locked} locked (paid), {failed} failed."
                 )
                 self._log(
-                    "⚠ Locked chapters require a KakaoPage subscription "
+                    "⚠ Locked chapters require a subscription "
                     "or ticket purchase to access."
                 )
             elif failed:
@@ -690,7 +695,8 @@ class ExternalNovelDialog(tk.Toplevel):
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
-                if not self._scraper.is_ntk_novel(url):
+                if (not self._scraper.is_ntk_novel(url)
+                        and not self._scraper.is_yeduji(url)):
                     self._scraper.start()
             self._apply_scraper_options()
 

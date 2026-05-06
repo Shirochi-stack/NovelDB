@@ -1031,6 +1031,19 @@ class ExternalScraper:
         )
 
     @staticmethod
+    def is_yeduji(url):
+        """Check if the URL is a Yeduji (夜读集) novel page."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.netloc or '').lower()
+        return bool(
+            re.fullmatch(r'(?:www\.)?yeduji\.com', host)
+            and re.match(r'^/book/\d+', parsed.path or '')
+        )
+
+    @staticmethod
     def _ntk_content_kind_from_url(url):
         try:
             match = re.search(r'^/(novel|webtoon)/', urllib.parse.urlparse(url or '').path)
@@ -3481,6 +3494,274 @@ class ExternalScraper:
             return ''
 
 
+    # ------------------------------------------------------------------
+    # Yeduji (夜读集) native scraper
+    # ------------------------------------------------------------------
+    _YEDUJI_UA = (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/120.0.0.0 Safari/537.36'
+    )
+
+    def _yeduji_fetch(self, url):
+        """Fetch a Yeduji page via urllib and return the HTML."""
+        req = urllib.request.Request(url, headers={
+            'User-Agent': self._YEDUJI_UA,
+            'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        })
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return resp.read().decode('utf-8', errors='replace')
+
+    def _yeduji_parse_book(self, url):
+        """Scrape Yeduji book metadata and chapter list.
+
+        Fetches the book index page and the chapter list page.
+        Returns the standard book data dict or None on error.
+        """
+        self._stop_requested = False
+        self.log(f"[Yeduji] Navigating to: {url}")
+
+        # Extract book ID from URL
+        m = re.search(r'/book/(\d+)', url)
+        if not m:
+            self.log("ERROR: [Yeduji] Could not extract book ID from URL.")
+            return None
+        book_id = m.group(1)
+
+        # Normalise URL
+        parsed = urllib.parse.urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        index_url = f"{origin}/book/{book_id}/"
+
+        try:
+            index_html = self._yeduji_fetch(index_url)
+        except Exception as e:
+            self.log(f"ERROR: [Yeduji] Index page fetch failed: {e}")
+            return None
+
+        # --- Metadata ---
+        # Title from <h1>
+        title_match = re.search(r'<h1[^>]*>(.*?)</h1>', index_html, re.S)
+        title = html.unescape(title_match.group(1).strip()) if title_match else ''
+
+        # Author from <title>: "Title - Author 著 - 夜读集 小说"
+        author = ''
+        title_tag = re.search(r'<title>(.*?)</title>', index_html, re.S)
+        if title_tag:
+            tt = title_tag.group(1).strip()
+            # Pattern: "BookTitle - AuthorName 著 - 夜读集 小说"
+            author_match = re.search(r'-\s*(.+?)\s*著\s*-', tt)
+            if author_match:
+                author = author_match.group(1).strip()
+        if not title and title_tag:
+            # Fallback title from <title>
+            parts = title_tag.group(1).split(' - ')
+            title = parts[0].strip() if parts else ''
+
+        # Cover image
+        cover_url = ''
+        cover_match = re.search(
+            r'<img[^>]+src=["\']([^"\'/][^"\']*/data/cover/[^"\']*)["\'\s]',
+            index_html, re.I,
+        )
+        if not cover_match:
+            cover_match = re.search(
+                r'<img[^>]+src=["\']([^"\']*/data/cover/[^"\']*)["\'\s]',
+                index_html, re.I,
+            )
+        if cover_match:
+            cover_url = urllib.parse.urljoin(index_url, cover_match.group(1))
+
+        # Description
+        description = ''
+        desc_match = re.search(
+            r'<div\s+class=["\']desc["\'][^>]*>(.*?)</div>',
+            index_html, re.S,
+        )
+        if desc_match:
+            desc_text = re.sub(r'<[^>]+>', '', desc_match.group(1))
+            description = html.unescape(desc_text).strip()
+
+        # Status
+        status = ''
+        status_match = re.search(r'状态[：:\s]+([^<"]+)', index_html)
+        if status_match:
+            status = status_match.group(1).strip().rstrip('."\'>')
+
+        self.log(f"[Yeduji] Title: {title}")
+        self.log(f"[Yeduji] Author: {author or 'Unknown'}")
+
+        # --- Chapter list (from /book/{id}/list/) ---
+        list_url = f"{origin}/book/{book_id}/list/"
+        try:
+            list_html = self._yeduji_fetch(list_url)
+        except Exception as e:
+            self.log(f"ERROR: [Yeduji] Chapter list fetch failed: {e}")
+            return None
+
+        chapters = []
+        # Pattern: <a data-chapterId="..." href="/book/ID/CHAP.html">
+        #            <h4>ChapterName</h4>
+        #            <small class="text-muted">VIP|免费</small>
+        #          </a>
+        for m in re.finditer(
+            r'<a\s+data-chapterId=["\']([^"\']*)["\'\s][^>]*'
+            r'href=["\']([^"\']*/book/\d+/\d+\.html)["\'\s][^>]*>'
+            r'(.*?)</a>',
+            list_html, re.S,
+        ):
+            chapter_id = m.group(1)
+            href = m.group(2)
+            inner = m.group(3)
+
+            # Chapter name from <h4>
+            name_match = re.search(r'<h4[^>]*>(.*?)</h4>', inner, re.S)
+            name = html.unescape(
+                re.sub(r'<[^>]+>', '', name_match.group(1)).strip()
+            ) if name_match else f'Chapter {chapter_id}'
+
+            # VIP status from <small>VIP</small>
+            is_vip = bool(re.search(
+                r'<small[^>]*>\s*VIP\s*</small>', inner, re.I
+            ))
+
+            full_url = urllib.parse.urljoin(list_url, href)
+            chapters.append({
+                'url': full_url,
+                'name': name,
+                'fullName': name,
+                'isVIP': is_vip,
+                'isPaid': is_vip,
+                'isAccessible': not is_vip,
+                '_chapterId': chapter_id,
+            })
+
+        if not chapters:
+            self.log("ERROR: [Yeduji] No chapters found on list page.")
+            return None
+
+        free_count = sum(1 for ch in chapters if not ch['isVIP'])
+        vip_count = sum(1 for ch in chapters if ch['isVIP'])
+        self.log(
+            f"[Yeduji] Found {len(chapters)} chapters "
+            f"({free_count} free, {vip_count} VIP)"
+        )
+
+        data = {
+            'bookname': title or f'Book {book_id}',
+            'author': author or 'Unknown',
+            'coverUrl': cover_url,
+            'description': description,
+            'status': status,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            '_yeduji': True,
+            '_yeduji_origin': origin,
+            '_yeduji_book_id': book_id,
+        }
+        self._book_data = data
+        self._book_url = index_url
+        return data
+
+    def _yeduji_parse_chapter(self, chapter_url, chapter_name,
+                              is_paid=False):
+        """Fetch one Yeduji chapter's content.
+
+        For VIP chapters, only the preview paragraphs are available.
+        The VIP notice text is stripped from the output.
+
+        Returns the standard chapter data dict or None on error.
+        """
+        try:
+            ch_html = self._yeduji_fetch(chapter_url)
+        except Exception as e:
+            self.log(f"  [Yeduji] Chapter fetch error: {e}")
+            return None
+
+        # Title from <h1 class="title">
+        title_match = re.search(
+            r'<h1[^>]*class=["\']title["\'][^>]*>(.*?)</h1>',
+            ch_html, re.S,
+        )
+        if not title_match:
+            title_match = re.search(r'<h1[^>]*>(.*?)</h1>', ch_html, re.S)
+        ch_title = html.unescape(
+            title_match.group(1).strip()
+        ) if title_match else chapter_name
+
+        # Content from <div class="content">...</div>
+        content_match = re.search(
+            r'<div\s+class=["\']content["\'][^>]*>(.*?)</div>',
+            ch_html, re.S,
+        )
+        if not content_match:
+            self.log(
+                f"  [Yeduji] No content div found for: {chapter_name}"
+            )
+            return None
+
+        content_html_raw = content_match.group(1)
+
+        # Detect if this is a VIP preview by looking for the notice.
+        # The VIP notice is a <p> containing "以下内容为VIP专属".
+        has_vip_notice = bool(re.search(
+            r'以下内容为VIP专属', content_html_raw
+        ))
+        # Also detect the site promo line
+        has_promo = bool(re.search(
+            r'夜读集由爱发电', content_html_raw
+        ))
+
+        # Extract paragraphs, stripping VIP notice and promo lines
+        paragraphs = []
+        for p_match in re.finditer(
+            r'<p[^>]*>(.*?)</p>', content_html_raw, re.S
+        ):
+            p_text = p_match.group(1).strip()
+            plain = html.unescape(re.sub(r'<[^>]+>', '', p_text)).strip()
+            # Skip VIP notice and promo lines
+            if '以下内容为VIP专属' in plain:
+                continue
+            if '夜读集由爱发电' in plain:
+                continue
+            if '请先' in plain and '登录' in plain and '后查看完整内容' in plain:
+                continue
+            if plain:
+                paragraphs.append((plain, p_text))
+
+        if not paragraphs:
+            self.log(
+                f"  [Yeduji] No text content extracted: {chapter_name}"
+            )
+            return None
+
+        # Log VIP preview warning
+        if has_vip_notice or is_paid:
+            self.log(
+                f"  [Yeduji] ⚠ PREVIEW ONLY (VIP content): {chapter_name} "
+                f"({len(paragraphs)} paragraphs)"
+            )
+
+        # Build output
+        full_text = '\n'.join(p[0] for p in paragraphs)
+        html_parts = []
+        for plain, raw_html in paragraphs:
+            # Use the original HTML fragment (preserving any inline formatting)
+            html_parts.append(f'<p>{raw_html}</p>')
+        content_html = '\n'.join(html_parts)
+
+        result = {
+            'chapterName': ch_title or chapter_name,
+            'sourceChapterName': chapter_name,
+            'contentText': full_text,
+            'contentHtml': content_html,
+            'images': [],
+        }
+        if has_vip_notice or is_paid:
+            result['_preview'] = True
+        return result
+
 
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
@@ -3493,6 +3774,9 @@ class ExternalScraper:
             return self._kakao_parse_book(url)
         if self.is_ntk_novel(url):
             return self._ntk_parse_book(url)
+        if self.is_yeduji(url):
+            self.log("[Yeduji] Detected Yeduji URL, using native scraper.")
+            return self._yeduji_parse_book(url)
 
         if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
             self.log(
@@ -3611,6 +3895,14 @@ class ExternalScraper:
             if interval > 0:
                 time.sleep(min(interval, 0.15))
             return result
+        if self._book_data and self._book_data.get('_yeduji'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            is_paid = chapter_info.get('isPaid', False)
+            result = self._yeduji_parse_chapter(url, name, is_paid=is_paid)
+            if interval > 0:
+                time.sleep(interval)
+            return result
 
         target_page = page or self._page
         if target_page is None:
@@ -3688,6 +3980,22 @@ class ExternalScraper:
                     ch.get('url', ''),
                     ch.get('fullName', '') or ch.get('name', ''),
                     page=self._page
+                )
+                results.append(data)
+                if interval > 0 and i < len(batch_info) - 1:
+                    time.sleep(interval)
+            return results
+        # Yeduji: sequential urllib fetches (no browser needed)
+        if self._book_data and self._book_data.get('_yeduji'):
+            results = []
+            for i, ch in enumerate(batch_info):
+                if self._stop_requested:
+                    results.append(None)
+                    continue
+                data = self._yeduji_parse_chapter(
+                    ch.get('url', ''),
+                    ch.get('fullName', '') or ch.get('name', ''),
+                    is_paid=ch.get('isPaid', False),
                 )
                 results.append(data)
                 if interval > 0 and i < len(batch_info) - 1:
