@@ -3545,52 +3545,111 @@ class ExternalScraper:
         title_match = re.search(r'<h1[^>]*>(.*?)</h1>', index_html, re.S)
         title = html.unescape(title_match.group(1).strip()) if title_match else ''
 
-        # Author from <title>: "Title - Author 著 - 夜读集 小说"
-        author = ''
-        title_tag = re.search(r'<title>(.*?)</title>', index_html, re.S)
-        if title_tag:
-            tt = title_tag.group(1).strip()
-            # Pattern: "BookTitle - AuthorName 著 - 夜读集 小说"
-            author_match = re.search(r'-\s*(.+?)\s*著\s*-', tt)
-            if author_match:
-                author = author_match.group(1).strip()
-        if not title and title_tag:
-            # Fallback title from <title>
-            parts = title_tag.group(1).split(' - ')
-            title = parts[0].strip() if parts else ''
+        # Extract structured fields from <dl><dt>Key</dt><dd>Value</dd></dl>
+        # in the <div class="info"> block.
+        info_match = re.search(
+            r'<div\s+class=["\']info["\'][^>]*>(.*?)</div>',
+            index_html, re.S,
+        )
+        info_html = info_match.group(1) if info_match else ''
+
+        def _dl_text(label):
+            """Extract plain text from <dl><dt>label</dt><dd>text</dd></dl>."""
+            m = re.search(
+                r'<dt>\s*' + re.escape(label)
+                + r'\s*</dt>\s*<dd>(.*?)</dd>',
+                info_html, re.S,
+            )
+            if not m:
+                return ''
+            return html.unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip()
+
+        def _dl_links(label):
+            """Extract link texts from <dl><dt>label</dt><dd><a>...</a>...</dd>."""
+            m = re.search(
+                r'<dt>\s*' + re.escape(label)
+                + r'\s*</dt>\s*<dd>(.*?)</dd>',
+                info_html, re.S,
+            )
+            if not m:
+                return []
+            return [
+                html.unescape(t.strip())
+                for t in re.findall(r'<a[^>]*>(.*?)</a>', m.group(1), re.S)
+                if t.strip()
+            ]
+
+        # Author — prefer structured <dl> field, fall back to <title>
+        author = _dl_text('作者')
+        if not author:
+            title_tag = re.search(r'<title>(.*?)</title>', index_html, re.S)
+            if title_tag:
+                author_m = re.search(r'-\s*(.+?)\s*著\s*-', title_tag.group(1))
+                if author_m:
+                    author = author_m.group(1).strip()
+        if not title:
+            title_tag = re.search(r'<title>(.*?)</title>', index_html, re.S)
+            if title_tag:
+                parts = title_tag.group(1).split(' - ')
+                title = parts[0].strip() if parts else ''
+
+        # Tags
+        tags = _dl_links('标签')
+        # Category
+        category = _dl_links('分类')
+        # Status
+        status = _dl_text('状态')
 
         # Cover image
         cover_url = ''
         cover_match = re.search(
-            r'<img[^>]+src=["\']([^"\'/][^"\']*/data/cover/[^"\']*)["\'\s]',
+            r'<img[^>]+src=["\']([^"\'/][^"\']*?/data/cover/[^"\']*)["\'\s]',
             index_html, re.I,
         )
         if not cover_match:
             cover_match = re.search(
-                r'<img[^>]+src=["\']([^"\']*/data/cover/[^"\']*)["\'\s]',
+                r'<img[^>]+src=["\']([^"\']*?/data/cover/[^"\']*)["\'\s]',
                 index_html, re.I,
             )
         if cover_match:
             cover_url = urllib.parse.urljoin(index_url, cover_match.group(1))
 
-        # Description
+        # Description (synopsis text)
         description = ''
+        desc_html = ''
         desc_match = re.search(
             r'<div\s+class=["\']desc["\'][^>]*>(.*?)</div>',
             index_html, re.S,
         )
         if desc_match:
-            desc_text = re.sub(r'<[^>]+>', '', desc_match.group(1))
-            description = html.unescape(desc_text).strip()
-
-        # Status
-        status = ''
-        status_match = re.search(r'状态[：:\s]+([^<"]+)', index_html)
-        if status_match:
-            status = status_match.group(1).strip().rstrip('."\'>')
+            raw_desc = desc_match.group(1)
+            # Strip the "desc-more" image and the "desc-content" wrapper
+            inner = re.sub(r'<img[^>]*>', '', raw_desc)
+            inner_m = re.search(
+                r'<p[^>]*class=["\'][^"\']*desc-content[^"\']*["\'][^>]*>'
+                r'(.*?)</p>',
+                inner, re.S,
+            )
+            if inner_m:
+                inner = inner_m.group(1)
+            desc_text = html.unescape(
+                re.sub(r'<[^>]+>', '', inner)
+            ).strip()
+            description = desc_text
+            # Preserve <br> as HTML for the EPUB intro page
+            desc_html = re.sub(
+                r'<(?!br\s*/?)[^>]+>', '', inner
+            ).strip()
 
         self.log(f"[Yeduji] Title: {title}")
         self.log(f"[Yeduji] Author: {author or 'Unknown'}")
+        if tags:
+            self.log(
+                f"[Yeduji] Tags: {', '.join(tags[:8])}"
+                + ('...' if len(tags) > 8 else '')
+            )
+        if category:
+            self.log(f"[Yeduji] Category: {', '.join(category)}")
 
         # --- Chapter list (from /book/{id}/list/) ---
         list_url = f"{origin}/book/{book_id}/list/"
@@ -3607,7 +3666,7 @@ class ExternalScraper:
         #          </a>
         for m in re.finditer(
             r'<a\s+data-chapterId=["\']([^"\']*)["\'\s][^>]*'
-            r'href=["\']([^"\']*/book/\d+/\d+\.html)["\'\s][^>]*>'
+            r'href=["\']([^"\']*?/book/\d+/\d+\.html)["\'\s][^>]*>'
             r'(.*?)</a>',
             list_html, re.S,
         ):
@@ -3653,6 +3712,11 @@ class ExternalScraper:
             'author': author or 'Unknown',
             'coverUrl': cover_url,
             'description': description,
+            'introduction': description,
+            'introductionHTML': desc_html.replace('\n', '<br/>\n')
+                                if desc_html else '',
+            'tags': tags,
+            'category': category,
             'status': status,
             'chapterCount': len(chapters),
             'chapters': chapters,
