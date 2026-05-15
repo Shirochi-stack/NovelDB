@@ -29,6 +29,14 @@ SEARCH_TERMS = [
 
 THUMB_PREFIX = 'https://dn-img-page.kakao.com/download/resource?kid='
 _thread_local = threading.local()
+DEFAULT_RETRIES = 5
+RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+RETRYABLE_EXCEPTIONS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.ContentDecodingError,
+)
 
 
 def make_session():
@@ -48,6 +56,53 @@ def get_thread_session():
         session = make_session()
         _thread_local.session = session
     return session
+
+
+def retry_after_seconds(response):
+    value = response.headers.get("Retry-After")
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
+
+
+def get_with_retries(
+        session, url, *, params=None, timeout=15, attempts=DEFAULT_RETRIES,
+        backoff=1.0, max_backoff=30.0, log_retries=False):
+    """GET with bounded retries for transient Kakao/BFF disconnects."""
+    last_error = None
+    attempts = max(1, attempts)
+
+    for attempt in range(1, attempts + 1):
+        response = None
+        try:
+            response = session.get(url, params=params, timeout=timeout)
+            if response.status_code not in RETRYABLE_STATUS_CODES:
+                return response
+            last_error = f"HTTP {response.status_code}"
+        except RETRYABLE_EXCEPTIONS as e:
+            last_error = e
+        except requests.exceptions.RequestException as e:
+            last_error = e
+
+        if attempt >= attempts:
+            if response is not None:
+                return response
+            raise last_error
+
+        wait = None
+        if response is not None:
+            wait = retry_after_seconds(response)
+        if wait is None:
+            wait = min(max_backoff, backoff * (2 ** (attempt - 1)))
+
+        if log_retries:
+            print(f" retry{attempt}/{attempts}", end='', flush=True)
+        time.sleep(wait)
+
+    raise RuntimeError("unreachable retry state")
 
 
 def normalize_description(text):
@@ -90,15 +145,15 @@ def load_existing_descriptions(path=KAKAO_DESCRIPTIONS_PATH):
     return rows
 
 
-def fetch_series_description(series_id):
+def fetch_series_description(series_id, retries=DEFAULT_RETRIES):
     """Fetch one KakaoPage series description from the product-list BFF API."""
     session = get_thread_session()
-    r = session.get(BFF_PRODUCT_LIST_URL, params={
+    r = get_with_retries(session, BFF_PRODUCT_LIST_URL, params={
         'series_id': series_id,
         'cursor_index': 0,
         'cursor_direction': 'ANCHOR',
         'window_size': 0,
-    }, timeout=15)
+    }, timeout=15, attempts=retries)
     if r.status_code != 200:
         return ""
     result = r.json().get("result", {})
@@ -106,7 +161,7 @@ def fetch_series_description(series_id):
     return normalize_description(series_item.get("description", ""))
 
 
-def fetch_descriptions(all_novels, existing, workers=12):
+def fetch_descriptions(all_novels, existing, workers=12, retries=DEFAULT_RETRIES):
     """Fill descriptions, using existing rows as a cache on rescrapes."""
     workers = max(1, workers)
     cached = 0
@@ -127,7 +182,10 @@ def fetch_descriptions(all_novels, existing, workers=12):
     fetched = 0
     failed = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(fetch_series_description, sid): sid for sid in missing}
+        futures = {
+            pool.submit(fetch_series_description, sid, retries): sid
+            for sid in missing
+        }
         for i, fut in enumerate(as_completed(futures), 1):
             sid = futures[fut]
             try:
@@ -149,7 +207,9 @@ def fetch_descriptions(all_novels, existing, workers=12):
                 )
 
 
-def scrape_search_term(session, keyword, all_novels, delay=0.3, page_size=100):
+def scrape_search_term(
+        session, keyword, all_novels, delay=0.3, page_size=100,
+        retries=DEFAULT_RETRIES):
     """Paginate through all search results for a keyword."""
     total_count = None
     page = 0
@@ -157,14 +217,14 @@ def scrape_search_term(session, keyword, all_novels, delay=0.3, page_size=100):
 
     while True:
         try:
-            r = session.get(BFF_SEARCH_URL, params={
+            r = get_with_retries(session, BFF_SEARCH_URL, params={
                 'keyword': keyword,
                 'category_uid': 11,
                 'is_complete': 'false',
                 'sort_type': 'ACCURACY',
                 'page': page,
                 'size': page_size,
-            }, timeout=15)
+            }, timeout=15, attempts=retries, log_retries=True)
 
             if r.status_code != 200:
                 print(f" HTTP {r.status_code}", end='')
@@ -290,6 +350,8 @@ def main():
                         help="Only scrape catalog metadata; do not fetch raw synopsis text")
     parser.add_argument("--description-workers", type=int, default=12,
                         help="Parallel workers for fetching Kakao descriptions")
+    parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
+                        help="Retry attempts for transient Kakao/BFF failures")
     args = parser.parse_args()
 
     session = make_session()
@@ -297,9 +359,9 @@ def main():
     # Test connection
     print("Testing BFF API...")
     try:
-        r = session.get(BFF_SEARCH_URL, params={
+        r = get_with_retries(session, BFF_SEARCH_URL, params={
             'keyword': '가', 'category_uid': 11, 'page': 0, 'size': 1,
-        }, timeout=10)
+        }, timeout=10, attempts=args.retries, log_retries=True)
         data = r.json()
         total = data.get('result', {}).get('total_count', 0)
         print(f"  OK — '가' has {total:,} results")
@@ -313,13 +375,18 @@ def main():
     for i, term in enumerate(SEARCH_TERMS):
         print(f"\n[{i+1}/{len(SEARCH_TERMS)}] '{term}'", end='', flush=True)
         new = scrape_search_term(session, term, all_novels,
-                                 delay=args.delay, page_size=args.page_size)
+                                 delay=args.delay, page_size=args.page_size,
+                                 retries=args.retries)
         print(f" → +{new} (total: {len(all_novels)})")
 
     print(f"\nTotal: {len(all_novels)} unique novels")
     existing_descriptions = load_existing_descriptions()
     if not args.skip_descriptions:
-        fetch_descriptions(all_novels, existing_descriptions, workers=args.description_workers)
+        fetch_descriptions(
+            all_novels, existing_descriptions,
+            workers=args.description_workers,
+            retries=args.retries,
+        )
     save_novels(all_novels)
     if not args.skip_descriptions:
         save_descriptions(all_novels, existing_descriptions)
