@@ -220,6 +220,12 @@ class ExternalNovelDialog(tk.Toplevel):
             text="Long image layout",
             variable=self._var_long_image_layout,
         ).pack(anchor="w")
+        self._var_syosetu_amazon_cover = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            dedupe_frame,
+            text="Syosetu Amazon cover",
+            variable=self._var_syosetu_amazon_cover,
+        ).pack(anchor="w")
 
         # --- Action Buttons ---
         btn_frame = ttk.Frame(self)
@@ -304,6 +310,9 @@ class ExternalNovelDialog(tk.Toplevel):
         self._scraper.kakao_keep_filler = self._var_kakao_keep_filler.get()
         self._scraper.ntk_prefer_novelpia_cover = (
             self._var_ntk_novelpia_cover.get()
+        )
+        self._scraper.syosetu_amazon_cover_fallback = (
+            self._var_syosetu_amazon_cover.get()
         )
 
     def _poll_queue(self):
@@ -2175,6 +2184,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_ntk_novelpia_cover.set(
                 cfg.get("ext_ntk_novelpia_cover", False)
             )
+            self._var_syosetu_amazon_cover.set(
+                cfg.get("ext_syosetu_amazon_cover", False)
+            )
             self._var_long_image_layout.set(
                 cfg.get("ext_long_image_layout", False)
             )
@@ -2225,6 +2237,9 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
         cfg["ext_ntk_novelpia_cover"] = (
             self._var_ntk_novelpia_cover.get()
+        )
+        cfg["ext_syosetu_amazon_cover"] = (
+            self._var_syosetu_amazon_cover.get()
         )
         cfg["ext_long_image_layout"] = self._var_long_image_layout.get()
         cfg["ext_kakao_skip_last_page"] = (

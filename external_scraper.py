@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -172,6 +173,7 @@ class ExternalScraper:
             except Exception:
                 self.ntk_curl_command = ""
         self.ntk_prefer_novelpia_cover = False
+        self.syosetu_amazon_cover_fallback = False
         self._kakao_css_cache = {}
         self.kakao_keep_filler = False
         self.kakao_skip_last_page = False
@@ -842,11 +844,240 @@ class ExternalScraper:
         text = msg.text
         if 'whoas.xyz/collect' in text:
             return
+        if (
+            'SlotValidationError' in text
+            and "'floor' value must be a positive integer" in text
+        ):
+            return
         # Show bridge messages, fetch retries, init info, and actual errors
         if "[ND-Bridge]" in text or "[ND-Fetch]" in text or "[Init]" in text:
             self.log(f"[JS] {text}")
         elif msg.type == "error" and "Failed to load resource" not in text:
             self.log(f"[JS] {text}")
+
+    @staticmethod
+    def is_syosetu_url(url):
+        """Check whether a URL is a Shosetsuka ni Naro ncode page."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.netloc or '').lower()
+        return host == 'ncode.syosetu.com' and bool(
+            re.match(r'^/n[a-z0-9]+/?', parsed.path or '', re.I)
+        )
+
+    @staticmethod
+    def _normalize_title_for_match(value):
+        value = html.unescape(value or '')
+        value = unicodedata.normalize('NFKC', value)
+        value = re.sub(r'\s+', '', value)
+        return value.casefold()
+
+    @staticmethod
+    def _syosetu_amazon_title_candidate(bookname):
+        title = html.unescape(bookname or '').strip()
+        title = unicodedata.normalize('NFKC', title)
+        # Syosetu pages often advertise the web version, while Amazon uses
+        # the print/Kindle title without that marker.
+        title = re.sub(
+            r'^[【\[\(（「『〖]\s*(?:web|web版|WEB|WEB版)\s*[】\]\)）」』〗]\s*',
+            '',
+            title,
+            flags=re.I,
+        )
+        return title.strip()
+
+    def _amazon_request_text(self, url, referer=None, timeout=20):
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            ),
+            'Accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,*/*;q=0.8'
+            ),
+            'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
+        }
+        if referer:
+            headers['Referer'] = referer
+        try:
+            import requests
+
+            response = requests.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            return response.text
+        except ImportError:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                raw = response.read(2_500_000)
+                content_type = response.headers.get('content-type', '')
+            match = re.search(r'charset=([\w.-]+)', content_type, re.I)
+            encoding = match.group(1) if match else 'utf-8'
+            return raw.decode(encoding, 'ignore')
+
+    @staticmethod
+    def _amazon_abs_url(url):
+        return urllib.parse.urljoin('https://www.amazon.co.jp/', html.unescape(url or ''))
+
+    @staticmethod
+    def _amazon_clean_image_url(url):
+        url = html.unescape(url or '').strip()
+        if not url:
+            return ''
+        return re.sub(
+            r'\._[^./]+_\.(jpe?g|png|webp)(?=($|\?))',
+            r'._SL1500_.\1',
+            url,
+            flags=re.I,
+        )
+
+    def _amazon_search_results(self, search_html):
+        result_re = re.compile(
+            r'<div\s+role=["\']listitem["\']'
+            r'(?=[^>]*\bdata-asin=["\']([A-Z0-9]{10})["\'])'
+            r'(?=[^>]*\bdata-component-type=["\']s-search-result["\'])'
+            r'[^>]*>',
+            re.I,
+        )
+        starts = list(result_re.finditer(search_html or ''))
+        for idx, match in enumerate(starts):
+            asin = match.group(1)
+            if not asin:
+                continue
+            end = starts[idx + 1].start() if idx + 1 < len(starts) else len(search_html)
+            block = search_html[match.start():end]
+
+            title = ''
+            title_match = re.search(
+                r'<img\b[^>]*\bclass=["\'][^"\']*\bs-image\b[^"\']*["\']'
+                r'[^>]*\balt=["\']([^"\']+)["\']',
+                block,
+                re.I,
+            )
+            if title_match:
+                title = html.unescape(title_match.group(1)).strip()
+            if not title:
+                title_match = re.search(
+                    r'<h2\b[^>]*>.*?<span\b[^>]*>(.*?)</span>',
+                    block,
+                    re.I | re.S,
+                )
+                if title_match:
+                    title = re.sub(r'<[^>]+>', '', title_match.group(1))
+                    title = html.unescape(title).strip()
+
+            link = ''
+            link_match = re.search(
+                r'href=["\']([^"\']*/dp/' + re.escape(asin) + r'[^"\']*)["\']',
+                block,
+                re.I,
+            )
+            if link_match:
+                link = self._amazon_abs_url(link_match.group(1))
+            else:
+                link = f'https://www.amazon.co.jp/dp/{asin}'
+
+            image_url = ''
+            image_match = re.search(
+                r'<img\b[^>]*\bclass=["\'][^"\']*\bs-image\b[^"\']*["\']'
+                r'[^>]*\bsrc=["\']([^"\']+)["\']',
+                block,
+                re.I,
+            )
+            if image_match:
+                image_url = self._amazon_clean_image_url(image_match.group(1))
+
+            yield {
+                'asin': asin,
+                'title': title,
+                'url': link,
+                'imageUrl': image_url,
+            }
+
+    def _amazon_title_matches(self, wanted_title, amazon_title):
+        wanted = self._normalize_title_for_match(wanted_title)
+        found = self._normalize_title_for_match(amazon_title)
+        return bool(wanted and found.startswith(wanted))
+
+    def _amazon_extract_cover_url(self, product_html):
+        patterns = [
+            r'\bdata-old-hires=["\']([^"\']+)["\']',
+            r'\bid=["\']landingImage["\'][^>]*\bsrc=["\']([^"\']+)["\']',
+            r'\bdata-a-dynamic-image=["\']({.*?})["\']',
+        ]
+        for pattern in patterns[:2]:
+            match = re.search(pattern, product_html or '', re.I | re.S)
+            if match:
+                url = self._amazon_clean_image_url(match.group(1))
+                if url.startswith('https://'):
+                    return url
+        match = re.search(patterns[2], product_html or '', re.I | re.S)
+        if match:
+            image_map = html.unescape(match.group(1))
+            urls = re.findall(r'"(https://m\.media-amazon\.com/images/I/[^"]+)"', image_map)
+            if urls:
+                return self._amazon_clean_image_url(urls[-1])
+        return ''
+
+    def _find_syosetu_amazon_cover_url(self, bookname):
+        title = self._syosetu_amazon_title_candidate(bookname)
+        if not title:
+            return ''
+
+        query = urllib.parse.quote(title)
+        search_url = f'https://www.amazon.co.jp/s?k={query}'
+        search_html = self._amazon_request_text(search_url)
+        if 'captcha' in search_html.lower() and 'amazon' in search_html.lower():
+            self.log("[Syosetu] Amazon cover fallback blocked by CAPTCHA.")
+            return ''
+
+        for result in self._amazon_search_results(search_html):
+            if not self._amazon_title_matches(title, result.get('title', '')):
+                continue
+            self.log(
+                "[Syosetu] Amazon title match: "
+                f"{result.get('title') or result.get('asin')}"
+            )
+            cover_url = ''
+            try:
+                product_html = self._amazon_request_text(
+                    result['url'],
+                    referer=search_url,
+                )
+                cover_url = self._amazon_extract_cover_url(product_html)
+            except Exception:
+                cover_url = ''
+            if cover_url:
+                return cover_url
+            if result.get('imageUrl'):
+                return result['imageUrl']
+        return ''
+
+    def _apply_syosetu_amazon_cover_fallback(self, url, data):
+        if not self.syosetu_amazon_cover_fallback:
+            return data
+        if data.get('coverUrl') or not self.is_syosetu_url(url):
+            return data
+
+        self.log("[Syosetu] No rule cover found; checking Amazon.co.jp...")
+        try:
+            cover_url = self._find_syosetu_amazon_cover_url(
+                data.get('bookname', '')
+            )
+        except Exception as e:
+            self.log(f"[Syosetu] Amazon cover fallback failed: {e}")
+            return data
+
+        if cover_url:
+            data['coverUrl'] = cover_url
+            data['_coverFallback'] = 'amazon.co.jp'
+            self.log(f"[Syosetu] Amazon cover URL: {cover_url}")
+        else:
+            self.log("[Syosetu] Amazon cover fallback found no exact title match.")
+        return data
 
     def stop(self):
         """Request cancellation and close browser."""
@@ -3924,6 +4155,7 @@ class ExternalScraper:
                 self.log(f"  Stack: {data['stack'][:200]}")
             return None
 
+        data = self._apply_syosetu_amazon_cover_fallback(url, data)
         self._book_data = data
         self._book_url = url
         self.log(
