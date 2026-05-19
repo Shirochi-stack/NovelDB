@@ -1,9 +1,9 @@
 """Scrape KakaoPage novel metadata via the BFF REST API.
 
-Uses the search API at bff-page.kakao.com which supports pagination.
-No browser needed — just plain HTTP requests.
+Uses KakaoPage's genre menu API, the same listing behind:
+https://page.kakao.com/menu/10011/screen/84
 
-Uses KakaoPage's public BFF API.
+No browser needed -- just plain HTTP requests.
 
 Usage:
     python scripts/scrape_kakao.py
@@ -19,12 +19,16 @@ import requests
 sys.stdout.reconfigure(encoding='utf-8')
 
 BFF_SEARCH_URL = 'https://bff-page.kakao.com/api/gateway/api/v1/search/series'
+BFF_GENRE_URL = 'https://bff-page.kakao.com/api/gateway/view/v1/landing/genre'
 BFF_PRODUCT_LIST_URL = 'https://bff-page.kakao.com/api/gateway/api/v2/content/product/list'
 KAKAO_DESCRIPTIONS_PATH = os.path.join("docs", "data", "kakao_descriptions.txt")
+KAKAO_CATEGORY_UID = 11
+KAKAO_GENRE_SCREEN_UID = 84
 
-# Korean syllable blocks cover all possible title prefixes
+# Search fallback only. The canonical scraper uses the menu genre endpoint.
 SEARCH_TERMS = [
-    '가', '나', '다', '라', '마', '바', '사', '아', '자', '차', '카', '타', '파', '하',
+    '\uAC00', '\uB098', '\uB2E4', '\uB77C', '\uB9C8', '\uBC14', '\uC0AC',
+    '\uC544', '\uC790', '\uCC28', '\uCE74', '\uD0C0', '\uD30C', '\uD558',
 ]
 
 THUMB_PREFIX = 'https://dn-img-page.kakao.com/download/resource?kid='
@@ -207,6 +211,130 @@ def fetch_descriptions(all_novels, existing, workers=12, retries=DEFAULT_RETRIES
                 )
 
 
+def normalize_thumbnail(thumb):
+    if not thumb:
+        return ""
+    thumb = str(thumb)
+    if thumb.startswith("http"):
+        return thumb
+    return THUMB_PREFIX + thumb + "&filename=th3"
+
+
+def is_complete_item(item):
+    state = str(item.get("state", ""))
+    on_issue = str(item.get("on_issue", ""))
+    title = str(item.get("title", ""))
+    return 1 if (
+        state in {"ST66", "END", "COMPLETE"}
+        or on_issue in {"E", "End", "Complete"}
+        or "[완결]" in title
+    ) else 0
+
+
+def add_kakao_item(all_novels, item):
+    """Normalize one Kakao BFF series item into the compact site schema."""
+    sid = str(item.get("series_id", "") or item.get("id", "")).strip()
+    if not sid or sid in all_novels:
+        return False
+
+    sp = item.get("service_property") or {}
+    age_grade = item.get("age_grade") or 0
+    sub_category = (
+        item.get("sub_category")
+        or ((item.get("translate_property") or {}).get("sub_category") or {}).get("ko")
+        or ""
+    )
+
+    all_novels[sid] = {
+        "id": sid,
+        "title": item.get("title", ""),
+        "author": item.get("authors", ""),
+        "cover": normalize_thumbnail(item.get("thumbnail", "")),
+        "tags": [sub_category] if sub_category else [],
+        "views": sp.get("view_count", 0),
+        "likes": 0,
+        "chapters": 0,
+        "complete": is_complete_item(item),
+        "updated": item.get("last_slide_added_dt", ""),
+        "age": 19 if age_grade >= 19 else 0,
+    }
+    return True
+
+
+def scrape_genre_catalog(
+        session, all_novels, delay=0.3, category_uid=KAKAO_CATEGORY_UID,
+        screen_uid=KAKAO_GENRE_SCREEN_UID, sort_type="PRODUCT_LATEST",
+        retries=DEFAULT_RETRIES, max_pages=None):
+    """Scrape Kakao's canonical web-novel genre listing.
+
+    This endpoint powers /menu/10011/screen/84 and reports the real total
+    count shown by the website. It is more complete than search-prefix
+    crawling, which misses titles that do not surface for those search terms.
+    """
+    page = 0
+    expected_total = None
+    new_count = 0
+
+    while True:
+        params = {
+            "category_uid": category_uid,
+            "screen_uid": screen_uid,
+            "page": page,
+        }
+        if sort_type:
+            params["sort_type"] = sort_type
+
+        r = get_with_retries(
+            session, BFF_GENRE_URL, params=params, timeout=20,
+            attempts=retries, log_retries=True
+        )
+        if r.status_code != 200:
+            print(f"\n  Page {page}: HTTP {r.status_code}")
+            break
+
+        result = r.json().get("result", {})
+        items = result.get("list") or []
+        if expected_total is None:
+            expected_total = result.get("total_count")
+            if expected_total:
+                print(f"  Website total: {expected_total:,}")
+
+        if not items:
+            print(f"\n  Page {page}: no items")
+            break
+
+        page_new = 0
+        for item in items:
+            if add_kakao_item(all_novels, item):
+                page_new += 1
+        new_count += page_new
+
+        if page % 25 == 0 or result.get("is_end"):
+            total = f"/{expected_total:,}" if expected_total else ""
+            print(
+                f"  page {page:,}: +{page_new} "
+                f"(unique {len(all_novels):,}{total})",
+                flush=True,
+            )
+
+        if result.get("is_end"):
+            break
+        page += 1
+        if max_pages is not None and page >= max_pages:
+            print(f"\n  Stopping early at --max-pages={max_pages}")
+            break
+        time.sleep(delay)
+
+    if expected_total and max_pages is None:
+        missing = expected_total - len(all_novels)
+        if missing > 0:
+            print(
+                f"  WARNING: scraped {len(all_novels):,} unique rows, "
+                f"{missing:,} below website total {expected_total:,}"
+            )
+    return new_count, expected_total
+
+
 def scrape_search_term(
         session, keyword, all_novels, delay=0.3, page_size=100,
         retries=DEFAULT_RETRIES):
@@ -242,32 +370,8 @@ def scrape_search_term(
                 break
 
             for item in items:
-                sid = str(item.get('series_id', ''))
-                if not sid or sid in all_novels:
-                    continue
-
-                thumb = item.get('thumbnail', '')
-                if thumb and not thumb.startswith('http'):
-                    thumb = THUMB_PREFIX + thumb + '&filename=th3'
-
-                age_grade = item.get('age_grade', 0)
-                on_issue = item.get('on_issue', '')
-                sp = item.get('service_property', {})
-
-                all_novels[sid] = {
-                    'id': sid,
-                    'title': item.get('title', ''),
-                    'author': item.get('authors', ''),
-                    'cover': thumb,
-                    'tags': [item.get('sub_category', '')] if item.get('sub_category') else [],
-                    'views': sp.get('view_count', 0),
-                    'likes': 0,
-                    'chapters': 0,
-                    'complete': 1 if on_issue in ('E', 'End', 'Complete') else 0,
-                    'updated': item.get('last_slide_added_dt', ''),
-                    'age': 19 if age_grade >= 19 else 0,
-                }
-                new_count += 1
+                if add_kakao_item(all_novels, item):
+                    new_count += 1
 
             is_end = result.get('is_end', False)
             if is_end:
@@ -345,7 +449,21 @@ def save_descriptions(all_novels, existing, path=KAKAO_DESCRIPTIONS_PATH):
 def main():
     parser = argparse.ArgumentParser(description="Scrape KakaoPage novels via BFF API")
     parser.add_argument("--delay", type=float, default=0.3, help="Delay between requests")
-    parser.add_argument("--page-size", type=int, default=100, help="Results per page (max 100)")
+    parser.add_argument(
+        "--source", choices=["genre", "search"], default="genre",
+        help="Catalog source. genre matches KakaoPage's full web-novel menu."
+    )
+    parser.add_argument(
+        "--sort-type", default="PRODUCT_LATEST",
+        choices=["PRODUCT_LATEST", "UPDATE"],
+        help="Genre listing sort. PRODUCT_LATEST is more stable for full crawls."
+    )
+    parser.add_argument(
+        "--max-pages", type=int, default=None,
+        help="Stop after this many genre pages, for smoke tests."
+    )
+    parser.add_argument("--page-size", type=int, default=100,
+                        help="Search fallback page size (max 100)")
     parser.add_argument("--skip-descriptions", action="store_true",
                         help="Only scrape catalog metadata; do not fetch raw synopsis text")
     parser.add_argument("--description-workers", type=int, default=12,
@@ -359,12 +477,15 @@ def main():
     # Test connection
     print("Testing BFF API...")
     try:
-        r = get_with_retries(session, BFF_SEARCH_URL, params={
-            'keyword': '가', 'category_uid': 11, 'page': 0, 'size': 1,
+        r = get_with_retries(session, BFF_GENRE_URL, params={
+            "category_uid": KAKAO_CATEGORY_UID,
+            "screen_uid": KAKAO_GENRE_SCREEN_UID,
+            "sort_type": args.sort_type,
+            "page": 0,
         }, timeout=10, attempts=args.retries, log_retries=True)
         data = r.json()
         total = data.get('result', {}).get('total_count', 0)
-        print(f"  OK — '가' has {total:,} results")
+        print(f"  OK -- Kakao genre menu reports {total:,} web novels")
     except Exception as e:
         print(f"  ERROR: {e}")
         print("  Check your network connection and KakaoPage API availability.")
@@ -372,12 +493,28 @@ def main():
 
     all_novels = {}
 
-    for i, term in enumerate(SEARCH_TERMS):
-        print(f"\n[{i+1}/{len(SEARCH_TERMS)}] '{term}'", end='', flush=True)
-        new = scrape_search_term(session, term, all_novels,
-                                 delay=args.delay, page_size=args.page_size,
-                                 retries=args.retries)
-        print(f" → +{new} (total: {len(all_novels)})")
+    if args.source == "genre":
+        print(
+            f"\nScraping Kakao genre catalog "
+            f"(category={KAKAO_CATEGORY_UID}, screen={KAKAO_GENRE_SCREEN_UID}, "
+            f"sort={args.sort_type})..."
+        )
+        scrape_genre_catalog(
+            session, all_novels, delay=args.delay,
+            category_uid=KAKAO_CATEGORY_UID,
+            screen_uid=KAKAO_GENRE_SCREEN_UID,
+            sort_type=args.sort_type,
+            retries=args.retries,
+            max_pages=args.max_pages,
+        )
+    else:
+        print("\nScraping search fallback terms...")
+        for i, term in enumerate(SEARCH_TERMS):
+            print(f"\n[{i+1}/{len(SEARCH_TERMS)}] '{term}'", end='', flush=True)
+            new = scrape_search_term(session, term, all_novels,
+                                     delay=args.delay, page_size=args.page_size,
+                                     retries=args.retries)
+            print(f" -> +{new} (total: {len(all_novels)})")
 
     print(f"\nTotal: {len(all_novels)} unique novels")
     existing_descriptions = load_existing_descriptions()
