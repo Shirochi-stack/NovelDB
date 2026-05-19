@@ -3,7 +3,7 @@
 Uses the search API at bff-page.kakao.com which supports pagination.
 No browser needed — just plain HTTP requests.
 
-Requires: Korean VPN active
+Uses KakaoPage's public BFF API.
 
 Usage:
     python scripts/scrape_kakao.py
@@ -367,7 +367,7 @@ def main():
         print(f"  OK — '가' has {total:,} results")
     except Exception as e:
         print(f"  ERROR: {e}")
-        print("  Make sure Korean VPN is active!")
+        print("  Check your network connection and KakaoPage API availability.")
         sys.exit(1)
 
     all_novels = {}

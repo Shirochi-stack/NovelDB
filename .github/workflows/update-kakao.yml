@@ -1,0 +1,64 @@
+name: Update Kakao Data
+
+on:
+  schedule:
+    # Run every Sunday at 09:00 UTC
+    - cron: '0 9 * * 0'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-write-lock
+  cancel-in-progress: false
+
+jobs:
+  update-kakao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Kakao scraper
+        run: python scripts/scrape_kakao.py --delay 0.3
+
+      - name: Reconcile Kakao descriptions
+        run: python scripts/extract_kakao_descriptions.py
+
+      - name: Sync Kakao titles from novels JSON
+        run: python scripts/extract_titles.py kakao
+
+      - name: Extract untranslated Kakao titles
+        run: python scripts/extract_untranslated_kakao_titles.py
+
+      - name: Extract untranslated Kakao descriptions
+        run: python scripts/extract_untranslated_kakao_descriptions.py
+
+      - name: Re-chunk Kakao data with embedded translations and descriptions
+        run: python scripts/chunk_and_compress.py --input docs/data/kakao_novels.json --prefix kakao_chunk --output-dir docs/data -n 3 --translations docs/data/kakao_titles_en.txt --descriptions docs/data/kakao_descriptions.txt
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          KAKAO_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/kakao_novels.json'))))")
+          git add docs/data/kakao_novels.json docs/data/kakao_descriptions.txt docs/data/kakao_descriptions.txt.gz docs/data/kakao_descriptions_untranslated.txt docs/data/kakao_titles_en.txt docs/data/kakao_titles_untranslated.txt docs/data/kakao_chunk_*.json.gz docs/data/kakao_chunk_manifest.json
+          git commit -m "Update Kakao data: ${KAKAO_COUNT} novels ($(date -u +%Y-%m-%d))"
+          git push

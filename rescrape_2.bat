@@ -3,7 +3,7 @@ echo ============================================
 echo  A Certain site Rescrape
 echo ============================================
 echo.
-echo  Requires: Korean VPN active
+echo  Uses KakaoPage's public BFF API
 echo.
 
 cd /d "%~dp0"
@@ -51,7 +51,7 @@ exit /b 0
 echo.
 echo ============================================
 echo  ERROR: A step failed. See output above.
-echo  Make sure Korean VPN is active!
+echo  Check your network connection and KakaoPage API availability.
 echo ============================================
 pause
 exit /b 1
