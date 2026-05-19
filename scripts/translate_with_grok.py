@@ -56,8 +56,45 @@ def count_tokens(text):
 
 
 def build_prompt(rows, lang, content_type):
-    """Build the user prompt — just the raw lines to translate."""
-    return "\n".join(rows)
+    """Build the user prompt with an explicit machine-readable contract."""
+    row_count = len(rows)
+    lines = "\n".join(rows)
+
+    if content_type == "descriptions":
+        return f"""Translate every record below.
+
+This is a strict line-rewriting task for a parser.
+Return exactly {row_count} output lines, one output line for each input line, in the same order.
+A response with fewer or more than {row_count} output lines is invalid.
+
+For each input line:
+- Copy column 1 exactly.
+- Copy column 2 exactly, including every literal \\n marker.
+- Replace only column 3 with the English translation of column 2.
+- Keep exactly two ||| delimiters on every line.
+
+Do not translate only a sample. Do not stop early. Do not merge rows. Do not summarize rows. Do not explain anything.
+If a row is long, still translate it fully. If a row is already English, copy it into column 3.
+Before returning, silently verify that your answer has exactly {row_count} lines and that every line has exactly two ||| delimiters.
+
+INPUT RECORDS ({row_count} lines):
+{lines}
+
+OUTPUT RECORDS ({row_count} lines):"""
+
+    return f"""Translate every record below.
+
+Return exactly {row_count} output lines, one output line for each input line, in the same order.
+Use the same ID and original text, and fill only column 3 with English.
+Every output line must use exactly this format:
+ID|||ORIGINAL|||ENGLISH
+
+Do not add markdown, notes, numbering, headers, or blank lines.
+
+INPUT RECORDS ({row_count} lines):
+{lines}
+
+OUTPUT RECORDS ({row_count} lines):"""
 
 
 
@@ -146,9 +183,10 @@ FORMAT_RULES = """Format rules:
 - Column 2 (ORIGINAL): copy exactly; keep it in the original language.
 - Column 3 (ENGLISH): fill only this column with the English translation.
 - Use ||| as the only delimiter; every output line must have exactly two |||.
-- Preserve row order. Do not skip, merge, split, renumber, or add rows.
+- Preserve row order. Do not skip, merge, split, renumber, sample, or add rows.
 - Literal \\n sequences inside column 2 must remain literal \\n sequences.
-- Output only translated rows. No markdown, notes, headers, or commentary."""
+- Output one line for every input line. The output line count must match the input line count.
+- Output only translated rows. No markdown, notes, headers, commentary, or blank lines."""
 
 
 def build_system_prompt(content_type, lang):
@@ -171,15 +209,29 @@ Title translation goals:
 {FORMAT_RULES}"""
 
     if content_type == "descriptions":
-        return f"""You translate {source_language} web novel descriptions and synopses into fluent English.
+        return f"""You are a translation engine inside an automated data pipeline.
+Your output is parsed by code, so format obedience is more important than style.
 
-Description translation goals:
-- Preserve the full meaning, tone, genre hooks, warnings, and promotional style.
-- Write natural English prose. Avoid stiff machine-translation phrasing.
-- Keep paragraph breaks and literal \\n markers exactly where they appear in column 2.
-- Do not censor, summarize, soften, add spoilers, or invent details.
-- Romanize character names, place names, series titles, and proper nouns consistently.
-- If text is already English, keep it as-is.
+Task:
+Translate {source_language} web novel descriptions and synopses into fluent English.
+
+Hard requirements:
+- Translate every input row, not just representative rows.
+- Never summarize, shorten, skip, or combine descriptions.
+- Never replace a long description with a title, category, or one-sentence blurb.
+- Preserve all facts, warnings, character names, genre hooks, author notes, promotional text, and tone.
+- Keep explicit or mature content translated faithfully without adding moral commentary.
+- Keep paragraph structure by preserving literal \\n markers in column 2 exactly as they are copied.
+- Romanize character names, place names, series titles, and proper nouns when there is no established English form.
+- If column 2 is already English, copy it into column 3.
+- If translation is uncertain, provide the best faithful English translation instead of leaving column 3 blank.
+
+Output contract:
+You must return only machine-readable rows.
+For every input row, emit exactly one matching output row:
+ID|||ORIGINAL|||ENGLISH
+A response with missing rows, extra rows, summaries, placeholders, or commentary is a failed response.
+Before returning, silently count the rows and delimiter pairs.
 
 {FORMAT_RULES}"""
 
