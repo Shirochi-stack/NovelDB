@@ -1,23 +1,20 @@
-"""Merge translated tags into docs/app.js TAG_MAP.
+"""Merge translated Novelpia tags into docs/data/tags_en.txt.
 
 Reads translations from:
   1. docs/data/tags_en.txt (persistent tag|||translation records)
   2. docs/data/tags_untranslated.txt (freshly translated ID|||tag|||translation)
-Then updates TAG_MAP in app.js and writes all known translations back to tags_en.txt.
+Then writes all known translations back to tags_en.txt and tags_en.txt.gz.
 """
-import re, sys, os
+import gzip, sys, os
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-APP_JS_PATH = os.path.join("docs", "app.js")
 TAGS_FILE   = os.path.join("docs", "data", "tags_en.txt")
+TAGS_GZ_FILE = TAGS_FILE + ".gz"
 UNTRANSLATED = os.path.join("docs", "data", "tags_untranslated.txt")
 
 
 def main():
-    if not os.path.exists(APP_JS_PATH):
-        print(f"Error: {APP_JS_PATH} not found"); sys.exit(1)
-
     # Step 1: Load existing translations from tags_en.txt
     all_translations = {}
     if os.path.exists(TAGS_FILE):
@@ -57,55 +54,18 @@ def main():
         print("No translations available. Nothing to do.")
         return
 
-    # Step 3: Update TAG_MAP in app.js
-    app_js = open(APP_JS_PATH, encoding="utf-8").read()
-    m = re.search(r'const TAG_MAP = \{(.+?)\};', app_js, re.DOTALL)
-    if not m:
-        print("Error: TAG_MAP not found in app.js"); sys.exit(1)
-
-    existing_pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', m.group(1))
-    existing = dict(existing_pairs)
-
-    # Merge: existing TAG_MAP + all translations
-    merged = dict(existing)
-    added = 0
-    for tag, translation in all_translations.items():
-        if tag not in merged:
-            merged[tag] = translation
-            added += 1
-
-    if added > 0:
-        # Build the new TAG_MAP block
-        lines = ['    const TAG_MAP = {']
-        lines.append('        // === Novelpia (Korean) ===')
-
-        entries = list(merged.items())
-        for i in range(0, len(entries), 4):
-            batch = entries[i:i+4]
-            parts = []
-            for k, v in batch:
-                ek = k.replace('\\', '\\\\').replace('"', '\\"')
-                ev = v.replace('\\', '\\\\').replace('"', '\\"')
-                parts.append(f'"{ek}": "{ev}"')
-            lines.append('        ' + ', '.join(parts) + ',')
-
-        lines.append('    };')
-
-        new_block = '\n'.join(lines)
-        new_js = app_js[:m.start()] + new_block + app_js[m.end():]
-        with open(APP_JS_PATH, "w", encoding="utf-8") as f:
-            f.write(new_js)
-
-        print(f"Added {added} new tag translations to TAG_MAP (total: {len(merged)})")
-    else:
-        print(f"TAG_MAP already up to date ({len(merged)} entries)")
-
-    # Step 4: Persist ALL translations to tags_en.txt
+    # Step 3: Persist ALL translations to tags_en.txt and gzip it for the site.
     sorted_tags = sorted(all_translations.items())
     with open(TAGS_FILE, "w", encoding="utf-8") as f:
         for tag, translation in sorted_tags:
             f.write(f"{tag}|||{translation}\n")
     print(f"Saved {len(sorted_tags)} total translations to {TAGS_FILE}")
+
+    with open(TAGS_FILE, "rb") as src:
+        compressed = gzip.compress(src.read(), compresslevel=6, mtime=0)
+    with open(TAGS_GZ_FILE, "wb") as dst:
+        dst.write(compressed)
+    print(f"Saved gzipped tag translations to {TAGS_GZ_FILE}")
 
 
 if __name__ == "__main__":

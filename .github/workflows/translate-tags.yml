@@ -82,7 +82,7 @@ jobs:
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
         run: python scripts/translate_with_grok.py docs/data/tags_untranslated.txt --lang korean --type tags --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
-      - name: Merge translated tags into app.js
+      - name: Merge translated tags
         run: python scripts/merge_translated_tags.py
 
       - name: Re-chunk Novelpia data
@@ -98,6 +98,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/app.js docs/data/tags_en.txt docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json
+          git add docs/data/tags_en.txt docs/data/tags_en.txt.gz docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json
           git commit -m "🏷️ Translate Npia tags ($(date -u +%Y-%m-%d))"
           git push

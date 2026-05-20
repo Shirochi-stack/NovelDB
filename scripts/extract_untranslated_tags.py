@@ -1,7 +1,8 @@
 """Extract untranslated Novelpia tags.
 
 Reads all unique tags from docs/data/novels.json, checks which ones are
-already translated in docs/app.js TAG_MAP, and outputs untranslated tags
+already translated in docs/data/tags_en.txt or the legacy app.js TAG_MAP,
+and outputs untranslated tags
 to docs/data/tags_untranslated.txt in the ID|||ORIGINAL||| format.
 
 Uses a sequential numeric ID as tag identifier.
@@ -59,7 +60,7 @@ def main():
 
     print(f"Total unique tags in novels.json: {len(tag_counts)}")
 
-    # Load already-translated tags from both sources
+    # Load already-translated tags from the persistent file and legacy bundled map.
     translated = {}
     if os.path.exists(APP_JS_PATH):
         translated.update(load_tag_map_from_js(APP_JS_PATH))

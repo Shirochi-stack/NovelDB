@@ -6467,8 +6467,8 @@
         }
     }
 
-    /** Fetch a .json.gz file, decompress client-side, parse JSON */
-    async function fetchGzChunk(url) {
+    /** Fetch a .gz text file and decompress it client-side. */
+    async function fetchGzText(url) {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
         // Use DecompressionStream to decompress gzip on the fly
@@ -6482,8 +6482,38 @@
             chunks.push(value);
         }
         const blob = new Blob(chunks);
-        const text = await blob.text();
-        return JSON.parse(text);
+        return await blob.text();
+    }
+
+    /** Fetch a .json.gz file, decompress client-side, parse JSON */
+    async function fetchGzChunk(url) {
+        return JSON.parse(await fetchGzText(url));
+    }
+
+    let tagTranslationsPromise = null;
+    async function loadTagTranslations() {
+        if (!tagTranslationsPromise) {
+            tagTranslationsPromise = fetchGzText("data/tags_en.txt.gz")
+                .then((text) => {
+                    let loaded = 0;
+                    for (const line of text.split(/\r?\n/)) {
+                        if (!line || !line.includes("|||")) continue;
+                        const parts = line.split("|||");
+                        const tag = (parts[0] || "").trim();
+                        const translation = (parts[1] || "").trim();
+                        if (tag && translation) {
+                            TAG_MAP[tag] = translation;
+                            loaded++;
+                        }
+                    }
+                    return loaded;
+                })
+                .catch((err) => {
+                    console.warn("Failed to load gzipped tag translations; using bundled fallback", err);
+                    return 0;
+                });
+        }
+        return tagTranslationsPromise;
     }
 
     /**
@@ -6636,6 +6666,8 @@
         }
 
         try {
+            await loadTagTranslations();
+
             // Helper: load top rankings instantly, return parsed novels with translations applied
             async function loadTopRankings() {
                 const cfg = SOURCES.novelpia;
