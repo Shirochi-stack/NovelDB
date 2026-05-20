@@ -17,6 +17,18 @@ import json, gzip, os, sys, argparse, math
 sys.stdout.reconfigure(encoding="utf-8")
 
 
+def has_cjk(text):
+    """Return True when text still contains Korean, Chinese, or Japanese chars."""
+    return any(
+        "\u3040" <= c <= "\u30ff" or
+        "\u3400" <= c <= "\u4dbf" or
+        "\u4e00" <= c <= "\u9fff" or
+        "\uf900" <= c <= "\ufaff" or
+        "\uac00" <= c <= "\ud7af"
+        for c in text
+    )
+
+
 def load_translations_file(path):
     """Load translations from a |||‐delimited text file.
 
@@ -46,8 +58,8 @@ def load_translations_file(path):
 def load_descriptions_file(path):
     """Load descriptions from a |||‐delimited text file.
 
-    Prefers column 3 (English translation) when available,
-    falls back to column 2 (original language) otherwise.
+    Prefers column 3 (English translation) when available.
+    Falls back to column 2 only when it is already non-CJK text.
     Returns dict of {id_str: description_text}.
     """
     descs = {}
@@ -62,10 +74,15 @@ def load_descriptions_file(path):
             nid = parts[0].strip()
             if not nid:
                 continue
-            # Prefer English (col3), fall back to original (col2)
+            # Prefer English (col3), fall back only to already-English col2.
             eng = parts[2].strip() if len(parts) >= 3 else ""
             orig = parts[1].strip() if len(parts) >= 2 else ""
-            text = eng or orig
+            if eng and not has_cjk(eng):
+                text = eng
+            elif orig and not has_cjk(orig):
+                text = orig
+            else:
+                text = ""
             if text and text != "N/A":
                 descs[nid] = text
     return descs
@@ -152,7 +169,7 @@ def main():
             # Legacy: plain array format
             raw = json.dumps(chunk, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
-        gz = gzip.compress(raw, compresslevel=6)
+        gz = gzip.compress(raw, compresslevel=6, mtime=0)
 
         filename = f"{prefix}_{i}.json.gz"
         filepath = os.path.join(output_dir, filename)

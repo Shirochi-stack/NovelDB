@@ -17,6 +17,18 @@ OUTPUT = os.path.join("docs", "data", "kakao_descriptions.txt")
 DESCRIPTION_INDEX = 20
 
 
+def has_cjk(text):
+    """Return True when text still contains Korean, Chinese, or Japanese chars."""
+    return any(
+        "\u3040" <= c <= "\u30ff" or
+        "\u3400" <= c <= "\u4dbf" or
+        "\u4e00" <= c <= "\u9fff" or
+        "\uf900" <= c <= "\ufaff" or
+        "\uac00" <= c <= "\ud7af"
+        for c in text
+    )
+
+
 def load_existing_rows():
     rows = {}
     source = None
@@ -42,6 +54,8 @@ def load_existing_rows():
                 continue
             raw = parts[1] if len(parts) >= 2 else ""
             en = parts[2].strip() if len(parts) >= 3 else ""
+            if en and has_cjk(en):
+                en = ""
             rows[nid] = (raw, en)
 
     print(f"  Loaded {len(rows)} existing description rows from {source}")
@@ -102,7 +116,7 @@ def main():
     with open(OUTPUT, "rb") as f_in:
         raw_bytes = f_in.read()
     with open(gz_path, "wb") as f_out:
-        f_out.write(gzip.compress(raw_bytes, compresslevel=6))
+        f_out.write(gzip.compress(raw_bytes, compresslevel=6, mtime=0))
 
     size_kb = os.path.getsize(OUTPUT) / 1024
     print(f"  Wrote {count} descriptions to {OUTPUT} ({size_kb:.0f} KB)")

@@ -117,6 +117,18 @@ def normalize_description(text):
     return text.strip()
 
 
+def has_cjk(text):
+    """Return True when text still contains Korean, Chinese, or Japanese chars."""
+    return any(
+        "\u3040" <= c <= "\u30ff" or
+        "\u3400" <= c <= "\u4dbf" or
+        "\u4e00" <= c <= "\u9fff" or
+        "\uf900" <= c <= "\ufaff" or
+        "\uac00" <= c <= "\ud7af"
+        for c in text
+    )
+
+
 def load_existing_descriptions(path=KAKAO_DESCRIPTIONS_PATH):
     """Load existing raw descriptions and English translations."""
     rows = {}
@@ -143,6 +155,8 @@ def load_existing_descriptions(path=KAKAO_DESCRIPTIONS_PATH):
                 continue
             raw = parts[1] if len(parts) >= 2 else ""
             en = parts[2].strip() if len(parts) >= 3 else ""
+            if en and has_cjk(en):
+                en = ""
             rows[nid] = (raw.replace("\\n", "\n"), en)
     if rows:
         print(f"Loaded {len(rows)} existing descriptions from {source}")
@@ -495,7 +509,7 @@ def save_descriptions(all_novels, existing, path=KAKAO_DESCRIPTIONS_PATH):
     with open(path, "rb") as f_in:
         raw = f_in.read()
     with open(gz_path, "wb") as f_out:
-        f_out.write(gzip.compress(raw, compresslevel=6))
+        f_out.write(gzip.compress(raw, compresslevel=6, mtime=0))
 
     print(f"Saved {len(translated) + len(untranslated):,} descriptions to {path}")
     print(f"  Translated: {len(translated):,}, Untranslated: {len(untranslated):,}")

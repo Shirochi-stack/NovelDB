@@ -12,6 +12,19 @@ MAIN = os.path.join("docs", "data", "kakao_descriptions.txt")
 PATCH = os.path.join("docs", "data", "kakao_descriptions_untranslated.txt")
 OUT = PATCH
 
+
+def has_cjk(text):
+    """Return True when text still contains Korean, Chinese, or Japanese chars."""
+    return any(
+        "\u3040" <= c <= "\u30ff" or
+        "\u3400" <= c <= "\u4dbf" or
+        "\u4e00" <= c <= "\u9fff" or
+        "\uf900" <= c <= "\ufaff" or
+        "\uac00" <= c <= "\ud7af"
+        for c in text
+    )
+
+
 if not os.path.exists(MAIN):
     print(f"Error: {MAIN} not found.")
     sys.exit(1)
@@ -37,9 +50,9 @@ for line in open(PATCH, "r", encoding="utf-8"):
     if not nid or not nid.isdigit():
         skipped += 1
         continue
-    if len(parts) >= 3 and parts[2].strip():
+    if len(parts) >= 3 and parts[2].strip() and not has_cjk(parts[2].strip()):
         new_translations[nid] = parts[2].strip()
-    elif len(parts) >= 2 and parts[1].strip() and is_latin(parts[1].strip()):
+    elif len(parts) >= 2 and parts[1].strip() and is_latin(parts[1].strip()) and not has_cjk(parts[1].strip()):
         new_translations[nid] = parts[1].strip()
 
 print(f"  Found {len(new_translations)} new translations in {PATCH}")
@@ -61,6 +74,8 @@ for line in open(MAIN, "r", encoding="utf-8"):
 
     korean = parts[1] if len(parts) >= 2 else ""
     en = parts[2].strip() if len(parts) >= 3 else ""
+    if en and has_cjk(en):
+        en = ""
     if not korean.strip() and not en:
         cleaned += 1
         continue

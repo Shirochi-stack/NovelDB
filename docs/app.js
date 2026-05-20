@@ -6401,6 +6401,12 @@
 
     // === DOM ref ===
     const sourceSelect = $("#sourceSelect");
+    const DATA_VERSION = "2026-05-21";
+
+    function versionedDataUrl(url) {
+        const sep = url.includes("?") ? "&" : "?";
+        return `${url}${sep}v=${DATA_VERSION}`;
+    }
 
     // === Source configs ===
     const SOURCES = {
@@ -6469,7 +6475,8 @@
 
     /** Fetch a .gz text file and decompress it client-side. */
     async function fetchGzText(url) {
-        const resp = await fetch(url);
+        const fetchUrl = versionedDataUrl(url);
+        const resp = await fetch(fetchUrl);
         if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
         // Use DecompressionStream to decompress gzip on the fly
         const ds = new DecompressionStream("gzip");
