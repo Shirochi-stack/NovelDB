@@ -6401,7 +6401,7 @@
 
     // === DOM ref ===
     const sourceSelect = $("#sourceSelect");
-    const DATA_VERSION = "2026-05-21";
+    const DATA_VERSION = "2026-05-21-2";
 
     function versionedDataUrl(url) {
         const sep = url.includes("?") ? "&" : "?";
