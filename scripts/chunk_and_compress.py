@@ -59,7 +59,7 @@ def load_descriptions_file(path):
     """Load descriptions from a |||‐delimited text file.
 
     Prefers column 3 (English translation) when available.
-    Falls back to column 2 only when it is already non-CJK text.
+    Falls back to column 2 (original language) otherwise.
     Returns dict of {id_str: description_text}.
     """
     descs = {}
@@ -74,15 +74,10 @@ def load_descriptions_file(path):
             nid = parts[0].strip()
             if not nid:
                 continue
-            # Prefer English (col3), fall back only to already-English col2.
+            # Prefer English (col3), fall back to original (col2) for display.
             eng = parts[2].strip() if len(parts) >= 3 else ""
             orig = parts[1].strip() if len(parts) >= 2 else ""
-            if eng and not has_cjk(eng):
-                text = eng
-            elif orig and not has_cjk(orig):
-                text = orig
-            else:
-                text = ""
+            text = eng if eng and not has_cjk(eng) else orig
             if text and text != "N/A":
                 descs[nid] = text
     return descs
