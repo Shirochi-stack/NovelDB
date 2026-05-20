@@ -264,18 +264,18 @@ def add_kakao_item(all_novels, item):
 def scrape_genre_catalog(
         session, all_novels, delay=0.3, category_uid=KAKAO_CATEGORY_UID,
         screen_uid=KAKAO_GENRE_SCREEN_UID, sort_type="PRODUCT_LATEST",
-        retries=DEFAULT_RETRIES, max_pages=None):
+        retries=DEFAULT_RETRIES, max_pages=None, workers=1):
     """Scrape Kakao's canonical web-novel genre listing.
 
     This endpoint powers /menu/10011/screen/84 and reports the real total
     count shown by the website. It is more complete than search-prefix
     crawling, which misses titles that do not surface for those search terms.
     """
-    page = 0
     expected_total = None
     new_count = 0
 
-    while True:
+    def fetch_page(page, request_session=None):
+        request_session = request_session or get_thread_session()
         params = {
             "category_uid": category_uid,
             "screen_uid": screen_uid,
@@ -285,23 +285,19 @@ def scrape_genre_catalog(
             params["sort_type"] = sort_type
 
         r = get_with_retries(
-            session, BFF_GENRE_URL, params=params, timeout=20,
+            request_session, BFF_GENRE_URL, params=params, timeout=20,
             attempts=retries, log_retries=True
         )
         if r.status_code != 200:
-            print(f"\n  Page {page}: HTTP {r.status_code}")
-            break
+            raise RuntimeError(f"Page {page}: HTTP {r.status_code}")
+        return page, r.json().get("result", {})
 
-        result = r.json().get("result", {})
+    def apply_page(page, result):
+        nonlocal new_count
         items = result.get("list") or []
-        if expected_total is None:
-            expected_total = result.get("total_count")
-            if expected_total:
-                print(f"  Website total: {expected_total:,}")
-
         if not items:
             print(f"\n  Page {page}: no items")
-            break
+            return 0
 
         page_new = 0
         for item in items:
@@ -316,14 +312,73 @@ def scrape_genre_catalog(
                 f"(unique {len(all_novels):,}{total})",
                 flush=True,
             )
+        return len(items)
 
-        if result.get("is_end"):
-            break
-        page += 1
-        if max_pages is not None and page >= max_pages:
+    first_page, first_result = fetch_page(0, session)
+    expected_total = first_result.get("total_count")
+    if expected_total:
+        print(f"  Website total: {expected_total:,}")
+    first_count = apply_page(first_page, first_result)
+
+    if first_result.get("is_end"):
+        return new_count, expected_total
+
+    if not first_count:
+        return new_count, expected_total
+
+    total_pages = None
+    if expected_total:
+        total_pages = (expected_total + first_count - 1) // first_count
+    if max_pages is not None:
+        total_pages = min(total_pages or max_pages, max_pages)
+
+    if not total_pages or total_pages <= 1:
+        if max_pages is not None:
             print(f"\n  Stopping early at --max-pages={max_pages}")
-            break
-        time.sleep(delay)
+        return new_count, expected_total
+
+    remaining_pages = list(range(1, total_pages))
+    workers = max(1, workers)
+
+    if workers == 1:
+        for page in remaining_pages:
+            time.sleep(delay)
+            _, result = fetch_page(page, session)
+            apply_page(page, result)
+            if result.get("is_end"):
+                break
+    else:
+        print(f"  Fetching {len(remaining_pages):,} remaining pages with {workers} workers")
+        page_results = {}
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {}
+            for page in remaining_pages:
+                futures[pool.submit(fetch_page, page)] = page
+                if page % 100 == 0:
+                    print(f"  submitted page {page:,}/{total_pages - 1:,}", flush=True)
+                time.sleep(delay)
+
+            for fut in as_completed(futures):
+                page = futures[fut]
+                try:
+                    _, result = fut.result()
+                    page_results[page] = result
+                    if len(page_results) % 100 == 0:
+                        print(
+                            f"  fetched {len(page_results):,}/"
+                            f"{len(remaining_pages):,} pages",
+                            flush=True,
+                        )
+                except Exception as e:
+                    print(f"\n  Page {page}: {e}")
+
+        for page in remaining_pages:
+            result = page_results.get(page)
+            if not result:
+                continue
+            apply_page(page, result)
+            if result.get("is_end"):
+                break
 
     if expected_total and max_pages is None:
         missing = expected_total - len(all_novels)
@@ -462,6 +517,10 @@ def main():
         "--max-pages", type=int, default=None,
         help="Stop after this many genre pages, for smoke tests."
     )
+    parser.add_argument(
+        "--catalog-workers", type=int, default=8,
+        help="Parallel workers for Kakao genre catalog pages."
+    )
     parser.add_argument("--page-size", type=int, default=100,
                         help="Search fallback page size (max 100)")
     parser.add_argument("--skip-descriptions", action="store_true",
@@ -506,6 +565,7 @@ def main():
             sort_type=args.sort_type,
             retries=args.retries,
             max_pages=args.max_pages,
+            workers=args.catalog_workers,
         )
     else:
         print("\nScraping search fallback terms...")
