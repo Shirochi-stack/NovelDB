@@ -5881,7 +5881,9 @@
     }
 
     // === Filter & Sort ===
-    function applyFilters() {
+    function applyFilters(options = {}) {
+        const resetPage = options.resetPage !== false;
+        const fade = options.fade !== false;
         const query = searchInput.value.trim().toLowerCase();
         const sortBy = sortSelect.value;
         const order = orderSelect.value;
@@ -5980,8 +5982,8 @@
         });
 
         displayCount = BATCH;
-        currentPage = 1;
-        render(true);
+        if (resetPage) currentPage = 1;
+        render(fade);
     }
 
     // === Render Cards ===
@@ -6196,6 +6198,7 @@
                         btn.addEventListener("click", () => {
                             currentPage = p;
                             render();
+                            saveState();
                             window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
                         });
                         numsEl.appendChild(btn);
@@ -6330,6 +6333,7 @@
             if (currentPage > 1) {
                 currentPage--;
                 render();
+                saveState();
                 window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
             }
         });
@@ -6338,6 +6342,7 @@
             if (currentPage < totalPages) {
                 currentPage++;
                 render();
+                saveState();
                 window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
             }
         });
@@ -6350,6 +6355,7 @@
             if (val >= 1 && val <= totalPages) {
                 currentPage = val;
                 render();
+                saveState();
                 window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
             }
             pageInput.value = "";
@@ -6708,7 +6714,7 @@
                     allNovels = [...topNovels];
                     titleTranslations = {};
                     buildTags(allNovels);
-                    applyFilters();
+                    applyFilters({ resetPage: false });
                 }
 
                 // === Background: load ALL sources in parallel ===
@@ -6747,7 +6753,7 @@
                 // Top novels already have translations from topUrl
                 titleTranslations = {};
                 buildTags(allNovels);
-                applyFilters();
+                applyFilters({ resetPage: false });
                 firstRendered = true;
 
                 // Await remaining sources (already loading in background)
@@ -6755,7 +6761,7 @@
                 allNovels = [...allNovels, ...kakaoNovels, ...sfacgNovels];
                 titleTranslations = {};
                 buildTags(allNovels);
-                applyFilters();
+                applyFilters({ resetPage: false });
             } else if (source === "novelpia") {
                 // === Single source: Novelpia with instant top ===
                 let topNovels = null;
@@ -6767,7 +6773,7 @@
                     allNovels = [...topNovels];
                     titleTranslations = {};
                     buildTags(allNovels);
-                    applyFilters();
+                    applyFilters({ resetPage: false });
                 }
 
                 const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
@@ -6778,7 +6784,7 @@
                         allNovels.push(...chunk);
                         resultsEl.innerHTML = `<div class="loading-spinner">Loading chunk ${loaded}/${total}...</div>`;
                         buildTags(allNovels);
-                        applyFilters();
+                        applyFilters({ resetPage: false });
                         firstRender = false;
                     } else {
                         resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading chunk ${loaded}/${total}`;
@@ -6815,7 +6821,7 @@
                     allNovels = [...topNovels];
                     titleTranslations = {};
                     buildTags(allNovels);
-                    applyFilters();
+                    applyFilters({ resetPage: false });
                 }
 
                 const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
@@ -6825,7 +6831,7 @@
                         allNovels.push(...chunk);
                         resultCount.textContent = `Loading sfacg... chunk ${loaded}/${total}`;
                         buildTags(allNovels);
-                        applyFilters();
+                        applyFilters({ resetPage: false });
                         firstRender = false;
                     } else {
                         resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading sfacg... ${loaded}/${total}`;
@@ -6848,7 +6854,7 @@
                         if (firstRender) {
                             firstRender = false;
                             buildTags(allNovels);
-                            applyFilters();
+                            applyFilters({ resetPage: false });
                         }
                     });
                     allNovels = allChunkNovels;
@@ -6862,7 +6868,7 @@
             }
 
             buildTags(allNovels);
-            applyFilters();
+            applyFilters({ resetPage: false });
         } catch (err) {
             console.error("Load error:", err);
             resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">
@@ -6955,7 +6961,7 @@
 
         _lastHash = window.location.hash;
         updateActiveTagsSummary();
-        _origApplyFilters();
+        _origApplyFilters({ resetPage: false });
     }
 
     function restoreState() {
@@ -6981,8 +6987,8 @@
 
     // Wrap original applyFilters to auto-save state
     const _origApplyFilters = applyFilters;
-    applyFilters = function() {
-        _origApplyFilters();
+    applyFilters = function(options) {
+        _origApplyFilters(options);
         saveState();
     };
 
@@ -7017,7 +7023,7 @@
             }
             // Re-apply with restored state
             updateActiveTagsSummary();
-            _origApplyFilters();
+            _origApplyFilters({ resetPage: false });
             saveState();
             // Only restore once
             loadSource = _origLoadSource;
