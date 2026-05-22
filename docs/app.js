@@ -6008,7 +6008,7 @@
             : "";
 
         const coverHTML = coverSrc
-            ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" referrerpolicy="no-referrer" onload="this.classList.add('loaded')" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
+            ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" onload="this.classList.add('loaded')" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
@@ -6419,7 +6419,7 @@
         novelpia: {
             dataUrl: "data/novels.json",
             format: "array",
-            coverPrefix: "https://novelpia.com",
+            coverPrefix: "https://images.novelpia.com",
             linkPrefix: "https://novelpia.com/novel/",
             chunked: true,
             chunkCount: 5,
@@ -6482,7 +6482,7 @@
     /** Fetch a .gz text file and decompress it client-side. */
     async function fetchGzText(url) {
         const fetchUrl = versionedDataUrl(url);
-        const resp = await fetch(fetchUrl, { cache: "force-cache" });
+        const resp = await fetch(fetchUrl);
         if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
         // Use DecompressionStream to decompress gzip on the fly
         const ds = new DecompressionStream("gzip");
