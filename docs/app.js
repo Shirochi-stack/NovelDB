@@ -6482,7 +6482,7 @@
     /** Fetch a .gz text file and decompress it client-side. */
     async function fetchGzText(url) {
         const fetchUrl = versionedDataUrl(url);
-        const resp = await fetch(fetchUrl);
+        const resp = await fetch(fetchUrl, { cache: "force-cache" });
         if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
         // Use DecompressionStream to decompress gzip on the fly
         const ds = new DecompressionStream("gzip");
@@ -6501,6 +6501,21 @@
     /** Fetch a .json.gz file, decompress client-side, parse JSON */
     async function fetchGzChunk(url) {
         return JSON.parse(await fetchGzText(url));
+    }
+
+    async function fetchGzChunkWithRetry(url, attempts = 2) {
+        let lastErr;
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                return await fetchGzChunk(url);
+            } catch (err) {
+                lastErr = err;
+                if (attempt < attempts) {
+                    await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+                }
+            }
+        }
+        throw lastErr;
     }
 
     let tagTranslationsPromise = null;
@@ -6536,12 +6551,13 @@
     async function fetchChunkedSource(cfg, sourceName, onChunkLoaded) {
         const { chunkCount, chunkPrefix } = cfg;
         let loaded = 0;
+        let failed = 0;
         const chunkPromises = [];
 
         for (let i = 0; i < chunkCount; i++) {
             const url = `${chunkPrefix}${i}.json.gz`;
             chunkPromises.push(
-                fetchGzChunk(url).then((raw) => {
+                fetchGzChunkWithRetry(url).then((raw) => {
                     loaded++;
                     // Detect embedded format: {novels, translations, descriptions}
                     let novelsData, translations, descriptions;
@@ -6563,12 +6579,20 @@
                     }
                     onChunkLoaded(novels, loaded, chunkCount);
                     return novels;
+                }).catch((err) => {
+                    failed++;
+                    console.warn(`Skipping ${sourceName} chunk ${i + 1}/${chunkCount}:`, err);
+                    return [];
                 })
             );
         }
 
         const results = await Promise.all(chunkPromises);
-        return results.flat();
+        const novels = results.flat();
+        if (novels.length === 0 && failed > 0) {
+            throw new Error(`Failed to load ${sourceName} chunks (${failed}/${chunkCount})`);
+        }
+        return novels;
     }
 
     function parseJsonAsync(text) {
@@ -6742,8 +6766,14 @@
 
                 // Start ALL sources loading in parallel immediately
                 const novelpiaPromise = loadSingle("novelpia");
-                const kakaoPromise = loadSingle("kakao");
-                const sfacgPromise = loadSingle("sfacg");
+                const kakaoPromise = loadSingle("kakao").catch((err) => {
+                    console.warn("Kakao source failed during background load:", err);
+                    return [];
+                });
+                const sfacgPromise = loadSingle("sfacg").catch((err) => {
+                    console.warn("SFACG source failed during background load:", err);
+                    return [];
+                });
 
                 // Merge each source as it finishes
                 const novelpiaNovels = await novelpiaPromise;
