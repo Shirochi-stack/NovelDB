@@ -879,82 +879,49 @@ class ExternalScraper:
             return ""
         return os.path.relpath(full, sdk)
 
-    @staticmethod
-    def _android_emulator_window_rect():
+    @classmethod
+    def _set_android_emulator_saved_position(cls, avd_name):
         if sys.platform != "win32":
-            return None
+            return
+        avd_dir = cls._android_avd_dir(avd_name)
+        if not avd_dir:
+            return
         try:
             user32 = ctypes.windll.user32
             screen_w = int(user32.GetSystemMetrics(0))
             screen_h = int(user32.GetSystemMetrics(1))
-            # Approximate the default phone emulator window size. The
-            # emulator may apply its own DPI scaling, but this keeps the
-            # Qt window near the center instead of spawning on an edge.
+            # Approximate the default phone emulator chrome. The emulator
+            # reads emulator-user.ini during startup; setting this before
+            # launch avoids the visible post-launch window jump.
             window_w = min(700, max(520, screen_w // 3))
             window_h = min(1100, max(820, int(screen_h * 0.82)))
             x = max(0, (screen_w - window_w) // 2)
             y = max(0, (screen_h - window_h) // 2)
-            return x, y, window_w, window_h
-        except Exception:
-            return None
-
-    def _center_android_emulator_window(self, avd_name, pid=None, timeout=45):
-        if sys.platform != "win32":
-            return False
-        rect = self._android_emulator_window_rect()
-        if not rect:
-            return False
-        x, y, width, height = rect
-        needle = (avd_name or "").lower()
-        deadline = time.time() + timeout
-        try:
-            user32 = ctypes.windll.user32
-            EnumWindowsProc = ctypes.WINFUNCTYPE(
-                ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
-            )
-
-            def _title(hwnd):
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length <= 0:
-                    return ""
-                buf = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, buf, length + 1)
-                return buf.value
-
-            while time.time() < deadline:
-                found = []
-
-                def callback(hwnd, _):
-                    if not user32.IsWindowVisible(hwnd):
-                        return True
-                    title = _title(hwnd)
-                    title_l = title.lower()
-                    if "android emulator" not in title_l:
-                        return True
-                    if needle and needle not in title_l:
-                        return True
-                    found.append(hwnd)
-                    return False
-
-                user32.EnumWindows(EnumWindowsProc(callback), 0)
-                if found:
-                    hwnd = found[0]
-                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                    user32.MoveWindow(hwnd, x, y, width, height, True)
-                    return True
-                time.sleep(0.5)
-        except Exception:
-            return False
-        return False
-
-    def _center_android_emulator_window_async(self, avd_name, pid=None):
-        try:
-            thread = threading.Thread(
-                target=self._center_android_emulator_window,
-                args=(avd_name, pid),
-                daemon=True,
-            )
-            thread.start()
+            ini_path = os.path.join(avd_dir, "emulator-user.ini")
+            values = {
+                "window.x": str(x),
+                "window.y": str(y),
+                "window.scale": "-1.000000",
+            }
+            lines = []
+            seen = set()
+            if os.path.exists(ini_path):
+                with open(
+                    ini_path, "r", encoding="utf-8", errors="ignore"
+                ) as f:
+                    for raw in f:
+                        line = raw.rstrip("\r\n")
+                        key = line.split("=", 1)[0].strip()
+                        if key in values:
+                            lines.append(f"{key} = {values[key]}")
+                            seen.add(key)
+                        else:
+                            lines.append(line)
+            for key, value in values.items():
+                if key not in seen:
+                    lines.append(f"{key} = {value}")
+            with open(ini_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write("\n".join(lines).rstrip() + "\n")
         except Exception:
             pass
 
@@ -1202,6 +1169,7 @@ class ExternalScraper:
                 "Facebook/SFACG must be installed there."
             )
         self.log(f"[Android] Launching emulator: {avd_name}")
+        self._set_android_emulator_saved_position(avd_name)
         args = [
             emulator,
             "-avd",
@@ -1218,7 +1186,6 @@ class ExternalScraper:
                 args,
                 cwd=os.path.dirname(emulator),
             )
-            self._center_android_emulator_window_async(avd_name, proc.pid)
             self._launch_sfacg_after_android_boot_async(avd_name)
             return True
         except Exception as e:
