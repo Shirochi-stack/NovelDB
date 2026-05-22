@@ -181,8 +181,7 @@ class ExternalScraper:
         self.kakao_skip_last_page = False
         self._sfacg_app_cookie = None
         self._sfacg_app_cookie_checked = False
-        self._sfacg_api_nonce = None
-        self._sfacg_api_nonce_lock = threading.Lock()
+        self._sfacg_app_prefer_logged = False
 
     def _install_bridge_bindings(self, page):
         """Expose Python-backed helpers used by the JS bridge stubs."""
@@ -259,19 +258,6 @@ class ExternalScraper:
             if cookie_parts:
                 headers["Cookie"] = "; ".join(cookie_parts)
 
-        if is_sfacg_api:
-            cookie_header = ""
-            for key, value in headers.items():
-                if key.lower() == "cookie":
-                    cookie_header = value
-                    break
-            nonce = self._get_sfacg_api_nonce()
-            if not nonce:
-                return {"error": "sfacg api nonce initialization failed"}
-            headers = self._sfacg_headers(nonce, method=method)
-            if cookie_header:
-                headers["Cookie"] = cookie_header
-
         data = details.get("data")
         timeout = details.get("timeout") or 30000
         try:
@@ -281,6 +267,21 @@ class ExternalScraper:
 
         try:
             import requests
+            if is_sfacg_api:
+                cookie_header = ""
+                for key, value in headers.items():
+                    if key.lower() == "cookie":
+                        cookie_header = value
+                        break
+                return self._sfacg_api_gm_request(
+                    requests,
+                    method,
+                    url,
+                    data,
+                    timeout,
+                    details.get("responseType") or "",
+                    cookie_header,
+                )
 
             response = requests.request(
                 method,
@@ -309,6 +310,73 @@ class ExternalScraper:
             return result
         except Exception as e:
             return {"error": str(e)}
+
+    @staticmethod
+    def _gm_response_result(response, response_type=""):
+        response_headers = "\r\n".join(
+            f"{k}: {v}" for k, v in response.headers.items()
+        )
+        result = {
+            "status": response.status_code,
+            "statusText": response.reason,
+            "responseHeaders": response_headers,
+            "finalUrl": response.url,
+        }
+        if response_type in ("arraybuffer", "blob"):
+            result["responseBase64"] = base64.b64encode(
+                response.content
+            ).decode("ascii")
+            result["responseText"] = ""
+        else:
+            result["responseText"] = response.text
+        return result
+
+    @staticmethod
+    def _sfacg_api_status_code(response):
+        try:
+            data = response.json()
+            return data.get("status", {}).get("httpCode")
+        except Exception:
+            return None
+
+    def _sfacg_api_response(
+            self, requests, method, url, data, timeout, cookie_header):
+        """Run one SFACG app API request with native signing and nonce retry."""
+        last_response = None
+        for attempt in range(1, 21):
+            nonce = str(uuid.uuid4()).upper()
+            headers = self._sfacg_headers(nonce, method=method)
+            if cookie_header:
+                headers["Cookie"] = cookie_header
+            response = requests.request(
+                method,
+                url,
+                headers=headers,
+                data=data,
+                timeout=timeout,
+                allow_redirects=True,
+            )
+            last_response = response
+            if self._sfacg_api_status_code(response) != 417:
+                return response
+            if attempt % 5 == 0 or attempt == 20:
+                self.log(
+                    "[SFACG] App API signature rejected; rotating "
+                    f"native nonce {attempt}/20."
+                )
+            time.sleep(0.25)
+        return last_response
+
+    def _sfacg_api_gm_request(
+            self, requests, method, url, data, timeout, response_type,
+            cookie_header):
+        """GM_xmlhttpRequest transport for SFACG app API calls."""
+        response = self._sfacg_api_response(
+            requests, method, url, data, timeout, cookie_header
+        )
+        if response is None:
+            return {"error": "sfacg api request failed"}
+        return self._gm_response_result(response, response_type)
 
     @staticmethod
     def _split_cookie_header(cookie_header):
@@ -415,46 +483,6 @@ class ExternalScraper:
             headers["content-type"] = "application/json; charset=UTF-8"
         return headers
 
-    def _get_sfacg_api_nonce(self):
-        with self._sfacg_api_nonce_lock:
-            if self._sfacg_api_nonce:
-                return self._sfacg_api_nonce
-            return self._init_sfacg_api_nonce()
-
-    def _init_sfacg_api_nonce(self):
-        test_url = (
-            "https://api.sfacg.com/Chaps/8436696"
-            "?expand=content%2Cexpand.content"
-        )
-        try:
-            import requests
-        except Exception as e:
-            self.log(f"[SFACG] Cannot initialize app API nonce: {e}")
-            return ""
-
-        for attempt in range(1, 21):
-            nonce = str(uuid.uuid4()).upper()
-            try:
-                response = requests.get(
-                    test_url,
-                    headers=self._sfacg_headers(nonce),
-                    timeout=10,
-                )
-                data = response.json()
-                if data.get("status", {}).get("httpCode") != 417:
-                    self._sfacg_api_nonce = nonce
-                    self.log("[SFACG] App API nonce initialized.")
-                    return nonce
-            except Exception:
-                pass
-            if attempt == 1 or attempt % 5 == 0 or attempt == 20:
-                self.log(
-                    f"[SFACG] App API nonce rejected, retry {attempt}/20."
-                )
-            time.sleep(0.5)
-        self.log("[SFACG] App API nonce initialization failed.")
-        return ""
-
     def _get_sfacg_app_cookie(self):
         """Return optional SFACG app API cookie for VIP text chapters."""
         if self._sfacg_app_cookie_checked:
@@ -528,6 +556,117 @@ class ExternalScraper:
                 )
             self._sfacg_app_cookie = cookie
         return self._sfacg_app_cookie or ""
+
+    def _sfacg_should_prefer_app_api(self):
+        """Use SFACG's app API for all chapters when session_APP exists."""
+        source_url = (
+            (self._book_data or {}).get("bookUrl")
+            or self._book_url
+            or ""
+        )
+        try:
+            host = urllib.parse.urlparse(source_url).hostname or ""
+        except Exception:
+            host = ""
+        if "sfacg.com" not in host.lower():
+            return False
+        cookie = self._get_sfacg_app_cookie()
+        names = {
+            item.split("=", 1)[0]
+            for item in self._split_cookie_header(cookie)
+        }
+        ok = "session_APP" in names
+        if ok and not self._sfacg_app_prefer_logged:
+            self.log("[SFACG] App session available; preferring app API for all chapters.")
+            self._sfacg_app_prefer_logged = True
+        return ok
+
+    @staticmethod
+    def _sfacg_chapter_id_from_url(url):
+        try:
+            path = urllib.parse.urlparse(url).path
+        except Exception:
+            path = str(url or "")
+        matches = re.findall(r"\d+", path)
+        return matches[-1] if matches else ""
+
+    @staticmethod
+    def _sfacg_text_to_html(text):
+        root = html.escape(str(text or "")).splitlines()
+        lines = root if root else [""]
+        body = "".join(
+            f"<p>{line}</p>" if line.strip() else "<p><br/></p>"
+            for line in lines
+        )
+        return f"<div>{body}</div>"
+
+    def _sfacg_app_cookie_header(self):
+        cookie = self._get_sfacg_app_cookie()
+        parts = self._split_cookie_header(cookie)
+        names = {item.split("=", 1)[0] for item in parts}
+        if "session_APP" not in names:
+            return ""
+        return "; ".join(parts)
+
+    def _sfacg_parse_chapter_app_api(
+            self, chapter_url, chapter_name, requests_module=None,
+            cookie_header=None):
+        """Fetch one SFACG chapter directly through the mobile/app API."""
+        chapter_id = self._sfacg_chapter_id_from_url(chapter_url)
+        cookie_header = cookie_header or self._sfacg_app_cookie_header()
+        if not chapter_id or not cookie_header:
+            return None
+        requests = requests_module
+        if requests is None:
+            try:
+                import requests
+            except Exception as e:
+                self.log(f"[SFACG] App API unavailable: {e}")
+                return None
+
+        api_url = (
+            f"https://api.sfacg.com/Chaps/{chapter_id}"
+            "?expand=content%2Cexpand.content"
+        )
+        response = self._sfacg_api_response(
+            requests, "GET", api_url, None, 30.0, cookie_header
+        )
+        if response is None:
+            return None
+        try:
+            payload = response.json()
+        except Exception:
+            return None
+
+        status = payload.get("status", {}).get("httpCode")
+        if status in (401, 403):
+            self.log(
+                f"[SFACG] API chapter {chapter_id} requires an app session "
+                f"with access ({status})"
+            )
+            return None
+        if status != 200:
+            return None
+
+        data = payload.get("data") or {}
+        content = "\n".join(
+            part
+            for part in (
+                data.get("content"),
+                (data.get("expand") or {}).get("content"),
+            )
+            if isinstance(part, str)
+        ).strip()
+        if not content:
+            return None
+        title = data.get("title") or chapter_name
+        return {
+            "chapterName": title,
+            "contentHtml": self._sfacg_text_to_html(content),
+            "contentText": content,
+            "imageCount": 0,
+            "images": [],
+        }
 
     def login_sfacg_app(self, username, password):
         """Log in through SFACG's app API and persist session_APP cookie."""
@@ -1167,10 +1306,6 @@ class ExternalScraper:
         return False
 
     def _sfacg_login(self, username, password):
-        nonce = self._get_sfacg_api_nonce()
-        if not nonce:
-            return ""
-        headers = self._sfacg_headers(nonce, method="POST")
         payload = json.dumps({
             "password": password,
             "shuMeiId": "",
@@ -1180,12 +1315,16 @@ class ExternalScraper:
             import requests
 
             session = requests.Session()
-            response = session.post(
+            response = self._sfacg_api_response(
+                session,
+                "POST",
                 "https://api.sfacg.com/sessions",
-                data=payload,
-                headers=headers,
-                timeout=30,
+                payload,
+                30.0,
+                "",
             )
+            if response is None:
+                return ""
             data = response.json()
             if data.get("status", {}).get("httpCode") == 200:
                 cookies = requests.utils.dict_from_cookiejar(session.cookies)
@@ -1338,6 +1477,80 @@ class ExternalScraper:
         if count:
             time.sleep(1.0)
         return count
+
+    @staticmethod
+    def _chrome_processes_using_profile(user_data_dir):
+        """Return browser PIDs that already have a persistent profile open."""
+        if sys.platform != "win32":
+            return []
+        profile = os.path.abspath(user_data_dir).replace("'", "''")
+        script = (
+            "$needle = '" + profile + "'.ToLowerInvariant();\n"
+            "$names = @('chrome.exe', 'msedge.exe', 'chromium.exe');\n"
+            "Get-CimInstance Win32_Process | Where-Object { "
+            "$_.Name -and $names.Contains($_.Name.ToLowerInvariant()) -and "
+            "$_.CommandLine -and "
+            "$_.CommandLine.ToLowerInvariant().Contains($needle) "
+            "} | Select-Object -ExpandProperty ProcessId\n"
+        )
+        try:
+            output = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", script],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                errors="ignore",
+                **_hidden_windows_subprocess_kwargs(),
+            )
+        except Exception:
+            return []
+        pids = []
+        for line in output.splitlines():
+            try:
+                pids.append(int(line.strip()))
+            except Exception:
+                pass
+        return pids
+
+    def _close_chrome_profile_processes(self, user_data_dir):
+        """Close browser processes using this app's persistent profile."""
+        pids = self._chrome_processes_using_profile(user_data_dir)
+        if not pids:
+            return []
+        pid_list = ",".join(str(pid) for pid in pids)
+        script = (
+            "$pids = @(" + pid_list + ");\n"
+            "foreach ($procId in $pids) { "
+            "try { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } "
+            "catch {} "
+            "}\n"
+        )
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=8,
+                check=False,
+                **_hidden_windows_subprocess_kwargs(),
+            )
+        except Exception:
+            return []
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if not self._chrome_processes_using_profile(user_data_dir):
+                break
+            time.sleep(0.25)
+        return pids
+
+    @staticmethod
+    def _is_profile_lock_error(error):
+        msg = str(error)
+        return (
+            "Opening in existing browser session" in msg
+            or "profile is already in use" in msg
+            or "ProcessSingleton" in msg
+        )
 
     def _close_ntk_temp_chrome_now(self):
         """Force-close the temporary NTK Chrome without waiting on storage APIs."""
@@ -1789,6 +2002,38 @@ class ExternalScraper:
                 "browser."
             )
 
+        locked_pids = self._chrome_processes_using_profile(user_data_dir)
+        if locked_pids:
+            pids = ", ".join(str(pid) for pid in locked_pids)
+            self.log(
+                "[Browser] This login profile is already open in browser "
+                f"process(es): {pids}"
+            )
+            self.log(
+                "[Browser] Closing the existing Npia browser session before "
+                "opening a fresh login browser."
+            )
+            closed = self._close_chrome_profile_processes(user_data_dir)
+            if closed:
+                self.log(
+                    f"[Browser] Closed {len(closed)} browser process(es) "
+                    "using this profile."
+                )
+            locked_pids = self._chrome_processes_using_profile(user_data_dir)
+            if locked_pids:
+                pids = ", ".join(str(pid) for pid in locked_pids)
+                self.log(
+                    "[Browser] Profile is still locked by browser "
+                    f"process(es): {pids}"
+                )
+                raise RuntimeError(
+                    "Browser profile is still in use. Close the existing "
+                    "Npia login browser window and try again."
+                )
+            self.log(
+                "[Browser] Profile lock released. Opening login browser..."
+            )
+
         self._playwright = sync_playwright().start()
         try:
             self._context = self._playwright.chromium.launch_persistent_context(
@@ -1799,6 +2044,20 @@ class ExternalScraper:
             )
             self.log("Using installed Google Chrome for login.")
         except Exception as chrome_error:
+            if self._is_profile_lock_error(chrome_error):
+                self.log(
+                    "[Browser] The Npia browser profile is already open. "
+                    "Close that browser window and try again."
+                )
+                try:
+                    self._playwright.stop()
+                    self._playwright = None
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    "Browser profile is already in use. Close the existing "
+                    "Npia login browser window and try again."
+                ) from chrome_error
             self.log(
                 "Installed Chrome unavailable for login; "
                 "falling back to bundled Chromium."
@@ -5240,6 +5499,17 @@ class ExternalScraper:
                 time.sleep(interval)
             return result
 
+        url = chapter_info.get('url', '')
+        name = chapter_info.get('name', '')
+        is_vip = chapter_info.get('isVIP', False)
+        is_paid = chapter_info.get('isPaid', False)
+        if self._sfacg_should_prefer_app_api():
+            data = self._sfacg_parse_chapter_app_api(url, name)
+            if data:
+                if interval > 0:
+                    time.sleep(interval)
+                return data
+
         target_page = page or self._page
         if target_page is None:
             # Primary page lost — try to recover
@@ -5248,11 +5518,6 @@ class ExternalScraper:
             else:
                 self.log(f"  [{index + 1}] No browser page available.")
                 return None
-
-        url = chapter_info.get('url', '')
-        name = chapter_info.get('name', '')
-        is_vip = chapter_info.get('isVIP', False)
-        is_paid = chapter_info.get('isPaid', False)
 
         # Escape strings for JS (handle quotes and backslashes)
         def js_escape(s):
@@ -5291,7 +5556,8 @@ class ExternalScraper:
 
         return data
 
-    def parse_chapter_batch(self, batch_info, interval=0.5):
+    def parse_chapter_batch(self, batch_info, interval=0.5,
+                            _skip_sfacg_app=False):
         """Parse multiple chapters concurrently via JS Promise.all.
 
         Args:
@@ -5360,7 +5626,46 @@ class ExternalScraper:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 return list(executor.map(fetch_one, batch_info))
 
-        # Ensure the browser page is still alive
+        if (not _skip_sfacg_app
+                and self._sfacg_should_prefer_app_api()):
+            from concurrent.futures import ThreadPoolExecutor
+            try:
+                import requests
+            except Exception as e:
+                self.log(f"[SFACG] App API unavailable: {e}")
+                requests = None
+            cookie_header = self._sfacg_app_cookie_header()
+
+            max_workers = max(1, min(len(batch_info), 16))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = list(executor.map(
+                    lambda ch: self._sfacg_parse_chapter_app_api(
+                        ch.get('url', ''),
+                        ch.get('name', ''),
+                        requests_module=requests,
+                        cookie_header=cookie_header,
+                    ),
+                    batch_info,
+                ))
+
+            fallback_indices = [
+                i for i, result in enumerate(results)
+                if result is None
+            ]
+            if not fallback_indices:
+                return results
+
+            fallback_batch = [batch_info[i] for i in fallback_indices]
+            fallback_results = self.parse_chapter_batch(
+                fallback_batch,
+                interval=interval,
+                _skip_sfacg_app=True,
+            )
+            for offset, result in zip(fallback_indices, fallback_results):
+                results[offset] = result
+            return results
+
+        # Ensure the browser page is still alive for non-app or fallback fetches.
         if not self._ensure_page():
             self.log("  Batch aborted: no browser page available.")
             return [None] * len(batch_info)
