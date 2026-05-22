@@ -63,11 +63,72 @@ window.GM_info = {
 window.GM = window.GM || {};
 window.GM.info = window.GM_info;
 
+function _ndBase64ToArrayBuffer(base64) {
+  var binary = atob(base64 || "");
+  var bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
 window.GM_xmlhttpRequest = function(details) {
   var url = details.url;
   if (url && url.indexOf('http://') === 0 && document.location.protocol === 'https:') {
     url = url.replace('http://', 'https://');
   }
+
+  var nativeUrl = "";
+  try {
+    nativeUrl = new URL(url, document.location.href).hostname.toLowerCase();
+  } catch (e) {}
+  var useNativeTransport =
+    typeof window.__npia_gm_xmlhttp_request === "function" &&
+    nativeUrl === "api.sfacg.com";
+
+  if (useNativeTransport) {
+    var payload = {
+      url: url,
+      method: details.method || "GET",
+      headers: details.headers || {},
+      data: details.data || null,
+      responseType: details.responseType || "",
+      timeout: details.timeout || 30000,
+      cookie: details.cookie || "",
+    };
+    window.__npia_gm_xmlhttp_request(payload)
+      .then(function(obj) {
+        if (!obj || obj.error) {
+          if (details.onerror) {
+            details.onerror({ error: obj && obj.error ? obj.error : "empty response" });
+          }
+          return;
+        }
+
+        var response = obj.responseText || "";
+        if (obj.responseBase64) {
+          var buffer = _ndBase64ToArrayBuffer(obj.responseBase64);
+          response = details.responseType === "blob" ? new Blob([buffer]) : buffer;
+        }
+
+        if (details.onload) {
+          details.onload({
+            status: obj.status || 0,
+            statusText: obj.statusText || "",
+            responseText: obj.responseText || "",
+            response: response,
+            readyState: 4,
+            responseHeaders: obj.responseHeaders || "",
+            finalUrl: obj.finalUrl || url,
+          });
+        }
+      })
+      .catch(function(e) {
+        if (details.onerror) details.onerror({ error: e.message || String(e) });
+      });
+    return;
+  }
+
   var init = {
     method: details.method || "GET",
     headers: details.headers || {},

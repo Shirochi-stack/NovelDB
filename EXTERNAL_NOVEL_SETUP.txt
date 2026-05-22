@@ -89,6 +89,27 @@ Your login session (cookies, localStorage) is saved in the browser_data/
 folder and persists across app restarts. The headless scraper reuses this
 data, so you stay authenticated without entering credentials again.
 
+SFACG VIP TEXT CHAPTERS
+-----------------------
+SFACG's VIP text API uses the mobile app session, not only the web browser
+session. Use the Enter App button in the external downloader to save a
+session_APP cookie. Direct SFACG username/password login can fetch this
+automatically; Facebook/third-party linked accounts must paste an app cookie.
+On systems with Android SDK/adb, Enter App can also open an Android emulator
+and try importing session_APP after you log into the SFACG app there.
+
+You can also provide one of:
+
+  - Environment variable NPIA_SFACG_COOKIE containing:
+      .SFCommunity=...; session_APP=...
+  - A file named sfacg_app_cookie.txt next to the app, or in:
+      %LOCALAPPDATA%\NpiaDownloader\sfacg_app_cookie.txt
+  - config.json keys sfacg_cookie, or sfacg_user + sfacg_pass
+
+The scraper will reuse this app session for api.sfacg.com requests. If no
+app session is available, SFACG VIP chapters fall back to the site's image
+response.
+
 
 TROUBLESHOOTING
 ---------------

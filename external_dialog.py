@@ -43,6 +43,20 @@ def _sanitize_filename(name):
     return name or "novel"
 
 
+def _format_size(num_bytes):
+    """Human-readable byte count for progress logs."""
+    try:
+        value = float(num_bytes or 0)
+    except Exception:
+        value = 0.0
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+
+
 class ExternalNovelDialog(tk.Toplevel):
     """Tkinter Toplevel dialog for downloading novels from non-Novelpia sites."""
 
@@ -243,6 +257,10 @@ class ExternalNovelDialog(tk.Toplevel):
                                         command=self._on_enter_browser)
         self._btn_browser.pack(side="left", padx=(0, 5), ipady=3)
 
+        self._btn_sfacg_app = ttk.Button(btn_frame, text="Enter App",
+                                          command=self._on_sfacg_app_login)
+        self._btn_sfacg_app.pack(side="left", padx=(0, 5), ipady=3)
+
         self._var_regular_browser = tk.BooleanVar(value=False)
         self._chk_regular_browser = ttk.Checkbutton(
             btn_frame,
@@ -330,6 +348,10 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._on_download_finished()
                 elif kind == "browser_closed":
                     self._on_browser_closed()
+                elif kind == "sfacg_app_done":
+                    self._on_sfacg_app_done(data)
+                elif kind == "sfacg_android_done":
+                    self._on_sfacg_android_done(data)
                 elif kind == "error":
                     self._append_log(f"\u274c Error: {data}")
         except queue.Empty:
@@ -375,6 +397,12 @@ class ExternalNovelDialog(tk.Toplevel):
                     )
                 else:
                     self._do_open_browser(payload)
+            elif kind == "sfacg_app_login":
+                self._do_sfacg_app_login(payload)
+            elif kind == "sfacg_android_open":
+                self._do_sfacg_android_open()
+            elif kind == "sfacg_android_import":
+                self._do_sfacg_android_import()
 
     def _do_fetch(self, url):
         """Run parse_book on the worker thread."""
@@ -575,6 +603,46 @@ class ExternalNovelDialog(tk.Toplevel):
         finally:
             self._msg_queue.put(("browser_closed", None))
 
+    def _do_sfacg_app_login(self, payload):
+        """Log in to SFACG's app API on the worker thread."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+            cookie = payload.get("cookie", "")
+            if cookie:
+                ok = self._scraper.save_sfacg_app_cookie(cookie)
+            else:
+                ok = self._scraper.login_sfacg_app(
+                    payload.get("username", ""),
+                    payload.get("password", ""),
+                )
+            self._msg_queue.put(("sfacg_app_done", ok))
+        except Exception as e:
+            self._msg_queue.put(("error", f"SFACG app login error: {e}"))
+            self._msg_queue.put(("sfacg_app_done", False))
+
+    def _do_sfacg_android_open(self):
+        """Open the configured Android emulator."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+            ok = self._scraper.open_android_emulator()
+            self._msg_queue.put(("sfacg_android_done", ok))
+        except Exception as e:
+            self._msg_queue.put(("error", f"Android emulator error: {e}"))
+            self._msg_queue.put(("sfacg_android_done", False))
+
+    def _do_sfacg_android_import(self):
+        """Import SFACG app cookie from Android emulator app data."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+            ok = self._scraper.import_sfacg_app_cookie_from_android()
+            self._msg_queue.put(("sfacg_app_done", ok))
+        except Exception as e:
+            self._msg_queue.put(("error", f"Android import error: {e}"))
+            self._msg_queue.put(("sfacg_app_done", False))
+
     # ------------------------------------------------------------------
     # Enter Browser (manual login)
     # ------------------------------------------------------------------
@@ -589,6 +657,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
         self._btn_download.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
+        self._btn_sfacg_app.configure(state="disabled")
         self._chk_regular_browser.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
@@ -610,11 +679,132 @@ class ExternalNovelDialog(tk.Toplevel):
     def _on_browser_closed(self):
         """Re-enable buttons after the visible browser session ends."""
         self._btn_browser.configure(state="normal")
+        self._btn_sfacg_app.configure(state="normal")
         self._chk_regular_browser.configure(state="normal")
         self._btn_download.configure(state="normal")
         self._btn_paste_batch.configure(state="normal")
         self._btn_batch_file.configure(state="normal")
         self._append_log("Browser session ended. Session data saved.")
+
+    def _on_sfacg_app_login(self):
+        """Prompt for SFACG app credentials or an existing app cookie."""
+        dlg = tk.Toplevel(self)
+        dlg.title("SFACG App Session")
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(True, False)
+
+        body = ttk.Frame(dlg, padding=10)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(body, text="Username:").grid(row=0, column=0, sticky="w")
+        var_user = tk.StringVar()
+        ent_user = ttk.Entry(body, textvariable=var_user, width=34)
+        ent_user.grid(row=0, column=1, padx=(6, 0), pady=(0, 6))
+
+        ttk.Label(body, text="Password:").grid(row=1, column=0, sticky="w")
+        var_pass = tk.StringVar()
+        ent_pass = ttk.Entry(body, textvariable=var_pass, width=34, show="*")
+        ent_pass.grid(row=1, column=1, padx=(6, 0), pady=(0, 8))
+
+        ttk.Label(body, text="App cookie:").grid(
+            row=2, column=0, sticky="nw"
+        )
+        txt_cookie = tk.Text(body, width=46, height=4, wrap="word")
+        txt_cookie.grid(row=2, column=1, padx=(6, 0), pady=(0, 8))
+
+        ttk.Label(
+            body,
+            text=(
+                "Use username/password, or paste .SFCommunity=...; "
+                "session_APP=..."
+            ),
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        btns = ttk.Frame(body)
+        btns.grid(row=4, column=0, columnspan=2, sticky="e")
+
+        def submit():
+            username = var_user.get().strip()
+            password = var_pass.get()
+            cookie = txt_cookie.get("1.0", "end").strip()
+            if not cookie and (not username or not password):
+                messagebox.showwarning(
+                    "SFACG App Session",
+                    "Enter username/password or paste an app cookie.",
+                    parent=dlg,
+                )
+                return
+            dlg.destroy()
+            if cookie:
+                self._append_log("Importing SFACG app cookie...")
+            else:
+                self._append_log("Logging in to SFACG app API...")
+            self._btn_download.configure(state="disabled")
+            self._btn_browser.configure(state="disabled")
+            self._btn_sfacg_app.configure(state="disabled")
+            self._chk_regular_browser.configure(state="disabled")
+            self._btn_paste_batch.configure(state="disabled")
+            self._btn_batch_file.configure(state="disabled")
+            self._work_queue.put(("sfacg_app_login", {
+                "username": username,
+                "password": password,
+                "cookie": cookie,
+            }))
+
+        ttk.Button(btns, text="Save", command=submit).pack(
+            side="right", padx=(5, 0)
+        )
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="right")
+        ttk.Button(
+            btns,
+            text="Import Android",
+            command=lambda: (dlg.destroy(), self._on_sfacg_android_import()),
+        ).pack(side="left")
+        ttk.Button(
+            btns,
+            text="Open Android",
+            command=lambda: self._on_sfacg_android_open(),
+        ).pack(side="left", padx=(0, 5))
+
+        ent_user.focus_set()
+        dlg.bind("<Return>", lambda _e: submit())
+
+    def _set_app_buttons_enabled(self, enabled):
+        state = "normal" if enabled else "disabled"
+        self._btn_browser.configure(state=state)
+        self._btn_sfacg_app.configure(state=state)
+        self._chk_regular_browser.configure(state=state)
+        self._btn_download.configure(state=state)
+        self._btn_paste_batch.configure(state=state)
+        self._btn_batch_file.configure(state=state)
+
+    def _on_sfacg_android_open(self):
+        self._append_log("Opening Android emulator...")
+        self._set_app_buttons_enabled(False)
+        self._work_queue.put(("sfacg_android_open", None))
+
+    def _on_sfacg_android_import(self):
+        self._append_log("Trying to import SFACG app session from Android...")
+        self._set_app_buttons_enabled(False)
+        self._work_queue.put(("sfacg_android_import", None))
+
+    def _on_sfacg_android_done(self, ok):
+        self._set_app_buttons_enabled(True)
+        if ok:
+            self._append_log(
+                "Android emulator opened. Install/open SFACG, log in, "
+                "then use Enter App > Import Android."
+            )
+        else:
+            self._append_log("Android emulator action failed.")
+
+    def _on_sfacg_app_done(self, ok):
+        self._set_app_buttons_enabled(True)
+        if ok:
+            self._append_log("SFACG app session saved.")
+        else:
+            self._append_log("SFACG app login failed.")
 
     # ------------------------------------------------------------------
     # Fetch Info (internal helper — called from workers)
@@ -653,6 +843,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_download.configure(state="disabled")
         self._btn_stop.configure(state="normal")
         self._btn_browser.configure(state="disabled")
+        self._btn_sfacg_app.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
         self._progress['value'] = 0
@@ -691,6 +882,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_download.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._btn_browser.configure(state="normal")
+        self._btn_sfacg_app.configure(state="normal")
         self._btn_paste_batch.configure(state="normal")
         self._btn_batch_file.configure(state="normal")
         self._lbl_eta.configure(text="")
@@ -854,6 +1046,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_download.configure(state="disabled")
         self._btn_stop.configure(state="normal")
         self._btn_browser.configure(state="disabled")
+        self._btn_sfacg_app.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
         self._progress['value'] = 0
@@ -1511,6 +1704,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                         )
                     image_start = time.time()
                     image_bytes = 0
+                    completed_image_bytes = 0
 
                     # Reuse HTTP sessions across image tasks. Creating a new
                     # TLS connection for every Kakao page image is expensive,
@@ -1611,20 +1805,40 @@ img { display: block; max-width: 100%; max-height: 100%;
                                     img_idx, result = fut.result()
                                     image_results[img_idx] = result
                                     done += 1
+                                    if result:
+                                        completed_image_bytes += len(
+                                            result['raw']
+                                        )
                                     if done % 5 == 0 or done == len(image_items):
+                                        elapsed = max(
+                                            0.01,
+                                            time.time() - image_start,
+                                        )
+                                        speed = completed_image_bytes / elapsed
                                         self._log(
                                             f"    Images ready: {done}/"
-                                            f"{len(image_items)}"
+                                            f"{len(image_items)} "
+                                            f"({_format_size(completed_image_bytes)}, "
+                                            f"{_format_size(int(speed))}/s)"
                                         )
                         else:
                             for item in image_items:
                                 img_idx, result = process_image(item)
                                 image_results[img_idx] = result
                                 done = len(image_results)
+                                if result:
+                                    completed_image_bytes += len(result['raw'])
                                 if done % 5 == 0 or done == len(image_items):
+                                    elapsed = max(
+                                        0.01,
+                                        time.time() - image_start,
+                                    )
+                                    speed = completed_image_bytes / elapsed
                                     self._log(
                                         f"    Images ready: {done}/"
-                                        f"{len(image_items)}"
+                                        f"{len(image_items)} "
+                                        f"({_format_size(completed_image_bytes)}, "
+                                        f"{_format_size(int(speed))}/s)"
                                     )
                     finally:
                         for s in pooled_sessions:
@@ -1678,7 +1892,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                         self._log(
                             f"    Images embedded: {ready_count}/"
                             f"{len(image_items)}, "
-                            f"{mb:.1f} MB for this chapter in {elapsed:.1f}s"
+                            f"{mb:.1f} MB for this chapter in {elapsed:.1f}s "
+                            f"({_format_size(int(image_bytes / elapsed))}/s)"
                         )
                         if failed_count:
                             self._log(

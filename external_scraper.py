@@ -28,10 +28,12 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 if sys.platform == "win32":
     import ctypes
@@ -177,6 +179,722 @@ class ExternalScraper:
         self._kakao_css_cache = {}
         self.kakao_keep_filler = False
         self.kakao_skip_last_page = False
+        self._sfacg_app_cookie = None
+        self._sfacg_app_cookie_checked = False
+        self._sfacg_api_nonce = None
+        self._sfacg_api_nonce_lock = threading.Lock()
+
+    def _install_bridge_bindings(self, page):
+        """Expose Python-backed helpers used by the JS bridge stubs."""
+        if not page:
+            return
+        try:
+            page.expose_binding(
+                "__npia_gm_xmlhttp_request",
+                self._gm_xmlhttp_request,
+            )
+        except Exception as e:
+            msg = str(e).lower()
+            if "already" not in msg and "registered" not in msg:
+                self.log(f"Bridge binding warning: {e}")
+
+    def _gm_xmlhttp_request(self, source, details):
+        """Python transport for GM_xmlhttpRequest.
+
+        Browser fetch cannot set several userscript/app headers and is still
+        subject to CORS. Some novel-downloader rules, including SFACG's app API
+        fallback, rely on the stronger Tampermonkey transport.
+        """
+        details = details or {}
+        url = details.get("url") or ""
+        if not url:
+            return {"error": "missing url"}
+
+        method = (details.get("method") or "GET").upper()
+        parsed_url = urllib.parse.urlparse(url)
+        is_sfacg_api = parsed_url.netloc.lower() == "api.sfacg.com"
+        headers = {
+            str(k): str(v)
+            for k, v in (details.get("headers") or {}).items()
+            if v is not None
+        }
+        for forbidden in ("host", "content-length"):
+            for key in list(headers.keys()):
+                if key.lower() == forbidden:
+                    headers.pop(key, None)
+
+        has_cookie_header = any(k.lower() == "cookie" for k in headers)
+        if not has_cookie_header:
+            cookie_parts = []
+            raw_cookie = details.get("cookie") or ""
+            if raw_cookie:
+                cookie_parts.extend(
+                    part.strip()
+                    for part in raw_cookie.split(";")
+                    if part.strip()
+                )
+            seen = {
+                part.split("=", 1)[0].strip()
+                for part in cookie_parts
+                if "=" in part
+            }
+            for cookie in self._storage_cookies_for_url(url):
+                name = cookie.get("name")
+                value = cookie.get("value")
+                if name and value is not None and name not in seen:
+                    cookie_parts.append(f"{name}={value}")
+                    seen.add(name)
+            if is_sfacg_api:
+                app_cookie = self._get_sfacg_app_cookie()
+                for item in self._split_cookie_header(app_cookie):
+                    name = item.split("=", 1)[0].strip()
+                    if not name:
+                        continue
+                    cookie_parts = [
+                        part
+                        for part in cookie_parts
+                        if part.split("=", 1)[0].strip() != name
+                    ]
+                    cookie_parts.append(item)
+            if cookie_parts:
+                headers["Cookie"] = "; ".join(cookie_parts)
+
+        if is_sfacg_api:
+            cookie_header = ""
+            for key, value in headers.items():
+                if key.lower() == "cookie":
+                    cookie_header = value
+                    break
+            nonce = self._get_sfacg_api_nonce()
+            if not nonce:
+                return {"error": "sfacg api nonce initialization failed"}
+            headers = self._sfacg_headers(nonce, method=method)
+            if cookie_header:
+                headers["Cookie"] = cookie_header
+
+        data = details.get("data")
+        timeout = details.get("timeout") or 30000
+        try:
+            timeout = max(float(timeout) / 1000.0, 1.0)
+        except Exception:
+            timeout = 30.0
+
+        try:
+            import requests
+
+            response = requests.request(
+                method,
+                url,
+                headers=headers,
+                data=data,
+                timeout=timeout,
+                allow_redirects=True,
+            )
+            response_headers = "\r\n".join(
+                f"{k}: {v}" for k, v in response.headers.items()
+            )
+            result = {
+                "status": response.status_code,
+                "statusText": response.reason,
+                "responseHeaders": response_headers,
+                "finalUrl": response.url,
+            }
+            if details.get("responseType") in ("arraybuffer", "blob"):
+                result["responseBase64"] = base64.b64encode(
+                    response.content
+                ).decode("ascii")
+                result["responseText"] = ""
+            else:
+                result["responseText"] = response.text
+            return result
+        except Exception as e:
+            return {"error": str(e)}
+
+    @staticmethod
+    def _split_cookie_header(cookie_header):
+        return [
+            item.strip()
+            for item in (cookie_header or "").split(";")
+            if item.strip() and "=" in item
+        ]
+
+    def _storage_cookies_for_url(self, url):
+        """Read matching cookies from the saved Playwright storage state.
+
+        This intentionally avoids calling Playwright APIs from inside an
+        exposed binding callback, which can deadlock the sync driver.
+        """
+        try:
+            parsed = urllib.parse.urlparse(url)
+            host = (parsed.hostname or "").lower()
+            path = parsed.path or "/"
+            is_https = parsed.scheme == "https"
+            state_path = self._get_storage_state_path()
+            if not host or not os.path.exists(state_path):
+                return []
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            return []
+
+        out = []
+        for cookie in state.get("cookies") or []:
+            domain = (cookie.get("domain") or "").lower()
+            cookie_path = cookie.get("path") or "/"
+            if cookie.get("secure") and not is_https:
+                continue
+            if domain.startswith("."):
+                if host != domain[1:] and not host.endswith(domain):
+                    continue
+            elif host != domain:
+                continue
+            if not path.startswith(cookie_path):
+                continue
+            out.append(cookie)
+        return out
+
+    @staticmethod
+    def _sfacg_sign(nonce, timestamp, device_token, salt):
+        long_nonce = nonce * 4
+
+        def index_calc(index):
+            char_code = ord(long_nonce[index])
+            return char_code - (char_code // 0x24) * 0x24
+
+        nonce_reorder = (
+            long_nonce[index_calc(1):index_calc(1) + 13]
+            + long_nonce[index_calc(2):index_calc(2) + 16]
+            + long_nonce[index_calc(3):index_calc(3) + 36]
+            + long_nonce[index_calc(4):index_calc(4) + 36]
+        )
+        auth_string = f"{timestamp}{salt}{device_token}{nonce}"
+        result = "".join(
+            chr((ord(auth_string[i]) + ord(nonce_reorder[i])) >> 1)
+            for i in range(len(auth_string))
+        )
+        parts = [result[:13], result[13:29], result[29:65], result[65:]]
+        reordered = parts[3] + parts[0] + parts[2] + parts[1]
+
+        final = ""
+        for char in reordered:
+            char_code = ord(char)
+            if char_code < 0x30:
+                final += (
+                    chr(0x39)
+                    if 0x39 < char_code + 19 < 0x41
+                    else chr(char_code + 19)
+                )
+            elif (0x39 < char_code < 0x41) or (0x5A < char_code < 0x61):
+                final += chr(char_code + 19)
+            else:
+                final += char
+        return hashlib.md5(final.encode("utf-8")).hexdigest().upper()
+
+    def _sfacg_headers(self, nonce, method="GET"):
+        device_token = "910D166A-736E-3231-8B21-8D12DFD75F16"
+        salt = "lPQDb9AKO7$LjkPG"
+        timestamp = int(time.time() * 1000)
+        sfsecurity = (
+            f"nonce={nonce}&timestamp={timestamp}&devicetoken={device_token}"
+            f"&sign={self._sfacg_sign(nonce, timestamp, device_token, salt)}"
+        )
+        headers = {
+            "accept": "application/vnd.sfacg.api+json;version=1",
+            "accept-charset": "UTF-8",
+            "accept-encoding": "gzip",
+            "authorization": (
+                "Basic YW5kcm9pZHVzZXI6MWEjJDUxLXl0Njk7KkFjdkBxeHE="
+            ),
+            "sfsecurity": sfsecurity,
+            "user-agent": (
+                f"boluobao/5.2.16(android;35)/OPPO/"
+                f"{device_token.lower()}/OPPO"
+            ),
+        }
+        if method.upper() != "GET":
+            headers["content-type"] = "application/json; charset=UTF-8"
+        return headers
+
+    def _get_sfacg_api_nonce(self):
+        with self._sfacg_api_nonce_lock:
+            if self._sfacg_api_nonce:
+                return self._sfacg_api_nonce
+            return self._init_sfacg_api_nonce()
+
+    def _init_sfacg_api_nonce(self):
+        test_url = (
+            "https://api.sfacg.com/Chaps/8436696"
+            "?expand=content%2Cexpand.content"
+        )
+        try:
+            import requests
+        except Exception as e:
+            self.log(f"[SFACG] Cannot initialize app API nonce: {e}")
+            return ""
+
+        for attempt in range(1, 21):
+            nonce = str(uuid.uuid4()).upper()
+            try:
+                response = requests.get(
+                    test_url,
+                    headers=self._sfacg_headers(nonce),
+                    timeout=10,
+                )
+                data = response.json()
+                if data.get("status", {}).get("httpCode") != 417:
+                    self._sfacg_api_nonce = nonce
+                    self.log("[SFACG] App API nonce initialized.")
+                    return nonce
+            except Exception:
+                pass
+            if attempt == 1 or attempt % 5 == 0 or attempt == 20:
+                self.log(
+                    f"[SFACG] App API nonce rejected, retry {attempt}/20."
+                )
+            time.sleep(0.5)
+        self.log("[SFACG] App API nonce initialization failed.")
+        return ""
+
+    def _get_sfacg_app_cookie(self):
+        """Return optional SFACG app API cookie for VIP text chapters."""
+        if self._sfacg_app_cookie_checked:
+            return self._sfacg_app_cookie or ""
+        self._sfacg_app_cookie_checked = True
+
+        cookie = (os.environ.get("NPIA_SFACG_COOKIE") or "").strip()
+        if not cookie:
+            for path in (
+                os.path.join(_get_base_dir(), "sfacg_app_cookie.txt"),
+                os.path.join(_get_app_data_dir(), "sfacg_app_cookie.txt"),
+            ):
+                try:
+                    if os.path.exists(path):
+                        cookie = open(path, encoding="utf-8").read().strip()
+                        if cookie:
+                            break
+                except Exception:
+                    pass
+
+        config = {}
+        try:
+            cfg_path = os.path.join(_get_base_dir(), "config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+        except Exception:
+            config = {}
+
+        if not cookie:
+            cookie = str(config.get("sfacg_cookie") or "").strip()
+
+        if not cookie:
+            username = (
+                os.environ.get("NPIA_SFACG_USER")
+                or config.get("sfacg_user")
+                or ""
+            )
+            password = (
+                os.environ.get("NPIA_SFACG_PASS")
+                or config.get("sfacg_pass")
+                or ""
+            )
+            if username and password:
+                cookie = self._sfacg_login(str(username), str(password))
+                if cookie:
+                    try:
+                        os.makedirs(_get_app_data_dir(), exist_ok=True)
+                        with open(
+                            os.path.join(
+                                _get_app_data_dir(),
+                                "sfacg_app_cookie.txt",
+                            ),
+                            "w",
+                            encoding="utf-8",
+                        ) as f:
+                            f.write(cookie)
+                    except Exception:
+                        pass
+
+        if cookie:
+            names = [
+                item.split("=", 1)[0]
+                for item in self._split_cookie_header(cookie)
+            ]
+            if "session_APP" in names:
+                self.log("[SFACG] Using app API session for VIP text chapters.")
+            else:
+                self.log(
+                    "[SFACG] App cookie configured but session_APP is missing."
+                )
+            self._sfacg_app_cookie = cookie
+        return self._sfacg_app_cookie or ""
+
+    def login_sfacg_app(self, username, password):
+        """Log in through SFACG's app API and persist session_APP cookie."""
+        username = str(username or "").strip()
+        password = str(password or "")
+        if not username or not password:
+            return False
+        cookie = self._sfacg_login(username, password)
+        if not cookie:
+            return False
+        try:
+            os.makedirs(_get_app_data_dir(), exist_ok=True)
+            with open(
+                os.path.join(_get_app_data_dir(), "sfacg_app_cookie.txt"),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(cookie)
+        except Exception as e:
+            self.log(f"[SFACG] Could not save app cookie: {e}")
+        self._sfacg_app_cookie = cookie
+        self._sfacg_app_cookie_checked = True
+        return True
+
+    def save_sfacg_app_cookie(self, cookie):
+        """Persist a user-supplied SFACG app API cookie."""
+        cookie = str(cookie or "").strip()
+        names = [
+            item.split("=", 1)[0]
+            for item in self._split_cookie_header(cookie)
+        ]
+        if "session_APP" not in names:
+            self.log("[SFACG] App cookie import failed: session_APP missing.")
+            return False
+        try:
+            os.makedirs(_get_app_data_dir(), exist_ok=True)
+            with open(
+                os.path.join(_get_app_data_dir(), "sfacg_app_cookie.txt"),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(cookie)
+        except Exception as e:
+            self.log(f"[SFACG] Could not save app cookie: {e}")
+            return False
+        self._sfacg_app_cookie = cookie
+        self._sfacg_app_cookie_checked = True
+        self.log("[SFACG] App cookie imported.")
+        return True
+
+    @staticmethod
+    def _android_sdk_dir():
+        for value in (
+            os.environ.get("ANDROID_HOME"),
+            os.environ.get("ANDROID_SDK_ROOT"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk"),
+        ):
+            if value and os.path.exists(value):
+                return value
+        return ""
+
+    @classmethod
+    def _android_tool(cls, *parts):
+        sdk = cls._android_sdk_dir()
+        if not sdk:
+            return ""
+        path = os.path.join(sdk, *parts)
+        return path if os.path.exists(path) else ""
+
+    @classmethod
+    def _adb_path(cls):
+        return (
+            cls._android_tool("platform-tools", "adb.exe")
+            or shutil.which("adb")
+            or ""
+        )
+
+    @classmethod
+    def _emulator_path(cls):
+        return (
+            cls._android_tool("emulator", "emulator.exe")
+            or shutil.which("emulator")
+            or ""
+        )
+
+    def _adb(self, *args, timeout=30, text=True):
+        adb = self._adb_path()
+        if not adb:
+            raise RuntimeError("Android adb not found.")
+        return subprocess.run(
+            [adb, *args],
+            capture_output=True,
+            text=text,
+            timeout=timeout,
+            **_hidden_windows_subprocess_kwargs(),
+        )
+
+    def list_android_avds(self):
+        emulator = self._emulator_path()
+        if not emulator:
+            return []
+        try:
+            proc = subprocess.run(
+                [emulator, "-list-avds"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                **_hidden_windows_subprocess_kwargs(),
+            )
+            return [
+                line.strip()
+                for line in proc.stdout.splitlines()
+                if line.strip()
+            ]
+        except Exception:
+            return []
+
+    def open_android_emulator(self, avd_name=None):
+        """Launch an Android emulator so the user can log in to the app."""
+        emulator = self._emulator_path()
+        if not emulator:
+            self.log("[Android] emulator.exe not found in Android SDK.")
+            return False
+        avds = self.list_android_avds()
+        avd_name = avd_name or (avds[0] if avds else "")
+        if not avd_name:
+            self.log("[Android] No Android Virtual Devices found.")
+            return False
+        self.log(f"[Android] Launching emulator: {avd_name}")
+        try:
+            subprocess.Popen(
+                [emulator, "-avd", avd_name],
+                cwd=os.path.dirname(emulator),
+            )
+            return True
+        except Exception as e:
+            self.log(f"[Android] Could not launch emulator: {e}")
+            return False
+
+    def _android_wait_for_device(self, timeout=120):
+        deadline = time.time() + timeout
+        try:
+            self._adb("start-server", timeout=15)
+        except Exception:
+            pass
+        while time.time() < deadline:
+            try:
+                proc = self._adb("devices", timeout=10)
+                lines = [
+                    line.strip()
+                    for line in proc.stdout.splitlines()
+                    if line.strip().endswith("\tdevice")
+                ]
+                if lines:
+                    boot = self._adb(
+                        "shell",
+                        "getprop",
+                        "sys.boot_completed",
+                        timeout=10,
+                    )
+                    if boot.stdout.strip() == "1":
+                        return True
+            except Exception:
+                pass
+            time.sleep(2)
+        return False
+
+    def _android_sfacg_packages(self):
+        try:
+            proc = self._adb(
+                "shell",
+                "pm",
+                "list",
+                "packages",
+                timeout=20,
+            )
+        except Exception as e:
+            self.log(f"[Android] Could not list packages: {e}")
+            return []
+        packages = []
+        for line in proc.stdout.splitlines():
+            name = line.replace("package:", "").strip()
+            lower = name.lower()
+            if "sfacg" in lower or "boluobao" in lower:
+                packages.append(name)
+        return packages
+
+    def _android_exec_out(self, *args, timeout=30):
+        adb = self._adb_path()
+        if not adb:
+            raise RuntimeError("Android adb not found.")
+        proc = subprocess.run(
+            [adb, "exec-out", *args],
+            capture_output=True,
+            timeout=timeout,
+            **_hidden_windows_subprocess_kwargs(),
+        )
+        return proc.stdout if proc.returncode == 0 else b""
+
+    def _android_read_file(self, path):
+        data = self._android_exec_out("cat", path, timeout=30)
+        if data:
+            return data
+        quoted = shlex.quote(path)
+        return self._android_exec_out("su", "0", "cat", quoted, timeout=30)
+
+    @staticmethod
+    def _sfacg_cookie_from_sqlite_bytes(raw):
+        fd, temp_path = tempfile.mkstemp(prefix="sfacg_cookies_", suffix=".db")
+        os.close(fd)
+        try:
+            with open(temp_path, "wb") as f:
+                f.write(raw)
+            conn = sqlite3.connect(temp_path)
+            try:
+                rows = conn.execute(
+                    "SELECT name, value, encrypted_value FROM cookies"
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception:
+            return "", False
+        finally:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+        values = {}
+        encrypted = False
+        for name, value, encrypted_value in rows:
+            if name in (".SFCommunity", "session_APP"):
+                if value:
+                    values[name] = value
+                elif encrypted_value:
+                    encrypted = True
+        if values.get("session_APP"):
+            parts = []
+            if values.get(".SFCommunity"):
+                parts.append(f".SFCommunity={values['.SFCommunity']}")
+            parts.append(f"session_APP={values['session_APP']}")
+            return "; ".join(parts), encrypted
+        return "", encrypted
+
+    @staticmethod
+    def _sfacg_cookie_from_text(raw):
+        try:
+            text = raw.decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
+        session = re.search(
+            r"session_APP\s*[=:\"]+\s*([^;\"<>\s]+)",
+            text,
+        )
+        community = re.search(
+            r"\.SFCommunity\s*[=:\"]+\s*([^;\"<>\s]+)",
+            text,
+        )
+        if not session:
+            return ""
+        parts = []
+        if community:
+            parts.append(f".SFCommunity={community.group(1)}")
+        parts.append(f"session_APP={session.group(1)}")
+        return "; ".join(parts)
+
+    def import_sfacg_app_cookie_from_android(self):
+        """Try to extract session_APP from an emulator after app login."""
+        if not self._android_wait_for_device():
+            self.log("[Android] No booted emulator/device found.")
+            return False
+        try:
+            self._adb("root", timeout=15)
+            time.sleep(1)
+        except Exception:
+            pass
+        packages = self._android_sfacg_packages()
+        if not packages:
+            self.log(
+                "[Android] SFACG app package not found. Install/login in the "
+                "SFACG app first."
+            )
+            return False
+        encrypted_seen = False
+        for package in packages:
+            self.log(f"[Android] Checking SFACG package: {package}")
+            paths = [
+                f"/data/data/{package}/app_webview/Default/Cookies",
+                f"/data/data/{package}/app_webview/Cookies",
+                f"/data/data/{package}/app_webview/Default/Network/Cookies",
+            ]
+            try:
+                find_proc = self._adb(
+                    "shell",
+                    "find",
+                    f"/data/data/{package}",
+                    "-type",
+                    "f",
+                    timeout=30,
+                )
+                for line in find_proc.stdout.splitlines():
+                    path = line.strip()
+                    lower = path.lower()
+                    if (
+                        "cookie" in lower
+                        or "shared_prefs" in lower
+                        or lower.endswith((".db", ".xml", ".json"))
+                    ):
+                        paths.append(path)
+            except Exception:
+                pass
+            for path in dict.fromkeys(paths):
+                raw = self._android_read_file(path)
+                if not raw:
+                    continue
+                cookie, encrypted = self._sfacg_cookie_from_sqlite_bytes(raw)
+                encrypted_seen = encrypted_seen or encrypted
+                if not cookie:
+                    cookie = self._sfacg_cookie_from_text(raw)
+                if cookie and self.save_sfacg_app_cookie(cookie):
+                    self.log(f"[Android] Imported session_APP from {package}.")
+                    return True
+        if encrypted_seen:
+            self.log(
+                "[Android] Found encrypted WebView cookies, but could not "
+                "decrypt them from outside the app."
+            )
+        else:
+            self.log("[Android] session_APP was not found in app data.")
+        return False
+
+    def _sfacg_login(self, username, password):
+        nonce = self._get_sfacg_api_nonce()
+        if not nonce:
+            return ""
+        headers = self._sfacg_headers(nonce, method="POST")
+        payload = json.dumps({
+            "password": password,
+            "shuMeiId": "",
+            "username": username,
+        })
+        try:
+            import requests
+
+            session = requests.Session()
+            response = session.post(
+                "https://api.sfacg.com/sessions",
+                data=payload,
+                headers=headers,
+                timeout=30,
+            )
+            data = response.json()
+            if data.get("status", {}).get("httpCode") == 200:
+                cookies = requests.utils.dict_from_cookiejar(session.cookies)
+                sfcommunity = cookies.get(".SFCommunity")
+                session_app = cookies.get("session_APP")
+                if sfcommunity and session_app:
+                    self.log("[SFACG] App API login succeeded.")
+                    return (
+                        f".SFCommunity={sfcommunity}; "
+                        f"session_APP={session_app}"
+                    )
+            msg = data.get("status", {}).get("msg") or response.reason
+            self.log(f"[SFACG] App API login failed: {msg}")
+        except Exception as e:
+            self.log(f"[SFACG] App API login failed: {e}")
+        return ""
 
     @staticmethod
     def _get_user_data_dir():
@@ -850,7 +1568,12 @@ class ExternalScraper:
         ):
             return
         # Show bridge messages, fetch retries, init info, and actual errors
-        if "[ND-Bridge]" in text or "[ND-Fetch]" in text or "[Init]" in text:
+        if (
+            "[ND-Bridge]" in text
+            or "[ND-Fetch]" in text
+            or "[Init]" in text
+            or "[sfacg]" in text
+        ):
             self.log(f"[JS] {text}")
         elif msg.type == "error" and "Failed to load resource" not in text:
             self.log(f"[JS] {text}")
@@ -1172,6 +1895,7 @@ class ExternalScraper:
                 page.on("console", self._on_console)
                 page.goto(self._book_url, wait_until="domcontentloaded",
                           timeout=30000)
+                self._install_bridge_bindings(page)
                 page.evaluate(self._gm_stubs_js)
                 page.evaluate(self._rules_js)
                 page.evaluate(self._bridge_js)
@@ -1231,6 +1955,7 @@ class ExternalScraper:
                 if self._book_data and self._book_data.get('_ntk_novel'):
                     self.log("Page recovered for NewToki scraper.")
                     return True
+                self._install_bridge_bindings(self._page)
                 self._page.evaluate(self._gm_stubs_js)
                 self._page.evaluate(self._rules_js)
                 self._page.evaluate(self._bridge_js)
@@ -4103,6 +4828,7 @@ class ExternalScraper:
 
         # Inject GM API stubs first (required by the rules bundle)
         try:
+            self._install_bridge_bindings(self._page)
             self._page.evaluate(self._gm_stubs_js)
         except Exception as e:
             self.log(f"ERROR: GM stubs injection failed: {e}")
