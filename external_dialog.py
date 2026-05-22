@@ -1723,7 +1723,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     epub, compress_images, jpeg_quality, image_format
                 )
 
-            epub.generate(logger=self._log)
+            epub.generate()
             self._log(f"✅ Saved: {filepath}")
 
         except Exception as e:

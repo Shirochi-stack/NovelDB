@@ -3145,7 +3145,7 @@ table, th, td {
                     for name, data in imgs:
                         epub.add_image(name, data)
                     epub.add_chapter(t, h, is_notice=notice)
-            epub.generate(logger=self.log_message)
+            epub.generate()
         elif self._output_format == 'pdf':
             chapters_for_pdf = []
             image_map = {}
