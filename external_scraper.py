@@ -613,12 +613,100 @@ class ExternalScraper:
             or ""
         )
 
-    def _adb(self, *args, timeout=30, text=True):
+    def _android_devices(self):
+        adb = self._adb_path()
+        if not adb:
+            return []
+        try:
+            proc = subprocess.run(
+                [adb, "devices"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                **_hidden_windows_subprocess_kwargs(),
+            )
+        except Exception:
+            return []
+        serials = []
+        for line in proc.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == "device":
+                serials.append(parts[0])
+        if not serials:
+            return []
+        named = []
+        for serial in serials:
+            name = ""
+            try:
+                p = subprocess.run(
+                    [adb, "-s", serial, "emu", "avd", "name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    **_hidden_windows_subprocess_kwargs(),
+                )
+                name = (p.stdout or "").splitlines()[0].strip()
+            except Exception:
+                try:
+                    p = subprocess.run(
+                        [
+                            adb,
+                            "-s",
+                            serial,
+                            "shell",
+                            "getprop",
+                            "ro.boot.qemu.avd_name",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        **_hidden_windows_subprocess_kwargs(),
+                    )
+                    name = (p.stdout or "").strip()
+                except Exception:
+                    name = ""
+            named.append((serial, name))
+        return named
+
+    def _android_serial(self, prefer_play=False, require_match=False):
+        named = self._android_devices()
+        if not named:
+            return ""
+        if prefer_play:
+            for serial, name in named:
+                if name and "play" in name.lower():
+                    return serial
+            if require_match:
+                return ""
+        for serial, name in named:
+            if name and "play" not in name.lower():
+                return serial
+        return named[0][0]
+
+    def _adb(
+        self,
+        *args,
+        timeout=30,
+        text=True,
+        prefer_play=False,
+        require_preferred=False,
+    ):
         adb = self._adb_path()
         if not adb:
             raise RuntimeError("Android adb not found.")
+        cmd = [adb]
+        if args and args[0] not in ("devices", "start-server", "kill-server"):
+            serial = self._android_serial(
+                prefer_play=prefer_play,
+                require_match=require_preferred,
+            )
+            if require_preferred and not serial:
+                raise RuntimeError("Preferred Android emulator not connected.")
+            if serial:
+                cmd.extend(["-s", serial])
+        cmd.extend(args)
         return subprocess.run(
-            [adb, *args],
+            cmd,
             capture_output=True,
             text=text,
             timeout=timeout,
@@ -652,7 +740,14 @@ class ExternalScraper:
             self.log("[Android] emulator.exe not found in Android SDK.")
             return False
         avds = self.list_android_avds()
-        avd_name = avd_name or (avds[0] if avds else "")
+        avd_name = avd_name or next(
+            (
+                name
+                for name in avds
+                if "play" not in name.lower()
+            ),
+            avds[0] if avds else "",
+        )
         if not avd_name:
             self.log("[Android] No Android Virtual Devices found.")
             return False
@@ -666,6 +761,192 @@ class ExternalScraper:
         except Exception as e:
             self.log(f"[Android] Could not launch emulator: {e}")
             return False
+
+    def open_play_android_emulator(self):
+        avds = self.list_android_avds()
+        avd_name = next(
+            (name for name in avds if "play" in name.lower()),
+            "",
+        )
+        if not avd_name:
+            self.log("[Android] No Play Store AVD found.")
+            return False
+        return self.open_android_emulator(avd_name=avd_name)
+
+    @staticmethod
+    def _sfacg_apk_candidates():
+        paths = []
+        tmp_dir = os.path.join(_get_base_dir(), "tmp_sfacg_apk")
+        if os.path.isdir(tmp_dir):
+            for name in sorted(os.listdir(tmp_dir)):
+                if name.lower().endswith(".apk"):
+                    paths.append(os.path.join(tmp_dir, name))
+        for name in ("sfacg.apk", "com.sfacg.apk"):
+            path = os.path.join(_get_base_dir(), name)
+            if os.path.exists(path):
+                paths.append(path)
+        return paths
+
+    @staticmethod
+    def _facebook_apk_candidates():
+        tmp_dir = os.path.join(_get_base_dir(), "tmp_facebook_apk")
+        paths = []
+        if os.path.isdir(tmp_dir):
+            for name in sorted(os.listdir(tmp_dir)):
+                if name.lower().endswith(".apk"):
+                    paths.append(os.path.join(tmp_dir, name))
+        return paths
+
+    def _install_apks_on_android(self, apks, label):
+        apks = [path for path in apks if os.path.exists(path)]
+        if not apks:
+            return False
+        try:
+            if len(apks) == 1:
+                proc = self._adb("install", "-r", apks[0], timeout=240)
+            else:
+                proc = self._adb(
+                    "install-multiple",
+                    "-r",
+                    *apks,
+                    timeout=300,
+                )
+            if proc.returncode == 0 or "Success" in (proc.stdout or ""):
+                self.log(f"[Android] {label} installed.")
+                return True
+            msg = (proc.stderr or proc.stdout or "").strip()
+            self.log(f"[Android] {label} install failed: {msg}")
+        except Exception as e:
+            self.log(f"[Android] {label} install failed: {e}")
+        return False
+
+    def install_sfacg_apk_on_android(self):
+        """Install a locally available SFACG APK on the active emulator."""
+        if not self._android_wait_for_device():
+            self.log("[Android] No booted emulator/device found.")
+            return False
+        if self._android_sfacg_packages():
+            self.log("[Android] SFACG app is already installed.")
+            return True
+        candidates = self._sfacg_apk_candidates()
+        if not candidates:
+            self.log(
+                "[Android] No local SFACG APK found. Install SFACG in the "
+                "emulator manually, or place sfacg.apk next to Npia."
+            )
+            return False
+        apk = candidates[0]
+        self.log(f"[Android] Installing SFACG APK: {os.path.basename(apk)}")
+        return self._install_apks_on_android([apk], "SFACG APK")
+
+    def _android_facebook_packages(self):
+        try:
+            proc = self._adb(
+                "shell",
+                "pm",
+                "list",
+                "packages",
+                timeout=20,
+            )
+        except Exception as e:
+            self.log(f"[Android] Could not list packages: {e}")
+            return []
+        packages = []
+        for line in proc.stdout.splitlines():
+            name = line.replace("package:", "").strip()
+            if name in (
+                "com.facebook.katana",
+                "com.facebook.lite",
+                "com.facebook.orca",
+            ):
+                packages.append(name)
+        return packages
+
+    def install_facebook_apk_on_android(self):
+        """Install locally pulled Facebook APK/splits on rootable emulator."""
+        if not self._android_wait_for_device():
+            self.log("[Android] No booted emulator/device found.")
+            return False
+        if self._android_facebook_packages():
+            self.log("[Android] Facebook app is already installed.")
+            return True
+        apks = self._facebook_apk_candidates()
+        if not apks:
+            self.log(
+                "[Android] No local Facebook APK found. Use Open Play, "
+                "install Facebook, then Pull Facebook."
+            )
+            return False
+        self.log(f"[Android] Installing Facebook ({len(apks)} APK file(s)).")
+        return self._install_apks_on_android(apks, "Facebook")
+
+    def pull_facebook_apk_from_play_android(self):
+        """Pull Facebook APK/splits from the Play Store emulator."""
+        if not self._android_serial(prefer_play=True, require_match=True):
+            self.log(
+                "[Android] Play Store emulator is not connected. Use Open "
+                "Play, install Facebook there, and keep it open while "
+                "running Pull Facebook."
+            )
+            return False
+        if not self._android_wait_for_device():
+            self.log("[Android] No booted emulator/device found.")
+            return False
+        packages = (
+            "com.facebook.katana",
+            "com.facebook.lite",
+            "com.facebook.orca",
+        )
+        target_dir = os.path.join(_get_base_dir(), "tmp_facebook_apk")
+        os.makedirs(target_dir, exist_ok=True)
+        pulled = 0
+        for package in packages:
+            try:
+                proc = self._adb(
+                    "shell",
+                    "pm",
+                    "path",
+                    package,
+                    timeout=20,
+                    prefer_play=True,
+                    require_preferred=True,
+                )
+            except Exception:
+                continue
+            paths = []
+            for line in proc.stdout.splitlines():
+                if line.startswith("package:"):
+                    paths.append(line.replace("package:", "").strip())
+            if not paths:
+                continue
+            self.log(f"[Android] Pulling {package} APK/splits...")
+            for index, remote in enumerate(paths, 1):
+                out = os.path.join(
+                    target_dir,
+                    f"{package}_{index:02d}.apk",
+                )
+                try:
+                    pull = self._adb(
+                        "pull",
+                        remote,
+                        out,
+                        timeout=120,
+                        prefer_play=True,
+                        require_preferred=True,
+                    )
+                    if pull.returncode == 0 and os.path.exists(out):
+                        pulled += 1
+                except Exception as e:
+                    self.log(f"[Android] Pull failed for {remote}: {e}")
+            break
+        if pulled:
+            self.log(f"[Android] Pulled {pulled} Facebook APK file(s).")
+            return True
+        self.log(
+            "[Android] Facebook package not found on Play emulator. "
+            "Install it from Play Store first."
+        )
+        return False
 
     def _android_wait_for_device(self, timeout=120):
         deadline = time.time() + timeout
@@ -719,8 +1000,13 @@ class ExternalScraper:
         adb = self._adb_path()
         if not adb:
             raise RuntimeError("Android adb not found.")
+        cmd = [adb]
+        serial = self._android_serial()
+        if serial:
+            cmd.extend(["-s", serial])
+        cmd.extend(["exec-out", *args])
         proc = subprocess.run(
-            [adb, "exec-out", *args],
+            cmd,
             capture_output=True,
             timeout=timeout,
             **_hidden_windows_subprocess_kwargs(),
@@ -800,10 +1086,31 @@ class ExternalScraper:
             self.log("[Android] No booted emulator/device found.")
             return False
         try:
-            self._adb("root", timeout=15)
+            root_proc = self._adb("root", timeout=15)
             time.sleep(1)
         except Exception:
+            root_proc = None
+        try:
+            id_proc = self._adb("shell", "id", timeout=10)
+            if "uid=0(root)" not in (id_proc.stdout or ""):
+                msg = (
+                    (root_proc.stdout if root_proc else "")
+                    + (root_proc.stderr if root_proc else "")
+                ).strip()
+                self.log(
+                    "[Android] Active emulator is not rootable, so app "
+                    "private data cannot be read."
+                )
+                if msg:
+                    self.log(f"[Android] adb root response: {msg}")
+                self.log(
+                    "[Android] Use the rootable AVD (syfe_poc_api35) for "
+                    "SFACG login/import."
+                )
+                return False
+        except Exception:
             pass
+        self.install_sfacg_apk_on_android()
         packages = self._android_sfacg_packages()
         if not packages:
             self.log(

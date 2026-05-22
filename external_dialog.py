@@ -401,6 +401,10 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._do_sfacg_app_login(payload)
             elif kind == "sfacg_android_open":
                 self._do_sfacg_android_open()
+            elif kind == "sfacg_android_open_play":
+                self._do_sfacg_android_open_play()
+            elif kind == "sfacg_android_pull_facebook":
+                self._do_sfacg_android_pull_facebook()
             elif kind == "sfacg_android_import":
                 self._do_sfacg_android_import()
 
@@ -627,9 +631,34 @@ class ExternalNovelDialog(tk.Toplevel):
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
             ok = self._scraper.open_android_emulator()
+            if ok:
+                self._scraper.install_sfacg_apk_on_android()
+                self._scraper.install_facebook_apk_on_android()
             self._msg_queue.put(("sfacg_android_done", ok))
         except Exception as e:
             self._msg_queue.put(("error", f"Android emulator error: {e}"))
+            self._msg_queue.put(("sfacg_android_done", False))
+
+    def _do_sfacg_android_open_play(self):
+        """Open the Play Store emulator for installing Facebook."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+            ok = self._scraper.open_play_android_emulator()
+            self._msg_queue.put(("sfacg_android_done", ok))
+        except Exception as e:
+            self._msg_queue.put(("error", f"Android Play error: {e}"))
+            self._msg_queue.put(("sfacg_android_done", False))
+
+    def _do_sfacg_android_pull_facebook(self):
+        """Pull Facebook APK/splits from Play Store emulator."""
+        try:
+            if self._scraper is None:
+                self._scraper = ExternalScraper(logger=self._log)
+            ok = self._scraper.pull_facebook_apk_from_play_android()
+            self._msg_queue.put(("sfacg_android_done", ok))
+        except Exception as e:
+            self._msg_queue.put(("error", f"Facebook pull error: {e}"))
             self._msg_queue.put(("sfacg_android_done", False))
 
     def _do_sfacg_android_import(self):
@@ -766,6 +795,16 @@ class ExternalNovelDialog(tk.Toplevel):
             text="Open Android",
             command=lambda: self._on_sfacg_android_open(),
         ).pack(side="left", padx=(0, 5))
+        ttk.Button(
+            btns,
+            text="Pull Facebook",
+            command=lambda: self._on_sfacg_android_pull_facebook(),
+        ).pack(side="left", padx=(0, 5))
+        ttk.Button(
+            btns,
+            text="Open Play",
+            command=lambda: self._on_sfacg_android_open_play(),
+        ).pack(side="left", padx=(0, 5))
 
         ent_user.focus_set()
         dlg.bind("<Return>", lambda _e: submit())
@@ -783,6 +822,16 @@ class ExternalNovelDialog(tk.Toplevel):
         self._append_log("Opening Android emulator...")
         self._set_app_buttons_enabled(False)
         self._work_queue.put(("sfacg_android_open", None))
+
+    def _on_sfacg_android_open_play(self):
+        self._append_log("Opening Play Store emulator...")
+        self._set_app_buttons_enabled(False)
+        self._work_queue.put(("sfacg_android_open_play", None))
+
+    def _on_sfacg_android_pull_facebook(self):
+        self._append_log("Pulling Facebook APK from Play emulator...")
+        self._set_app_buttons_enabled(False)
+        self._work_queue.put(("sfacg_android_pull_facebook", None))
 
     def _on_sfacg_android_import(self):
         self._append_log("Trying to import SFACG app session from Android...")

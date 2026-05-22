@@ -20,5 +20,7 @@ docs/data/sfacg_descriptions.txt
 # External novel browser session data (cookies, localStorage)
 browser_data/
 novel-downloader/ 
+tmp_facebook_apk/
+tmp_sfacg_apk/
 
 *.epub

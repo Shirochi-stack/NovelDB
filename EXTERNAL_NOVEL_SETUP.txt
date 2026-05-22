@@ -97,6 +97,9 @@ session_APP cookie. Direct SFACG username/password login can fetch this
 automatically; Facebook/third-party linked accounts must paste an app cookie.
 On systems with Android SDK/adb, Enter App can also open an Android emulator
 and try importing session_APP after you log into the SFACG app there.
+For Facebook login, use Enter App > Open Play to install Facebook from Play
+Store, Pull Facebook to copy its APK/splits locally, then Open Android to
+install SFACG and Facebook on the rootable emulator before logging in.
 
 You can also provide one of:
 
