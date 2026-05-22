@@ -97,9 +97,21 @@ session_APP cookie. Direct SFACG username/password login can fetch this
 automatically; Facebook/third-party linked accounts must paste an app cookie.
 On systems with Android SDK/adb, Enter App can also open an Android emulator
 and try importing session_APP after you log into the SFACG app there.
-For Facebook login, use Enter App > Open Play to install Facebook from Play
-Store, Pull Facebook to copy its APK/splits locally, then Open Android to
-install SFACG and Facebook on the rootable emulator before logging in.
+For Facebook login, the simplest reliable emulator flow is a Play Store AVD
+for logging in, plus a separate root-capable AVD or manual cookie export if
+private app data must be read:
+
+  1. Click Enter App > Open Android. The app prefers a Play Store AVD when
+     one exists.
+  2. Install/open SFACG and Facebook from Play Store inside that emulator.
+  3. Log into SFACG with Facebook.
+  4. Click Enter App > Import Android if the AVD has su/root available.
+
+If a Play Store AVD was patched with rootAVD and stops booting, click
+Enter App > Restore Android to copy ramdisk.img.backup back over ramdisk.img.
+
+Import Android supports both adb-root emulators and rooted Play Store AVDs
+where private app data is readable through su/Magisk.
 
 You can also provide one of:
 

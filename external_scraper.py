@@ -34,6 +34,7 @@ import unicodedata
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 if sys.platform == "win32":
     import ctypes
@@ -591,14 +592,68 @@ class ExternalScraper:
         return matches[-1] if matches else ""
 
     @staticmethod
-    def _sfacg_text_to_html(text):
-        root = html.escape(str(text or "")).splitlines()
-        lines = root if root else [""]
-        body = "".join(
-            f"<p>{line}</p>" if line.strip() else "<p><br/></p>"
-            for line in lines
+    def _sfacg_image_name(url, index):
+        path = urllib.parse.urlparse(url).path
+        name = os.path.basename(path) or f"sfacg_image_{index}.jpg"
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+        if not name:
+            name = f"sfacg_image_{index}.jpg"
+        if "." not in name:
+            name += ".jpg"
+        return name
+
+    @classmethod
+    def _sfacg_content_to_outputs(cls, text):
+        raw_text = str(text or "")
+        image_pattern = re.compile(
+            r"\[img(?:=[^\]]*)?\](https?://.*?)\[/img\]",
+            re.IGNORECASE | re.DOTALL,
         )
-        return f"<div>{body}</div>"
+        images = []
+        seen_urls = set()
+
+        def image_html(url):
+            url = html.unescape(url.strip())
+            if url not in seen_urls:
+                seen_urls.add(url)
+                images.append({
+                    "name": cls._sfacg_image_name(url, len(images) + 1),
+                    "url": url,
+                    "data": None,
+                })
+            safe_url = html.escape(url, quote=True)
+            return f'<img src="{safe_url}" alt="" />'
+
+        html_parts = []
+        text_parts = []
+        for line in raw_text.splitlines() or [""]:
+            cursor = 0
+            line_parts = []
+            text_line = ""
+            for match in image_pattern.finditer(line):
+                before = line[cursor:match.start()]
+                if before:
+                    line_parts.append(html.escape(before))
+                    text_line += before
+                url = html.unescape(match.group(1).strip())
+                line_parts.append(image_html(url))
+                text_line += f"![image]({url})"
+                cursor = match.end()
+            tail = line[cursor:]
+            if tail:
+                line_parts.append(html.escape(tail))
+                text_line += tail
+            if line_parts:
+                html_parts.append(f"<p>{''.join(line_parts)}</p>")
+            else:
+                html_parts.append("<p><br/></p>")
+            text_parts.append(text_line)
+
+        return {
+            "contentHtml": f"<div>{''.join(html_parts)}</div>",
+            "contentText": "\n".join(text_parts).strip(),
+            "images": images,
+        }
 
     def _sfacg_app_cookie_header(self):
         cookie = self._get_sfacg_app_cookie()
@@ -660,12 +715,13 @@ class ExternalScraper:
         if not content:
             return None
         title = data.get("title") or chapter_name
+        outputs = self._sfacg_content_to_outputs(content)
         return {
             "chapterName": title,
-            "contentHtml": self._sfacg_text_to_html(content),
-            "contentText": content,
-            "imageCount": 0,
-            "images": [],
+            "contentHtml": outputs["contentHtml"],
+            "contentText": outputs["contentText"],
+            "imageCount": len(outputs["images"]),
+            "images": outputs["images"],
         }
 
     def login_sfacg_app(self, username, password):
@@ -752,6 +808,214 @@ class ExternalScraper:
             or ""
         )
 
+    @classmethod
+    def _rootavd_dir(cls):
+        return os.path.join(
+            _get_app_data_dir(), "android_tools", "rootAVD"
+        )
+
+    @classmethod
+    def _ensure_rootavd(cls):
+        root_dir = cls._rootavd_dir()
+        script = os.path.join(root_dir, "rootAVD.bat")
+        if os.path.exists(script):
+            return root_dir
+        os.makedirs(os.path.dirname(root_dir), exist_ok=True)
+        tmp_zip = os.path.join(tempfile.gettempdir(), "npia_rootavd.zip")
+        tmp_extract = os.path.join(tempfile.gettempdir(), "npia_rootavd")
+        shutil.rmtree(tmp_extract, ignore_errors=True)
+        url = "https://github.com/newbit1/rootAVD/archive/refs/heads/master.zip"
+        urllib.request.urlretrieve(url, tmp_zip)
+        with zipfile.ZipFile(tmp_zip, "r") as zf:
+            zf.extractall(tmp_extract)
+        extracted = next(
+            (
+                os.path.join(tmp_extract, name)
+                for name in os.listdir(tmp_extract)
+                if os.path.isdir(os.path.join(tmp_extract, name))
+            ),
+            "",
+        )
+        if not extracted:
+            raise RuntimeError("rootAVD download did not contain a folder.")
+        shutil.rmtree(root_dir, ignore_errors=True)
+        shutil.move(extracted, root_dir)
+        if not os.path.exists(script):
+            raise RuntimeError("rootAVD.bat was not found after download.")
+        return root_dir
+
+    @classmethod
+    def _android_avd_dir(cls, avd_name):
+        path = os.path.join(
+            os.path.expanduser("~"), ".android", "avd", f"{avd_name}.avd"
+        )
+        return path if os.path.isdir(path) else ""
+
+    @classmethod
+    def _android_avd_ramdisk_arg(cls, avd_name):
+        avd_dir = cls._android_avd_dir(avd_name)
+        if not avd_dir:
+            return ""
+        config_path = os.path.join(avd_dir, "config.ini")
+        image_sysdir = ""
+        try:
+            with open(config_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith("image.sysdir.1="):
+                        image_sysdir = line.split("=", 1)[1].strip()
+                        break
+        except Exception:
+            image_sysdir = ""
+        if not image_sysdir:
+            return ""
+        ramdisk = os.path.join(image_sysdir, "ramdisk.img")
+        sdk = cls._android_sdk_dir()
+        if not sdk:
+            return ""
+        full = ramdisk
+        if not os.path.isabs(full):
+            full = os.path.join(sdk, full)
+        if not os.path.exists(full):
+            return ""
+        return os.path.relpath(full, sdk)
+
+    @staticmethod
+    def _android_emulator_window_rect():
+        if sys.platform != "win32":
+            return None
+        try:
+            user32 = ctypes.windll.user32
+            screen_w = int(user32.GetSystemMetrics(0))
+            screen_h = int(user32.GetSystemMetrics(1))
+            # Approximate the default phone emulator window size. The
+            # emulator may apply its own DPI scaling, but this keeps the
+            # Qt window near the center instead of spawning on an edge.
+            window_w = min(700, max(520, screen_w // 3))
+            window_h = min(1100, max(820, int(screen_h * 0.82)))
+            x = max(0, (screen_w - window_w) // 2)
+            y = max(0, (screen_h - window_h) // 2)
+            return x, y, window_w, window_h
+        except Exception:
+            return None
+
+    def _center_android_emulator_window(self, avd_name, pid=None, timeout=45):
+        if sys.platform != "win32":
+            return False
+        rect = self._android_emulator_window_rect()
+        if not rect:
+            return False
+        x, y, width, height = rect
+        needle = (avd_name or "").lower()
+        deadline = time.time() + timeout
+        try:
+            user32 = ctypes.windll.user32
+            EnumWindowsProc = ctypes.WINFUNCTYPE(
+                ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+            )
+
+            def _title(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length <= 0:
+                    return ""
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                return buf.value
+
+            while time.time() < deadline:
+                found = []
+
+                def callback(hwnd, _):
+                    if not user32.IsWindowVisible(hwnd):
+                        return True
+                    title = _title(hwnd)
+                    title_l = title.lower()
+                    if "android emulator" not in title_l:
+                        return True
+                    if needle and needle not in title_l:
+                        return True
+                    found.append(hwnd)
+                    return False
+
+                user32.EnumWindows(EnumWindowsProc(callback), 0)
+                if found:
+                    hwnd = found[0]
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    user32.MoveWindow(hwnd, x, y, width, height, True)
+                    return True
+                time.sleep(0.5)
+        except Exception:
+            return False
+        return False
+
+    def _center_android_emulator_window_async(self, avd_name, pid=None):
+        try:
+            thread = threading.Thread(
+                target=self._center_android_emulator_window,
+                args=(avd_name, pid),
+                daemon=True,
+            )
+            thread.start()
+        except Exception:
+            pass
+
+    def _launch_android_package(self, package, label=None, serial=None):
+        label = label or package
+        try:
+            packages = self._adb(
+                "shell",
+                "pm",
+                "list",
+                "packages",
+                package,
+                timeout=20,
+                serial=serial,
+            )
+            if package not in (packages.stdout or ""):
+                self.log(f"[Android] {label} is not installed.")
+                return False
+            proc = self._adb(
+                "shell",
+                "monkey",
+                "-p",
+                package,
+                "-c",
+                "android.intent.category.LAUNCHER",
+                "1",
+                timeout=20,
+                serial=serial,
+            )
+            if proc.returncode != 0:
+                msg = ((proc.stdout or "") + (proc.stderr or "")).strip()
+                if msg:
+                    self.log(f"[Android] Could not open {label}: {msg}")
+                return False
+            self.log(f"[Android] Opened {label}.")
+            return True
+        except Exception as e:
+            self.log(f"[Android] Could not open {label}: {e}")
+            return False
+
+    def _launch_sfacg_after_android_boot_async(self, avd_name=None):
+        def run():
+            if self._android_wait_for_device(timeout=240):
+                serial = ""
+                if avd_name:
+                    for item_serial, item_name in self._android_devices():
+                        if item_name == avd_name:
+                            serial = item_serial
+                            break
+                self._launch_android_package(
+                    "com.sfacg",
+                    "SFACG",
+                    serial=serial or None,
+                )
+
+        try:
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+        except Exception:
+            pass
+
     def _android_devices(self):
         adb = self._adb_path()
         if not adb:
@@ -822,6 +1086,39 @@ class ExternalScraper:
                 return serial
         return named[0][0]
 
+    def _android_root_serial(self):
+        """Return a connected emulator serial with adb-root or su access."""
+        named = self._android_devices()
+        if not named:
+            return ""
+        # Prefer a rooted Play Store AVD, then any other rooted emulator.
+        ordered = sorted(
+            named,
+            key=lambda item: 0 if "play" in (item[1] or "").lower() else 1,
+        )
+        adb = self._adb_path()
+        for serial, _name in ordered:
+            if not adb:
+                continue
+            for args in (
+                ["shell", "id"],
+                ["exec-out", "su", "0", "id"],
+                ["exec-out", "su", "-c", "id"],
+            ):
+                try:
+                    proc = subprocess.run(
+                        [adb, "-s", serial, *args],
+                        capture_output=True,
+                        timeout=10,
+                        **_hidden_windows_subprocess_kwargs(),
+                    )
+                    output = (proc.stdout or b"") + (proc.stderr or b"")
+                    if b"uid=0(root)" in output:
+                        return serial
+                except Exception:
+                    pass
+        return ""
+
     def _adb(
         self,
         *args,
@@ -829,13 +1126,14 @@ class ExternalScraper:
         text=True,
         prefer_play=False,
         require_preferred=False,
+        serial=None,
     ):
         adb = self._adb_path()
         if not adb:
             raise RuntimeError("Android adb not found.")
         cmd = [adb]
         if args and args[0] not in ("devices", "start-server", "kill-server"):
-            serial = self._android_serial(
+            serial = serial or self._android_serial(
                 prefer_play=prefer_play,
                 require_match=require_preferred,
             )
@@ -885,207 +1183,83 @@ class ExternalScraper:
                 for name in avds
                 if "play" not in name.lower()
             ),
-            avds[0] if avds else "",
+            next(
+                (
+                    name
+                    for name in avds
+                    if "play" in name.lower()
+                ),
+                "",
+            ),
         )
+        avd_name = avd_name or (avds[0] if avds else "")
         if not avd_name:
             self.log("[Android] No Android Virtual Devices found.")
             return False
+        if "play" not in avd_name.lower():
+            self.log(
+                "[Android] Using rootable AVD for SFACG import. "
+                "Facebook/SFACG must be installed there."
+            )
         self.log(f"[Android] Launching emulator: {avd_name}")
+        args = [
+            emulator,
+            "-avd",
+            avd_name,
+            "-no-snapshot-load",
+            "-no-metrics",
+            "-memory",
+            "4096",
+        ]
+        if "play" in avd_name.lower():
+            args.extend(["-gpu", "swiftshader_indirect"])
         try:
-            subprocess.Popen(
-                [emulator, "-avd", avd_name],
+            proc = subprocess.Popen(
+                args,
                 cwd=os.path.dirname(emulator),
             )
+            self._center_android_emulator_window_async(avd_name, proc.pid)
+            self._launch_sfacg_after_android_boot_async(avd_name)
             return True
         except Exception as e:
             self.log(f"[Android] Could not launch emulator: {e}")
             return False
 
-    def open_play_android_emulator(self):
+    def restore_android_play_avd(self):
+        """Restore a Play Store AVD ramdisk if rootAVD made it unbootable."""
+        if sys.platform != "win32":
+            self.log("[Android] Play Store AVD restore is Windows-only here.")
+            return False
         avds = self.list_android_avds()
         avd_name = next(
             (name for name in avds if "play" in name.lower()),
             "",
         )
         if not avd_name:
-            self.log("[Android] No Play Store AVD found.")
+            self.log("[Android] No Play Store AVD found to restore.")
             return False
-        return self.open_android_emulator(avd_name=avd_name)
-
-    @staticmethod
-    def _sfacg_apk_candidates():
-        paths = []
-        tmp_dir = os.path.join(_get_base_dir(), "tmp_sfacg_apk")
-        if os.path.isdir(tmp_dir):
-            for name in sorted(os.listdir(tmp_dir)):
-                if name.lower().endswith(".apk"):
-                    paths.append(os.path.join(tmp_dir, name))
-        for name in ("sfacg.apk", "com.sfacg.apk"):
-            path = os.path.join(_get_base_dir(), name)
-            if os.path.exists(path):
-                paths.append(path)
-        return paths
-
-    @staticmethod
-    def _facebook_apk_candidates():
-        tmp_dir = os.path.join(_get_base_dir(), "tmp_facebook_apk")
-        paths = []
-        if os.path.isdir(tmp_dir):
-            for name in sorted(os.listdir(tmp_dir)):
-                if name.lower().endswith(".apk"):
-                    paths.append(os.path.join(tmp_dir, name))
-        return paths
-
-    def _install_apks_on_android(self, apks, label):
-        apks = [path for path in apks if os.path.exists(path)]
-        if not apks:
+        ramdisk_arg = self._android_avd_ramdisk_arg(avd_name)
+        if not ramdisk_arg:
+            self.log(
+                "[Android] Could not find this AVD's Play Store ramdisk.img."
+            )
+            return False
+        sdk = self._android_sdk_dir()
+        ramdisk = os.path.join(sdk, ramdisk_arg)
+        backup = ramdisk + ".backup"
+        if not os.path.exists(backup):
+            self.log("[Android] No rootAVD ramdisk backup was found.")
             return False
         try:
-            if len(apks) == 1:
-                proc = self._adb("install", "-r", apks[0], timeout=240)
-            else:
-                proc = self._adb(
-                    "install-multiple",
-                    "-r",
-                    *apks,
-                    timeout=300,
-                )
-            if proc.returncode == 0 or "Success" in (proc.stdout or ""):
-                self.log(f"[Android] {label} installed.")
-                return True
-            msg = (proc.stderr or proc.stdout or "").strip()
-            self.log(f"[Android] {label} install failed: {msg}")
+            shutil.copy2(backup, ramdisk)
         except Exception as e:
-            self.log(f"[Android] {label} install failed: {e}")
-        return False
-
-    def install_sfacg_apk_on_android(self):
-        """Install a locally available SFACG APK on the active emulator."""
-        if not self._android_wait_for_device():
-            self.log("[Android] No booted emulator/device found.")
+            self.log(f"[Android] Could not restore Play Store AVD: {e}")
             return False
-        if self._android_sfacg_packages():
-            self.log("[Android] SFACG app is already installed.")
-            return True
-        candidates = self._sfacg_apk_candidates()
-        if not candidates:
-            self.log(
-                "[Android] No local SFACG APK found. Install SFACG in the "
-                "emulator manually, or place sfacg.apk next to Npia."
-            )
-            return False
-        apk = candidates[0]
-        self.log(f"[Android] Installing SFACG APK: {os.path.basename(apk)}")
-        return self._install_apks_on_android([apk], "SFACG APK")
-
-    def _android_facebook_packages(self):
-        try:
-            proc = self._adb(
-                "shell",
-                "pm",
-                "list",
-                "packages",
-                timeout=20,
-            )
-        except Exception as e:
-            self.log(f"[Android] Could not list packages: {e}")
-            return []
-        packages = []
-        for line in proc.stdout.splitlines():
-            name = line.replace("package:", "").strip()
-            if name in (
-                "com.facebook.katana",
-                "com.facebook.lite",
-                "com.facebook.orca",
-            ):
-                packages.append(name)
-        return packages
-
-    def install_facebook_apk_on_android(self):
-        """Install locally pulled Facebook APK/splits on rootable emulator."""
-        if not self._android_wait_for_device():
-            self.log("[Android] No booted emulator/device found.")
-            return False
-        if self._android_facebook_packages():
-            self.log("[Android] Facebook app is already installed.")
-            return True
-        apks = self._facebook_apk_candidates()
-        if not apks:
-            self.log(
-                "[Android] No local Facebook APK found. Use Open Play, "
-                "install Facebook, then Pull Facebook."
-            )
-            return False
-        self.log(f"[Android] Installing Facebook ({len(apks)} APK file(s)).")
-        return self._install_apks_on_android(apks, "Facebook")
-
-    def pull_facebook_apk_from_play_android(self):
-        """Pull Facebook APK/splits from the Play Store emulator."""
-        if not self._android_serial(prefer_play=True, require_match=True):
-            self.log(
-                "[Android] Play Store emulator is not connected. Use Open "
-                "Play, install Facebook there, and keep it open while "
-                "running Pull Facebook."
-            )
-            return False
-        if not self._android_wait_for_device():
-            self.log("[Android] No booted emulator/device found.")
-            return False
-        packages = (
-            "com.facebook.katana",
-            "com.facebook.lite",
-            "com.facebook.orca",
-        )
-        target_dir = os.path.join(_get_base_dir(), "tmp_facebook_apk")
-        os.makedirs(target_dir, exist_ok=True)
-        pulled = 0
-        for package in packages:
-            try:
-                proc = self._adb(
-                    "shell",
-                    "pm",
-                    "path",
-                    package,
-                    timeout=20,
-                    prefer_play=True,
-                    require_preferred=True,
-                )
-            except Exception:
-                continue
-            paths = []
-            for line in proc.stdout.splitlines():
-                if line.startswith("package:"):
-                    paths.append(line.replace("package:", "").strip())
-            if not paths:
-                continue
-            self.log(f"[Android] Pulling {package} APK/splits...")
-            for index, remote in enumerate(paths, 1):
-                out = os.path.join(
-                    target_dir,
-                    f"{package}_{index:02d}.apk",
-                )
-                try:
-                    pull = self._adb(
-                        "pull",
-                        remote,
-                        out,
-                        timeout=120,
-                        prefer_play=True,
-                        require_preferred=True,
-                    )
-                    if pull.returncode == 0 and os.path.exists(out):
-                        pulled += 1
-                except Exception as e:
-                    self.log(f"[Android] Pull failed for {remote}: {e}")
-            break
-        if pulled:
-            self.log(f"[Android] Pulled {pulled} Facebook APK file(s).")
-            return True
         self.log(
-            "[Android] Facebook package not found on Play emulator. "
-            "Install it from Play Store first."
+            "[Android] Play Store AVD restored to its pre-root ramdisk. "
+            "Open Android again and it should boot normally."
         )
-        return False
+        return True
 
     def _android_wait_for_device(self, timeout=120):
         deadline = time.time() + timeout
@@ -1115,7 +1289,7 @@ class ExternalScraper:
             time.sleep(2)
         return False
 
-    def _android_sfacg_packages(self):
+    def _android_sfacg_packages(self, serial=None):
         try:
             proc = self._adb(
                 "shell",
@@ -1123,6 +1297,7 @@ class ExternalScraper:
                 "list",
                 "packages",
                 timeout=20,
+                serial=serial,
             )
         except Exception as e:
             self.log(f"[Android] Could not list packages: {e}")
@@ -1135,12 +1310,12 @@ class ExternalScraper:
                 packages.append(name)
         return packages
 
-    def _android_exec_out(self, *args, timeout=30):
+    def _android_exec_out(self, *args, timeout=30, serial=None):
         adb = self._adb_path()
         if not adb:
             raise RuntimeError("Android adb not found.")
         cmd = [adb]
-        serial = self._android_serial()
+        serial = serial or self._android_serial()
         if serial:
             cmd.extend(["-s", serial])
         cmd.extend(["exec-out", *args])
@@ -1152,12 +1327,19 @@ class ExternalScraper:
         )
         return proc.stdout if proc.returncode == 0 else b""
 
-    def _android_read_file(self, path):
-        data = self._android_exec_out("cat", path, timeout=30)
+    def _android_read_file(self, path, serial=None):
+        data = self._android_exec_out("cat", path, timeout=30, serial=serial)
+        if data:
+            return data
+        data = self._android_exec_out(
+            "su", "0", "cat", path, timeout=30, serial=serial
+        )
         if data:
             return data
         quoted = shlex.quote(path)
-        return self._android_exec_out("su", "0", "cat", quoted, timeout=30)
+        return self._android_exec_out(
+            "su", "-c", f"cat {quoted}", timeout=30, serial=serial
+        )
 
     @staticmethod
     def _sfacg_cookie_from_sqlite_bytes(raw):
@@ -1224,6 +1406,7 @@ class ExternalScraper:
         if not self._android_wait_for_device():
             self.log("[Android] No booted emulator/device found.")
             return False
+        root_serial = self._android_root_serial()
         try:
             root_proc = self._adb("root", timeout=15)
             time.sleep(1)
@@ -1231,7 +1414,10 @@ class ExternalScraper:
             root_proc = None
         try:
             id_proc = self._adb("shell", "id", timeout=10)
-            if "uid=0(root)" not in (id_proc.stdout or ""):
+            if (
+                "uid=0(root)" not in (id_proc.stdout or "")
+                and not root_serial
+            ):
                 msg = (
                     (root_proc.stdout if root_proc else "")
                     + (root_proc.stderr if root_proc else "")
@@ -1243,18 +1429,25 @@ class ExternalScraper:
                 if msg:
                     self.log(f"[Android] adb root response: {msg}")
                 self.log(
-                    "[Android] Use the rootable AVD (syfe_poc_api35) for "
-                    "SFACG login/import."
+                    "[Android] Rooted Play Store AVDs are supported if "
+                    "Magisk/su is available. Otherwise use the rootable AVD "
+                    "(syfe_poc_api35) for SFACG login/import."
                 )
                 return False
+            if root_serial and "uid=0(root)" not in (id_proc.stdout or ""):
+                self.log(
+                    "[Android] Using su/root access for SFACG app data "
+                    f"on {root_serial}."
+                )
         except Exception:
             pass
-        self.install_sfacg_apk_on_android()
-        packages = self._android_sfacg_packages()
+        if not root_serial:
+            root_serial = self._android_serial()
+        packages = self._android_sfacg_packages(serial=root_serial)
         if not packages:
             self.log(
                 "[Android] SFACG app package not found. Install/login in the "
-                "SFACG app first."
+                "SFACG app from Play Store first."
             )
             return False
         encrypted_seen = False
@@ -1273,6 +1466,7 @@ class ExternalScraper:
                     "-type",
                     "f",
                     timeout=30,
+                    serial=root_serial,
                 )
                 for line in find_proc.stdout.splitlines():
                     path = line.strip()
@@ -1284,9 +1478,27 @@ class ExternalScraper:
                     ):
                         paths.append(path)
             except Exception:
-                pass
+                try:
+                    data = self._android_exec_out(
+                        "su",
+                        "-c",
+                        f"find /data/data/{package} -type f",
+                        timeout=30,
+                        serial=root_serial,
+                    )
+                    for line in data.decode("utf-8", "ignore").splitlines():
+                        path = line.strip()
+                        lower = path.lower()
+                        if (
+                            "cookie" in lower
+                            or "shared_prefs" in lower
+                            or lower.endswith((".db", ".xml", ".json"))
+                        ):
+                            paths.append(path)
+                except Exception:
+                    pass
             for path in dict.fromkeys(paths):
-                raw = self._android_read_file(path)
+                raw = self._android_read_file(path, serial=root_serial)
                 if not raw:
                     continue
                 cookie, encrypted = self._sfacg_cookie_from_sqlite_bytes(raw)
@@ -5637,15 +5849,21 @@ class ExternalScraper:
             cookie_header = self._sfacg_app_cookie_header()
 
             max_workers = max(1, min(len(batch_info), 16))
+            def fetch_sfacg_app(item):
+                offset, ch = item
+                if interval > 0 and offset > 0:
+                    time.sleep(interval * offset)
+                return self._sfacg_parse_chapter_app_api(
+                    ch.get('url', ''),
+                    ch.get('name', ''),
+                    requests_module=requests,
+                    cookie_header=cookie_header,
+                )
+
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 results = list(executor.map(
-                    lambda ch: self._sfacg_parse_chapter_app_api(
-                        ch.get('url', ''),
-                        ch.get('name', ''),
-                        requests_module=requests,
-                        cookie_header=cookie_header,
-                    ),
-                    batch_info,
+                    fetch_sfacg_app,
+                    enumerate(batch_info),
                 ))
 
             fallback_indices = [

@@ -126,6 +126,8 @@ a = Analysis(
         'playwright._impl._transport',
         'greenlet',
         'pyee',
+        'requests',
+        'requests.utils',
         'curl_cffi',
         'curl_cffi.requests',
     ],

@@ -105,6 +105,8 @@ a = Analysis(
         'playwright._impl._transport',
         'greenlet',                 # Required by playwright's sync API
         'pyee',                     # Event emitter used by playwright
+        'requests',                 # Used by external/API/image helpers
+        'requests.utils',
         'curl_cffi',
         'curl_cffi.requests',
     ],
