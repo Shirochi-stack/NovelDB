@@ -1015,8 +1015,14 @@ class ExternalScraper:
                     timeout=5,
                     **_hidden_windows_subprocess_kwargs(),
                 )
-                name = (p.stdout or "").splitlines()[0].strip()
+                for line in (p.stdout or "").splitlines():
+                    line = line.strip()
+                    if line and line.upper() != "OK":
+                        name = line
+                        break
             except Exception:
+                name = ""
+            if not name:
                 try:
                     p = subprocess.run(
                         [
@@ -1037,6 +1043,86 @@ class ExternalScraper:
                     name = ""
             named.append((serial, name))
         return named
+
+    def _android_serial_for_avd(self, avd_name):
+        for serial, name in self._android_devices():
+            if name == avd_name:
+                return serial
+        return ""
+
+    def _android_avd_process_ids(self, avd_name):
+        if sys.platform != "win32" or not avd_name:
+            return []
+        try:
+            needle = avd_name.replace("'", "''").lower()
+            script = (
+                "$needle = '" + needle + "';"
+                "Get-CimInstance Win32_Process | "
+                "Where-Object { "
+                "($_.Name -in @('emulator.exe','qemu-system-x86_64.exe')) "
+                "-and $_.CommandLine "
+                "-and $_.CommandLine.ToLowerInvariant().Contains($needle) "
+                "} | Select-Object -ExpandProperty ProcessId"
+            )
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                **_hidden_windows_subprocess_kwargs(),
+            )
+            pids = []
+            for line in proc.stdout.splitlines():
+                try:
+                    pids.append(int(line.strip()))
+                except Exception:
+                    pass
+            return pids
+        except Exception:
+            return []
+
+    def _cleanup_stale_android_avd(self, avd_name):
+        if not avd_name or self._android_serial_for_avd(avd_name):
+            return False
+        cleaned = False
+        pids = self._android_avd_process_ids(avd_name)
+        if pids:
+            self.log(
+                "[Android] Cleaning stale emulator process(es): "
+                + ", ".join(str(pid) for pid in pids)
+            )
+            for pid in pids:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(pid), "/T", "/F"],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                        **_hidden_windows_subprocess_kwargs(),
+                    )
+                    cleaned = True
+                except Exception:
+                    pass
+            time.sleep(1.0)
+
+        avd_dir = self._android_avd_dir(avd_name)
+        if avd_dir and not self._android_avd_process_ids(avd_name):
+            for name in ("multiinstance.lock", "hardware-qemu.ini.lock"):
+                path = os.path.join(avd_dir, name)
+                if os.path.exists(path):
+                    try:
+                        if os.path.isdir(path):
+                            shutil.rmtree(path, ignore_errors=True)
+                        else:
+                            os.remove(path)
+                        self.log(f"[Android] Removed stale lock: {name}")
+                        cleaned = True
+                    except Exception as e:
+                        self.log(
+                            f"[Android] Could not remove stale lock "
+                            f"{name}: {e}"
+                        )
+        return cleaned
 
     def _android_serial(self, prefer_play=False, require_match=False):
         named = self._android_devices()
@@ -1168,6 +1254,20 @@ class ExternalScraper:
                 "[Android] Using rootable AVD for SFACG import. "
                 "Facebook/SFACG must be installed there."
             )
+        running_serial = self._android_serial_for_avd(avd_name)
+        if running_serial:
+            self.log(
+                f"[Android] {avd_name} is already running "
+                f"({running_serial}); reusing it."
+            )
+            self._launch_android_package(
+                "com.sfacg",
+                "SFACG",
+                serial=running_serial,
+            )
+            return True
+
+        self._cleanup_stale_android_avd(avd_name)
         self.log(f"[Android] Launching emulator: {avd_name}")
         self._set_android_emulator_saved_position(avd_name)
         args = [
