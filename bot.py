@@ -1014,7 +1014,7 @@ def run_download(user_id: int,
                     total_imgs += 1
                 epub.add_chapter(t, h, is_notice=notice)
         logger(f"Total images added to EPUB: {total_imgs}")
-        epub.generate()
+        epub.generate(logger=logger)
     elif save_as_pdf:
         chapters_for_pdf = []
         image_map = {}
