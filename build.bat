@@ -9,8 +9,16 @@ echo.
 
 echo [1/2] Building !APP_NAME! (Full + Playwright)...
 echo.
+echo Installing Playwright Chromium browsers for bundling...
+python -m playwright install chromium
+if !ERRORLEVEL! NEQ 0 (
+    echo.
+    echo Playwright browser install failed. Cannot build the full executable.
+    set FULL_RESULT=!ERRORLEVEL!
+) else (
 pyinstaller NovelpiaDownloader.spec --clean
 set FULL_RESULT=!ERRORLEVEL!
+)
 
 echo.
 echo [2/2] Building !APP_NAME_LITE! (No Playwright)...

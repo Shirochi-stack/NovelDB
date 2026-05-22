@@ -49,15 +49,36 @@ if os.path.exists(_pw_driver):
 # Playwright uses chromium_headless_shell for headless=True and
 # chromium for headless=False (Enter Browser). Bundle both.
 _ms_pw = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'ms-playwright')
-if os.path.exists(_ms_pw):
-    for entry in os.listdir(_ms_pw):
-        if entry.startswith('chromium'):
-            _chromium_dir = os.path.join(_ms_pw, entry)
-            for root, dirs, files in os.walk(_chromium_dir):
-                for f in files:
-                    src = os.path.join(root, f)
-                    rel = os.path.relpath(root, _ms_pw)
-                    binaries.append((src, os.path.join('ms-playwright', rel)))
+if not os.path.exists(_ms_pw):
+    raise SystemExit(
+        "Playwright browsers are not installed. Run "
+        "`python -m playwright install chromium` before building."
+    )
+
+_required_browser_prefixes = ('chromium-', 'chromium_headless_shell-')
+_installed_browser_dirs = [
+    entry for entry in os.listdir(_ms_pw)
+    if os.path.isdir(os.path.join(_ms_pw, entry))
+]
+_missing_browser_prefixes = [
+    prefix for prefix in _required_browser_prefixes
+    if not any(entry.startswith(prefix) for entry in _installed_browser_dirs)
+]
+if _missing_browser_prefixes:
+    raise SystemExit(
+        "Missing Playwright browser bundles: "
+        + ", ".join(_missing_browser_prefixes)
+        + ". Run `python -m playwright install chromium` before building."
+    )
+
+for entry in _installed_browser_dirs:
+    if entry.startswith('chromium'):
+        _chromium_dir = os.path.join(_ms_pw, entry)
+        for root, dirs, files in os.walk(_chromium_dir):
+            for f in files:
+                src = os.path.join(root, f)
+                rel = os.path.relpath(root, _ms_pw)
+                binaries.append((src, os.path.join('ms-playwright', rel)))
 
 
 a = Analysis(
