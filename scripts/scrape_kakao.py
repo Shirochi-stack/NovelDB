@@ -364,6 +364,7 @@ def scrape_genre_catalog(
     else:
         print(f"  Fetching {len(remaining_pages):,} remaining pages with {workers} workers")
         page_results = {}
+        failed_pages = []
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {}
             for page in remaining_pages:
@@ -385,11 +386,20 @@ def scrape_genre_catalog(
                         )
                 except Exception as e:
                     print(f"\n  Page {page}: {e}")
+                    failed_pages.append(page)
+
+        if failed_pages:
+            preview = ", ".join(str(page) for page in sorted(failed_pages)[:20])
+            if len(failed_pages) > 20:
+                preview += ", ..."
+            raise RuntimeError(
+                f"Failed to fetch {len(failed_pages):,} catalog pages: {preview}"
+            )
 
         for page in remaining_pages:
             result = page_results.get(page)
             if not result:
-                continue
+                raise RuntimeError(f"Missing fetched result for catalog page {page}")
             apply_page(page, result)
             if result.get("is_end"):
                 break
@@ -397,9 +407,9 @@ def scrape_genre_catalog(
     if expected_total and max_pages is None:
         missing = expected_total - len(all_novels)
         if missing > 0:
-            print(
-                f"  WARNING: scraped {len(all_novels):,} unique rows, "
-                f"{missing:,} below website total {expected_total:,}"
+            raise RuntimeError(
+                f"Scraped {len(all_novels):,} unique rows, {missing:,} below "
+                f"website total {expected_total:,}"
             )
     return new_count, expected_total
 
@@ -517,7 +527,7 @@ def save_descriptions(all_novels, existing, path=KAKAO_DESCRIPTIONS_PATH):
 
 def main():
     parser = argparse.ArgumentParser(description="Scrape KakaoPage novels via BFF API")
-    parser.add_argument("--delay", type=float, default=0.3, help="Delay between requests")
+    parser.add_argument("--delay", type=float, default=1.0, help="Delay between requests")
     parser.add_argument(
         "--source", choices=["genre", "search"], default="genre",
         help="Catalog source. genre matches KakaoPage's full web-novel menu."
@@ -532,14 +542,14 @@ def main():
         help="Stop after this many genre pages, for smoke tests."
     )
     parser.add_argument(
-        "--catalog-workers", type=int, default=8,
+        "--catalog-workers", type=int, default=2,
         help="Parallel workers for Kakao genre catalog pages."
     )
     parser.add_argument("--page-size", type=int, default=100,
                         help="Search fallback page size (max 100)")
     parser.add_argument("--skip-descriptions", action="store_true",
                         help="Only scrape catalog metadata; do not fetch raw synopsis text")
-    parser.add_argument("--description-workers", type=int, default=12,
+    parser.add_argument("--description-workers", type=int, default=4,
                         help="Parallel workers for fetching Kakao descriptions")
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
                         help="Retry attempts for transient Kakao/BFF failures")

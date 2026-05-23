@@ -31,7 +31,10 @@ jobs:
         run: pip install requests
 
       - name: Run Kakao scraper
-        run: python scripts/scrape_kakao.py --delay 0.3
+        run: python scripts/scrape_kakao.py --delay 0.5 --catalog-workers 4 --description-workers 4 --retries 8
+
+      - name: Guard against accidental Kakao catalog shrink
+        run: python scripts/guard_catalog_drop.py docs/data/kakao_novels.json --max-drop-ratio 0.20
 
       - name: Reconcile Kakao descriptions
         run: python scripts/extract_kakao_descriptions.py

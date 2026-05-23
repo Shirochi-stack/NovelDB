@@ -18,7 +18,7 @@ Usage:
     python scripts/update_rankings_noauth.py
 """
 
-import sys, os, json, re, time, requests
+import sys, os, json, re, time
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -51,7 +51,7 @@ def scrape_ranking(session, period, audience):
     url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
     r = session.get(url, timeout=30)
     if r.status_code != 200:
-        return {}
+        raise RuntimeError(f"HTTP {r.status_code} for {url}")
     rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
     ranking = {}
     for pos, nid in enumerate(rank_ids[:100], 1):
@@ -85,6 +85,7 @@ def rescrape_metadata(session, ranked_ids):
     fresh = {}
     remaining = set(str(nid) for nid in ranked_ids)
     headers = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
         "X-Requested-With": "XMLHttpRequest",
         "Referer": "https://novelpia.com/search",
     }
@@ -187,7 +188,10 @@ def rescrape_metadata(session, ranked_ids):
 
 
 def main():
-    session = requests.Session()
+    from novelpia_auth import NovelpiaAuth
+
+    auth = NovelpiaAuth()
+    session = auth.session
     session.headers.update(HEADERS)
 
     print("Initializing session...")
@@ -196,27 +200,12 @@ def main():
     except Exception:
         pass
 
-    # Try to set up authenticated session for metadata rescraping
-    auth_session = None
-    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
-    if os.path.exists(config_path):
-        try:
-            from novelpia_auth import NovelpiaAuth
-            config = json.load(open(config_path, "r"))
-            loginkey = config.get("loginkey", "")
-            if loginkey:
-                auth = NovelpiaAuth()
-                auth.set_manual_key(loginkey)
-                auth_session = auth.session
-                print("  Using loginkey from config.json for metadata API")
-        except Exception as e:
-            print(f"  Warning: Could not load auth: {e}")
-    if not auth_session:
-        print("  No loginkey — metadata rescrape will use unauthenticated session")
+    print("  Using generated Novelpia session key; no username/password required")
 
     # Phase 1: Scrape rankings
     rankings = {}
     failed_audiences = set()
+    public_failures = []
 
     for audience_url, audience_label, _, _, _ in AUDIENCES:
         for period_url, period_label in PERIODS:
@@ -228,20 +217,23 @@ def main():
                 print(f"  WARNING: Failed: {e}")
                 ranking = {}
             if len(ranking) == 0:
-                print(f"  (may require authentication — skipping)")
+                if audience_url == "adult/plus":
+                    print(f"  (R19 may require authentication - preserving existing ranks)")
+                else:
+                    print(f"  ERROR: public ranking returned no novels")
+                    public_failures.append(label)
                 failed_audiences.add(audience_url)
             else:
                 print(f"  Got {len(ranking)} ranked novels")
             rankings[(audience_url, period_url)] = ranking
 
-    # Check if we got anything at all
-    total = sum(len(r) for r in rankings.values())
-    if total == 0:
-        print("ERROR: Could not fetch any rankings.")
+    if public_failures:
+        print("ERROR: Could not fetch required public rankings: "
+              + ", ".join(public_failures))
         sys.exit(1)
 
     if "adult/plus" in failed_audiences:
-        print("\nR19 (adult) pages unavailable — existing adult ranks will be preserved")
+        print("\nR19 (adult) pages unavailable - existing adult ranks will be preserved")
 
     # Collect all unique ranked novel IDs
     all_ranked_ids = set()
@@ -250,9 +242,8 @@ def main():
     print(f"\nTotal unique ranked IDs: {len(all_ranked_ids)}")
 
     # Phase 2: Rescrape full metadata for ranked novels
-    meta_session = auth_session or session
     print(f"\nRescraping metadata for {len(all_ranked_ids)} ranked novels...")
-    fresh_data = rescrape_metadata(meta_session, all_ranked_ids)
+    fresh_data = rescrape_metadata(session, all_ranked_ids)
     print(f"  Got fresh data for {len(fresh_data)} novels")
 
     # Load existing data

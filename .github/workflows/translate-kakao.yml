@@ -1,6 +1,9 @@
 name: Translate Kakao
 
 on:
+  workflow_run:
+    workflows: ["Update Kakao Data"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       model:
