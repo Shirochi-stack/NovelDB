@@ -21,6 +21,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 BFF_SEARCH_URL = 'https://bff-page.kakao.com/api/gateway/api/v1/search/series'
 BFF_GENRE_URL = 'https://bff-page.kakao.com/api/gateway/view/v1/landing/genre'
 BFF_PRODUCT_LIST_URL = 'https://bff-page.kakao.com/api/gateway/api/v2/content/product/list'
+KAKAO_NOVELS_PATH = os.path.join("docs", "data", "kakao_novels.json")
 KAKAO_DESCRIPTIONS_PATH = os.path.join("docs", "data", "kakao_descriptions.txt")
 KAKAO_CATEGORY_UID = 11
 KAKAO_GENRE_SCREEN_UID = 84
@@ -275,6 +276,64 @@ def add_kakao_item(all_novels, item):
     return True
 
 
+def novel_row_to_dict(row):
+    """Convert the compact site row schema back into scraper dict form."""
+    if not row:
+        return None
+    sid = str(row[0]).strip()
+    if not sid:
+        return None
+    return {
+        "id": sid,
+        "title": row[1] if len(row) > 1 else "",
+        "author": row[2] if len(row) > 2 else "",
+        "cover": row[3] if len(row) > 3 else "",
+        "tags": row[4] if len(row) > 4 and isinstance(row[4], list) else [],
+        "views": row[5] if len(row) > 5 else 0,
+        "likes": row[6] if len(row) > 6 else 0,
+        "chapters": row[7] if len(row) > 7 else 0,
+        "complete": row[8] if len(row) > 8 else 0,
+        "updated": row[9] if len(row) > 9 else "",
+        "age": row[11] if len(row) > 11 else 0,
+    }
+
+
+def load_existing_novels(path=KAKAO_NOVELS_PATH):
+    """Load the existing Kakao catalog so old-only entries are preserved."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        rows = json.load(f)
+
+    novels = {}
+    for row in rows:
+        novel = novel_row_to_dict(row)
+        if novel:
+            novels[novel["id"]] = novel
+
+    print(f"Loaded {len(novels):,} existing novels from {path}")
+    return novels
+
+
+def merge_with_existing_novels(scraped_novels, path=KAKAO_NOVELS_PATH):
+    """Preserve old-only rows while letting freshly scraped rows win."""
+    existing = load_existing_novels(path)
+    if not existing:
+        return scraped_novels
+
+    merged = dict(existing)
+    merged.update(scraped_novels)
+
+    preserved = len(set(existing) - set(scraped_novels))
+    updated = len(set(existing) & set(scraped_novels))
+    added = len(set(scraped_novels) - set(existing))
+    print(
+        f"Catalog merge: {updated:,} updated, {added:,} new, "
+        f"{preserved:,} old-only preserved"
+    )
+    return merged
+
+
 def scrape_genre_catalog(
         session, all_novels, delay=0.3, category_uid=KAKAO_CATEGORY_UID,
         screen_uid=KAKAO_GENRE_SCREEN_UID, sort_type="PRODUCT_LATEST",
@@ -471,7 +530,7 @@ def scrape_search_term(
     return new_count
 
 
-def save_novels(all_novels, path="docs/data/kakao_novels.json"):
+def save_novels(all_novels, path=KAKAO_NOVELS_PATH):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     optimized = []
     for n in all_novels.values():
@@ -600,7 +659,10 @@ def main():
                                      retries=args.retries)
             print(f" -> +{new} (total: {len(all_novels)})")
 
-    print(f"\nTotal: {len(all_novels)} unique novels")
+    print(f"\nScraped: {len(all_novels)} unique novels")
+    all_novels = merge_with_existing_novels(all_novels)
+    print(f"Total after preserving existing unique novels: {len(all_novels):,}")
+
     existing_descriptions = load_existing_descriptions()
     if not args.skip_descriptions:
         fetch_descriptions(

@@ -999,6 +999,7 @@ class NovelpiaGUI(tk.Tk):
         
         self._build_ui()
         self._load_config()
+        self._ensure_config_exists()
         # Auto-save toggles that change encoder behaviour so the user never
         # loses their preference if the app crashes before normal save paths run.
         self.var_convert_gifs.trace_add("write", lambda *_: self._save_config())
@@ -3297,7 +3298,7 @@ table, th, td {
         )
 
     def _load_config(self):
-        cfg_path = os.path.join(_get_base_dir(), "config.json")
+        cfg_path = self._config_path()
         if os.path.exists(cfg_path):
             try:
                 with open(cfg_path, "r", encoding="utf-8") as f:
@@ -3377,7 +3378,17 @@ table, th, td {
                 self._tag_custom_tags = cfg.get("tag_custom_tags", "")
                 self._tag_scrape_all = cfg.get("tag_scrape_all", False)
                 self._scrape_max_queries = cfg.get("scrape_max_queries", 100)
-            except: pass
+            except Exception as e:
+                self.log_message(f"Could not load config.json: {e}")
+
+    def _config_path(self):
+        return os.path.join(_get_base_dir(), "config.json")
+
+    def _ensure_config_exists(self):
+        """Create config.json on first launch using current default settings."""
+        if os.path.exists(self._config_path()):
+            return
+        self._save_config()
     
     def _auto_login(self):
         """Automatically login on startup if credentials are available."""
@@ -3454,7 +3465,8 @@ table, th, td {
             "scrape_max_queries": getattr(self, '_scrape_max_queries', 100),
         }
         try:
-            cfg_path = os.path.join(_get_base_dir(), "config.json")
+            cfg_path = self._config_path()
+            os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
             # Read existing config to preserve ext_* keys from external dialog
             existing = {}
             if os.path.exists(cfg_path):
@@ -3464,9 +3476,12 @@ table, th, td {
                 except Exception:
                     pass
             existing.update(cfg)
-            with open(cfg_path, "w", encoding="utf-8") as f:
+            tmp_path = cfg_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(existing, f, indent=2)
-        except: pass
+            os.replace(tmp_path, cfg_path)
+        except Exception as e:
+            self.log_message(f"Could not save config.json: {e}")
 
     def _open_external_dialog(self):
         """Open the External Novel download dialog."""
