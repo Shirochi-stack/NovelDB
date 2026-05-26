@@ -23,9 +23,9 @@ DATA = os.path.join("docs", "data", "sfacg_novels.json")
 OUTPUT = os.path.join("docs", "data", "sfacg_descriptions.txt")
 
 
-def load_existing_translations():
-    """Load existing English translations from sfacg_descriptions.txt (or .gz) if it exists."""
-    translations = {}
+def load_existing_rows():
+    """Load existing synopsis rows from sfacg_descriptions.txt (or .gz) if it exists."""
+    rows = {}
     # Try raw .txt first (local dev), then .gz (committed to repo)
     source = None
     if os.path.exists(OUTPUT):
@@ -42,14 +42,15 @@ def load_existing_translations():
     for line in lines:
         line = line.rstrip("\r\n")
         if not line: continue
-        parts = line.split("|||")
+        parts = line.split("|||", 2)
         nid = parts[0].strip()
         if not nid: continue
-        if len(parts) >= 3 and parts[2].strip():
-            translations[nid] = parts[2].strip()
-    if translations:
-        print(f"  Preserved {len(translations)} existing English translations (from {source})")
-    return translations
+        raw = parts[1] if len(parts) >= 2 else ""
+        en = parts[2].strip() if len(parts) >= 3 else ""
+        rows[nid] = (raw, en)
+    if rows:
+        print(f"  Loaded {len(rows)} existing description rows from {source}")
+    return rows
 
 
 def main():
@@ -62,8 +63,8 @@ def main():
         data = json.load(f)
     print(f"  {len(data)} novels loaded.")
 
-    # Preserve existing translations
-    existing_en = load_existing_translations()
+    # Preserve existing raw synopses and translations.
+    existing_rows = load_existing_rows()
 
     # SFACG format: [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
     #                 popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis]
@@ -76,19 +77,20 @@ def main():
         if not nid:
             continue
         synopsis = entry[17] if len(entry) > 17 else ""
-        en = existing_en.get(nid, "")
+        old_raw, en = existing_rows.get(nid, ("", ""))
 
-        # Skip if no synopsis AND no existing translation
-        if not synopsis and not en:
-            continue
-
-        # Normalize newlines, then collapse multiple into one
+        # Normalize newlines, then collapse multiple into one. If this row has
+        # already had its JSON synopsis stripped, keep the previous raw text.
         if synopsis:
             normed = synopsis.replace("\r\n", "\n").replace("\r", "\n")
             normed = re.sub(r"\n{2,}", "\n", normed).strip()
             flat = normed.replace("\n", "\\n")
         else:
-            flat = ""
+            flat = old_raw
+
+        # Skip if no synopsis AND no existing translation
+        if not flat and not en:
+            continue
 
         row = f"{nid}|||{flat}|||{en}\n"
         if en:

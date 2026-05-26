@@ -71,8 +71,8 @@ def main():
         synopsis = entry.get("synopsis", "")
         if nid is None:
             continue
-        seen_ids.add(str(nid))
         if synopsis:
+            seen_ids.add(str(nid))
             # Normalize newlines, then collapse multiple into one
             normed = synopsis.replace("\r\n", "\n").replace("\r", "\n")
             normed = re.sub(r"\n{2,}", "\n", normed).strip()
