@@ -17,6 +17,7 @@ Usage:
 """
 
 import sys, os, json, time, re, argparse, requests
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
@@ -35,19 +36,7 @@ API_HEADERS = {
 
 COVER_PREFIX = "https://novelpia.com"
 DELETED_TAG = "deleted"
-
-# Same tag list as scrape_npia.py for maximum coverage
-SEARCH_TAGS = [
-    '판타지', '현대', '패러디', '하렘', '라이트노벨', '일상', '로맨스',
-    '현대판타지', 'TS', '먼치킨', '중세', '전생', '집착', '아카데미',
-    '고수위', '드라마', 'SF', '순애', '빙의', '피폐', '성장', '착각',
-    '무협', '블루아카이브', '후회', '코미디', '이세계', '기타', '백합',
-    '회귀', '약피폐', '아포칼립스', '얀데레', '게임', '환생', '남성향',
-    '헌터', '조교', '복수', '인터넷방송', '남녀역전', '대체역사', '모험',
-    '원신', '상태창', '공포', '생존', '전쟁', '가면라이더', '액션',
-]
-
-SWEEP_CHARS = list("가나다라마바사아자차카타파하")
+from novelpia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
 
 AUDIENCES = [
     ("all/plus",   "all",   10, 12, 13),
@@ -95,41 +84,109 @@ def extract_novel(item):
     }
 
 
-def search_novels(session, search_val, search_type="all"):
+def make_search_session():
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    return session
+
+
+def get_json_with_retry(session, params, retries, timeout=120):
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            r = session.get(
+                "https://novelpia.com/proc/novel",
+                params=params,
+                headers=API_HEADERS,
+                timeout=timeout,
+            )
+            if r.status_code in RETRYABLE_STATUS_CODES:
+                raise RuntimeError(f"HTTP {r.status_code}")
+            text = r.text.strip()
+            if not text:
+                return None
+            return r.json()
+        except Exception as exc:
+            last_error = exc
+            if attempt == retries:
+                break
+            time.sleep(min(2 ** (attempt - 1), 8))
+    raise last_error
+
+
+def search_novels(session, search_val, retries, search_type="all"):
     """Search Novelpia API for novels matching a search term."""
     items = []
     ROWS = 30000
     for pg in range(1, 21):
-        try:
-            r = session.get("https://novelpia.com/proc/novel", params={
-                "cmd": "novel_search",
-                "search_type": search_type,
-                "search_val": search_val,
-                "page": pg,
-                "rows": ROWS,
-                "novel_type": "",
-                "sort_col": "last_viewdate",
-                "block_out": 0,
-                "block_stop": 0,
-                "is_contest": 0,
-                "is_challenge": 0,
-            }, headers=API_HEADERS, timeout=120)
-
-            text = r.text.strip()
-            if not text:
-                break
-            try:
-                data = r.json()
-            except Exception:
-                break
-            batch = data.get("list", [])
-            items.extend(batch)
-            if len(batch) < ROWS:
-                break
-        except Exception as e:
-            print(f"ERROR page {pg}: {e}")
+        data = get_json_with_retry(session, {
+            "cmd": "novel_search",
+            "search_type": search_type,
+            "search_val": search_val,
+            "page": pg,
+            "rows": ROWS,
+            "novel_type": "",
+            "sort_col": "last_viewdate",
+            "block_out": 0,
+            "block_stop": 0,
+            "is_contest": 0,
+            "is_challenge": 0,
+        }, retries)
+        if not data:
+            break
+        batch = data.get("list", [])
+        items.extend(batch)
+        if len(batch) < ROWS:
             break
     return items
+
+
+def fetch_terms(label, terms, workers, retries, delay):
+    results = {}
+    workers = max(1, workers)
+    print(f"--- {label}: {len(terms)} terms ({workers} workers, {delay}s stagger) ---", flush=True)
+
+    def _collect_done(done, futures):
+        for fut in done:
+            i, term = futures.pop(fut)
+            prefix = f"[{i+1}/{len(terms)}] {label}: {term!r}..."
+            try:
+                items = fut.result()
+                results[term] = items
+                print(f"{prefix} {len(items)} results", flush=True)
+            except Exception as e:
+                results[term] = []
+                print(f"{prefix} ERROR after retries: {e}", flush=True)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {}
+        for i, term in enumerate(terms):
+            future = pool.submit(search_novels, make_search_session(), term, retries)
+            futures[future] = (i, term)
+            done, _ = wait(futures.keys(), timeout=0, return_when=FIRST_COMPLETED)
+            _collect_done(done, futures)
+            if delay > 0 and i < len(terms) - 1:
+                time.sleep(delay)
+                done, _ = wait(futures.keys(), timeout=0, return_when=FIRST_COMPLETED)
+                _collect_done(done, futures)
+        while futures:
+            done, _ = wait(futures.keys(), return_when=FIRST_COMPLETED)
+            _collect_done(done, futures)
+    return results
+
+
+def merge_term_results(terms, results, fresh_novels):
+    before = len(fresh_novels)
+    raw_count = 0
+    for term in terms:
+        items = results.get(term, [])
+        raw_count += len(items)
+        for item in items:
+            novel_id = item.get("novel_no")
+            if not novel_id:
+                continue
+            fresh_novels.setdefault(str(novel_id), extract_novel(item))
+    return raw_count, len(fresh_novels) - before
 
 
 def scrape_ranking(session, period, audience):
@@ -149,6 +206,12 @@ def main():
     parser = argparse.ArgumentParser(description="Rescrape Novelpia catalog (no auth)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run scrape and show merge summary without saving")
+    parser.add_argument("--search-workers", type=int, default=4,
+                        help="Parallel workers for tag/sweep search")
+    parser.add_argument("--search-retries", type=int, default=4,
+                        help="Retries per search page")
+    parser.add_argument("--search-delay", type=float, default=0.5,
+                        help="Seconds to stagger parallel search submissions")
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -165,47 +228,28 @@ def main():
         pass
 
     # ── Phase 1: Tag search ──────────────────────────────────────
-    seen = set()
     fresh_novels = {}  # id -> novel dict
 
-    for i, tag in enumerate(SEARCH_TAGS):
-        print(f"[{i+1}/{len(SEARCH_TAGS)}] Searching: {tag}...", end=" ", flush=True)
-        try:
-            items = search_novels(session, tag)
-            new_count = 0
-            for item in items:
-                novel_id = item.get("novel_no")
-                if not novel_id or novel_id in seen:
-                    continue
-                seen.add(novel_id)
-                new_count += 1
-                fresh_novels[str(novel_id)] = extract_novel(item)
-            print(f"{len(items)} results, {new_count} new (total: {len(fresh_novels)})")
-        except Exception as e:
-            print(f"ERROR: {e}")
-        time.sleep(0.5)
-
-    print(f"\n--- Phase 1 complete: {len(fresh_novels)} novels from tags ---\n")
+    tag_results = fetch_terms(
+        "Searching", SEARCH_TAGS,
+        args.search_workers, args.search_retries, args.search_delay,
+    )
+    tag_total, tag_new = merge_term_results(SEARCH_TAGS, tag_results, fresh_novels)
+    print(
+        f"\n--- Phase 1 complete: {len(fresh_novels)} novels from tags "
+        f"({tag_total} raw results, {tag_new} unique) ---\n"
+    )
 
     # ── Phase 2: Character sweep ─────────────────────────────────
-    for i, ch in enumerate(SWEEP_CHARS):
-        print(f"[{i+1}/{len(SWEEP_CHARS)}] Sweep: '{ch}'...", end=" ", flush=True)
-        try:
-            items = search_novels(session, ch)
-            new_count = 0
-            for item in items:
-                novel_id = item.get("novel_no")
-                if not novel_id or novel_id in seen:
-                    continue
-                seen.add(novel_id)
-                new_count += 1
-                fresh_novels[str(novel_id)] = extract_novel(item)
-            print(f"{len(items)} results, {new_count} new (total: {len(fresh_novels)})")
-        except Exception as e:
-            print(f"ERROR: {e}")
-        time.sleep(0.3)
-
-    print(f"\n--- Phase 2 complete: {len(fresh_novels)} total scraped novels ---\n")
+    sweep_results = fetch_terms(
+        "Sweep", SWEEP_CHARS,
+        args.search_workers, args.search_retries, args.search_delay,
+    )
+    sweep_total, sweep_new = merge_term_results(SWEEP_CHARS, sweep_results, fresh_novels)
+    print(
+        f"\n--- Phase 2 complete: {len(fresh_novels)} total scraped novels "
+        f"({sweep_total} raw sweep results, {sweep_new} new unique) ---\n"
+    )
 
     # ── Phase 3: Scrape rankings ─────────────────────────────────
     print("--- Scraping rankings ---")

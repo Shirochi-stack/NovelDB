@@ -23,6 +23,7 @@ import logging
 from datetime import datetime
 
 from app_version import APP_NAME
+from novelpia_search_terms import DEFAULT_SEARCH_QUERY_COUNT
 
 # ---------------------------------------------------------------------------
 # File logging setup (freeze / .exe aware)
@@ -1683,8 +1684,13 @@ class NovelpiaGUI(tk.Tk):
         scrape_q_frame.pack(fill="x", pady=(2, 0))
         scrape_q_label = ttk.Label(scrape_q_frame, text="Search queries:")
         scrape_q_label.pack(side="left")
-        scrape_queries_var = tk.IntVar(value=getattr(self, '_scrape_max_queries', 100))
-        scrape_queries_spin = ttk.Spinbox(scrape_q_frame, from_=1, to=100,
+        try:
+            initial_scrape_queries = int(getattr(self, '_scrape_max_queries', DEFAULT_SEARCH_QUERY_COUNT))
+        except (TypeError, ValueError):
+            initial_scrape_queries = DEFAULT_SEARCH_QUERY_COUNT
+        initial_scrape_queries = max(1, min(initial_scrape_queries, DEFAULT_SEARCH_QUERY_COUNT))
+        scrape_queries_var = tk.IntVar(value=initial_scrape_queries)
+        scrape_queries_spin = ttk.Spinbox(scrape_q_frame, from_=1, to=DEFAULT_SEARCH_QUERY_COUNT,
                                           textvariable=scrape_queries_var, width=6,
                                           state="disabled")
         scrape_queries_spin.pack(side="left", padx=(5, 0))
@@ -1693,7 +1699,7 @@ class NovelpiaGUI(tk.Tk):
         scrape_desc_frame.pack(fill="x", pady=(0, 5))
         scrape_desc_label = ttk.Label(scrape_desc_frame,
                   text="More queries = better coverage but slower.\n"
-                       "1 ≈ 42K novels  |  50 ≈ 63K  |  64 ≈ 63.3K  |  100 ≈ 63.7K",
+                       f"{DEFAULT_SEARCH_QUERY_COUNT} = full current tag + sweep coverage",
                   foreground="gray", justify="left", state="disabled")
         scrape_desc_label.pack(side="left", padx=(2, 0))
 
@@ -1808,7 +1814,7 @@ class NovelpiaGUI(tk.Tk):
             delay = max(0.0, self.var_interval.get())
             if tags is None:
                 # Scrape all novels mode
-                max_q = getattr(self, '_scrape_max_queries', 50)
+                max_q = getattr(self, '_scrape_max_queries', DEFAULT_SEARCH_QUERY_COUNT)
                 num_threads = max(1, self.var_threads.get())
                 novels = self.downloader.fetch_all_novels(delay=delay, age_filter=age_filter, max_queries=max_q, threads=num_threads)
             else:
@@ -3377,7 +3383,13 @@ table, th, td {
                 self._tag_selected_tags = set(cfg.get("tag_selected_tags", []))
                 self._tag_custom_tags = cfg.get("tag_custom_tags", "")
                 self._tag_scrape_all = cfg.get("tag_scrape_all", False)
-                self._scrape_max_queries = cfg.get("scrape_max_queries", 100)
+                try:
+                    scrape_max_queries = int(cfg.get("scrape_max_queries", DEFAULT_SEARCH_QUERY_COUNT))
+                except (TypeError, ValueError):
+                    scrape_max_queries = DEFAULT_SEARCH_QUERY_COUNT
+                if scrape_max_queries == 100:
+                    scrape_max_queries = DEFAULT_SEARCH_QUERY_COUNT
+                self._scrape_max_queries = scrape_max_queries
             except Exception as e:
                 self.log_message(f"Could not load config.json: {e}")
 
@@ -3462,7 +3474,7 @@ table, th, td {
             "tag_selected_tags": list(getattr(self, '_tag_selected_tags', set())),
             "tag_custom_tags": getattr(self, '_tag_custom_tags', ''),
             "tag_scrape_all": getattr(self, '_tag_scrape_all', False),
-            "scrape_max_queries": getattr(self, '_scrape_max_queries', 100),
+            "scrape_max_queries": getattr(self, '_scrape_max_queries', DEFAULT_SEARCH_QUERY_COUNT),
         }
         try:
             cfg_path = self._config_path()

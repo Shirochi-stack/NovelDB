@@ -15,12 +15,81 @@ Format: novel_id|||korean_synopsis|||english_translation
   - Newlines in synopsis are replaced with literal \\n.
 """
 
-import json, os, re, sys
+import json, os, re, sys, tempfile, time
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-FULL_DATA = os.path.join("docs", "data", "novels_full.json")
-OUTPUT = os.path.join("docs", "data", "descriptions.txt")
+ROOT = Path(__file__).resolve().parents[1]
+FULL_DATA_REL = os.path.join("docs", "data", "novels_full.json")
+OUTPUT_REL = os.path.join("docs", "data", "descriptions.txt")
+FULL_DATA = ROOT / FULL_DATA_REL
+OUTPUT = ROOT / OUTPUT_REL
+DELIM = "|||"
+SAFE_DELIM = "｜｜｜"
+
+
+def sanitize_field(text):
+    text = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = text.replace(DELIM, SAFE_DELIM)
+    return text.replace("\n", "\\n")
+
+
+def parse_row(line):
+    if DELIM not in line:
+        return line.strip(), "", ""
+    nid, rest = line.split(DELIM, 1)
+    if DELIM not in rest:
+        return nid.strip(), rest, ""
+    raw, en = rest.rsplit(DELIM, 1)
+    return nid.strip(), raw, en
+
+
+def atomic_write_lines(path, lines):
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="",
+            delete=False,
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        ) as f:
+            tmp_path = Path(f.name)
+            f.writelines(lines)
+            f.flush()
+            os.fsync(f.fileno())
+        deadline = time.time() + 30
+        while True:
+            try:
+                os.replace(tmp_path, path)
+                return
+            except PermissionError:
+                if time.time() >= deadline:
+                    break
+                time.sleep(1)
+
+        # Some Windows readers allow writing but block delete/replace.
+        # Fall back to rewriting the existing file in place after the safe
+        # temp-file path has failed repeatedly.
+        with path.open("r+", encoding="utf-8", newline="") as f:
+            f.seek(0)
+            with tmp_path.open("r", encoding="utf-8") as tmp:
+                for chunk in iter(lambda: tmp.read(1024 * 1024), ""):
+                    f.write(chunk)
+            f.truncate()
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.unlink(missing_ok=True)
+    except Exception:
+        if tmp_path:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
 
 
 def load_existing_rows():
@@ -33,29 +102,30 @@ def load_existing_rows():
     """
     translations = {}
     full_rows = {}
-    if os.path.exists(OUTPUT):
-        with open(OUTPUT, "r", encoding="utf-8") as f:
+    if OUTPUT.exists():
+        with OUTPUT.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.rstrip("\r\n")
                 if not line: continue
-                parts = line.split("|||")
-                nid = parts[0].strip()
+                nid, raw, en = parse_row(line)
                 if not nid: continue
-                full_rows[nid] = line
-                if len(parts) >= 3 and parts[2].strip():
-                    translations[nid] = parts[2].strip()
+                raw = sanitize_field(raw)
+                en = sanitize_field(en)
+                full_rows[nid] = f"{nid}{DELIM}{raw}{DELIM}{en}"
+                if en:
+                    translations[nid] = en
         if translations:
             print(f"  Preserved {len(translations)} existing English translations")
     return translations, full_rows
 
 
 def main():
-    if not os.path.exists(FULL_DATA):
-        print(f"Warning: {FULL_DATA} not found, preserving existing descriptions.txt")
+    if not FULL_DATA.exists():
+        print(f"Warning: {FULL_DATA_REL} not found, preserving existing descriptions.txt")
         return
 
-    print(f"Loading {FULL_DATA}...")
-    with open(FULL_DATA, "r", encoding="utf-8") as f:
+    print(f"Loading {FULL_DATA_REL}...")
+    with FULL_DATA.open("r", encoding="utf-8") as f:
         data = json.load(f)
     print(f"  {len(data)} novels loaded.")
 
@@ -76,9 +146,9 @@ def main():
             # Normalize newlines, then collapse multiple into one
             normed = synopsis.replace("\r\n", "\n").replace("\r", "\n")
             normed = re.sub(r"\n{2,}", "\n", normed).strip()
-            flat = normed.replace("\n", "\\n")
+            flat = sanitize_field(normed)
             en = existing_en.get(str(nid), "")
-            row = f"{nid}|||{flat}|||{en}\n"
+            row = f"{nid}{DELIM}{flat}{DELIM}{en}\n"
             if en:
                 translated.append(row)
             else:
@@ -90,8 +160,8 @@ def main():
     preserved = 0
     for nid, row in existing_rows.items():
         if nid not in seen_ids:
-            parts = row.split("|||")
-            en = parts[2].strip() if len(parts) >= 3 else ""
+            _, _, en = parse_row(row)
+            en = sanitize_field(en)
             if en:
                 translated.append(row + "\n")
             else:
@@ -99,15 +169,13 @@ def main():
             preserved += 1
             count += 1
 
-    with open(OUTPUT, "w", encoding="utf-8") as f:
-        f.writelines(translated)
-        f.writelines(untranslated)
+    atomic_write_lines(OUTPUT, translated + untranslated)
 
     size_kb = os.path.getsize(OUTPUT) / 1024
-    print(f"  Wrote {count} descriptions to {OUTPUT} ({size_kb:.0f} KB)")
+    print(f"  Wrote {count} descriptions to {OUTPUT_REL} ({size_kb:.0f} KB)")
     print(f"  Translated: {len(translated)}, Untranslated: {len(untranslated)}")
     if preserved:
-        print(f"  Preserved {preserved} entries not in {FULL_DATA} (R19/missing novels)")
+        print(f"  Preserved {preserved} entries not in {FULL_DATA_REL} (R19/missing novels)")
 
 
 if __name__ == "__main__":

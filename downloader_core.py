@@ -7,6 +7,12 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
+from novelpia_search_terms import (
+    ALL_SEARCH_TERMS,
+    DEFAULT_SEARCH_QUERY_COUNT,
+    RETRYABLE_STATUS_CODES,
+)
+
 class AccessBlockedError(Exception):
     """Raised when chapter access is blocked (login/age verification required)."""
     pass
@@ -595,16 +601,16 @@ img { max-width: 100%; height: auto; }
 
         return results
 
-    def fetch_all_novels(self, delay=0.5, rows=30, age_filter="", max_queries=50, threads=1):
+    def fetch_all_novels(self, delay=0.5, rows=30, age_filter="", max_queries=DEFAULT_SEARCH_QUERY_COUNT, threads=1):
         """Fetch ALL novel IDs from Novelpia using multiple API calls.
 
         The API caps results at ~42K per query, so we search with multiple
-        characters and union the results for better coverage.
+        tags/sweep terms and union the results for better coverage.
 
         Args:
-            delay: seconds between requests (per thread)
+            delay: seconds between query starts
             age_filter: "" (all), "15" (non-adult), "19" (adult only)
-            max_queries: how many search terms to use (1-100)
+            max_queries: how many search terms to use
             threads: number of concurrent query threads
 
         Returns:
@@ -616,17 +622,10 @@ img { max-width: 100%; height: auto; }
             "Referer": "https://novelpia.com/search",
         }
 
-        # Tags first (highest unique yield), then Korean chars, English, digits
-        ALL_SEARCHES = [
-            '판타지', '현대', '패러디', '하렘', '라이트노벨', '일상', '로맨스',
-            '현대판타지', 'TS', '먼치킨', '중세', '전생', '집착', '아카데미',
-            '고수위', '드라마', 'SF', '순애', '빙의', '피폐', '성장', '착각',
-            '무협', '블루아카이브', '후회', '코미디', '이세계', '기타', '백합',
-            '회귀', '약피폐', '아포칼립스', '얀데레', '게임', '환생', '남성향',
-            '헌터', '조교', '복수', '인터넷방송', '남녀역전', '대체역사', '모험',
-            '원신', '상태창', '공포', '생존', '전쟁', '가면라이더', '액션',
-        ] + list("타아다라사가마나자하카차바파") + list("abcdefghijklmnopqrstuvwxyz0123456789")
-        SEARCH_CHARS = ALL_SEARCHES[:max_queries]
+        if max_queries is None:
+            max_queries = DEFAULT_SEARCH_QUERY_COUNT
+        max_queries = max(1, min(int(max_queries), DEFAULT_SEARCH_QUERY_COUNT))
+        SEARCH_CHARS = ALL_SEARCH_TERMS[:max_queries]
 
         self.log(f"Scraping all novel IDs from Novelpia... ({len(SEARCH_CHARS)} queries, {threads} thread(s))")
         if age_filter == "15":
@@ -659,7 +658,7 @@ img { max-width: 100%; height: auto; }
                 ROWS_PER_PAGE = 30000
                 try:
                     for pg in range(1, 21):  # up to 20 pages = 100k novels max
-                        response = self.auth.session.get(url, params={
+                        params = {
                             "cmd": "novel_search",
                             "search_type": "all",
                             "search_val": ch,
@@ -678,7 +677,30 @@ img { max-width: 100%; height: auto; }
                             "is_complete": "",
                             "is_challenge": 0,
                             "list_display": "grid",
-                        }, headers=headers, timeout=120)
+                        }
+
+                        response = None
+                        last_error = None
+                        for attempt in range(1, 5):
+                            if self.stop_signal:
+                                break
+                            try:
+                                response = self.auth.session.get(url, params=params, headers=headers, timeout=120)
+                                if response.status_code not in RETRYABLE_STATUS_CODES:
+                                    break
+                                last_error = f"HTTP {response.status_code}"
+                            except Exception as e:
+                                last_error = str(e)
+                                response = None
+
+                            if attempt < 4 and not self.stop_signal:
+                                wait_s = min(2 ** (attempt - 1), 8)
+                                self.log(f"    Retry {attempt}/4 for '{ch}' p{pg} after {last_error}; sleeping {wait_s}s")
+                                time.sleep(wait_s)
+
+                        if response is None:
+                            self.log(f"    Failed page {pg} for '{ch}': {last_error}")
+                            break
 
                         if response.status_code != 200:
                             self.log(f"    HTTP {response.status_code} on page {pg}, skipping")

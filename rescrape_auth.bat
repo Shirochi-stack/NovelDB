@@ -17,7 +17,7 @@ echo.
 
 echo [2/4] Merging unique novel sets into novels.json...
 python scripts/merge_unique_sets.py
-if errorlevel 1 echo   (No novels_full.json found or merge skipped)
+if errorlevel 1 goto :error
 echo.
 
 echo [3/4] Extracting descriptions from novels_full.json...
