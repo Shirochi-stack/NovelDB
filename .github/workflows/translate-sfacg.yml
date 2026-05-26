@@ -90,6 +90,9 @@ jobs:
         run: python scripts/merge_translated_sfacg_titles.py
 
       # --- Translate Descriptions ---
+      - name: Reconcile SFACG descriptions
+        run: python scripts/fetch_missing_sfacg_descriptions.py
+
       - name: Extract untranslated SFACG descriptions
         run: python scripts/extract_untranslated_sfacg_descriptions.py
 

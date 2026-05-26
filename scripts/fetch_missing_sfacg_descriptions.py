@@ -7,7 +7,16 @@ Usage:
     python scripts/fetch_missing_sfacg_descriptions.py
 """
 
-import sys, os, json, time, re, requests
+import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import gzip
+import json
+import os
+import re
+import sys
+import time
+
+import requests
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -22,7 +31,49 @@ DATA = os.path.join("docs", "data", "sfacg_novels.json")
 DESC = os.path.join("docs", "data", "sfacg_descriptions.txt")
 
 
+def ensure_descriptions_txt():
+    """Decompress the committed descriptions file when only .gz exists."""
+    if os.path.exists(DESC) or not os.path.exists(DESC + ".gz"):
+        return
+    print(f"Decompressing {DESC}.gz -> {DESC}", flush=True)
+    with gzip.open(DESC + ".gz", "rb") as gz_in:
+        with open(DESC, "wb") as f_out:
+            f_out.write(gz_in.read())
+
+
+def normalize_intro(intro):
+    intro = (intro or "").replace("\r\n", "\n").replace("\r", "\n")
+    intro = re.sub(r"\n{2,}", "\n", intro).strip()
+    return intro.replace("\n", "\\n")
+
+
+def fetch_one(nid):
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    try:
+        r = session.get(f"{API_URL}/{nid}", params={"expand": "intro"}, timeout=10)
+        if r.status_code == 404:
+            return nid, None, "missing"
+        r.raise_for_status()
+        data = r.json()
+        novel = data.get("data", {})
+        intro = novel.get("expand", {}).get("intro", "")
+        return nid, normalize_intro(intro) if intro else "N/A", None
+    except Exception as exc:
+        return nid, None, str(exc)
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Fetch missing SFACG descriptions")
+    parser.add_argument("--workers", type=int, default=16, help="Parallel fetch workers")
+    parser.add_argument("--delay", type=float, default=0.0, help="Delay after scheduling each request")
+    parser.add_argument("--limit", type=int, default=0, help="Fetch at most N missing rows (for testing)")
+    parser.add_argument("--batch-size", type=int, default=500, help="Rows to fetch before appending progress")
+    parser.add_argument("--ids", default="", help="Comma-separated novel IDs to fetch, limited to missing rows")
+    args = parser.parse_args()
+
+    ensure_descriptions_txt()
+
     # Load all novel IDs from JSON
     with open(DATA, "r", encoding="utf-8") as f:
         novels = json.load(f)
@@ -42,60 +93,60 @@ def main():
                     existing_ids.add(nid)
     print(f"Existing descriptions: {len(existing_ids)}", flush=True)
 
-    missing = sorted(all_ids - existing_ids, key=int)
+    missing_set = all_ids - existing_ids
+    if args.ids.strip():
+        requested_ids = {nid.strip() for nid in args.ids.split(",") if nid.strip()}
+        missing_set &= requested_ids
+    missing = sorted(missing_set, key=int)
+    if args.limit > 0:
+        missing = missing[:args.limit]
     print(f"Missing descriptions: {len(missing)}", flush=True)
 
     if not missing:
         print("Nothing to fetch!")
         return
 
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    # Fetch in batches using the novel list API with expand=intro
-    # The API supports fetching up to 50 novels at once, but for individual
-    # synopsis we need to hit the single-novel endpoint
     fetched = 0
     failed = 0
-    new_rows = []
+    max_workers = max(1, args.workers)
+    batch_size = max(1, args.batch_size)
+    appended = 0
 
-    for i, nid in enumerate(missing):
-        try:
-            r = session.get(f"{API_URL}/{nid}", params={"expand": "intro"}, timeout=10)
-            if r.status_code == 404:
-                # Novel doesn't exist on SFACG anymore
-                failed += 1
-                continue
-            r.raise_for_status()
-            data = r.json()
-            novel = data.get("data", {})
-            intro = novel.get("expand", {}).get("intro", "")
+    with open(DESC, "a", encoding="utf-8") as out:
+        for batch_start in range(0, len(missing), batch_size):
+            batch = missing[batch_start:batch_start + batch_size]
+            new_rows_by_id = {}
 
-            if intro:
-                intro = intro.replace("\r\n", "\n").replace("\r", "\n")
-                intro = re.sub(r"\n{2,}", "\n", intro).strip()
-                flat = intro.replace("\n", "\\n")
-                new_rows.append(f"{nid}|||{flat}|||\n")
-                fetched += 1
-            else:
-                # Novel exists but has no description
-                new_rows.append(f"{nid}|||N/A|||\n")
-                fetched += 1
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for nid in batch:
+                    futures.append(executor.submit(fetch_one, nid))
+                    if args.delay > 0:
+                        time.sleep(args.delay)
 
-        except Exception as e:
-            print(f"  Error fetching {nid}: {e}")
-            failed += 1
+                for future in as_completed(futures):
+                    nid, intro, error = future.result()
+                    if error:
+                        failed += 1
+                    else:
+                        new_rows_by_id[nid] = f"{nid}|||{intro}|||\n"
+                        fetched += 1
 
-        if (i + 1) % 100 == 0:
-            print(f"  Progress: {i+1}/{len(missing)} ({fetched} fetched, {failed} failed)", flush=True)
+            if new_rows_by_id:
+                new_rows = [new_rows_by_id[nid] for nid in sorted(new_rows_by_id, key=int)]
+                out.writelines(new_rows)
+                out.flush()
+                appended += len(new_rows)
 
-        time.sleep(0.2)
+            done = min(batch_start + len(batch), len(missing))
+            print(
+                f"  Progress: {done}/{len(missing)} "
+                f"({fetched} fetched, {failed} failed, {appended} appended)",
+                flush=True,
+            )
 
-    # Append to descriptions file
-    if new_rows:
-        with open(DESC, "a", encoding="utf-8") as f:
-            f.writelines(new_rows)
-        print(f"\nAppended {len(new_rows)} rows to {DESC}")
+    if appended:
+        print(f"\nAppended {appended} rows to {DESC}")
 
     print(f"Done: {fetched} fetched, {failed} failed out of {len(missing)} missing")
 
