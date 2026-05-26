@@ -1,9 +1,8 @@
 """Scrape SFACG (SF轻小说) novel metadata for the NovelDB site.
 
-Uses SFACG's public API to fetch novel listings through broad type/category
-calls. The generic /novels list can omit older de-indexed rows that still
-appear in their category buckets, so the scraper partitions by type + char
-count instead of patching gaps with direct ID fetches.
+Uses SFACG's public API to fetch novel listings through both the generic
+/novels sweep and broad type/category calls. The generic list is denser, while
+the type buckets can recover older/de-indexed rows that the generic list omits.
 Also scrapes rankings from the mobile site and synopses from the API.
 
 Usage:
@@ -14,7 +13,8 @@ Usage:
 Output: docs/data/sfacg_novels.json
 """
 
-import sys, os, json, time, re, requests
+import sys, os, json, time, re, threading, requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -24,12 +24,14 @@ TYPE_NOVELS_URL = "https://api.sfacg.com/novels/{type_id}/sysTags/novels"
 SFACG_NOVELS_PATH = os.path.join("docs", "data", "sfacg_novels.json")
 DELETED_TAG = "deleted"
 PAGE_SIZE = 50
+GENERIC_WORKERS = 8
 
 HEADERS = {
     "User-Agent": "boluobao/5.0.36(android;34)/H5/{}/H5",
     "Accept": "application/json",
     "Authorization": "Basic YW5kcm9pZHVzZXI6MWEjJDUxLXl0Njk7KkFjdkBxeHE=",
 }
+THREAD_LOCAL = threading.local()
 
 # SFACG mobile ranking pages — each returns up to 20 novels
 RANK_CATEGORIES = [
@@ -124,7 +126,7 @@ def load_existing_novels(path=None):
     return novels
 
 
-def merge_with_existing_novels(scraped_novels, path=None):
+def merge_with_existing_novels(scraped_novels, path=None, tag_deleted=True):
     """Preserve old-only rows while letting freshly scraped rows win."""
     if path is None:
         path = SFACG_NOVELS_PATH
@@ -136,18 +138,20 @@ def merge_with_existing_novels(scraped_novels, path=None):
     merged.update(scraped_novels)
 
     preserved_ids = set(existing) - set(scraped_novels)
-    for sid in preserved_ids:
-        tags = merged[sid].setdefault("tags", [])
-        if not isinstance(tags, list):
-            tags = []
-            merged[sid]["tags"] = tags
-        if DELETED_TAG not in tags:
-            tags.append(DELETED_TAG)
+    if tag_deleted:
+        for sid in preserved_ids:
+            tags = merged[sid].setdefault("tags", [])
+            if not isinstance(tags, list):
+                tags = []
+                merged[sid]["tags"] = tags
+            if DELETED_TAG not in tags:
+                tags.append(DELETED_TAG)
 
     print(
         f"Catalog merge: {len(set(existing) & set(scraped_novels)):,} updated, "
         f"{len(set(scraped_novels) - set(existing)):,} new, "
-        f"{len(preserved_ids):,} old-only preserved/tagged {DELETED_TAG!r}"
+        f"{len(preserved_ids):,} old-only preserved"
+        + (f"/tagged {DELETED_TAG!r}" if tag_deleted else " without new deleted tags")
     )
     return merged
 
@@ -251,6 +255,45 @@ def build_broad_params(page, begin, end, skip_synopsis):
     }
 
 
+def build_generic_params(page, skip_synopsis):
+    expand = "typeName,sysTags,latestChapter"
+    if not skip_synopsis:
+        expand += ",intro"
+    return {
+        "page": page,
+        "size": PAGE_SIZE,
+        "sort": "novelid",
+        "expand": expand,
+    }
+
+
+def get_worker_session():
+    """Return one requests session per worker thread."""
+    session = getattr(THREAD_LOCAL, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.headers.update(HEADERS)
+        THREAD_LOCAL.session = session
+    return session
+
+
+def fetch_generic_page(page, skip_synopsis):
+    session = get_worker_session()
+    try:
+        r = session.get(API_URL, params=build_generic_params(page, skip_synopsis), timeout=15)
+        if r.status_code != 200:
+            return page, None, f"HTTP {r.status_code}"
+
+        data = r.json()
+        if data.get("status", {}).get("httpCode", 200) != 200:
+            msg = data.get("status", {}).get("msg") or data.get("status", {})
+            return page, None, f"API error {msg}"
+
+        return page, data.get("data") or [], None
+    except Exception as e:
+        return page, None, str(e)
+
+
 def scrape_rankings(session):
     """Scrape ranking lists from SFACG mobile site."""
     rankings = {}  # category_slug -> {novel_id_str: rank_position}
@@ -322,11 +365,86 @@ def fetch_broad_item_for_novel(session, novel, skip_synopsis=False):
     return None
 
 
+def scrape_generic_catalog(args, rankings):
+    """Scrape the dense /novels endpoint in parallel by page number."""
+    all_novels = {}
+    generic_pages = 0
+    empty_count = 0
+    error_count = 0
+    stop_scrape = False
+    workers = max(1, args.generic_workers)
+    batch_size = max(workers, workers * 10)
+
+    print(
+        f"\nScraping generic /novels catalog in parallel "
+        f"({PAGE_SIZE}/page, max {args.max_pages} pages, {workers} workers)..."
+    )
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        next_page = 0
+        while next_page < args.max_pages and not stop_scrape:
+            batch_pages = list(range(next_page, min(next_page + batch_size, args.max_pages)))
+            futures = {
+                executor.submit(fetch_generic_page, page, args.skip_synopsis): page
+                for page in batch_pages
+            }
+            results = {}
+            for future in as_completed(futures):
+                page, items, error = future.result()
+                results[page] = (items, error)
+
+            for page in batch_pages:
+                items, error = results.get(page, (None, "missing result"))
+                generic_pages += 1
+
+                if error:
+                    error_count += 1
+                    print(f"  Generic page {page}: {error}")
+                    if error_count >= workers * 3 and not all_novels:
+                        print("  Too many generic errors before any rows were scraped; stopping generic sweep")
+                        stop_scrape = True
+                        break
+                    continue
+
+                error_count = 0
+                if not items:
+                    empty_count += 1
+                    if empty_count >= 3:
+                        print(f"\n  3 consecutive empty generic pages at {page}, done")
+                        stop_scrape = True
+                        break
+                    continue
+
+                empty_count = 0
+                for item in items:
+                    novel = novel_item_to_dict(item, skip_synopsis=args.skip_synopsis)
+                    if not novel:
+                        continue
+                    all_novels[novel["id"]] = novel
+
+                if (page + 1) % 50 == 0:
+                    print(f"  Generic page {page + 1}: {len(all_novels):,} novels", flush=True)
+
+                # Autosaves must not newly tag deleted rows while this scrape is partial.
+                if (page + 1) % 500 == 0 and all_novels:
+                    save_novels(merge_with_existing_novels(all_novels, tag_deleted=False), rankings)
+                    print(f"  [generic auto-saved {len(all_novels):,} novels]", flush=True)
+
+            next_page += len(batch_pages)
+            if args.delay > 0 and not stop_scrape:
+                time.sleep(args.delay)
+
+    print(f"\nGeneric sweep scraped: {len(all_novels):,} novels from {generic_pages:,} page requests")
+    return all_novels, generic_pages
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Scrape SFACG novels")
     parser.add_argument("--delay", type=float, default=0.3, help="Delay between requests")
-    parser.add_argument("--max-pages", type=int, default=9999, help="Max broad page requests to fetch")
+    parser.add_argument("--max-pages", type=int, default=9999, help="Max page requests per catalog pass")
+    parser.add_argument("--generic-workers", type=int, default=GENERIC_WORKERS,
+                        help="Parallel workers for the generic /novels sweep")
     parser.add_argument("--skip-synopsis", action="store_true", help="Skip synopsis scraping")
     args = parser.parse_args()
 
@@ -349,15 +467,17 @@ def main():
     # === Phase 1: Scrape rankings first ===
     rankings = scrape_rankings(session)
 
-    # === Phase 2: Scrape full catalog through broad type buckets ===
-    all_novels = {}
+    # === Phase 2: Scrape full catalog through the dense generic API sweep ===
+    all_novels, generic_pages = scrape_generic_catalog(args, rankings)
+
+    # === Phase 3: Add anything recoverable through broad type buckets ===
     type_rows = fetch_novel_types(session)
     ranges = char_count_ranges()
     pages_fetched = 0
     stop_scrape = False
 
     print(
-        f"\nScraping all novels via {len(type_rows)} type buckets, "
+        f"\nScraping additional novels via {len(type_rows)} type buckets, "
         f"{len(ranges)} char-count ranges, {PAGE_SIZE}/page "
         f"(max {args.max_pages} pages)..."
     )
@@ -426,10 +546,10 @@ def main():
                             flush=True,
                         )
 
-                    # Auto-save every 500 page requests to prevent data loss.
+                    # Autosaves must not newly tag deleted rows while this scrape is partial.
                     if pages_fetched % 500 == 0 and all_novels:
-                        save_novels(merge_with_existing_novels(all_novels), rankings)
-                        print(f"    [auto-saved {len(all_novels):,} novels]", flush=True)
+                        save_novels(merge_with_existing_novels(all_novels, tag_deleted=False), rankings)
+                        print(f"    [bucket auto-saved {len(all_novels):,} novels]", flush=True)
 
                     page += 1
                     time.sleep(args.delay)
@@ -459,7 +579,10 @@ def main():
             flush=True,
         )
 
-    print(f"\nScraped: {len(all_novels):,} novels from {pages_fetched:,} broad page requests")
+    print(
+        f"\nCombined scrape before preserve/delete merge: {len(all_novels):,} novels "
+        f"({generic_pages:,} generic page requests, {pages_fetched:,} broad page requests)"
+    )
 
     if not all_novels:
         print("No novels found!")
@@ -468,7 +591,7 @@ def main():
     all_novels = merge_with_existing_novels(all_novels)
     print(f"Total after preserving existing unique novels: {len(all_novels):,}")
 
-    # === Phase 3: Recheck ranked synopses through broad buckets if needed ===
+    # === Phase 4: Recheck ranked synopses through broad buckets if needed ===
     if not args.skip_synopsis:
         all_ranked_ids = set()
         for slug, rank_map in rankings.items():
