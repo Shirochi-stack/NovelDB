@@ -6715,8 +6715,9 @@
 
 
     function parseNovels(raw, sourceName, cfg) {
-        // SFACG format (18 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
-        //                            popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis]
+        // SFACG format (18-21 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
+        //                               popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank,
+        //                               synopsis, latestChapterTitle, latestChapterId, latestChapterTime]
         // Novelpia/Kakao format (13+ fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank, ...]
         const sfacg = cfg.sfacgRanks;
         return raw.map((r) => {
@@ -6724,7 +6725,7 @@
             if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
             const tagKeys = makeNovelTagKeys(tags);
             if (sfacg) {
-                // SFACG: index 10=age, 11-14=ranks, 15=synopsis
+                // SFACG: index 10=age, 11-16=ranks, 17=synopsis, 18-20=latest chapter
                 return {
                     id: r[0],
                     title: r[1] || "",
@@ -6747,6 +6748,9 @@
                     jpRank: r[15] || 0,
                     ticketRank: r[16] || 0,
                     synopsis: r[17] ? String(r[17]).replace(/\\n/g, "\n") : "",
+                    latestChapterTitle: r[18] || "",
+                    latestChapterId: r[19] || 0,
+                    latestChapterTime: r[20] || "",
                     titleEn: "",
                     source: sourceName,
                     _tagKeys: tagKeys,

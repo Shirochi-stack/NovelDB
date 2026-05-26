@@ -72,7 +72,8 @@ def broad_context_from_row(row):
 def rescrape_metadata(session, ranked_ids, existing_rows):
     """Fetch fresh metadata for ranked novels from broad SFACG buckets.
 
-    Returns dict: {novel_id_str: {title, author, cover, tags, views, likes, chapters, complete, updated, age, synopsis}}
+    Returns dict: {novel_id_str: {title, author, cover, tags, views, likes, chapters,
+    complete, updated, age, synopsis, latest chapter fields}}
     """
     fresh = {}
     for i, nid in enumerate(sorted(ranked_ids, key=int)):
@@ -102,6 +103,9 @@ def rescrape_metadata(session, ranked_ids, existing_rows):
                 "updated": data.get("updated", ""),
                 "age": data.get("age", 0),
                 "synopsis": data.get("synopsis", ""),
+                "latest_chapter_title": data.get("latest_chapter_title", ""),
+                "latest_chapter_id": data.get("latest_chapter_id", 0),
+                "latest_chapter_time": data.get("latest_chapter_time", ""),
             }
         except Exception as e:
             print(f"  Warning: failed to refresh {nid}: {e}")
@@ -157,9 +161,9 @@ def main():
     patched = 0
     for i, entry in enumerate(data):
         nid = str(entry[0])
-        # Ensure entry has at least 18 fields
-        while len(entry) < 18:
-            entry.append(0 if len(entry) < 17 else "")
+        # Ensure entry has at least 21 fields
+        while len(entry) < 21:
+            entry.append(0 if len(entry) == 19 else "")
 
         # Update metadata if we have fresh data
         if nid in fresh_data:
@@ -176,6 +180,9 @@ def main():
             entry[10] = f["age"]
             if f["synopsis"]:
                 entry[17] = f["synopsis"]
+            entry[18] = f["latest_chapter_title"]
+            entry[19] = f["latest_chapter_id"]
+            entry[20] = f["latest_chapter_time"]
 
         # Patch rankings
         entry[11] = rankings.get("original", {}).get(nid, 0)

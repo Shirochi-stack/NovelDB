@@ -99,6 +99,9 @@ def novel_row_to_dict(row):
         "updated": row[9] if len(row) > 9 else "",
         "age": row[10] if len(row) > 10 else 0,
         "synopsis": row[17] if len(row) > 17 else "",
+        "latest_chapter_title": row[18] if len(row) > 18 else "",
+        "latest_chapter_id": row[19] if len(row) > 19 else 0,
+        "latest_chapter_time": row[20] if len(row) > 20 else "",
     }
 
 
@@ -207,6 +210,7 @@ def novel_item_to_dict(item, skip_synopsis=False):
     synopsis = ""
     if not skip_synopsis:
         synopsis = normalize_intro(expand.get("intro", ""))
+    latest_chapter = expand.get("latestChapter") or {}
 
     return {
         "id": nid,
@@ -223,11 +227,14 @@ def novel_item_to_dict(item, skip_synopsis=False):
         "updated": item.get("lastUpdateTime", ""),
         "age": 19 if item.get("allowDown", 0) == 0 else 0,
         "synopsis": synopsis,
+        "latest_chapter_title": latest_chapter.get("title", ""),
+        "latest_chapter_id": latest_chapter.get("chapId", 0),
+        "latest_chapter_time": latest_chapter.get("addTime", ""),
     }
 
 
 def build_broad_params(page, begin, end, skip_synopsis):
-    expand = "typeName,tags,sysTags"
+    expand = "typeName,tags,sysTags,latestChapter"
     if not skip_synopsis:
         expand += ",intro"
     return {
@@ -483,12 +490,14 @@ def main():
 def save_novels(all_novels, rankings=None):
     """Save novels to disk.
 
-    Output format per entry (up to 18 fields, trailing zeros stripped):
+    Output format per entry (up to 21 fields, trailing zeros stripped):
         [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
-         popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis]
+         popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis,
+         latestChapterTitle, latestChapterId, latestChapterTime]
 
     Indices 11-16 are SFACG ranking positions (1-20, or 0 if unranked).
     Index 17 is the Chinese synopsis string.
+    Indices 18-20 are optional latest chapter metadata.
     """
     if rankings is None:
         rankings = {}
@@ -512,6 +521,9 @@ def save_novels(all_novels, rankings=None):
         jp_rank = rankings.get("jp", {}).get(nid, 0)
         ticket_rank = rankings.get("ticket", {}).get(nid, 0)
         synopsis = n.get("synopsis", "")
+        latest_chapter_title = n.get("latest_chapter_title", "")
+        latest_chapter_id = n.get("latest_chapter_id", 0)
+        latest_chapter_time = n.get("latest_chapter_time", "")
 
         entry = [
             nid, n["title"], n["author"], cover,
@@ -520,6 +532,7 @@ def save_novels(all_novels, rankings=None):
             n.get("updated", ""), n.get("age", 0),
             pop_rank, sale_rank, new_rank, bm_rank,
             jp_rank, ticket_rank, synopsis,
+            latest_chapter_title, latest_chapter_id, latest_chapter_time,
         ]
         # Strip trailing zeros/empty values to save space
         while entry and (entry[-1] == 0 or entry[-1] == "" or entry[-1] == []):

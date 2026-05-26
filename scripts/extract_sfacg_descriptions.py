@@ -67,7 +67,8 @@ def main():
     existing_rows = load_existing_rows()
 
     # SFACG format: [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
-    #                 popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis]
+    #                 popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank,
+    #                 synopsis, latestChapterTitle, latestChapterId, latestChapterTime]
     # Synopsis is at index 17
     count = 0
     translated = []
