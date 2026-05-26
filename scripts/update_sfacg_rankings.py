@@ -1,7 +1,7 @@
 """Scrape SFACG rankings and patch them into existing sfacg_novels.json.
 
-Also rescrapes full metadata (cover, title, views, etc.) for all ranked novels
-so that data stays fresh.
+Also refreshes full metadata (cover, title, views, etc.) for ranked novels
+through their broad SFACG type/char-count buckets so that data stays fresh.
 
 Updates sfacg_novels.json in-place, then re-extracts descriptions,
 re-chunks data, and rebuilds the top file.
@@ -11,6 +11,8 @@ Usage:
 """
 
 import sys, os, json, time, re, requests
+
+import scrape_sfacg as sfacg
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -22,7 +24,6 @@ RANK_CATEGORIES = [
     ("jp",       "JP Light Novels"),
 ]
 
-API_URL = "https://api.sfacg.com/novels"
 HEADERS = {
     "User-Agent": "boluobao/5.0.36(android;34)/H5/{}/H5",
     "Accept": "application/json",
@@ -30,6 +31,10 @@ HEADERS = {
 }
 
 COVER_PREFIX = "https://rss.sfacg.com/web/novel/images/NovelCover/Big/"
+TYPE_NAME_TO_ID = {
+    item["typeName"]: int(item["typeId"])
+    for item in sfacg.FALLBACK_NOVEL_TYPES
+}
 
 
 def scrape_rankings():
@@ -50,52 +55,56 @@ def scrape_rankings():
     return rankings
 
 
-def rescrape_metadata(session, ranked_ids):
-    """Fetch fresh metadata for ranked novels from the SFACG API.
+def broad_context_from_row(row):
+    tags = row[4] if len(row) > 4 and isinstance(row[4], list) else []
+    type_name = tags[0] if tags else ""
+    type_id = TYPE_NAME_TO_ID.get(type_name)
+    char_count = row[7] if len(row) > 7 else None
+    if not type_id or char_count is None:
+        return None
+    return {
+        "id": str(row[0]),
+        "type_id": type_id,
+        "chapters": char_count,
+    }
+
+
+def rescrape_metadata(session, ranked_ids, existing_rows):
+    """Fetch fresh metadata for ranked novels from broad SFACG buckets.
 
     Returns dict: {novel_id_str: {title, author, cover, tags, views, likes, chapters, complete, updated, age, synopsis}}
     """
     fresh = {}
     for i, nid in enumerate(sorted(ranked_ids, key=int)):
         try:
-            r = session.get(f"{API_URL}/{nid}",
-                            params={"expand": "intro,sysTags,typeName"},
-                            timeout=10)
-            data = r.json().get("data", {})
+            context = broad_context_from_row(existing_rows.get(str(nid), []))
+            if not context:
+                print(f"  Warning: no broad bucket context for ranked novel {nid}")
+                continue
+            data = sfacg.fetch_broad_item_for_novel(session, context)
             if not data:
+                print(f"  Warning: ranked novel {nid} missing from broad bucket")
                 continue
 
-            expand = data.get("expand", {})
-            sys_tags = expand.get("sysTags") or []
-            tag_names = [t.get("tagName", "") for t in sys_tags if t.get("tagName")]
-            type_name = expand.get("typeName", "")
-            if type_name and type_name not in tag_names:
-                tag_names.insert(0, type_name)
-
-            cover = data.get("novelCover", "")
+            cover = data.get("cover", "")
             if cover.startswith(COVER_PREFIX):
                 cover = cover[len(COVER_PREFIX):]
 
-            synopsis = expand.get("intro", "")
-            if synopsis:
-                synopsis = synopsis.replace("\r\n", "\n").replace("\r", "\n")
-                synopsis = re.sub(r"\n{3,}", "\n\n", synopsis).strip()
-
             fresh[str(nid)] = {
-                "title": data.get("novelName", ""),
-                "author": data.get("authorName", ""),
+                "title": data.get("title", ""),
+                "author": data.get("author", ""),
                 "cover": cover,
-                "tags": tag_names,
-                "views": data.get("viewTimes", 0),
-                "likes": data.get("markCount", 0),
-                "chapters": data.get("charCount", 0),
-                "complete": 1 if data.get("isFinish", False) else 0,
-                "updated": data.get("lastUpdateTime", ""),
-                "age": 19 if data.get("allowDown", 0) == 0 else 0,
-                "synopsis": synopsis,
+                "tags": data.get("tags", []),
+                "views": data.get("views", 0),
+                "likes": data.get("likes", 0),
+                "chapters": data.get("chapters", 0),
+                "complete": data.get("complete", 0),
+                "updated": data.get("updated", ""),
+                "age": data.get("age", 0),
+                "synopsis": data.get("synopsis", ""),
             }
         except Exception as e:
-            print(f"  Warning: failed to fetch {nid}: {e}")
+            print(f"  Warning: failed to refresh {nid}: {e}")
 
         if (i + 1) % 20 == 0:
             print(f"  Fetched {i+1}/{len(ranked_ids)} novels...", flush=True)
@@ -127,8 +136,11 @@ def main():
     session = requests.Session()
     session.headers.update(HEADERS)
 
+    # Broad bucket refresh needs the local row's type + char count context.
+    rows_by_id = {str(e[0]): e for e in data if e}
+
     print(f"\nRescraping metadata for {len(all_ranked)} ranked novels...")
-    fresh_data = rescrape_metadata(session, all_ranked)
+    fresh_data = rescrape_metadata(session, all_ranked, rows_by_id)
     print(f"  Got fresh data for {len(fresh_data)} novels")
 
     # Build ID -> index map

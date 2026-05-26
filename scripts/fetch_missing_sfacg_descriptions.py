@@ -1,7 +1,8 @@
 """Fetch missing SFACG descriptions from the API.
 
 Identifies novels in sfacg_novels.json that are NOT in sfacg_descriptions.txt,
-fetches their synopsis from the SFACG API, and appends them to the descriptions file.
+fetches their synopsis from SFACG's broad type/char-count API buckets, and
+appends them to the descriptions file.
 
 Usage:
     python scripts/fetch_missing_sfacg_descriptions.py
@@ -18,9 +19,10 @@ import time
 
 import requests
 
+import scrape_sfacg as sfacg
+
 sys.stdout.reconfigure(encoding="utf-8")
 
-API_URL = "https://api.sfacg.com/novels"
 HEADERS = {
     "User-Agent": "boluobao/5.0.36(android;34)/H5/{}/H5",
     "Accept": "application/json",
@@ -29,6 +31,10 @@ HEADERS = {
 
 DATA = os.path.join("docs", "data", "sfacg_novels.json")
 DESC = os.path.join("docs", "data", "sfacg_descriptions.txt")
+TYPE_NAME_TO_ID = {
+    item["typeName"]: int(item["typeId"])
+    for item in sfacg.FALLBACK_NOVEL_TYPES
+}
 
 
 def ensure_descriptions_txt():
@@ -47,17 +53,30 @@ def normalize_intro(intro):
     return intro.replace("\n", "\\n")
 
 
-def fetch_one(nid):
+def broad_context_from_row(row):
+    tags = row[4] if len(row) > 4 and isinstance(row[4], list) else []
+    type_name = tags[0] if tags else ""
+    type_id = TYPE_NAME_TO_ID.get(type_name)
+    char_count = row[7] if len(row) > 7 else None
+    if not type_id or char_count is None:
+        return None
+    return {
+        "id": str(row[0]),
+        "type_id": type_id,
+        "chapters": char_count,
+    }
+
+
+def fetch_one(nid, context):
     session = requests.Session()
     session.headers.update(HEADERS)
     try:
-        r = session.get(f"{API_URL}/{nid}", params={"expand": "intro"}, timeout=10)
-        if r.status_code == 404:
-            return nid, None, "missing"
-        r.raise_for_status()
-        data = r.json()
-        novel = data.get("data", {})
-        intro = novel.get("expand", {}).get("intro", "")
+        if not context:
+            return nid, None, "missing broad context"
+        novel = sfacg.fetch_broad_item_for_novel(session, context)
+        if not novel:
+            return nid, None, "missing from broad bucket"
+        intro = novel.get("synopsis", "")
         return nid, normalize_intro(intro) if intro else "N/A", None
     except Exception as exc:
         return nid, None, str(exc)
@@ -77,7 +96,8 @@ def main():
     # Load all novel IDs from JSON
     with open(DATA, "r", encoding="utf-8") as f:
         novels = json.load(f)
-    all_ids = {str(n[0]) for n in novels if n}
+    novel_rows = {str(n[0]): n for n in novels if n}
+    all_ids = set(novel_rows)
     print(f"Total novels in JSON: {len(all_ids)}", flush=True)
 
     # Load existing description IDs
@@ -120,7 +140,8 @@ def main():
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = []
                 for nid in batch:
-                    futures.append(executor.submit(fetch_one, nid))
+                    context = broad_context_from_row(novel_rows.get(nid, []))
+                    futures.append(executor.submit(fetch_one, nid, context))
                     if args.delay > 0:
                         time.sleep(args.delay)
 

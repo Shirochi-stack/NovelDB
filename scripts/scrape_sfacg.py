@@ -1,13 +1,15 @@
 """Scrape SFACG (SF轻小说) novel metadata for the NovelDB site.
 
-Uses the SFACG public API to fetch ALL novel listings via deep pagination.
-No category filter — just paginate through the entire catalog.
+Uses SFACG's public API to fetch novel listings through broad type/category
+calls. The generic /novels list can omit older de-indexed rows that still
+appear in their category buckets, so the scraper partitions by type + char
+count instead of patching gaps with direct ID fetches.
 Also scrapes rankings from the mobile site and synopses from the API.
 
 Usage:
     python scripts/scrape_sfacg.py
     python scripts/scrape_sfacg.py --delay 0.2
-    python scripts/scrape_sfacg.py --max-pages 5   # quick test
+    python scripts/scrape_sfacg.py --max-pages 5   # quick smoke test
 
 Output: docs/data/sfacg_novels.json
 """
@@ -17,8 +19,11 @@ import sys, os, json, time, re, requests
 sys.stdout.reconfigure(encoding='utf-8')
 
 API_URL = "https://api.sfacg.com/novels"
+NOVEL_TYPES_URL = "https://api.sfacg.com/novelTypes"
+TYPE_NOVELS_URL = "https://api.sfacg.com/novels/{type_id}/sysTags/novels"
 SFACG_NOVELS_PATH = os.path.join("docs", "data", "sfacg_novels.json")
 DELETED_TAG = "deleted"
+PAGE_SIZE = 50
 
 HEADERS = {
     "User-Agent": "boluobao/5.0.36(android;34)/H5/{}/H5",
@@ -34,6 +39,44 @@ RANK_CATEGORIES = [
     ("bm",       "Bookmarks"),
     ("jp",       "JP Light Novels"),
 ]
+
+# /novelTypes currently omits type 28, but the type bucket exists and contains
+# the large 同人 catalog. Keep this fallback so a changed type response does not
+# silently drop that bucket.
+FALLBACK_NOVEL_TYPES = [
+    {"typeId": 21, "typeName": "魔幻"},
+    {"typeId": 22, "typeName": "玄幻"},
+    {"typeId": 23, "typeName": "古风"},
+    {"typeId": 24, "typeName": "科幻"},
+    {"typeId": 25, "typeName": "校园"},
+    {"typeId": 26, "typeName": "都市"},
+    {"typeId": 27, "typeName": "游戏"},
+    {"typeId": 28, "typeName": "同人"},
+    {"typeId": 29, "typeName": "悬疑"},
+]
+
+
+def char_count_ranges():
+    """Ranges used to make broad SFACG type calls deep enough for old rows."""
+    ranges = []
+    for start in range(0, 200_000, 10_000):
+        ranges.append((start, start + 9_999))
+    for start in range(200_000, 1_000_000, 100_000):
+        ranges.append((start, start + 99_999))
+    ranges.extend([
+        (1_000_000, 1_499_999),
+        (1_500_000, 1_999_999),
+        (2_000_000, 2_999_999),
+        (3_000_000, 4_999_999),
+        (5_000_000, 0),
+    ])
+    return ranges
+
+
+def range_label(begin, end):
+    if end == 0:
+        return f"{begin:,}+"
+    return f"{begin:,}-{end:,}"
 
 
 def novel_row_to_dict(row):
@@ -59,8 +102,10 @@ def novel_row_to_dict(row):
     }
 
 
-def load_existing_novels(path=SFACG_NOVELS_PATH):
+def load_existing_novels(path=None):
     """Load the existing SFACG catalog so old-only entries are preserved."""
+    if path is None:
+        path = SFACG_NOVELS_PATH
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8") as f:
@@ -76,8 +121,10 @@ def load_existing_novels(path=SFACG_NOVELS_PATH):
     return novels
 
 
-def merge_with_existing_novels(scraped_novels, path=SFACG_NOVELS_PATH):
+def merge_with_existing_novels(scraped_novels, path=None):
     """Preserve old-only rows while letting freshly scraped rows win."""
+    if path is None:
+        path = SFACG_NOVELS_PATH
     existing = load_existing_novels(path)
     if not existing:
         return scraped_novels
@@ -100,6 +147,101 @@ def merge_with_existing_novels(scraped_novels, path=SFACG_NOVELS_PATH):
         f"{len(preserved_ids):,} old-only preserved/tagged {DELETED_TAG!r}"
     )
     return merged
+
+
+def fetch_novel_types(session):
+    """Fetch SFACG type IDs, with a local fallback for omitted live buckets."""
+    types_by_id = {}
+    try:
+        r = session.get(NOVEL_TYPES_URL, timeout=10)
+        data = r.json()
+        if data.get("status", {}).get("httpCode") == 200:
+            for item in data.get("data") or []:
+                type_id = item.get("typeId")
+                if type_id is None:
+                    continue
+                types_by_id[int(type_id)] = {
+                    "typeId": int(type_id),
+                    "typeName": item.get("typeName", str(type_id)),
+                }
+    except Exception as e:
+        print(f"  Warning: failed to fetch SFACG novel types: {e}")
+
+    for item in FALLBACK_NOVEL_TYPES:
+        types_by_id.setdefault(int(item["typeId"]), item)
+
+    return [types_by_id[type_id] for type_id in sorted(types_by_id)]
+
+
+def normalize_intro(intro):
+    if not intro:
+        return ""
+    intro = intro.replace("\r\n", "\n").replace("\r", "\n")
+    return re.sub(r"\n{3,}", "\n\n", intro).strip()
+
+
+def extract_tag_names(expand):
+    tag_names = []
+    type_name = expand.get("typeName", "")
+    if type_name:
+        tag_names.append(type_name)
+
+    for key in ("sysTags", "tags"):
+        for tag in expand.get(key) or []:
+            if isinstance(tag, dict):
+                name = tag.get("tagName") or tag.get("name")
+            else:
+                name = str(tag)
+            if name and name not in tag_names:
+                tag_names.append(name)
+
+    return tag_names
+
+
+def novel_item_to_dict(item, skip_synopsis=False):
+    nid = str(item.get("novelId", "")).strip()
+    if not nid:
+        return None
+
+    expand = item.get("expand", {}) or {}
+    synopsis = ""
+    if not skip_synopsis:
+        synopsis = normalize_intro(expand.get("intro", ""))
+
+    return {
+        "id": nid,
+        "title": item.get("novelName", ""),
+        "author": item.get("authorName", ""),
+        "author_id": item.get("authorId"),
+        "type_id": item.get("typeId"),
+        "cover": item.get("novelCover", ""),
+        "tags": extract_tag_names(expand),
+        "views": item.get("viewTimes", 0),
+        "likes": item.get("markCount", 0),
+        "chapters": item.get("charCount", 0),
+        "complete": 1 if item.get("isFinish", False) else 0,
+        "updated": item.get("lastUpdateTime", ""),
+        "age": 19 if item.get("allowDown", 0) == 0 else 0,
+        "synopsis": synopsis,
+    }
+
+
+def build_broad_params(page, begin, end, skip_synopsis):
+    expand = "typeName,tags,sysTags"
+    if not skip_synopsis:
+        expand += ",intro"
+    return {
+        "sort": "latest",
+        "systagids": "",
+        "isfree": "both",
+        "isfinish": "both",
+        "updatedays": -1,
+        "charcountbegin": begin,
+        "charcountend": end,
+        "page": page,
+        "size": PAGE_SIZE,
+        "expand": expand,
+    }
 
 
 def scrape_rankings(session):
@@ -139,27 +281,45 @@ def scrape_rankings(session):
     return rankings
 
 
-def fetch_synopsis(session, novel_id):
-    """Fetch synopsis for a single novel via API."""
+def fetch_broad_item_for_novel(session, novel, skip_synopsis=False):
+    """Refresh a known novel through its broad type/char-count bucket."""
+    type_id = novel.get("type_id")
+    char_count = novel.get("chapters")
+    if not type_id or char_count is None:
+        return None
+
     try:
-        r = session.get(f"{API_URL}/{novel_id}", params={"expand": "intro"}, timeout=10)
-        data = r.json()
-        novel = data.get("data", {})
-        intro = novel.get("expand", {}).get("intro", "")
-        if intro:
-            # Normalize newlines
-            intro = intro.replace("\r\n", "\n").replace("\r", "\n")
-            intro = re.sub(r"\n{3,}", "\n\n", intro).strip()
-        return intro
-    except Exception:
-        return ""
+        char_count = int(char_count)
+    except (TypeError, ValueError):
+        return None
+
+    url = TYPE_NOVELS_URL.format(type_id=int(type_id))
+    for page in range(20):
+        params = build_broad_params(page, char_count, char_count, skip_synopsis)
+        try:
+            r = session.get(url, params=params, timeout=15)
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            items = data.get("data") or []
+            if not items:
+                return None
+            for item in items:
+                if str(item.get("novelId", "")) == str(novel.get("id", "")):
+                    return novel_item_to_dict(item, skip_synopsis=skip_synopsis)
+            if len(items) < PAGE_SIZE:
+                return None
+        except Exception:
+            return None
+
+    return None
 
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Scrape SFACG novels")
     parser.add_argument("--delay", type=float, default=0.3, help="Delay between requests")
-    parser.add_argument("--max-pages", type=int, default=9999, help="Max pages to fetch")
+    parser.add_argument("--max-pages", type=int, default=9999, help="Max broad page requests to fetch")
     parser.add_argument("--skip-synopsis", action="store_true", help="Skip synopsis scraping")
     args = parser.parse_args()
 
@@ -182,95 +342,117 @@ def main():
     # === Phase 1: Scrape rankings first ===
     rankings = scrape_rankings(session)
 
-    # === Phase 2: Scrape full catalog ===
+    # === Phase 2: Scrape full catalog through broad type buckets ===
     all_novels = {}
-    empty_count = 0
+    type_rows = fetch_novel_types(session)
+    ranges = char_count_ranges()
+    pages_fetched = 0
+    stop_scrape = False
 
-    print(f"\nScraping all novels (50/page, max {args.max_pages} pages)...")
+    print(
+        f"\nScraping all novels via {len(type_rows)} type buckets, "
+        f"{len(ranges)} char-count ranges, {PAGE_SIZE}/page "
+        f"(max {args.max_pages} pages)..."
+    )
 
-    for page in range(args.max_pages):
-        try:
-            params = {
-                "page": page,
-                "size": 50,
-                "sort": "novelid",  # Sequential by ID for full coverage
-                "expand": "typeName,sysTags",
-            }
-            # Add intro expand for synopsis (on every page)
-            if not args.skip_synopsis:
-                params["expand"] += ",intro"
+    for type_row in type_rows:
+        if stop_scrape:
+            break
 
-            r = session.get(API_URL, params=params, timeout=15)
+        type_id = int(type_row["typeId"])
+        type_name = type_row.get("typeName", str(type_id))
+        type_start_count = len(all_novels)
+        print(f"\n  Type {type_id} {type_name}...")
 
-            if r.status_code != 200:
-                print(f"\n  HTTP {r.status_code} at page {page}, stopping")
+        for begin, end in ranges:
+            if stop_scrape:
                 break
 
-            data = r.json()
-            if data.get("status", {}).get("httpCode", 200) != 200:
-                print(f"\n  API error at page {page}: {data.get('status', {}).get('msg')}")
-                break
+            url = TYPE_NOVELS_URL.format(type_id=type_id)
+            page = 0
+            range_rows = 0
+            range_new = 0
 
-            items = data.get("data") or []
-            if not items:
-                empty_count += 1
-                if empty_count >= 3:
-                    print(f"\n  3 consecutive empty pages at {page}, done")
+            while pages_fetched < args.max_pages:
+                try:
+                    params = build_broad_params(page, begin, end, args.skip_synopsis)
+                    r = session.get(url, params=params, timeout=15)
+
+                    if r.status_code != 200:
+                        print(
+                            f"    {range_label(begin, end)} page {page}: "
+                            f"HTTP {r.status_code}, stopping range"
+                        )
+                        break
+
+                    data = r.json()
+                    if data.get("status", {}).get("httpCode", 200) != 200:
+                        print(
+                            f"    {range_label(begin, end)} page {page}: "
+                            f"API error {data.get('status', {}).get('msg')}, stopping range"
+                        )
+                        break
+
+                    items = data.get("data") or []
+                    pages_fetched += 1
+
+                    if not items:
+                        break
+
+                    range_rows += len(items)
+                    for item in items:
+                        novel = novel_item_to_dict(item, skip_synopsis=args.skip_synopsis)
+                        if not novel:
+                            continue
+                        nid = novel["id"]
+                        if nid not in all_novels:
+                            range_new += 1
+                        all_novels[nid] = novel
+
+                    if len(items) < PAGE_SIZE:
+                        break
+
+                    if pages_fetched % 50 == 0:
+                        print(
+                            f"    Page requests {pages_fetched}: "
+                            f"{len(all_novels):,} novels",
+                            flush=True,
+                        )
+
+                    # Auto-save every 500 page requests to prevent data loss.
+                    if pages_fetched % 500 == 0 and all_novels:
+                        save_novels(merge_with_existing_novels(all_novels), rankings)
+                        print(f"    [auto-saved {len(all_novels):,} novels]", flush=True)
+
+                    page += 1
+                    time.sleep(args.delay)
+
+                except Exception as e:
+                    print(f"    Error in {range_label(begin, end)} page {page}: {e}")
+                    time.sleep(2)
                     break
-                continue
-            else:
-                empty_count = 0
 
-            for item in items:
-                nid = str(item.get("novelId", ""))
-                if not nid or nid in all_novels:
-                    continue
+            if range_rows:
+                print(
+                    f"    {range_label(begin, end)}: "
+                    f"{range_rows:,} rows, {range_new:,} new "
+                    f"(total {len(all_novels):,})",
+                    flush=True,
+                )
 
-                expand = item.get("expand", {})
-                sys_tags = expand.get("sysTags") or []
-                tag_names = [t.get("tagName", "") for t in sys_tags if t.get("tagName")]
-                type_name = expand.get("typeName", "")
-                if type_name and type_name not in tag_names:
-                    tag_names.insert(0, type_name)
+            if pages_fetched >= args.max_pages:
+                print(f"\n  Reached max page request limit ({args.max_pages}); stopping")
+                stop_scrape = True
+                break
 
-                # Synopsis from expand
-                synopsis = ""
-                if not args.skip_synopsis:
-                    intro = expand.get("intro", "")
-                    if intro:
-                        intro = intro.replace("\r\n", "\n").replace("\r", "\n")
-                        synopsis = re.sub(r"\n{3,}", "\n\n", intro).strip()
+        print(
+            f"  Type {type_id} complete: "
+            f"{len(all_novels) - type_start_count:,} new, "
+            f"{len(all_novels):,} total",
+            flush=True,
+        )
 
-                all_novels[nid] = {
-                    "id": nid,
-                    "title": item.get("novelName", ""),
-                    "author": item.get("authorName", ""),
-                    "cover": item.get("novelCover", ""),
-                    "tags": tag_names,
-                    "views": item.get("viewTimes", 0),
-                    "likes": item.get("markCount", 0),
-                    "chapters": item.get("charCount", 0),
-                    "complete": 1 if item.get("isFinish", False) else 0,
-                    "updated": item.get("lastUpdateTime", ""),
-                    "age": 19 if item.get("allowDown", 0) == 0 else 0,
-                    "synopsis": synopsis,
-                }
-
-            if (page + 1) % 50 == 0:
-                print(f"  Page {page+1}: {len(all_novels)} novels", flush=True)
-
-            # Auto-save every 500 pages to prevent data loss
-            if (page + 1) % 500 == 0 and all_novels:
-                save_novels(merge_with_existing_novels(all_novels), rankings)
-                print(f"  [auto-saved {len(all_novels)} novels]", flush=True)
-
-            time.sleep(args.delay)
-
-        except Exception as e:
-            print(f"\n  Error at page {page}: {e}")
-            time.sleep(2)
-
-    print(f"\nScraped: {len(all_novels)} novels")
+    print(f"\nScraped: {len(all_novels):,} novels from {pages_fetched:,} broad page requests")
 
     if not all_novels:
         print("No novels found!")
@@ -279,7 +461,7 @@ def main():
     all_novels = merge_with_existing_novels(all_novels)
     print(f"Total after preserving existing unique novels: {len(all_novels):,}")
 
-    # === Phase 3: Fetch synopsis for ranked novels that might be missing ===
+    # === Phase 3: Recheck ranked synopses through broad buckets if needed ===
     if not args.skip_synopsis:
         all_ranked_ids = set()
         for slug, rank_map in rankings.items():
@@ -288,11 +470,11 @@ def main():
         missing_synopsis = [nid for nid in all_ranked_ids
                            if nid in all_novels and not all_novels[nid].get("synopsis")]
         if missing_synopsis:
-            print(f"\nFetching synopsis for {len(missing_synopsis)} ranked novels missing synopsis...")
+            print(f"\nRefreshing {len(missing_synopsis)} ranked synopses via broad buckets...")
             for nid in missing_synopsis:
-                synopsis = fetch_synopsis(session, nid)
-                if synopsis:
-                    all_novels[nid]["synopsis"] = synopsis
+                refreshed = fetch_broad_item_for_novel(session, all_novels[nid])
+                if refreshed and refreshed.get("synopsis"):
+                    all_novels[nid].update(refreshed)
                 time.sleep(0.3)
 
     save_novels(all_novels, rankings)
