@@ -25,6 +25,8 @@ SFACG_NOVELS_PATH = os.path.join("docs", "data", "sfacg_novels.json")
 DELETED_TAG = "deleted"
 PAGE_SIZE = 50
 GENERIC_WORKERS = 8
+BROAD_WORKERS = 8
+BROAD_SORTS = ("latest", "viewtimes")
 
 HEADERS = {
     "User-Agent": "boluobao/5.0.36(android;34)/H5/{}/H5",
@@ -79,6 +81,10 @@ def range_label(begin, end):
     if end == 0:
         return f"{begin:,}+"
     return f"{begin:,}-{end:,}"
+
+
+def parse_csv(value):
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
 
 
 def novel_row_to_dict(row):
@@ -237,12 +243,12 @@ def novel_item_to_dict(item, skip_synopsis=False):
     }
 
 
-def build_broad_params(page, begin, end, skip_synopsis):
+def build_broad_params(page, begin, end, skip_synopsis, sort="latest"):
     expand = "typeName,tags,sysTags,latestChapter"
     if not skip_synopsis:
         expand += ",intro"
     return {
-        "sort": "latest",
+        "sort": sort,
         "systagids": "",
         "isfree": "both",
         "isfinish": "both",
@@ -281,6 +287,25 @@ def fetch_generic_page(page, skip_synopsis):
     session = get_worker_session()
     try:
         r = session.get(API_URL, params=build_generic_params(page, skip_synopsis), timeout=15)
+        if r.status_code != 200:
+            return page, None, f"HTTP {r.status_code}"
+
+        data = r.json()
+        if data.get("status", {}).get("httpCode", 200) != 200:
+            msg = data.get("status", {}).get("msg") or data.get("status", {})
+            return page, None, f"API error {msg}"
+
+        return page, data.get("data") or [], None
+    except Exception as e:
+        return page, None, str(e)
+
+
+def fetch_broad_page(type_id, sort, begin, end, page, skip_synopsis):
+    session = get_worker_session()
+    try:
+        url = TYPE_NOVELS_URL.format(type_id=type_id)
+        params = build_broad_params(page, begin, end, skip_synopsis, sort=sort)
+        r = session.get(url, params=params, timeout=15)
         if r.status_code != 200:
             return page, None, f"HTTP {r.status_code}"
 
@@ -445,8 +470,14 @@ def main():
     parser.add_argument("--max-pages", type=int, default=9999, help="Max page requests per catalog pass")
     parser.add_argument("--generic-workers", type=int, default=GENERIC_WORKERS,
                         help="Parallel workers for the generic /novels sweep")
+    parser.add_argument("--broad-workers", type=int, default=BROAD_WORKERS,
+                        help="Parallel page workers for broad type bucket sweeps")
+    parser.add_argument("--broad-sorts", default=",".join(BROAD_SORTS),
+                        help="Comma-separated sort orders for broad type bucket sweeps")
     parser.add_argument("--skip-synopsis", action="store_true", help="Skip synopsis scraping")
     args = parser.parse_args()
+    broad_sorts = parse_csv(args.broad_sorts) or list(BROAD_SORTS)
+    broad_workers = max(1, args.broad_workers)
 
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -478,9 +509,15 @@ def main():
 
     print(
         f"\nScraping additional novels via {len(type_rows)} type buckets, "
-        f"{len(ranges)} char-count ranges, {PAGE_SIZE}/page "
+        f"{len(ranges)} char-count ranges, {len(broad_sorts)} sort pass(es) "
+        f"({', '.join(broad_sorts)}), {PAGE_SIZE}/page, {broad_workers} workers "
         f"(max {args.max_pages} pages)..."
     )
+
+    broad_batch_size = max(broad_workers, broad_workers * 2)
+    next_progress_log = 50
+    next_autosave = 500
+    broad_executor = ThreadPoolExecutor(max_workers=broad_workers)
 
     for type_row in type_rows:
         if stop_scrape:
@@ -491,86 +528,114 @@ def main():
         type_start_count = len(all_novels)
         print(f"\n  Type {type_id} {type_name}...")
 
-        for begin, end in ranges:
+        for sort in broad_sorts:
             if stop_scrape:
                 break
 
-            url = TYPE_NOVELS_URL.format(type_id=type_id)
-            page = 0
-            range_rows = 0
-            range_new = 0
+            sort_start_count = len(all_novels)
+            print(f"    Sort pass: {sort}")
 
-            while pages_fetched < args.max_pages:
-                try:
-                    params = build_broad_params(page, begin, end, args.skip_synopsis)
-                    r = session.get(url, params=params, timeout=15)
+            for begin, end in ranges:
+                if stop_scrape:
+                    break
 
-                    if r.status_code != 200:
+                page = 0
+                range_rows = 0
+                range_new = 0
+
+                while pages_fetched < args.max_pages:
+                    remaining_pages = args.max_pages - pages_fetched
+                    batch_len = min(broad_batch_size, remaining_pages)
+                    batch_pages = list(range(page, page + batch_len))
+                    futures = {
+                        broad_executor.submit(
+                            fetch_broad_page,
+                            type_id,
+                            sort,
+                            begin,
+                            end,
+                            batch_page,
+                            args.skip_synopsis,
+                        ): batch_page
+                        for batch_page in batch_pages
+                    }
+                    results = {}
+                    for future in as_completed(futures):
+                        batch_page, items, error = future.result()
+                        results[batch_page] = (items, error)
+
+                    pages_fetched += len(batch_pages)
+                    stop_range = False
+
+                    for batch_page in batch_pages:
+                        items, error = results.get(batch_page, (None, "missing result"))
+                        if error:
+                            print(
+                                f"      [{sort}] {range_label(begin, end)} page {batch_page}: "
+                                f"{error}, stopping range"
+                            )
+                            stop_range = True
+                            break
+
+                        if not items:
+                            stop_range = True
+                            break
+
+                        range_rows += len(items)
+                        for item in items:
+                            novel = novel_item_to_dict(item, skip_synopsis=args.skip_synopsis)
+                            if not novel:
+                                continue
+                            nid = novel["id"]
+                            if nid not in all_novels:
+                                range_new += 1
+                            all_novels[nid] = novel
+
+                        if len(items) < PAGE_SIZE:
+                            stop_range = True
+                            break
+
+                    while pages_fetched >= next_progress_log:
                         print(
-                            f"    {range_label(begin, end)} page {page}: "
-                            f"HTTP {r.status_code}, stopping range"
-                        )
-                        break
-
-                    data = r.json()
-                    if data.get("status", {}).get("httpCode", 200) != 200:
-                        print(
-                            f"    {range_label(begin, end)} page {page}: "
-                            f"API error {data.get('status', {}).get('msg')}, stopping range"
-                        )
-                        break
-
-                    items = data.get("data") or []
-                    pages_fetched += 1
-
-                    if not items:
-                        break
-
-                    range_rows += len(items)
-                    for item in items:
-                        novel = novel_item_to_dict(item, skip_synopsis=args.skip_synopsis)
-                        if not novel:
-                            continue
-                        nid = novel["id"]
-                        if nid not in all_novels:
-                            range_new += 1
-                        all_novels[nid] = novel
-
-                    if len(items) < PAGE_SIZE:
-                        break
-
-                    if pages_fetched % 50 == 0:
-                        print(
-                            f"    Page requests {pages_fetched}: "
+                            f"      Page requests {pages_fetched}: "
                             f"{len(all_novels):,} novels",
                             flush=True,
                         )
+                        next_progress_log += 50
 
                     # Autosaves must not newly tag deleted rows while this scrape is partial.
-                    if pages_fetched % 500 == 0 and all_novels:
+                    if all_novels and pages_fetched >= next_autosave:
                         save_novels(merge_with_existing_novels(all_novels, tag_deleted=False), rankings)
-                        print(f"    [bucket auto-saved {len(all_novels):,} novels]", flush=True)
+                        print(f"      [bucket auto-saved {len(all_novels):,} novels]", flush=True)
+                        while pages_fetched >= next_autosave:
+                            next_autosave += 500
 
-                    page += 1
-                    time.sleep(args.delay)
+                    if stop_range:
+                        break
 
-                except Exception as e:
-                    print(f"    Error in {range_label(begin, end)} page {page}: {e}")
-                    time.sleep(2)
+                    page += len(batch_pages)
+                    if args.delay > 0:
+                        time.sleep(args.delay)
+
+                if range_rows:
+                    print(
+                        f"      [{sort}] {range_label(begin, end)}: "
+                        f"{range_rows:,} rows, {range_new:,} new "
+                        f"(total {len(all_novels):,})",
+                        flush=True,
+                    )
+
+                if pages_fetched >= args.max_pages:
+                    print(f"\n  Reached max page request limit ({args.max_pages}); stopping")
+                    stop_scrape = True
                     break
 
-            if range_rows:
-                print(
-                    f"    {range_label(begin, end)}: "
-                    f"{range_rows:,} rows, {range_new:,} new "
-                    f"(total {len(all_novels):,})",
-                    flush=True,
-                )
-
-            if pages_fetched >= args.max_pages:
-                print(f"\n  Reached max page request limit ({args.max_pages}); stopping")
-                stop_scrape = True
-                break
+            print(
+                f"    Sort {sort} complete: "
+                f"{len(all_novels) - sort_start_count:,} new, "
+                f"{len(all_novels):,} total",
+                flush=True,
+            )
 
         print(
             f"  Type {type_id} complete: "
@@ -578,6 +643,8 @@ def main():
             f"{len(all_novels):,} total",
             flush=True,
         )
+
+    broad_executor.shutdown(wait=True)
 
     print(
         f"\nCombined scrape before preserve/delete merge: {len(all_novels):,} novels "

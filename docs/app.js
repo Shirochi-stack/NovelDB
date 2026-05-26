@@ -5595,6 +5595,14 @@
             .replace(/[^a-z0-9\u3131-\uD79D\u4E00-\u9FFF]+/g, "");
     }
 
+    function displayTagLabel(tag) {
+        return String(tl(tag) || tag || "").trim();
+    }
+
+    function displayTagKey(tag) {
+        return normalizeTagText(displayTagLabel(tag)) || normalizeTagText(tag);
+    }
+
     function baseTagGroup(tag) {
         const raw = String(tag || "").trim().toLowerCase();
         const label = normalizeTagText(tl(tag));
@@ -5636,6 +5644,25 @@
         return false;
     }
 
+    function tagsMatch(a, b) {
+        const aKeys = new Set(tagMatchKeys(a));
+        for (const key of tagMatchKeys(b)) {
+            if (aKeys.has(key)) return true;
+        }
+        return false;
+    }
+
+    function findMatchingSelectedTag(tagSet, tag) {
+        for (const selected of tagSet) {
+            if (tagsMatch(selected, tag)) return selected;
+        }
+        return null;
+    }
+
+    function tagSetHasMatch(tagSet, tag) {
+        return findMatchingSelectedTag(tagSet, tag) !== null;
+    }
+
     // === State ===
     let allNovels = [];
     let titleTranslations = {};  // id -> english title
@@ -5647,8 +5674,8 @@
     let authorFilterRestoreState = null;
     let tagMode = "AND";
     let displayCount = 30;
-    let allTagCounts = {};   // full tag -> count for all loaded novels
-    let top80Tags = new Set(); // tags shown in the default top-80 cloud
+    let allTagGroups = [];   // display tag groups for the current source
+    let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
     let BATCH = 30;
     let currentPage = 1;
     let pendingImageTimers = [];
@@ -5702,37 +5729,79 @@
     }
 
     // === Build tag chips ===
-    function buildTags(novels) {
-        const counts = {};
+    function makeTagGroups(novels, collapseByTranslation) {
+        const groups = new Map();
         for (const n of novels) {
-            for (const t of n.tags) {
-                counts[t] = (counts[t] || 0) + 1;
+            const seenInNovel = new Set();
+            for (const rawTag of n.tags || []) {
+                const tag = String(rawTag || "").trim();
+                if (!tag) continue;
+                const key = collapseByTranslation ? `label:${displayTagKey(tag)}` : `raw:${tag}`;
+                if (seenInNovel.has(key)) continue;
+                seenInNovel.add(key);
+
+                let group = groups.get(key);
+                if (!group) {
+                    group = {
+                        key,
+                        tag,
+                        label: displayTagLabel(tag),
+                        count: 0,
+                        originals: new Set(),
+                    };
+                    groups.set(key, group);
+                }
+                group.count++;
+                group.originals.add(tag);
             }
         }
-        allTagCounts = counts;
-        const sorted = Object.entries(counts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 80);
-        top80Tags = new Set(sorted.map(([t]) => t));
+        return [...groups.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    }
+
+    function tagGroupTitle(group) {
+        const originals = [...group.originals];
+        if (originals.length <= 1) return originals[0] || group.tag;
+        const shown = originals.slice(0, 12).join(", ");
+        return originals.length > 12 ? `${shown}, ...` : shown;
+    }
+
+    function tagGroupMatchesQuery(group, query) {
+        if (!query) return true;
+        if (group.label.toLowerCase().includes(query)) return true;
+        for (const tag of group.originals) {
+            if (tag.toLowerCase().includes(query)) return true;
+        }
+        return false;
+    }
+
+    function buildTags(novels) {
+        const collapseByTranslation = currentSource === "all";
+        allTagGroups = makeTagGroups(novels, collapseByTranslation);
+        const sorted = allTagGroups.slice(0, 80);
+        top80Tags = new Set(sorted.map((group) => group.key));
 
         tagContainer.innerHTML = "";
         excludeTagContainer.innerHTML = "";
-        for (const [tag, count] of sorted) {
+        for (const group of sorted) {
+            const tag = group.tag;
+            const title = tagGroupTitle(group);
             // Include chip
             const chip = document.createElement("span");
             chip.className = "tag-chip";
-            chip.textContent = `${tl(tag)} (${fmt(count)})`;
-            chip.title = tag;
+            chip.textContent = `${group.label} (${fmt(group.count)})`;
+            chip.title = title;
             chip.dataset.tag = tag;
+            chip.dataset.tagKey = group.key;
             chip.addEventListener("click", () => toggleTag(tag, chip));
             tagContainer.appendChild(chip);
 
             // Exclude chip
             const echip = document.createElement("span");
             echip.className = "tag-chip";
-            echip.textContent = `${tl(tag)} (${fmt(count)})`;
-            echip.title = tag;
+            echip.textContent = `${group.label} (${fmt(group.count)})`;
+            echip.title = title;
             echip.dataset.tag = tag;
+            echip.dataset.tagKey = group.key;
             echip.addEventListener("click", () => toggleExcludeTag(tag, echip));
             excludeTagContainer.appendChild(echip);
         }
@@ -5742,11 +5811,11 @@
     function syncSelectedTagChips() {
         tagContainer.querySelectorAll(".tag-chip").forEach((chip) => {
             const tag = chip.dataset.tag;
-            chip.classList.toggle("active", andTags.has(tag));
-            chip.classList.toggle("active-or", orTags.has(tag));
+            chip.classList.toggle("active", tagSetHasMatch(andTags, tag));
+            chip.classList.toggle("active-or", tagSetHasMatch(orTags, tag));
         });
         excludeTagContainer.querySelectorAll(".tag-chip").forEach((chip) => {
-            chip.classList.toggle("excluded", excludeTags.has(chip.dataset.tag));
+            chip.classList.toggle("excluded", tagSetHasMatch(excludeTags, chip.dataset.tag));
         });
     }
 
@@ -5827,34 +5896,39 @@
 
     function toggleTag(tag, chip) {
         // If tag is already in either set, remove it
-        if (andTags.has(tag)) {
-            andTags.delete(tag);
-            chip.classList.remove("active");
-        } else if (orTags.has(tag)) {
-            orTags.delete(tag);
-            chip.classList.remove("active-or");
+        const andMatch = findMatchingSelectedTag(andTags, tag);
+        const orMatch = findMatchingSelectedTag(orTags, tag);
+        if (andMatch) {
+            andTags.delete(andMatch);
+            if (chip) chip.classList.remove("active");
+        } else if (orMatch) {
+            orTags.delete(orMatch);
+            if (chip) chip.classList.remove("active-or");
         } else {
             // Add to the set matching current mode
             if (tagMode === "AND") {
                 andTags.add(tag);
-                chip.classList.add("active");
+                if (chip) chip.classList.add("active");
             } else {
                 orTags.add(tag);
-                chip.classList.add("active-or");
+                if (chip) chip.classList.add("active-or");
             }
         }
+        syncSelectedTagChips();
         updateActiveTagsSummary();
         applyFilters();
     }
 
     function toggleExcludeTag(tag, chip) {
-        if (excludeTags.has(tag)) {
-            excludeTags.delete(tag);
-            chip.classList.remove("excluded");
+        const match = findMatchingSelectedTag(excludeTags, tag);
+        if (match) {
+            excludeTags.delete(match);
+            if (chip) chip.classList.remove("excluded");
         } else {
             excludeTags.add(tag);
-            chip.classList.add("excluded");
+            if (chip) chip.classList.add("excluded");
         }
+        syncSelectedTagChips();
         updateActiveTagsSummary();
         applyFilters();
     }
@@ -5873,7 +5947,7 @@
             chip.addEventListener("click", () => {
                 andTags.delete(tag);
                 tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === tag) c.classList.remove("active");
+                    if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("active");
                 });
                 updateActiveTagsSummary();
                 applyFilters();
@@ -5888,7 +5962,7 @@
             chip.addEventListener("click", () => {
                 orTags.delete(tag);
                 tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === tag) c.classList.remove("active-or");
+                    if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("active-or");
                 });
                 updateActiveTagsSummary();
                 applyFilters();
@@ -5906,7 +5980,7 @@
             chip.addEventListener("click", () => {
                 excludeTags.delete(tag);
                 excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === tag) c.classList.remove("excluded");
+                    if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("excluded");
                 });
                 updateActiveTagsSummary();
                 applyFilters();
@@ -5927,7 +6001,7 @@
         andTags.add(tag);
         // Highlight the chip in the tag grid
         tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-            if (c.dataset.tag === tag) c.classList.add("active");
+            if (tagsMatch(c.dataset.tag, tag)) c.classList.add("active");
         });
         updateActiveTagsSummary();
         applyFilters();
@@ -6118,9 +6192,9 @@
         const badgeHTML = completeBadge + rankBadge;
 
         const isFocused = focusedCard && focusedCard.id === n.id && focusedCard.source === (n.source || currentSource);
-        const sortedTags = [...n.tags].sort((a, b) => ((andTags.has(b) || orTags.has(b)) ? 1 : 0) - ((andTags.has(a) || orTags.has(a)) ? 1 : 0));
+        const sortedTags = [...n.tags].sort((a, b) => ((tagSetHasMatch(andTags, b) || tagSetHasMatch(orTags, b)) ? 1 : 0) - ((tagSetHasMatch(andTags, a) || tagSetHasMatch(orTags, a)) ? 1 : 0));
         const tagsHTML = sortedTags
-            .map((t) => `<span class="card-tag${isFocused && focusedCard.tag === t ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
+            .map((t) => `<span class="card-tag${isFocused && tagsMatch(focusedCard.tag, t) ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
         const isR15 = (novelSource === "sfacg" && n.age === 19) || (novelSource === "novelpia" && n.age === 15);
@@ -6178,7 +6252,8 @@
                 const novelSource = n.source || currentSource;
                 // Toggle: if this tag is the only active tag, clear it and restore scroll
                 const totalActive = andTags.size + orTags.size;
-                if (totalActive === 1 && (andTags.has(clickedTag) || orTags.has(clickedTag))) {
+                const clickedActive = tagSetHasMatch(andTags, clickedTag) || tagSetHasMatch(orTags, clickedTag);
+                if (totalActive === 1 && clickedActive) {
                     const savedScroll = preTagScrollY;
                     andTags.clear();
                     orTags.clear();
@@ -6378,27 +6453,26 @@
                     return;
                 }
                 const translated = chip.textContent.toLowerCase();
-                const original = (chip.dataset.tag || "").toLowerCase();
+                const original = `${chip.dataset.tag || ""} ${chip.title || ""}`.toLowerCase();
                 chip.style.display = (translated.includes(query) || original.includes(query)) ? "" : "none";
             });
             // If query is long enough, inject dynamic chips for non-top-80 matches
             if (query.length >= 2) {
                 let added = 0;
-                const entries = Object.entries(allTagCounts).sort((a, b) => b[1] - a[1]);
-                for (const [tag, count] of entries) {
-                    if (top80Tags.has(tag)) continue; // already a static chip
-                    const translated = tl(tag).toLowerCase();
-                    const original = tag.toLowerCase();
-                    if (!translated.includes(query) && !original.includes(query)) continue;
+                for (const group of allTagGroups) {
+                    if (top80Tags.has(group.key)) continue; // already a static chip
+                    if (!tagGroupMatchesQuery(group, query)) continue;
+                    const tag = group.tag;
                     const chip = document.createElement("span");
                     chip.className = "tag-chip dynamic";
-                    chip.textContent = `${tl(tag)} (${fmt(count)})`;
-                    chip.title = tag;
+                    chip.textContent = `${group.label} (${fmt(group.count)})`;
+                    chip.title = tagGroupTitle(group);
                     chip.dataset.tag = tag;
+                    chip.dataset.tagKey = group.key;
                     // Restore active state if already selected
-                    if (!isExclude && andTags.has(tag)) chip.classList.add("active");
-                    if (!isExclude && orTags.has(tag)) chip.classList.add("active-or");
-                    if (isExclude && excludeTags.has(tag)) chip.classList.add("excluded");
+                    if (!isExclude && tagSetHasMatch(andTags, tag)) chip.classList.add("active");
+                    if (!isExclude && tagSetHasMatch(orTags, tag)) chip.classList.add("active-or");
+                    if (isExclude && tagSetHasMatch(excludeTags, tag)) chip.classList.add("excluded");
                     chip.addEventListener("click", () => toggleFn(tag, chip));
                     container.appendChild(chip);
                     if (++added >= 50) break;
@@ -6635,6 +6709,7 @@
                             loaded++;
                         }
                     }
+                    TAG_KEY_CACHE.clear();
                     return loaded;
                 })
                 .catch((err) => {
@@ -7075,7 +7150,7 @@
             for (const t of params.tags.split(",")) {
                 andTags.add(t);
                 tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === t) c.classList.add("active");
+                    if (tagsMatch(c.dataset.tag, t)) c.classList.add("active");
                 });
             }
         }
@@ -7084,7 +7159,7 @@
             for (const t of params.ortags.split(",")) {
                 orTags.add(t);
                 tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === t) c.classList.add("active-or");
+                    if (tagsMatch(c.dataset.tag, t)) c.classList.add("active-or");
                 });
             }
         }
@@ -7094,7 +7169,7 @@
             for (const t of params.xtags.split(",")) {
                 excludeTags.add(t);
                 excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (c.dataset.tag === t) c.classList.add("excluded");
+                    if (tagsMatch(c.dataset.tag, t)) c.classList.add("excluded");
                 });
             }
         }
@@ -7147,7 +7222,7 @@
                 for (const t of savedParams.tags.split(",")) {
                     andTags.add(t);
                     tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                        if (c.dataset.tag === t) c.classList.add("active");
+                        if (tagsMatch(c.dataset.tag, t)) c.classList.add("active");
                     });
                 }
             }
@@ -7155,7 +7230,7 @@
                 for (const t of savedParams.ortags.split(",")) {
                     orTags.add(t);
                     tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                        if (c.dataset.tag === t) c.classList.add("active-or");
+                        if (tagsMatch(c.dataset.tag, t)) c.classList.add("active-or");
                     });
                 }
             }
@@ -7163,7 +7238,7 @@
                 for (const t of savedParams.xtags.split(",")) {
                     excludeTags.add(t);
                     excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                        if (c.dataset.tag === t) c.classList.add("excluded");
+                        if (tagsMatch(c.dataset.tag, t)) c.classList.add("excluded");
                     });
                 }
             }

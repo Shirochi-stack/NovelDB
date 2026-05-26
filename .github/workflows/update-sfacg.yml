@@ -16,7 +16,7 @@ concurrency:
 jobs:
   update-sfacg:
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # 3 hour limit
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository

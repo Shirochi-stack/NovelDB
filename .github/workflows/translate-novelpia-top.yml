@@ -52,7 +52,7 @@ concurrency:
 jobs:
   translate-novelpia-top:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository

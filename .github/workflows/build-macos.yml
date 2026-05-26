@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 360
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -151,6 +152,7 @@ jobs:
   attach-to-release:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     permissions:
       contents: write
     steps:
