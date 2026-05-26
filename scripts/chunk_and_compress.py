@@ -38,6 +38,17 @@ def is_valid_english(text):
     return bool(text) and not has_cjk(text) and has_ascii_letter(text)
 
 
+def parse_delimited_row(line):
+    """Parse id|||original|||english while allowing ||| inside original text."""
+    if "|||" not in line:
+        return line.strip(), "", ""
+    nid, rest = line.split("|||", 1)
+    if "|||" not in rest:
+        return nid.strip(), rest, ""
+    original, english = rest.rsplit("|||", 1)
+    return nid.strip(), original, english
+
+
 def load_translations_file(path):
     """Load translations from a |||‐delimited text file.
 
@@ -54,13 +65,12 @@ def load_translations_file(path):
             line = line.rstrip("\r\n")
             if not line:
                 continue
-            parts = line.split("|||", 2)
-            nid = parts[0].strip()
+            nid, _orig, english = parse_delimited_row(line)
             if not nid:
                 continue
             # Column 3 (index 2) = English
-            if len(parts) >= 3 and is_valid_english(parts[2]):
-                trans[nid] = parts[2].strip()
+            if is_valid_english(english):
+                trans[nid] = english.strip()
     return trans
 
 
@@ -79,13 +89,12 @@ def load_descriptions_file(path):
             line = line.rstrip("\r\n")
             if not line:
                 continue
-            parts = line.split("|||", 2)
-            nid = parts[0].strip()
+            nid, orig, eng = parse_delimited_row(line)
             if not nid:
                 continue
             # Prefer English (col3), fall back to original (col2) for display.
-            eng = parts[2].strip() if len(parts) >= 3 else ""
-            orig = parts[1].strip() if len(parts) >= 2 else ""
+            eng = eng.strip()
+            orig = orig.strip()
             text = eng if is_valid_english(eng) else orig
             if text and text != "N/A":
                 descs[nid] = text

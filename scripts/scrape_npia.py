@@ -10,13 +10,16 @@ Reads loginkey from config.json in the project root.
 Outputs: docs/data/novels.json
 """
 
-import sys, os, json, time, argparse, re
+import sys, os, json, time, argparse, re, tempfile
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
 from novelpia_auth import NovelpiaAuth
 from novelpia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
+
+COVER_PREFIX = "https://novelpia.com"
+DELETED_TAG = "deleted"
 
 
 def make_session(loginkey):
@@ -168,6 +171,89 @@ def merge_term_results(terms, results, novels_by_id):
             novels_by_id.setdefault(str(novel_id), extract_novel(item))
     return total_results, len(novels_by_id) - before
 
+
+def write_json_file(path, data, separators=None):
+    tmp_path = None
+    try:
+        directory = os.path.dirname(path) or "."
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            delete=False,
+            dir=directory,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+        ) as f:
+            tmp_path = f.name
+            json.dump(data, f, ensure_ascii=False, separators=separators)
+            f.flush()
+            os.fsync(f.fileno())
+        deadline = time.time() + 30
+        while True:
+            try:
+                os.replace(tmp_path, path)
+                return
+            except PermissionError:
+                if time.time() >= deadline:
+                    break
+                time.sleep(1)
+
+        if not os.path.exists(path):
+            os.replace(tmp_path, path)
+            return
+        with open(path, "r+", encoding="utf-8", newline="") as f:
+            f.seek(0)
+            with open(tmp_path, "r", encoding="utf-8") as tmp:
+                for chunk in iter(lambda: tmp.read(1024 * 1024), ""):
+                    f.write(chunk)
+            f.truncate()
+            f.flush()
+            os.fsync(f.fileno())
+        os.unlink(tmp_path)
+    except Exception:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        raise
+
+
+def load_json_file(path, default):
+    if not os.path.exists(path):
+        return default
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def ensure_deleted_tag(tags, age):
+    tags = list(tags or [])
+    if str(age) != "19" and DELETED_TAG not in tags:
+        tags.append(DELETED_TAG)
+    return tags
+
+
+def full_from_site_row(row):
+    cover = str(row[3] or "") if len(row) > 3 else ""
+    if cover.startswith("//"):
+        cover = "https:" + cover
+    elif cover and not cover.startswith("http"):
+        cover = COVER_PREFIX + cover
+    return {
+        "id": row[0],
+        "title": row[1] if len(row) > 1 else "",
+        "synopsis": "",
+        "author": row[2] if len(row) > 2 else "",
+        "cover": cover,
+        "tags": row[4] if len(row) > 4 and isinstance(row[4], list) else [],
+        "views": row[5] if len(row) > 5 else 0,
+        "likes": row[6] if len(row) > 6 else 0,
+        "chapters": row[7] if len(row) > 7 else 0,
+        "complete": row[8] if len(row) > 8 else 0,
+        "age": row[11] if len(row) > 11 else 0,
+        "updated": row[9] if len(row) > 9 else "",
+    }
+
 def main():
     parser = argparse.ArgumentParser(description="Scrape Novelpia novels with auth")
     parser.add_argument("--search-workers", type=int, default=4,
@@ -246,19 +332,48 @@ def main():
     def get_rank(nid, audience, period):
         return rankings.get((audience, period), {}).get(nid, 0)
 
-    # Save output
+    # Save output, preserving old-only/deleted rows from the previous dataset.
     os.makedirs("docs/data", exist_ok=True)
-
-    # Full version (for reference)
     full_path = "docs/data/novels_full.json"
-    with open(full_path, "w", encoding="utf-8") as f:
-        json.dump(novels, f, ensure_ascii=False)
-    print(f"\nFull: {len(novels)} novels -> {os.path.getsize(full_path) / 1024 / 1024:.1f} MB")
+    opt_path = "docs/data/novels.json"
+    existing_site = load_json_file(opt_path, [])
+    existing_full = load_json_file(full_path, [])
+    existing_full_by_id = {
+        str(n.get("id")): n
+        for n in existing_full
+        if isinstance(n, dict) and n.get("id") is not None
+    }
+    fresh_ids = {str(n.get("id")) for n in novels if n.get("id") is not None}
+    preserved_full = []
+    preserved_site_rows = []
+
+    for row in existing_site:
+        if not isinstance(row, list) or not row:
+            continue
+        nid = str(row[0])
+        if nid in fresh_ids:
+            continue
+        row = list(row)
+        age = row[11] if len(row) > 11 else 0
+        tags = row[4] if len(row) > 4 and isinstance(row[4], list) else []
+        row[4] = ensure_deleted_tag(tags, age)
+        preserved_site_rows.append(row)
+
+        full_entry = dict(existing_full_by_id.get(nid) or full_from_site_row(row))
+        full_tags = full_entry.get("tags") or []
+        full_entry["tags"] = ensure_deleted_tag(full_tags, age)
+        preserved_full.append(full_entry)
+
+    if preserved_site_rows:
+        novels.extend(preserved_full)
+        print(
+            f"  Preserved {len(preserved_site_rows)} old-only novels "
+            f"({sum(1 for r in preserved_site_rows if DELETED_TAG in (r[4] if len(r) > 4 else []))} tagged deleted)"
+        )
 
     # Optimized version for the site (array format, no synopsis, stripped cover prefix)
-    COVER_PREFIX = "https://novelpia.com"
     optimized = []
-    for n in novels:
+    for n in novels_by_id.values():
         cover = n.get("cover", "")
         if cover.startswith(COVER_PREFIX):
             cover = cover[len(COVER_PREFIX):]
@@ -286,9 +401,12 @@ def main():
             get_rank(nid, "teen/plus", "today"),  # [19] dailyRankTeen
         ])
 
-    opt_path = "docs/data/novels.json"
-    with open(opt_path, "w", encoding="utf-8") as f:
-        json.dump(optimized, f, ensure_ascii=False, separators=(",", ":"))
+    optimized.extend(preserved_site_rows)
+
+    write_json_file(full_path, novels)
+    print(f"\nFull: {len(novels)} novels -> {os.path.getsize(full_path) / 1024 / 1024:.1f} MB")
+
+    write_json_file(opt_path, optimized, separators=(",", ":"))
 
     print(f"Site: {len(optimized)} novels -> {os.path.getsize(opt_path) / 1024 / 1024:.1f} MB")
 

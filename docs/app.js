@@ -5734,6 +5734,25 @@
             echip.addEventListener("click", () => toggleExcludeTag(tag, echip));
             excludeTagContainer.appendChild(echip);
         }
+        refreshTagSearchResults();
+    }
+
+    function syncSelectedTagChips() {
+        tagContainer.querySelectorAll(".tag-chip").forEach((chip) => {
+            const tag = chip.dataset.tag;
+            chip.classList.toggle("active", andTags.has(tag));
+            chip.classList.toggle("active-or", orTags.has(tag));
+        });
+        excludeTagContainer.querySelectorAll(".tag-chip").forEach((chip) => {
+            chip.classList.toggle("excluded", excludeTags.has(chip.dataset.tag));
+        });
+    }
+
+    function refreshTagSearchResults() {
+        tagSearchInput.dispatchEvent(new Event("input"));
+        excludeTagSearchInput.dispatchEvent(new Event("input"));
+        syncSelectedTagChips();
+        updateActiveTagsSummary();
     }
 
     function toggleTag(tag, chip) {
@@ -6407,7 +6426,7 @@
 
     // === DOM ref ===
     const sourceSelect = $("#sourceSelect");
-    const DATA_VERSION = "2026-05-21-2";
+    const DATA_VERSION = "2026-05-26-1";
 
     function versionedDataUrl(url) {
         const sep = url.includes("?") ? "&" : "?";
@@ -7062,7 +7081,8 @@
 
     // Source change listener
     sourceSelect.addEventListener("change", () => {
-        loadSource(sourceSelect.value);
+        currentPage = 1;
+        loadSource(sourceSelect.value, true);
         saveState();
     });
 

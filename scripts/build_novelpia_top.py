@@ -10,6 +10,16 @@ Usage:
 
 import json, gzip, os, sys
 
+def parse_delimited_row(line):
+    if "|||" not in line:
+        return line.strip(), "", ""
+    nid, rest = line.split("|||", 1)
+    if "|||" not in rest:
+        return nid.strip(), rest, ""
+    original, english = rest.rsplit("|||", 1)
+    return nid.strip(), original, english
+
+
 def main():
     base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data")
     novels_path = os.path.join(base_dir, "novels.json")
@@ -31,9 +41,9 @@ def main():
     if os.path.exists(trans_path):
         with open(trans_path, "r", encoding="utf-8") as f:
             for line in f:
-                parts = line.strip().split("|||")
-                if len(parts) >= 3 and parts[2].strip():
-                    trans[parts[0].strip()] = parts[2].strip()
+                nid, _original, english = parse_delimited_row(line.strip())
+                if nid and english.strip():
+                    trans[nid] = english.strip()
         print(f"  {len(trans)} translations loaded")
 
     # Load descriptions (format: id|||korean|||english)
@@ -41,12 +51,12 @@ def main():
     if os.path.exists(desc_path):
         with open(desc_path, "r", encoding="utf-8") as f:
             for line in f:
-                parts = line.strip().split("|||")
-                if len(parts) >= 3 and parts[2].strip():
-                    descs[parts[0].strip()] = parts[2].strip()
-                elif len(parts) >= 2 and parts[1].strip():
+                nid, original, english = parse_delimited_row(line.strip())
+                if nid and english.strip():
+                    descs[nid] = english.strip()
+                elif nid and original.strip():
                     # Fallback to Korean if no English translation
-                    descs[parts[0].strip()] = parts[1].strip()
+                    descs[nid] = original.strip()
         print(f"  {len(descs)} descriptions loaded")
 
     # Find novels with any ranking across all audiences
