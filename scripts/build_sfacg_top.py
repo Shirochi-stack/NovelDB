@@ -10,6 +10,21 @@ Usage:
 
 import json, gzip, os, sys
 
+def has_cjk(text):
+    return any(
+        "\u3400" <= c <= "\u4dbf" or
+        "\u4e00" <= c <= "\u9fff" or
+        "\uf900" <= c <= "\ufaff"
+        for c in text
+    )
+
+def has_ascii_letter(text):
+    return any(("a" <= c.lower() <= "z") for c in text)
+
+def is_valid_english(text):
+    text = (text or "").strip()
+    return bool(text) and not has_cjk(text) and has_ascii_letter(text)
+
 def main():
     base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data")
     novels_path = os.path.join(base_dir, "sfacg_novels.json")
@@ -31,8 +46,8 @@ def main():
     if os.path.exists(trans_path):
         with open(trans_path, "r", encoding="utf-8") as f:
             for line in f:
-                parts = line.strip().split("|||")
-                if len(parts) >= 3 and parts[2].strip():
+                parts = line.strip().split("|||", 2)
+                if len(parts) >= 3 and is_valid_english(parts[2]):
                     trans[parts[0].strip()] = parts[2].strip()
         print(f"  {len(trans)} translations loaded")
 
@@ -41,8 +56,8 @@ def main():
     if os.path.exists(desc_path):
         with open(desc_path, "r", encoding="utf-8") as f:
             for line in f:
-                parts = line.strip().split("|||")
-                if len(parts) >= 3 and parts[2].strip():
+                parts = line.strip().split("|||", 2)
+                if len(parts) >= 3 and is_valid_english(parts[2]):
                     descs[parts[0].strip()] = parts[2].strip()
                 elif len(parts) >= 2 and parts[1].strip():
                     # Fallback to Chinese if no English translation

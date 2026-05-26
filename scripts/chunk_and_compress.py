@@ -29,6 +29,15 @@ def has_cjk(text):
     )
 
 
+def has_ascii_letter(text):
+    return any(("a" <= c.lower() <= "z") for c in text)
+
+
+def is_valid_english(text):
+    text = (text or "").strip()
+    return bool(text) and not has_cjk(text) and has_ascii_letter(text)
+
+
 def load_translations_file(path):
     """Load translations from a |||‐delimited text file.
 
@@ -45,12 +54,12 @@ def load_translations_file(path):
             line = line.rstrip("\r\n")
             if not line:
                 continue
-            parts = line.split("|||")
+            parts = line.split("|||", 2)
             nid = parts[0].strip()
             if not nid:
                 continue
             # Column 3 (index 2) = English
-            if len(parts) >= 3 and parts[2].strip():
+            if len(parts) >= 3 and is_valid_english(parts[2]):
                 trans[nid] = parts[2].strip()
     return trans
 
@@ -70,14 +79,14 @@ def load_descriptions_file(path):
             line = line.rstrip("\r\n")
             if not line:
                 continue
-            parts = line.split("|||")
+            parts = line.split("|||", 2)
             nid = parts[0].strip()
             if not nid:
                 continue
             # Prefer English (col3), fall back to original (col2) for display.
             eng = parts[2].strip() if len(parts) >= 3 else ""
             orig = parts[1].strip() if len(parts) >= 2 else ""
-            text = eng if eng and not has_cjk(eng) else orig
+            text = eng if is_valid_english(eng) else orig
             if text and text != "N/A":
                 descs[nid] = text
     return descs
@@ -167,9 +176,11 @@ def main():
         gz = gzip.compress(raw, compresslevel=6, mtime=0)
 
         filename = f"{prefix}_{i}.json.gz"
-        filepath = os.path.join(output_dir, filename)
-        with open(filepath, "wb") as f:
+        filepath = os.path.normpath(os.path.join(output_dir, filename))
+        tmp_filepath = filepath + ".tmp"
+        with open(tmp_filepath, "wb") as f:
             f.write(gz)
+        os.replace(tmp_filepath, filepath)
 
         total_raw += len(raw)
         total_gz += len(gz)

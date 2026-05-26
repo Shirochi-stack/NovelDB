@@ -12,7 +12,7 @@ Environment:
     TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL; leave blank
                                to infer from model/key name
     TRANSLATION_OUTPUT_TOKEN_LIMIT - API completion token limit
-                                     (default: 80000)
+                                     (default: 8192)
     TRANSLATION_COMPRESSION_FACTOR - chunk divisor for output token limit
                                      (default: 2.0)
     MODEL                    - override model name (optional)
@@ -35,7 +35,7 @@ DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 # API output cap and derived chunk size.
-DEFAULT_OUTPUT_TOKEN_LIMIT = 80_000
+DEFAULT_OUTPUT_TOKEN_LIMIT = 8_192
 DEFAULT_COMPRESSION_FACTOR = 2.0
 
 # Concurrency
@@ -128,18 +128,42 @@ def chunk_token_counts(chunks):
     return [count_tokens("\n".join(chunk)) for chunk in chunks]
 
 
+def has_cjk(text):
+    return any(
+        "\u3400" <= c <= "\u4dbf" or
+        "\u4e00" <= c <= "\u9fff" or
+        "\uf900" <= c <= "\ufaff" or
+        "\uac00" <= c <= "\ud7af" or
+        "\u3040" <= c <= "\u30ff"
+        for c in text
+    )
+
+
+def has_ascii_letter(text):
+    return any(("a" <= c.lower() <= "z") for c in text)
+
+
+def is_valid_english_translation(text):
+    text = (text or "").strip()
+    return bool(text) and not has_cjk(text) and has_ascii_letter(text)
+
+
 def parse_response(text, original_rows):
     """Extract translations from API response."""
     translations = {}
-    valid_ids = {row.split("|||")[0].strip() for row in original_rows}
+    valid_ids = {row.split("|||", 1)[0].strip() for row in original_rows}
 
     for line in text.split("\n"):
         line = line.strip()
         if not line or "|||" not in line:
             continue
-        parts = line.split("|||")
+        parts = line.split("|||", 2)
         nid = parts[0].strip()
-        if nid in valid_ids and len(parts) >= 3 and parts[2].strip():
+        if (
+            nid in valid_ids
+            and len(parts) >= 3
+            and is_valid_english_translation(parts[2])
+        ):
             translations[nid] = parts[2].strip()
 
     return translations
@@ -158,9 +182,9 @@ def write_translations(input_file, translations):
             if not s:
                 output_lines.append(s + newline)
                 continue
-            parts = s.split("|||")
+            parts = s.split("|||", 2)
             nid = parts[0].strip()
-            if len(parts) >= 3 and parts[2].strip():
+            if len(parts) >= 3 and is_valid_english_translation(parts[2]):
                 output_lines.append(s + newline)
                 continue
             if nid in translations:
@@ -487,10 +511,14 @@ def main():
         for line in f:
             s = line.rstrip("\r\n")
             if not s: continue
-            parts = s.split("|||")
+            parts = s.split("|||", 2)
             nid = parts[0].strip()
             if not nid or not nid.isdigit(): continue
-            if len(parts) >= 3 and parts[2].strip(): continue
+            if (
+                len(parts) >= 3
+                and is_valid_english_translation(parts[2])
+            ):
+                continue
             rows.append(s)
 
     if not rows:

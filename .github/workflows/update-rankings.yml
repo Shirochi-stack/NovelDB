@@ -2,8 +2,8 @@ name: Update Novelpia Rankings
 
 on:
   schedule:
-    # Run every 8 hours (00:00, 08:00, 16:00 UTC)
-    - cron: '0 */8 * * *'
+    # Run once per day at 00:00 UTC to avoid hammering Novelpia.
+    - cron: '0 0 * * *'
   workflow_dispatch: # Allow manual trigger
 
 permissions:

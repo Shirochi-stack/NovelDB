@@ -44,6 +44,24 @@ def is_mostly_english(text):
     ascii_alpha = sum(1 for c in alpha if ord(c) < 128)
     return ascii_alpha / len(alpha) > 0.6
 
+def has_cjk(text):
+    return any(
+        0x3400 <= ord(c) <= 0x4DBF or
+        0x4E00 <= ord(c) <= 0x9FFF or
+        0xF900 <= ord(c) <= 0xFAFF
+        for c in text
+    )
+
+def has_ascii_letter(text):
+    return any(("a" <= c.lower() <= "z") for c in text)
+
+def is_valid_english_translation(text):
+    text = (text or "").strip()
+    return bool(text) and not has_cjk(text) and has_ascii_letter(text)
+
+def clean_field(text):
+    return (text or "").replace("|", " ").replace("\r", " ").replace("\n", " ").strip()
+
 def is_trivial(text):
     """Check if text is junk/trivial (very short or no meaningful content)."""
     # Strip whitespace, punctuation, emojis, special chars
@@ -59,7 +77,7 @@ with open(SRC, "r", encoding="utf-8") as f:
         if not stripped:
             lines.append(stripped)
             continue
-        parts = stripped.split("|||")
+        parts = stripped.split("|||", 2)
         nid = parts[0].strip()
         if not nid or not nid.isdigit():
             lines.append(stripped)
@@ -93,34 +111,43 @@ if fixed_count > 0:
 count = 0
 skipped_english = 0
 skipped_junk = 0
+invalid_existing = 0
 with open(SRC, "r", encoding="utf-8") as f, open(OUT, "w", encoding="utf-8") as out:
     for line in f:
         stripped = line.rstrip("\r\n")
         if not stripped: continue
-        parts = stripped.split("|||")
+        parts = stripped.split("|||", 2)
         nid = parts[0].strip()
         if not nid or not nid.isdigit(): continue
 
         col2 = parts[1] if len(parts) >= 2 else ""
         col3 = parts[2].strip() if len(parts) >= 3 else ""
+        source = col2
+        if has_cjk(col3) and (is_trivial(col2) or not has_cjk(col2)):
+            source = col3
 
-        # Already translated in col3
-        if col3:
+        # Already translated in col3. Empty, CJK, or punctuation-only content
+        # is not a valid translation and must be re-queued.
+        if is_valid_english_translation(col3):
             continue
+        if col3:
+            invalid_existing += 1
 
         # Col2 is already in English — no translation needed
-        if is_mostly_english(col2):
+        if is_mostly_english(source):
             skipped_english += 1
             continue
 
         # Trivial/junk content
-        if is_trivial(col2):
+        if is_trivial(source):
             skipped_junk += 1
             continue
 
-        out.write(stripped + "\n")
+        out.write(f"{nid}|||{clean_field(source)}|||\n")
         count += 1
 
 print(f"Extracted {count} genuinely untranslated rows to {OUT}")
 print(f"  Skipped {skipped_english} rows (already English in col2)")
 print(f"  Skipped {skipped_junk} rows (trivial/junk content)")
+if invalid_existing:
+    print(f"  Re-queued {invalid_existing} rows with non-English/CJK column 3")

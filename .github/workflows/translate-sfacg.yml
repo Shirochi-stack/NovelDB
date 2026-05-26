@@ -34,7 +34,7 @@ on:
       output_token_limit:
         description: 'Output token limit'
         required: false
-        default: '80000'
+        default: '8192'
         type: string
       compression_factor:
         description: 'Compression factor'
@@ -82,7 +82,7 @@ jobs:
           TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || secrets.GROK_API_KEY }}
           TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || 'GROK_API_KEY' }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
-          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '80000' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '8192' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
         run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
@@ -98,7 +98,7 @@ jobs:
           TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || secrets.GROK_API_KEY }}
           TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || 'GROK_API_KEY' }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
-          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '80000' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '8192' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
         run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
@@ -126,6 +126,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/sfacg_titles_en.txt docs/data/sfacg_descriptions.txt.gz docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
+          git add docs/data/sfacg_titles_en.txt docs/data/sfacg_titles_untranslated.txt docs/data/sfacg_descriptions.txt.gz docs/data/sfacg_descriptions_untranslated.txt docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
           git commit -m "🌐 Translate SFACG titles + descriptions ($(date -u +%Y-%m-%d))"
           git push

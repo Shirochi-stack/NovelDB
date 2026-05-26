@@ -17,6 +17,8 @@ import sys, os, json, time, re, requests
 sys.stdout.reconfigure(encoding='utf-8')
 
 API_URL = "https://api.sfacg.com/novels"
+SFACG_NOVELS_PATH = os.path.join("docs", "data", "sfacg_novels.json")
+DELETED_TAG = "deleted"
 
 HEADERS = {
     "User-Agent": "boluobao/5.0.36(android;34)/H5/{}/H5",
@@ -32,6 +34,72 @@ RANK_CATEGORIES = [
     ("bm",       "Bookmarks"),
     ("jp",       "JP Light Novels"),
 ]
+
+
+def novel_row_to_dict(row):
+    """Convert the compact SFACG row schema back into scraper dict form."""
+    if not row:
+        return None
+    sid = str(row[0]).strip()
+    if not sid:
+        return None
+    return {
+        "id": sid,
+        "title": row[1] if len(row) > 1 else "",
+        "author": row[2] if len(row) > 2 else "",
+        "cover": row[3] if len(row) > 3 else "",
+        "tags": row[4] if len(row) > 4 and isinstance(row[4], list) else [],
+        "views": row[5] if len(row) > 5 else 0,
+        "likes": row[6] if len(row) > 6 else 0,
+        "chapters": row[7] if len(row) > 7 else 0,
+        "complete": row[8] if len(row) > 8 else 0,
+        "updated": row[9] if len(row) > 9 else "",
+        "age": row[10] if len(row) > 10 else 0,
+        "synopsis": row[17] if len(row) > 17 else "",
+    }
+
+
+def load_existing_novels(path=SFACG_NOVELS_PATH):
+    """Load the existing SFACG catalog so old-only entries are preserved."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        rows = json.load(f)
+
+    novels = {}
+    for row in rows:
+        novel = novel_row_to_dict(row)
+        if novel:
+            novels[novel["id"]] = novel
+
+    print(f"Loaded {len(novels):,} existing novels from {path}")
+    return novels
+
+
+def merge_with_existing_novels(scraped_novels, path=SFACG_NOVELS_PATH):
+    """Preserve old-only rows while letting freshly scraped rows win."""
+    existing = load_existing_novels(path)
+    if not existing:
+        return scraped_novels
+
+    merged = dict(existing)
+    merged.update(scraped_novels)
+
+    preserved_ids = set(existing) - set(scraped_novels)
+    for sid in preserved_ids:
+        tags = merged[sid].setdefault("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+            merged[sid]["tags"] = tags
+        if DELETED_TAG not in tags:
+            tags.append(DELETED_TAG)
+
+    print(
+        f"Catalog merge: {len(set(existing) & set(scraped_novels)):,} updated, "
+        f"{len(set(scraped_novels) - set(existing)):,} new, "
+        f"{len(preserved_ids):,} old-only preserved/tagged {DELETED_TAG!r}"
+    )
+    return merged
 
 
 def scrape_rankings(session):
@@ -193,7 +261,7 @@ def main():
 
             # Auto-save every 500 pages to prevent data loss
             if (page + 1) % 500 == 0 and all_novels:
-                save_novels(all_novels, rankings)
+                save_novels(merge_with_existing_novels(all_novels), rankings)
                 print(f"  [auto-saved {len(all_novels)} novels]", flush=True)
 
             time.sleep(args.delay)
@@ -202,11 +270,14 @@ def main():
             print(f"\n  Error at page {page}: {e}")
             time.sleep(2)
 
-    print(f"\nTotal: {len(all_novels)} novels")
+    print(f"\nScraped: {len(all_novels)} novels")
 
     if not all_novels:
         print("No novels found!")
         return
+
+    all_novels = merge_with_existing_novels(all_novels)
+    print(f"Total after preserving existing unique novels: {len(all_novels):,}")
 
     # === Phase 3: Fetch synopsis for ranked novels that might be missing ===
     if not args.skip_synopsis:
@@ -273,7 +344,7 @@ def save_novels(all_novels, rankings=None):
             entry.pop()
         optimized.append(entry)
 
-    path = "docs/data/sfacg_novels.json"
+    path = SFACG_NOVELS_PATH
     with open(path, "w", encoding="utf-8") as f:
         json.dump(optimized, f, ensure_ascii=False, separators=(",", ":"))
     print(f"Saved to {path} ({os.path.getsize(path) / 1024 / 1024:.1f} MB)")

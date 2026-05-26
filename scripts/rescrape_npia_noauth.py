@@ -1,12 +1,12 @@
 """Full Novelpia catalog rescrape WITHOUT authentication.
 
-Merges freshly scraped data into the existing novels.json, preserving
-R19 novel data that cannot be reached without a login cookie.
+Merges freshly scraped data into the existing novels.json, preserving every
+existing unique novel ID that is not present in the latest scrape.
 
 Merge strategy:
   - Novels found in fresh scrape -> update metadata (title, cover, views, etc.)
   - New novels not in existing data -> append
-  - Existing novels NOT found in fresh scrape (R19) -> keep as-is
+  - Existing novels NOT found in fresh scrape -> keep as-is
 
 Also scrapes public top100 rankings. For audiences that fail (adult/R19),
 existing ranks are preserved.
@@ -34,6 +34,7 @@ API_HEADERS = {
 }
 
 COVER_PREFIX = "https://novelpia.com"
+DELETED_TAG = "deleted"
 
 # Same tag list as scrape_npia.py for maximum coverage
 SEARCH_TAGS = [
@@ -247,7 +248,13 @@ def main():
         nid = str(novel[0])
         existing_lookup[nid] = idx
 
-    stats = {"updated": 0, "added": 0, "preserved_r19": 0, "preserved_other": 0}
+    stats = {
+        "updated": 0,
+        "added": 0,
+        "preserved_r19": 0,
+        "preserved_other": 0,
+        "deleted_tagged": 0,
+    }
 
     def to_relative_cover(cover):
         """Strip the cover prefix for storage."""
@@ -316,10 +323,17 @@ def main():
             # Check if it's an R19 novel (age == 19 at index 11)
             idx = existing_lookup[nid]
             entry = existing_data[idx]
+            while len(entry) < 20:
+                entry.append(0)
             age = entry[11] if len(entry) > 11 else 0
             if age == 19:
                 stats["preserved_r19"] += 1
             else:
+                tags = entry[4] if len(entry) > 4 and isinstance(entry[4], list) else []
+                if DELETED_TAG not in tags:
+                    tags.append(DELETED_TAG)
+                    stats["deleted_tagged"] += 1
+                entry[4] = tags
                 stats["preserved_other"] += 1
 
     # ── Phase 5: Patch rankings ──────────────────────────────────
@@ -346,6 +360,7 @@ def main():
     print(f"  Added (new):             {stats['added']}")
     print(f"  Preserved (R19):         {stats['preserved_r19']}")
     print(f"  Preserved (other):       {stats['preserved_other']}")
+    print(f"  Tagged deleted:          {stats['deleted_tagged']}")
     print(f"  Rank changes:            {rank_changes}")
     print(f"{'='*50}")
 
@@ -366,7 +381,8 @@ def main():
     for novel in fresh_novels.values():
         full_novels.append(novel)
 
-    # Also include existing R19 novels in full output if novels_full.json exists
+    # Also include every old-only full entry. A scrape result is an update set,
+    # not a deletion set; missing IDs keep their last known synopsis data.
     if os.path.exists(full_path):
         try:
             with open(full_path, "r", encoding="utf-8") as f:
@@ -376,15 +392,17 @@ def main():
                 oid = str(entry.get("id", ""))
                 if oid:
                     old_full_lookup[oid] = entry
-            # Merge R19 novels from old full data
-            r19_added = 0
+            preserved_full = 0
             full_ids = {str(n["id"]) for n in full_novels}
             for oid, entry in old_full_lookup.items():
                 if oid not in full_ids:
                     full_novels.append(entry)
-                    r19_added += 1
-            if r19_added:
-                print(f"  Merged {r19_added} R19 novels into novels_full.json")
+                    preserved_full += 1
+            if preserved_full:
+                print(
+                    f"  Preserved {preserved_full} old-only novels in "
+                    "novels_full.json"
+                )
         except Exception as e:
             print(f"  Warning: Could not merge old full data: {e}")
 

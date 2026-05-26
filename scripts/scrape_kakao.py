@@ -36,6 +36,7 @@ THUMB_PREFIX = 'https://dn-img-page.kakao.com/download/resource?kid='
 _thread_local = threading.local()
 DEFAULT_RETRIES = 5
 RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+DELETED_TAG = "deleted"
 RETRYABLE_EXCEPTIONS = (
     requests.exceptions.ConnectionError,
     requests.exceptions.Timeout,
@@ -324,12 +325,21 @@ def merge_with_existing_novels(scraped_novels, path=KAKAO_NOVELS_PATH):
     merged = dict(existing)
     merged.update(scraped_novels)
 
-    preserved = len(set(existing) - set(scraped_novels))
+    preserved_ids = set(existing) - set(scraped_novels)
+    for sid in preserved_ids:
+        tags = merged[sid].setdefault("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+            merged[sid]["tags"] = tags
+        if DELETED_TAG not in tags:
+            tags.append(DELETED_TAG)
+
+    preserved = len(preserved_ids)
     updated = len(set(existing) & set(scraped_novels))
     added = len(set(scraped_novels) - set(existing))
     print(
         f"Catalog merge: {updated:,} updated, {added:,} new, "
-        f"{preserved:,} old-only preserved"
+        f"{preserved:,} old-only preserved/tagged {DELETED_TAG!r}"
     )
     return merged
 
@@ -451,14 +461,15 @@ def scrape_genre_catalog(
             preview = ", ".join(str(page) for page in sorted(failed_pages)[:20])
             if len(failed_pages) > 20:
                 preview += ", ..."
-            raise RuntimeError(
-                f"Failed to fetch {len(failed_pages):,} catalog pages: {preview}"
+            print(
+                f"  WARNING: failed to fetch {len(failed_pages):,} catalog "
+                f"pages; existing saved IDs will be preserved: {preview}"
             )
 
         for page in remaining_pages:
             result = page_results.get(page)
             if not result:
-                raise RuntimeError(f"Missing fetched result for catalog page {page}")
+                continue
             apply_page(page, result)
             if result.get("is_end"):
                 break
@@ -466,9 +477,11 @@ def scrape_genre_catalog(
     if expected_total and max_pages is None:
         missing = expected_total - len(all_novels)
         if missing > 0:
-            raise RuntimeError(
+            print(
+                "  WARNING: "
                 f"Scraped {len(all_novels):,} unique rows, {missing:,} below "
-                f"website total {expected_total:,}"
+                f"website total {expected_total:,}; existing saved IDs will "
+                "be preserved during merge"
             )
     return new_count, expected_total
 
