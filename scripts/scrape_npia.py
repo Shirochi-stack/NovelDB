@@ -19,7 +19,9 @@ from novelpia_auth import NovelpiaAuth
 from novelpia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
 
 COVER_PREFIX = "https://novelpia.com"
+IMAGE_COVER_PREFIX = "https://images.novelpia.com"
 DELETED_TAG = "deleted"
+PLACEHOLDER_COVER_PARTS = ("readycover", "adult_cover_img")
 
 
 def make_session(loginkey):
@@ -40,6 +42,38 @@ def pick_cover(item):
                 return "https://novelpia.com" + v
             return v
     return ""
+
+
+def is_real_cover(cover):
+    cover = str(cover or "")
+    return bool(cover) and not any(part in cover for part in PLACEHOLDER_COVER_PARTS)
+
+
+def absolute_cover(cover):
+    cover = str(cover or "")
+    if cover.startswith("//"):
+        return "https:" + cover
+    if cover.startswith("/"):
+        return IMAGE_COVER_PREFIX + cover
+    return cover
+
+
+def to_relative_cover(cover):
+    cover = str(cover or "")
+    for prefix in (COVER_PREFIX, IMAGE_COVER_PREFIX):
+        if cover.startswith(prefix):
+            return cover[len(prefix):]
+    return cover
+
+
+def preserve_cover(fresh_cover, existing_site_cover="", existing_full_cover=""):
+    if is_real_cover(fresh_cover):
+        return fresh_cover
+    if is_real_cover(existing_full_cover):
+        return existing_full_cover
+    if is_real_cover(existing_site_cover):
+        return absolute_cover(existing_site_cover)
+    return fresh_cover
 
 
 def extract_novel(item):
@@ -235,10 +269,7 @@ def ensure_deleted_tag(tags, age):
 
 def full_from_site_row(row):
     cover = str(row[3] or "") if len(row) > 3 else ""
-    if cover.startswith("//"):
-        cover = "https:" + cover
-    elif cover and not cover.startswith("http"):
-        cover = COVER_PREFIX + cover
+    cover = absolute_cover(cover)
     return {
         "id": row[0],
         "title": row[1] if len(row) > 1 else "",
@@ -343,9 +374,26 @@ def main():
         for n in existing_full
         if isinstance(n, dict) and n.get("id") is not None
     }
+    existing_site_by_id = {
+        str(row[0]): row
+        for row in existing_site
+        if isinstance(row, list) and row
+    }
     fresh_ids = {str(n.get("id")) for n in novels if n.get("id") is not None}
     preserved_full = []
     preserved_site_rows = []
+    preserved_cover_updates = 0
+
+    for nid, novel in novels_by_id.items():
+        existing_site_cover = ""
+        existing_site_row = existing_site_by_id.get(str(nid))
+        if existing_site_row and len(existing_site_row) > 3:
+            existing_site_cover = existing_site_row[3]
+        existing_full_cover = (existing_full_by_id.get(str(nid)) or {}).get("cover", "")
+        cover = preserve_cover(novel.get("cover", ""), existing_site_cover, existing_full_cover)
+        if cover != novel.get("cover", ""):
+            novel["cover"] = cover
+            preserved_cover_updates += 1
 
     for row in existing_site:
         if not isinstance(row, list) or not row:
@@ -370,13 +418,13 @@ def main():
             f"  Preserved {len(preserved_site_rows)} old-only novels "
             f"({sum(1 for r in preserved_site_rows if DELETED_TAG in (r[4] if len(r) > 4 else []))} tagged deleted)"
         )
+    if preserved_cover_updates:
+        print(f"  Preserved {preserved_cover_updates} existing real cover URLs over fresh placeholders")
 
     # Optimized version for the site (array format, no synopsis, stripped cover prefix)
     optimized = []
     for n in novels_by_id.values():
-        cover = n.get("cover", "")
-        if cover.startswith(COVER_PREFIX):
-            cover = cover[len(COVER_PREFIX):]
+        cover = to_relative_cover(n.get("cover", ""))
         nid = str(n["id"])
         optimized.append([
             n["id"],                             # [0]  id

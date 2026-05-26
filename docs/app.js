@@ -5643,6 +5643,8 @@
     let andTags = new Set();
     let orTags = new Set();
     let excludeTags = new Set();
+    let activeAuthorFilter = null;
+    let authorFilterRestoreState = null;
     let tagMode = "AND";
     let displayCount = 30;
     let allTagCounts = {};   // full tag -> count for all loaded novels
@@ -5753,6 +5755,74 @@
         excludeTagSearchInput.dispatchEvent(new Event("input"));
         syncSelectedTagChips();
         updateActiveTagsSummary();
+    }
+
+    function clearNonSourceFilters({ clearSearch = false } = {}) {
+        andTags.clear();
+        orTags.clear();
+        excludeTags.clear();
+        focusedCard = null;
+        preTagScrollY = null;
+        tagSearchInput.value = "";
+        excludeTagSearchInput.value = "";
+        statusSelect.value = "all";
+        audienceSelect.value = "all";
+        if (clearSearch) {
+            searchInput.value = "";
+            activeAuthorFilter = null;
+        }
+        tagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
+        excludeTagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
+        tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+            c.style.display = "";
+            c.classList.remove("active", "active-or");
+        });
+        excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
+            c.style.display = "";
+            c.classList.remove("excluded");
+        });
+        updateActiveTagsSummary();
+    }
+
+    function snapshotFilterState() {
+        return {
+            search: searchInput.value,
+            status: statusSelect.value,
+            audience: audienceSelect.value,
+            andTags: [...andTags],
+            orTags: [...orTags],
+            excludeTags: [...excludeTags],
+            tagSearch: tagSearchInput.value,
+            excludeTagSearch: excludeTagSearchInput.value,
+            page: currentPage,
+            focusedCard: focusedCard ? { ...focusedCard } : null,
+            preTagScrollY,
+        };
+    }
+
+    function restoreFilterState(state) {
+        if (!state) {
+            clearNonSourceFilters({ clearSearch: true });
+            return;
+        }
+
+        andTags.clear();
+        orTags.clear();
+        excludeTags.clear();
+        for (const tag of state.andTags || []) andTags.add(tag);
+        for (const tag of state.orTags || []) orTags.add(tag);
+        for (const tag of state.excludeTags || []) excludeTags.add(tag);
+
+        searchInput.value = state.search || "";
+        statusSelect.value = state.status || "all";
+        audienceSelect.value = state.audience || "all";
+        tagSearchInput.value = state.tagSearch || "";
+        excludeTagSearchInput.value = state.excludeTagSearch || "";
+        currentPage = state.page || 1;
+        focusedCard = state.focusedCard ? { ...state.focusedCard } : null;
+        preTagScrollY = state.preTagScrollY ?? null;
+        activeAuthorFilter = null;
+        refreshTagSearchResults();
     }
 
     function toggleTag(tag, chip) {
@@ -5908,8 +5978,10 @@
         const order = orderSelect.value;
 
         filtered = allNovels.filter((n) => {
+            if (activeAuthorFilter && n.author !== activeAuthorFilter) return false;
+
             // Search filter
-            if (query) {
+            if (query && !activeAuthorFilter) {
                 const inTitle = n.title.toLowerCase().includes(query);
                 const inTitleEn = n.titleEn && n.titleEn.toLowerCase().includes(query);
                 const inAuthor = n.author.toLowerCase().includes(query);
@@ -6140,12 +6212,20 @@
                 e.stopPropagation();
                 const novelId = n.id;
                 const novelSource = n.source || currentSource;
+                const author = authorEl.dataset.author;
                 // Toggle: if search already matches this author, clear it
-                if (searchInput.value === authorEl.dataset.author) {
-                    searchInput.value = "";
+                if (activeAuthorFilter === author) {
+                    restoreFilterState(authorFilterRestoreState);
+                    authorFilterRestoreState = null;
                     applyFilters();
                 } else {
-                    searchInput.value = authorEl.dataset.author;
+                    if (!activeAuthorFilter) {
+                        authorFilterRestoreState = snapshotFilterState();
+                    }
+                    clearNonSourceFilters();
+                    activeAuthorFilter = author;
+                    searchInput.value = author;
+                    currentPage = 1;
                     applyFilters();
                     filterAndFocusCard(novelId, novelSource);
                 }
@@ -6332,6 +6412,8 @@
     // === Event Listeners ===
     let searchTimer;
     searchInput.addEventListener("input", () => {
+        activeAuthorFilter = null;
+        authorFilterRestoreState = null;
         clearTimeout(searchTimer);
         searchTimer = setTimeout(applyFilters, 200);
     });
@@ -6717,6 +6799,8 @@
             andTags.clear();
             orTags.clear();
             excludeTags.clear();
+            activeAuthorFilter = null;
+            authorFilterRestoreState = null;
             searchInput.value = "";
             currentPage = 1;
         }
@@ -6930,7 +7014,8 @@
     let _lastHash = window.location.hash;
     function saveState() {
         const state = {};
-        if (searchInput.value) state.q = searchInput.value;
+        if (activeAuthorFilter) state.author = activeAuthorFilter;
+        else if (searchInput.value) state.q = searchInput.value;
         if (sortSelect.value !== "daily") state.sort = sortSelect.value;
         if (orderSelect.value !== "desc") state.order = orderSelect.value;
         if (statusSelect.value !== "all") state.status = statusSelect.value;
@@ -6964,7 +7049,9 @@
 
     function restoreFromHash() {
         const params = parseHash(window.location.hash);
-        searchInput.value = params.q || "";
+        activeAuthorFilter = params.author || null;
+        authorFilterRestoreState = null;
+        searchInput.value = params.author || params.q || "";
         sortSelect.value = params.sort || "daily";
         orderSelect.value = params.order || "desc";
         statusSelect.value = params.status || "all";
@@ -7017,7 +7104,13 @@
         const params = parseHash(window.location.hash);
         if (Object.keys(params).length === 0) return false;
 
-        if (params.q) searchInput.value = params.q;
+        if (params.author) {
+            activeAuthorFilter = params.author;
+            searchInput.value = params.author;
+        } else if (params.q) {
+            activeAuthorFilter = null;
+            searchInput.value = params.q;
+        }
         if (params.sort) sortSelect.value = params.sort;
         if (params.order) orderSelect.value = params.order;
         if (params.status) statusSelect.value = params.status;

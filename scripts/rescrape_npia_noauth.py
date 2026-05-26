@@ -35,7 +35,9 @@ API_HEADERS = {
 }
 
 COVER_PREFIX = "https://novelpia.com"
+IMAGE_COVER_PREFIX = "https://images.novelpia.com"
 DELETED_TAG = "deleted"
+PLACEHOLDER_COVER_PARTS = ("readycover", "adult_cover_img")
 from novelpia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
 
 AUDIENCES = [
@@ -63,6 +65,30 @@ def pick_cover(item):
                 return COVER_PREFIX + v
             return v
     return ""
+
+
+def is_real_cover(cover):
+    cover = str(cover or "")
+    return bool(cover) and not any(part in cover for part in PLACEHOLDER_COVER_PARTS)
+
+
+def absolute_cover(cover):
+    cover = str(cover or "")
+    if cover.startswith("//"):
+        return "https:" + cover
+    if cover.startswith("/"):
+        return IMAGE_COVER_PREFIX + cover
+    return cover
+
+
+def preserve_cover(fresh_cover, existing_site_cover="", existing_full_cover=""):
+    if is_real_cover(fresh_cover):
+        return fresh_cover
+    if is_real_cover(existing_full_cover):
+        return existing_full_cover
+    if is_real_cover(existing_site_cover):
+        return absolute_cover(existing_site_cover)
+    return fresh_cover
 
 
 def extract_novel(item):
@@ -286,6 +312,18 @@ def main():
             existing_data = json.load(f)
         print(f"Loaded {len(existing_data)} existing novels")
 
+    old_full_lookup = {}
+    if os.path.exists(full_path):
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                old_full = json.load(f)
+            for entry in old_full:
+                oid = str(entry.get("id", ""))
+                if oid:
+                    old_full_lookup[oid] = entry
+        except Exception as e:
+            print(f"  Warning: Could not load old full data for cover preservation: {e}")
+
     # Build lookup: novel_id_str -> index in existing_data
     existing_lookup = {}
     for idx, novel in enumerate(existing_data):
@@ -302,15 +340,28 @@ def main():
 
     def to_relative_cover(cover):
         """Strip the cover prefix for storage."""
-        if cover.startswith(COVER_PREFIX):
-            return cover[len(COVER_PREFIX):]
+        cover = str(cover or "")
+        for prefix in (COVER_PREFIX, IMAGE_COVER_PREFIX):
+            if cover.startswith(prefix):
+                return cover[len(prefix):]
         return cover
 
     def get_rank(nid, audience, period):
         return rankings.get((audience, period), {}).get(nid, 0)
 
     # Update existing novels or add new ones
+    preserved_cover_updates = 0
     for nid, novel in fresh_novels.items():
+        existing_site_cover = ""
+        if nid in existing_lookup:
+            existing_entry = existing_data[existing_lookup[nid]]
+            if len(existing_entry) > 3:
+                existing_site_cover = existing_entry[3]
+        existing_full_cover = (old_full_lookup.get(nid) or {}).get("cover", "")
+        cover_for_full = preserve_cover(novel["cover"], existing_site_cover, existing_full_cover)
+        if cover_for_full != novel["cover"]:
+            novel["cover"] = cover_for_full
+            preserved_cover_updates += 1
         cover = to_relative_cover(novel["cover"])
 
         if nid in existing_lookup:
@@ -405,6 +456,7 @@ def main():
     print(f"  Preserved (R19):         {stats['preserved_r19']}")
     print(f"  Preserved (other):       {stats['preserved_other']}")
     print(f"  Tagged deleted:          {stats['deleted_tagged']}")
+    print(f"  Preserved cover URLs:    {preserved_cover_updates}")
     print(f"  Rank changes:            {rank_changes}")
     print(f"{'='*50}")
 
@@ -427,15 +479,8 @@ def main():
 
     # Also include every old-only full entry. A scrape result is an update set,
     # not a deletion set; missing IDs keep their last known synopsis data.
-    if os.path.exists(full_path):
+    if old_full_lookup:
         try:
-            with open(full_path, "r", encoding="utf-8") as f:
-                old_full = json.load(f)
-            old_full_lookup = {}
-            for entry in old_full:
-                oid = str(entry.get("id", ""))
-                if oid:
-                    old_full_lookup[oid] = entry
             preserved_full = 0
             full_ids = {str(n["id"]) for n in full_novels}
             for oid, entry in old_full_lookup.items():
