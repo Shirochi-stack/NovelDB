@@ -25,6 +25,25 @@ def is_valid_english(text):
     text = (text or "").strip()
     return bool(text) and not has_cjk(text) and has_ascii_letter(text)
 
+def parse_delimited_row(line):
+    """Parse id|||original|||english while allowing ||| inside original text."""
+    if "|||" not in line:
+        return line.strip(), "", ""
+    nid, rest = line.split("|||", 1)
+    if "|||" not in rest:
+        return nid.strip(), rest, ""
+    original, english = rest.rsplit("|||", 1)
+    return nid.strip(), original, english
+
+def open_text_with_gzip_fallback(path):
+    """Open text, falling back to path + .gz when only compressed data exists."""
+    if os.path.exists(path):
+        return open(path, "r", encoding="utf-8"), path
+    gz_path = path if path.endswith(".gz") else path + ".gz"
+    if os.path.exists(gz_path):
+        return gzip.open(gz_path, "rt", encoding="utf-8"), gz_path
+    return None, None
+
 def main():
     base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "data")
     novels_path = os.path.join(base_dir, "sfacg_novels.json")
@@ -43,25 +62,33 @@ def main():
 
     # Load translations (format: id|||chinese|||english)
     trans = {}
-    if os.path.exists(trans_path):
-        with open(trans_path, "r", encoding="utf-8") as f:
+    f, source = open_text_with_gzip_fallback(trans_path)
+    if f:
+        with f:
             for line in f:
-                parts = line.strip().split("|||", 2)
-                if len(parts) >= 3 and is_valid_english(parts[2]):
-                    trans[parts[0].strip()] = parts[2].strip()
+                nid, _orig, eng = parse_delimited_row(line.rstrip("\r\n"))
+                if nid and is_valid_english(eng):
+                    trans[nid] = eng.strip()
+        if source != trans_path:
+            print(f"  Loaded translations from {source}")
         print(f"  {len(trans)} translations loaded")
 
     # Load descriptions (format: id|||chinese|||english)
     descs = {}
-    if os.path.exists(desc_path):
-        with open(desc_path, "r", encoding="utf-8") as f:
+    f, source = open_text_with_gzip_fallback(desc_path)
+    if f:
+        with f:
             for line in f:
-                parts = line.strip().split("|||", 2)
-                if len(parts) >= 3 and is_valid_english(parts[2]):
-                    descs[parts[0].strip()] = parts[2].strip()
-                elif len(parts) >= 2 and parts[1].strip():
+                nid, orig, eng = parse_delimited_row(line.rstrip("\r\n"))
+                if not nid:
+                    continue
+                if is_valid_english(eng):
+                    descs[nid] = eng.strip()
+                elif orig.strip():
                     # Fallback to Chinese if no English translation
-                    descs[parts[0].strip()] = parts[1].strip()
+                    descs[nid] = orig.strip()
+        if source != desc_path:
+            print(f"  Loaded descriptions from {source}")
         print(f"  {len(descs)} descriptions loaded")
 
     # Find novels with any SFACG ranking

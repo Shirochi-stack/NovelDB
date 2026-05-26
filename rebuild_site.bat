@@ -6,27 +6,32 @@ echo.
 
 cd /d "%~dp0"
 
-echo [1/5] Merging unique novel sets...
+echo [1/6] Merging unique novel sets...
 python scripts/merge_unique_sets.py
 if errorlevel 1 echo   (No novels_full.json found or merge skipped)
 echo.
 
-echo [2/5] Chunking Novelpia data...
+echo [2/6] Chunking Novelpia data...
 python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt --descriptions docs/data/descriptions.txt
 if errorlevel 1 goto :error
 echo.
 
-echo [3/5] Building Novelpia top rankings...
+echo [3/6] Building Novelpia top rankings...
 python scripts/build_novelpia_top.py
 if errorlevel 1 goto :error
 echo.
 
-echo [4/5] Chunking SFACG data...
+echo [4/6] Chunking SFACG data...
 python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10 --translations docs/data/sfacg_titles_en.txt --descriptions docs/data/sfacg_descriptions.txt
 if errorlevel 1 goto :error
 echo.
 
-echo [5/5] Chunking Kakao data...
+echo [5/6] Building SFACG top rankings...
+python scripts/build_sfacg_top.py
+if errorlevel 1 goto :error
+echo.
+
+echo [6/6] Chunking Kakao data...
 python scripts/chunk_and_compress.py --input docs/data/kakao_novels.json --prefix kakao_chunk --output-dir docs/data -n 3 --translations docs/data/kakao_titles_en.txt --descriptions docs/data/kakao_descriptions.txt
 if errorlevel 1 echo   (Kakao data not found or failed — skipping)
 echo.

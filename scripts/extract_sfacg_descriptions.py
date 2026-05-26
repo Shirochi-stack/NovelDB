@@ -37,7 +37,7 @@ def load_existing_rows():
         with gzip.open(OUTPUT + ".gz", "rt", encoding="utf-8") as f:
             lines = f.readlines()
     else:
-        return translations
+        return rows
 
     for line in lines:
         line = line.rstrip("\r\n")

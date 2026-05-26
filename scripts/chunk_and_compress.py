@@ -12,7 +12,7 @@ Usage:
     python scripts/chunk_and_compress.py --input data.json -n 10 --translations titles.txt --descriptions desc.txt
 """
 
-import json, gzip, os, sys, argparse, math
+import json, gzip, os, sys, argparse, math, stat, time
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -49,6 +49,42 @@ def parse_delimited_row(line):
     return nid.strip(), original, english
 
 
+def open_text_with_gzip_fallback(path):
+    """Open text, falling back to path + .gz when only compressed data exists."""
+    if not path:
+        return None, None
+    if os.path.exists(path):
+        return open(path, "r", encoding="utf-8"), path
+    gz_path = path if path.endswith(".gz") else path + ".gz"
+    if os.path.exists(gz_path):
+        return gzip.open(gz_path, "rt", encoding="utf-8"), gz_path
+    return None, None
+
+
+def replace_with_retries(src, dst, attempts=12, delay=0.5):
+    """Replace a file, retrying transient Windows sharing/permission failures."""
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            if os.path.exists(dst):
+                try:
+                    os.chmod(dst, stat.S_IREAD | stat.S_IWRITE)
+                except OSError:
+                    pass
+            os.replace(src, dst)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt == attempts:
+                break
+            time.sleep(delay)
+    raise PermissionError(
+        f"Could not replace {dst} after {attempts} attempts. "
+        "Close any browser, local server, editor, or sync/indexing process using it, then rerun. "
+        f"Temporary output was left at {src}."
+    ) from last_error
+
+
 def load_translations_file(path):
     """Load translations from a |||‐delimited text file.
 
@@ -58,9 +94,10 @@ def load_translations_file(path):
     Returns dict of {id_str: english_text}.
     """
     trans = {}
-    if not path or not os.path.exists(path):
+    f, source = open_text_with_gzip_fallback(path)
+    if not f:
         return trans
-    with open(path, "r", encoding="utf-8") as f:
+    with f:
         for line in f:
             line = line.rstrip("\r\n")
             if not line:
@@ -71,6 +108,8 @@ def load_translations_file(path):
             # Column 3 (index 2) = English
             if is_valid_english(english):
                 trans[nid] = english.strip()
+    if source != path:
+        print(f"  Loaded translations from {source}")
     return trans
 
 
@@ -82,9 +121,10 @@ def load_descriptions_file(path):
     Returns dict of {id_str: description_text}.
     """
     descs = {}
-    if not path or not os.path.exists(path):
+    f, source = open_text_with_gzip_fallback(path)
+    if not f:
         return descs
-    with open(path, "r", encoding="utf-8") as f:
+    with f:
         for line in f:
             line = line.rstrip("\r\n")
             if not line:
@@ -98,6 +138,8 @@ def load_descriptions_file(path):
             text = eng if is_valid_english(eng) else orig
             if text and text != "N/A":
                 descs[nid] = text
+    if source != path:
+        print(f"  Loaded descriptions from {source}")
     return descs
 
 
@@ -189,7 +231,7 @@ def main():
         tmp_filepath = filepath + ".tmp"
         with open(tmp_filepath, "wb") as f:
             f.write(gz)
-        os.replace(tmp_filepath, filepath)
+        replace_with_retries(tmp_filepath, filepath)
 
         total_raw += len(raw)
         total_gz += len(gz)
