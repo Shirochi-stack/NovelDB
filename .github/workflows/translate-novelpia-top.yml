@@ -9,7 +9,7 @@ on:
       model:
         description: 'OpenAI-compatible model to use'
         required: false
-        default: 'grok-4-1-fast-reasoning'
+        default: 'grok-4.20-0309-non-reasoning'
         type: string
       api_base_url:
         description: 'OpenAI-compatible base URL (blank = auto route)'
@@ -84,7 +84,7 @@ jobs:
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '8192' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'grok-4.20-0309-non-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated Novelpia titles
         run: python scripts/merge_translated_npia_titles.py
@@ -100,7 +100,7 @@ jobs:
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '8192' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'grok-4-1-fast-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'grok-4.20-0309-non-reasoning' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated Novelpia descriptions
         run: python scripts/merge_translated_npia_descriptions.py

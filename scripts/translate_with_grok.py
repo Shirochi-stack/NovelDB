@@ -32,7 +32,7 @@ _enc = tiktoken.get_encoding("cl100k_base")
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "grok-4-1-fast-reasoning"
+DEFAULT_MODEL = "grok-4.20-0309-non-reasoning"
 
 # API output cap and derived chunk size.
 DEFAULT_OUTPUT_TOKEN_LIMIT = 8_192
