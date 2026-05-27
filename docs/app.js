@@ -7106,7 +7106,7 @@
                     allNovels = [...topNovels];
                     titleTranslations = {};
                     buildTags(allNovels);
-                    applyFilters({ resetPage: false });
+                    applyFilters({ resetPage: false, fade: false });
                 }
 
                 // === Background: load ALL sources in parallel ===
@@ -7151,7 +7151,7 @@
                 // Top novels already have translations from topUrl
                 titleTranslations = {};
                 buildTags(allNovels);
-                applyFilters({ resetPage: false });
+                applyFilters({ resetPage: false, fade: false });
                 firstRendered = true;
 
                 // Await remaining sources (already loading in background)
@@ -7159,7 +7159,7 @@
                 allNovels = [...allNovels, ...kakaoNovels, ...sfacgNovels];
                 titleTranslations = {};
                 buildTags(allNovels);
-                applyFilters({ resetPage: false });
+                applyFilters({ resetPage: false, fade: false });
             } else if (source === "novelpia") {
                 // === Single source: Novelpia with instant top ===
                 let topNovels = null;
@@ -7171,7 +7171,7 @@
                     allNovels = [...topNovels];
                     titleTranslations = {};
                     buildTags(allNovels);
-                    applyFilters({ resetPage: false });
+                    applyFilters({ resetPage: false, fade: false });
                 }
 
                 const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
@@ -7182,7 +7182,7 @@
                         allNovels.push(...chunk);
                         resultsEl.innerHTML = `<div class="loading-spinner">Loading chunk ${loaded}/${total}...</div>`;
                         buildTags(allNovels);
-                        applyFilters({ resetPage: false });
+                        applyFilters({ resetPage: false, fade: false });
                         firstRender = false;
                     } else {
                         resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading chunk ${loaded}/${total}`;
@@ -7219,7 +7219,7 @@
                     allNovels = [...topNovels];
                     titleTranslations = {};
                     buildTags(allNovels);
-                    applyFilters({ resetPage: false });
+                    applyFilters({ resetPage: false, fade: false });
                 }
 
                 const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
@@ -7229,7 +7229,7 @@
                         allNovels.push(...chunk);
                         resultCount.textContent = `Loading sfacg... chunk ${loaded}/${total}`;
                         buildTags(allNovels);
-                        applyFilters({ resetPage: false });
+                        applyFilters({ resetPage: false, fade: false });
                         firstRender = false;
                     } else {
                         resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading sfacg... ${loaded}/${total}`;
@@ -7252,7 +7252,7 @@
                         if (firstRender) {
                             firstRender = false;
                             buildTags(allNovels);
-                            applyFilters({ resetPage: false });
+                            applyFilters({ resetPage: false, fade: false });
                         }
                     });
                     allNovels = allChunkNovels;
@@ -7266,7 +7266,7 @@
             }
 
             buildTags(allNovels);
-            applyFilters({ resetPage: false });
+            applyFilters({ resetPage: false, fade: false });
             startLazyDescriptionLoads(source);
         } catch (err) {
             console.error("Load error:", err);
