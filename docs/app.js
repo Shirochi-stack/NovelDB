@@ -5775,8 +5775,7 @@
     }
 
     function buildTags(novels) {
-        const collapseByTranslation = currentSource === "all";
-        allTagGroups = makeTagGroups(novels, collapseByTranslation);
+        allTagGroups = makeTagGroups(novels, true);
         const sorted = allTagGroups.slice(0, 80);
         top80Tags = new Set(sorted.map((group) => group.key));
 
