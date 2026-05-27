@@ -6584,7 +6584,7 @@
 
     // === DOM ref ===
     const sourceSelect = $("#sourceSelect");
-    const DATA_VERSION = "2026-05-27-2";
+    const DATA_VERSION = "2026-05-27-3";
 
     function versionedDataUrl(url) {
         const sep = url.includes("?") ? "&" : "?";
@@ -6689,7 +6689,7 @@
 
     /** Fetch a .json.gz file, decompress client-side, parse JSON */
     async function fetchGzChunk(url) {
-        return JSON.parse(await fetchGzText(url));
+        return await parseJsonAsync(await fetchGzText(url));
     }
 
     async function fetchGzChunkWithRetry(url, attempts = 2) {
