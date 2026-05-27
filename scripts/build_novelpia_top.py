@@ -10,6 +10,8 @@ Usage:
 
 import json, gzip, os, sys
 
+TOP_LIMIT = 100
+
 def parse_delimited_row(line):
     if "|||" not in line:
         return line.strip(), "", ""
@@ -72,8 +74,10 @@ def main():
         if sid not in ids_seen:
             ids_seen.add(sid)
             top.append(e)
+            if len(top) >= TOP_LIMIT:
+                break
 
-    print(f"\n  Ranked novels: {len(ranked)}, Unique top novels: {len(top)}")
+    print(f"\n  Ranked novels: {len(ranked)}, Unique top novels: {len(top)} (limit {TOP_LIMIT})")
 
     # Build output with embedded translations and descriptions
     translations = {str(e[0]): trans[str(e[0])] for e in top if str(e[0]) in trans}

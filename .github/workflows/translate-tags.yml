@@ -86,7 +86,7 @@ jobs:
         run: python scripts/merge_translated_tags.py
 
       - name: Re-chunk Novelpia data
-        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt --descriptions docs/data/descriptions.txt
+        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
 
       - name: Check for changes
         id: changes

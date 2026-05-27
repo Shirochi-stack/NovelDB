@@ -6156,6 +6156,8 @@
         const card = document.createElement("div");
         card.className = "novel-card";
         const novelSource = n.source || currentSource;
+        card.dataset.source = novelSource;
+        card.dataset.novelId = String(n.id);
         const cfg = SOURCES[novelSource] || SOURCES.novelpia;
         const cardLink = `${cfg.linkPrefix}${n.id}`;
 
@@ -6329,6 +6331,7 @@
             for (let i = start; i < end; i++) {
                 resultsEl.appendChild(renderCard(filtered[i]));
             }
+            hydrateVisibleSynopses();
 
             // Stagger image loading: load one visible desktop row at a time.
             const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
@@ -6581,7 +6584,7 @@
 
     // === DOM ref ===
     const sourceSelect = $("#sourceSelect");
-    const DATA_VERSION = "2026-05-26-1";
+    const DATA_VERSION = "2026-05-27-2";
 
     function versionedDataUrl(url) {
         const sep = url.includes("?") ? "&" : "?";
@@ -6599,6 +6602,9 @@
             chunkCount: 5,
             chunkPrefix: "data/novelpia_chunk_",
             topUrl: "data/novelpia_top.json.gz",
+            descriptionChunkCount: 3,
+            descriptionChunkPrefix: "data/descriptions_chunk_",
+            descriptionsUrl: "data/descriptions.txt.gz",
         },
         kakao: {
             dataUrl: "data/kakao_novels.json",
@@ -6608,6 +6614,9 @@
             chunked: true,
             chunkCount: 3,
             chunkPrefix: "data/kakao_chunk_",
+            descriptionChunkCount: 5,
+            descriptionChunkPrefix: "data/kakao_descriptions_chunk_",
+            descriptionsUrl: "data/kakao_descriptions.txt.gz",
         },
         sfacg: {
             dataUrl: "data/sfacg_novels.json",
@@ -6619,10 +6628,16 @@
             chunkCount: 10,
             chunkPrefix: "data/sfacg_chunk_",
             topUrl: "data/sfacg_top.json.gz",
+            descriptionChunkCount: 10,
+            descriptionChunkPrefix: "data/sfacg_descriptions_chunk_",
+            descriptionsUrl: "data/sfacg_descriptions.txt.gz",
         },
     };
 
     let currentSource = "novelpia";
+    let novelIndex = new Map();
+    const descriptionCache = new Map();
+    const descriptionLoadPromises = new Map();
 
     async function fetchWithProgress(url) {
         const resp = await fetch(url);
@@ -6692,6 +6707,174 @@
         throw lastErr;
     }
 
+    function novelIndexKey(sourceName, id) {
+        return `${sourceName || ""}:${String(id)}`;
+    }
+
+    function rebuildNovelIndex() {
+        novelIndex = new Map();
+        for (const n of allNovels) {
+            novelIndex.set(novelIndexKey(n.source || currentSource, n.id), n);
+        }
+    }
+
+    function normalizeSynopsis(text) {
+        return String(text || "")
+            .replace(/\\r\\n|\\n/g, "\n")
+            .replace(/\r\n|\r/g, "\n")
+            .trim();
+    }
+
+    function parseDelimitedDescription(line) {
+        const first = line.indexOf("|||");
+        if (first < 0) return [line.trim(), "", ""];
+        const nid = line.slice(0, first).trim();
+        const rest = line.slice(first + 3);
+        const last = rest.lastIndexOf("|||");
+        if (last < 0) return [nid, rest, ""];
+        return [nid, rest.slice(0, last), rest.slice(last + 3)];
+    }
+
+    function hasCjkText(text) {
+        return Array.from(String(text || "")).some((c) =>
+            ("\u3040" <= c && c <= "\u30ff") ||
+            ("\u3400" <= c && c <= "\u4dbf") ||
+            ("\u4e00" <= c && c <= "\u9fff") ||
+            ("\uf900" <= c && c <= "\ufaff") ||
+            ("\uac00" <= c && c <= "\ud7af")
+        );
+    }
+
+    function hasAsciiLetterText(text) {
+        return /[A-Za-z]/.test(String(text || ""));
+    }
+
+    function descriptionTextFromLine(line) {
+        const [nid, original, english] = parseDelimitedDescription(line);
+        if (!nid) return null;
+        const eng = normalizeSynopsis(english);
+        const orig = normalizeSynopsis(original);
+        const text = eng && !hasCjkText(eng) && hasAsciiLetterText(eng) ? eng : orig;
+        return text ? { id: nid, text } : null;
+    }
+
+    function descriptionCacheKey(sourceName, novelId) {
+        return novelIndexKey(sourceName, novelId);
+    }
+
+    function applyCachedDescriptions(novels) {
+        for (const novel of novels) {
+            if (!novel || novel.synopsis) continue;
+            const cached = descriptionCache.get(descriptionCacheKey(novel.source, novel.id));
+            if (cached) novel.synopsis = cached;
+        }
+    }
+
+    function descriptionUrlsForSource(cfg) {
+        if (cfg.descriptionChunkCount && cfg.descriptionChunkPrefix) {
+            return Array.from(
+                { length: cfg.descriptionChunkCount },
+                (_, i) => `${cfg.descriptionChunkPrefix}${i}.txt.gz`
+            );
+        }
+        return cfg.descriptionsUrl ? [cfg.descriptionsUrl] : [];
+    }
+
+    async function streamGzLines(url, onLines) {
+        const fetchUrl = versionedDataUrl(url);
+        const resp = await fetch(fetchUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+        if (!resp.body || typeof DecompressionStream === "undefined") {
+            const text = await fetchGzText(url);
+            onLines(text.split(/\r?\n/));
+            return;
+        }
+
+        const ds = new DecompressionStream("gzip");
+        const reader = resp.body.pipeThrough(ds).getReader();
+        const decoder = new TextDecoder();
+        let pending = "";
+        let batch = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            const chunkText = pending + decoder.decode(value || new Uint8Array(), { stream: !done });
+            const lines = chunkText.split("\n");
+            pending = done ? "" : lines.pop();
+
+            for (const line of lines) {
+                batch.push(line.endsWith("\r") ? line.slice(0, -1) : line);
+                if (batch.length >= 1000) {
+                    onLines(batch);
+                    batch = [];
+                    await new Promise((resolve) => requestAnimationFrame(resolve));
+                }
+            }
+
+            if (done) break;
+        }
+
+        if (pending) batch.push(pending.endsWith("\r") ? pending.slice(0, -1) : pending);
+        if (batch.length) onLines(batch);
+    }
+
+    function updateCardSynopsis(card, synopsis) {
+        const body = card.querySelector(".card-body");
+        if (!body || !synopsis) return;
+        let synopsisEl = body.querySelector(".card-synopsis");
+        if (!synopsisEl) {
+            synopsisEl = document.createElement("div");
+            synopsisEl.className = "card-synopsis";
+            body.appendChild(synopsisEl);
+        }
+        synopsisEl.innerHTML = `<span class="synopsis-label">Synopsis:</span> ${escHtml(synopsis).replace(/\n+/g, "<br>")}`;
+    }
+
+    function hydrateVisibleSynopses(changedKeys = null) {
+        resultsEl.querySelectorAll(".novel-card[data-source][data-novel-id]").forEach((card) => {
+            const key = novelIndexKey(card.dataset.source, card.dataset.novelId);
+            if (changedKeys && !changedKeys.has(key)) return;
+            const novel = novelIndex.get(key);
+            if (novel && novel.synopsis) updateCardSynopsis(card, novel.synopsis);
+        });
+    }
+
+    function applyDescriptionLines(sourceName, lines) {
+        const changedKeys = new Set();
+        for (const line of lines) {
+            if (!line || !line.includes("|||")) continue;
+            const row = descriptionTextFromLine(line);
+            if (!row) continue;
+            const key = descriptionCacheKey(sourceName, row.id);
+            descriptionCache.set(key, row.text);
+            const novel = novelIndex.get(key);
+            if (!novel || novel.synopsis) continue;
+            novel.synopsis = row.text;
+            changedKeys.add(key);
+        }
+        if (changedKeys.size) hydrateVisibleSynopses(changedKeys);
+    }
+
+    function sourceNamesForLazyDescriptions(source) {
+        return source === "all" ? ["novelpia", "kakao", "sfacg"] : [source];
+    }
+
+    function startLazyDescriptionLoads(source) {
+        rebuildNovelIndex();
+        for (const sourceName of sourceNamesForLazyDescriptions(source)) {
+            const cfg = SOURCES[sourceName];
+            if (!cfg) continue;
+            for (const url of descriptionUrlsForSource(cfg)) {
+                const loadKey = `${sourceName}:${url}`;
+                if (!descriptionLoadPromises.has(loadKey)) {
+                    const promise = streamGzLines(url, (lines) => applyDescriptionLines(sourceName, lines))
+                        .catch((err) => console.warn(`Failed to lazy-load ${sourceName} descriptions from ${url}:`, err));
+                    descriptionLoadPromises.set(loadKey, promise);
+                }
+            }
+        }
+    }
+
     let tagTranslationsPromise = null;
     async function loadTagTranslations() {
         if (!tagTranslationsPromise) {
@@ -6746,12 +6929,14 @@
                         descriptions = {};
                     }
                     const novels = parseNovels(novelsData, sourceName, cfg);
-                    // Apply embedded translations and descriptions
+                    // Apply embedded translations. Descriptions are normally lazy-loaded separately;
+                    // keep this for compatibility with older chunk files.
                     for (const n of novels) {
                         const sid = String(n.id);
                         if (translations[sid]) n.titleEn = translations[sid];
-                        if (descriptions[sid]) n.synopsis = descriptions[sid].replace(/\\r\\n|\\n/g, "\n");
+                        if (descriptions[sid]) n.synopsis = normalizeSynopsis(descriptions[sid]);
                     }
+                    applyCachedDescriptions(novels);
                     onChunkLoaded(novels, loaded, chunkCount);
                     return novels;
                 }).catch((err) => {
@@ -6794,7 +6979,7 @@
         //                               synopsis, latestChapterTitle, latestChapterId, latestChapterTime]
         // Novelpia/Kakao format (13+ fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank, ...]
         const sfacg = cfg.sfacgRanks;
-        return raw.map((r) => {
+        const novels = raw.map((r) => {
             let tags = r[4];
             if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
             const tagKeys = makeNovelTagKeys(tags);
@@ -6821,7 +7006,7 @@
                     bookmarksRank: r[14] || 0,
                     jpRank: r[15] || 0,
                     ticketRank: r[16] || 0,
-                    synopsis: r[17] ? String(r[17]).replace(/\\n/g, "\n") : "",
+                    synopsis: r[17] ? normalizeSynopsis(r[17]) : "",
                     latestChapterTitle: r[18] || "",
                     latestChapterId: r[19] || 0,
                     latestChapterTime: r[20] || "",
@@ -6859,9 +7044,11 @@
                 _tagKeys: tagKeys,
             };
         });
+        applyCachedDescriptions(novels);
+        return novels;
     }
 
-    // loadTranslations and loadDescriptions removed — data is now embedded in chunks
+    // Title translations are embedded in chunks; full descriptions are lazy-loaded from parallel .txt.gz chunks.
 
     async function loadSource(source, keepState = false) {
         currentSource = source;
@@ -6901,7 +7088,7 @@
                 if (data.descriptions) {
                     for (const n of novels) {
                         if (data.descriptions[n.id]) {
-                            n.synopsis = data.descriptions[n.id].replace(/\\r\\n|\\n/g, "\n");
+                            n.synopsis = normalizeSynopsis(data.descriptions[n.id]);
                         }
                     }
                 }
@@ -7021,7 +7208,7 @@
                         if (topData.descriptions) {
                             for (const n of topNovels) {
                                 if (topData.descriptions[n.id]) {
-                                    n.synopsis = topData.descriptions[n.id].replace(/\\r\\n|\\n/g, "\n");
+                                    n.synopsis = normalizeSynopsis(topData.descriptions[n.id]);
                                 }
                             }
                         }
@@ -7080,6 +7267,7 @@
 
             buildTags(allNovels);
             applyFilters({ resetPage: false });
+            startLazyDescriptionLoads(source);
         } catch (err) {
             console.error("Load error:", err);
             resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">

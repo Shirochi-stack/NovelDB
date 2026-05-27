@@ -33,8 +33,14 @@ jobs:
       - name: Update rankings (no auth required)
         run: python scripts/update_rankings_noauth.py
 
-      - name: Re-chunk Novelpia data (with embedded translations + descriptions)
-        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt --descriptions docs/data/descriptions.txt
+      - name: Gzip Novelpia descriptions
+        run: python scripts/gzip_text_files.py docs/data/descriptions.txt
+
+      - name: Chunk Novelpia descriptions
+        run: python scripts/chunk_descriptions.py docs/data/descriptions.txt --prefix descriptions_chunk --output-dir docs/data -n 3
+
+      - name: Re-chunk Novelpia data (with embedded translations)
+        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
 
       - name: Rebuild instant-load top rankings
         run: python scripts/build_novelpia_top.py
@@ -49,6 +55,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/novels.json docs/data/descriptions.txt docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json docs/data/novelpia_top.json.gz
+          git add docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_chunk_*.txt.gz docs/data/descriptions_chunk_manifest.json docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json docs/data/novelpia_top.json.gz
           git commit -m "📊 Update Npia rankings ($(date -u +%Y-%m-%d))"
           git push
