@@ -6,9 +6,10 @@ Accepts whatever the model returns and moves on.
 
 Environment:
     TRANSLATION_API_KEY       - preferred API key for any provider
+    DEEPSEEK_API_KEY          - fallback API key for DeepSeek
     OPENAI_API_KEY            - fallback API key
     GROK_API_KEY              - fallback API key for xAI/Grok
-    DEEPSEEK_API_KEY          - fallback API key for DeepSeek
+    XAI_API_KEY               - fallback API key for xAI/Grok
     TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL; leave blank
                                to infer from model/key name
     TRANSLATION_OUTPUT_TOKEN_LIMIT - API completion token limit
@@ -32,7 +33,7 @@ _enc = tiktoken.get_encoding("cl100k_base")
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "grok-4.20-0309-non-reasoning"
+DEFAULT_MODEL = "deepseek-v4-pro"
 
 # API output cap and derived chunk size.
 DEFAULT_OUTPUT_TOKEN_LIMIT = 8_192
@@ -309,7 +310,33 @@ def infer_api_base_url(model):
     return DEFAULT_API_BASE_URL
 
 
-def resolve_api_key(api_key_env=None):
+def model_key_order(model):
+    """Return API-key env vars in provider-aware preference order."""
+    hint = (model or "").lower()
+    order = ["TRANSLATION_API_KEY"]
+
+    if "deepseek" in hint:
+        order.append("DEEPSEEK_API_KEY")
+        return order
+    elif "grok" in hint or "xai" in hint or "x-ai" in hint:
+        order.extend(["GROK_API_KEY", "XAI_API_KEY"])
+        return order
+    elif "openai" in hint or "gpt-" in hint or "o1" in hint or "o3" in hint:
+        order.append("OPENAI_API_KEY")
+        return order
+
+    for env_name in (
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "GROK_API_KEY",
+        "XAI_API_KEY",
+    ):
+        if env_name not in order:
+            order.append(env_name)
+    return order
+
+
+def resolve_api_key(api_key_env=None, model=None):
     """Resolve API key from a named env var or common provider fallbacks."""
     if api_key_env:
         key = os.environ.get(api_key_env)
@@ -318,19 +345,14 @@ def resolve_api_key(api_key_env=None):
             sys.exit(1)
         return key
 
-    for env_name in (
-        "TRANSLATION_API_KEY",
-        "OPENAI_API_KEY",
-        "GROK_API_KEY",
-        "DEEPSEEK_API_KEY",
-    ):
+    for env_name in model_key_order(model):
         key = os.environ.get(env_name)
         if key:
             return key
 
     print(
-        "Error: no API key set. Use TRANSLATION_API_KEY, OPENAI_API_KEY, "
-        "GROK_API_KEY, DEEPSEEK_API_KEY, or --api-key-env."
+        "Error: no API key set. Use TRANSLATION_API_KEY, DEEPSEEK_API_KEY, "
+        "OPENAI_API_KEY, GROK_API_KEY, XAI_API_KEY, or --api-key-env."
     )
     sys.exit(1)
 
@@ -459,7 +481,7 @@ def main():
         default=None,
         help=(
             "Environment variable containing the API key. If omitted, checks "
-            "TRANSLATION_API_KEY, OPENAI_API_KEY, GROK_API_KEY, DEEPSEEK_API_KEY."
+            "TRANSLATION_API_KEY, then a provider-specific key for the selected model."
         ),
     )
     parser.add_argument(
@@ -486,7 +508,7 @@ def main():
     args = parser.parse_args()
 
     model = args.model or os.environ.get("MODEL", DEFAULT_MODEL)
-    api_key = resolve_api_key(args.api_key_env)
+    api_key = resolve_api_key(args.api_key_env, model)
     api_base_url = resolve_api_base_url(model, args.api_base_url)
     api_url = normalize_chat_completions_url(api_base_url)
     output_token_limit = (
