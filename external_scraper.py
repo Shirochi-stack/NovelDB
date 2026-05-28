@@ -1110,6 +1110,189 @@ class ExternalScraper:
             raise RuntimeError("sdkmanager.bat was not found after installation.")
         return sdkmanager
 
+    @staticmethod
+    def _avdmanager_name():
+        return "avdmanager.bat" if sys.platform == "win32" else "avdmanager"
+
+    def _avdmanager_path(self, sdk_dir):
+        path = os.path.join(
+            sdk_dir, "cmdline-tools", "latest", "bin", self._avdmanager_name()
+        )
+        return path if os.path.exists(path) else ""
+
+    def _android_sdk_env(self, sdk_dir):
+        env = os.environ.copy()
+        env["ANDROID_SDK_ROOT"] = sdk_dir
+        env["ANDROID_HOME"] = sdk_dir
+        self._set_process_and_user_env("ANDROID_SDK_ROOT", sdk_dir)
+        self._set_process_and_user_env("ANDROID_HOME", sdk_dir)
+        return self._ensure_java_env(env)
+
+    def _run_sdkmanager(self, sdkmanager, sdk_dir, env, args, label, timeout):
+        license_input = ("y\n" * 80)
+        self.log(f"[Android] Running sdkmanager to {label}...")
+        proc = subprocess.run(
+            [sdkmanager, f"--sdk_root={sdk_dir}", *args],
+            input=license_input,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            **_hidden_windows_subprocess_kwargs(),
+        )
+        if proc.returncode != 0:
+            output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+            tail = "\n".join(output.splitlines()[-12:])
+            raise RuntimeError(f"sdkmanager failed to {label}:\n{tail}")
+        return proc
+
+    def _available_android_system_images(self, sdkmanager, sdk_dir, env):
+        proc = subprocess.run(
+            [sdkmanager, f"--sdk_root={sdk_dir}", "--list"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=env,
+            **_hidden_windows_subprocess_kwargs(),
+        )
+        if proc.returncode != 0:
+            output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+            tail = "\n".join(output.splitlines()[-12:])
+            raise RuntimeError(f"sdkmanager could not list system images:\n{tail}")
+
+        images = []
+        pattern = re.compile(
+            r"(system-images;android-(\d+);([^;\s]+);([^|\s]+))"
+        )
+        for package, api, tag, abi in pattern.findall(proc.stdout or ""):
+            images.append(
+                {
+                    "package": package,
+                    "api": int(api),
+                    "tag": tag,
+                    "abi": abi,
+                }
+            )
+        return images
+
+    def _choose_android_system_image(self, sdkmanager, sdk_dir, env):
+        images = self._available_android_system_images(sdkmanager, sdk_dir, env)
+        if not images:
+            raise RuntimeError("No Android emulator system images were found.")
+
+        if self._adoptium_arch() == "aarch64":
+            preferred_abis = ("arm64-v8a", "x86_64")
+        else:
+            preferred_abis = ("x86_64",)
+        preferred_tags = ("google_apis_playstore", "google_apis", "default")
+
+        def score(image):
+            tag_score = (
+                len(preferred_tags) - preferred_tags.index(image["tag"])
+                if image["tag"] in preferred_tags
+                else 0
+            )
+            abi_score = (
+                len(preferred_abis) - preferred_abis.index(image["abi"])
+                if image["abi"] in preferred_abis
+                else 0
+            )
+            return tag_score, abi_score, image["api"]
+
+        chosen = max(images, key=score)
+        if score(chosen)[0] <= 0 or score(chosen)[1] <= 0:
+            raise RuntimeError("No compatible Android phone system image was found.")
+        return chosen
+
+    def _android_avd_device_id(self, avdmanager, env):
+        preferred = ("pixel_9", "pixel_8", "pixel_7", "pixel_6", "pixel_5", "medium_phone")
+        try:
+            proc = subprocess.run(
+                [avdmanager, "list", "device"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=env,
+                **_hidden_windows_subprocess_kwargs(),
+            )
+            output = proc.stdout or ""
+        except Exception:
+            output = ""
+        for device in preferred:
+            if f'"{device}"' in output:
+                return device
+        return "medium_phone"
+
+    def _create_android_avd(self, avdmanager, env, system_image):
+        avd_name = (
+            "Npia_Play_Store"
+            if system_image["tag"] == "google_apis_playstore"
+            else "Npia_Android"
+        )
+        if avd_name in self.list_android_avds():
+            return avd_name
+
+        device = self._android_avd_device_id(avdmanager, env)
+        self.log(
+            f"[Android] Creating Android Virtual Device {avd_name} "
+            f"from {system_image['package']}..."
+        )
+        proc = subprocess.run(
+            [
+                avdmanager,
+                "create",
+                "avd",
+                "-n",
+                avd_name,
+                "-k",
+                system_image["package"],
+                "-d",
+                device,
+                "--force",
+            ],
+            input="no\n",
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=env,
+            **_hidden_windows_subprocess_kwargs(),
+        )
+        if proc.returncode != 0:
+            output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+            tail = "\n".join(output.splitlines()[-12:])
+            raise RuntimeError(f"avdmanager failed to create an AVD:\n{tail}")
+        self.log(f"[Android] Android Virtual Device created: {avd_name}")
+        return avd_name
+
+    def _ensure_android_avd(self):
+        avds = self.list_android_avds()
+        if avds:
+            return avds[0]
+        if sys.platform != "win32":
+            return ""
+
+        sdk_dir = self._android_sdk_dir() or self._android_sdk_default_dir()
+        os.makedirs(sdk_dir, exist_ok=True)
+        sdkmanager = self._ensure_android_cmdline_tools(sdk_dir)
+        avdmanager = self._avdmanager_path(sdk_dir)
+        if not avdmanager:
+            raise RuntimeError("avdmanager.bat was not found in Android SDK tools.")
+
+        env = self._android_sdk_env(sdk_dir)
+        system_image = self._choose_android_system_image(sdkmanager, sdk_dir, env)
+        self._run_sdkmanager(
+            sdkmanager,
+            sdk_dir,
+            env,
+            [
+                f"platforms;android-{system_image['api']}",
+                system_image["package"],
+            ],
+            "install Android Virtual Device image",
+            1800,
+        )
+        return self._create_android_avd(avdmanager, env, system_image)
+
     def _ensure_android_emulator_tools(self):
         if sys.platform != "win32":
             self.log(self._android_sdk_install_instructions())
@@ -1122,31 +1305,12 @@ class ExternalScraper:
         self.log(f"[Android] Installing Android SDK tools to: {sdk_dir}")
         sdkmanager = self._ensure_android_cmdline_tools(sdk_dir)
 
-        env = os.environ.copy()
-        env["ANDROID_SDK_ROOT"] = sdk_dir
-        env["ANDROID_HOME"] = sdk_dir
-        self._set_process_and_user_env("ANDROID_SDK_ROOT", sdk_dir)
-        self._set_process_and_user_env("ANDROID_HOME", sdk_dir)
-        env = self._ensure_java_env(env)
-        license_input = ("y\n" * 80)
+        env = self._android_sdk_env(sdk_dir)
         for args, label, timeout in (
             (["--licenses"], "accept Android SDK licenses", 300),
             (["platform-tools", "emulator"], "install Android Emulator", 900),
         ):
-            self.log(f"[Android] Running sdkmanager to {label}...")
-            proc = subprocess.run(
-                [sdkmanager, f"--sdk_root={sdk_dir}", *args],
-                input=license_input,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-                **_hidden_windows_subprocess_kwargs(),
-            )
-            if proc.returncode != 0:
-                output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
-                tail = "\n".join(output.splitlines()[-12:])
-                raise RuntimeError(f"sdkmanager failed to {label}:\n{tail}")
+            self._run_sdkmanager(sdkmanager, sdk_dir, env, args, label, timeout)
 
         if self._emulator_path():
             self.log("[Android] Android Emulator installed.")
@@ -1588,26 +1752,38 @@ class ExternalScraper:
             (
                 name
                 for name in avds
-                if "play" not in name.lower()
+                if "play" in name.lower()
             ),
             next(
                 (
                     name
                     for name in avds
-                    if "play" in name.lower()
+                    if "play" not in name.lower()
                 ),
                 "",
             ),
         )
         avd_name = avd_name or (avds[0] if avds else "")
         if not avd_name:
-            self.log(
-                "[Android] No Android Virtual Devices found.\n"
-                "[Android] Open Android Studio > Device Manager and create an AVD, "
-                "preferably a Play Store image for login.\n"
-                "[Android] Then click Enter App > Open Android again."
-            )
-            return False
+            self.log("[Android] No Android Virtual Devices found; creating one...")
+            try:
+                avd_name = self._ensure_android_avd()
+                avds = self.list_android_avds()
+            except Exception as e:
+                self.log(f"[Android] Automatic AVD creation failed: {e}")
+                self.log(
+                    "[Android] Open Android Studio > Device Manager and create an AVD, "
+                    "preferably a Play Store image for login.\n"
+                    "[Android] Then click Enter App > Open Android again."
+                )
+                return False
+            if not avd_name:
+                self.log(
+                    "[Android] Open Android Studio > Device Manager and create an AVD, "
+                    "preferably a Play Store image for login.\n"
+                    "[Android] Then click Enter App > Open Android again."
+                )
+                return False
         if "play" not in avd_name.lower():
             self.log(
                 "[Android] Using rootable AVD for SFACG import. "

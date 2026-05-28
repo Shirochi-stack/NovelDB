@@ -101,8 +101,8 @@ on Windows, Open Android will try to download Google's latest Android SDK
 Command-line Tools and install the Android Emulator/platform-tools packages.
 If Java is missing, it also installs a portable Temurin JDK and sets JAVA_HOME
 for the current user.
-If no Android Virtual Device exists yet, create one in Android Studio >
-Device Manager, then click Open Android again.
+If no Android Virtual Device exists yet, Open Android will install a compatible
+Android system image and create a default Npia Play Store AVD automatically.
 For Facebook login, the simplest reliable emulator flow is a Play Store AVD
 for logging in, plus a separate root-capable AVD or manual cookie export if
 private app data must be read:
