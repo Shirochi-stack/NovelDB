@@ -24,16 +24,74 @@ class DownloaderCore:
         self.log = logger_func
         self.stop_signal = False
 
+    def _request_with_retries(
+        self,
+        method,
+        url,
+        *,
+        label,
+        max_retries=None,
+        require_body=False,
+        **kwargs,
+    ):
+        if max_retries is None:
+            max_retries = self.DEFAULT_MAX_RETRIES
+        try:
+            max_retries = max(1, int(max_retries))
+        except (TypeError, ValueError):
+            max_retries = self.DEFAULT_MAX_RETRIES
+
+        request = getattr(self.auth.session, method.lower())
+        last_error = None
+
+        for attempt in range(1, max_retries + 1):
+            if self.stop_signal:
+                return None
+            try:
+                response = request(url, **kwargs)
+                if response.status_code in RETRYABLE_STATUS_CODES:
+                    last_error = f"HTTP {response.status_code}"
+                elif require_body and not (response.text or "").strip():
+                    last_error = "empty response body"
+                else:
+                    if attempt > 1:
+                        self.log(
+                            f"{label}: recovered on attempt {attempt}/{max_retries}."
+                        )
+                    return response
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+
+            if attempt < max_retries:
+                wait = min(8, 2 ** (attempt - 1))
+                self.log(
+                    f"{label}: attempt {attempt}/{max_retries} failed "
+                    f"({last_error}). Retrying in {wait}s..."
+                )
+                time.sleep(wait)
+
+        raise RuntimeError(
+            f"{label}: failed after {max_retries} attempts ({last_error})"
+        )
+
     def fetch_metadata(self, novel_id):
         """
         Scrapes novel metadata using regex patterns from MainWin.Download.cs.
         """
         url = f"https://novelpia.com/novel/{novel_id}"
         self.log(f"Fetching metadata for Novel ID: {novel_id}...")
-        
+
         try:
             # Use GET here, matching the original C# implementation.
-            response = self.auth.session.get(url, timeout=15)
+            response = self._request_with_retries(
+                "get",
+                url,
+                label=f"Metadata {novel_id}",
+                timeout=15,
+                require_body=True,
+            )
+            if response is None:
+                return None
             text = response.text
             
             # Title Extraction
