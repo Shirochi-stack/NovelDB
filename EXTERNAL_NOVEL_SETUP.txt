@@ -95,8 +95,14 @@ SFACG's VIP text API uses the mobile app session, not only the web browser
 session. Use the Enter App button in the external downloader to save a
 session_APP cookie. Direct SFACG username/password login can fetch this
 automatically; Facebook/third-party linked accounts must paste an app cookie.
-On systems with Android SDK/adb, Enter App can also open an Android emulator
-and try importing session_APP after you log into the SFACG app there.
+Enter App can also open an Android emulator and try importing session_APP
+after you log into the SFACG app there. If Android SDK Emulator is missing
+on Windows, Open Android will try to download Google's latest Android SDK
+Command-line Tools and install the Android Emulator/platform-tools packages.
+If Java is missing, it also installs a portable Temurin JDK and sets JAVA_HOME
+for the current user.
+If no Android Virtual Device exists yet, create one in Android Studio >
+Device Manager, then click Open Android again.
 For Facebook login, the simplest reliable emulator flow is a Play Store AVD
 for logging in, plus a separate root-capable AVD or manual cookie export if
 private app data must be read:

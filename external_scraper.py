@@ -20,6 +20,7 @@ import base64
 import hashlib
 import hmac
 import os
+import platform
 import re
 import shutil
 import shlex
@@ -790,11 +791,20 @@ class ExternalScraper:
         return True
 
     @staticmethod
+    def _android_sdk_default_dir():
+        if sys.platform == "win32":
+            local = os.environ.get("LOCALAPPDATA") or os.path.join(
+                os.path.expanduser("~"), "AppData", "Local"
+            )
+            return os.path.join(local, "Android", "Sdk")
+        return os.path.join(os.path.expanduser("~"), "Android", "Sdk")
+
+    @staticmethod
     def _android_sdk_dir():
         for value in (
             os.environ.get("ANDROID_HOME"),
             os.environ.get("ANDROID_SDK_ROOT"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk"),
+            ExternalScraper._android_sdk_default_dir(),
         ):
             if value and os.path.exists(value):
                 return value
@@ -823,6 +833,325 @@ class ExternalScraper:
             or shutil.which("emulator")
             or ""
         )
+
+    @staticmethod
+    def _android_sdk_install_instructions():
+        sdk_dir = ExternalScraper._android_sdk_default_dir()
+        return (
+            "[Android] Android SDK Emulator is not installed.\n"
+            "[Android] Install Android Studio / SDK Manager from: "
+            "https://developer.android.com/studio\n"
+            "[Android] sdkmanager also needs Java; Android Studio includes one, "
+            "or install a JDK and set JAVA_HOME.\n"
+            "[Android] In SDK Manager > SDK Tools, install: Android Emulator, "
+            "Android SDK Platform-Tools, and Android SDK Command-line Tools.\n"
+            f"[Android] Expected SDK path on this machine: {sdk_dir}"
+        )
+
+    @staticmethod
+    def _java_exe_name():
+        return "java.exe" if sys.platform == "win32" else "java"
+
+    @classmethod
+    def _java_exe_for_home(cls, java_home):
+        return os.path.join(java_home, "bin", cls._java_exe_name())
+
+    @classmethod
+    def _valid_java_home(cls, java_home):
+        return bool(java_home and os.path.exists(cls._java_exe_for_home(java_home)))
+
+    @classmethod
+    def _java_home_from_exe(cls, java_exe):
+        if not java_exe:
+            return ""
+        java_exe = os.path.abspath(java_exe)
+        bin_dir = os.path.dirname(java_exe)
+        if os.path.basename(bin_dir).lower() != "bin":
+            return ""
+        java_home = os.path.dirname(bin_dir)
+        return java_home if cls._valid_java_home(java_home) else ""
+
+    @staticmethod
+    def _persist_user_env_var(name, value):
+        if sys.platform != "win32" or not name or not value:
+            return False
+        try:
+            subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "[Environment]::SetEnvironmentVariable($args[0], $args[1], 'User')",
+                    name,
+                    value,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                **_hidden_windows_subprocess_kwargs(),
+            )
+            return True
+        except Exception:
+            return False
+
+    def _set_process_and_user_env(self, name, value):
+        if not name or not value:
+            return
+        os.environ[name] = value
+        self._persist_user_env_var(name, value)
+
+    def _apply_java_home(self, env, java_home):
+        java_home = os.path.abspath(java_home)
+        java_bin = os.path.join(java_home, "bin")
+        env["JAVA_HOME"] = java_home
+        env["PATH"] = java_bin + os.pathsep + env.get("PATH", "")
+        os.environ["JAVA_HOME"] = java_home
+        os.environ["PATH"] = java_bin + os.pathsep + os.environ.get("PATH", "")
+        self._persist_user_env_var("JAVA_HOME", java_home)
+        self.log(f"[Android] JAVA_HOME set to: {java_home}")
+        return env
+
+    def _java_home_candidates(self):
+        candidates = []
+
+        def add(path):
+            if path and path not in candidates:
+                candidates.append(path)
+
+        add(os.environ.get("JAVA_HOME"))
+        add(self._java_home_from_exe(shutil.which(self._java_exe_name())))
+        add(os.path.join(_get_app_data_dir(), "android_tools", "jdk"))
+
+        if sys.platform == "win32":
+            for path in (
+                r"C:\Program Files\Android\Android Studio\jbr",
+                r"C:\Program Files\Android\Android Studio\jre",
+            ):
+                add(path)
+            for base in (
+                r"C:\Program Files\Java",
+                r"C:\Program Files\Eclipse Adoptium",
+                r"C:\Program Files\Microsoft",
+                r"C:\Program Files\Zulu",
+                r"C:\Program Files (x86)\Java",
+            ):
+                root = Path(base)
+                if root.is_dir():
+                    for child in sorted(root.glob("*"), reverse=True):
+                        add(str(child))
+
+        return [path for path in candidates if self._valid_java_home(path)]
+
+    @staticmethod
+    def _adoptium_arch():
+        machine = (platform.machine() or "").lower()
+        if machine in ("arm64", "aarch64"):
+            return "aarch64"
+        return "x64"
+
+    def _ensure_portable_jdk(self):
+        jdk_dir = os.path.join(_get_app_data_dir(), "android_tools", "jdk")
+        if self._valid_java_home(jdk_dir):
+            return jdk_dir
+        if sys.platform != "win32":
+            raise RuntimeError("Java is not installed and automatic JDK install is Windows-only.")
+
+        arch = self._adoptium_arch()
+        url = (
+            "https://api.adoptium.net/v3/binary/latest/21/ga/"
+            f"windows/{arch}/jdk/hotspot/normal/eclipse?project=jdk"
+        )
+        zip_path = os.path.join(tempfile.gettempdir(), "npia_temurin_jdk.zip")
+        self._download_android_sdk_file(url, zip_path, "Temurin JDK 21")
+
+        extract_dir = os.path.join(tempfile.gettempdir(), "npia_temurin_jdk")
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(extract_dir)
+
+        java_exe = ""
+        for path in Path(extract_dir).rglob(self._java_exe_name()):
+            if path.parent.name.lower() == "bin":
+                java_exe = str(path)
+                break
+        java_home = self._java_home_from_exe(java_exe)
+        if not java_home:
+            raise RuntimeError("Downloaded JDK did not contain bin\\java.exe.")
+
+        os.makedirs(os.path.dirname(jdk_dir), exist_ok=True)
+        shutil.rmtree(jdk_dir, ignore_errors=True)
+        shutil.move(java_home, jdk_dir)
+        if not self._valid_java_home(jdk_dir):
+            raise RuntimeError("Portable JDK install finished, but java.exe was not found.")
+        self.log(f"[Android] Portable JDK installed to: {jdk_dir}")
+        return jdk_dir
+
+    def _ensure_java_env(self, env):
+        for java_home in self._java_home_candidates():
+            return self._apply_java_home(env, java_home)
+        self.log("[Android] Java was not found; downloading a portable JDK...")
+        return self._apply_java_home(env, self._ensure_portable_jdk())
+
+    def _download_android_sdk_file(self, url, dst, label, expected_size=0, sha1=""):
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        tmp = dst + ".tmp"
+        self.log(f"[Android] Downloading {label}...")
+        last_log = 0.0
+        done = 0
+        h = hashlib.sha1()
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "NpiaDownloader/1.0 (+https://github.com)",
+                "Accept": "application/octet-stream,*/*",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as f:
+            total = expected_size or int(resp.headers.get("content-length") or 0)
+            while True:
+                chunk = resp.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                now = time.time()
+                if now - last_log >= 5:
+                    last_log = now
+                    if total:
+                        pct = done * 100 / total
+                        self.log(
+                            f"[Android] {label}: {done // (1024 * 1024)} / "
+                            f"{total // (1024 * 1024)} MB ({pct:.0f}%)"
+                        )
+                    else:
+                        self.log(
+                            f"[Android] {label}: {done // (1024 * 1024)} MB"
+                        )
+        if sha1 and h.hexdigest().lower() != sha1.lower():
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise RuntimeError(f"{label} checksum verification failed.")
+        os.replace(tmp, dst)
+        return dst
+
+    @staticmethod
+    def _android_host_os():
+        if sys.platform == "win32":
+            return "windows"
+        if sys.platform == "darwin":
+            return "macosx"
+        return "linux"
+
+    def _latest_android_cmdline_tools_archive(self):
+        repo_url = "https://dl.google.com/android/repository/repository2-1.xml"
+        import xml.etree.ElementTree as ET
+
+        with urllib.request.urlopen(repo_url, timeout=30) as resp:
+            root = ET.fromstring(resp.read())
+        host_os = self._android_host_os()
+        for pkg in root.findall(".//{*}remotePackage"):
+            if pkg.get("path") != "cmdline-tools;latest":
+                continue
+            for archive in pkg.findall(".//{*}archive"):
+                host = archive.find("{*}host-os")
+                if host is not None and host.text != host_os:
+                    continue
+                complete = archive.find("{*}complete")
+                if complete is None:
+                    continue
+                url_el = complete.find("{*}url")
+                size_el = complete.find("{*}size")
+                checksum_el = complete.find("{*}checksum")
+                if url_el is None or not url_el.text:
+                    continue
+                return {
+                    "url": urllib.parse.urljoin(
+                        "https://dl.google.com/android/repository/",
+                        url_el.text,
+                    ),
+                    "size": int(size_el.text or 0) if size_el is not None else 0,
+                    "sha1": checksum_el.text if checksum_el is not None else "",
+                }
+        raise RuntimeError("Could not find latest Android command-line tools.")
+
+    def _ensure_android_cmdline_tools(self, sdk_dir):
+        sdkmanager = os.path.join(
+            sdk_dir, "cmdline-tools", "latest", "bin", "sdkmanager.bat"
+        )
+        if os.path.exists(sdkmanager):
+            return sdkmanager
+
+        archive = self._latest_android_cmdline_tools_archive()
+        zip_path = os.path.join(tempfile.gettempdir(), "npia_android_cmdline_tools.zip")
+        self._download_android_sdk_file(
+            archive["url"],
+            zip_path,
+            "Android SDK Command-line Tools",
+            expected_size=archive["size"],
+            sha1=archive["sha1"],
+        )
+
+        extract_dir = os.path.join(tempfile.gettempdir(), "npia_android_cmdline_tools")
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(extract_dir)
+        src = os.path.join(extract_dir, "cmdline-tools")
+        if not os.path.isdir(src):
+            raise RuntimeError("Command-line tools archive had an unexpected layout.")
+        dst_parent = os.path.join(sdk_dir, "cmdline-tools")
+        dst = os.path.join(dst_parent, "latest")
+        os.makedirs(dst_parent, exist_ok=True)
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.move(src, dst)
+        if not os.path.exists(sdkmanager):
+            raise RuntimeError("sdkmanager.bat was not found after installation.")
+        return sdkmanager
+
+    def _ensure_android_emulator_tools(self):
+        if sys.platform != "win32":
+            self.log(self._android_sdk_install_instructions())
+            return False
+        if self._emulator_path():
+            return True
+
+        sdk_dir = self._android_sdk_dir() or self._android_sdk_default_dir()
+        os.makedirs(sdk_dir, exist_ok=True)
+        self.log(f"[Android] Installing Android SDK tools to: {sdk_dir}")
+        sdkmanager = self._ensure_android_cmdline_tools(sdk_dir)
+
+        env = os.environ.copy()
+        env["ANDROID_SDK_ROOT"] = sdk_dir
+        env["ANDROID_HOME"] = sdk_dir
+        self._set_process_and_user_env("ANDROID_SDK_ROOT", sdk_dir)
+        self._set_process_and_user_env("ANDROID_HOME", sdk_dir)
+        env = self._ensure_java_env(env)
+        license_input = ("y\n" * 80)
+        for args, label, timeout in (
+            (["--licenses"], "accept Android SDK licenses", 300),
+            (["platform-tools", "emulator"], "install Android Emulator", 900),
+        ):
+            self.log(f"[Android] Running sdkmanager to {label}...")
+            proc = subprocess.run(
+                [sdkmanager, f"--sdk_root={sdk_dir}", *args],
+                input=license_input,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                **_hidden_windows_subprocess_kwargs(),
+            )
+            if proc.returncode != 0:
+                output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+                tail = "\n".join(output.splitlines()[-12:])
+                raise RuntimeError(f"sdkmanager failed to {label}:\n{tail}")
+
+        if self._emulator_path():
+            self.log("[Android] Android Emulator installed.")
+            return True
+        raise RuntimeError("Android Emulator install finished, but emulator.exe was not found.")
 
     @classmethod
     def _rootavd_dir(cls):
@@ -1244,7 +1573,16 @@ class ExternalScraper:
         emulator = self._emulator_path()
         if not emulator:
             self.log("[Android] emulator.exe not found in Android SDK.")
-            return False
+            try:
+                if self._ensure_android_emulator_tools():
+                    emulator = self._emulator_path()
+            except Exception as e:
+                self.log(f"[Android] Automatic SDK install failed: {e}")
+                self.log(self._android_sdk_install_instructions())
+                return False
+            if not emulator:
+                self.log(self._android_sdk_install_instructions())
+                return False
         avds = self.list_android_avds()
         avd_name = avd_name or next(
             (
@@ -1263,7 +1601,12 @@ class ExternalScraper:
         )
         avd_name = avd_name or (avds[0] if avds else "")
         if not avd_name:
-            self.log("[Android] No Android Virtual Devices found.")
+            self.log(
+                "[Android] No Android Virtual Devices found.\n"
+                "[Android] Open Android Studio > Device Manager and create an AVD, "
+                "preferably a Play Store image for login.\n"
+                "[Android] Then click Enter App > Open Android again."
+            )
             return False
         if "play" not in avd_name.lower():
             self.log(
