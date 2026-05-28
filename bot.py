@@ -20,6 +20,7 @@ Command:
      cover_quality       (int 10-100, default 90)
      font_mapping_path   (string path to mapping json; optional)
      threads             (int, default 4)
+     image_compression_workers (int, default 1)
      interval            (float seconds, min 0.5; values below fallback to 0.5)
 
 The bot saves the EPUB/TXT/PDF to a temporary downloads/ folder and sends it back to the user.
@@ -81,6 +82,7 @@ from epub_generator import EpubGenerator
 from font_mapper import FontMapper
 
 DEFAULT_THREADS = 1
+DEFAULT_IMAGE_COMPRESSION_WORKERS = 1
 MIN_INTERVAL = 0.5
 DEFAULT_INTERVAL = 0.5
 DEFAULT_IMG_QUALITY = 50
@@ -722,7 +724,8 @@ def run_download(user_id: int,
                  convert_gifs: bool | None = None,
                  max_retries: int | None = None,
                  static_only: bool | None = None,
-                 strip_leading_spaces: bool | None = None) -> tuple[str, list[str]]:
+                 strip_leading_spaces: bool | None = None,
+                 image_compression_workers: int | None = None) -> tuple[str, list[str]]:
     """Blocking download workflow. Returns (output_path, logs)."""
     auth_cfg = load_user_auth(user_id, passphrase) or {}
     prefs = load_user_prefs(user_id) or {}
@@ -739,6 +742,8 @@ def run_download(user_id: int,
     cover_quality = prefs.get("cover_quality", DEFAULT_COVER_QUALITY) if cover_quality is None else cover_quality
     font_mapping_path = prefs.get("font_mapping_path") if font_mapping_path is None else font_mapping_path
     threads = prefs.get("threads", DEFAULT_THREADS) if threads is None else threads
+    if image_compression_workers is None:
+        image_compression_workers = prefs.get("image_compression_workers", DEFAULT_IMAGE_COMPRESSION_WORKERS)
     interval = prefs.get("interval", DEFAULT_INTERVAL) if interval is None else interval
     save_format = prefs.get("save_format", "epub") if save_format is None else save_format
     include_notices = prefs.get("include_notices", True) if include_notices is None else include_notices
@@ -757,6 +762,11 @@ def run_download(user_id: int,
         max_retries = max(1, int(max_retries))
     except (TypeError, ValueError):
         max_retries = 5
+    try:
+        image_compression_workers = max(1, min(16, int(image_compression_workers)))
+    except (TypeError, ValueError):
+        image_compression_workers = DEFAULT_IMAGE_COMPRESSION_WORKERS
+    effective_image_compression_workers = image_compression_workers if compress_images else 1
 
     logger_msgs: list[str] = []
     def logger(msg):
@@ -921,10 +931,12 @@ def run_download(user_id: int,
 
     def next_image_no():
         counter = {'v': 1}
+        lock = threading.Lock()
         def _inner():
-            val = counter['v']
-            counter['v'] += 1
-            return val
+            with lock:
+                val = counter['v']
+                counter['v'] += 1
+                return val
         return _inner
     next_img = next_image_no()
 
@@ -933,11 +945,59 @@ def run_download(user_id: int,
     failed_chapters = []   # list of (chapter_id, title)
     total_dl_images = 0
     total_dl_bytes = 0
-    with ThreadPoolExecutor(max_workers=threads) as executor:
+    logger(
+        f"Workers: {threads} chapter request(s), "
+        f"{effective_image_compression_workers} image compression job(s). "
+        "Image compression workers do not change chapter scraping."
+    )
+
+    def _process_chapter_images(idx, content_json):
+        chap = selected_total[idx]
+        hb, imgs, img_fails = extract_chapter_content_and_images(
+            content_json, font_mapper, auth.session,
+            compress_images, image_quality,
+            image_format, logger, next_img,
+            convert_gifs=convert_gifs,
+            static_only=static_only,
+            strip_leading_spaces=strip_leading_spaces,
+        )
+        return idx, hb, imgs, img_fails
+
+    image_futures = {}
+
+    def _finish_image_future(future):
+        nonlocal total_dl_images, total_dl_bytes
+        idx = image_futures.pop(future)
+        chap = selected_total[idx]
+        try:
+            _idx, hb, imgs, img_fails = future.result()
+            results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
+            img_info = f" ({len(imgs)} images)" if imgs else ""
+            if img_fails:
+                img_info += f", {img_fails} image failure(s)"
+            logger(f"Downloaded: {chap['title']}{img_info}")
+            if imgs:
+                total_dl_images += len(imgs)
+                total_dl_bytes += sum(len(d) for _, d in imgs)
+        except Exception as e:
+            failed_chapters.append((chap['id'], chap.get('title', '?')))
+            logger(f"Error processing images for {chap.get('title','?')}: {e}")
+
+    def _drain_finished_image_futures(wait_for_all=False):
+        futures = list(image_futures)
+        if wait_for_all:
+            iterable = as_completed(futures)
+        else:
+            iterable = [f for f in futures if f.done()]
+        for future in iterable:
+            if future in image_futures:
+                _finish_image_future(future)
+
+    with ThreadPoolExecutor(max_workers=threads) as chapter_executor, ThreadPoolExecutor(max_workers=effective_image_compression_workers) as image_executor:
         for i in range(0, len(selected_total), threads):
             batch = range(i, min(i + threads, len(selected_total)))
             f_map = {
-                executor.submit(
+                chapter_executor.submit(
                     downloader.download_chapter_content,
                     selected_total[x]['id'],
                     max_retries,
@@ -950,22 +1010,8 @@ def run_download(user_id: int,
                 try:
                     content_json = future.result()
                     if content_json:
-                        hb, imgs, img_fails = extract_chapter_content_and_images(
-                            content_json, font_mapper, auth.session,
-                            compress_images, image_quality,
-                            image_format, logger, next_img,
-                            convert_gifs=convert_gifs,
-                            static_only=static_only,
-                            strip_leading_spaces=strip_leading_spaces,
-                        )
-                        results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
-                        img_info = f" ({len(imgs)} images)" if imgs else ""
-                        if img_fails:
-                            img_info += f", {img_fails} image failure(s)"
-                        logger(f"Downloaded: {chap['title']}{img_info}")
-                        if imgs:
-                            total_dl_images += len(imgs)
-                            total_dl_bytes += sum(len(d) for _, d in imgs)
+                        img_future = image_executor.submit(_process_chapter_images, idx, content_json)
+                        image_futures[img_future] = idx
                     else:
                         failed_chapters.append((chap['id'], chap.get('title', '?')))
                         logger(f"Failed: {chap.get('title', '?')}")
@@ -975,8 +1021,11 @@ def run_download(user_id: int,
                 except Exception as e:
                     failed_chapters.append((chap['id'], chap.get('title', '?')))
                     logger(f"Error {chap.get('title','?')}: {e}")
+                _drain_finished_image_futures(wait_for_all=False)
             if interval > 0:
                 time.sleep(interval)
+            _drain_finished_image_futures(wait_for_all=False)
+        _drain_finished_image_futures(wait_for_all=True)
 
 
     # Final download stats
@@ -1371,6 +1420,10 @@ async def setting_cmd(interaction: discord.Interaction):
     lines.append(f"cover_quality: {prefs.get('cover_quality', DEFAULT_COVER_QUALITY)}")
     lines.append(f"include_notices: {fmt_bool(prefs.get('include_notices', True))}")
     lines.append(f"threads: {prefs.get('threads', DEFAULT_THREADS)}")
+    lines.append(
+        "image_compression_workers: "
+        f"{prefs.get('image_compression_workers', DEFAULT_IMAGE_COMPRESSION_WORKERS)}"
+    )
     lines.append(f"interval: {prefs.get('interval', DEFAULT_INTERVAL)}")
     lines.append(f"save_format: {prefs.get('save_format', 'epub')}")
     lines.append(f"image_format: {prefs.get('image_format', 'WEBP')}")
@@ -1403,6 +1456,7 @@ async def setting_cmd(interaction: discord.Interaction):
     font_mapping_path="Path to font mapping json (optional)",
     include_notices="Download author notices (default False)",
     threads="Download threads (default 4)",
+    image_compression_workers="Concurrent image compression jobs only; does not affect chapter scraping (default 1)",
     interval="Delay between batches in seconds (min 0.5, default 0.5)",
     save_format="epub, txt, or pdf (default epub)")
 @app_commands.choices(save_format=[
@@ -1416,7 +1470,8 @@ async def download_cmd(interaction: discord.Interaction, novel_id: str,
                        compress_cover: bool | None = None, cover_quality: int | None = None,
                        font_mapping_path: str | None = None,
                        include_notices: bool | None = None,
-                       threads: int | None = None, interval: float | None = None,
+                       threads: int | None = None, image_compression_workers: int | None = None,
+                       interval: float | None = None,
                        save_format: str | None = None,
                        passphrase: str | None = None):
 
@@ -1474,6 +1529,8 @@ async def download_cmd(interaction: discord.Interaction, novel_id: str,
         cover_quality = DEFAULT_COVER_QUALITY
     if threads is None:
         threads = DEFAULT_THREADS
+    if image_compression_workers is None:
+        image_compression_workers = DEFAULT_IMAGE_COMPRESSION_WORKERS
     if interval is None:
         interval = DEFAULT_INTERVAL
     if include_notices is None:
@@ -1482,6 +1539,7 @@ async def download_cmd(interaction: discord.Interaction, novel_id: str,
     image_quality = max(10, min(100, image_quality))
     cover_quality = max(10, min(100, cover_quality))
     threads = max(1, min(4, threads))
+    image_compression_workers = max(1, min(16, image_compression_workers))
     interval = clamp_interval(interval)
     save_format = (save_format or "epub").lower()
     if save_format not in ("epub", "txt", "pdf"):
@@ -1501,6 +1559,11 @@ async def download_cmd(interaction: discord.Interaction, novel_id: str,
             "WEBP", "JPEG",  # default formats
             logs_shared,
             passphrase,
+            None,
+            None,
+            None,
+            None,
+            image_compression_workers,
         )
     except Exception as e:
         done_evt.set()
@@ -1539,6 +1602,7 @@ async def download_cmd(interaction: discord.Interaction, novel_id: str,
         "cover_quality": cover_quality,
         "font_mapping_path": font_mapping_path,
         "threads": threads,
+        "image_compression_workers": image_compression_workers,
         "interval": interval,
         "save_format": save_format,
         "include_notices": include_notices,

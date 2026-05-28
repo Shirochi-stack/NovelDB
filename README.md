@@ -78,6 +78,7 @@ A higher thread count and a lower interval can speed up your downloads, but be a
 ### Image Compression
 
 Built-in image compression can dramatically reduce file size. Use the `-compressimages` and `-jpegquality` arguments to enable this feature. (Or the checkbox)
+**Image Compression Workers** only controls concurrent image compression; chapter scraping still uses **Threads**.
 
   - **80% Quality:** Provides large savings with no noticeable quality difference (e.g., 1MB -\> 65KB).
   - **50% Quality:** Offers massive savings with only a small difference in quality (e.g., 1MB -\> 30KB).
@@ -111,7 +112,7 @@ The main **Novel ID / URL** field in the single-download form also accepts a ful
 
 1. Click **Batch Download** (and pick a list file) or **Paste Batch** (and paste entries).
 2. If **Quick Download** is enabled, its folder is used as the output directory. Otherwise you'll be prompted for one.
-3. Every novel is downloaded with the **current UI settings** — format (EPUB/TXT/PDF), chapter range, compression, image format (WEBP/JPEG/PNG/**AVIF**), cover format, notices, cache, threads, and interval. Configure these **before** pressing the button.
+3. Every novel is downloaded with the **current UI settings** — format (EPUB/TXT/PDF), chapter range, compression, image format (WEBP/JPEG/PNG/**AVIF**), cover format, notices, cache, threads, image compression workers, and interval. Configure these **before** pressing the button.
 4. Blank lines, `#` comments, and entries that cannot be resolved to a numeric ID are skipped. A 2 second pause is inserted between novels to reduce server load.
 5. Pressing **Stop** cancels the batch — the current novel finishes, then the run exits.
 6. Each novel is saved as `[<id>] <title>.<ext>` in the chosen folder. A final `OK / Failed / Skipped` summary is logged.

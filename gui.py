@@ -949,6 +949,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_cover_format = tk.StringVar(value="JPEG")  # JPEG, PNG, WEBP
         self.var_zip_compress_images = tk.BooleanVar(value=False)  # ZIP_STORED by default
         self.var_threads = tk.IntVar(value=1)
+        self.var_image_compression_workers = tk.IntVar(value=1)
         self.var_interval = tk.DoubleVar(value=0.5)
         
         # Range vars
@@ -1083,6 +1084,14 @@ class NovelpiaGUI(tk.Tk):
         thread_frame.pack(fill="x", pady=(0, 10))
         ttk.Label(thread_frame, text="Threads").pack(side="left")
         ttk.Spinbox(thread_frame, from_=1, to=32, textvariable=self.var_threads, width=5).pack(side="left", padx=(5, 15))
+        ttk.Label(thread_frame, text="Image Compression Workers").pack(side="left")
+        img_workers_spin = ttk.Spinbox(thread_frame, from_=1, to=32, textvariable=self.var_image_compression_workers, width=5)
+        img_workers_spin.pack(side="left", padx=(5, 15))
+        ToolTip(
+            img_workers_spin,
+            "Only affects chapter image compression concurrency.\n"
+            "Chapter scraping uses Threads. If Compress Images is off, this has no effect.",
+        )
         
         ttk.Label(thread_frame, text="sec").pack(side="right")
         ttk.Spinbox(thread_frame, from_=0.0, to=60.0, increment=0.1, textvariable=self.var_interval, width=5).pack(side="right", padx=5)
@@ -2188,7 +2197,7 @@ class NovelpiaGUI(tk.Tk):
             "For each entry, the app reuses ALL the settings currently shown\n"
             "in the main window \u2014 format (EPUB/TXT/PDF), range, compression,\n"
             "image format (WEBP/JPEG/PNG/AVIF), cover format, notices, cache,\n"
-            "threads/interval, etc. So configure those first, then start the batch.\n\n"
+            "threads/image compression workers/interval, etc. So configure those first, then start the batch.\n\n"
             "Behavior and safety:\n"
             "   \u2022 Blank lines and lines starting with '#' are skipped.\n"
             "   \u2022 Entries that cannot be resolved to a numeric ID are skipped.\n"
@@ -2334,7 +2343,7 @@ class NovelpiaGUI(tk.Tk):
           # comment          (skipped)
 
         The current UI settings (format, range, compression, image/cover format,
-        threads, cache, notices, etc.) are applied to every novel in the list.
+        threads, image compression workers, cache, notices, etc.) are applied to every novel in the list.
         If Quick Download is enabled, its folder is used as the output directory;
         otherwise the user is prompted.
         """
@@ -2861,15 +2870,44 @@ table, th, td {
         self._progress_start_time = time.time()
         self._update_progress(value=0, total=len(selected_total))
 
-        threads = max(1, min(32, self.var_threads.get()))
-        interval = max(0.0, min(60.0, self.var_interval.get()))
-        if threads != self.var_threads.get():
+        try:
+            raw_threads = int(self.var_threads.get() or 1)
+        except Exception:
+            raw_threads = 1
+        try:
+            raw_image_compression_workers = int(self.var_image_compression_workers.get() or 1)
+        except Exception:
+            raw_image_compression_workers = 1
+        try:
+            raw_interval = float(self.var_interval.get() or 0.0)
+        except Exception:
+            raw_interval = 0.5
+
+        threads = max(1, min(32, raw_threads))
+        image_compression_workers = max(1, min(32, raw_image_compression_workers))
+        interval = max(0.0, min(60.0, raw_interval))
+        compress_images = self.var_compress_images.get()
+        effective_image_compression_workers = image_compression_workers if compress_images else 1
+        if threads != raw_threads:
             self.log_message(f"\u26a0 Threads clamped to {threads} (valid range: 1\u201332)")
-        if interval != self.var_interval.get():
+        if image_compression_workers != raw_image_compression_workers:
+            self.log_message(f"\u26a0 Image compression workers clamped to {image_compression_workers} (valid range: 1\u201332)")
+        if interval != raw_interval:
             self.log_message(f"\u26a0 Interval clamped to {interval}s (valid range: 0\u201360)")
+        self.log_message(
+            f"Workers: {threads} chapter request(s), "
+            f"{effective_image_compression_workers} image compression job(s). "
+            "Image compression workers do not change chapter scraping."
+        )
+        image_quality = self.var_jpeg_quality.get()
+        image_format = self.var_image_format.get()
+        convert_gifs = self.var_convert_gifs.get()
+        static_only = self.var_static_only.get()
+        strip_leading_spaces = self.var_strip_leading_spaces.get()
 
         # Process cached chapters first
         uncached_indices = []
+        cached_json_jobs = []
         if use_cache:
             for idx, chap in enumerate(selected_total):
                 chap_id = chap['id']
@@ -2894,42 +2932,17 @@ table, th, td {
                                     pass
                             results[idx] = (chap['title'], cached_html, cached_imgs, chap.get('is_notice', False))
                             self.log_message(f"Cached: {chap['title']}")
+                            self._update_progress(value=self.progress_value + 1)
                         else:
                             # JSON-only cache hit — still need to process images
                             content_json = _cache_entry_to_json(entry)
-                            hb, imgs, img_fails = extract_chapter_content_and_images(
-                                content_json, self.font_mapper, self.auth.session,
-                                self.var_compress_images.get(), self.var_jpeg_quality.get(),
-                                self.var_image_format.get(), self.log_message, next_image_no,
-                                chapter_title=chap.get('title', ''),
-                                chapter_num=self.progress_value + 1,
-                                convert_gifs=self.var_convert_gifs.get(),
-                                static_only=self.var_static_only.get(),
-                                strip_leading_spaces=self.var_strip_leading_spaces.get(),
-                            )
-                            results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
-                            self.log_message(f"Cached: {chap['title']}")
-                            # Upgrade entry to full cache if cache_images is now on —
-                            # but only when every image succeeded, otherwise the
-                            # failed <img> tags would be permanently baked in as gaps.
-                            if cache_images:
-                                if img_fails == 0:
-                                    cache_data[chap_id] = {
-                                        'json': content_json,
-                                        'html': hb,
-                                        'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
-                                    }
-                                else:
-                                    # Keep the JSON-only entry so next run re-attempts the images.
-                                    cache_data[chap_id] = content_json
-                                    self.log_message(
-                                        f"\u26a0 {chap['title']}: {img_fails} image(s) failed; "
-                                        f"keeping JSON-only cache so images will be retried next run."
-                                    )
+                            if content_json:
+                                cached_json_jobs.append((idx, content_json))
+                            else:
+                                uncached_indices.append(idx)
                     except Exception as e:
                         self.log_message(f"Cache read error {chap.get('title', '?')}: {e}")
                         uncached_indices.append(idx)
-                    self._update_progress(value=self.progress_value + 1)
                 else:
                     uncached_indices.append(idx)
             cached_count = len(selected_total) - len(uncached_indices)
@@ -2941,85 +2954,122 @@ table, th, td {
         # Download uncached chapters
         self.lbl_status.config(text="Downloading...")
         dl_stats = _DownloadStats()
-        if uncached_indices:
-            with ThreadPoolExecutor(max_workers=threads) as executor:
-                for i in range(0, len(uncached_indices), threads):
-                    if self._stop_requested:
-                        self.log_message("Download stopped by user.")
-                        break
-                    batch = uncached_indices[i:i + threads]
-                    try:
-                        _retries = max(1, int(self.var_max_retries.get() or 5))
-                    except Exception:
-                        _retries = 5
-                    f_map = {
-                        executor.submit(
-                            self.downloader.download_chapter_content,
-                            selected_total[x]['id'],
-                            _retries,
-                        ): x
-                        for x in batch
-                    }
-                    for future in as_completed(f_map):
-                        idx = f_map[future]
-                        chap = selected_total[idx]
-                        try:
-                            content_json = future.result()
-                            if content_json:
-                                hb, imgs, img_fails = extract_chapter_content_and_images(
-                                    content_json, self.font_mapper, self.auth.session,
-                                    self.var_compress_images.get(), self.var_jpeg_quality.get(),
-                                    self.var_image_format.get(), self.log_message, next_image_no,
-                                    chapter_title=chap.get('title', ''),
-                                    chapter_num=self.progress_value + 1,
-                                    convert_gifs=self.var_convert_gifs.get(),
-                                    static_only=self.var_static_only.get(),
-                                    strip_leading_spaces=self.var_strip_leading_spaces.get(),
-                                )
-                                results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
-                                img_info = f" ({len(imgs)} images)" if imgs else ""
-                                if img_fails:
-                                    img_info += f", {img_fails} image failure(s)"
-                                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Downloaded: {chap['title']}{img_info}")
-                                # Track stats
-                                if imgs:
-                                    img_bytes = sum(len(d) for _, d in imgs)
-                                    dl_stats.add(len(imgs), img_bytes)
-                                    self._img_downloaded_count += len(imgs)
-                                    self.after(0, lambda c=self._img_downloaded_count: self.lbl_img_count.config(text=f"Images: {c}"))
-                                # Store in cache. When cache_images is on, only
-                                # write the full-cache entry if every image
-                                # succeeded; otherwise fall back to JSON-only so
-                                # the failed images are retried on the next run.
-                                if use_cache:
-                                    if cache_images and img_fails == 0:
-                                        cache_data[chap['id']] = {
-                                            'json': content_json,
-                                            'html': hb,
-                                            'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
-                                        }
+        image_futures = {}
+
+        def _process_chapter_images(idx, content_json):
+            chap = selected_total[idx]
+            hb, imgs, img_fails = extract_chapter_content_and_images(
+                content_json, self.font_mapper, self.auth.session,
+                compress_images, image_quality,
+                image_format, self.log_message, next_image_no,
+                chapter_title=chap.get('title', ''),
+                chapter_num=idx + 1,
+                convert_gifs=convert_gifs,
+                static_only=static_only,
+                strip_leading_spaces=strip_leading_spaces,
+            )
+            return idx, content_json, hb, imgs, img_fails
+
+        def _queue_image_job(image_executor, idx, content_json, source_label):
+            future = image_executor.submit(_process_chapter_images, idx, content_json)
+            image_futures[future] = (idx, content_json, source_label)
+
+        def _finish_image_future(future):
+            idx, content_json, source_label = image_futures.pop(future)
+            chap = selected_total[idx]
+            try:
+                _idx, content_json, hb, imgs, img_fails = future.result()
+                results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
+                img_info = f" ({len(imgs)} images)" if imgs else ""
+                if img_fails:
+                    img_info += f", {img_fails} image failure(s)"
+                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] {source_label}: {chap['title']}{img_info}")
+
+                if imgs:
+                    img_bytes = sum(len(d) for _, d in imgs)
+                    dl_stats.add(len(imgs), img_bytes)
+                    self._img_downloaded_count += len(imgs)
+                    self.after(0, lambda c=self._img_downloaded_count: self.lbl_img_count.config(text=f"Images: {c}"))
+
+                if use_cache:
+                    if cache_images and img_fails == 0:
+                        cache_data[chap['id']] = {
+                            'json': content_json,
+                            'html': hb,
+                            'images': [[n, base64.b64encode(d).decode('ascii')] for n, d in imgs]
+                        }
+                    else:
+                        cache_data[chap['id']] = content_json
+                        if cache_images and img_fails:
+                            self.log_message(
+                                f"\u26a0 {chap['title']}: {img_fails} image(s) failed; "
+                                f"storing JSON-only cache so images will be retried next run."
+                            )
+            except Exception as e:
+                dl_stats.add_failed(chap['id'], chap.get('title', '?'))
+                if use_cache and content_json:
+                    cache_data[chap['id']] = content_json
+                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error processing images for {chap.get('title','?')}: {e}")
+            finally:
+                self._update_progress(value=self.progress_value + 1)
+
+        def _drain_finished_image_futures(wait_for_all=False):
+            futures = list(image_futures)
+            iterable = as_completed(futures) if wait_for_all else [f for f in futures if f.done()]
+            for future in iterable:
+                if future in image_futures:
+                    _finish_image_future(future)
+
+        if cached_json_jobs or uncached_indices:
+            with ThreadPoolExecutor(max_workers=effective_image_compression_workers) as image_executor:
+                for idx, content_json in cached_json_jobs:
+                    _queue_image_job(image_executor, idx, content_json, "Cached")
+
+                if uncached_indices:
+                    with ThreadPoolExecutor(max_workers=threads) as chapter_executor:
+                        for i in range(0, len(uncached_indices), threads):
+                            if self._stop_requested:
+                                self.log_message("Download stopped by user.")
+                                break
+                            batch = uncached_indices[i:i + threads]
+                            try:
+                                _retries = max(1, int(self.var_max_retries.get() or 5))
+                            except Exception:
+                                _retries = 5
+                            f_map = {
+                                chapter_executor.submit(
+                                    self.downloader.download_chapter_content,
+                                    selected_total[x]['id'],
+                                    _retries,
+                                ): x
+                                for x in batch
+                            }
+                            for future in as_completed(f_map):
+                                idx = f_map[future]
+                                chap = selected_total[idx]
+                                try:
+                                    content_json = future.result()
+                                    if content_json:
+                                        _queue_image_job(image_executor, idx, content_json, "Downloaded")
                                     else:
-                                        cache_data[chap['id']] = content_json
-                                        if cache_images and img_fails:
-                                            self.log_message(
-                                                f"\u26a0 {chap['title']}: {img_fails} image(s) failed; "
-                                                f"storing JSON-only cache so images will be retried next run."
-                                            )
-                            else:
-                                # None = failed after retries
-                                dl_stats.add_failed(chap['id'], chap.get('title', '?'))
-                                self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Failed: {chap.get('title', '?')}")
-                        except AccessBlockedError:
-                            dl_stats.add_blocked(chap['id'], chap.get('title', '?'))
-                            self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Blocked: {chap.get('title', '?')}")
-                        except Exception as e:
-                            dl_stats.add_failed(chap['id'], chap.get('title', '?'))
-                            self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error {chap.get('title','?')}: {e}")
+                                        dl_stats.add_failed(chap['id'], chap.get('title', '?'))
+                                        self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Failed: {chap.get('title', '?')}")
+                                        self._update_progress(value=self.progress_value + 1)
+                                except AccessBlockedError:
+                                    dl_stats.add_blocked(chap['id'], chap.get('title', '?'))
+                                    self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Blocked: {chap.get('title', '?')}")
+                                    self._update_progress(value=self.progress_value + 1)
+                                except Exception as e:
+                                    dl_stats.add_failed(chap['id'], chap.get('title', '?'))
+                                    self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error {chap.get('title','?')}: {e}")
+                                    self._update_progress(value=self.progress_value + 1)
+                                _drain_finished_image_futures(wait_for_all=False)
 
-                        self._update_progress(value=self.progress_value + 1)
+                            if interval > 0:
+                                time.sleep(interval)
+                            _drain_finished_image_futures(wait_for_all=False)
 
-                    if interval > 0:
-                        time.sleep(interval)
+                _drain_finished_image_futures(wait_for_all=True)
 
 
         # Save cache
@@ -3316,6 +3366,7 @@ table, th, td {
                 
                 # Thread and interval settings
                 self.var_threads.set(cfg.get("thread_num", 1))
+                self.var_image_compression_workers.set(cfg.get("image_compression_workers", 1))
                 self.var_interval.set(cfg.get("interval_num", 0.5))
                 
                 # Font mapping
@@ -3422,6 +3473,7 @@ table, th, td {
             
             # Thread and interval settings
             "thread_num": self.var_threads.get(),
+            "image_compression_workers": self.var_image_compression_workers.get(),
             "interval_num": self.var_interval.get(),
             
             # Font mapping
