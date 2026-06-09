@@ -2326,6 +2326,119 @@ class ExternalScraper:
                 pass
         return pids
 
+    @staticmethod
+    def _visible_browser_window_pids(pids):
+        """Return PIDs from `pids` that own a visible Chrome/Edge window."""
+        if sys.platform != "win32" or not pids:
+            return []
+        try:
+            user32 = ctypes.windll.user32
+            target_pids = {int(pid) for pid in pids}
+            visible_pids = set()
+            gw_owner = 4
+
+            EnumWindowsProc = ctypes.WINFUNCTYPE(
+                ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+            )
+
+            def _class_name(hwnd):
+                buf = ctypes.create_unicode_buffer(256)
+                if user32.GetClassNameW(hwnd, buf, len(buf)) <= 0:
+                    return ""
+                return buf.value
+
+            def callback(hwnd, _):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                if user32.GetWindow(hwnd, gw_owner):
+                    return True
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                proc_id = int(pid.value)
+                if proc_id not in target_pids:
+                    return True
+                class_name = _class_name(hwnd)
+                if class_name and not class_name.startswith("Chrome_WidgetWin_"):
+                    return True
+                visible_pids.add(proc_id)
+                return True
+
+            user32.EnumWindows(EnumWindowsProc(callback), 0)
+            return sorted(visible_pids)
+        except Exception:
+            return []
+
+    def _wait_for_profile_processes_to_exit(self, user_data_dir, timeout=6):
+        """Wait briefly for Chrome profile processes to exit after UI close."""
+        deadline = time.time() + timeout
+        pids = self._chrome_processes_using_profile(user_data_dir)
+        while pids and time.time() < deadline:
+            time.sleep(0.5)
+            pids = self._chrome_processes_using_profile(user_data_dir)
+        return pids
+
+    def _wait_for_system_chrome_close(self, proc, user_data_dir):
+        """Wait until the normal Chrome login window has been closed."""
+        if sys.platform != "win32":
+            proc.wait()
+            return
+
+        saw_window = False
+        profile_pids = set()
+        next_pid_scan = 0
+        launch_deadline = time.time() + 15
+
+        while not self._stop_requested:
+            now = time.time()
+            if now >= next_pid_scan:
+                profile_pids = set(
+                    self._chrome_processes_using_profile(user_data_dir)
+                )
+                if proc.poll() is None:
+                    profile_pids.add(int(proc.pid))
+                next_pid_scan = now + 1
+
+            window_pids = self._visible_browser_window_pids(profile_pids)
+            if window_pids:
+                saw_window = True
+            elif saw_window:
+                leftovers = self._wait_for_profile_processes_to_exit(
+                    user_data_dir
+                )
+                if leftovers:
+                    self.log(
+                        "[Browser] Chrome window closed, but Chrome kept "
+                        "the login profile open. Cleaning up leftover "
+                        "Chrome process(es)."
+                    )
+                    closed = self._close_chrome_profile_processes(
+                        user_data_dir
+                    )
+                    if closed:
+                        self.log(
+                            f"[Browser] Closed {len(closed)} leftover "
+                            "Chrome process(es)."
+                        )
+                return
+            elif proc.poll() is not None and not profile_pids:
+                return
+            elif proc.poll() is not None and time.time() >= launch_deadline:
+                leftovers = self._chrome_processes_using_profile(user_data_dir)
+                if leftovers:
+                    closed = self._close_chrome_profile_processes(
+                        user_data_dir
+                    )
+                    if closed:
+                        self.log(
+                            f"[Browser] Closed {len(closed)} leftover "
+                            "Chrome process(es)."
+                        )
+                return
+
+            time.sleep(0.25)
+
+        self._close_chrome_profile_processes(user_data_dir)
+
     def _close_chrome_profile_processes(self, user_data_dir):
         """Close browser processes using this app's persistent profile."""
         pids = self._chrome_processes_using_profile(user_data_dir)
@@ -2806,9 +2919,13 @@ class ExternalScraper:
                     "then close this Chrome window."
                 )
                 try:
-                    proc.wait()
+                    self._chrome_process = proc
+                    self._wait_for_system_chrome_close(proc, user_data_dir)
                 except Exception:
                     pass
+                finally:
+                    if self._chrome_process is proc:
+                        self._chrome_process = None
                 self.log("Browser closed. Session data saved.")
                 return
             self.log(
