@@ -538,7 +538,6 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._log("Download stopped by user.")
                     break
 
-                batch_no = (batch_start // batch_size) + 1
                 batch_end = min(batch_start + batch_size, total)
 
                 # Collect only chapters that haven't been pre-filtered
@@ -557,11 +556,9 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._log(f"  [{i + 1}/{total}] {name}")
 
                 # Fire batch concurrently in JS
-                batch_started = time.time()
                 batch_results = self._scraper.parse_chapter_batch(
                     batch, interval=interval
                 )
-                batch_elapsed = time.time() - batch_started
 
                 for j, data in enumerate(batch_results):
                     results[batch_indices[j]] = data
@@ -573,13 +570,6 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._download_cancelled = True
                     self._log("Download stopped by user.")
                     break
-
-                next_sleep = rate_interval if batch_end < total else 0
-                if is_qidian:
-                    self._log(
-                        f"[Qidian] Batch {batch_no} took "
-                        f"{batch_elapsed:.1f}s; rate sleep {next_sleep:g}s"
-                    )
 
                 # Rate limiting between batches
                 if rate_interval > 0 and batch_end < total:
