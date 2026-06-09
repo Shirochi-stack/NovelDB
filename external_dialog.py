@@ -80,6 +80,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._book_data = None
         self._chapter_results = []
         self._downloading = False
+        self._download_cancelled = False
         self._start_time = None
         self._msg_queue = queue.Queue()
         self._paste_batch_text = ''      # persisted between dialog opens
@@ -450,6 +451,15 @@ class ExternalNovelDialog(tk.Toplevel):
         finally:
             self.after(0, lambda: self._btn_download.configure(state="normal"))
 
+    def _sleep_while_downloading(self, seconds):
+        """Sleep in short slices so Stop can interrupt rate limiting."""
+        deadline = time.time() + max(0, seconds)
+        while time.time() < deadline:
+            if not self._downloading:
+                return False
+            time.sleep(min(0.1, deadline - time.time()))
+        return self._downloading
+
     def _do_download(self, chapters, start, end, interval, num_threads=1,
                       skip_paid=False):
         """Run chapter downloads on the worker thread.
@@ -493,7 +503,16 @@ class ExternalNovelDialog(tk.Toplevel):
             selected = chapters[start:end]
             total = len(selected)
             results = [None] * total
-            batch_size = max(1, num_threads)
+            is_qidian = bool(
+                self._book_data and self._book_data.get('_qidian')
+            )
+            batch_size = 1 if is_qidian else max(1, num_threads)
+            rate_interval = interval
+            if is_qidian and self._scraper:
+                rate_interval = max(
+                    interval,
+                    getattr(self._scraper, '_QIDIAN_MIN_INTERVAL', 5.0),
+                )
             completed = 0
 
             # Pre-filter paid chapters if the user opted to skip them.
@@ -512,6 +531,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
             for batch_start in range(0, total, batch_size):
                 if not self._downloading:
+                    self._download_cancelled = True
                     self._log("Download stopped by user.")
                     break
 
@@ -543,9 +563,17 @@ class ExternalNovelDialog(tk.Toplevel):
                 completed += (batch_end - batch_start)
                 self._msg_queue.put(("progress", (completed, total)))
 
+                if not self._downloading:
+                    self._download_cancelled = True
+                    self._log("Download stopped by user.")
+                    break
+
                 # Rate limiting between batches
-                if interval > 0 and batch_end < total:
-                    time.sleep(interval)
+                if rate_interval > 0 and batch_end < total:
+                    if not self._sleep_while_downloading(rate_interval):
+                        self._download_cancelled = True
+                        self._log("Download stopped by user.")
+                        break
 
             # --- Retry failed chapters individually ---
             # Locked (paid) chapters are not retried — only truly failed ones.
@@ -591,6 +619,20 @@ class ExternalNovelDialog(tk.Toplevel):
                          if r and r.get('_locked'))
             succeeded = sum(1 for r in results
                             if r and not r.get('_locked'))
+            if self._download_cancelled:
+                if locked:
+                    self._log(
+                        f"Download cancelled: {succeeded} succeeded, "
+                        f"{locked} locked/paid. Output generation skipped."
+                    )
+                else:
+                    self._log(
+                        f"Download cancelled: {succeeded} succeeded. "
+                        "Output generation skipped."
+                    )
+                self._chapter_results = results
+                return
+
             failed = sum(1 for r in results if r is None)
 
             if locked:
@@ -867,6 +909,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._save_ext_config()
 
         self._downloading = True
+        self._download_cancelled = False
         self._btn_download.configure(state="disabled")
         self._btn_stop.configure(state="normal")
         self._btn_browser.configure(state="disabled")
@@ -941,6 +984,9 @@ class ExternalNovelDialog(tk.Toplevel):
             self._msg_queue.put(("error", str(e)))
             self._msg_queue.put(("finished", None))
             return
+        if self._download_cancelled or not self._downloading:
+            self._msg_queue.put(("finished", None))
+            return
 
         # Step 2: Download chapters
         chapters = data.get('chapters', [])
@@ -960,6 +1006,8 @@ class ExternalNovelDialog(tk.Toplevel):
 
         # Generate output and signal completion
         try:
+            if self._download_cancelled:
+                return
             successes = sum(1 for r in self._chapter_results
                             if r is not None and not r.get('_locked'))
             if successes > 0:
@@ -1071,6 +1119,7 @@ class ExternalNovelDialog(tk.Toplevel):
     def _start_batch(self, urls):
         """Start batch processing a list of URLs."""
         self._downloading = True
+        self._download_cancelled = False
         self._btn_download.configure(state="disabled")
         self._btn_stop.configure(state="normal")
         self._btn_browser.configure(state="disabled")
@@ -1131,6 +1180,8 @@ class ExternalNovelDialog(tk.Toplevel):
             if not data:
                 self._log("\u274c Failed to parse book info, skipping.")
                 continue
+            if self._download_cancelled or not self._downloading:
+                break
 
             self._book_data = data
             self._msg_queue.put(("book_parsed", data))
@@ -1153,6 +1204,9 @@ class ExternalNovelDialog(tk.Toplevel):
             self._chapter_results = []
             self._do_download(chapters, start, end, interval,
                               num_threads, skip_paid)
+
+            if self._download_cancelled:
+                break
 
             # Generate output if any succeeded
             successes = sum(1 for r in self._chapter_results
@@ -2369,6 +2423,7 @@ img { display: block; max-width: 100%; max-height: 100%;
     # ------------------------------------------------------------------
     def _on_stop(self):
         self._downloading = False
+        self._download_cancelled = True
         if self._scraper:
             self._scraper._stop_requested = True
         self._btn_stop.configure(state="disabled")
