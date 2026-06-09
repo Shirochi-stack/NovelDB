@@ -2558,6 +2558,140 @@ class ExternalScraper:
         except Exception:
             return False
 
+    @staticmethod
+    def _centered_chrome_window_geometry():
+        """Return x, y, width, height for a centered Chrome window."""
+        width, height = 1280, 900
+        if sys.platform != "win32":
+            return 80, 60, width, height
+        try:
+            user32 = ctypes.windll.user32
+
+            class RECT(ctypes.Structure):
+                _fields_ = [
+                    ("left", ctypes.c_long),
+                    ("top", ctypes.c_long),
+                    ("right", ctypes.c_long),
+                    ("bottom", ctypes.c_long),
+                ]
+
+            rect = RECT()
+            spi_get_work_area = 0x0030
+            ok = user32.SystemParametersInfoW(
+                spi_get_work_area, 0, ctypes.byref(rect), 0
+            )
+            if ok:
+                left, top = rect.left, rect.top
+                work_w = max(800, rect.right - rect.left)
+                work_h = max(600, rect.bottom - rect.top)
+            else:
+                left, top = 0, 0
+                work_w = max(800, user32.GetSystemMetrics(0))
+                work_h = max(600, user32.GetSystemMetrics(1))
+            width = min(width, max(640, work_w - 120))
+            height = min(height, max(480, work_h - 120))
+            x = left + max(0, (work_w - width) // 2)
+            y = top + max(0, (work_h - height) // 2)
+            return x, y, width, height
+        except Exception:
+            return 80, 60, width, height
+
+    @classmethod
+    def _centered_chrome_window_args(cls):
+        x, y, width, height = cls._centered_chrome_window_geometry()
+        return [
+            f"--window-position={x},{y}",
+            f"--window-size={width},{height}",
+        ]
+
+    @staticmethod
+    def _clear_chrome_restore_state(user_data_dir):
+        """Best-effort: prevent Chrome's crash restore bubble for app profile."""
+        try:
+            profile_root = Path(user_data_dir)
+            prefs_paths = []
+            direct = profile_root / "Default" / "Preferences"
+            if direct.exists():
+                prefs_paths.append(direct)
+            for item in profile_root.iterdir():
+                prefs = item / "Preferences"
+                if prefs.exists() and prefs not in prefs_paths:
+                    prefs_paths.append(prefs)
+
+            for prefs_path in prefs_paths:
+                try:
+                    with open(prefs_path, "r", encoding="utf-8") as f:
+                        prefs = json.load(f)
+                    profile = prefs.setdefault("profile", {})
+                    profile["exit_type"] = "Normal"
+                    profile["exited_cleanly"] = True
+                    with open(prefs_path, "w", encoding="utf-8") as f:
+                        json.dump(prefs, f, separators=(",", ":"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _center_profile_browser_windows(self, user_data_dir, timeout=5,
+                                        focus=False):
+        """Center visible Chrome/Edge windows that use the app profile."""
+        if sys.platform != "win32":
+            return False
+        deadline = time.time() + timeout
+        moved_any = False
+        x, y, width, height = self._centered_chrome_window_geometry()
+        while time.time() < deadline:
+            pids = set(self._chrome_processes_using_profile(user_data_dir))
+            if self._chrome_process and self._chrome_process.poll() is None:
+                pids.add(int(self._chrome_process.pid))
+            if not pids:
+                time.sleep(0.1)
+                continue
+
+            try:
+                user32 = ctypes.windll.user32
+                found = []
+                EnumWindowsProc = ctypes.WINFUNCTYPE(
+                    ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+                )
+
+                def _class_name(hwnd):
+                    buf = ctypes.create_unicode_buffer(256)
+                    if user32.GetClassNameW(hwnd, buf, len(buf)) <= 0:
+                        return ""
+                    return buf.value
+
+                def callback(hwnd, _):
+                    if not user32.IsWindowVisible(hwnd):
+                        return True
+                    if user32.GetWindow(hwnd, 4):  # GW_OWNER
+                        return True
+                    pid = ctypes.c_ulong()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    if int(pid.value) not in pids:
+                        return True
+                    class_name = _class_name(hwnd)
+                    if class_name and not class_name.startswith(
+                        "Chrome_WidgetWin_"
+                    ):
+                        return True
+                    found.append(hwnd)
+                    return True
+
+                user32.EnumWindows(EnumWindowsProc(callback), 0)
+                for hwnd in found:
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    user32.MoveWindow(hwnd, x, y, width, height, True)
+                    moved_any = True
+                if found:
+                    if focus:
+                        user32.SetForegroundWindow(found[0])
+                    return True
+            except Exception:
+                return moved_any
+            time.sleep(0.1)
+        return moved_any
+
     def _hide_ntk_chrome_windows(self):
         """Best-effort: hide windows created by the temporary NTK Chrome."""
         if sys.platform != "win32":
@@ -2677,13 +2811,18 @@ class ExternalScraper:
 
         user_data_dir = user_data_dir or self._get_user_data_dir()
         os.makedirs(user_data_dir, exist_ok=True)
+        if not self._chrome_processes_using_profile(user_data_dir):
+            self._clear_chrome_restore_state(user_data_dir)
         args = [
             chrome_path,
             f"--user-data-dir={user_data_dir}",
             "--no-first-run",
             "--disable-background-mode",
             "--disable-features=Translate",
+            "--disable-session-crashed-bubble",
+            "--hide-crash-restore-bubble",
             "--new-window",
+            *self._centered_chrome_window_args(),
             start_url or "about:blank",
         ]
         port = None
@@ -2695,8 +2834,6 @@ class ExternalScraper:
             insert_at = 4 if remote_debugging else 1
             hidden_args = [
                 "--start-minimized",
-                "--window-position=-32000,-32000",
-                "--window-size=1,1",
             ]
             for offset, arg in enumerate(hidden_args):
                 args.insert(insert_at + offset, arg)
@@ -2920,6 +3057,11 @@ class ExternalScraper:
                 )
                 try:
                     self._chrome_process = proc
+                    self._center_profile_browser_windows(
+                        user_data_dir,
+                        timeout=6,
+                        focus=True,
+                    )
                     self._wait_for_system_chrome_close(proc, user_data_dir)
                 except Exception:
                     pass
