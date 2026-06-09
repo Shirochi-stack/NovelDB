@@ -3662,7 +3662,7 @@ class ExternalScraper:
         raise last_error
 
     def _start_qidian_browser(self, start_url):
-        """Launch installed Chrome with the saved app profile for Qidian."""
+        """Launch a headless persistent browser for Qidian downloads."""
         if self._context and self._page:
             try:
                 self._page.evaluate("1")
@@ -3673,7 +3673,7 @@ class ExternalScraper:
             self.cleanup()
 
         user_data_dir = self._get_user_data_dir()
-        self.log("[Qidian] Launching installed Chrome with saved profile...")
+        self.log("[Qidian] Launching headless browser with saved profile...")
         self.log(f"Browser profile: {user_data_dir}")
 
         locked_pids = self._chrome_processes_using_profile(user_data_dir)
@@ -3684,41 +3684,61 @@ class ExternalScraper:
             )
             self._close_chrome_profile_processes(user_data_dir)
 
-        proc, port = self._open_system_chrome(
-            start_url,
-            remote_debugging=True,
-            user_data_dir=user_data_dir,
-            hidden=True,
-        )
-        if not proc or not port:
-            self.log(
-                "ERROR: [Qidian] Installed Chrome/Edge was not found. "
-                "Qidian requires the regular browser profile."
-            )
-            return False
-
-        self._chrome_process = proc
-        if not self._wait_for_cdp(port, timeout=25):
-            self.log("ERROR: [Qidian] Chrome remote debugging did not start.")
-            self.cleanup()
-            return False
-
+        qidian_args = [
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--allow-running-insecure-content',
+            '--no-sandbox',
+            '--disable-background-mode',
+            '--disable-session-crashed-bubble',
+            '--hide-crash-restore-bubble',
+        ]
         try:
             self._playwright = sync_playwright().start()
-            self._browser = self._playwright.chromium.connect_over_cdp(
-                f"http://127.0.0.1:{port}"
-            )
-            self._context = (
-                self._browser.contexts[0]
-                if self._browser.contexts
-                else self._browser.new_context()
-            )
+            try:
+                self._context = (
+                    self._playwright.chromium.launch_persistent_context(
+                        user_data_dir,
+                        channel="chrome",
+                        headless=True,
+                        args=qidian_args,
+                        ignore_https_errors=True,
+                    )
+                )
+                self.log("[Qidian] Using installed Chrome in headless mode.")
+            except Exception as chrome_error:
+                self.log(
+                    "[Qidian] Installed Chrome headless unavailable; "
+                    "falling back to bundled Chromium."
+                )
+                self.log(f"[Qidian] Chrome launch warning: {chrome_error}")
+                self._context = (
+                    self._playwright.chromium.launch_persistent_context(
+                        user_data_dir,
+                        headless=True,
+                        args=qidian_args,
+                        ignore_https_errors=True,
+                    )
+                )
+
+            self._restore_storage_state()
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on("console", self._on_console)
+            self.log("[Qidian] Headless browser ready.")
             return True
         except Exception as e:
-            self.log(f"ERROR: [Qidian] Could not attach to Chrome: {e}")
+            if self._is_profile_lock_error(e):
+                self.log(
+                    "ERROR: [Qidian] Browser profile is already open. "
+                    "Close the Npia login browser window and try again."
+                )
+            else:
+                self.log(
+                    "ERROR: [Qidian] Could not start headless browser. "
+                    "Use Enter Browser for any login or verification, then "
+                    f"retry. Details: {e}"
+                )
             self.cleanup()
             return False
 
@@ -3774,7 +3794,7 @@ class ExternalScraper:
   const mainText = (main?.innerText || '').trim();
   return document.querySelectorAll('span.content-text').length >= 3 ||
     mainText.length > 100 ||
-    /VIP|\\u8ba2\\u9605|\\u8d2d\\u4e70|\\u767b\\u5f55/.test(
+    /VIP|\\u8ba2\\u9605|\\u8d2d\\u4e70|\\u767b\\u5f55|captcha|verify|verification|\\u9a8c\\u8bc1|\\u5b89\\u5168|\\u4eba\\u673a|\\u6ed1\\u5757/i.test(
       document.body?.innerText || ''
     );
 })()
@@ -4020,7 +4040,9 @@ class ExternalScraper:
     'div.chapter-wrapper div.print main, main'
   );
   const bodyText = document.body?.innerText || '';
+  const needsVerification = /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(bodyText);
   if (!main) {
+    if (needsVerification) return {error: 'verification'};
     return {
       error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
         ? 'locked'
@@ -4046,6 +4068,7 @@ class ExternalScraper:
   paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
   const contentText = paras.join('\n');
   if (!contentText || contentText.length < 20) {
+    if (needsVerification) return {error: 'verification'};
     return {
       error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
         ? 'locked'
@@ -4078,6 +4101,17 @@ class ExternalScraper:
         if data.get('error') == 'locked':
             self.log(f"  [Qidian] LOCKED or login required: {chapter_name}")
             return {'_locked': True, 'chapterName': chapter_name}
+        if data.get('error') == 'verification':
+            self.log(
+                f"  [Qidian] Verification required for: {chapter_name}. "
+                "Use Enter Browser to complete login or verification, then "
+                "retry."
+            )
+            return {
+                '_locked': True,
+                '_verification_required': True,
+                'chapterName': chapter_name,
+            }
         if data.get('error'):
             self.log(
                 f"  [Qidian] {data.get('error')} for: {chapter_name}"
@@ -4132,7 +4166,9 @@ class ExternalScraper:
     'div.chapter-wrapper div.print main, main'
   );
   const bodyText = document.body?.innerText || '';
+  const needsVerification = /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(bodyText);
   if (!main) {
+    if (needsVerification) return {error: 'verification'};
     return {
       error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
         ? 'locked'
@@ -4158,6 +4194,7 @@ class ExternalScraper:
   paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
   const contentText = paras.join('\n');
   if (!contentText || contentText.length < 20) {
+    if (needsVerification) return {error: 'verification'};
     return {
       error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
         ? 'locked'
@@ -4189,6 +4226,17 @@ class ExternalScraper:
         if data.get('error') == 'locked':
             self.log(f"  [Qidian] LOCKED or login required: {chapter_name}")
             return {'_locked': True, 'chapterName': chapter_name}
+        if data.get('error') == 'verification':
+            self.log(
+                f"  [Qidian] Verification required for: {chapter_name}. "
+                "Use Enter Browser to complete login or verification, then "
+                "retry."
+            )
+            return {
+                '_locked': True,
+                '_verification_required': True,
+                'chapterName': chapter_name,
+            }
         if data.get('error'):
             self.log(
                 f"  [Qidian] {data.get('error')} for: {chapter_name}"

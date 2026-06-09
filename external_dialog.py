@@ -293,7 +293,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._var_regular_browser = tk.BooleanVar(value=False)
         self._chk_regular_browser = ttk.Checkbutton(
             btn_frame,
-            text="Regular browser",
+            text="Regular login browser",
             variable=self._var_regular_browser,
         )
         self._chk_regular_browser.pack(side="left", padx=(0, 10))
@@ -736,8 +736,8 @@ class ExternalNovelDialog(tk.Toplevel):
         regular_browser = self._var_regular_browser.get()
         if regular_browser:
             self._append_log(
-                "Opening regular browser for login... Close the browser "
-                "when done."
+                "Opening regular login browser... Close the browser when "
+                "done."
             )
         else:
             self._append_log(
