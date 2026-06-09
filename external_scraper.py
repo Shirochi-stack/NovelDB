@@ -3754,6 +3754,16 @@ class ExternalScraper:
 
     def _qidian_wait_for_chapter(self, page, timeout=60):
         deadline = time.time() + timeout
+        while time.time() < deadline and not self._stop_requested:
+            if self._qidian_chapter_ready(page):
+                return True
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                time.sleep(1)
+        return False
+
+    def _qidian_chapter_ready(self, page):
         script = """
 (() => {
   const main = document.querySelector(
@@ -3767,17 +3777,63 @@ class ExternalScraper:
     );
 })()
 """
-        while time.time() < deadline and not self._stop_requested:
+        try:
+            return bool(page and not page.is_closed() and page.evaluate(script))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _page_is_usable(page):
+        try:
+            return bool(page and not page.is_closed())
+        except Exception:
+            return False
+
+    def _qidian_parallel_pages(self, count, start_url):
+        """Return one usable Qidian browser page per parallel chapter."""
+        count = max(1, count)
+        if not self._context or not self._page:
+            if not self._start_qidian_browser(start_url):
+                return []
+
+        if not self._page_is_usable(self._page):
             try:
-                if page.evaluate(script):
-                    return True
-            except Exception:
-                pass
+                self._page = self._context.new_page()
+                self._page.on("console", self._on_console)
+            except Exception as e:
+                self.log(f"  [Qidian] Could not create primary page: {e}")
+                return []
+
+        usable_workers = []
+        for page in self._worker_pages:
+            if self._page_is_usable(page):
+                usable_workers.append(page)
+            else:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+        self._worker_pages = usable_workers
+
+        needed_workers = max(0, count - 1)
+        if len(self._worker_pages) > needed_workers:
+            for page in self._worker_pages[needed_workers:]:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            self._worker_pages = self._worker_pages[:needed_workers]
+
+        while len(self._worker_pages) < needed_workers:
             try:
-                page.wait_for_timeout(1000)
-            except Exception:
-                time.sleep(1)
-        return False
+                page = self._context.new_page()
+                page.on("console", self._on_console)
+                self._worker_pages.append(page)
+            except Exception as e:
+                self.log(f"  [Qidian] Worker page failed: {e}")
+                break
+
+        return ([self._page] + self._worker_pages)[:count]
 
     def _qidian_parse_book(self, url):
         """Scrape Qidian metadata and catalog from the rendered book page."""
@@ -3853,7 +3909,9 @@ class ExternalScraper:
       fullName: name,
       isVIP: isVip,
       isPaid: isVip,
-      isAccessible: !isVip,
+      // The catalog does not tell us whether this account purchased a VIP
+      // chapter. Try it and let the rendered reader report locked/login.
+      isAccessible: true,
     };
   }).filter((ch) => ch.url);
   return {
@@ -4024,6 +4082,163 @@ class ExternalScraper:
             )
             return None
         return data
+
+    def _qidian_extract_loaded_chapter(self, page, chapter_name):
+        """Extract one Qidian chapter from a page that already navigated."""
+        script = r"""
+(chapterName) => {
+  const escapeHtml = (value) => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const text = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
+  const deobfuscate = () => {
+    const content = document.querySelector(
+      'div.chapter-wrapper div.print main, main'
+    );
+    if (!content) return;
+    const spans = [...content.querySelectorAll('span.content-text')];
+    if (!spans.length) return;
+    const style = spans[0].getAttribute('style') || '';
+    const fontMatch = style.match(/font-family:\s*["']?(qd_[^"',;\s]+)/);
+    if (!fontMatch) return;
+    const fontName = fontMatch[1];
+    const mapping = {};
+    for (const styleEl of document.querySelectorAll('style')) {
+      const css = styleEl.textContent || '';
+      if (!css.includes(fontName)) continue;
+      const ruleRe = /\.([a-zA-Z0-9_-]+)\s*\{[^}]*content\s*:\s*["']\\([0-9a-fA-F]{1,6})["'][^}]*\}/g;
+      let m;
+      while ((m = ruleRe.exec(css)) !== null) {
+        mapping[m[1]] = parseInt(m[2], 16);
+      }
+    }
+    if (!Object.keys(mapping).length) return;
+    for (const span of spans) {
+      for (const cls of span.classList) {
+        if (Object.prototype.hasOwnProperty.call(mapping, cls)) {
+          span.textContent = String.fromCodePoint(mapping[cls]);
+          break;
+        }
+      }
+    }
+  };
+  deobfuscate();
+  const main = document.querySelector(
+    'div.chapter-wrapper div.print main, main'
+  );
+  const bodyText = document.body?.innerText || '';
+  if (!main) {
+    return {
+      error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
+        ? 'locked'
+        : 'missing content'
+    };
+  }
+  const clone = main.cloneNode(true);
+  clone.querySelectorAll(
+    'script, style, noscript, button, textarea, input, svg, canvas, ' +
+    'span.review, span.review-count, .ql-block-token, [class*="review"], ' +
+    '[class*="comment"], [class*="vote"], [class*="ad"]'
+  ).forEach((el) => el.remove());
+
+  let paras = [...clone.querySelectorAll('p')]
+    .map((p) => text(p))
+    .filter(Boolean);
+  if (paras.length < 2) {
+    paras = (clone.innerText || '')
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+  }
+  paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
+  const contentText = paras.join('\n');
+  if (!contentText || contentText.length < 20) {
+    return {
+      error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
+        ? 'locked'
+        : 'empty content'
+    };
+  }
+  const contentHtml = paras
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join('\n');
+  return {
+    chapterName,
+    sourceChapterName: chapterName,
+    contentText,
+    contentHtml,
+    images: [],
+  };
+}
+"""
+        try:
+            data = self._qidian_eval(page, script, arg=chapter_name,
+                                     attempts=10)
+        except Exception as e:
+            self.log(f"  [Qidian] Chapter extraction failed: {e}")
+            return None
+
+        if not data:
+            self.log(f"  [Qidian] Empty result for: {chapter_name}")
+            return None
+        if data.get('error') == 'locked':
+            self.log(f"  [Qidian] LOCKED or login required: {chapter_name}")
+            return {'_locked': True, 'chapterName': chapter_name}
+        if data.get('error'):
+            self.log(
+                f"  [Qidian] {data.get('error')} for: {chapter_name}"
+            )
+            return None
+        return data
+
+    def _qidian_parse_chapter_batch_parallel(self, batch_info):
+        """Load a Qidian batch across multiple Chrome tabs/pages."""
+        if not batch_info:
+            return []
+
+        first_url = batch_info[0].get('url', '') or self._book_url
+        pages = self._qidian_parallel_pages(len(batch_info), first_url)
+        if not pages:
+            return [None] * len(batch_info)
+
+        active = []
+        for i, (page, ch) in enumerate(zip(pages, batch_info)):
+            if self._stop_requested:
+                break
+            url = ch.get('url', '')
+            name = ch.get('fullName', '') or ch.get('name', '')
+            try:
+                page.goto(url, wait_until="commit", timeout=15000)
+            except Exception as e:
+                self.log(f"  [Qidian] Page load warning for {name}: {e}")
+            active.append((i, page, name))
+
+        results = [None] * len(batch_info)
+        pending = {i for i, _, _ in active}
+        active_by_index = {i: (page, name) for i, page, name in active}
+        deadline = time.time() + 60
+
+        while pending and time.time() < deadline and not self._stop_requested:
+            for i in list(pending):
+                page, _name = active_by_index[i]
+                if self._qidian_chapter_ready(page):
+                    pending.remove(i)
+            if pending:
+                time.sleep(0.25)
+
+        for i in sorted(pending):
+            _page, name = active_by_index[i]
+            self.log(f"  [Qidian] Timed out waiting for: {name}")
+
+        for i, page, name in active:
+            if self._stop_requested or i in pending:
+                continue
+            results[i] = self._qidian_extract_loaded_chapter(page, name)
+
+        return results
 
     # ------------------------------------------------------------------
     # KakaoPage native scraper (fallback for unsupported JS rules)
@@ -7103,23 +7318,10 @@ class ExternalScraper:
                 if interval > 0 and i < len(batch_info) - 1:
                     time.sleep(interval)
             return results
-        # Qidian: rendered pages need Qidian's own JS, so fetch sequentially.
+        # Qidian: render one chapter per browser page, up to the UI thread
+        # count that the dialog used to size this batch.
         if self._book_data and self._book_data.get('_qidian'):
-            results = []
-            delay = max(0, interval, self._QIDIAN_MIN_INTERVAL)
-            for i, ch in enumerate(batch_info):
-                if self._stop_requested:
-                    results.append(None)
-                    continue
-                data = self._qidian_parse_chapter(
-                    ch.get('url', ''),
-                    ch.get('fullName', '') or ch.get('name', ''),
-                    page=self._page,
-                )
-                results.append(data)
-                if delay > 0 and i < len(batch_info) - 1:
-                    time.sleep(delay)
-            return results
+            return self._qidian_parse_chapter_batch_parallel(batch_info)
         if self._book_data and self._book_data.get('_ntk_novel'):
             from concurrent.futures import ThreadPoolExecutor
 

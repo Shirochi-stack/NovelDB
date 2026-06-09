@@ -468,8 +468,8 @@ class ExternalNovelDialog(tk.Toplevel):
         """Run chapter downloads on the worker thread.
 
         Chapters are split into batches of `num_threads` size.
-        Each batch fires concurrent HTTP requests inside the browser
-        via JS Promise.all — no Python threading needed.
+        Each batch uses the scraper's fastest available concurrent path.
+        Qidian renders one chapter per browser page in the batch.
         Failed chapters are retried individually after the main pass.
         """
         try:
@@ -509,7 +509,7 @@ class ExternalNovelDialog(tk.Toplevel):
             is_qidian = bool(
                 self._book_data and self._book_data.get('_qidian')
             )
-            batch_size = 1 if is_qidian else max(1, num_threads)
+            batch_size = max(1, num_threads)
             rate_interval = interval
             if is_qidian and self._scraper:
                 rate_interval = max(
