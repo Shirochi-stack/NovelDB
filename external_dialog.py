@@ -100,6 +100,9 @@ class ExternalNovelDialog(tk.Toplevel):
         # Hide on close instead of destroying — state is preserved.
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._load_ext_config()
+        self._var_regular_browser.trace_add(
+            "write", lambda *_: self._save_ext_config()
+        )
         self._poll_queue()
 
     def _center_child_window(self, child):
@@ -2473,6 +2476,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_from.set(cfg.get("ext_from", 1))
             self._var_to.set(cfg.get("ext_to", 1))
             self._var_skip_paid.set(cfg.get("ext_skip_paid", False))
+            self._var_regular_browser.set(
+                cfg.get("ext_regular_browser", False)
+            )
             self._var_ntk_novelpia_cover.set(
                 cfg.get("ext_ntk_novelpia_cover", False)
             )
@@ -2527,6 +2533,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_from"] = self._var_from.get()
         cfg["ext_to"] = self._var_to.get()
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
+        cfg["ext_regular_browser"] = self._var_regular_browser.get()
         cfg["ext_ntk_novelpia_cover"] = (
             self._var_ntk_novelpia_cover.get()
         )
