@@ -2368,14 +2368,29 @@ class ExternalScraper:
         except Exception:
             return []
 
-    def _wait_for_profile_processes_to_exit(self, user_data_dir, timeout=6):
+    def _wait_for_profile_processes_to_exit(self, user_data_dir, timeout=1.5):
         """Wait briefly for Chrome profile processes to exit after UI close."""
         deadline = time.time() + timeout
         pids = self._chrome_processes_using_profile(user_data_dir)
         while pids and time.time() < deadline:
-            time.sleep(0.5)
+            time.sleep(0.15)
             pids = self._chrome_processes_using_profile(user_data_dir)
         return pids
+
+    def _close_chrome_profile_processes_async(self, user_data_dir):
+        """Clean up leftover Chrome profile processes without blocking the UI."""
+        def cleanup():
+            try:
+                closed = self._close_chrome_profile_processes(user_data_dir)
+                if closed:
+                    self.log(
+                        f"[Browser] Closed {len(closed)} leftover Chrome "
+                        "process(es)."
+                    )
+            except Exception:
+                pass
+
+        threading.Thread(target=cleanup, daemon=True).start()
 
     def _wait_for_system_chrome_close(self, proc, user_data_dir):
         """Wait until the normal Chrome login window has been closed."""
@@ -2408,31 +2423,21 @@ class ExternalScraper:
                 if leftovers:
                     self.log(
                         "[Browser] Chrome window closed, but Chrome kept "
-                        "the login profile open. Cleaning up leftover "
-                        "Chrome process(es)."
+                        "the login profile open. Cleaning up leftovers in "
+                        "the background."
                     )
-                    closed = self._close_chrome_profile_processes(
-                        user_data_dir
-                    )
-                    if closed:
-                        self.log(
-                            f"[Browser] Closed {len(closed)} leftover "
-                            "Chrome process(es)."
-                        )
+                    self._close_chrome_profile_processes_async(user_data_dir)
                 return
             elif proc.poll() is not None and not profile_pids:
                 return
             elif proc.poll() is not None and time.time() >= launch_deadline:
                 leftovers = self._chrome_processes_using_profile(user_data_dir)
                 if leftovers:
-                    closed = self._close_chrome_profile_processes(
-                        user_data_dir
+                    self.log(
+                        "[Browser] Chrome exited, but the login profile is "
+                        "still open. Cleaning up leftovers in the background."
                     )
-                    if closed:
-                        self.log(
-                            f"[Browser] Closed {len(closed)} leftover "
-                            "Chrome process(es)."
-                        )
+                    self._close_chrome_profile_processes_async(user_data_dir)
                 return
 
             time.sleep(0.25)
@@ -3630,7 +3635,9 @@ class ExternalScraper:
     # ------------------------------------------------------------------
     # Qidian native scraper (rendered Chrome fallback for encrypted reader)
     # ------------------------------------------------------------------
-    _QIDIAN_MIN_INTERVAL = 5.0
+    # Qidian uses the UI's interval setting. Keep this floor at zero unless
+    # the site starts requiring a hard minimum delay.
+    _QIDIAN_MIN_INTERVAL = 0.0
 
     def _qidian_eval(self, page, script, arg=None, attempts=12, delay=0.75):
         """Evaluate JS on a Qidian page, tolerating SPA reload races."""
@@ -6987,7 +6994,7 @@ class ExternalScraper:
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
             result = self._qidian_parse_chapter(url, name, page=page)
-            delay = max(interval, self._QIDIAN_MIN_INTERVAL)
+            delay = max(0, interval, self._QIDIAN_MIN_INTERVAL)
             if delay > 0:
                 time.sleep(delay)
             return result
@@ -7099,7 +7106,7 @@ class ExternalScraper:
         # Qidian: rendered pages need Qidian's own JS, so fetch sequentially.
         if self._book_data and self._book_data.get('_qidian'):
             results = []
-            delay = max(interval, self._QIDIAN_MIN_INTERVAL)
+            delay = max(0, interval, self._QIDIAN_MIN_INTERVAL)
             for i, ch in enumerate(batch_info):
                 if self._stop_requested:
                     results.append(None)

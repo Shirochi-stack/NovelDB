@@ -514,7 +514,7 @@ class ExternalNovelDialog(tk.Toplevel):
             if is_qidian and self._scraper:
                 rate_interval = max(
                     interval,
-                    getattr(self._scraper, '_QIDIAN_MIN_INTERVAL', 5.0),
+                    getattr(self._scraper, '_QIDIAN_MIN_INTERVAL', 0.0),
                 )
             completed = 0
 
