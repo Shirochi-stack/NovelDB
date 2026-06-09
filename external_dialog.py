@@ -556,9 +556,12 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._log(f"  [{i + 1}/{total}] {name}")
 
                 # Fire batch concurrently in JS
+                batch_number = (batch_start // batch_size) + 1
+                batch_t0 = time.perf_counter()
                 batch_results = self._scraper.parse_chapter_batch(
                     batch, interval=interval
                 )
+                batch_elapsed = time.perf_counter() - batch_t0
 
                 for j, data in enumerate(batch_results):
                     results[batch_indices[j]] = data
@@ -572,6 +575,21 @@ class ExternalNovelDialog(tk.Toplevel):
                     break
 
                 # Rate limiting between batches
+                sleep_time = (
+                    rate_interval
+                    if rate_interval > 0 and batch_end < total
+                    else 0
+                )
+                if is_qidian:
+                    sleep_display = (
+                        f"{sleep_time:.1f}s"
+                        if sleep_time
+                        else "0s"
+                    )
+                    self._log(
+                        f"[Qidian] Batch {batch_number} took "
+                        f"{batch_elapsed:.1f}s; rate sleep {sleep_display}"
+                    )
                 if rate_interval > 0 and batch_end < total:
                     if not self._sleep_while_downloading(rate_interval):
                         self._download_cancelled = True
