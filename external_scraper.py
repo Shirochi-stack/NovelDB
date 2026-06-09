@@ -2566,7 +2566,7 @@ class ExternalScraper:
     @staticmethod
     def _centered_chrome_window_geometry():
         """Return x, y, width, height for a centered Chrome window."""
-        width, height = 1280, 900
+        width, height = 1440, 960
         if sys.platform != "win32":
             return 80, 60, width, height
         try:
@@ -2593,8 +2593,10 @@ class ExternalScraper:
                 left, top = 0, 0
                 work_w = max(800, user32.GetSystemMetrics(0))
                 work_h = max(600, user32.GetSystemMetrics(1))
-            width = min(width, max(640, work_w - 120))
-            height = min(height, max(480, work_h - 120))
+            max_w = max(640, work_w - 40)
+            max_h = max(480, work_h - 40)
+            width = min(max(800, int(work_w * 0.50)), max_w)
+            height = min(max(600, int(work_h * 0.50)), max_h)
             x = left + max(0, (work_w - width) // 2)
             y = top + max(0, (work_h - height) // 2)
             return x, y, width, height
