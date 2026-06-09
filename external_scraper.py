@@ -3088,6 +3088,18 @@ class ExternalScraper:
         )
 
     @staticmethod
+    def is_qidian(url):
+        """Check if the URL is a Qidian book or chapter URL."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.hostname or '').lower()
+        if host != 'qidian.com' and not host.endswith('.qidian.com'):
+            return False
+        return bool(re.match(r'^/(book|chapter)/\d+', parsed.path or ''))
+
+    @staticmethod
     def _normalize_title_for_match(value):
         value = html.unescape(value or '')
         value = unicodedata.normalize('NFKC', value)
@@ -3374,7 +3386,10 @@ class ExternalScraper:
         """
         if count <= 0 or not self._book_url:
             return
-        if self._book_data and self._book_data.get('_ntk_novel'):
+        if self._book_data and (
+            self._book_data.get('_ntk_novel')
+            or self._book_data.get('_qidian')
+        ):
             return
 
         # Close any existing worker pages
@@ -3452,6 +3467,9 @@ class ExternalScraper:
                 if self._book_data and self._book_data.get('_ntk_novel'):
                     self.log("Page recovered for NewToki scraper.")
                     return True
+                if self._book_data and self._book_data.get('_qidian'):
+                    self.log("Page recovered for Qidian scraper.")
+                    return True
                 self._install_bridge_bindings(self._page)
                 self._page.evaluate(self._gm_stubs_js)
                 self._page.evaluate(self._rules_js)
@@ -3466,6 +3484,397 @@ class ExternalScraper:
 
         self.log("Page recovered (no book URL to re-inject).")
         return True
+
+    # ------------------------------------------------------------------
+    # Qidian native scraper (rendered Chrome fallback for encrypted reader)
+    # ------------------------------------------------------------------
+    _QIDIAN_MIN_INTERVAL = 5.0
+
+    def _qidian_eval(self, page, script, arg=None, attempts=12, delay=0.75):
+        """Evaluate JS on a Qidian page, tolerating SPA reload races."""
+        last_error = None
+        for _ in range(max(1, attempts)):
+            try:
+                if arg is None:
+                    return page.evaluate(script)
+                return page.evaluate(script, arg)
+            except Exception as e:
+                last_error = e
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=3000)
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(int(delay * 1000))
+                except Exception:
+                    time.sleep(delay)
+        raise last_error
+
+    def _start_qidian_browser(self, start_url):
+        """Launch installed Chrome with the saved app profile for Qidian."""
+        if self._context and self._page:
+            try:
+                self._page.evaluate("1")
+                return True
+            except Exception:
+                self.cleanup()
+        elif self._context or self._browser or self._chrome_process:
+            self.cleanup()
+
+        user_data_dir = self._get_user_data_dir()
+        self.log("[Qidian] Launching installed Chrome with saved profile...")
+        self.log(f"Browser profile: {user_data_dir}")
+
+        locked_pids = self._chrome_processes_using_profile(user_data_dir)
+        if locked_pids:
+            self.log(
+                "[Qidian] Browser profile is already open; closing stale "
+                "app-profile Chrome process(es)."
+            )
+            self._close_chrome_profile_processes(user_data_dir)
+
+        proc, port = self._open_system_chrome(
+            start_url,
+            remote_debugging=True,
+            user_data_dir=user_data_dir,
+            hidden=True,
+        )
+        if not proc or not port:
+            self.log(
+                "ERROR: [Qidian] Installed Chrome/Edge was not found. "
+                "Qidian requires the regular browser profile."
+            )
+            return False
+
+        self._chrome_process = proc
+        if not self._wait_for_cdp(port, timeout=25):
+            self.log("ERROR: [Qidian] Chrome remote debugging did not start.")
+            self.cleanup()
+            return False
+
+        try:
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{port}"
+            )
+            self._context = (
+                self._browser.contexts[0]
+                if self._browser.contexts
+                else self._browser.new_context()
+            )
+            pages = self._context.pages
+            self._page = pages[0] if pages else self._context.new_page()
+            self._page.on("console", self._on_console)
+            return True
+        except Exception as e:
+            self.log(f"ERROR: [Qidian] Could not attach to Chrome: {e}")
+            self.cleanup()
+            return False
+
+    @staticmethod
+    def _qidian_abs_url(value):
+        value = (value or '').strip()
+        if value.startswith('//'):
+            return 'https:' + value
+        return urllib.parse.urljoin('https://www.qidian.com/', value)
+
+    def _qidian_wait_for_book(self, page, timeout=45):
+        deadline = time.time() + timeout
+        script = """
+(() => {
+  const bodyText = document.body?.innerText || '';
+  return !!(
+    document.querySelector('#bookName') ||
+    document.querySelector('#bookCatalogSection a.chapter-name') ||
+    document.querySelector('a.chapter-name') ||
+    bodyText.trim().length > 100
+  );
+})()
+"""
+        while time.time() < deadline and not self._stop_requested:
+            try:
+                if page.evaluate(script):
+                    return True
+            except Exception:
+                pass
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                time.sleep(1)
+        return False
+
+    def _qidian_wait_for_chapter(self, page, timeout=60):
+        deadline = time.time() + timeout
+        script = """
+(() => {
+  const main = document.querySelector(
+    'div.chapter-wrapper div.print main, main'
+  );
+  const mainText = (main?.innerText || '').trim();
+  return document.querySelectorAll('span.content-text').length >= 3 ||
+    mainText.length > 100 ||
+    /VIP|\\u8ba2\\u9605|\\u8d2d\\u4e70|\\u767b\\u5f55/.test(
+      document.body?.innerText || ''
+    );
+})()
+"""
+        while time.time() < deadline and not self._stop_requested:
+            try:
+                if page.evaluate(script):
+                    return True
+            except Exception:
+                pass
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                time.sleep(1)
+        return False
+
+    def _qidian_parse_book(self, url):
+        """Scrape Qidian metadata and catalog from the rendered book page."""
+        self._stop_requested = False
+        if not self._start_qidian_browser(url):
+            return None
+
+        self.log(f"[Qidian] Navigating to: {url}")
+        try:
+            self._page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            self.log(f"[Qidian] Page load warning: {e}")
+
+        if not self._qidian_wait_for_book(self._page):
+            self.log("ERROR: [Qidian] Book page did not render.")
+            return None
+
+        script = r"""
+(() => {
+  const text = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
+  const meta = (key) => (
+    document.querySelector(`meta[property="${key}"]`) ||
+    document.querySelector(`meta[name="${key}"]`)
+  )?.getAttribute('content') || '';
+  const abs = (url) => {
+    if (!url) return '';
+    if (url.startsWith('//')) return 'https:' + url;
+    return new URL(url, location.href).href;
+  };
+  const title = (
+    text(document.querySelector('#bookName')) ||
+    meta('og:title') ||
+    text(document.querySelector('h1')) ||
+    document.title.split('-')[0].trim()
+  );
+  const author = (
+    text(document.querySelector('span.author')) ||
+    text(document.querySelector('[class*="author"]'))
+  ).replace(/^\u4f5c\u8005[:\uff1a]\s*/, '').trim();
+  const coverEl =
+    document.querySelector('#bookImg img, img#bookImg, #bookImg') ||
+    [...document.images].find((img) => /bookcover\.yuewen\.com/.test(img.src));
+  const cover = abs(
+    coverEl?.currentSrc || coverEl?.src || meta('og:image') || ''
+  );
+  const description = (
+    text(document.querySelector('#book-intro-detail')) ||
+    meta('og:description') ||
+    meta('description')
+  );
+  const tags = [
+    ...document.querySelectorAll(
+      '#all-label a, .book-tag a, .tag-wrap a, a[href*="/all/"]'
+    )
+  ].map((el) => text(el)).filter(Boolean);
+  const seenTags = new Set();
+  const cleanTags = tags.filter((tag) => {
+    if (seenTags.has(tag)) return false;
+    seenTags.add(tag);
+    return true;
+  });
+  const chapterLinks = [
+    ...document.querySelectorAll('#bookCatalogSection a.chapter-name, a.chapter-name')
+  ];
+  const chapters = chapterLinks.map((a, index) => {
+    const parent = a.closest('li, dd, div') || a.parentElement || a;
+    const contextText = text(parent);
+    const name = text(a) || `Chapter ${index + 1}`;
+    const isVip = /VIP|\u4ed8\u8d39|\u8ba2\u9605/.test(contextText);
+    return {
+      url: abs(a.href || a.getAttribute('href') || ''),
+      name,
+      fullName: name,
+      isVIP: isVip,
+      isPaid: isVip,
+      isAccessible: !isVip,
+    };
+  }).filter((ch) => ch.url);
+  return {
+    bookname: title,
+    author: author || 'Unknown',
+    coverUrl: cover,
+    description,
+    introduction: description,
+    introductionHTML: description ? description.replace(/\n/g, '<br/>\n') : '',
+    tags: cleanTags,
+    language: 'zh',
+    chapterCount: chapters.length,
+    chapters,
+    bookUrl: location.href,
+  };
+})()
+"""
+        try:
+            data = self._qidian_eval(self._page, script)
+        except Exception as e:
+            self.log(f"ERROR: [Qidian] Metadata extraction failed: {e}")
+            return None
+
+        if not data or not data.get('bookname'):
+            self.log("ERROR: [Qidian] Could not extract book title.")
+            return None
+        if not data.get('chapters'):
+            self.log("ERROR: [Qidian] No chapters found.")
+            return None
+
+        data['_qidian'] = True
+        data['_qidian_min_interval'] = self._QIDIAN_MIN_INTERVAL
+        self._book_data = data
+        self._book_url = url
+        self.log(
+            f"[Qidian] Book: {data.get('bookname', '?')} by "
+            f"{data.get('author', '?')} - {data.get('chapterCount', 0)} "
+            "chapters"
+        )
+        return data
+
+    def _qidian_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Scrape one rendered Qidian chapter."""
+        if not self._context or not self._page:
+            if not self._start_qidian_browser(chapter_url):
+                return None
+
+        target = page or self._page
+        try:
+            target.goto(
+                chapter_url,
+                wait_until="domcontentloaded",
+                timeout=45000,
+            )
+        except Exception as e:
+            self.log(f"  [Qidian] Page load warning: {e}")
+
+        if not self._qidian_wait_for_chapter(target):
+            self.log(f"  [Qidian] Timed out waiting for: {chapter_name}")
+            return None
+
+        script = r"""
+(chapterName) => {
+  const escapeHtml = (value) => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const text = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
+  const deobfuscate = () => {
+    const content = document.querySelector(
+      'div.chapter-wrapper div.print main, main'
+    );
+    if (!content) return;
+    const spans = [...content.querySelectorAll('span.content-text')];
+    if (!spans.length) return;
+    const style = spans[0].getAttribute('style') || '';
+    const fontMatch = style.match(/font-family:\s*["']?(qd_[^"',;\s]+)/);
+    if (!fontMatch) return;
+    const fontName = fontMatch[1];
+    const mapping = {};
+    for (const styleEl of document.querySelectorAll('style')) {
+      const css = styleEl.textContent || '';
+      if (!css.includes(fontName)) continue;
+      const ruleRe = /\.([a-zA-Z0-9_-]+)\s*\{[^}]*content\s*:\s*["']\\([0-9a-fA-F]{1,6})["'][^}]*\}/g;
+      let m;
+      while ((m = ruleRe.exec(css)) !== null) {
+        mapping[m[1]] = parseInt(m[2], 16);
+      }
+    }
+    if (!Object.keys(mapping).length) return;
+    for (const span of spans) {
+      for (const cls of span.classList) {
+        if (Object.prototype.hasOwnProperty.call(mapping, cls)) {
+          span.textContent = String.fromCodePoint(mapping[cls]);
+          break;
+        }
+      }
+    }
+  };
+  deobfuscate();
+  const main = document.querySelector(
+    'div.chapter-wrapper div.print main, main'
+  );
+  const bodyText = document.body?.innerText || '';
+  if (!main) {
+    return {
+      error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
+        ? 'locked'
+        : 'missing content'
+    };
+  }
+  const clone = main.cloneNode(true);
+  clone.querySelectorAll(
+    'script, style, noscript, button, textarea, input, svg, canvas, ' +
+    'span.review, span.review-count, .ql-block-token, [class*="review"], ' +
+    '[class*="comment"], [class*="vote"], [class*="ad"]'
+  ).forEach((el) => el.remove());
+
+  let paras = [...clone.querySelectorAll('p')]
+    .map((p) => text(p))
+    .filter(Boolean);
+  if (paras.length < 2) {
+    paras = (clone.innerText || '')
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+  }
+  paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
+  const contentText = paras.join('\n');
+  if (!contentText || contentText.length < 20) {
+    return {
+      error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(bodyText)
+        ? 'locked'
+        : 'empty content'
+    };
+  }
+  const contentHtml = paras
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join('\n');
+  return {
+    chapterName,
+    sourceChapterName: chapterName,
+    contentText,
+    contentHtml,
+    images: [],
+  };
+}
+"""
+        try:
+            data = self._qidian_eval(
+                target, script, arg=chapter_name, attempts=10
+            )
+        except Exception as e:
+            self.log(f"  [Qidian] Chapter extraction failed: {e}")
+            return None
+
+        if not data:
+            self.log(f"  [Qidian] Empty result for: {chapter_name}")
+            return None
+        if data.get('error') == 'locked':
+            self.log(f"  [Qidian] LOCKED or login required: {chapter_name}")
+            return {'_locked': True, 'chapterName': chapter_name}
+        if data.get('error'):
+            self.log(
+                f"  [Qidian] {data.get('error')} for: {chapter_name}"
+            )
+            return None
+        return data
 
     # ------------------------------------------------------------------
     # KakaoPage native scraper (fallback for unsupported JS rules)
@@ -6296,6 +6705,9 @@ class ExternalScraper:
         if self.is_kakaopage(url):
             self.log("[KakaoPage] Detected KakaoPage URL, using native scraper.")
             return self._kakao_parse_book(url)
+        if self.is_qidian(url):
+            self.log("[Qidian] Detected Qidian URL, using native scraper.")
+            return self._qidian_parse_book(url)
         if self.is_ntk_novel(url):
             return self._ntk_parse_book(url)
         if self.is_yeduji(url):
@@ -6429,6 +6841,14 @@ class ExternalScraper:
             if interval > 0:
                 time.sleep(interval)
             return result
+        if self._book_data and self._book_data.get('_qidian'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            result = self._qidian_parse_chapter(url, name, page=page)
+            delay = max(interval, self._QIDIAN_MIN_INTERVAL)
+            if delay > 0:
+                time.sleep(delay)
+            return result
 
         url = chapter_info.get('url', '')
         name = chapter_info.get('name', '')
@@ -6533,6 +6953,23 @@ class ExternalScraper:
                 results.append(data)
                 if interval > 0 and i < len(batch_info) - 1:
                     time.sleep(interval)
+            return results
+        # Qidian: rendered pages need Qidian's own JS, so fetch sequentially.
+        if self._book_data and self._book_data.get('_qidian'):
+            results = []
+            delay = max(interval, self._QIDIAN_MIN_INTERVAL)
+            for i, ch in enumerate(batch_info):
+                if self._stop_requested:
+                    results.append(None)
+                    continue
+                data = self._qidian_parse_chapter(
+                    ch.get('url', ''),
+                    ch.get('fullName', '') or ch.get('name', ''),
+                    page=self._page,
+                )
+                results.append(data)
+                if delay > 0 and i < len(batch_info) - 1:
+                    time.sleep(delay)
             return results
         if self._book_data and self._book_data.get('_ntk_novel'):
             from concurrent.futures import ThreadPoolExecutor

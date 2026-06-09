@@ -435,6 +435,7 @@ class ExternalNovelDialog(tk.Toplevel):
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
                 if (not self._scraper.is_ntk_novel(url)
+                        and not self._scraper.is_qidian(url)
                         and not self._scraper.is_yeduji(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -469,7 +470,8 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._book_data and self._book_data.get("_yeduji")
             )
             if (self._scraper and not self._scraper._context
-                    and not is_ntk and not is_yeduji):
+                    and not is_ntk and not is_yeduji
+                    and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
                 # originate from the kakao.com domain.  The BFF API
@@ -922,6 +924,7 @@ class ExternalNovelDialog(tk.Toplevel):
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
                 if (not self._scraper.is_ntk_novel(url)
+                        and not self._scraper.is_qidian(url)
                         and not self._scraper.is_yeduji(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -1116,7 +1119,9 @@ class ExternalNovelDialog(tk.Toplevel):
 
             # Fetch metadata
             try:
-                if not self._scraper.is_ntk_novel(url) and not self._scraper._context:
+                if (not self._scraper.is_ntk_novel(url)
+                        and not self._scraper.is_qidian(url)
+                        and not self._scraper._context):
                     self._scraper.start()
                     self._apply_scraper_options()
                 data = self._scraper.parse_book(url)
