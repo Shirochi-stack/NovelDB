@@ -3975,6 +3975,33 @@ class ExternalScraper:
 
         return ([self._page] + self._worker_pages)[:count]
 
+    def prewarm_qidian_pages(self, count):
+        """Create and lightly warm hidden Qidian pages before timed batches."""
+        if count <= 1 or not self._book_url:
+            return 0
+        if not (self._book_data and self._book_data.get('_qidian')):
+            return 0
+
+        pages = self._qidian_parallel_pages(count, self._book_url)
+        warmed = 0
+        for page in pages:
+            if self._stop_requested:
+                break
+            try:
+                current_url = (page.url or '').lower()
+                if (current_url == 'about:blank'
+                        or 'qidian.com' not in current_url):
+                    page.goto(
+                        self._book_url,
+                        wait_until="commit",
+                        timeout=10000,
+                    )
+                page.evaluate("1")
+                warmed += 1
+            except Exception as e:
+                self.log(f"  [Qidian] Prewarm warning: {e}")
+        return warmed
+
     def _qidian_parse_book(self, url):
         """Scrape Qidian metadata and catalog from the rendered book page."""
         self._stop_requested = False
