@@ -4240,6 +4240,10 @@ class ExternalScraper:
             self.log(f"  [Qidian] Chapter extraction failed: {e}")
             return None
 
+        return self._qidian_finalize_chapter_data(data, chapter_name)
+
+    def _qidian_finalize_chapter_data(self, data, chapter_name):
+        """Normalize a Qidian chapter parse result and emit user logs."""
         if not data:
             self.log(f"  [Qidian] Empty result for: {chapter_name}")
             return None
@@ -4365,31 +4369,179 @@ class ExternalScraper:
             self.log(f"  [Qidian] Chapter extraction failed: {e}")
             return None
 
-        if not data:
-            self.log(f"  [Qidian] Empty result for: {chapter_name}")
-            return None
-        if data.get('error') == 'locked':
-            self.log(f"  [Qidian] LOCKED or login required: {chapter_name}")
-            return {'_locked': True, 'chapterName': chapter_name}
-        if data.get('error') == 'verification':
-            self.log(
-                f"  [Qidian] Verification required for: {chapter_name}. "
-                "Use Enter Browser to complete login or verification, then "
-                "retry."
-            )
-            return {
-                '_locked': True,
-                '_verification_required': True,
-                'chapterName': chapter_name,
-            }
-        if data.get('error'):
-            self.log(
-                f"  [Qidian] {data.get('error')} for: {chapter_name}"
-            )
-            return None
-        return data
+        return self._qidian_finalize_chapter_data(data, chapter_name)
 
-    def _qidian_parse_chapter_batch_parallel(self, batch_info):
+    def _qidian_fast_result_needs_render_fallback(self, data, chapter_info):
+        """Return True when fast HTML decoding should try rendered fallback."""
+        if not data:
+            return True
+        error = data.get('error')
+        if not error:
+            return False
+        if error == 'verification':
+            return False
+        if error == 'locked':
+            return bool(
+                chapter_info.get('isVIP') or chapter_info.get('isPaid')
+            )
+        return True
+
+    def _qidian_parse_chapter_batch_fast_fetch(self, batch_info):
+        """Fetch and decode Qidian chapters concurrently inside the page."""
+        if not batch_info:
+            return []
+        if not self._context or not self._page:
+            first_url = batch_info[0].get('url', '') or self._book_url
+            if not self._start_qidian_browser(first_url):
+                return None
+        if not self._page_is_usable(self._page):
+            return None
+
+        try:
+            current_url = (self._page.url or '').lower()
+            if 'qidian.com' not in current_url:
+                self._page.goto(
+                    self._book_url or batch_info[0].get('url', ''),
+                    wait_until="commit",
+                    timeout=10000,
+                )
+        except Exception:
+            return None
+
+        payload = []
+        for ch in batch_info:
+            payload.append({
+                'url': ch.get('url', ''),
+                'name': ch.get('fullName', '') or ch.get('name', ''),
+            })
+
+        script = r"""
+(chapters) => (async () => {
+  const escapeHtml = (value) => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const text = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
+  const bodyText = (doc) => doc.body?.textContent || '';
+  const parseDoc = (doc, chapterName) => {
+    const content = doc.querySelector(
+      'div.chapter-wrapper div.print main, main'
+    );
+    if (content) {
+      const spans = [...content.querySelectorAll('span.content-text')];
+      if (spans.length) {
+        const style = spans[0].getAttribute('style') || '';
+        const fontMatch = style.match(/font-family:\s*["']?(qd_[^"',;\s]+)/);
+        if (fontMatch) {
+          const fontName = fontMatch[1];
+          const mapping = {};
+          for (const styleEl of doc.querySelectorAll('style')) {
+            const css = styleEl.textContent || '';
+            if (!css.includes(fontName)) continue;
+            const ruleRe = /\.([a-zA-Z0-9_-]+)\s*\{[^}]*content\s*:\s*["']\\([0-9a-fA-F]{1,6})["'][^}]*\}/g;
+            let m;
+            while ((m = ruleRe.exec(css)) !== null) {
+              mapping[m[1]] = parseInt(m[2], 16);
+            }
+          }
+          for (const span of spans) {
+            for (const cls of span.classList) {
+              if (Object.prototype.hasOwnProperty.call(mapping, cls)) {
+                span.textContent = String.fromCodePoint(mapping[cls]);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const pageText = bodyText(doc);
+    const needsVerification = /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(pageText);
+    if (!content) {
+      if (needsVerification) return {error: 'verification'};
+      return {
+        error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(pageText)
+          ? 'locked'
+          : 'missing content'
+      };
+    }
+
+    const clone = content.cloneNode(true);
+    clone.querySelectorAll(
+      'script, style, noscript, button, textarea, input, svg, canvas, ' +
+      'span.review, span.review-count, .ql-block-token, [class*="review"], ' +
+      '[class*="comment"], [class*="vote"], [class*="ad"]'
+    ).forEach((el) => el.remove());
+
+    let paras = [...clone.querySelectorAll('p')]
+      .map((p) => text(p))
+      .filter(Boolean);
+    if (paras.length < 2) {
+      paras = (clone.textContent || '')
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+    }
+    paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
+    const contentText = paras.join('\n');
+    if (!contentText || contentText.length < 20) {
+      if (needsVerification) return {error: 'verification'};
+      return {
+        error: /VIP|\u8ba2\u9605|\u8d2d\u4e70|\u767b\u5f55/.test(pageText)
+          ? 'locked'
+          : 'empty content'
+      };
+    }
+    const contentHtml = paras
+      .map((line) => `<p>${escapeHtml(line)}</p>`)
+      .join('\n');
+    return {
+      chapterName,
+      sourceChapterName: chapterName,
+      contentText,
+      contentHtml,
+      images: [],
+    };
+  };
+
+  const fetchOne = async (chapter) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    try {
+      const response = await fetch(chapter.url, {
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const html = await response.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const parsed = parseDoc(doc, chapter.name);
+      parsed.httpStatus = response.status;
+      parsed.finalUrl = response.url || chapter.url;
+      return parsed;
+    } catch (error) {
+      return {error: 'fetch failed', detail: String(error || '')};
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  return Promise.all(chapters.map(fetchOne));
+})()
+"""
+        try:
+            results = self._qidian_eval(
+                self._page, script, arg=payload, attempts=2, delay=0.25
+            )
+            return results if isinstance(results, list) else None
+        except Exception as e:
+            self.log(f"  [Qidian] Fast parallel decode unavailable: {e}")
+            return None
+
+    def _qidian_parse_chapter_batch_rendered(self, batch_info):
         """Load a Qidian batch across multiple Chrome tabs/pages."""
         if not batch_info:
             return []
@@ -4432,6 +4584,51 @@ class ExternalScraper:
             if self._stop_requested or i in pending:
                 continue
             results[i] = self._qidian_extract_loaded_chapter(page, name)
+
+        return results
+
+    def _qidian_parse_chapter_batch_parallel(self, batch_info):
+        """Decode Qidian chapters with fast fetch, falling back to rendering."""
+        if not batch_info:
+            return []
+
+        fast_results = self._qidian_parse_chapter_batch_fast_fetch(batch_info)
+        if fast_results is None or len(fast_results) != len(batch_info):
+            return self._qidian_parse_chapter_batch_rendered(batch_info)
+
+        results = [None] * len(batch_info)
+        fallback_indices = []
+        for i, (data, ch) in enumerate(zip(fast_results, batch_info)):
+            if self._qidian_fast_result_needs_render_fallback(data, ch):
+                fallback_indices.append(i)
+                continue
+            name = ch.get('fullName', '') or ch.get('name', '')
+            results[i] = self._qidian_finalize_chapter_data(data, name)
+
+        handled = len(batch_info) - len(fallback_indices)
+        if handled:
+            self.log(
+                f"  [Qidian] Fast parallel decode handled "
+                f"{handled}/{len(batch_info)} chapter(s)."
+            )
+
+        if fallback_indices and not self._stop_requested:
+            if handled:
+                self.log(
+                    f"  [Qidian] Rendered fallback for "
+                    f"{len(fallback_indices)} chapter(s)."
+                )
+            else:
+                self.log(
+                    "  [Qidian] Fast parallel decode could not read this "
+                    "batch; using rendered fallback."
+                )
+            fallback_batch = [batch_info[i] for i in fallback_indices]
+            rendered = self._qidian_parse_chapter_batch_rendered(
+                fallback_batch
+            )
+            for idx, data in zip(fallback_indices, rendered):
+                results[idx] = data
 
         return results
 

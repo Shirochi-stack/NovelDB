@@ -532,23 +532,6 @@ class ExternalNovelDialog(tk.Toplevel):
                 if skipped:
                     self._log(f"  Skipped {skipped} paid chapter(s).")
 
-            if (is_qidian and self._scraper and batch_size > 1
-                    and any(r is None for r in results)):
-                prewarm = getattr(self._scraper, 'prewarm_qidian_pages', None)
-                if prewarm:
-                    started = time.time()
-                    warmed = prewarm(batch_size)
-                    elapsed = time.time() - started
-                    if warmed:
-                        self._log(
-                            f"[Qidian] Prewarmed {warmed} page(s) in "
-                            f"{elapsed:.1f}s."
-                        )
-                    if not self._downloading:
-                        self._download_cancelled = True
-                        self._log("Download stopped by user.")
-                        return
-
             for batch_start in range(0, total, batch_size):
                 if not self._downloading:
                     self._download_cancelled = True
