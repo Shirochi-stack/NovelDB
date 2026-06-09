@@ -2962,7 +2962,21 @@ class ExternalScraper:
         root = self._qidian_profile_snapshot_root
         self._qidian_profile_snapshot_root = None
         if root:
-            shutil.rmtree(root, ignore_errors=True)
+            try:
+                real_root = os.path.realpath(root)
+                real_temp = os.path.realpath(tempfile.gettempdir())
+                name = os.path.basename(real_root)
+                if (name.startswith("npia_qidian_profile_")
+                        and os.path.commonpath([real_temp, real_root])
+                        == real_temp):
+                    shutil.rmtree(real_root, ignore_errors=True)
+                else:
+                    self.log(
+                        "[Qidian] Refusing to delete unexpected profile "
+                        f"snapshot path: {real_root}"
+                    )
+            except Exception:
+                pass
 
     def _restore_storage_state(self):
         """Restore the explicit storage backup into the current context."""
@@ -3839,7 +3853,10 @@ class ExternalScraper:
                     )
                 )
 
-            self._restore_storage_state()
+            self.log(
+                "[Qidian] Using copied Chrome profile data directly; "
+                "skipping stale storage-state overlay."
+            )
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on("console", self._on_console)
@@ -3921,6 +3938,27 @@ class ExternalScraper:
             return bool(page and not page.is_closed() and page.evaluate(script))
         except Exception:
             return False
+
+    def _qidian_page_diagnostic(self, page):
+        script = r"""
+(() => {
+  const text = (document.body?.innerText || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+  return {
+    url: location.href,
+    title: document.title || '',
+    text,
+    verification: /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(text),
+    login: /\u767b\u5f55|\u8bf7\u5148\u767b\u5f55|login/i.test(text),
+  };
+})()
+"""
+        try:
+            return page.evaluate(script)
+        except Exception:
+            return {}
 
     @staticmethod
     def _page_is_usable(page):
@@ -4015,7 +4053,27 @@ class ExternalScraper:
             self.log(f"[Qidian] Page load warning: {e}")
 
         if not self._qidian_wait_for_book(self._page):
-            self.log("ERROR: [Qidian] Book page did not render.")
+            diag = self._qidian_page_diagnostic(self._page)
+            if diag.get('verification'):
+                self.log(
+                    "ERROR: [Qidian] Qidian showed a verification page. "
+                    "Use Enter Browser to complete it, close Chrome, then "
+                    "retry Download."
+                )
+            elif diag.get('login'):
+                self.log(
+                    "ERROR: [Qidian] Qidian showed a login page. Use Enter "
+                    "Browser to log in, close Chrome, then retry Download."
+                )
+            else:
+                self.log("ERROR: [Qidian] Book page did not render.")
+            if diag:
+                self.log(
+                    "[Qidian] Page diagnostic: "
+                    f"url={diag.get('url', '')}, "
+                    f"title={diag.get('title', '')}, "
+                    f"text={diag.get('text', '')}"
+                )
             return None
 
         script = r"""
