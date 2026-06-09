@@ -756,7 +756,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_download.configure(state="normal")
         self._btn_paste_batch.configure(state="normal")
         self._btn_batch_file.configure(state="normal")
-        self._append_log("Browser session ended. Session data saved.")
+        self._append_log("Browser session ended.")
 
     def _on_sfacg_app_login(self):
         """Prompt for SFACG app credentials or an existing app cookie."""

@@ -2256,6 +2256,43 @@ class ExternalScraper:
                 time.sleep(0.25)
         return False
 
+    def _request_cdp_browser_close(self, port):
+        """Ask Chrome to close gracefully through the DevTools endpoint."""
+        if not port:
+            return False
+        try:
+            import websocket
+        except Exception:
+            return False
+
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/json/version",
+                timeout=2,
+            ) as r:
+                data = json.loads(r.read().decode("utf-8", errors="ignore"))
+            ws_url = data.get("webSocketDebuggerUrl")
+            if not ws_url:
+                return False
+            ws = websocket.create_connection(ws_url, timeout=3)
+            try:
+                ws.send(json.dumps({
+                    "id": 1,
+                    "method": "Browser.close",
+                }))
+                try:
+                    ws.recv()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return False
+
     def _close_ntk_profile_chrome(self, user_data_dir):
         """Close Chrome instances that own the dedicated NewToki profile."""
         if sys.platform != "win32":
@@ -2369,35 +2406,33 @@ class ExternalScraper:
         except Exception:
             return []
 
-    def _wait_for_profile_processes_to_exit(self, user_data_dir, timeout=1.5):
+    def _wait_for_profile_processes_to_exit(self, user_data_dir, timeout=12):
         """Wait briefly for Chrome profile processes to exit after UI close."""
         deadline = time.time() + timeout
         pids = self._chrome_processes_using_profile(user_data_dir)
         while pids and time.time() < deadline:
-            time.sleep(0.15)
+            time.sleep(0.25)
             pids = self._chrome_processes_using_profile(user_data_dir)
         return pids
 
     def _close_chrome_profile_processes_async(self, user_data_dir):
-        """Clean up leftover Chrome profile processes without blocking the UI."""
+        """Deprecated: do not force-kill login profile Chrome processes."""
         def cleanup():
-            try:
-                closed = self._close_chrome_profile_processes(user_data_dir)
-                if closed:
-                    self.log(
-                        f"[Browser] Closed {len(closed)} leftover Chrome "
-                        "process(es)."
-                    )
-            except Exception:
-                pass
+            leftovers = self._chrome_processes_using_profile(user_data_dir)
+            if leftovers:
+                self.log(
+                    "[Browser] Chrome still has the login profile open. "
+                    "Not force-closing it, to avoid losing cookies. Close "
+                    "the remaining Chrome processes before downloading."
+                )
 
         threading.Thread(target=cleanup, daemon=True).start()
 
-    def _wait_for_system_chrome_close(self, proc, user_data_dir):
+    def _wait_for_system_chrome_close(self, proc, user_data_dir, port=None):
         """Wait until the normal Chrome login window has been closed."""
         if sys.platform != "win32":
             proc.wait()
-            return
+            return True
 
         saw_window = False
         profile_pids = set()
@@ -2422,59 +2457,58 @@ class ExternalScraper:
                     user_data_dir
                 )
                 if leftovers:
+                    if port and self._request_cdp_browser_close(port):
+                        leftovers = self._wait_for_profile_processes_to_exit(
+                            user_data_dir, timeout=12
+                        )
+                        if not leftovers:
+                            return True
                     self.log(
                         "[Browser] Chrome window closed, but Chrome kept "
-                        "the login profile open. Cleaning up leftovers in "
-                        "the background."
+                        "the login profile open. Not force-closing it, "
+                        "because that can lose cookies. Wait a few seconds "
+                        "or close the remaining Chrome processes, then try "
+                        "Download again."
                     )
-                    self._close_chrome_profile_processes_async(user_data_dir)
-                return
+                    return False
+                return True
             elif proc.poll() is not None and not profile_pids:
-                return
+                return True
             elif proc.poll() is not None and time.time() >= launch_deadline:
                 leftovers = self._chrome_processes_using_profile(user_data_dir)
                 if leftovers:
+                    if port and self._request_cdp_browser_close(port):
+                        leftovers = self._wait_for_profile_processes_to_exit(
+                            user_data_dir, timeout=12
+                        )
+                        if not leftovers:
+                            return True
                     self.log(
                         "[Browser] Chrome exited, but the login profile is "
-                        "still open. Cleaning up leftovers in the background."
+                        "still open. Not force-closing it, because that can "
+                        "lose cookies. Close the remaining Chrome processes, "
+                        "then try Download again."
                     )
-                    self._close_chrome_profile_processes_async(user_data_dir)
-                return
+                    return False
+                return True
 
             time.sleep(0.25)
 
-        self._close_chrome_profile_processes(user_data_dir)
+        self.log(
+            "[Browser] Stop requested while Chrome was open. Leaving Chrome "
+            "running so the login profile can save cleanly."
+        )
+        return False
 
     def _close_chrome_profile_processes(self, user_data_dir):
-        """Close browser processes using this app's persistent profile."""
+        """Do not force-close the shared login profile; it can lose cookies."""
         pids = self._chrome_processes_using_profile(user_data_dir)
-        if not pids:
-            return []
-        pid_list = ",".join(str(pid) for pid in pids)
-        script = (
-            "$pids = @(" + pid_list + ");\n"
-            "foreach ($procId in $pids) { "
-            "try { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } "
-            "catch {} "
-            "}\n"
-        )
-        try:
-            subprocess.run(
-                ["powershell", "-NoProfile", "-Command", script],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=8,
-                check=False,
-                **_hidden_windows_subprocess_kwargs(),
+        if pids:
+            self.log(
+                "[Browser] Refusing to force-close the shared login profile "
+                f"process(es): {', '.join(str(pid) for pid in pids)}"
             )
-        except Exception:
-            return []
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            if not self._chrome_processes_using_profile(user_data_dir):
-                break
-            time.sleep(0.25)
-        return pids
+        return []
 
     @staticmethod
     def _is_profile_lock_error(error):
@@ -3144,9 +3178,20 @@ class ExternalScraper:
         self.log("Opening browser for login...")
         self.log(f"Browser profile: {user_data_dir}")
         if use_regular:
-            proc, _ = self._open_system_chrome(
+            locked_pids = self._chrome_processes_using_profile(user_data_dir)
+            if locked_pids:
+                pids = ", ".join(str(pid) for pid in locked_pids)
+                self.log(
+                    "[Browser] This login profile is already open in "
+                    f"browser process(es): {pids}"
+                )
+                self.log(
+                    "[Browser] Asking Chrome to open/focus that existing "
+                    "profile session instead of refusing."
+                )
+            proc, port = self._open_system_chrome(
                 start_url,
-                remote_debugging=False,
+                remote_debugging=True,
                 user_data_dir=user_data_dir,
             )
             if proc:
@@ -3170,13 +3215,22 @@ class ExternalScraper:
                             "window was found. Check the taskbar or close "
                             "stale Npia Chrome processes and try again."
                         )
-                    self._wait_for_system_chrome_close(proc, user_data_dir)
+                    self._wait_for_cdp(port, timeout=8)
+                    saved = self._wait_for_system_chrome_close(
+                        proc, user_data_dir, port=port
+                    )
                 except Exception:
-                    pass
+                    saved = False
                 finally:
                     if self._chrome_process is proc:
                         self._chrome_process = None
-                self.log("Browser closed. Session data saved.")
+                if saved:
+                    self.log("Browser closed. Session data saved.")
+                else:
+                    self.log(
+                        "Browser window closed, but the login profile may "
+                        "still be saving. I did not force-close Chrome."
+                    )
                 return
             self.log(
                 "Normal Chrome was not found; falling back to Playwright "
@@ -3191,28 +3245,50 @@ class ExternalScraper:
                 f"process(es): {pids}"
             )
             self.log(
-                "[Browser] Closing the existing Npia browser session before "
-                "opening a fresh login browser."
+                "[Browser] Playwright cannot attach to a locked profile; "
+                "opening/focusing it with normal Chrome instead."
             )
-            closed = self._close_chrome_profile_processes(user_data_dir)
-            if closed:
+            proc, port = self._open_system_chrome(
+                start_url,
+                remote_debugging=True,
+                user_data_dir=user_data_dir,
+            )
+            if proc:
                 self.log(
-                    f"[Browser] Closed {len(closed)} browser process(es) "
-                    "using this profile."
+                    "Using normal installed Chrome for browser session."
                 )
-            locked_pids = self._chrome_processes_using_profile(user_data_dir)
-            if locked_pids:
-                pids = ", ".join(str(pid) for pid in locked_pids)
                 self.log(
-                    "[Browser] Profile is still locked by browser "
-                    f"process(es): {pids}"
+                    "Browser opened. Complete any login or verification, "
+                    "then close this Chrome window."
                 )
-                raise RuntimeError(
-                    "Browser profile is still in use. Close the existing "
-                    "Npia login browser window and try again."
-                )
-            self.log(
-                "[Browser] Profile lock released. Opening login browser..."
+                try:
+                    self._chrome_process = proc
+                    self._center_profile_browser_windows(
+                        user_data_dir,
+                        timeout=6,
+                        focus=True,
+                    )
+                    self._wait_for_cdp(port, timeout=8)
+                    saved = self._wait_for_system_chrome_close(
+                        proc, user_data_dir, port=port
+                    )
+                except Exception:
+                    saved = False
+                finally:
+                    if self._chrome_process is proc:
+                        self._chrome_process = None
+                if saved:
+                    self.log("Browser closed. Session data saved.")
+                else:
+                    self.log(
+                        "Browser window closed, but the login profile may "
+                        "still be saving. I did not force-close Chrome."
+                    )
+                return
+            raise RuntimeError(
+                "Browser profile is still in use, and normal Chrome was not "
+                "available to focus it. Close the existing Npia login "
+                "browser window and try again."
             )
 
         self._playwright = sync_playwright().start()
@@ -3743,6 +3819,21 @@ class ExternalScraper:
     # the site starts requiring a hard minimum delay.
     _QIDIAN_MIN_INTERVAL = 0.0
 
+    @staticmethod
+    def _qidian_desktop_user_agent():
+        return (
+            os.environ.get("NPIA_QIDIAN_USER_AGENT")
+            or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+               "AppleWebKit/537.36 (KHTML, like Gecko) "
+               "Chrome/137.0.0.0 Safari/537.36"
+        )
+
+    @staticmethod
+    def _qidian_stealth_init_script():
+        return """
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+"""
+
     def _qidian_eval(self, page, script, arg=None, attempts=12, delay=0.75):
         """Evaluate JS on a Qidian page, tolerating SPA reload races."""
         last_error = None
@@ -3805,12 +3896,23 @@ class ExternalScraper:
         qidian_args = [
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-blink-features=AutomationControlled',
             '--allow-running-insecure-content',
             '--no-sandbox',
             '--disable-background-mode',
             '--disable-session-crashed-bubble',
             '--hide-crash-restore-bubble',
+            '--lang=zh-CN',
         ]
+        qidian_context_options = {
+            "headless": True,
+            "args": qidian_args,
+            "ignore_https_errors": True,
+            "user_agent": self._qidian_desktop_user_agent(),
+            "viewport": {"width": 1280, "height": 800},
+            "locale": "zh-CN",
+            "timezone_id": "Asia/Shanghai",
+        }
         try:
             self._playwright = sync_playwright().start()
             try:
@@ -3818,9 +3920,7 @@ class ExternalScraper:
                     self._playwright.chromium.launch_persistent_context(
                         qidian_user_data_dir,
                         channel="chrome",
-                        headless=True,
-                        args=qidian_args,
-                        ignore_https_errors=True,
+                        **qidian_context_options,
                     )
                 )
                 self.log("[Qidian] Using installed Chrome in headless mode.")
@@ -3833,12 +3933,16 @@ class ExternalScraper:
                 self._context = (
                     self._playwright.chromium.launch_persistent_context(
                         qidian_user_data_dir,
-                        headless=True,
-                        args=qidian_args,
-                        ignore_https_errors=True,
+                        **qidian_context_options,
                     )
                 )
 
+            try:
+                self._context.add_init_script(
+                    self._qidian_stealth_init_script()
+                )
+            except Exception:
+                pass
             self._restore_storage_state()
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
@@ -3867,23 +3971,63 @@ class ExternalScraper:
             return 'https:' + value
         return urllib.parse.urljoin('https://www.qidian.com/', value)
 
+    def _qidian_page_diagnostic(self, page):
+        script = r"""
+(() => {
+  const html = document.documentElement?.innerHTML || '';
+  const rawText = document.body?.innerText || document.body?.textContent || '';
+  const text = rawText.replace(/\s+/g, ' ').trim().slice(0, 240);
+  const verification =
+    /TencentCaptcha|WafCaptcha|__captcha/i.test(html) ||
+    /captcha|verify|verification|验证码|安全|人机|滑块|请先登录/i.test(text);
+  return {
+    url: location.href,
+    title: document.title || '',
+    readyState: document.readyState || '',
+    text: text || (
+      verification ? 'Tencent/WAF captcha HTML with empty body' : ''
+    ),
+    verification,
+    bookName: !!document.querySelector('#bookName'),
+    catalogCount: document.querySelectorAll(
+      '#bookCatalogSection a.chapter-name, a.chapter-name'
+    ).length,
+  };
+})()
+"""
+        try:
+            return self._qidian_eval(page, script, attempts=1)
+        except Exception:
+            return None
+
     def _qidian_wait_for_book(self, page, timeout=45):
         deadline = time.time() + timeout
         script = """
 (() => {
-  const bodyText = document.body?.innerText || '';
-  return !!(
+  const html = document.documentElement?.innerHTML || '';
+  if (/TencentCaptcha|WafCaptcha|__captcha/i.test(html)) {
+    return 'verification';
+  }
+  const bodyText = document.body?.innerText || document.body?.textContent || '';
+  const catalogCount = document.querySelectorAll(
+    '#bookCatalogSection a.chapter-name, a.chapter-name'
+  ).length;
+  const hasBookTitle = !!(
     document.querySelector('#bookName') ||
-    document.querySelector('#bookCatalogSection a.chapter-name') ||
-    document.querySelector('a.chapter-name') ||
-    bodyText.trim().length > 100
+    document.querySelector('h1')
   );
+  return (catalogCount > 0 && (hasBookTitle || bodyText.trim().length > 100))
+    ? 'ready'
+    : 'waiting';
 })()
 """
         while time.time() < deadline and not self._stop_requested:
             try:
-                if page.evaluate(script):
+                status = page.evaluate(script)
+                if status == 'ready' or status is True:
                     return True
+                if status == 'verification':
+                    return False
             except Exception:
                 pass
             try:
@@ -3907,14 +4051,17 @@ class ExternalScraper:
         script = """
 (() => {
   const main = document.querySelector(
-    'div.chapter-wrapper div.print main, main'
+    'div.chapter-wrapper div.print main, main.content, #reader main, main'
   );
-  const mainText = (main?.innerText || '').trim();
+  const mainText = (main?.innerText || main?.textContent || '').trim();
+  const bodyText = document.body?.innerText || document.body?.textContent || '';
+  const html = document.documentElement?.innerHTML || '';
+  const htmlChallenge = /TencentCaptcha|WafCaptcha|__captcha/i.test(html);
+  const textChallenge = /VIP|\\u8ba2\\u9605|\\u8d2d\\u4e70|captcha|verify|verification|\\u9a8c\\u8bc1|\\u5b89\\u5168|\\u4eba\\u673a|\\u6ed1\\u5757/i.test(bodyText);
   return document.querySelectorAll('span.content-text').length >= 3 ||
     mainText.length > 100 ||
-    /VIP|\\u8ba2\\u9605|\\u8d2d\\u4e70|\\u767b\\u5f55|captcha|verify|verification|\\u9a8c\\u8bc1|\\u5b89\\u5168|\\u4eba\\u673a|\\u6ed1\\u5757/i.test(
-      document.body?.innerText || ''
-    );
+    htmlChallenge ||
+    textChallenge;
 })()
 """
         try:
@@ -3988,7 +4135,30 @@ class ExternalScraper:
             self.log(f"[Qidian] Page load warning: {e}")
 
         if not self._qidian_wait_for_book(self._page):
-            self.log("ERROR: [Qidian] Book page did not render.")
+            diag = self._qidian_page_diagnostic(self._page)
+            if diag and diag.get('verification'):
+                self.log(
+                    "ERROR: [Qidian] Qidian returned a verification/captcha "
+                    "page in headless mode. Use Enter Browser to complete "
+                    "verification, then retry Download."
+                )
+                self.log(
+                    "[Qidian] Page diagnostic: "
+                    f"url={diag.get('url', '')}, "
+                    f"title={diag.get('title', '')}, "
+                    f"state={diag.get('readyState', '')}, "
+                    f"text={diag.get('text', '')}"
+                )
+            elif diag:
+                self.log(
+                    "ERROR: [Qidian] Book page did not render. "
+                    f"url={diag.get('url', '')}, "
+                    f"title={diag.get('title', '')}, "
+                    f"state={diag.get('readyState', '')}, "
+                    f"text={diag.get('text', '')}"
+                )
+            else:
+                self.log("ERROR: [Qidian] Book page did not render.")
             return None
 
         script = r"""
@@ -4101,11 +4271,13 @@ class ExternalScraper:
 
         target = page or self._page
         try:
-            target.goto(
-                chapter_url,
-                wait_until="domcontentloaded",
-                timeout=45000,
-            )
+            goto_kwargs = {
+                "wait_until": "domcontentloaded",
+                "timeout": 45000,
+            }
+            if self._book_url:
+                goto_kwargs["referer"] = self._book_url
+            target.goto(chapter_url, **goto_kwargs)
         except Exception as e:
             self.log(f"  [Qidian] Page load warning: {e}")
 
@@ -4124,7 +4296,7 @@ class ExternalScraper:
   const text = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
   const deobfuscate = () => {
     const content = document.querySelector(
-      'div.chapter-wrapper div.print main, main'
+      'div.chapter-wrapper div.print main, main.content, #reader main, main'
     );
     if (!content) return;
     const spans = [...content.querySelectorAll('span.content-text')];
@@ -4155,10 +4327,13 @@ class ExternalScraper:
   };
   deobfuscate();
   const main = document.querySelector(
-    'div.chapter-wrapper div.print main, main'
+    'div.chapter-wrapper div.print main, main.content, #reader main, main'
   );
-  const bodyText = document.body?.innerText || '';
-  const needsVerification = /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(bodyText);
+  const bodyText = document.body?.innerText || document.body?.textContent || '';
+  const pageHtml = document.documentElement?.innerHTML || '';
+  const needsVerification =
+    /TencentCaptcha|WafCaptcha|__captcha/i.test(pageHtml) ||
+    /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(bodyText);
   if (!main) {
     if (needsVerification) return {error: 'verification'};
     return {
@@ -4178,7 +4353,7 @@ class ExternalScraper:
     .map((p) => text(p))
     .filter(Boolean);
   if (paras.length < 2) {
-    paras = (clone.innerText || '')
+    paras = (clone.innerText || clone.textContent || '')
       .split(/\n+/)
       .map((line) => line.replace(/\s+/g, ' ').trim())
       .filter(Boolean);
@@ -4250,7 +4425,7 @@ class ExternalScraper:
   const text = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
   const deobfuscate = () => {
     const content = document.querySelector(
-      'div.chapter-wrapper div.print main, main'
+      'div.chapter-wrapper div.print main, main.content, #reader main, main'
     );
     if (!content) return;
     const spans = [...content.querySelectorAll('span.content-text')];
@@ -4281,10 +4456,13 @@ class ExternalScraper:
   };
   deobfuscate();
   const main = document.querySelector(
-    'div.chapter-wrapper div.print main, main'
+    'div.chapter-wrapper div.print main, main.content, #reader main, main'
   );
-  const bodyText = document.body?.innerText || '';
-  const needsVerification = /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(bodyText);
+  const bodyText = document.body?.innerText || document.body?.textContent || '';
+  const pageHtml = document.documentElement?.innerHTML || '';
+  const needsVerification =
+    /TencentCaptcha|WafCaptcha|__captcha/i.test(pageHtml) ||
+    /captcha|verify|verification|\u9a8c\u8bc1|\u5b89\u5168|\u4eba\u673a|\u6ed1\u5757/i.test(bodyText);
   if (!main) {
     if (needsVerification) return {error: 'verification'};
     return {
@@ -4304,7 +4482,7 @@ class ExternalScraper:
     .map((p) => text(p))
     .filter(Boolean);
   if (paras.length < 2) {
-    paras = (clone.innerText || '')
+    paras = (clone.innerText || clone.textContent || '')
       .split(/\n+/)
       .map((line) => line.replace(/\s+/g, ' ').trim())
       .filter(Boolean);
@@ -4379,7 +4557,13 @@ class ExternalScraper:
             url = ch.get('url', '')
             name = ch.get('fullName', '') or ch.get('name', '')
             try:
-                page.goto(url, wait_until="commit", timeout=15000)
+                goto_kwargs = {
+                    "wait_until": "commit",
+                    "timeout": 15000,
+                }
+                if self._book_url:
+                    goto_kwargs["referer"] = self._book_url
+                page.goto(url, **goto_kwargs)
             except Exception as e:
                 self.log(f"  [Qidian] Page load warning for {name}: {e}")
             active.append((i, page, name))
