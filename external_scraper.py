@@ -174,6 +174,7 @@ class ExternalScraper:
         self._page = None
         self._chrome_process = None
         self._ntk_temp_chrome = False
+        self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
@@ -2564,6 +2565,46 @@ class ExternalScraper:
             return False
 
     @staticmethod
+    def _force_foreground_window(hwnd):
+        """Best-effort: restore, raise, and focus a Windows top-level window."""
+        if sys.platform != "win32" or not hwnd:
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            hwnd_topmost = -1
+            hwnd_notopmost = -2
+            sw_restore = 9
+            swp_nosize = 0x0001
+            swp_nomove = 0x0002
+            swp_showwindow = 0x0040
+
+            try:
+                user32.AllowSetForegroundWindow(-1)
+            except Exception:
+                pass
+            user32.ShowWindow(hwnd, sw_restore)
+            try:
+                user32.BringWindowToTop(hwnd)
+            except Exception:
+                pass
+            # Flash it to the front without leaving it permanently topmost.
+            user32.SetWindowPos(
+                hwnd, hwnd_topmost, 0, 0, 0, 0,
+                swp_nomove | swp_nosize | swp_showwindow
+            )
+            user32.SetWindowPos(
+                hwnd, hwnd_notopmost, 0, 0, 0, 0,
+                swp_nomove | swp_nosize | swp_showwindow
+            )
+            try:
+                user32.SwitchToThisWindow(hwnd, True)
+            except Exception:
+                pass
+            return bool(user32.SetForegroundWindow(hwnd))
+        except Exception:
+            return False
+
+    @staticmethod
     def _centered_chrome_window_geometry():
         """Return x, y, width, height for a centered Chrome window."""
         width, height = 1440, 960
@@ -2692,7 +2733,7 @@ class ExternalScraper:
                     moved_any = True
                 if found:
                     if focus:
-                        user32.SetForegroundWindow(found[0])
+                        self._force_foreground_window(found[0])
                     return True
             except Exception:
                 return moved_any
@@ -2862,12 +2903,66 @@ class ExternalScraper:
 
     def _backup_storage_state(self):
         """Persist cookies/localStorage as an extra guard against profile loss."""
-        if not self._context:
+        if not self._context or self._qidian_profile_snapshot_root:
             return
         try:
             self._context.storage_state(path=self._get_storage_state_path())
         except Exception:
             pass
+
+    def _create_qidian_profile_snapshot(self, user_data_dir):
+        """Copy the real login profile to a disposable Qidian download profile."""
+        tmp_root = tempfile.mkdtemp(prefix="npia_qidian_profile_")
+        snapshot_dir = os.path.join(tmp_root, "browser_data")
+
+        ignored_names = {
+            "lockfile",
+            "SingletonCookie",
+            "SingletonLock",
+            "SingletonSocket",
+            "BrowserMetrics-spare.pma",
+        }
+        ignored_dirs = {
+            "Cache",
+            "Code Cache",
+            "Crashpad",
+            "GPUCache",
+            "GrShaderCache",
+            "ShaderCache",
+            "DawnCache",
+            "GraphiteDawnCache",
+            "Safe Browsing",
+        }
+
+        def ignore(_dir, names):
+            return {
+                name for name in names
+                if name in ignored_names or name in ignored_dirs
+            }
+
+        try:
+            shutil.copytree(user_data_dir, snapshot_dir, ignore=ignore)
+        except Exception:
+            shutil.rmtree(tmp_root, ignore_errors=True)
+            raise
+
+        for stale_name in ignored_names:
+            stale_path = os.path.join(snapshot_dir, stale_name)
+            try:
+                if os.path.isdir(stale_path):
+                    shutil.rmtree(stale_path, ignore_errors=True)
+                elif os.path.exists(stale_path):
+                    os.remove(stale_path)
+            except Exception:
+                pass
+
+        return tmp_root, snapshot_dir
+
+    def _cleanup_qidian_profile_snapshot(self):
+        root = self._qidian_profile_snapshot_root
+        self._qidian_profile_snapshot_root = None
+        if root:
+            shutil.rmtree(root, ignore_errors=True)
 
     def _restore_storage_state(self):
         """Restore the explicit storage backup into the current context."""
@@ -3064,11 +3159,17 @@ class ExternalScraper:
                 )
                 try:
                     self._chrome_process = proc
-                    self._center_profile_browser_windows(
+                    shown = self._center_profile_browser_windows(
                         user_data_dir,
                         timeout=6,
                         focus=True,
                     )
+                    if not shown:
+                        self.log(
+                            "[Browser] Chrome launched, but no visible "
+                            "window was found. Check the taskbar or close "
+                            "stale Npia Chrome processes and try again."
+                        )
                     self._wait_for_system_chrome_close(proc, user_data_dir)
                 except Exception:
                     pass
@@ -3521,6 +3622,7 @@ class ExternalScraper:
             except Exception:
                 pass
             self._ntk_temp_chrome = False
+        self._cleanup_qidian_profile_snapshot()
 
     # ------------------------------------------------------------------
     # Multi-page support for parallel chapter downloads
@@ -3679,10 +3781,26 @@ class ExternalScraper:
         locked_pids = self._chrome_processes_using_profile(user_data_dir)
         if locked_pids:
             self.log(
-                "[Qidian] Browser profile is already open; closing stale "
-                "app-profile Chrome process(es)."
+                "ERROR: [Qidian] Browser profile is currently open. Close "
+                "the regular login browser window before starting Download."
             )
-            self._close_chrome_profile_processes(user_data_dir)
+            return False
+
+        try:
+            snapshot_root, qidian_user_data_dir = (
+                self._create_qidian_profile_snapshot(user_data_dir)
+            )
+            self._qidian_profile_snapshot_root = snapshot_root
+            self.log(
+                "[Qidian] Using disposable copy of browser profile for "
+                "download."
+            )
+        except Exception as e:
+            self.log(
+                "ERROR: [Qidian] Could not copy browser profile for "
+                f"background download: {e}"
+            )
+            return False
 
         qidian_args = [
             '--disable-web-security',
@@ -3698,7 +3816,7 @@ class ExternalScraper:
             try:
                 self._context = (
                     self._playwright.chromium.launch_persistent_context(
-                        user_data_dir,
+                        qidian_user_data_dir,
                         channel="chrome",
                         headless=True,
                         args=qidian_args,
@@ -3714,7 +3832,7 @@ class ExternalScraper:
                 self.log(f"[Qidian] Chrome launch warning: {chrome_error}")
                 self._context = (
                     self._playwright.chromium.launch_persistent_context(
-                        user_data_dir,
+                        qidian_user_data_dir,
                         headless=True,
                         args=qidian_args,
                         ignore_https_errors=True,
