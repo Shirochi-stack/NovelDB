@@ -2175,6 +2175,9 @@ class NovelpiaGUI(tk.Tk):
         """Wrapper that ensures UI state is restored after download."""
         try:
             self._download_worker()
+        except Exception as e:
+            self.log_message(f"Download failed: {e}")
+            self.lbl_status.config(text="Idle")
         finally:
             self.after(0, lambda: self._set_downloading(False))
 
@@ -2659,6 +2662,11 @@ class NovelpiaGUI(tk.Tk):
                 return
             self._output_path = path
 
+        try:
+            max_retries = max(1, int(self.var_max_retries.get() or 5))
+        except Exception:
+            max_retries = 5
+
         # Notices
         notice_items = []
         if self.var_include_notices.get():
@@ -2670,7 +2678,7 @@ class NovelpiaGUI(tk.Tk):
                 notice_items = []
 
         # Chapter list
-        chapters = self.downloader.fetch_chapter_list(novel_id)
+        chapters = self.downloader.fetch_chapter_list(novel_id, max_retries=max_retries)
         if not chapters:
             self.lbl_status.config(text="Idle")
             return
@@ -2788,7 +2796,18 @@ table, th, td {
         # cover
         if meta.get('cover_url'):
             try:
-                r = self.auth.session.get(meta['cover_url'], timeout=15)
+                self.lbl_status.config(text="Fetching cover...")
+                self.log_message(f"Fetching cover image: {meta['cover_url']}")
+                r = self.downloader._request_with_retries(
+                    "get",
+                    meta['cover_url'],
+                    label="Cover image",
+                    max_retries=max_retries,
+                    timeout=30,
+                    require_body=True,
+                )
+                if r is None:
+                    raise RuntimeError("cover fetch stopped")
                 if r.status_code == 200 and r.content:
                     data = r.content
                     cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
@@ -2810,8 +2829,10 @@ table, th, td {
                         f"  Cover image: cover.{cover_ext} ({_format_size(len(data))})"
                     )
                     cover_image = {"filename": f"cover.{cover_ext}", "data": data}
-            except Exception:
-                pass
+                else:
+                    self.log_message(f"\u26a0 Cover fetch returned HTTP {r.status_code}")
+            except Exception as e:
+                self.log_message(f"\u26a0 Cover fetch failed: {e}")
 
         info_html = None
         # Add info.xhtml with metadata below the cover (matches original repo layout)

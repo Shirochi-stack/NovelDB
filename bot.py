@@ -792,7 +792,7 @@ def run_download(user_id: int,
         except Exception:
             pass
 
-    chapters = downloader.fetch_chapter_list(novel_id)
+    chapters = downloader.fetch_chapter_list(novel_id, max_retries=max_retries)
     if not chapters:
         raise RuntimeError("No chapters found.")
 
@@ -838,7 +838,17 @@ def run_download(user_id: int,
     # Cover
     if meta.get('cover_url'):
         try:
-            r = auth.session.get(meta['cover_url'], timeout=15)
+            logger(f"Fetching cover image: {meta['cover_url']}")
+            r = downloader._request_with_retries(
+                "get",
+                meta['cover_url'],
+                label="Cover image",
+                max_retries=max_retries,
+                timeout=30,
+                require_body=True,
+            )
+            if r is None:
+                raise RuntimeError("cover fetch stopped")
             if r.status_code == 200 and r.content:
                 data = r.content
                 mime = (r.headers.get("Content-Type") or "").lower()
@@ -891,8 +901,10 @@ def run_download(user_id: int,
                 cover_image = {"filename": f"cover.{cover_ext}", "data": data}
                 if save_as_epub:
                     epub.add_image(f'cover.{cover_ext}', data)
-        except Exception:
-            pass
+            else:
+                logger(f"\u26a0 Cover fetch returned HTTP {r.status_code}")
+        except Exception as e:
+            logger(f"\u26a0 Cover fetch failed: {e}")
 
     info_html = None
     # Info page

@@ -291,11 +291,13 @@ class DownloaderCore:
             self.log(f"Metadata fetch error: {e}")
             return None
 
-    def fetch_chapter_list(self, novel_id):
+    def fetch_chapter_list(self, novel_id, max_retries=None):
         """
         Iterates through pages of the episode list until exhaustion.
         Replicates the while(true) loop in MainWin.Download.cs.
         """
+        if max_retries is None:
+            max_retries = self.DEFAULT_MAX_RETRIES
         chapters = []
         page = 0
         discovered_ids = set()
@@ -308,7 +310,20 @@ class DownloaderCore:
             
             try:
                 headers = {"Referer": f"https://novelpia.com/novel/{novel_id}"}
-                response = self.auth.session.post(url, data=data, headers=headers)
+                response = self._request_with_retries(
+                    "post",
+                    url,
+                    label=f"Episode list {novel_id} page {page}",
+                    max_retries=max_retries,
+                    data=data,
+                    headers=headers,
+                    timeout=30,
+                    require_body=False,
+                )
+                if response is None:
+                    break
+                if response.status_code != 200:
+                    raise RuntimeError(f"HTTP {response.status_code}")
                 if "Authentication required" in response.text:
                     self.log("Error: Authentication required during scan.")
                     break
@@ -336,11 +351,14 @@ class DownloaderCore:
                     
                 page += 1
                 time.sleep(0.2)
-                
+
             except Exception as e:
                 self.log(f"Error scanning page {page}: {str(e)}")
-                break
-                
+                raise RuntimeError(
+                    f"Failed to scan chapter list page {page}; aborting to avoid "
+                    "building an incomplete download."
+                ) from e
+
         self.log(f"Found {len(chapters)} chapters in total.")
         return chapters
 
