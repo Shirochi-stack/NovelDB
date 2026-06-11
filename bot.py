@@ -380,6 +380,54 @@ def _format_size(nbytes):
     return f"{nbytes / (1024 * 1024):.2f} MB"
 
 
+def _download_image_with_progress(session, url, logger, label="Image", max_retries=3):
+    """Stream-download an image, logging progress/speed. Returns bytes or None."""
+    for attempt in range(max_retries):
+        try:
+            r = session.get(url, timeout=30, stream=True)
+            if r.status_code != 200:
+                logger(f"  \u2717 {label}: HTTP {r.status_code}")
+                if r.status_code >= 500 and attempt < max_retries - 1:
+                    wait = (attempt + 1) * 2
+                    logger(f"  \u21bb Retrying {label} in {wait}s (attempt {attempt + 2}/{max_retries})...")
+                    time.sleep(wait)
+                    continue
+                return None
+            total = int(r.headers.get("content-length", 0))
+            chunks, downloaded, t0, last_pct = [], 0, time.time(), 0
+            last_log_bytes, last_log_time = 0, t0
+            for chunk in r.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                now = time.time()
+                if total > 0:
+                    pct = int(downloaded / total * 100)
+                    if pct >= last_pct + 10:
+                        speed = _format_size(int(downloaded / max(time.time() - t0, 0.001))) + "/s"
+                        logger(f"  \u2193 {label}: {pct}% ({_format_size(downloaded)}/{_format_size(total)}) [{speed}]")
+                        last_pct = pct
+                elif downloaded - last_log_bytes >= 512 * 1024 or now - last_log_time >= 5:
+                    speed = _format_size(int(downloaded / max(now - t0, 0.001))) + "/s"
+                    logger(f"  \u2193 {label}: {_format_size(downloaded)} [{speed}]")
+                    last_log_bytes, last_log_time = downloaded, now
+            data = b"".join(chunks)
+            speed = _format_size(int(len(data) / max(time.time() - t0, 0.001))) + "/s"
+            logger(f"  \u2713 {label}: {_format_size(len(data))} [{speed}]")
+            return data
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = (attempt + 1) * 2
+                logger(f"  \u2717 {label}: {e}")
+                logger(f"  \u21bb Retrying {label} in {wait}s (attempt {attempt + 2}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                logger(f"  \u2717 {label}: {e} (failed after {max_retries} attempts)")
+                return None
+    return None
+
+
 def _count_images_in_json(content_json):
     """Lightweight count of <img> tags in chapter JSON without downloading."""
     try:
@@ -839,24 +887,20 @@ def run_download(user_id: int,
     if meta.get('cover_url'):
         try:
             logger(f"Fetching cover image: {meta['cover_url']}")
-            r = downloader._request_with_retries(
-                "get",
+            data = _download_image_with_progress(
+                auth.session,
                 meta['cover_url'],
+                logger,
                 label="Cover image",
                 max_retries=max_retries,
-                timeout=30,
-                require_body=True,
             )
-            if r is None:
-                raise RuntimeError("cover fetch stopped")
-            if r.status_code == 200 and r.content:
-                data = r.content
-                mime = (r.headers.get("Content-Type") or "").lower()
+            if data:
+                mime = ""
                 cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
 
                 # If not compressing, still ensure extension matches the data and convert WEBP to JPEG when possible
                 if not compress_cover:
-                    if "webp" in mime:
+                    if cover_ext == "webp" or "webp" in mime:
                         if Image is not None:
                             try:
                                 im = Image.open(io.BytesIO(data))
@@ -870,11 +914,11 @@ def run_download(user_id: int,
                                 cover_ext = "webp"
                         else:
                             cover_ext = "webp"
-                    elif "png" in mime:
+                    elif cover_ext == "png" or "png" in mime:
                         cover_ext = "png"
-                    elif "avif" in mime:
+                    elif cover_ext == "avif" or "avif" in mime:
                         cover_ext = "avif"
-                    elif "jpeg" in mime or "jpg" in mime:
+                    elif cover_ext == "jpg" or "jpeg" in mime or "jpg" in mime:
                         cover_ext = "jpg"
                     elif not mime or "octet-stream" in mime:
                         cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
@@ -902,7 +946,7 @@ def run_download(user_id: int,
                 if save_as_epub:
                     epub.add_image(f'cover.{cover_ext}', data)
             else:
-                logger(f"\u26a0 Cover fetch returned HTTP {r.status_code}")
+                logger("\u26a0 Cover fetch failed; continuing without EPUB cover.")
         except Exception as e:
             logger(f"\u26a0 Cover fetch failed: {e}")
 

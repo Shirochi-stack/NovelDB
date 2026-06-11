@@ -331,16 +331,22 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
                 return None
             total = int(r.headers.get('content-length', 0))
             chunks, downloaded, t0, last_pct = [], 0, time.time(), 0
+            last_log_bytes, last_log_time = 0, t0
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     chunks.append(chunk)
                     downloaded += len(chunk)
+                    now = time.time()
                     if total > 0:
                         pct = int(downloaded / total * 100)
                         if pct >= last_pct + 10:
                             speed = _format_size(int(downloaded / max(time.time() - t0, 0.001))) + "/s"
                             logger(f"  ↓ {label}: {pct}% ({_format_size(downloaded)}/{_format_size(total)}) [{speed}]")
                             last_pct = pct
+                    elif downloaded - last_log_bytes >= 512 * 1024 or now - last_log_time >= 5:
+                        speed = _format_size(int(downloaded / max(now - t0, 0.001))) + "/s"
+                        logger(f"  ↓ {label}: {_format_size(downloaded)} [{speed}]")
+                        last_log_bytes, last_log_time = downloaded, now
             data = b''.join(chunks)
             speed = _format_size(int(len(data) / max(time.time() - t0, 0.001))) + "/s"
             logger(f"  ✓ {label}: {_format_size(len(data))} [{speed}]")
@@ -2798,18 +2804,14 @@ table, th, td {
             try:
                 self.lbl_status.config(text="Fetching cover...")
                 self.log_message(f"Fetching cover image: {meta['cover_url']}")
-                r = self.downloader._request_with_retries(
-                    "get",
+                data = _download_image_with_progress(
+                    self.auth.session,
                     meta['cover_url'],
+                    self.log_message,
                     label="Cover image",
                     max_retries=max_retries,
-                    timeout=30,
-                    require_body=True,
                 )
-                if r is None:
-                    raise RuntimeError("cover fetch stopped")
-                if r.status_code == 200 and r.content:
-                    data = r.content
+                if data:
                     cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
                     # Use separate cover compression settings
                     if self.var_compress_cover.get() and Image is not None:
@@ -2830,7 +2832,7 @@ table, th, td {
                     )
                     cover_image = {"filename": f"cover.{cover_ext}", "data": data}
                 else:
-                    self.log_message(f"\u26a0 Cover fetch returned HTTP {r.status_code}")
+                    self.log_message("\u26a0 Cover fetch failed; continuing without EPUB cover.")
             except Exception as e:
                 self.log_message(f"\u26a0 Cover fetch failed: {e}")
 
