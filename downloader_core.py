@@ -24,6 +24,96 @@ class DownloaderCore:
         self.log = logger_func
         self.stop_signal = False
 
+    @staticmethod
+    def _normalize_novelpia_image_url(value):
+        if not value:
+            return None
+        value = html.unescape(str(value)).strip().strip("\"'")
+        value = value.replace("\\/", "/")
+        value = re.sub(r"[\s,;)]+$", "", value)
+        if value.startswith("//"):
+            value = "https:" + value
+        elif value.startswith("/imagebox/"):
+            value = "https://images.novelpia.com" + value
+        elif value.startswith("imagebox/"):
+            value = "https://images.novelpia.com/" + value
+        value = re.sub(
+            r"^https?://(?:image\.novelpia\.com|novelpia\.com)/imagebox/",
+            "https://images.novelpia.com/imagebox/",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if not re.match(r"^https://images?\.novelpia\.com/imagebox/", value, re.IGNORECASE):
+            return None
+        return value
+
+    def _extract_cover_url(self, text):
+        """Prefer the real cover URL over R19 venobox preview URLs."""
+        candidates = []
+        seen = {}
+
+        def add(raw_url, source_bonus=0):
+            url = self._normalize_novelpia_image_url(raw_url)
+            if not url:
+                return
+            lower = url.lower()
+            if "readycover" in lower:
+                return
+            score = source_bonus
+            if "/imagebox/original/" in lower:
+                score += 1000
+            elif "/imagebox/cover/" in lower:
+                score += 500
+            else:
+                score += 250
+            score += -80 if "_q_" in lower or "_q_ori" in lower else 40
+            if lower.endswith(".wimg"):
+                score -= 120
+            if "_ori.file" in lower:
+                score += 30
+            if url in seen:
+                idx = seen[url]
+                if score > candidates[idx][0]:
+                    candidates[idx] = (score, idx, url)
+                return
+            seen[url] = len(candidates)
+            candidates.append((score, len(candidates), url))
+
+        for tag in re.findall(r"<meta\b[^>]*>", text, flags=re.IGNORECASE | re.DOTALL):
+            if not re.search(r"\b(?:property|name)=['\"](?:og:image|twitter:image|image)['\"]", tag, re.IGNORECASE):
+                continue
+            match = re.search(r"\bcontent=(['\"])(.*?)\1", tag, flags=re.IGNORECASE | re.DOTALL)
+            if match:
+                add(match.group(2), 220)
+
+        for tag in re.findall(r"<img\b[^>]*>", text, flags=re.IGNORECASE | re.DOTALL):
+            if not re.search(r"\bclass=(['\"])[^'\"]*\bcover_img\b", tag, re.IGNORECASE):
+                continue
+            match = re.search(r"\bsrc=(['\"])(.*?)\1", tag, flags=re.IGNORECASE | re.DOTALL)
+            if match:
+                add(match.group(2), 200)
+
+        for match in re.finditer(r"\bepnew-cover-box\b", text, flags=re.IGNORECASE):
+            chunk = text[match.start():match.start() + 1600]
+            for attr_match in re.finditer(r"\b(?:href|src)=(['\"])(.*?)\1", chunk, flags=re.IGNORECASE | re.DOTALL):
+                add(attr_match.group(2), 120)
+
+        for match in re.finditer(r"\bimageUrl\s*=\s*(['\"])(.*?)\1", text, flags=re.IGNORECASE | re.DOTALL):
+            add(match.group(2), 160)
+
+        scan_text = text.replace("\\/", "/")
+        imagebox_pattern = (
+            r"(?:https?:)?//(?:images?\.novelpia\.com|novelpia\.com)/imagebox/"
+            r"(?:original|cover|[0-9a-f]{1,3})/[^\s\"'<>\\)]+"
+            r"|/imagebox/(?:original|cover|[0-9a-f]{1,3})/[^\s\"'<>\\)]+"
+        )
+        for match in re.finditer(imagebox_pattern, scan_text, flags=re.IGNORECASE):
+            add(match.group(0), 0)
+
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: (item[0], -item[1]))[2]
+
     def _request_with_retries(
         self,
         method,
@@ -121,13 +211,8 @@ class DownloaderCore:
             author_match = re.search(r'<a class="writer-name"[^>]*>\s*(.+?)\s*</a>', text)
             author = author_match.group(1).strip() if author_match else "Unknown Author"
             
-            # Cover Image Extraction - get full size image, not thumbnail
-            # Try finding the original full-size cover first
-            cover_match = re.search(r'"(//images\.novelpia\.com/imagebox/original/[^"]+)"', text)
-            if not cover_match:
-                # Fallback to cover path (may be resized)
-                cover_match = re.search(r'"(//images\.novelpia\.com/imagebox/cover/[^"]+)"', text)
-            cover_url = "https:" + cover_match.group(1) if cover_match else None
+            # Cover Image Extraction - prefer original/non-preview cover URLs.
+            cover_url = self._extract_cover_url(text)
             
             # Tags Extraction (matches C# pattern: <span class="tag".*?>(#.+?)</span>)
             tag_matches = re.findall(r'<span class="tag".*?>(#.+?)</span>', text)
@@ -188,7 +273,7 @@ class DownloaderCore:
 
             self.log(f"Metadata acquired: {title} by {author}")
             if cover_url:
-                self.log(f"  Cover: found")
+                self.log(f"  Cover: {cover_url}")
             if tags:
                 self.log(f"  Tags: {', '.join(tags[:5])}{'...' if len(tags) > 5 else ''}")
             if status:

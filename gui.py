@@ -2791,7 +2791,7 @@ table, th, td {
                 r = self.auth.session.get(meta['cover_url'], timeout=15)
                 if r.status_code == 200 and r.content:
                     data = r.content
-                    cover_ext = "jpg"
+                    cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
                     # Use separate cover compression settings
                     if self.var_compress_cover.get() and Image is not None:
                         try:
@@ -2806,6 +2806,9 @@ table, th, td {
                             )
                         except Exception as cov_err:
                             self.log_message(f"\u26a0 Cover conversion failed: {cov_err}")
+                    self.log_message(
+                        f"  Cover image: cover.{cover_ext} ({_format_size(len(data))})"
+                    )
                     cover_image = {"filename": f"cover.{cover_ext}", "data": data}
             except Exception:
                 pass

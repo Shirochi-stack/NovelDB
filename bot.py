@@ -842,7 +842,7 @@ def run_download(user_id: int,
             if r.status_code == 200 and r.content:
                 data = r.content
                 mime = (r.headers.get("Content-Type") or "").lower()
-                cover_ext = "jpg"
+                cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
 
                 # If not compressing, still ensure extension matches the data and convert WEBP to JPEG when possible
                 if not compress_cover:
@@ -866,6 +866,8 @@ def run_download(user_id: int,
                         cover_ext = "avif"
                     elif "jpeg" in mime or "jpg" in mime:
                         cover_ext = "jpg"
+                    elif not mime or "octet-stream" in mime:
+                        cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
                 else:
                     if Image is not None:
                         try:
