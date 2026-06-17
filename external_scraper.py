@@ -175,6 +175,7 @@ class ExternalScraper:
         self._chrome_process = None
         self._ntk_temp_chrome = False
         self._munpia_chrome = False
+        self._munpia_cdp_port = None
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
@@ -2366,6 +2367,46 @@ class ExternalScraper:
         return pids
 
     @staticmethod
+    def _chrome_remote_debugging_ports_using_profile(user_data_dir):
+        """Return CDP ports for browser processes using a profile."""
+        if sys.platform != "win32":
+            return []
+        profile = os.path.abspath(user_data_dir).replace("'", "''")
+        script = (
+            "$needle = '" + profile + "'.ToLowerInvariant();\n"
+            "$names = @('chrome.exe', 'msedge.exe', 'chromium.exe');\n"
+            "$ports = @();\n"
+            "Get-CimInstance Win32_Process | Where-Object { "
+            "$_.Name -and $names.Contains($_.Name.ToLowerInvariant()) -and "
+            "$_.CommandLine -and "
+            "$_.CommandLine.ToLowerInvariant().Contains($needle) "
+            "} | ForEach-Object { "
+            "if ($_.CommandLine -match '--remote-debugging-port=(\\d+)') { "
+            "$ports += $Matches[1] "
+            "} "
+            "};\n"
+            "$ports | Select-Object -Unique\n"
+        )
+        try:
+            output = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", script],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                errors="ignore",
+                **_hidden_windows_subprocess_kwargs(),
+            )
+        except Exception:
+            return []
+        ports = []
+        for line in output.splitlines():
+            try:
+                ports.append(int(line.strip()))
+            except Exception:
+                pass
+        return ports
+
+    @staticmethod
     def _visible_browser_window_pids(pids):
         """Return PIDs from `pids` that own a visible Chrome/Edge window."""
         if sys.platform != "win32" or not pids:
@@ -2777,18 +2818,26 @@ class ExternalScraper:
 
     def _hide_ntk_chrome_windows(self):
         """Best-effort: hide windows created by the temporary NTK Chrome."""
+        return self._hide_chrome_windows_for_profile(
+            self._get_ntk_user_data_dir()
+        )
+
+    def _hide_chrome_windows_for_profile(self, user_data_dir):
+        """Best-effort: hide Chrome windows for a specific app profile."""
         if sys.platform != "win32":
             return False
         try:
             user32 = ctypes.windll.user32
-            profile = os.path.normcase(self._get_ntk_user_data_dir())
+            profile = os.path.normcase(user_data_dir)
             chrome_pids = set()
 
             try:
                 script = (
                     "$needle = '" + profile.replace("'", "''") + "'.ToLowerInvariant();"
-                    "Get-CimInstance Win32_Process -Filter \"name = 'chrome.exe'\" | "
-                    "Where-Object { $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($needle) } | "
+                    "$names = @('chrome.exe', 'msedge.exe', 'chromium.exe');"
+                    "Get-CimInstance Win32_Process | "
+                    "Where-Object { $_.Name -and $names.Contains($_.Name.ToLowerInvariant()) -and "
+                    "$_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($needle) } | "
                     "Select-Object -ExpandProperty ProcessId"
                 )
                 output = subprocess.check_output(
@@ -2904,22 +2953,25 @@ class ExternalScraper:
             "--disable-features=Translate",
             "--disable-session-crashed-bubble",
             "--hide-crash-restore-bubble",
-            "--new-window",
-            *self._centered_chrome_window_args(),
-            start_url or "about:blank",
         ]
+        if hidden:
+            args.extend([
+                "--start-minimized",
+                "--window-position=-32000,-32000",
+                "--window-size=1280,900",
+                "--disable-backgrounding-occluded-windows",
+            ])
+        else:
+            args.extend([
+                "--new-window",
+                *self._centered_chrome_window_args(),
+            ])
+        args.append(start_url or "about:blank")
         port = None
         if remote_debugging:
             port = self._get_free_port()
             args.insert(2, f"--remote-debugging-port={port}")
             args.insert(3, "--remote-allow-origins=*")
-        if hidden:
-            insert_at = 4 if remote_debugging else 1
-            hidden_args = [
-                "--start-minimized",
-            ]
-            for offset, arg in enumerate(hidden_args):
-                args.insert(insert_at + offset, arg)
 
         popen_kwargs = {}
         if hidden:
@@ -3647,6 +3699,14 @@ class ExternalScraper:
     def cleanup(self):
         """Release browser resources."""
         self._backup_storage_state()
+        if self._munpia_chrome and self._munpia_cdp_port:
+            try:
+                self._request_cdp_browser_close(self._munpia_cdp_port)
+                self._wait_for_profile_processes_to_exit(
+                    self._get_user_data_dir(), timeout=8
+                )
+            except Exception:
+                pass
         for wp in self._worker_pages:
             try:
                 wp.close()
@@ -3688,6 +3748,7 @@ class ExternalScraper:
         except Exception:
             self._chrome_process = None
         self._munpia_chrome = False
+        self._munpia_cdp_port = None
         if self._ntk_temp_chrome:
             try:
                 closed = self._close_ntk_profile_chrome(
@@ -5971,6 +6032,30 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         self.log(f"  [NewToki] API chapter fetch failed: {chapter_name}")
         return None
 
+    def _munpia_connect_cdp(self, port):
+        """Attach Playwright to an existing Munpia Chrome CDP port."""
+        try:
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{port}"
+            )
+            self._context = (
+                self._browser.contexts[0]
+                if self._browser.contexts
+                else self._browser.new_context()
+            )
+            pages = self._context.pages
+            self._page = pages[0] if pages else self._context.new_page()
+            self._page.on("console", self._on_console)
+            self._munpia_chrome = True
+            self._munpia_cdp_port = port
+            self.log("[Munpia] Chrome session ready.")
+            return True
+        except Exception as e:
+            self.log(f"ERROR: [Munpia] Could not attach to Chrome: {e}")
+            self.cleanup()
+            return False
+
     def _start_munpia_browser(self, start_url):
         """Launch installed Chrome with the saved profile for Munpia."""
         if self._context and self._page:
@@ -5985,11 +6070,26 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             self.cleanup()
 
         user_data_dir = self._get_user_data_dir()
-        self.log("[Munpia] Launching Chrome with saved profile...")
+        self.log("[Munpia] Launching background Chrome with saved profile...")
         self.log(f"Browser profile: {user_data_dir}")
 
         locked_pids = self._chrome_processes_using_profile(user_data_dir)
         if locked_pids:
+            visible = self._visible_browser_window_pids(locked_pids)
+            ports = (
+                []
+                if visible
+                else self._chrome_remote_debugging_ports_using_profile(
+                    user_data_dir
+                )
+            )
+            for port in ports:
+                if self._wait_for_cdp(port, timeout=2):
+                    self.log(
+                        "[Munpia] Reusing existing hidden Chrome session."
+                    )
+                    return self._munpia_connect_cdp(port)
+
             pids = ", ".join(str(pid) for pid in locked_pids)
             self.log(
                 "[Munpia] Browser profile is already open in process(es): "
@@ -6015,34 +6115,23 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return False
 
         self._chrome_process = proc
-        if not self._wait_for_cdp(port):
+        ready = False
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            self._hide_chrome_windows_for_profile(user_data_dir)
+            if self._wait_for_cdp(port, timeout=0.75):
+                ready = True
+                break
+        if not ready:
             self.log(
                 "ERROR: [Munpia] Chrome remote debugging endpoint did not "
                 "start."
             )
             self.cleanup()
             return False
+        self._hide_chrome_windows_for_profile(user_data_dir)
 
-        try:
-            self._playwright = sync_playwright().start()
-            self._browser = self._playwright.chromium.connect_over_cdp(
-                f"http://127.0.0.1:{port}"
-            )
-            self._context = (
-                self._browser.contexts[0]
-                if self._browser.contexts
-                else self._browser.new_context()
-            )
-            pages = self._context.pages
-            self._page = pages[0] if pages else self._context.new_page()
-            self._page.on("console", self._on_console)
-            self._munpia_chrome = True
-            self.log("[Munpia] Chrome session ready.")
-            return True
-        except Exception as e:
-            self.log(f"ERROR: [Munpia] Could not attach to Chrome: {e}")
-            self.cleanup()
-            return False
+        return self._munpia_connect_cdp(port)
 
     def _munpia_wait_for_selector(self, page, selector, timeout=45):
         """Wait through Munpia's security interstitial for a target selector."""
@@ -6077,6 +6166,69 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         if last_marker:
             self.log(f"[Munpia] Still waiting on page marker: {last_marker}")
         return False
+
+    def _munpia_page_has_selector(self, page, selector):
+        try:
+            return bool(
+                page
+                and not page.is_closed()
+                and page.evaluate(
+                    "(selector) => !!document.querySelector(selector)",
+                    selector,
+                )
+            )
+        except Exception:
+            return False
+
+    def _munpia_parallel_pages(self, count, start_url):
+        """Return one usable Munpia Chrome page per parallel chapter."""
+        count = max(1, count)
+        if not self._context or not self._page or not self._munpia_chrome:
+            if not self._start_munpia_browser(start_url):
+                return []
+
+        if not self._page_is_usable(self._page):
+            try:
+                self._page = self._context.new_page()
+                self._page.on("console", self._on_console)
+            except Exception as e:
+                self.log(f"  [Munpia] Could not create primary page: {e}")
+                return []
+
+        usable_workers = []
+        for page in self._worker_pages:
+            if self._page_is_usable(page):
+                usable_workers.append(page)
+            else:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+        self._worker_pages = usable_workers
+
+        needed_workers = max(0, count - 1)
+        if len(self._worker_pages) > needed_workers:
+            for page in self._worker_pages[needed_workers:]:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            self._worker_pages = self._worker_pages[:needed_workers]
+
+        while len(self._worker_pages) < needed_workers:
+            try:
+                page = self._context.new_page()
+                page.on("console", self._on_console)
+                self._worker_pages.append(page)
+                self._hide_chrome_windows_for_profile(
+                    self._get_user_data_dir()
+                )
+            except Exception as e:
+                self.log(f"  [Munpia] Worker page failed: {e}")
+                break
+
+        self._hide_chrome_windows_for_profile(self._get_user_data_dir())
+        return ([self._page] + self._worker_pages)[:count]
 
     def _munpia_extract_chapters_from_current_page(self):
         """Extract Munpia episode rows from the current listing page."""
@@ -6162,8 +6314,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             self._page.goto(book_url, wait_until="domcontentloaded",
                             timeout=30000)
         except Exception as e:
-            self.log(f"[Munpia] ERROR: Page load failed: {e}")
-            return None
+            if 'ERR_ABORTED' in str(e):
+                self.log(f"[Munpia] Page load warning: {e}")
+            else:
+                self.log(f"[Munpia] ERROR: Page load failed: {e}")
+                return None
         if not self._munpia_wait_for_selector(self._page, '#ENTRIES'):
             self.log(
                 "[Munpia] ERROR: Novel page did not pass Munpia's security "
@@ -6319,24 +6474,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         self._book_url = book_url
         return data
 
-    def _munpia_parse_chapter(self, chapter_url, chapter_name, page=None):
-        """Fetch one Munpia chapter from its server-rendered reader page."""
-        target = page or self._page
-        if target is None:
-            if not self._start_munpia_browser(chapter_url):
-                return None
-            target = self._page
-
-        try:
-            target.goto(chapter_url, wait_until="domcontentloaded",
-                        timeout=30000)
-            self._munpia_wait_for_selector(
-                target, '#ENTRY-CONTENT', timeout=20
-            )
-        except Exception as e:
-            self.log(f"  [Munpia] Page load failed: {chapter_name}: {e}")
-            return None
-
+    def _munpia_extract_loaded_chapter(self, target, chapter_name):
+        """Extract Munpia chapter content from an already-loaded page."""
         try:
             data = target.evaluate("""
                 () => {
@@ -6361,7 +6500,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     if (!entry || !content) {
                         const bodyText = clean(document.body?.textContent || '');
                         return {
-                            locked: /(로그인|구매|대여|결제|성인인증|권한|이용권)/
+                            locked: /(로그인|구매|대여|결제|성인인증|권한|이용권|보안 점검)/
                                 .test(bodyText),
                             chapterName: heading,
                             message: bodyText.slice(0, 240),
@@ -6447,6 +6586,89 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             ),
             'images': data.get('images') or [],
         }
+
+    def _munpia_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Fetch one Munpia chapter from its server-rendered reader page."""
+        target = page or self._page
+        if target is None:
+            if not self._start_munpia_browser(chapter_url):
+                return None
+            target = self._page
+
+        try:
+            target.goto(chapter_url, wait_until="domcontentloaded",
+                        timeout=30000)
+            self._munpia_wait_for_selector(
+                target, '#ENTRY-CONTENT', timeout=20
+            )
+        except Exception as e:
+            if 'ERR_ABORTED' in str(e):
+                self.log(
+                    f"  [Munpia] Page load warning for {chapter_name}: {e}"
+                )
+                self._munpia_wait_for_selector(
+                    target, '#ENTRY-CONTENT', timeout=20
+                )
+            else:
+                self.log(f"  [Munpia] Page load failed: {chapter_name}: {e}")
+                return None
+
+        return self._munpia_extract_loaded_chapter(target, chapter_name)
+
+    def _munpia_parse_chapter_batch_parallel(self, batch_info):
+        """Load a Munpia batch across multiple Chrome tabs/pages."""
+        if not batch_info:
+            return []
+
+        first_url = batch_info[0].get('url', '') or self._book_url
+        pages = self._munpia_parallel_pages(len(batch_info), first_url)
+        if not pages:
+            return [None] * len(batch_info)
+
+        active = []
+        for i, (page, ch) in enumerate(zip(pages, batch_info)):
+            if self._stop_requested:
+                break
+            url = ch.get('url', '')
+            name = ch.get('fullName', '') or ch.get('name', '')
+            try:
+                goto_kwargs = {
+                    "wait_until": "commit",
+                    "timeout": 15000,
+                }
+                if self._book_url:
+                    goto_kwargs["referer"] = self._book_url
+                page.goto(url, **goto_kwargs)
+            except Exception as e:
+                self.log(f"  [Munpia] Page load warning for {name}: {e}")
+            self._hide_chrome_windows_for_profile(self._get_user_data_dir())
+            active.append((i, page, name))
+
+        results = [None] * len(batch_info)
+        pending = {i for i, _, _ in active}
+        active_by_index = {i: (page, name) for i, page, name in active}
+        deadline = time.time() + 45
+
+        while pending and time.time() < deadline and not self._stop_requested:
+            self._hide_chrome_windows_for_profile(self._get_user_data_dir())
+            for i in list(pending):
+                page, _name = active_by_index[i]
+                if self._munpia_page_has_selector(page, '#ENTRY-CONTENT'):
+                    pending.remove(i)
+            if pending:
+                time.sleep(0.2)
+        self._hide_chrome_windows_for_profile(self._get_user_data_dir())
+
+        for i in sorted(pending):
+            _page, name = active_by_index[i]
+            self.log(f"  [Munpia] Timed out waiting for: {name}")
+
+        for i, page, name in active:
+            if self._stop_requested:
+                continue
+            results[i] = self._munpia_extract_loaded_chapter(page, name)
+
+        return results
 
     def _kakao_parse_book(self, url):
         """Scrape book metadata + episode list from a KakaoPage content page.
@@ -8188,23 +8410,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 if interval > 0 and i < len(batch_info) - 1:
                     time.sleep(interval)
             return results
-        # Munpia pages are server-rendered reader pages. Reuse one page and
-        # navigate sequentially so the persistent login session stays simple.
         if self._book_data and self._book_data.get('_munpia'):
-            results = []
-            for i, ch in enumerate(batch_info):
-                if self._stop_requested:
-                    results.append(None)
-                    continue
-                data = self._munpia_parse_chapter(
-                    ch.get('url', ''),
-                    ch.get('fullName', '') or ch.get('name', ''),
-                    page=self._page,
-                )
-                results.append(data)
-                if interval > 0 and i < len(batch_info) - 1:
-                    time.sleep(interval)
-            return results
+            return self._munpia_parse_chapter_batch_parallel(batch_info)
         # Qidian: render one chapter per browser page, up to the UI thread
         # count that the dialog used to size this batch.
         if self._book_data and self._book_data.get('_qidian'):
