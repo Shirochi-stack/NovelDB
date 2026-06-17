@@ -174,6 +174,7 @@ class ExternalScraper:
         self._page = None
         self._chrome_process = None
         self._ntk_temp_chrome = False
+        self._munpia_chrome = False
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
@@ -3082,6 +3083,7 @@ class ExternalScraper:
         self._page = self._context.new_page()
         # Suppress console noise but capture errors
         self._page.on("console", self._on_console)
+        self._munpia_chrome = False
         self.log("Browser ready.")
 
     def _start_ntk_browser(self, start_url):
@@ -3685,6 +3687,7 @@ class ExternalScraper:
             self._chrome_process = None
         except Exception:
             self._chrome_process = None
+        self._munpia_chrome = False
         if self._ntk_temp_chrome:
             try:
                 closed = self._close_ntk_profile_chrome(
@@ -3716,6 +3719,7 @@ class ExternalScraper:
         if self._book_data and (
             self._book_data.get('_ntk_novel')
             or self._book_data.get('_qidian')
+            or self._book_data.get('_munpia')
         ):
             return
 
@@ -4627,6 +4631,33 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             re.fullmatch(r'(?:www\.)?yeduji\.com', host)
             and re.match(r'^/book/\d+', parsed.path or '')
         )
+
+    @staticmethod
+    def is_munpia(url):
+        """Check if the URL is a Munpia novel or chapter page."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.netloc or '').lower()
+        return bool(
+            host == 'novel.munpia.com'
+            and re.fullmatch(
+                r'/\d+(?:/page/\d+(?:/neSrl/\d+)?)?/?',
+                parsed.path or '/'
+            )
+        )
+
+    @staticmethod
+    def _munpia_novel_id(url):
+        try:
+            match = re.match(
+                r'^/(\d+)',
+                urllib.parse.urlparse(url or '').path or ''
+            )
+            return match.group(1) if match else ''
+        except Exception:
+            return ''
 
     @staticmethod
     def _ntk_content_kind_from_url(url):
@@ -5939,6 +5970,483 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return data
         self.log(f"  [NewToki] API chapter fetch failed: {chapter_name}")
         return None
+
+    def _start_munpia_browser(self, start_url):
+        """Launch installed Chrome with the saved profile for Munpia."""
+        if self._context and self._page:
+            try:
+                self._page.evaluate("1")
+                if self._munpia_chrome:
+                    return True
+                self.cleanup()
+            except Exception:
+                self.cleanup()
+        elif self._context or self._browser or self._chrome_process:
+            self.cleanup()
+
+        user_data_dir = self._get_user_data_dir()
+        self.log("[Munpia] Launching Chrome with saved profile...")
+        self.log(f"Browser profile: {user_data_dir}")
+
+        locked_pids = self._chrome_processes_using_profile(user_data_dir)
+        if locked_pids:
+            pids = ", ".join(str(pid) for pid in locked_pids)
+            self.log(
+                "[Munpia] Browser profile is already open in process(es): "
+                f"{pids}"
+            )
+            self.log(
+                "[Munpia] Close the Npia login browser window, then retry "
+                "the download."
+            )
+            return False
+
+        proc, port = self._open_system_chrome(
+            start_url,
+            remote_debugging=True,
+            user_data_dir=user_data_dir,
+            hidden=True,
+        )
+        if not proc or not port:
+            self.log(
+                "ERROR: [Munpia] Installed Chrome/Edge was not found. "
+                "Munpia blocks the bundled headless browser."
+            )
+            return False
+
+        self._chrome_process = proc
+        if not self._wait_for_cdp(port):
+            self.log(
+                "ERROR: [Munpia] Chrome remote debugging endpoint did not "
+                "start."
+            )
+            self.cleanup()
+            return False
+
+        try:
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{port}"
+            )
+            self._context = (
+                self._browser.contexts[0]
+                if self._browser.contexts
+                else self._browser.new_context()
+            )
+            pages = self._context.pages
+            self._page = pages[0] if pages else self._context.new_page()
+            self._page.on("console", self._on_console)
+            self._munpia_chrome = True
+            self.log("[Munpia] Chrome session ready.")
+            return True
+        except Exception as e:
+            self.log(f"ERROR: [Munpia] Could not attach to Chrome: {e}")
+            self.cleanup()
+            return False
+
+    def _munpia_wait_for_selector(self, page, selector, timeout=45):
+        """Wait through Munpia's security interstitial for a target selector."""
+        deadline = time.time() + max(1, timeout)
+        last_marker = ''
+        while time.time() < deadline:
+            try:
+                if page.evaluate(
+                    "(selector) => !!document.querySelector(selector)",
+                    selector,
+                ):
+                    return True
+                last_marker = page.evaluate("""
+                    () => {
+                        const clean = (value) => (value || '')
+                            .replace(/\\s+/g, ' ')
+                            .trim();
+                        return clean(
+                            document.querySelector('h1')?.textContent
+                            || document.title
+                            || document.body?.textContent?.slice(0, 120)
+                            || ''
+                        );
+                    }
+                """)
+            except Exception:
+                pass
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                time.sleep(1)
+        if last_marker:
+            self.log(f"[Munpia] Still waiting on page marker: {last_marker}")
+        return False
+
+    def _munpia_extract_chapters_from_current_page(self):
+        """Extract Munpia episode rows from the current listing page."""
+        return self._page.evaluate("""
+            () => {
+                const clean = (value) => (value || '')
+                    .replace(/\\s+/g, ' ')
+                    .trim();
+                const abs = (value) => {
+                    try { return new URL(value || '', location.href).href; }
+                    catch (e) { return value || ''; }
+                };
+                const rows = [];
+                document.querySelectorAll('#ENTRIES tbody tr').forEach((tr) => {
+                    const indexCell = tr.querySelector('td.index');
+                    const subjectCell = tr.querySelector('td.subject');
+                    const link = subjectCell
+                        ? subjectCell.querySelector('a[href*="neSrl"]')
+                        : null;
+                    const href = link ? abs(link.getAttribute('href')) : '';
+                    let title = clean(link
+                        ? link.textContent
+                        : (subjectCell ? subjectCell.textContent : ''));
+                    title = title.replace(/\\s+NEW$/i, '').trim();
+                    const indexText = clean(indexCell ? indexCell.textContent : '');
+                    const cells = Array.from(tr.children || []);
+                    const markerText = clean(Array.from(
+                        tr.querySelectorAll('img, span, em, i, button')
+                    ).map((el) => [
+                        el.getAttribute('alt') || '',
+                        el.getAttribute('title') || '',
+                        el.className || '',
+                        el.textContent || '',
+                    ].join(' ')).join(' '));
+                    const classText = String(tr.className || '');
+                    const markerHaystack = `${classText} ${markerText}`.toLowerCase();
+                    const isNotice = /notice/i.test(classText)
+                        || indexText === '공지'
+                        || /공지/.test(indexText);
+                    const locked = !href
+                        || /(lock|locked|purchase|buy|rent|paid|coin|gold|유료|구매|대여|결제|캐시|골드)/i
+                            .test(markerHaystack);
+                    const paid = /(유료|구매|대여|결제|캐시|골드|gold|paid|coin)/i
+                        .test(markerHaystack);
+                    const neMatch = href.match(/neSrl\\/(\\d+)/);
+                    const order = parseInt(indexText.replace(/[^0-9]/g, ''), 10);
+                    if (!title && !href) return;
+                    rows.push({
+                        url: href,
+                        name: title || `Episode ${rows.length + 1}`,
+                        fullName: title || `Episode ${rows.length + 1}`,
+                        indexText,
+                        order: Number.isFinite(order) ? order : 0,
+                        neSrl: neMatch ? neMatch[1] : '',
+                        date: clean(cells[2] ? cells[2].textContent : ''),
+                        views: clean(cells[3] ? cells[3].textContent : ''),
+                        recommends: clean(cells[4] ? cells[4].textContent : ''),
+                        pagesText: clean(cells[5] ? cells[5].textContent : ''),
+                        isVIP: !!(paid || locked),
+                        isPaid: !!paid,
+                        isAccessible: !!href && !locked,
+                        _munpiaNotice: isNotice,
+                    });
+                });
+                return rows;
+            }
+        """) or []
+
+    def _munpia_parse_book(self, url):
+        """Scrape Munpia metadata and the paginated chapter list."""
+        self._stop_requested = False
+        novel_id = self._munpia_novel_id(url)
+        if not novel_id:
+            self.log("[Munpia] ERROR: Could not extract novel id from URL.")
+            return None
+
+        book_url = f"https://novel.munpia.com/{novel_id}"
+        if not self._start_munpia_browser(book_url):
+            return None
+
+        self.log(f"[Munpia] Navigating to: {book_url}")
+        try:
+            self._page.goto(book_url, wait_until="domcontentloaded",
+                            timeout=30000)
+        except Exception as e:
+            self.log(f"[Munpia] ERROR: Page load failed: {e}")
+            return None
+        if not self._munpia_wait_for_selector(self._page, '#ENTRIES'):
+            self.log(
+                "[Munpia] ERROR: Novel page did not pass Munpia's security "
+                "check. Use Enter Browser to log in/verify, then retry."
+            )
+            return None
+
+        try:
+            meta = self._page.evaluate("""
+                () => {
+                    const clean = (value) => (value || '')
+                        .replace(/\\s+/g, ' ')
+                        .trim();
+                    const metaContent = (selector) => {
+                        const el = document.querySelector(selector);
+                        return el ? (el.getAttribute('content') || '') : '';
+                    };
+                    const abs = (value) => {
+                        try { return new URL(value || '', location.href).href; }
+                        catch (e) { return value || ''; }
+                    };
+                    const info = document.querySelector('#board .novel-info')
+                        || document.querySelector('#board')
+                        || document.body;
+                    const title = clean(
+                        info.querySelector('h2')?.textContent
+                        || metaContent('meta[property="og:title"]')
+                            .replace(/\\s*-\\s*웹소설\\s*문피아\\s*$/i, '')
+                    );
+                    const authorText = clean(
+                        info.querySelector('.meta-author')?.textContent || ''
+                    );
+                    let author = '';
+                    const authorMatch = authorText.match(
+                        /글\\s+(.+?)(?:\\s+그림\\/삽화|\\s*$)/
+                    );
+                    if (authorMatch) {
+                        author = clean(authorMatch[1]);
+                    }
+                    const story = document.querySelector('#STORY-BOX .story');
+                    const introduction = clean(
+                        story?.innerText
+                        || metaContent('meta[name="description"]')
+                        || metaContent('meta[property="og:description"]')
+                    );
+                    const coverNode = info.querySelector('.cover-box img.cover')
+                        || info.querySelector('img.cover');
+                    const cover = abs(
+                        coverNode?.getAttribute('src')
+                        || metaContent('meta[property="og:image"]')
+                    );
+                    const tags = Array.from(
+                        document.querySelectorAll('#board .novel-tag-selected')
+                    ).map((el) => clean(el.textContent).replace(/^#/, ''))
+                        .filter(Boolean);
+                    const stats = clean(Array.from(
+                        document.querySelectorAll('#board .meta-etc')
+                    ).map((el) => el.textContent || '').join(' '));
+                    const countMatch = stats.match(/연재수\\s*:\\s*([0-9,]+)\\s*회/);
+                    const declaredCount = countMatch
+                        ? parseInt(countMatch[1].replace(/,/g, ''), 10)
+                        : 0;
+                    const pageNumbers = Array.from(document.querySelectorAll(
+                        '#board .pagination a[href], #board .paging a[href], ' +
+                        '#board a.home[href], #board a.prev[href], ' +
+                        '#board a.next[href], #board a.end[href]'
+                    )).map((a) => {
+                        const match = abs(a.getAttribute('href'))
+                            .match(/\\/page\\/(\\d+)(?:[/?#]|$)/);
+                        return match ? parseInt(match[1], 10) : 0;
+                    }).filter((n) => Number.isFinite(n) && n > 0);
+                    return {
+                        title,
+                        author,
+                        introduction,
+                        introductionHTML: story ? story.innerHTML : '',
+                        cover,
+                        tags,
+                        declaredCount,
+                        lastPage: Math.max(1, ...pageNumbers),
+                    };
+                }
+            """) or {}
+        except Exception as e:
+            self.log(f"[Munpia] ERROR: Metadata extraction failed: {e}")
+            return None
+
+        title = meta.get('title') or f"Munpia {novel_id}"
+        self.log(
+            f"[Munpia] Title: {title}, Author: {meta.get('author') or '?'}"
+        )
+
+        last_page = max(1, int(meta.get('lastPage') or 1))
+        self.log(f"[Munpia] Fetching chapter list ({last_page} page(s))...")
+        all_rows = []
+        for page_no in range(1, last_page + 1):
+            if self._stop_requested:
+                break
+            if page_no > 1:
+                page_url = f"https://novel.munpia.com/{novel_id}/page/{page_no}"
+                try:
+                    self._page.goto(page_url, wait_until="domcontentloaded",
+                                    timeout=30000)
+                    self._munpia_wait_for_selector(
+                        self._page, '#ENTRIES', timeout=15
+                    )
+                except Exception as e:
+                    self.log(
+                        f"[Munpia] WARNING: Page {page_no} load failed: {e}"
+                    )
+                    continue
+            try:
+                all_rows.extend(self._munpia_extract_chapters_from_current_page())
+            except Exception as e:
+                self.log(
+                    f"[Munpia] WARNING: Page {page_no} parse failed: {e}"
+                )
+
+        chapters = []
+        seen = set()
+        for row in all_rows:
+            if row.get('_munpiaNotice'):
+                continue
+            chapter_url = row.get('url') or ''
+            key = row.get('neSrl') or chapter_url
+            if not chapter_url or key in seen:
+                continue
+            seen.add(key)
+            chapters.append(row)
+
+        chapters.sort(key=lambda ch: (
+            ch.get('order') or 10**12,
+            int(ch.get('neSrl') or 0),
+        ))
+
+        self.log(f"[Munpia] Found {len(chapters)} chapter(s).")
+        data = {
+            'bookname': title,
+            'author': meta.get('author') or '',
+            'coverUrl': meta.get('cover') or '',
+            'introduction': meta.get('introduction') or '',
+            'introductionHTML': meta.get('introductionHTML') or '',
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'ko',
+            'tags': meta.get('tags') or [],
+            '_munpia': True,
+            '_munpia_novel_id': novel_id,
+            '_munpia_declared_count': meta.get('declaredCount') or 0,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        return data
+
+    def _munpia_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Fetch one Munpia chapter from its server-rendered reader page."""
+        target = page or self._page
+        if target is None:
+            if not self._start_munpia_browser(chapter_url):
+                return None
+            target = self._page
+
+        try:
+            target.goto(chapter_url, wait_until="domcontentloaded",
+                        timeout=30000)
+            self._munpia_wait_for_selector(
+                target, '#ENTRY-CONTENT', timeout=20
+            )
+        except Exception as e:
+            self.log(f"  [Munpia] Page load failed: {chapter_name}: {e}")
+            return None
+
+        try:
+            data = target.evaluate("""
+                () => {
+                    const clean = (value) => (value || '')
+                        .replace(/[\\u00a0\\t ]+/g, ' ')
+                        .replace(/\\n\\s+/g, '\\n')
+                        .trim();
+                    const abs = (value) => {
+                        try { return new URL(value || '', location.href).href; }
+                        catch (e) { return value || ''; }
+                    };
+                    const entry = document.querySelector('#ENTRY-CONTENT');
+                    const content = document.querySelector(
+                        '#ENTRY-CONTENT .tcontent'
+                    );
+                    const heading = clean(
+                        entry?.querySelector('.subinfo h3')?.textContent
+                        || entry?.querySelector('h3')?.textContent
+                        || document.querySelector('h4')?.textContent
+                        || document.title.replace(/\\s*-\\s*.*$/, '')
+                    );
+                    if (!entry || !content) {
+                        const bodyText = clean(document.body?.textContent || '');
+                        return {
+                            locked: /(로그인|구매|대여|결제|성인인증|권한|이용권)/
+                                .test(bodyText),
+                            chapterName: heading,
+                            message: bodyText.slice(0, 240),
+                        };
+                    }
+
+                    const clone = content.cloneNode(true);
+                    clone.querySelectorAll(
+                        '.dummy, script, style, noscript, iframe, button'
+                    ).forEach((el) => el.remove());
+                    clone.querySelectorAll('img').forEach((img) => {
+                        const src = abs(img.getAttribute('src') || '');
+                        if (!src || /blank\\.png/i.test(src)) {
+                            img.remove();
+                        } else {
+                            img.setAttribute('src', src);
+                        }
+                    });
+
+                    const images = Array.from(clone.querySelectorAll('img'))
+                        .map((img, idx) => {
+                            const src = abs(img.getAttribute('src') || '');
+                            if (!src) return null;
+                            let name = '';
+                            try {
+                                const parsed = new URL(src);
+                                name = decodeURIComponent(
+                                    parsed.pathname.split('/').pop() || ''
+                                );
+                            } catch (e) {
+                                name = '';
+                            }
+                            name = name.split('?')[0].replace(
+                                /[^A-Za-z0-9._-]+/g, '_'
+                            ).replace(/^[_\\.]+|[_\\.]+$/g, '');
+                            if (!name || !/\\.[A-Za-z0-9]{2,5}$/.test(name)) {
+                                name = `munpia_image_${idx + 1}.jpg`;
+                            }
+                            return {url: src, name};
+                        }).filter(Boolean);
+
+                    let blocks = Array.from(clone.querySelectorAll(
+                        'p, h1, h2, h3, h4, h5, h6, li, blockquote'
+                    )).map((el) => clean(el.textContent || ''))
+                        .filter(Boolean);
+                    if (!blocks.length) {
+                        blocks = clean(clone.textContent || '')
+                            .split('\\n')
+                            .map((line) => clean(line))
+                            .filter(Boolean);
+                    }
+                    const contentText = blocks.join('\\n');
+                    const contentHtml = clone.innerHTML.trim();
+                    return {
+                        locked: !contentText && !images.length,
+                        chapterName: heading,
+                        contentText,
+                        contentHtml: `<div class="munpia-content">${contentHtml}</div>`,
+                        images,
+                    };
+                }
+            """) or {}
+        except Exception as e:
+            self.log(f"  [Munpia] Extract failed: {chapter_name}: {e}")
+            return None
+
+        if data.get('locked'):
+            self.log(f"  [Munpia] Locked or unreadable: {chapter_name}")
+            return {
+                '_locked': True,
+                'chapterName': data.get('chapterName') or chapter_name,
+            }
+
+        return {
+            'chapterName': data.get('chapterName') or chapter_name,
+            'sourceChapterName': chapter_name,
+            'contentText': data.get('contentText') or '',
+            'contentHtml': data.get('contentHtml') or '',
+            'contentCss': (
+                '.munpia-content p { margin: 0 0 0.75em; '
+                'line-height: 1.8; }\\n'
+                '.munpia-content img { max-width: 100%; height: auto; }'
+            ),
+            'images': data.get('images') or [],
+        }
 
     def _kakao_parse_book(self, url):
         """Scrape book metadata + episode list from a KakaoPage content page.
@@ -7429,6 +7937,9 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         if self.is_yeduji(url):
             self.log("[Yeduji] Detected Yeduji URL, using native scraper.")
             return self._yeduji_parse_book(url)
+        if self.is_munpia(url):
+            self.log("[Munpia] Detected Munpia URL, using native scraper.")
+            return self._munpia_parse_book(url)
 
         if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
             self.log(
@@ -7557,6 +8068,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             if interval > 0:
                 time.sleep(interval)
             return result
+        if self._book_data and self._book_data.get('_munpia'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            result = self._munpia_parse_chapter(url, name, page=page)
+            if interval > 0:
+                time.sleep(interval)
+            return result
         if self._book_data and self._book_data.get('_qidian'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
@@ -7665,6 +8183,23 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     ch.get('url', ''),
                     ch.get('fullName', '') or ch.get('name', ''),
                     is_paid=ch.get('isPaid', False),
+                )
+                results.append(data)
+                if interval > 0 and i < len(batch_info) - 1:
+                    time.sleep(interval)
+            return results
+        # Munpia pages are server-rendered reader pages. Reuse one page and
+        # navigate sequentially so the persistent login session stays simple.
+        if self._book_data and self._book_data.get('_munpia'):
+            results = []
+            for i, ch in enumerate(batch_info):
+                if self._stop_requested:
+                    results.append(None)
+                    continue
+                data = self._munpia_parse_chapter(
+                    ch.get('url', ''),
+                    ch.get('fullName', '') or ch.get('name', ''),
+                    page=self._page,
                 )
                 results.append(data)
                 if interval > 0 and i < len(batch_info) - 1:
