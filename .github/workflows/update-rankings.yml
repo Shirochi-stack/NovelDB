@@ -2,8 +2,8 @@ name: Update Novelpia Rankings
 
 on:
   schedule:
-    # Run once per day at 00:00 UTC to avoid hammering Novelpia.
-    - cron: '0 0 * * *'
+    # Run every 2 days at 00:00 UTC to avoid hammering Novelpia.
+    - cron: '0 0 */2 * *'
   workflow_dispatch: # Allow manual trigger
 
 permissions:

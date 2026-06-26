@@ -144,7 +144,35 @@ def merge_with_existing_novels(scraped_novels, path=None, tag_deleted=True):
     merged.update(scraped_novels)
 
     preserved_ids = set(existing) - set(scraped_novels)
-    if tag_deleted:
+
+    # ── Guard against a partial scrape mass-flagging live novels ─────
+    # Novels already tagged "deleted" are expected to stay missing, so judge
+    # coverage only over currently-live novels. If too large a share of them
+    # vanished this run, the scrape is almost certainly partial/broken — skip
+    # deleted-tagging entirely and just preserve the old rows untouched.
+    # (Mirrors scripts/guard_catalog_drop.py: a drop ratio over a min catalog.)
+    MAX_MISSING_RATIO = 0.20
+    MIN_CATALOG = 1000
+
+    def _is_deleted(novel):
+        t = novel.get("tags")
+        return isinstance(t, list) and DELETED_TAG in t
+
+    live_total = sum(1 for sid in existing if not _is_deleted(existing[sid]))
+    live_missing = sum(1 for sid in preserved_ids if not _is_deleted(existing[sid]))
+    missing_ratio = live_missing / live_total if live_total else 0.0
+    skip_delete_tagging = (
+        tag_deleted and live_total >= MIN_CATALOG and missing_ratio > MAX_MISSING_RATIO
+    )
+    if skip_delete_tagging:
+        print(
+            f"  GUARD TRIPPED: only {live_total - live_missing:,}/{live_total:,} "
+            f"live novels were re-found "
+            f"({missing_ratio:.1%} missing > {MAX_MISSING_RATIO:.0%} limit). "
+            f"Scrape looks partial -> SKIPPING 'deleted' tagging this run."
+        )
+
+    if tag_deleted and not skip_delete_tagging:
         for sid in preserved_ids:
             tags = merged[sid].setdefault("tags", [])
             if not isinstance(tags, list):
@@ -157,7 +185,11 @@ def merge_with_existing_novels(scraped_novels, path=None, tag_deleted=True):
         f"Catalog merge: {len(set(existing) & set(scraped_novels)):,} updated, "
         f"{len(set(scraped_novels) - set(existing)):,} new, "
         f"{len(preserved_ids):,} old-only preserved"
-        + (f"/tagged {DELETED_TAG!r}" if tag_deleted else " without new deleted tags")
+        + (
+            " (deleted-tagging skipped: partial scrape)" if skip_delete_tagging
+            else f"/tagged {DELETED_TAG!r}" if tag_deleted
+            else " without new deleted tags"
+        )
     )
     return merged
 

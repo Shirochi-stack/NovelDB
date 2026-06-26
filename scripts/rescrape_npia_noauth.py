@@ -412,6 +412,39 @@ def main():
             existing_lookup[nid] = len(existing_data) - 1
             stats["added"] += 1
 
+    # ── Guard against a partial scrape mass-flagging live novels ─────
+    # A no-auth scrape legitimately misses R19 novels, and novels already
+    # tagged "deleted" are expected to stay missing. Measure how many
+    # *currently-live* non-R19 novels vanished this run: if that exceeds
+    # MAX_MISSING_RATIO the scrape is almost certainly partial/broken, so
+    # preserve rows untouched instead of flagging real novels as deleted.
+    # (Mirrors the intent of scripts/guard_catalog_drop.py, but checks scrape
+    # coverage rather than row count — rescrape never drops rows, only tags.)
+    MAX_MISSING_RATIO = 0.20
+    MIN_CATALOG = 1000
+    live_total = live_missing = 0
+    for nid in existing_lookup:
+        entry = existing_data[existing_lookup[nid]]
+        age = entry[11] if len(entry) > 11 else 0
+        if age == 19:
+            continue
+        tags = entry[4] if len(entry) > 4 and isinstance(entry[4], list) else []
+        if DELETED_TAG in tags:
+            continue  # already deleted -> expected to stay missing
+        live_total += 1
+        if nid not in fresh_novels:
+            live_missing += 1
+    missing_ratio = live_missing / live_total if live_total else 0.0
+    skip_delete_tagging = live_total >= MIN_CATALOG and missing_ratio > MAX_MISSING_RATIO
+    if skip_delete_tagging:
+        print(
+            f"\n  GUARD TRIPPED: only {live_total - live_missing:,}/{live_total:,} "
+            f"live non-R19 novels were re-found "
+            f"({missing_ratio:.1%} missing > {MAX_MISSING_RATIO:.0%} limit).\n"
+            f"  Scrape looks partial -> SKIPPING 'deleted' tagging this run. "
+            f"Metadata and rankings are still updated."
+        )
+
     # Count preserved novels (ones in existing data but NOT in fresh scrape)
     for nid in existing_lookup:
         if nid not in fresh_novels:
@@ -424,11 +457,12 @@ def main():
             if age == 19:
                 stats["preserved_r19"] += 1
             else:
-                tags = entry[4] if len(entry) > 4 and isinstance(entry[4], list) else []
-                if DELETED_TAG not in tags:
-                    tags.append(DELETED_TAG)
-                    stats["deleted_tagged"] += 1
-                entry[4] = tags
+                if not skip_delete_tagging:
+                    tags = entry[4] if len(entry) > 4 and isinstance(entry[4], list) else []
+                    if DELETED_TAG not in tags:
+                        tags.append(DELETED_TAG)
+                        stats["deleted_tagged"] += 1
+                    entry[4] = tags
                 stats["preserved_other"] += 1
 
     # ── Phase 5: Patch rankings ──────────────────────────────────
