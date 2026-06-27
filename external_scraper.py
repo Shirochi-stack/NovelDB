@@ -7547,24 +7547,39 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 f'?kid={kid}&filename={fname}'
             )
 
-        try:
-            req = urllib.request.Request(url, headers={
-                'User-Agent': (
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                    'Chrome/120.0.0.0 Safari/537.36'
-                ),
-                'Referer': 'https://page.kakao.com/',
-            })
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                raw = resp.read()
-            css = raw.decode('utf-8-sig', errors='replace')
-            css = re.sub(r'@charset\s+["\']UTF-8["\'];?', '', css,
-                         flags=re.IGNORECASE)
-            css = css.replace('\r\n', '\n').replace('\r', '\n').strip()
-        except Exception as e:
-            self.log(f"  [KakaoPage] CSS fetch failed: {file_name}: {e}")
-            css = ''
+        css = ''
+        last_error = None
+        for attempt, timeout in enumerate((20, 35, 60), 1):
+            try:
+                req = urllib.request.Request(url, headers={
+                    'User-Agent': (
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/120.0.0.0 Safari/537.36'
+                    ),
+                    'Referer': 'https://page.kakao.com/',
+                })
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    raw = resp.read()
+                css = raw.decode('utf-8-sig', errors='replace')
+                css = re.sub(r'@charset\s+["\']UTF-8["\'];?', '', css,
+                             flags=re.IGNORECASE)
+                css = css.replace('\r\n', '\n').replace('\r', '\n').strip()
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < 3:
+                    self.log(
+                        f"  [KakaoPage] CSS fetch retry {attempt + 1}/3: "
+                        f"{file_name} ({e})"
+                    )
+                    time.sleep(0.75)
+
+        if not css and last_error:
+            self.log(
+                f"  [KakaoPage] CSS fetch failed after 3 tries: "
+                f"{file_name}: {last_error}"
+            )
 
         self._kakao_css_cache[cache_key] = css
         return css
