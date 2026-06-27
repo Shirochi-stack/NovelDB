@@ -65,6 +65,7 @@ from playwright.sync_api import (
     sync_playwright,
     Page,
     Browser,
+    TimeoutError as PlaywrightTimeoutError,
 )
 
 APP_DATA_NAME = "NpiaDownloader"
@@ -3345,12 +3346,16 @@ class ExternalScraper:
                 "browser window and try again."
             )
 
+        self._clear_chrome_restore_state(user_data_dir)
+        visible_args = self._centered_chrome_window_args()
+
         self._playwright = sync_playwright().start()
         try:
             self._context = self._playwright.chromium.launch_persistent_context(
                 user_data_dir,
                 channel="chrome",
                 headless=False,
+                args=visible_args,
                 ignore_https_errors=True,
             )
             self.log("Using installed Google Chrome for login.")
@@ -3378,6 +3383,7 @@ class ExternalScraper:
                 user_data_dir,
                 headless=False,
                 args=[
+                    *visible_args,
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
                     '--allow-running-insecure-content',
@@ -3388,6 +3394,11 @@ class ExternalScraper:
         self._restore_storage_state()
         page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page = page
+        self._center_profile_browser_windows(
+            user_data_dir,
+            timeout=5,
+            focus=True,
+        )
         try:
             page.goto(start_url)
         except Exception as e:
@@ -3410,15 +3421,19 @@ class ExternalScraper:
         # a race: cleanup() would call context.close() while Chromium was
         # still mid-shutdown, interrupting the disk flush and losing the
         # login session.
-        try:
-            self._context.wait_for_event("close", timeout=0)
-        except Exception:
-            pass
+        while self._context:
+            try:
+                self._context.wait_for_event("close", timeout=5000)
+                break
+            except PlaywrightTimeoutError:
+                self._backup_storage_state()
+            except Exception:
+                break
 
         # Chromium's persistent profile should already be flushed at this
         # point. Take one explicit storage snapshot after close/disconnect as
-        # a best-effort fallback, but do not poll storage_state() while the
-        # visible browser is open because it can disturb live tabs.
+        # a best-effort fallback; periodic snapshots above are the useful
+        # guard if this final call races with a closed context.
         self._backup_storage_state()
 
         self.log("Browser closed. Session data saved.")
@@ -7102,7 +7117,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             current_url = target.url or ''
         except Exception:
             current_url = ''
-        if 'kakao.com' not in current_url:
+        if 'kakao.com' not in current_url or 'tab_type=about' in current_url:
             try:
                 target.goto(
                     f'https://page.kakao.com/content/{s_id}',
@@ -7114,6 +7129,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         # ---- Strategy 1: Direct API fetch (fast, no navigation) ----
         api_result = None
+        api_locked_info = None
         try:
             api_result = target.evaluate("""
             async ([seriesId, productId]) => {
@@ -7176,34 +7192,39 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             page_url = api_result.get('pageUrl', '?')
             api_msg = api_result.get('msg', '')
             if api_result.get('locked'):
-                self.log(
-                    f"  [KakaoPage] LOCKED: {chapter_name} "
-                    f"(HTTP {http_st}, msg={api_msg}, page={page_url})"
-                )
-                return {'_locked': True, 'chapterName': chapter_name}
-
-            image_files = api_result.get('imageFiles') or []
-            if image_files:
-                return self._kakao_build_image_chapter(
-                    image_files, chapter_name)
-
-            raw_chunks = api_result.get('chunks', [])
-            json_chunks = [r.encode('utf-8') for r in raw_chunks]
-            para_tuples, content_css = self._kakao_extract_from_json(
-                json_chunks)
-            if para_tuples:
-                full_text, content_html = self._kakao_build_output(
-                    para_tuples)
-                display_name = self._kakao_heading_title(
-                    para_tuples, chapter_name)
-                return {
-                    'chapterName': display_name,
-                    'sourceChapterName': chapter_name,
-                    'contentText': full_text,
-                    'contentHtml': content_html,
-                    'contentCss': content_css,
-                    'images': [],
+                api_locked_info = {
+                    'httpStatus': http_st,
+                    'msg': api_msg,
+                    'pageUrl': page_url,
                 }
+                self.log(
+                    f"  [KakaoPage] Fast API reported locked: "
+                    f"{chapter_name} (HTTP {http_st}, msg={api_msg}); "
+                    "trying viewer page fallback."
+                )
+            else:
+                image_files = api_result.get('imageFiles') or []
+                if image_files:
+                    return self._kakao_build_image_chapter(
+                        image_files, chapter_name)
+
+                raw_chunks = api_result.get('chunks', [])
+                json_chunks = [r.encode('utf-8') for r in raw_chunks]
+                para_tuples, content_css = self._kakao_extract_from_json(
+                    json_chunks)
+                if para_tuples:
+                    full_text, content_html = self._kakao_build_output(
+                        para_tuples)
+                    display_name = self._kakao_heading_title(
+                        para_tuples, chapter_name)
+                    return {
+                        'chapterName': display_name,
+                        'sourceChapterName': chapter_name,
+                        'contentText': full_text,
+                        'contentHtml': content_html,
+                        'contentCss': content_css,
+                        'images': [],
+                    }
 
         # ---- Strategy 2: Full page load fallback ----
         # Only used when the API approach fails (e.g. auth issues).
@@ -7261,6 +7282,15 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 'contentHtml': content_html,
                 'images': [],
             }
+
+        if api_locked_info:
+            self.log(
+                f"  [KakaoPage] LOCKED: {chapter_name} "
+                f"(HTTP {api_locked_info.get('httpStatus')}, "
+                f"msg={api_locked_info.get('msg')}, "
+                f"page={api_locked_info.get('pageUrl')})"
+            )
+            return {'_locked': True, 'chapterName': chapter_name}
 
         self.log(f"  [KakaoPage] No text extracted from: {chapter_name}")
         return None
