@@ -2481,6 +2481,7 @@ class ExternalScraper:
         profile_pids = set()
         next_pid_scan = 0
         launch_deadline = time.time() + 15
+        reported_profile_wait = False
 
         while not self._stop_requested:
             now = time.time()
@@ -2496,6 +2497,10 @@ class ExternalScraper:
             if window_pids:
                 saw_window = True
             elif saw_window:
+                self.log(
+                    "[Browser] Chrome window closed; waiting for Chrome to "
+                    "finish saving the login profile..."
+                )
                 leftovers = self._wait_for_profile_processes_to_exit(
                     user_data_dir
                 )
@@ -2517,6 +2522,15 @@ class ExternalScraper:
                 return True
             elif proc.poll() is not None and not profile_pids:
                 return True
+            elif proc.poll() is not None and time.time() < launch_deadline:
+                if not reported_profile_wait:
+                    remaining = max(1, int(launch_deadline - time.time()))
+                    self.log(
+                        "[Browser] Chrome window closed; waiting up to "
+                        f"{remaining}s for profile background processes to "
+                        "finish saving..."
+                    )
+                    reported_profile_wait = True
             elif proc.poll() is not None and time.time() >= launch_deadline:
                 leftovers = self._chrome_processes_using_profile(user_data_dir)
                 if leftovers:
