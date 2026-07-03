@@ -6803,7 +6803,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             episodes = self._page.evaluate("""
                 async (seriesId) => {
                     const url = `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000&sort_opt=asc`;
-                    const resp = await fetch(url);
+                    const resp = await fetch(url, { credentials: 'include' });
                     const data = await resp.json();
                     const list = (data.result || {}).list || [];
                     const hasUserAccessFlag = (obj) => {
@@ -7129,31 +7129,90 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         # ---- Strategy 1: Direct API fetch (fast, no navigation) ----
         api_result = None
-        api_locked_info = None
         try:
             api_result = target.evaluate("""
             async ([seriesId, productId]) => {
+                // bff-page.kakao.com is a different origin from page.kakao.com.
+                // Include credentials or purchased/age-verified viewer data can
+                // look anonymously locked even while the user is logged in.
                 const vResp = await fetch(
                     `https://bff-page.kakao.com/api/gateway/api/v1/viewer/data`
-                    + `?series_id=${seriesId}&product_id=${productId}`
+                    + `?series_id=${seriesId}&product_id=${productId}`,
+                    { credentials: 'include' }
                 );
                 const httpStatus = vResp.status;
                 let vData;
                 try { vData = await vResp.json(); } catch(e) {
-                    return { locked: true, chunks: [], httpStatus,
-                             msg: 'Non-JSON response', pageUrl: location.href };
+                    return { locked: false, unavailable: true, chunks: [], httpStatus,
+                             msg: 'Non-JSON response', pageUrl: location.href,
+                             reason: 'non-json response' };
                 }
-                const vd = vData.viewerData || {};
-                const baseUrl = vd.atsServerUrl || '';
-                const contents = vd.contentsList || [];
-                const imageData = vd.imageDownloadData || {};
-                const imageFiles = imageData.files || [];
-                const msg = vData.message || vData.msg || null;
+                const roots = [
+                    vData,
+                    vData.result || null,
+                    vData.data || null,
+                    vData.body || null
+                ].filter(Boolean);
+                const pick = (...values) => values.find(v => v !== undefined && v !== null);
+                const findProp = (...names) => {
+                    for (const root of roots) {
+                        for (const name of names) {
+                            if (root && root[name] !== undefined && root[name] !== null) {
+                                return root[name];
+                            }
+                        }
+                    }
+                    return undefined;
+                };
+                const vd = findProp('viewerData', 'viewer_data') || {};
+                const rawBaseUrl = vd.atsServerUrl || vd.ats_server_url || '';
+                const baseUrl = rawBaseUrl.replace(/^http:/i, 'https:');
+                const contents = vd.contentsList || vd.contents_list || vd.contents || [];
+                const imageData = vd.imageDownloadData || vd.image_download_data || {};
+                const imageFiles = (
+                    imageData.files || imageData.fileList || imageData.file_list ||
+                    vd.imageFiles || vd.image_files || []
+                );
+                const msg = pick(
+                    findProp('message', 'msg'),
+                    vData.message,
+                    vData.msg,
+                    null
+                );
+                const msgKey = pick(
+                    findProp('message_key', 'messageKey'),
+                    vData.message_key,
+                    vData.messageKey,
+                    null
+                );
+                const resultCode = pick(
+                    findProp('result_code', 'resultCode'),
+                    vData.result_code,
+                    vData.resultCode,
+                    null
+                );
+                const accessText = `${msg || ''} ${msgKey || ''}`.toLowerCase();
+                const accessDenied = (
+                    httpStatus === 401 || httpStatus === 403 ||
+                    /(not[_-]?purchased|purchase|rental|login|adult|age|auth|permission|forbidden|locked|구매|대여|로그인|성인|권한|인증|열람)/i.test(accessText)
+                );
+                if (accessDenied) {
+                    return { locked: true, chunks: [], httpStatus, msg, msgKey,
+                             resultCode, pageUrl: location.href,
+                             reason: msgKey || msg || 'access denied' };
+                }
 
-                // No text chunks and no image files means locked/no access.
+                // If the API gives neither text nor image resources, the fast
+                // path cannot read this chapter. Only access-denied messages
+                // above are treated as true locks.
                 if ((!baseUrl || !contents.length) && !imageFiles.length)
-                    return { locked: true, chunks: [], httpStatus, msg,
-                             pageUrl: location.href };
+                    return { locked: false, unavailable: true, chunks: [],
+                             httpStatus, msg, msgKey, resultCode,
+                             pageUrl: location.href,
+                             reason: resultCode
+                                 ? `api returned no viewer resources (code ${resultCode})`
+                                 : 'missing viewer resources',
+                             responseKeys: Object.keys(vData || {}).join(',') };
 
                 if (imageFiles.length) {
                     return {
@@ -7161,19 +7220,20 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                         chunks: [],
                         imageFiles: imageFiles.map((f, idx) => ({
                             no: f.no || idx + 1,
-                            url: f.secureUrl || '',
+                            url: f.secureUrl || f.secure_url || '',
                             width: f.width || 0,
                             height: f.height || 0,
-                            filename: ((f.secureUrl || '').match(/filename=([^&]+)/) || [])[1] || ''
+                            filename: ((f.secureUrl || f.secure_url || '').match(/filename=([^&]+)/) || [])[1] || ''
                         })).filter(f => f.url),
-                        httpStatus, msg, pageUrl: location.href
+                        httpStatus, msg, msgKey, resultCode, pageUrl: location.href
                     };
                 }
 
                 const fetches = contents.map(async (c) => {
-                    if (!c.secureUrl) return null;
+                    const secureUrl = c.secureUrl || c.secure_url || '';
+                    if (!secureUrl) return null;
                     try {
-                        const r = await fetch(baseUrl + c.secureUrl);
+                        const r = await fetch(baseUrl + secureUrl);
                         const ct = r.headers.get('content-type') || '';
                         if (!ct.includes('json')) return null;
                         return await r.text();
@@ -7181,7 +7241,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 });
                 const results = (await Promise.all(fetches)).filter(r => r !== null);
                 return { locked: false, chunks: results, imageFiles: [],
-                         httpStatus, msg, pageUrl: location.href };
+                         httpStatus, msg, msgKey, resultCode, pageUrl: location.href };
             }
             """, [s_id, p_id])
         except Exception as e:
@@ -7192,16 +7252,23 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             page_url = api_result.get('pageUrl', '?')
             api_msg = api_result.get('msg', '')
             if api_result.get('locked'):
-                api_locked_info = {
-                    'httpStatus': http_st,
-                    'msg': api_msg,
-                    'pageUrl': page_url,
-                }
+                reason = api_result.get('reason') or 'locked'
                 self.log(
-                    f"  [KakaoPage] Fast API reported locked: "
-                    f"{chapter_name} (HTTP {http_st}, msg={api_msg}); "
-                    "trying viewer page fallback."
+                    f"  [KakaoPage] LOCKED: {chapter_name} "
+                    f"(HTTP {http_st}, msg={api_msg}, "
+                    f"reason={reason}, "
+                    f"page={page_url})"
                 )
+                return {'_locked': True, 'chapterName': chapter_name}
+            if api_result.get('unavailable'):
+                self.log(
+                    f"  [KakaoPage] Fast API unavailable: {chapter_name} "
+                    f"(HTTP {http_st}, msg={api_msg}, "
+                    f"reason={api_result.get('reason')}, "
+                    f"keys={api_result.get('responseKeys', '')}, "
+                    f"page={page_url})"
+                )
+                return None
             else:
                 image_files = api_result.get('imageFiles') or []
                 if image_files:
@@ -7226,73 +7293,10 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                         'images': [],
                     }
 
-        # ---- Strategy 2: Full page load fallback ----
-        # Only used when the API approach fails (e.g. auth issues).
-        json_chunks_fb = []
-
-        def _capture_response(response):
-            try:
-                url = response.url
-                ct = response.headers.get('content-type', '')
-                if ('sdownload/resource' in url and 'json' in ct):
-                    body = response.body()
-                    if body:
-                        json_chunks_fb.append(body)
-            except Exception:
-                pass
-
-        target.on('response', _capture_response)
-        try:
-            target.goto(chapter_url, wait_until="domcontentloaded",
-                        timeout=30000)
-            target.wait_for_timeout(4000)
-        except Exception as e:
-            self.log(f"  [KakaoPage] Fallback page load error: {e}")
-            target.remove_listener('response', _capture_response)
-            return None
-        target.remove_listener('response', _capture_response)
-
-        para_tuples, content_css = self._kakao_extract_from_json(
-            json_chunks_fb)
-        if para_tuples:
-            full_text, content_html = self._kakao_build_output(
-                para_tuples)
-            display_name = self._kakao_heading_title(
-                para_tuples, chapter_name)
-            return {
-                'chapterName': display_name,
-                'sourceChapterName': chapter_name,
-                'contentText': full_text,
-                'contentHtml': content_html,
-                'contentCss': content_css,
-                'images': [],
-            }
-
-        # ---- Strategy 3: Shadow DOM extraction ----
-        shadow_text = self._kakao_extract_from_shadow(target)
-        if shadow_text:
-            paragraphs = [p.strip() for p in shadow_text.split('\n')
-                          if p.strip()]
-            full_text = '\n'.join(paragraphs)
-            html_parts = [f'<p>{p}</p>' for p in paragraphs]
-            content_html = '\n'.join(html_parts)
-            return {
-                'chapterName': chapter_name,
-                'contentText': full_text,
-                'contentHtml': content_html,
-                'images': [],
-            }
-
-        if api_locked_info:
-            self.log(
-                f"  [KakaoPage] LOCKED: {chapter_name} "
-                f"(HTTP {api_locked_info.get('httpStatus')}, "
-                f"msg={api_locked_info.get('msg')}, "
-                f"page={api_locked_info.get('pageUrl')})"
-            )
-            return {'_locked': True, 'chapterName': chapter_name}
-
-        self.log(f"  [KakaoPage] No text extracted from: {chapter_name}")
+        self.log(
+            f"  [KakaoPage] Fast API returned no readable text: "
+            f"{chapter_name}"
+        )
         return None
 
     @staticmethod
@@ -7812,47 +7816,6 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     for p in all_paras
                 ],
                 '\n\n'.join(css_parts))
-
-    def _kakao_extract_from_shadow(self, target):
-        """Extract text from the KakaoPage viewer's Shadow DOM.
-
-        The viewer renders EPUB content inside a shadow root with
-        class DC1CN/DC2CN. The full chapter HTML is in this shadow DOM,
-        paginated via CSS columns with overflow:hidden.
-        """
-        try:
-            text = target.evaluate("""
-                (function() {
-                    var all = document.querySelectorAll('*');
-                    for (var i = 0; i < all.length; i++) {
-                        if (!all[i].shadowRoot) continue;
-                        var sr = all[i].shadowRoot;
-                        // Get all text-bearing elements from the shadow DOM
-                        var els = sr.querySelectorAll(
-                            'p, h1, h2, h3, h4, h5, h6, div.cover'
-                        );
-                        if (els.length === 0) continue;
-                        var texts = [];
-                        for (var j = 0; j < els.length; j++) {
-                            var el = els[j];
-                            // Skip cover image div
-                            if (el.classList.contains('cover')) continue;
-                            var t = (el.innerText || el.textContent || '')
-                                    .trim();
-                            // Skip empty and non-breaking-space-only
-                            if (t && t !== '\\u00a0' && t.length > 0) {
-                                texts.push(t);
-                            }
-                        }
-                        if (texts.length > 0) return texts.join('\\n');
-                    }
-                    return '';
-                })()
-            """)
-            return text if text else ''
-        except Exception:
-            return ''
-
 
     # ------------------------------------------------------------------
     # Yeduji (夜读集) native scraper
