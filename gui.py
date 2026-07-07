@@ -269,6 +269,8 @@ class _DownloadStats:
         self._lock = threading.Lock()
         self.total_images = 0
         self.total_bytes = 0
+        self.image_failures = 0
+        self.image_failure_chapters = []  # list of (chapter_id, title, count)
         self.blocked_chapters = []   # list of (chapter_id, title)
         self.failed_chapters = []    # list of (chapter_id, title)
         self.t0 = time.time()
@@ -285,6 +287,17 @@ class _DownloadStats:
     def add_failed(self, chapter_id, title):
         with self._lock:
             self.failed_chapters.append((chapter_id, title))
+
+    def add_image_failures(self, chapter_id, title, count):
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            count = 0
+        if count <= 0:
+            return
+        with self._lock:
+            self.image_failures += count
+            self.image_failure_chapters.append((chapter_id, title, count))
 
     def elapsed(self):
         return time.time() - self.t0
@@ -314,6 +327,13 @@ class _DownloadStats:
             lines.append(f"\u274c {len(self.failed_chapters)} chapter(s) failed after retries:")
             for cid, title in self.failed_chapters:
                 lines.append(f"   \u2022 [{cid}] {title}")
+        if self.image_failures:
+            lines.append(
+                f"\u26a0 {self.image_failures} image(s) failed across "
+                f"{len(self.image_failure_chapters)} item(s):"
+            )
+            for cid, title, count in self.image_failure_chapters:
+                lines.append(f"   \u2022 [{cid}] {title}: {count} image(s)")
         return "\n".join(lines)
 
 def _download_image_with_progress(
@@ -1049,6 +1069,7 @@ class NovelpiaGUI(tk.Tk):
         self._output_format = "epub"
         self._stop_requested = False
         self._is_downloading = False
+        self._last_download_result = None
         
         self._build_ui()
         self._load_config()
@@ -2259,7 +2280,7 @@ class NovelpiaGUI(tk.Tk):
             "   \u2022 A 2-second pause is inserted between novels to reduce load.\n"
             "   \u2022 Press 'Stop' to cancel; the current novel finishes then exits.\n"
             "   \u2022 Each novel saves to '[<id>] <title>.<ext>' in the output folder.\n"
-            "   \u2022 A summary 'OK / Failed / Skipped' is logged at the end.\n\n"
+            "   \u2022 A summary 'OK / Failed / Warnings / Skipped' is logged at the end.\n\n"
             "Tip: 'Tag Retrieval' can generate a list automatically (by tag or Top 100)\n"
             "which you can feed straight into Batch Download."
         )
@@ -2480,6 +2501,28 @@ class NovelpiaGUI(tk.Tk):
 
         raise ValueError("Unsupported batch source.")
 
+    @staticmethod
+    def _batch_result_has_warnings(result):
+        return bool(
+            result.get("image_failures")
+            or result.get("failed_chapters")
+            or result.get("blocked_chapters")
+        )
+
+    @staticmethod
+    def _batch_result_warning_summary(result):
+        parts = []
+        image_failures = int(result.get("image_failures") or 0)
+        failed_chapters = result.get("failed_chapters") or []
+        blocked_chapters = result.get("blocked_chapters") or []
+        if image_failures:
+            parts.append(f"{image_failures} image failure(s)")
+        if failed_chapters:
+            parts.append(f"{len(failed_chapters)} chapter failure(s)")
+        if blocked_chapters:
+            parts.append(f"{len(blocked_chapters)} blocked chapter(s)")
+        return ", ".join(parts) if parts else "no warnings"
+
     def _batch_download_worker(self, batch_source, output_dir, source_label):
         self.lbl_status.config(text="Batch downloading...")
         self.log_message(f"Batch download started: {source_label}")
@@ -2489,6 +2532,8 @@ class NovelpiaGUI(tk.Tk):
         prev_quick_path = self.var_quick_path.get()
         prev_novel_id = self.var_novel_id.get()
         succeeded, failed, skipped = 0, 0, 0
+        failed_items = []
+        warning_items = []
 
         try:
             os.makedirs(output_dir, exist_ok=True)
@@ -2531,18 +2576,60 @@ class NovelpiaGUI(tk.Tk):
                     self.log_message(f"[{idx}/{total}] Starting novel: {title} ({novel_id})")
                     self.after(0, lambda i=idx, t=total: self.lbl_batch.config(text=f"Batch: {i}/{t}"))
                     self.var_novel_id.set(novel_id)
-                    self._download_worker()
-                    succeeded += 1
-                    self.log_message(f"[{idx}/{total}] Finished novel: {title} ({novel_id})")
+                    result = self._download_worker() or self._last_download_result or {}
+                    result.setdefault("novel_id", novel_id)
+                    result.setdefault("title", title)
+                    result_title = result.get("title") or title or novel_id
+                    status = result.get("status") or "ok"
+                    if status == "failed":
+                        failed += 1
+                        failed_items.append(result)
+                        err = result.get("error") or "download failed"
+                        self.log_message(f"[{idx}/{total}] FAILED novel {novel_id}: {err}")
+                    else:
+                        succeeded += 1
+                        if self._batch_result_has_warnings(result):
+                            warning_items.append(result)
+                            warning_text = self._batch_result_warning_summary(result)
+                            self.log_message(
+                                f"[{idx}/{total}] Finished novel with warnings: "
+                                f"{result_title} ({novel_id}) - {warning_text}"
+                            )
+                        else:
+                            self.log_message(f"[{idx}/{total}] Finished novel: {result_title} ({novel_id})")
                     if idx < total and not self._stop_requested:
                         self.log_message(f"[{idx + 1}/{total}] Waiting to start the next novel...")
                 except Exception as e:
                     failed += 1
+                    failed_items.append({
+                        "novel_id": novel_id,
+                        "title": title or novel_id,
+                        "error": str(e),
+                    })
                     self.log_message(f"[{idx}/{total}] FAILED novel {novel_id}: {e}")
 
                 time.sleep(2)
 
-            self.log_message(f"Batch complete! OK: {succeeded}, Failed: {failed}, Skipped: {skipped}")
+            self.log_message(
+                f"Batch complete! OK: {succeeded}, Failed: {failed}, "
+                f"Warnings: {len(warning_items)}, Skipped: {skipped}"
+            )
+            if failed_items:
+                self.log_message("Failed novels:")
+                for item in failed_items:
+                    nid = item.get("novel_id", "?")
+                    item_title = item.get("title") or nid
+                    err = item.get("error") or "download failed"
+                    self.log_message(f"  - [{nid}] {item_title}: {err}")
+            if warning_items:
+                self.log_message("Novels with warnings:")
+                for item in warning_items:
+                    nid = item.get("novel_id", "?")
+                    item_title = item.get("title") or nid
+                    warning_text = self._batch_result_warning_summary(item)
+                    self.log_message(f"  - [{nid}] {item_title}: {warning_text}")
+                    for cid, chap_title, count in item.get("image_failure_chapters") or []:
+                        self.log_message(f"      image [{cid}] {chap_title}: {count} failed")
         except Exception as e:
             self.log_message(f"Batch download failed: {e}")
         finally:
@@ -2561,12 +2648,18 @@ class NovelpiaGUI(tk.Tk):
         novel_input = self.var_novel_id.get().strip()
         novel_id = extract_novel_id(novel_input)
         if not novel_id:
+            self._last_download_result = {
+                "status": "failed",
+                "novel_id": novel_input,
+                "title": novel_input or "(empty)",
+                "error": "Missing Novel ID",
+            }
             messagebox.showwarning(
                 "Missing Novel ID",
                 "Please enter a Novel ID or Novelpia URL before downloading.",
             )
             self.lbl_status.config(text="Idle")
-            return
+            return self._last_download_result
         if novel_input != novel_id:
             self.log_message(f"Resolved input to Novel ID: {novel_id}")
             self.var_novel_id.set(novel_id)
@@ -2580,7 +2673,8 @@ class NovelpiaGUI(tk.Tk):
         # a specific novel you have a self-contained transcript.
         per_novel_handler = self._begin_per_novel_log(novel_id)
         try:
-            self._download_worker_body(novel_id)
+            self._last_download_result = self._download_worker_body(novel_id)
+            return self._last_download_result
         finally:
             self._end_per_novel_log(per_novel_handler)
 
@@ -2629,6 +2723,7 @@ class NovelpiaGUI(tk.Tk):
     def _download_worker_body(self, novel_id):
         """The original _download_worker body, extracted so _download_worker
         can wrap it with per-novel log setup/teardown."""
+        output_error = None
 
         # Cache setup (loaded early so metadata can be cached too)
         use_cache = self.var_use_cache.get()
@@ -2678,7 +2773,12 @@ class NovelpiaGUI(tk.Tk):
             meta = self.downloader.fetch_metadata(novel_id)
             if not meta:
                 self.lbl_status.config(text="Idle")
-                return
+                return {
+                    "status": "failed",
+                    "novel_id": novel_id,
+                    "title": novel_id,
+                    "error": "Failed to fetch metadata",
+                }
             if use_cache:
                 cache_data['_meta'] = meta
 
@@ -2736,7 +2836,12 @@ class NovelpiaGUI(tk.Tk):
         chapters = self.downloader.fetch_chapter_list(novel_id, max_retries=max_retries)
         if not chapters:
             self.lbl_status.config(text="Idle")
-            return
+            return {
+                "status": "failed",
+                "novel_id": novel_id,
+                "title": meta.get('title', novel_id),
+                "error": "No chapters found",
+            }
 
         start_idx = (self.var_from_num.get() - 1) if self.var_from_enabled.get() else 0
         end_idx = self.var_to_num.get() if self.var_to_enabled.get() else len(chapters)
@@ -2746,7 +2851,12 @@ class NovelpiaGUI(tk.Tk):
         if not selected:
             self.log_message("No chapters selected.")
             self.lbl_status.config(text="Idle")
-            return
+            return {
+                "status": "failed",
+                "novel_id": novel_id,
+                "title": meta.get('title', novel_id),
+                "error": "No chapters selected",
+            }
 
         css = """div.svg_outer {
    display: block;
@@ -3060,6 +3170,7 @@ table, th, td {
                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
                 img_info = f" ({len(imgs)} images)" if imgs else ""
                 if img_fails:
+                    dl_stats.add_image_failures(chap['id'], chap.get('title', '?'), img_fails)
                     img_info += f", {img_fails} image failure(s)"
                 self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] {source_label}: {chap['title']}{img_info}")
 
@@ -3162,7 +3273,8 @@ table, th, td {
             try:
                 self._build_output(results, meta, css, cover_image, info_html)
             except Exception as e:
-                self.log_message(f"Output generation failed: {e}")
+                output_error = f"Output generation failed: {e}"
+                self.log_message(output_error)
 
             # Optional: keep re-encoding images at lower quality until the
             # final EPUB/PDF fits the user's target size.
@@ -3199,7 +3311,8 @@ table, th, td {
                                 plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
                                 f.write(f"{t}\n\n{plain}\n\n\n")
             except Exception as e:
-                self.log_message(f"Save failed: {e}")
+                output_error = f"Save failed: {e}"
+                self.log_message(output_error)
 
         # Final summary
         if dl_stats.total_images > 0:
@@ -3208,13 +3321,32 @@ table, th, td {
         if warn_text:
             self.log_message(warn_text)
         if self._stop_requested:
+            status = "stopped"
             self.log_message("Download stopped by user.")
+        elif output_error:
+            status = "failed"
+            self.log_message("Download finished with errors.")
         else:
+            status = "ok"
             self.log_message("Download Complete!")
         if _LOG_FILE:
             self.log_message(f"Log saved: {_LOG_FILE}")
+        result = {
+            "status": status,
+            "novel_id": novel_id,
+            "title": meta.get('title', novel_id),
+            "output_path": self._output_path,
+            "error": output_error,
+            "total_images": dl_stats.total_images,
+            "total_image_bytes": dl_stats.total_bytes,
+            "image_failures": dl_stats.image_failures,
+            "image_failure_chapters": list(dl_stats.image_failure_chapters),
+            "failed_chapters": list(dl_stats.failed_chapters),
+            "blocked_chapters": list(dl_stats.blocked_chapters),
+        }
         self._reset_progress()
         self.lbl_status.config(text="Idle")
+        return result
 
     # ------------------------------------------------------------------
     # Cache helpers
