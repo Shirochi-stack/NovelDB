@@ -316,17 +316,37 @@ class _DownloadStats:
                 lines.append(f"   \u2022 [{cid}] {title}")
         return "\n".join(lines)
 
-def _download_image_with_progress(session, url, logger, label="Image", max_retries=3):
+def _download_image_with_progress(
+    session,
+    url,
+    logger,
+    label="Image",
+    max_retries=3,
+    retry_delay=2.0,
+):
     """Stream-download an image, logging progress/speed. Returns bytes or None."""
+    try:
+        max_retries = max(1, int(max_retries))
+    except (TypeError, ValueError):
+        max_retries = 3
+    try:
+        retry_delay = max(0.0, float(retry_delay))
+    except (TypeError, ValueError):
+        retry_delay = 2.0
+
+    def retry_wait(attempt):
+        return min(60.0, retry_delay * (2 ** attempt))
+
     for attempt in range(max_retries):
         try:
             r = session.get(url, timeout=30, stream=True)
             if r.status_code != 200:
                 logger(f"  ✗ {label}: HTTP {r.status_code}")
                 if r.status_code >= 500 and attempt < max_retries - 1:
-                    wait = (attempt + 1) * 2
-                    logger(f"  ↻ Retrying {label} in {wait}s (attempt {attempt + 2}/{max_retries})...")
-                    time.sleep(wait)
+                    wait = retry_wait(attempt)
+                    logger(f"  ↻ Retrying {label} in {wait:g}s (attempt {attempt + 2}/{max_retries})...")
+                    if wait > 0:
+                        time.sleep(wait)
                     continue
                 return None
             total = int(r.headers.get('content-length', 0))
@@ -353,14 +373,16 @@ def _download_image_with_progress(session, url, logger, label="Image", max_retri
             return data
         except Exception as e:
             if attempt < max_retries - 1:
-                wait = (attempt + 1) * 2
+                wait = retry_wait(attempt)
                 logger(f"  ✗ {label}: {e}")
-                logger(f"  ↻ Retrying {label} in {wait}s (attempt {attempt + 2}/{max_retries})...")
-                time.sleep(wait)
+                logger(f"  ↻ Retrying {label} in {wait:g}s (attempt {attempt + 2}/{max_retries})...")
+                if wait > 0:
+                    time.sleep(wait)
+                continue
             else:
                 logger(f"  ✗ {label}: {e} (failed after {max_retries} attempts)")
                 return None
-        return None
+    return None
 
 def _detect_source_ext(img_bytes, url_hint=""):
     """Return the canonical file extension for raw image bytes.
@@ -512,7 +534,23 @@ def _strip_leading_whitespace(text):
     return text
 
 
-def extract_chapter_content_and_images(content_json, font_mapper, session, compress_images, jpeg_quality, image_format, logger, next_image_no, chapter_title="", chapter_num=None, convert_gifs=False, static_only=False, strip_leading_spaces=False):
+def extract_chapter_content_and_images(
+    content_json,
+    font_mapper,
+    session,
+    compress_images,
+    jpeg_quality,
+    image_format,
+    logger,
+    next_image_no,
+    chapter_title="",
+    chapter_num=None,
+    convert_gifs=False,
+    static_only=False,
+    strip_leading_spaces=False,
+    max_retries=3,
+    retry_delay=2.0,
+):
     """Return (html, images, image_failures).
 
     image_failures is the number of <img> tags whose download/processing
@@ -560,7 +598,14 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                     ch_num = f"[{chapter_num}] " if chapter_num is not None else ""
                     lbl = f"{ch_num}Image #{_img_counter[0]}{ch_tag}"
                     try:
-                        img_bytes = _download_image_with_progress(session, url_dl, logger, label=lbl)
+                        img_bytes = _download_image_with_progress(
+                            session,
+                            url_dl,
+                            logger,
+                            label=lbl,
+                            max_retries=max_retries,
+                            retry_delay=retry_delay,
+                        )
                         if not img_bytes:
                             _img_failures[0] += 1
                             return ""
@@ -1214,9 +1259,9 @@ class NovelpiaGUI(tk.Tk):
         spn_retries.pack(side="left")
         ToolTip(
             spn_retries,
-            "Max download attempts per chapter before giving up.\n"
+            "Max download attempts per chapter/image before giving up.\n"
             "Novelpia's viewer endpoint can be flaky; 5 is the sensible default.\n"
-            "Each retry uses exponential backoff (1s, 2s, 4s, 8s, 8s).",
+            "Chapter retries use downloader backoff; image retries use Interval as the backoff base.",
         )
         chk_cache = ttk.Checkbutton(notices_frame, text="Use Cache", variable=self.var_use_cache)
         chk_cache.pack(side="left", padx=15)
@@ -2672,6 +2717,10 @@ class NovelpiaGUI(tk.Tk):
             max_retries = max(1, int(self.var_max_retries.get() or 5))
         except Exception:
             max_retries = 5
+        try:
+            image_retry_delay = max(0.0, min(60.0, float(self.var_interval.get() or 0.0)))
+        except Exception:
+            image_retry_delay = 0.5
 
         # Notices
         notice_items = []
@@ -2810,6 +2859,7 @@ table, th, td {
                     self.log_message,
                     label="Cover image",
                     max_retries=max_retries,
+                    retry_delay=image_retry_delay,
                 )
                 if data:
                     cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
@@ -2993,6 +3043,8 @@ table, th, td {
                 convert_gifs=convert_gifs,
                 static_only=static_only,
                 strip_leading_spaces=strip_leading_spaces,
+                max_retries=max_retries,
+                retry_delay=interval,
             )
             return idx, content_json, hb, imgs, img_fails
 
@@ -3058,15 +3110,11 @@ table, th, td {
                                 self.log_message("Download stopped by user.")
                                 break
                             batch = uncached_indices[i:i + threads]
-                            try:
-                                _retries = max(1, int(self.var_max_retries.get() or 5))
-                            except Exception:
-                                _retries = 5
                             f_map = {
                                 chapter_executor.submit(
                                     self.downloader.download_chapter_content,
                                     selected_total[x]['id'],
-                                    _retries,
+                                    max_retries,
                                 ): x
                                 for x in batch
                             }
