@@ -1289,7 +1289,7 @@ class NovelpiaGUI(tk.Tk):
         ToolTip(chk_cache, "Cache downloaded chapter data per novel.\nOn re-download only new chapters are fetched.")
         chk_cache_imgs = ttk.Checkbutton(notices_frame, text="Cache Images", variable=self.var_cache_images)
         chk_cache_imgs.pack(side="left", padx=(0, 5))
-        ToolTip(chk_cache_imgs, "Also cache processed images (heavy).\nMakes re-downloads fully offline but uses more disk.")
+        ToolTip(chk_cache_imgs, "Also cache processed chapter images and cover images (heavy).\nMakes re-downloads fully offline but uses more disk.")
         btn_open_cache = ttk.Button(
             notices_frame, text="Open Cache Folder", command=self.action_open_cache_folder
         )
@@ -2752,6 +2752,7 @@ class NovelpiaGUI(tk.Tk):
                         with open(cache_path, 'r', encoding='utf-8') as f:
                             cache_data = json.load(f)
                         stored_fp = cache_data.get('_image_fingerprint')
+                        has_full_image_cache = self._has_cached_images(cache_data)
                         if stored_fp and stored_fp != current_fp:
                             self._invalidate_cached_images(cache_data)
                             self.log_message(
@@ -2759,7 +2760,13 @@ class NovelpiaGUI(tk.Tk):
                                 "write; dropping cached images and re-processing "
                                 "from cached JSON."
                             )
-                        reserved = {'_meta', '_image_fingerprint'}
+                        elif not stored_fp and has_full_image_cache:
+                            self._invalidate_cached_images(cache_data)
+                            self.log_message(
+                                "\u26a0 Legacy image cache has no settings fingerprint; "
+                                "dropping cached images and re-processing from cached JSON."
+                            )
+                        reserved = {'_meta', '_image_fingerprint', '_cover_image'}
                         chapter_count = sum(1 for k in cache_data if k not in reserved)
                         self.log_message(f"Cache loaded ({chapter_count} chapters cached).")
                     except Exception:
@@ -2960,41 +2967,67 @@ table, th, td {
         cover_image = None
         # cover
         if meta.get('cover_url'):
-            try:
-                self.lbl_status.config(text="Fetching cover...")
-                self.log_message(f"Fetching cover image: {meta['cover_url']}")
-                data = _download_image_with_progress(
-                    self.auth.session,
-                    meta['cover_url'],
-                    self.log_message,
-                    label="Cover image",
-                    max_retries=max_retries,
-                    retry_delay=image_retry_delay,
-                )
-                if data:
-                    cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
-                    # Use separate cover compression settings
-                    if self.var_compress_cover.get() and Image is not None:
-                        try:
-                            im = Image.open(io.BytesIO(data))
-                            cover_fmt = self.var_cover_format.get()
-                            # Shared encoder: preserves animation when source is an
-                            # animated WEBP/AVIF and target supports it.
-                            data, cover_ext = _encode_image_bytes(
-                                im, cover_fmt, self.var_cover_quality.get(),
-                                logger=self.log_message,
-                                static_only=self.var_static_only.get(),
+            cover_fp = self._cover_cache_fingerprint()
+            cached_cover = cache_data.get('_cover_image') if (use_cache and cache_images) else None
+            if isinstance(cached_cover, dict):
+                try:
+                    if (
+                        cached_cover.get('url') == meta.get('cover_url')
+                        and cached_cover.get('fingerprint') == cover_fp
+                    ):
+                        filename = cached_cover.get('filename') or ''
+                        data = base64.b64decode(cached_cover.get('data') or '')
+                        if filename and data:
+                            cover_image = {"filename": filename, "data": data}
+                            self.log_message(
+                                f"Cached cover image: {filename} ({_format_size(len(data))})"
                             )
-                        except Exception as cov_err:
-                            self.log_message(f"\u26a0 Cover conversion failed: {cov_err}")
-                    self.log_message(
-                        f"  Cover image: cover.{cover_ext} ({_format_size(len(data))})"
+                except Exception as cov_cache_err:
+                    self.log_message(f"\u26a0 Cached cover image invalid; refetching ({cov_cache_err})")
+
+            if cover_image is None:
+                try:
+                    self.lbl_status.config(text="Fetching cover...")
+                    self.log_message(f"Fetching cover image: {meta['cover_url']}")
+                    data = _download_image_with_progress(
+                        self.auth.session,
+                        meta['cover_url'],
+                        self.log_message,
+                        label="Cover image",
+                        max_retries=max_retries,
+                        retry_delay=image_retry_delay,
                     )
-                    cover_image = {"filename": f"cover.{cover_ext}", "data": data}
-                else:
-                    self.log_message("\u26a0 Cover fetch failed; continuing without EPUB cover.")
-            except Exception as e:
-                self.log_message(f"\u26a0 Cover fetch failed: {e}")
+                    if data:
+                        cover_ext = _detect_source_ext(data, meta.get('cover_url', ''))
+                        # Use separate cover compression settings
+                        if self.var_compress_cover.get() and Image is not None:
+                            try:
+                                im = Image.open(io.BytesIO(data))
+                                cover_fmt = self.var_cover_format.get()
+                                # Shared encoder: preserves animation when source is an
+                                # animated WEBP/AVIF and target supports it.
+                                data, cover_ext = _encode_image_bytes(
+                                    im, cover_fmt, self.var_cover_quality.get(),
+                                    logger=self.log_message,
+                                    static_only=self.var_static_only.get(),
+                                )
+                            except Exception as cov_err:
+                                self.log_message(f"\u26a0 Cover conversion failed: {cov_err}")
+                        self.log_message(
+                            f"  Cover image: cover.{cover_ext} ({_format_size(len(data))})"
+                        )
+                        cover_image = {"filename": f"cover.{cover_ext}", "data": data}
+                        if use_cache and cache_images:
+                            cache_data['_cover_image'] = {
+                                'url': meta.get('cover_url', ''),
+                                'fingerprint': cover_fp,
+                                'filename': cover_image['filename'],
+                                'data': base64.b64encode(cover_image['data']).decode('ascii'),
+                            }
+                    else:
+                        self.log_message("\u26a0 Cover fetch failed; continuing without EPUB cover.")
+                except Exception as e:
+                    self.log_message(f"\u26a0 Cover fetch failed: {e}")
 
         info_html = None
         # Add info.xhtml with metadata below the cover (matches original repo layout)
@@ -3094,6 +3127,8 @@ table, th, td {
         # Process cached chapters first
         uncached_indices = []
         cached_json_jobs = []
+        full_cache_hits = 0
+        json_cache_hits = 0
         if use_cache:
             for idx, chap in enumerate(selected_total):
                 chap_id = chap['id']
@@ -3119,11 +3154,13 @@ table, th, td {
                             results[idx] = (chap['title'], cached_html, cached_imgs, chap.get('is_notice', False))
                             self.log_message(f"Cached: {chap['title']}")
                             self._update_progress(value=self.progress_value + 1)
+                            full_cache_hits += 1
                         else:
                             # JSON-only cache hit — still need to process images
                             content_json = _cache_entry_to_json(entry)
                             if content_json:
                                 cached_json_jobs.append((idx, content_json))
+                                json_cache_hits += 1
                             else:
                                 uncached_indices.append(idx)
                     except Exception as e:
@@ -3131,9 +3168,13 @@ table, th, td {
                         uncached_indices.append(idx)
                 else:
                     uncached_indices.append(idx)
-            cached_count = len(selected_total) - len(uncached_indices)
+            cached_count = full_cache_hits + json_cache_hits
             if cached_count > 0:
-                self.log_message(f"{cached_count} chapters from cache, {len(uncached_indices)} to download.")
+                self.log_message(
+                    f"Cache hits: {full_cache_hits} full, "
+                    f"{json_cache_hits} JSON-only/reprocess images; "
+                    f"{len(uncached_indices)} chapter(s) need network download."
+                )
         else:
             uncached_indices = list(range(len(selected_total)))
 
@@ -3314,6 +3355,15 @@ table, th, td {
                 output_error = f"Save failed: {e}"
                 self.log_message(output_error)
 
+        if self._output_path and os.path.exists(self._output_path):
+            try:
+                self.log_message(
+                    f"Output file: {self._output_path} "
+                    f"({_format_size(os.path.getsize(self._output_path))})"
+                )
+            except OSError:
+                pass
+
         # Final summary
         if dl_stats.total_images > 0:
             self.log_message(f"📊 {dl_stats.summary()}")
@@ -3368,6 +3418,32 @@ table, th, td {
         ]
         return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
 
+    def _cover_cache_fingerprint(self):
+        """Return a short hash of settings that influence cached cover bytes."""
+        import hashlib
+        compress_cover = bool(self.var_compress_cover.get())
+        parts = [
+            "v1",
+            str(compress_cover),
+        ]
+        if compress_cover:
+            parts.extend([
+                str(int(self.var_cover_quality.get() or 0)),
+                str(self.var_cover_format.get() or ""),
+                str(bool(self.var_static_only.get())),
+            ])
+        return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
+
+    @staticmethod
+    def _has_cached_images(cache_data):
+        reserved = {'_meta', '_image_fingerprint', '_cover_image'}
+        for k, entry in cache_data.items():
+            if k in reserved:
+                continue
+            if isinstance(entry, dict) and 'html' in entry and 'images' in entry:
+                return True
+        return False
+
     @staticmethod
     def _invalidate_cached_images(cache_data):
         """Strip html+images from each chapter entry, keeping only raw json.
@@ -3377,7 +3453,7 @@ table, th, td {
         JSON-only are left untouched. Reserved keys (`_meta`,
         `_image_fingerprint`) are preserved.
         """
-        reserved = {'_meta', '_image_fingerprint'}
+        reserved = {'_meta', '_image_fingerprint', '_cover_image'}
         for k, entry in list(cache_data.items()):
             if k in reserved:
                 continue
