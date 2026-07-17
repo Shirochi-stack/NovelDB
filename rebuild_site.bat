@@ -16,17 +16,16 @@ python scripts/merge_translated_tags.py --recompress-only
 if errorlevel 1 goto :error
 echo.
 
-echo [3/9] Refreshing gzipped description files...
-python scripts/gzip_text_files.py docs/data/descriptions.txt docs/data/sfacg_descriptions.txt docs/data/kakao_descriptions.txt
-if errorlevel 1 goto :error
+echo [3/9] Selecting the newest description sources...
+echo   (The shard builder automatically prefers a newer .gz corpus.)
 echo.
 
-echo [4/9] Chunking description files...
-python scripts/chunk_descriptions.py docs/data/descriptions.txt --prefix descriptions_chunk --output-dir docs/data -n 3
+echo [4/9] Building on-demand description shards...
+python scripts/chunk_descriptions.py docs/data/descriptions.txt --prefix descriptions_shard --output-dir docs/data -n 128
 if errorlevel 1 goto :error
-python scripts/chunk_descriptions.py docs/data/sfacg_descriptions.txt --prefix sfacg_descriptions_chunk --output-dir docs/data -n 10
+python scripts/chunk_descriptions.py docs/data/sfacg_descriptions.txt --prefix sfacg_descriptions_shard --output-dir docs/data -n 128
 if errorlevel 1 goto :error
-python scripts/chunk_descriptions.py docs/data/kakao_descriptions.txt --prefix kakao_descriptions_chunk --output-dir docs/data -n 5
+python scripts/chunk_descriptions.py docs/data/kakao_descriptions.txt --prefix kakao_descriptions_shard --output-dir docs/data -n 128
 if errorlevel 1 goto :error
 echo.
 

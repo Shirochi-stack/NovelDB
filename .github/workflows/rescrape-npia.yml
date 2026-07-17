@@ -40,7 +40,7 @@ jobs:
         run: python scripts/gzip_text_files.py docs/data/descriptions.txt
 
       - name: Chunk Novelpia descriptions
-        run: python scripts/chunk_descriptions.py docs/data/descriptions.txt --prefix descriptions_chunk --output-dir docs/data -n 3
+        run: python scripts/chunk_descriptions.py docs/data/descriptions.txt --prefix descriptions_shard --output-dir docs/data -n 128
 
       - name: Re-chunk Novelpia data (with embedded translations)
         run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
@@ -59,6 +59,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/novels.json'))))")
-          git add docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_chunk_*.txt.gz docs/data/descriptions_chunk_manifest.json docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json docs/data/novelpia_top.json.gz
+          git add docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_shard_*.json.gz docs/data/descriptions_shard_manifest.json docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json docs/data/novelpia_top.json.gz
           git commit -m "🔄 Update Npia data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
           git push

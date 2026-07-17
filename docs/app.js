@@ -5599,10 +5599,6 @@
         return String(tl(tag) || tag || "").trim();
     }
 
-    function displayTagKey(tag) {
-        return normalizeTagText(displayTagLabel(tag)) || normalizeTagText(tag);
-    }
-
     function baseTagGroup(tag) {
         const raw = String(tag || "").trim().toLowerCase();
         const label = normalizeTagText(tl(tag));
@@ -5618,38 +5614,26 @@
         return "";
     }
 
-    function tagMatchKeys(tag) {
+    function tagMatchKey(tag) {
         const cacheKey = String(tag || "");
         if (TAG_KEY_CACHE.has(cacheKey)) return TAG_KEY_CACHE.get(cacheKey);
         const raw = normalizeTagText(cacheKey);
-        const keys = [`raw:${raw}`, `label:${normalizeTagText(tl(tag))}`];
         const group = baseTagGroup(tag);
-        if (group) keys.push(group);
-        TAG_KEY_CACHE.set(cacheKey, keys);
-        return keys;
+        const key = group || `label:${normalizeTagText(tl(tag)) || raw}`;
+        TAG_KEY_CACHE.set(cacheKey, key);
+        return key;
     }
 
-    function makeNovelTagKeys(tags) {
-        const keys = new Set();
-        for (const tag of tags || []) {
-            for (const key of tagMatchKeys(tag)) keys.add(key);
-        }
-        return keys;
-    }
-
-    function novelMatchesTag(novelTagKeys, selectedTag) {
-        for (const key of tagMatchKeys(selectedTag)) {
-            if (novelTagKeys.has(key)) return true;
+    function novelMatchesTag(novelTags, selectedTag) {
+        const selectedKey = tagMatchKey(selectedTag);
+        for (const tag of novelTags || []) {
+            if (tagMatchKey(tag) === selectedKey) return true;
         }
         return false;
     }
 
     function tagsMatch(a, b) {
-        const aKeys = new Set(tagMatchKeys(a));
-        for (const key of tagMatchKeys(b)) {
-            if (aKeys.has(key)) return true;
-        }
-        return false;
+        return tagMatchKey(a) === tagMatchKey(b);
     }
 
     function findMatchingSelectedTag(tagSet, tag) {
@@ -5665,7 +5649,6 @@
 
     // === State ===
     let allNovels = [];
-    let titleTranslations = {};  // id -> english title
     let filtered = [];
     let andTags = new Set();
     let orTags = new Set();
@@ -5736,7 +5719,7 @@
             for (const rawTag of n.tags || []) {
                 const tag = String(rawTag || "").trim();
                 if (!tag) continue;
-                const key = collapseByTranslation ? `label:${displayTagKey(tag)}` : `raw:${tag}`;
+                const key = collapseByTranslation ? tagMatchKey(tag) : `raw:${tag}`;
                 if (seenInNovel.has(key)) continue;
                 seenInNovel.add(key);
 
@@ -6077,7 +6060,7 @@
             const hasAndTags = andTags.size > 0;
             const hasOrTags = orTags.size > 0;
             if (hasAndTags || hasOrTags) {
-                const novelTags = n._tagKeys || makeNovelTagKeys(n.tags);
+                const novelTags = n.tags;
                 // All AND tags must match
                 if (hasAndTags) {
                     for (const t of andTags) {
@@ -6096,7 +6079,7 @@
 
             // Tag filter (exclude)
             if (excludeTags.size > 0) {
-                const novelTags = n._tagKeys || makeNovelTagKeys(n.tags);
+                const novelTags = n.tags;
                 for (const t of excludeTags) {
                     if (novelMatchesTag(novelTags, t)) return false;
                 }
@@ -6206,6 +6189,7 @@
 
         const synopsisHTML = n.synopsis ? `
                 <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(n.synopsis).replace(/\n+/g, '<br>')}</div>` : "";
+        if (!n.synopsis) card.dataset.needsSynopsis = "true";
 
         card.innerHTML = `
             <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
@@ -6331,7 +6315,7 @@
             for (let i = start; i < end; i++) {
                 resultsEl.appendChild(renderCard(filtered[i]));
             }
-            hydrateVisibleSynopses();
+            observeMissingSynopses();
 
             // Stagger image loading: load one visible desktop row at a time.
             const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
@@ -6584,7 +6568,7 @@
 
     // === DOM ref ===
     const sourceSelect = $("#sourceSelect");
-    const DATA_VERSION = "2026-05-27-3";
+    const DATA_VERSION = "2026-07-17-1";
 
     function versionedDataUrl(url) {
         const sep = url.includes("?") ? "&" : "?";
@@ -6602,9 +6586,8 @@
             chunkCount: 5,
             chunkPrefix: "data/novelpia_chunk_",
             topUrl: "data/novelpia_top.json.gz",
-            descriptionChunkCount: 3,
-            descriptionChunkPrefix: "data/descriptions_chunk_",
-            descriptionsUrl: "data/descriptions.txt.gz",
+            descriptionShardCount: 128,
+            descriptionShardPrefix: "data/descriptions_shard_",
         },
         kakao: {
             dataUrl: "data/kakao_novels.json",
@@ -6614,9 +6597,8 @@
             chunked: true,
             chunkCount: 3,
             chunkPrefix: "data/kakao_chunk_",
-            descriptionChunkCount: 5,
-            descriptionChunkPrefix: "data/kakao_descriptions_chunk_",
-            descriptionsUrl: "data/kakao_descriptions.txt.gz",
+            descriptionShardCount: 128,
+            descriptionShardPrefix: "data/kakao_descriptions_shard_",
         },
         sfacg: {
             dataUrl: "data/sfacg_novels.json",
@@ -6628,16 +6610,19 @@
             chunkCount: 10,
             chunkPrefix: "data/sfacg_chunk_",
             topUrl: "data/sfacg_top.json.gz",
-            descriptionChunkCount: 10,
-            descriptionChunkPrefix: "data/sfacg_descriptions_chunk_",
-            descriptionsUrl: "data/sfacg_descriptions.txt.gz",
+            descriptionShardCount: 128,
+            descriptionShardPrefix: "data/sfacg_descriptions_shard_",
         },
     };
 
     let currentSource = "novelpia";
-    let novelIndex = new Map();
-    const descriptionCache = new Map();
-    const descriptionLoadPromises = new Map();
+    let activeCatalogController = null;
+    const descriptionShardCache = new Map();
+    const descriptionShardPromises = new Map();
+    const descriptionLoadQueue = [];
+    const MAX_DESCRIPTION_SHARDS = 18;
+    const DESCRIPTION_LOAD_CONCURRENCY = 4;
+    let activeDescriptionLoads = 0;
 
     async function fetchWithProgress(url) {
         const resp = await fetch(url);
@@ -6662,42 +6647,36 @@
             const blob = new Blob(chunks);
             const text = await blob.text();
             resultsEl.innerHTML = `<div class="loading-spinner">Parsing ${(received / 1024 / 1024).toFixed(1)} MB...</div>`;
-            return await parseJsonAsync(text);
+            return JSON.parse(text);
         } else {
             return await resp.json();
         }
     }
 
     /** Fetch a .gz text file and decompress it client-side. */
-    async function fetchGzText(url) {
+    async function fetchGzText(url, signal) {
         const fetchUrl = versionedDataUrl(url);
-        const resp = await fetch(fetchUrl);
+        const resp = await fetch(fetchUrl, { signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
-        // Use DecompressionStream to decompress gzip on the fly
-        const ds = new DecompressionStream("gzip");
-        const decompressed = resp.body.pipeThrough(ds);
-        const reader = decompressed.getReader();
-        const chunks = [];
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
+        if (!resp.body || typeof DecompressionStream === "undefined") {
+            throw new Error("This browser does not support streaming gzip decompression");
         }
-        const blob = new Blob(chunks);
-        return await blob.text();
+        const decompressed = resp.body.pipeThrough(new DecompressionStream("gzip"));
+        return await new Response(decompressed).text();
     }
 
     /** Fetch a .json.gz file, decompress client-side, parse JSON */
-    async function fetchGzChunk(url) {
-        return await parseJsonAsync(await fetchGzText(url));
+    async function fetchGzChunk(url, signal) {
+        return JSON.parse(await fetchGzText(url, signal));
     }
 
-    async function fetchGzChunkWithRetry(url, attempts = 2) {
+    async function fetchGzChunkWithRetry(url, attempts = 2, signal) {
         let lastErr;
         for (let attempt = 1; attempt <= attempts; attempt++) {
             try {
-                return await fetchGzChunk(url);
+                return await fetchGzChunk(url, signal);
             } catch (err) {
+                if (err && err.name === "AbortError") throw err;
                 lastErr = err;
                 if (attempt < attempts) {
                     await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
@@ -6707,17 +6686,6 @@
         throw lastErr;
     }
 
-    function novelIndexKey(sourceName, id) {
-        return `${sourceName || ""}:${String(id)}`;
-    }
-
-    function rebuildNovelIndex() {
-        novelIndex = new Map();
-        for (const n of allNovels) {
-            novelIndex.set(novelIndexKey(n.source || currentSource, n.id), n);
-        }
-    }
-
     function normalizeSynopsis(text) {
         return String(text || "")
             .replace(/\\r\\n|\\n/g, "\n")
@@ -6725,102 +6693,11 @@
             .trim();
     }
 
-    function parseDelimitedDescription(line) {
-        const first = line.indexOf("|||");
-        if (first < 0) return [line.trim(), "", ""];
-        const nid = line.slice(0, first).trim();
-        const rest = line.slice(first + 3);
-        const last = rest.lastIndexOf("|||");
-        if (last < 0) return [nid, rest, ""];
-        return [nid, rest.slice(0, last), rest.slice(last + 3)];
-    }
-
-    function hasCjkText(text) {
-        return Array.from(String(text || "")).some((c) =>
-            ("\u3040" <= c && c <= "\u30ff") ||
-            ("\u3400" <= c && c <= "\u4dbf") ||
-            ("\u4e00" <= c && c <= "\u9fff") ||
-            ("\uf900" <= c && c <= "\ufaff") ||
-            ("\uac00" <= c && c <= "\ud7af")
-        );
-    }
-
-    function hasAsciiLetterText(text) {
-        return /[A-Za-z]/.test(String(text || ""));
-    }
-
-    function descriptionTextFromLine(line) {
-        const [nid, original, english] = parseDelimitedDescription(line);
-        if (!nid) return null;
-        const eng = normalizeSynopsis(english);
-        const orig = normalizeSynopsis(original);
-        const text = eng && !hasCjkText(eng) && hasAsciiLetterText(eng) ? eng : orig;
-        return text ? { id: nid, text } : null;
-    }
-
-    function descriptionCacheKey(sourceName, novelId) {
-        return novelIndexKey(sourceName, novelId);
-    }
-
-    function applyCachedDescriptions(novels) {
-        for (const novel of novels) {
-            if (!novel || novel.synopsis) continue;
-            const cached = descriptionCache.get(descriptionCacheKey(novel.source, novel.id));
-            if (cached) novel.synopsis = cached;
-        }
-    }
-
-    function descriptionUrlsForSource(cfg) {
-        if (cfg.descriptionChunkCount && cfg.descriptionChunkPrefix) {
-            return Array.from(
-                { length: cfg.descriptionChunkCount },
-                (_, i) => `${cfg.descriptionChunkPrefix}${i}.txt.gz`
-            );
-        }
-        return cfg.descriptionsUrl ? [cfg.descriptionsUrl] : [];
-    }
-
-    async function streamGzLines(url, onLines) {
-        const fetchUrl = versionedDataUrl(url);
-        const resp = await fetch(fetchUrl);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
-        if (!resp.body || typeof DecompressionStream === "undefined") {
-            const text = await fetchGzText(url);
-            onLines(text.split(/\r?\n/));
-            return;
-        }
-
-        const ds = new DecompressionStream("gzip");
-        const reader = resp.body.pipeThrough(ds).getReader();
-        const decoder = new TextDecoder();
-        let pending = "";
-        let batch = [];
-
-        while (true) {
-            const { done, value } = await reader.read();
-            const chunkText = pending + decoder.decode(value || new Uint8Array(), { stream: !done });
-            const lines = chunkText.split("\n");
-            pending = done ? "" : lines.pop();
-
-            for (const line of lines) {
-                batch.push(line.endsWith("\r") ? line.slice(0, -1) : line);
-                if (batch.length >= 1000) {
-                    onLines(batch);
-                    batch = [];
-                    await new Promise((resolve) => requestAnimationFrame(resolve));
-                }
-            }
-
-            if (done) break;
-        }
-
-        if (pending) batch.push(pending.endsWith("\r") ? pending.slice(0, -1) : pending);
-        if (batch.length) onLines(batch);
-    }
-
     function updateCardSynopsis(card, synopsis) {
         const body = card.querySelector(".card-body");
         if (!body || !synopsis) return;
+        synopsis = normalizeSynopsis(synopsis);
+        if (!synopsis) return;
         let synopsisEl = body.querySelector(".card-synopsis");
         if (!synopsisEl) {
             synopsisEl = document.createElement("div");
@@ -6828,50 +6705,109 @@
             body.appendChild(synopsisEl);
         }
         synopsisEl.innerHTML = `<span class="synopsis-label">Synopsis:</span> ${escHtml(synopsis).replace(/\n+/g, "<br>")}`;
+        delete card.dataset.needsSynopsis;
     }
 
-    function hydrateVisibleSynopses(changedKeys = null) {
-        resultsEl.querySelectorAll(".novel-card[data-source][data-novel-id]").forEach((card) => {
-            const key = novelIndexKey(card.dataset.source, card.dataset.novelId);
-            if (changedKeys && !changedKeys.has(key)) return;
-            const novel = novelIndex.get(key);
-            if (novel && novel.synopsis) updateCardSynopsis(card, novel.synopsis);
+    function descriptionShardIndex(novelId, shardCount) {
+        const text = String(novelId || "");
+        if (/^-?\d+$/.test(text)) {
+            const numericId = Number(text);
+            if (Number.isSafeInteger(numericId)) return Math.abs(numericId) % shardCount;
+        }
+        let value = 0;
+        for (let index = 0; index < text.length; index++) {
+            value = ((value * 31) + text.charCodeAt(index)) >>> 0;
+        }
+        return value % shardCount;
+    }
+
+    function scheduleDescriptionLoad(task) {
+        return new Promise((resolve, reject) => {
+            descriptionLoadQueue.push({ task, resolve, reject });
+            drainDescriptionLoadQueue();
         });
     }
 
-    function applyDescriptionLines(sourceName, lines) {
-        const changedKeys = new Set();
-        for (const line of lines) {
-            if (!line || !line.includes("|||")) continue;
-            const row = descriptionTextFromLine(line);
-            if (!row) continue;
-            const key = descriptionCacheKey(sourceName, row.id);
-            descriptionCache.set(key, row.text);
-            const novel = novelIndex.get(key);
-            if (!novel || novel.synopsis) continue;
-            novel.synopsis = row.text;
-            changedKeys.add(key);
+    function drainDescriptionLoadQueue() {
+        while (activeDescriptionLoads < DESCRIPTION_LOAD_CONCURRENCY && descriptionLoadQueue.length) {
+            const entry = descriptionLoadQueue.shift();
+            activeDescriptionLoads++;
+            Promise.resolve()
+                .then(entry.task)
+                .then(entry.resolve, entry.reject)
+                .finally(() => {
+                    activeDescriptionLoads--;
+                    drainDescriptionLoadQueue();
+                });
         }
-        if (changedKeys.size) hydrateVisibleSynopses(changedKeys);
     }
 
-    function sourceNamesForLazyDescriptions(source) {
-        return source === "all" ? ["novelpia", "kakao", "sfacg"] : [source];
+    function cacheDescriptionShard(key, descriptions) {
+        if (descriptionShardCache.has(key)) descriptionShardCache.delete(key);
+        descriptionShardCache.set(key, descriptions);
+        while (descriptionShardCache.size > MAX_DESCRIPTION_SHARDS) {
+            descriptionShardCache.delete(descriptionShardCache.keys().next().value);
+        }
     }
 
-    function startLazyDescriptionLoads(source) {
-        rebuildNovelIndex();
-        for (const sourceName of sourceNamesForLazyDescriptions(source)) {
-            const cfg = SOURCES[sourceName];
-            if (!cfg) continue;
-            for (const url of descriptionUrlsForSource(cfg)) {
-                const loadKey = `${sourceName}:${url}`;
-                if (!descriptionLoadPromises.has(loadKey)) {
-                    const promise = streamGzLines(url, (lines) => applyDescriptionLines(sourceName, lines))
-                        .catch((err) => console.warn(`Failed to lazy-load ${sourceName} descriptions from ${url}:`, err));
-                    descriptionLoadPromises.set(loadKey, promise);
-                }
+    function loadDescriptionShard(sourceName, novelId) {
+        const cfg = SOURCES[sourceName];
+        if (!cfg || !cfg.descriptionShardCount || !cfg.descriptionShardPrefix) {
+            return Promise.resolve({});
+        }
+        const shard = descriptionShardIndex(novelId, cfg.descriptionShardCount);
+        const key = `${sourceName}:${shard}`;
+        if (descriptionShardCache.has(key)) {
+            const descriptions = descriptionShardCache.get(key);
+            cacheDescriptionShard(key, descriptions);
+            return Promise.resolve(descriptions);
+        }
+        if (descriptionShardPromises.has(key)) return descriptionShardPromises.get(key);
+
+        const url = `${cfg.descriptionShardPrefix}${String(shard).padStart(3, "0")}.json.gz`;
+        const promise = scheduleDescriptionLoad(() => fetchGzChunkWithRetry(url))
+            .then((descriptions) => {
+                const safeDescriptions = descriptions && typeof descriptions === "object" ? descriptions : {};
+                cacheDescriptionShard(key, safeDescriptions);
+                return safeDescriptions;
+            })
+            .catch((err) => {
+                console.warn(`Failed to load synopsis shard ${url}:`, err);
+                return {};
+            })
+            .finally(() => descriptionShardPromises.delete(key));
+        descriptionShardPromises.set(key, promise);
+        return promise;
+    }
+
+    function requestCardSynopsis(card) {
+        if (!card.isConnected || card.dataset.needsSynopsis !== "true") return;
+        const sourceName = card.dataset.source;
+        const novelId = card.dataset.novelId;
+        loadDescriptionShard(sourceName, novelId).then((descriptions) => {
+            if (!card.isConnected || card.dataset.source !== sourceName || card.dataset.novelId !== novelId) return;
+            const synopsis = descriptions[String(novelId)];
+            if (synopsis) updateCardSynopsis(card, synopsis);
+        });
+    }
+
+    const descriptionObserver = typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                descriptionObserver.unobserve(entry.target);
+                requestCardSynopsis(entry.target);
             }
+        }, { rootMargin: "800px 0px" });
+
+    function observeMissingSynopses() {
+        if (descriptionObserver) descriptionObserver.disconnect();
+        const cards = resultsEl.querySelectorAll('.novel-card[data-needs-synopsis="true"]');
+        if (descriptionObserver) {
+            cards.forEach((card) => descriptionObserver.observe(card));
+        } else {
+            Array.from(cards).slice(0, 12).forEach(requestCardSynopsis);
         }
     }
 
@@ -6906,18 +6842,22 @@
      * Load a chunked+gzipped source progressively.
      * Fires onChunkLoaded after each chunk so the UI can update.
      */
-    async function fetchChunkedSource(cfg, sourceName, onChunkLoaded) {
+    async function fetchChunkedSource(cfg, sourceName, onChunkLoaded, signal) {
+        signal = signal || (activeCatalogController && activeCatalogController.signal);
         const { chunkCount, chunkPrefix } = cfg;
         let loaded = 0;
         let failed = 0;
-        const chunkPromises = [];
+        let nextChunk = 0;
+        const results = Array.from({ length: chunkCount }, () => []);
 
-        for (let i = 0; i < chunkCount; i++) {
-            const url = `${chunkPrefix}${i}.json.gz`;
-            chunkPromises.push(
-                fetchGzChunkWithRetry(url).then((raw) => {
+        async function loadNextChunks() {
+            while (nextChunk < chunkCount) {
+                const index = nextChunk++;
+                const url = `${chunkPrefix}${index}.json.gz`;
+                try {
+                    const raw = await fetchGzChunkWithRetry(url, 2, signal);
+                    if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
                     loaded++;
-                    // Detect embedded format: {novels, translations, descriptions}
                     let novelsData, translations, descriptions;
                     if (raw && !Array.isArray(raw) && raw.novels) {
                         novelsData = raw.novels;
@@ -6929,47 +6869,31 @@
                         descriptions = {};
                     }
                     const novels = parseNovels(novelsData, sourceName, cfg);
-                    // Apply embedded translations. Descriptions are normally lazy-loaded separately;
-                    // keep this for compatibility with older chunk files.
-                    for (const n of novels) {
-                        const sid = String(n.id);
-                        if (translations[sid]) n.titleEn = translations[sid];
-                        if (descriptions[sid]) n.synopsis = normalizeSynopsis(descriptions[sid]);
+                    for (const novel of novels) {
+                        const id = String(novel.id);
+                        if (translations[id]) novel.titleEn = translations[id];
+                        if (descriptions[id]) novel.synopsis = normalizeSynopsis(descriptions[id]);
                     }
-                    applyCachedDescriptions(novels);
-                    onChunkLoaded(novels, loaded, chunkCount);
-                    return novels;
-                }).catch((err) => {
+                    results[index] = novels;
+                    if (onChunkLoaded) onChunkLoaded(novels, loaded, chunkCount);
+                } catch (err) {
+                    if (err && err.name === "AbortError") throw err;
                     failed++;
-                    console.warn(`Skipping ${sourceName} chunk ${i + 1}/${chunkCount}:`, err);
-                    return [];
-                })
-            );
+                    console.warn(`Skipping ${sourceName} chunk ${index + 1}/${chunkCount}:`, err);
+                }
+            }
         }
 
-        const results = await Promise.all(chunkPromises);
-        const novels = results.flat();
+        const concurrency = Math.min(2, chunkCount);
+        await Promise.all(Array.from({ length: concurrency }, () => loadNextChunks()));
+        const novels = [];
+        for (const chunk of results) {
+            for (const novel of chunk) novels.push(novel);
+        }
         if (novels.length === 0 && failed > 0) {
             throw new Error(`Failed to load ${sourceName} chunks (${failed}/${chunkCount})`);
         }
         return novels;
-    }
-
-    function parseJsonAsync(text) {
-        return new Promise((resolve, reject) => {
-            try {
-                const blob = new Blob([
-                    `self.onmessage = function(e) { self.postMessage(JSON.parse(e.data)); };`
-                ], { type: "application/javascript" });
-                const url = URL.createObjectURL(blob);
-                const worker = new Worker(url);
-                worker.onmessage = (e) => { URL.revokeObjectURL(url); worker.terminate(); resolve(e.data); };
-                worker.onerror = (e) => { URL.revokeObjectURL(url); worker.terminate(); resolve(JSON.parse(text)); };
-                worker.postMessage(text);
-            } catch (e) {
-                resolve(JSON.parse(text));
-            }
-        });
     }
 
 
@@ -6979,44 +6903,10 @@
         //                               synopsis, latestChapterTitle, latestChapterId, latestChapterTime]
         // Novelpia/Kakao format (13+ fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank, ...]
         const sfacg = cfg.sfacgRanks;
-        const novels = raw.map((r) => {
+        return raw.map((r) => {
             let tags = r[4];
             if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
-            const tagKeys = makeNovelTagKeys(tags);
-            if (sfacg) {
-                // SFACG: index 10=age, 11-16=ranks, 17=synopsis, 18-20=latest chapter
-                return {
-                    id: r[0],
-                    title: r[1] || "",
-                    author: r[2] || "",
-                    cover: r[3] ? (cfg.coverPrefix && !r[3].startsWith("http") ? cfg.coverPrefix + r[3] : r[3]) : "",
-                    tags,
-                    views: r[5] || 0,
-                    likes: r[6] || 0,
-                    chapters: r[7] || 0,
-                    complete: r[8] || 0,
-                    updated: r[9] || "",
-                    age: r[10] || 0,
-                    weeklyRank: 0, monthlyRank: 0, dailyRank: 0,
-                    weeklyRankAdult: 0, monthlyRankAdult: 0, dailyRankAdult: 0,
-                    weeklyRankTeen: 0, monthlyRankTeen: 0, dailyRankTeen: 0,
-                    popularityRank: r[11] || 0,
-                    bestSellerRank: r[12] || 0,
-                    newBooksRank: r[13] || 0,
-                    bookmarksRank: r[14] || 0,
-                    jpRank: r[15] || 0,
-                    ticketRank: r[16] || 0,
-                    synopsis: r[17] ? normalizeSynopsis(r[17]) : "",
-                    latestChapterTitle: r[18] || "",
-                    latestChapterId: r[19] || 0,
-                    latestChapterTime: r[20] || "",
-                    titleEn: "",
-                    source: sourceName,
-                    _tagKeys: tagKeys,
-                };
-            }
-            // Novelpia / Kakao: index 10=weeklyRank, 11=age, 12+=more ranks
-            return {
+            const novel = {
                 id: r[0],
                 title: r[1] || "",
                 author: r[2] || "",
@@ -7027,37 +6917,52 @@
                 chapters: r[7] || 0,
                 complete: r[8] || 0,
                 updated: r[9] || "",
-                weeklyRank: r[10] || 0,
-                age: r[11] || 0,
-                monthlyRank: r[12] || 0,
-                dailyRank: r[13] || 0,
-                weeklyRankAdult: r[14] || 0,
-                monthlyRankAdult: r[15] || 0,
-                dailyRankAdult: r[16] || 0,
-                weeklyRankTeen: r[17] || 0,
-                monthlyRankTeen: r[18] || 0,
-                dailyRankTeen: r[19] || 0,
-                popularityRank: 0, bestSellerRank: 0, newBooksRank: 0, bookmarksRank: 0, jpRank: 0, ticketRank: 0,
-                synopsis: "",
-                titleEn: "",
+                age: (sfacg ? r[10] : r[11]) || 0,
                 source: sourceName,
-                _tagKeys: tagKeys,
             };
+            if (sfacg) {
+                novel.popularityRank = r[11] || 0;
+                novel.bestSellerRank = r[12] || 0;
+                novel.newBooksRank = r[13] || 0;
+                novel.bookmarksRank = r[14] || 0;
+                novel.jpRank = r[15] || 0;
+                novel.ticketRank = r[16] || 0;
+                if (r[17]) novel.synopsis = normalizeSynopsis(r[17]);
+                return novel;
+            }
+            novel.weeklyRank = r[10] || 0;
+            if (sourceName === "novelpia") {
+                novel.monthlyRank = r[12] || 0;
+                novel.dailyRank = r[13] || 0;
+                novel.weeklyRankAdult = r[14] || 0;
+                novel.monthlyRankAdult = r[15] || 0;
+                novel.dailyRankAdult = r[16] || 0;
+                novel.weeklyRankTeen = r[17] || 0;
+                novel.monthlyRankTeen = r[18] || 0;
+                novel.dailyRankTeen = r[19] || 0;
+            }
+            return novel;
         });
-        applyCachedDescriptions(novels);
-        return novels;
     }
 
-    // Title translations are embedded in chunks; full descriptions are lazy-loaded from parallel .txt.gz chunks.
+    // Title translations are embedded in catalog chunks; descriptions load only near the viewport.
 
     async function loadSource(source, keepState = false) {
+        if (activeCatalogController) activeCatalogController.abort();
+        const controller = new AbortController();
+        activeCatalogController = controller;
+        const { signal } = controller;
         currentSource = source;
-        // Only show loading spinner for sources that have a slow multi-phase load.
-        // SFACG and Kakao load fast enough that a spinner just causes a distracting flash.
-        if (source === "all" || source === "novelpia") {
-            resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
-            for (const bar of paginationBars) bar.style.display = "none";
-        }
+        if (descriptionObserver) descriptionObserver.disconnect();
+        for (const timer of pendingImageTimers) clearTimeout(timer);
+        pendingImageTimers = [];
+        resultsEl.querySelectorAll("img.card-cover").forEach((img) => { img.src = ""; });
+        allNovels = [];
+        filtered = [];
+        allTagGroups = [];
+        top80Tags.clear();
+        resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
+        for (const bar of paginationBars) bar.style.display = "none";
 
         // Clear filters (unless restoring state)
         if (!keepState) {
@@ -7072,12 +6977,14 @@
 
         try {
             await loadTagTranslations();
+            if (signal.aborted) return;
 
             // Helper: load top rankings instantly, return parsed novels with translations applied
-            async function loadTopRankings() {
-                const cfg = SOURCES.novelpia;
-                const data = await fetchGzChunk(cfg.topUrl);
-                const novels = parseNovels(data.novels, "novelpia", cfg);
+            async function loadTopRankings(sourceName) {
+                const cfg = SOURCES[sourceName];
+                if (!cfg || !cfg.topUrl) return null;
+                const data = await fetchGzChunk(cfg.topUrl, signal);
+                const novels = parseNovels(data.novels, sourceName, cfg);
                 // Apply embedded translations
                 if (data.translations) {
                     for (const n of novels) {
@@ -7099,12 +7006,11 @@
                 // === Instant load: show top rankings immediately ===
                 let topNovels = null;
                 try {
-                    topNovels = await loadTopRankings();
+                    topNovels = await loadTopRankings("novelpia");
                 } catch (e) { /* fall through to normal load */ }
 
                 if (topNovels && topNovels.length > 0) {
                     allNovels = [...topNovels];
-                    titleTranslations = {};
                     buildTags(allNovels);
                     applyFilters({ resetPage: false, fade: false });
                 }
@@ -7149,7 +7055,6 @@
                 allNovels = [...(topNovels || []), ...deduped];
                 // Translations & descriptions are now embedded in chunks
                 // Top novels already have translations from topUrl
-                titleTranslations = {};
                 buildTags(allNovels);
                 applyFilters({ resetPage: false, fade: false });
                 firstRendered = true;
@@ -7157,19 +7062,17 @@
                 // Await remaining sources (already loading in background)
                 const [kakaoNovels, sfacgNovels] = await Promise.all([kakaoPromise, sfacgPromise]);
                 allNovels = [...allNovels, ...kakaoNovels, ...sfacgNovels];
-                titleTranslations = {};
                 buildTags(allNovels);
                 applyFilters({ resetPage: false, fade: false });
             } else if (source === "novelpia") {
                 // === Single source: Novelpia with instant top ===
                 let topNovels = null;
                 try {
-                    topNovels = await loadTopRankings();
+                    topNovels = await loadTopRankings("novelpia");
                 } catch (e) { /* fall through */ }
 
                 if (topNovels && topNovels.length > 0) {
                     allNovels = [...topNovels];
-                    titleTranslations = {};
                     buildTags(allNovels);
                     applyFilters({ resetPage: false, fade: false });
                 }
@@ -7198,7 +7101,7 @@
                 let topNovels = null;
                 if (cfg.topUrl) {
                     try {
-                        const topData = await fetchGzChunk(cfg.topUrl);
+                        const topData = await fetchGzChunk(cfg.topUrl, signal);
                         topNovels = parseNovels(topData.novels, "sfacg", cfg);
                         if (topData.translations) {
                             for (const n of topNovels) {
@@ -7217,7 +7120,6 @@
 
                 if (topNovels && topNovels.length > 0) {
                     allNovels = [...topNovels];
-                    titleTranslations = {};
                     buildTags(allNovels);
                     applyFilters({ resetPage: false, fade: false });
                 }
@@ -7243,7 +7145,6 @@
                 if (cfg.chunked) {
                     // Progressive chunked loading — show results as chunks arrive
                     allNovels = [];
-                    titleTranslations = {};
                     let firstRender = true;
                     const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
                         allNovels.push(...chunk);
@@ -7260,15 +7161,17 @@
                 } else {
                     const raw = await fetchWithProgress(cfg.dataUrl);
                     allNovels = parseNovels(raw, source, cfg);
-                    titleTranslations = {};
                     // Translations and descriptions are embedded in chunks
                 }
             }
 
+            if (signal.aborted || activeCatalogController !== controller) return;
             buildTags(allNovels);
             applyFilters({ resetPage: false, fade: false });
-            startLazyDescriptionLoads(source);
+            activeCatalogController = null;
         } catch (err) {
+            if (activeCatalogController === controller) activeCatalogController = null;
+            if (err && err.name === "AbortError") return;
             console.error("Load error:", err);
             resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">
                 ❌ Failed to load ${source} data.<br>

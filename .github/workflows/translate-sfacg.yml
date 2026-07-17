@@ -116,7 +116,7 @@ jobs:
         run: python scripts/gzip_text_files.py docs/data/sfacg_descriptions.txt
 
       - name: Chunk SFACG descriptions
-        run: python scripts/chunk_descriptions.py docs/data/sfacg_descriptions.txt --prefix sfacg_descriptions_chunk --output-dir docs/data -n 10
+        run: python scripts/chunk_descriptions.py docs/data/sfacg_descriptions.txt --prefix sfacg_descriptions_shard --output-dir docs/data -n 128
 
       # --- Translate Tags ---
       - name: Extract untranslated SFACG tags
@@ -154,6 +154,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/sfacg_titles_en.txt docs/data/sfacg_titles_untranslated.txt docs/data/sfacg_descriptions.txt.gz docs/data/sfacg_descriptions_chunk_*.txt.gz docs/data/sfacg_descriptions_chunk_manifest.json docs/data/sfacg_descriptions_untranslated.txt docs/data/sfacg_tags_untranslated.txt docs/data/tags_en.txt docs/data/tags_en.txt.gz docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
+          git add docs/data/sfacg_titles_en.txt docs/data/sfacg_titles_untranslated.txt docs/data/sfacg_descriptions.txt.gz docs/data/sfacg_descriptions_shard_*.json.gz docs/data/sfacg_descriptions_shard_manifest.json docs/data/sfacg_descriptions_untranslated.txt docs/data/sfacg_tags_untranslated.txt docs/data/tags_en.txt docs/data/tags_en.txt.gz docs/data/sfacg_chunk_*.json.gz docs/data/sfacg_chunk_manifest.json docs/data/sfacg_top.json.gz
           git commit -m "🌐 Translate SFACG titles, descriptions, and tags ($(date -u +%Y-%m-%d))"
           git push

@@ -116,7 +116,7 @@ jobs:
         run: python scripts/gzip_text_files.py docs/data/kakao_descriptions.txt
 
       - name: Chunk Kakao descriptions
-        run: python scripts/chunk_descriptions.py docs/data/kakao_descriptions.txt --prefix kakao_descriptions_chunk --output-dir docs/data -n 5
+        run: python scripts/chunk_descriptions.py docs/data/kakao_descriptions.txt --prefix kakao_descriptions_shard --output-dir docs/data -n 128
 
       # --- Re-chunk Kakao data ---
       - name: Re-chunk Kakao data with embedded translations
@@ -133,6 +133,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/kakao_titles_en.txt docs/data/kakao_titles_untranslated.txt docs/data/kakao_descriptions.txt docs/data/kakao_descriptions.txt.gz docs/data/kakao_descriptions_chunk_*.txt.gz docs/data/kakao_descriptions_chunk_manifest.json docs/data/kakao_descriptions_untranslated.txt docs/data/kakao_chunk_*.json.gz docs/data/kakao_chunk_manifest.json
+          git add docs/data/kakao_titles_en.txt docs/data/kakao_titles_untranslated.txt docs/data/kakao_descriptions.txt docs/data/kakao_descriptions.txt.gz docs/data/kakao_descriptions_shard_*.json.gz docs/data/kakao_descriptions_shard_manifest.json docs/data/kakao_descriptions_untranslated.txt docs/data/kakao_chunk_*.json.gz docs/data/kakao_chunk_manifest.json
           git commit -m "Translate Kakao titles and descriptions ($(date -u +%Y-%m-%d))"
           git push
