@@ -1384,7 +1384,11 @@ class NovelpiaGUI(tk.Tk):
 
         btn_external = ttk.Button(dl_btns, text="External\nNovel", width=12, command=self._open_external_dialog)
         btn_external.pack(pady=5)
-        ToolTip(btn_external, "Download novels from non-Novelpia sites\n(syosetu, kakuyomu, biquge, etc.)\nUses the novel-downloader rule engine.")
+        ToolTip(
+            btn_external,
+            "Download Novelpia or external novels through the persistent "
+            "browser scraper\n(syosetu, kakuyomu, biquge, etc.).",
+        )
 
         # === RIGHT PANEL (Console) ===
         right_panel = ttk.Frame(self)

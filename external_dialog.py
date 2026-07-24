@@ -1,5 +1,5 @@
 """
-external_dialog.py — Tkinter dialog for downloading novels from non-Novelpia sites.
+external_dialog.py — Tkinter dialog for browser-based novel downloads.
 
 Provides a self-contained Toplevel window with:
   - URL input
@@ -58,11 +58,11 @@ def _format_size(num_bytes):
 
 
 class ExternalNovelDialog(tk.Toplevel):
-    """Tkinter Toplevel dialog for downloading novels from non-Novelpia sites."""
+    """Tkinter downloader for Novelpia and external novel sites."""
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("External Novel Download")
+        self.title("External / Novelpia Novel Download")
         self.transient(parent)
 
         # Size window
@@ -440,7 +440,8 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._scraper = ExternalScraper(logger=self._log)
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
-                        and not self._scraper.is_yeduji(url)):
+                        and not self._scraper.is_yeduji(url)
+                        and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
 
@@ -482,8 +483,11 @@ class ExternalNovelDialog(tk.Toplevel):
             is_yeduji = bool(
                 self._book_data and self._book_data.get("_yeduji")
             )
+            is_novelpia = bool(
+                self._book_data and self._book_data.get("_novelpia")
+            )
             if (self._scraper and not self._scraper._context
-                    and not is_ntk and not is_yeduji
+                    and not is_ntk and not is_yeduji and not is_novelpia
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
@@ -509,8 +513,13 @@ class ExternalNovelDialog(tk.Toplevel):
             is_qidian = bool(
                 self._book_data and self._book_data.get('_qidian')
             )
-            batch_size = max(1, num_threads)
+            batch_size = 1 if is_novelpia else max(1, num_threads)
             rate_interval = interval
+            if is_novelpia:
+                self._log(
+                    "[Novelpia] Safe mode: one chapter request at a time; "
+                    "automatic chapter retries are disabled."
+                )
             if is_qidian and self._scraper:
                 rate_interval = max(
                     interval,
@@ -602,7 +611,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 i for i, r in enumerate(results)
                 if r is None and self._downloading
             ]
-            if failed_indices and self._downloading:
+            if failed_indices and self._downloading and not is_novelpia:
                 max_retries = 2
                 for retry_pass in range(1, max_retries + 1):
                     if not failed_indices or not self._downloading:
@@ -634,6 +643,11 @@ class ExternalNovelDialog(tk.Toplevel):
                         f"WARNING: {len(failed_indices)} chapter(s) failed "
                         f"after all retries."
                     )
+            elif failed_indices and is_novelpia:
+                self._log(
+                    f"❌ [Novelpia] {len(failed_indices)} chapter(s) failed. "
+                    "They were not retried."
+                )
 
             # --- Summary ---
             locked = sum(1 for r in results
@@ -655,6 +669,19 @@ class ExternalNovelDialog(tk.Toplevel):
                 return
 
             failed = sum(1 for r in results if r is None)
+
+            if is_novelpia:
+                status = (
+                    "FAILED" if failed
+                    else "PARTIAL" if locked
+                    else "SUCCESS"
+                )
+                self._log(
+                    f"FINAL SUMMARY: {status} | "
+                    f"downloaded chapters: {succeeded} | "
+                    f"failed chapters: {failed} | "
+                    f"locked chapters: {locked}"
+                )
 
             if locked:
                 self._log(
@@ -752,6 +779,14 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
         regular_browser = self._var_regular_browser.get()
+        if start_url and ExternalScraper.is_novelpia(start_url):
+            regular_browser = True
+            self._var_regular_browser.set(True)
+            self._append_log(
+                "[Novelpia] Enter Browser uses the External Downloader's "
+                "regular installed-Chrome profile. Log in normally, then "
+                "close that window."
+            )
         if regular_browser:
             self._append_log(
                 "Opening regular login browser... Close the browser when "
@@ -989,7 +1024,8 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._scraper = ExternalScraper(logger=self._log)
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
-                        and not self._scraper.is_yeduji(url)):
+                        and not self._scraper.is_yeduji(url)
+                        and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
 
@@ -1031,6 +1067,15 @@ class ExternalNovelDialog(tk.Toplevel):
                 return
             successes = sum(1 for r in self._chapter_results
                             if r is not None and not r.get('_locked'))
+            failures = sum(
+                1 for result in self._chapter_results if result is None
+            )
+            if data.get('_novelpia') and failures:
+                self._log(
+                    f"❌ [Novelpia] Output not generated because {failures} "
+                    "chapter(s) failed. No partial EPUB was written."
+                )
+                return
             if successes > 0:
                 self._book_data = data
                 self._log(f"Generating output from {successes} chapter(s)...")
@@ -1191,6 +1236,7 @@ class ExternalNovelDialog(tk.Toplevel):
             try:
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
+                        and not self._scraper.is_novelpia(url)
                         and not self._scraper._context):
                     self._scraper.start()
                     self._apply_scraper_options()
@@ -1232,6 +1278,15 @@ class ExternalNovelDialog(tk.Toplevel):
             # Generate output if any succeeded
             successes = sum(1 for r in self._chapter_results
                             if r is not None and not r.get('_locked'))
+            failures = sum(
+                1 for result in self._chapter_results if result is None
+            )
+            if data.get('_novelpia') and failures:
+                self._log(
+                    f"❌ [Novelpia] Output not generated because {failures} "
+                    "chapter(s) failed. No partial file was written."
+                )
+                continue
             if successes > 0:
                 # Temporarily set _book_data for output generation
                 old_book = self._book_data

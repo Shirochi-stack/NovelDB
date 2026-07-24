@@ -177,6 +177,8 @@ class ExternalScraper:
         self._ntk_temp_chrome = False
         self._munpia_chrome = False
         self._munpia_cdp_port = None
+        self._novelpia_chrome = False
+        self._novelpia_cdp_port = None
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
@@ -2895,6 +2897,65 @@ class ExternalScraper:
         except Exception:
             return False
 
+    def _park_chrome_windows_for_profile(self, user_data_dir):
+        """Move headed Chrome off-screen without minimizing or hiding it.
+
+        Novelpia rejects viewer requests when Chrome is minimized or its
+        window is hidden. Keeping the native window in the normal restored
+        state preserves headed-browser visibility while preventing it from
+        covering the user's desktop.
+        """
+        if sys.platform != "win32":
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            chrome_pids = set(
+                self._chrome_processes_using_profile(user_data_dir)
+            )
+            if self._chrome_process:
+                chrome_pids.add(int(self._chrome_process.pid))
+            if not chrome_pids:
+                return False
+
+            moved = []
+            EnumWindowsProc = ctypes.WINFUNCTYPE(
+                ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+            )
+            sw_restore = 9
+            swp_nozorder = 0x0004
+            swp_noactivate = 0x0010
+            swp_showwindow = 0x0040
+
+            def callback(hwnd, _):
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if int(pid.value) not in chrome_pids:
+                    return True
+                class_name = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, class_name, len(class_name))
+                if not class_name.value.startswith("Chrome_WidgetWin_"):
+                    return True
+
+                # Keep the window restored and visible to Chromium, but park
+                # it beyond the desktop bounds. Do not call SW_HIDE.
+                user32.ShowWindow(hwnd, sw_restore)
+                user32.SetWindowPos(
+                    hwnd,
+                    0,
+                    -32000,
+                    -32000,
+                    1280,
+                    900,
+                    swp_nozorder | swp_noactivate | swp_showwindow,
+                )
+                moved.append(hwnd)
+                return True
+
+            user32.EnumWindows(EnumWindowsProc(callback), 0)
+            return bool(moved)
+        except Exception:
+            return False
+
     @staticmethod
     def _windows_click_screen(x, y):
         """Perform a real OS mouse click at screen coordinates."""
@@ -3239,7 +3300,11 @@ class ExternalScraper:
         # Must close any existing context first (only one per data dir)
         self.cleanup()
 
-        use_regular = regular_browser or self.is_ntk_novel(start_url)
+        use_regular = (
+            regular_browser
+            or self.is_ntk_novel(start_url)
+            or self.is_novelpia(start_url)
+        )
         if use_regular and self.is_ntk_novel(start_url):
             user_data_dir = self._get_ntk_user_data_dir()
         else:
@@ -3509,6 +3574,23 @@ class ExternalScraper:
         return bool(re.match(r'^/(book|chapter)/\d+', parsed.path or ''))
 
     @staticmethod
+    def is_novelpia(url):
+        """Return True for Korean Novelpia novel and viewer URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.hostname or '').lower()
+        if host != 'novelpia.com' and not host.endswith('.novelpia.com'):
+            return False
+        return bool(
+            re.match(
+                r'^/(?:novel|viewer)/\d+(?:[/?#]|$)',
+                parsed.path or '',
+            )
+        )
+
+    @staticmethod
     def _normalize_title_for_match(value):
         value = html.unescape(value or '')
         value = unicodedata.normalize('NFKC', value)
@@ -3728,9 +3810,14 @@ class ExternalScraper:
     def cleanup(self):
         """Release browser resources."""
         self._backup_storage_state()
-        if self._munpia_chrome and self._munpia_cdp_port:
+        site_cdp_port = (
+            self._novelpia_cdp_port
+            if self._novelpia_chrome
+            else self._munpia_cdp_port
+        )
+        if site_cdp_port:
             try:
-                self._request_cdp_browser_close(self._munpia_cdp_port)
+                self._request_cdp_browser_close(site_cdp_port)
                 self._wait_for_profile_processes_to_exit(
                     self._get_user_data_dir(), timeout=8
                 )
@@ -3778,6 +3865,8 @@ class ExternalScraper:
             self._chrome_process = None
         self._munpia_chrome = False
         self._munpia_cdp_port = None
+        self._novelpia_chrome = False
+        self._novelpia_cdp_port = None
         if self._ntk_temp_chrome:
             try:
                 closed = self._close_ntk_profile_chrome(
@@ -3810,6 +3899,7 @@ class ExternalScraper:
             self._book_data.get('_ntk_novel')
             or self._book_data.get('_qidian')
             or self._book_data.get('_munpia')
+            or self._book_data.get('_novelpia')
         ):
             return
 
@@ -6061,6 +6151,576 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         self.log(f"  [NewToki] API chapter fetch failed: {chapter_name}")
         return None
 
+    # ------------------------------------------------------------------
+    # Novelpia native scraper
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _novelpia_novel_id(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path or ''
+        except Exception:
+            return ''
+        match = re.search(r'/(?:novel|viewer)/(\d+)', path)
+        return match.group(1) if match else ''
+
+    @staticmethod
+    def _novelpia_chapter_id(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path or ''
+        except Exception:
+            return ''
+        match = re.search(r'/viewer/(\d+)', path)
+        return match.group(1) if match else ''
+
+    @staticmethod
+    def _novelpia_parse_episode_html(source):
+        """Convert one episode_list HTML response into chapter records."""
+        source = source or ''
+        pattern = re.compile(
+            r'id=["\']bookmark_(\d+)["\'][^>]*>\s*</i>(.*?)</b>',
+            re.I | re.S,
+        )
+        chapters = []
+        seen = set()
+        for match in pattern.finditer(source):
+            chapter_id = match.group(1)
+            if chapter_id in seen:
+                continue
+            seen.add(chapter_id)
+            raw_title = re.sub(r'<[^>]+>', '', match.group(2))
+            title = html.unescape(raw_title).strip()
+            row_start = source.rfind('<tr', 0, match.start())
+            row_end = source.find('</tr>', match.end())
+            fragment = source[
+                row_start if row_start >= 0 else match.start():
+                row_end + 5 if row_end >= 0 else match.end()
+            ]
+            is_plus = bool(re.search(
+                r'(?:\bPLUS\b|플러스|b_plus|icon[-_]?plus)',
+                fragment,
+                re.I,
+            ))
+            chapters.append({
+                'id': chapter_id,
+                'url': f'https://novelpia.com/viewer/{chapter_id}',
+                'name': title or f'Chapter {len(chapters) + 1}',
+                'fullName': title or f'Chapter {len(chapters) + 1}',
+                'isVIP': is_plus,
+                'isPaid': is_plus,
+                # Access is determined by the authenticated browser when the
+                # viewer is opened. Do not pre-emptively skip PLUS chapters.
+                'isAccessible': True,
+            })
+        return chapters
+
+    def _novelpia_connect_cdp(self, port):
+        """Attach the external scraper to its installed-Chrome session."""
+        try:
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.connect_over_cdp(
+                f'http://127.0.0.1:{port}'
+            )
+            self._context = (
+                self._browser.contexts[0]
+                if self._browser.contexts
+                else self._browser.new_context()
+            )
+            pages = self._context.pages
+            self._page = pages[0] if pages else self._context.new_page()
+            self._page.on('console', self._on_console)
+            self._novelpia_chrome = True
+            self._novelpia_cdp_port = port
+            self.log('[Novelpia] External browser session ready.')
+            return True
+        except Exception as e:
+            self.log(f'ERROR: [Novelpia] Could not attach to Chrome: {e}')
+            self.cleanup()
+            return False
+
+    def _start_novelpia_browser(self, start_url):
+        """Reuse External Downloader's installed Chrome and saved profile."""
+        if self._context and self._page:
+            try:
+                self._page.evaluate('1')
+                if self._novelpia_chrome:
+                    return True
+                self.cleanup()
+            except Exception:
+                self.cleanup()
+        elif self._context or self._browser or self._chrome_process:
+            self.cleanup()
+
+        user_data_dir = self._get_user_data_dir()
+        self.log(
+            '[Novelpia] Starting headed installed Chrome off-screen with the '
+            'External Downloader profile...'
+        )
+        self.log(f'Browser profile: {user_data_dir}')
+
+        locked_pids = self._chrome_processes_using_profile(user_data_dir)
+        if locked_pids:
+            visible = self._visible_browser_window_pids(locked_pids)
+            ports = (
+                []
+                if visible
+                else self._chrome_remote_debugging_ports_using_profile(
+                    user_data_dir
+                )
+            )
+            for port in ports:
+                if self._wait_for_cdp(port, timeout=2):
+                    self.log(
+                        '[Novelpia] Reusing the existing External Downloader '
+                        'browser session.'
+                    )
+                    return self._novelpia_connect_cdp(port)
+
+            pids = ', '.join(str(pid) for pid in locked_pids)
+            self.log(
+                '[Novelpia] The External Downloader browser profile is '
+                f'already open in process(es): {pids}'
+            )
+            self.log(
+                '[Novelpia] Close the Enter Browser window, then click '
+                'Download again.'
+            )
+            return False
+
+        proc, port = self._open_system_chrome(
+            start_url,
+            remote_debugging=True,
+            user_data_dir=user_data_dir,
+            hidden=False,
+        )
+        if not proc or not port:
+            self.log(
+                'ERROR: [Novelpia] Installed Chrome/Edge was not found.'
+            )
+            return False
+
+        self._chrome_process = proc
+        ready = False
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            self._park_chrome_windows_for_profile(user_data_dir)
+            if self._wait_for_cdp(port, timeout=0.75):
+                ready = True
+                break
+        if not ready:
+            self.log(
+                'ERROR: [Novelpia] External browser did not become ready.'
+            )
+            self.cleanup()
+            return False
+
+        self._park_chrome_windows_for_profile(user_data_dir)
+        return self._novelpia_connect_cdp(port)
+
+    def _novelpia_parse_book(self, url):
+        """Read Novelpia metadata and its paginated episode list."""
+        novel_id = self._novelpia_novel_id(url)
+        if not novel_id:
+            self.log('[Novelpia] ERROR: Invalid novel URL.')
+            return None
+
+        self._stop_requested = False
+        book_url = f'https://novelpia.com/novel/{novel_id}'
+        if not self._start_novelpia_browser(book_url):
+            return None
+
+        self.log(f'[Novelpia] Opening: {book_url}')
+        try:
+            self._page.goto(
+                book_url,
+                wait_until='domcontentloaded',
+                timeout=30000,
+            )
+        except Exception as e:
+            if 'ERR_ABORTED' not in str(e):
+                self.log(f'[Novelpia] ERROR: Page load failed: {e}')
+                return None
+
+        try:
+            meta = self._page.evaluate("""
+                () => {
+                    const clean = (value) => (value || '')
+                        .replace(/\\s+/g, ' ')
+                        .trim();
+                    const meta = (selector) => {
+                        const node = document.querySelector(selector);
+                        return node ? (node.getAttribute('content') || '') : '';
+                    };
+                    const abs = (value) => {
+                        try { return new URL(value || '', location.href).href; }
+                        catch (e) { return value || ''; }
+                    };
+                    let title = '';
+                    try {
+                        if (typeof productName !== 'undefined') {
+                            title = clean(productName);
+                        }
+                    } catch (e) {}
+                    if (!title) {
+                        title = clean(meta('meta[property="og:title"]'));
+                        const parts = title.split(' - ');
+                        title = clean(parts[parts.length - 1] || title);
+                    }
+                    const author = clean(
+                        document.querySelector('.writer-name')?.textContent
+                        || document.querySelector('[class*="writer"]')?.textContent
+                        || ''
+                    );
+                    const synopsis = document.querySelector('.synopsis');
+                    const introduction = clean(
+                        synopsis?.innerText
+                        || meta('meta[property="og:description"]')
+                        || meta('meta[name="description"]')
+                    );
+                    const tags = Array.from(document.querySelectorAll('.tag'))
+                        .map((node) => clean(node.textContent).replace(/^#/, ''))
+                        .filter(Boolean);
+                    const cover = abs(
+                        meta('meta[property="og:image"]')
+                        || document.querySelector(
+                            'img.cover_img, img[class*="cover"]'
+                        )?.getAttribute('src')
+                        || ''
+                    );
+                    return {
+                        title,
+                        author,
+                        introduction,
+                        introductionHTML: synopsis ? synopsis.innerHTML : '',
+                        tags,
+                        cover,
+                    };
+                }
+            """) or {}
+        except Exception as e:
+            self.log(f'[Novelpia] ERROR: Metadata extraction failed: {e}')
+            return None
+
+        chapters = []
+        seen = set()
+        page_no = 0
+        self.log('[Novelpia] Reading episode list...')
+        while not self._stop_requested:
+            try:
+                response = self._page.evaluate(
+                    """
+                    async ({novelId, pageNo}) => {
+                        const body = new URLSearchParams({
+                            novel_no: novelId,
+                            sort: 'DOWN',
+                            page: String(pageNo),
+                        });
+                        const result = await fetch('/proc/episode_list', {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: {
+                                'Content-Type':
+                                    'application/x-www-form-urlencoded; charset=UTF-8',
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                            body,
+                        });
+                        return {
+                            status: result.status,
+                            text: await result.text(),
+                        };
+                    }
+                    """,
+                    {'novelId': novel_id, 'pageNo': page_no},
+                ) or {}
+            except Exception as e:
+                self.log(
+                    f'[Novelpia] ERROR: Episode page {page_no} failed: {e}'
+                )
+                return None
+
+            if int(response.get('status') or 0) != 200:
+                self.log(
+                    '[Novelpia] ERROR: Episode list returned HTTP '
+                    f"{response.get('status')} on page {page_no}."
+                )
+                return None
+            source = response.get('text') or ''
+            if 'Authentication required' in source:
+                self.log(
+                    '[Novelpia] Login required. Use Enter Browser, log in, '
+                    'close that window, and retry.'
+                )
+                return None
+
+            page_chapters = self._novelpia_parse_episode_html(source)
+            new_count = 0
+            for chapter in page_chapters:
+                chapter_id = chapter['id']
+                if chapter_id in seen:
+                    continue
+                seen.add(chapter_id)
+                chapters.append(chapter)
+                new_count += 1
+            if not page_chapters or new_count == 0:
+                break
+            page_no += 1
+            if page_no >= 1000:
+                self.log(
+                    '[Novelpia] ERROR: Episode pagination exceeded the '
+                    'safety limit.'
+                )
+                return None
+
+        if not chapters:
+            self.log(
+                '[Novelpia] ERROR: No chapters were found. Use Enter Browser '
+                'to confirm the saved login session.'
+            )
+            return None
+
+        title = meta.get('title') or f'Novelpia {novel_id}'
+        data = {
+            'bookname': title,
+            'author': meta.get('author') or '',
+            'coverUrl': meta.get('cover') or '',
+            'introduction': meta.get('introduction') or '',
+            'introductionHTML': meta.get('introductionHTML') or '',
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'ko',
+            'tags': meta.get('tags') or [],
+            '_novelpia': True,
+            '_novelpia_novel_id': novel_id,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        self.log(
+            f'[Novelpia] Book: {title} by '
+            f"{data.get('author') or '?'} - {len(chapters)} chapters"
+        )
+        return data
+
+    def _novelpia_build_chapter_result(
+        self,
+        payload,
+        chapter_name,
+        chapter_url,
+    ):
+        """Validate viewer JSON and convert it to External Downloader data."""
+        text = (
+            payload.decode('utf-8', errors='replace')
+            if isinstance(payload, bytes)
+            else str(payload or '')
+        )
+        stripped = text.lstrip()
+        if stripped[:128].lower().startswith(('<!doctype html', '<html')):
+            self.log(
+                f'  [Novelpia] Rejected HTML response: {chapter_name}'
+            )
+            return None
+        try:
+            data = json.loads(stripped)
+        except (TypeError, json.JSONDecodeError) as e:
+            self.log(
+                f'  [Novelpia] Invalid viewer JSON: {chapter_name}: {e}'
+            )
+            return None
+        if not isinstance(data, dict):
+            self.log(
+                f'  [Novelpia] Invalid viewer response: {chapter_name}'
+            )
+            return None
+
+        status = data.get('status')
+        code = data.get('code')
+
+        def is_server_error(value):
+            try:
+                return int(value) == 500
+            except (TypeError, ValueError):
+                return False
+
+        rejected = is_server_error(status) or is_server_error(code)
+        if rejected:
+            message = (
+                data.get('errmsg')
+                or data.get('message')
+                or data.get('error')
+                or 'server rejected viewer access'
+            )
+            self.log(
+                f'  [Novelpia] Viewer rejected {chapter_name}: {message}'
+            )
+            return None
+
+        segments = data.get('s')
+        if not isinstance(segments, list) or not segments:
+            self.log(
+                f'  [Novelpia] Viewer returned no chapter content: '
+                f'{chapter_name}'
+            )
+            return None
+
+        html_parts = []
+        plain_parts = []
+        images = []
+        seen_images = set()
+        image_pattern = re.compile(
+            r'<img\b[^>]*\bsrc=(["\'])(.*?)\1',
+            re.I | re.S,
+        )
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            segment_html = str(segment.get('text') or '')
+            if not segment_html or 'cover-wrapper' in segment_html:
+                continue
+            html_parts.append(segment_html)
+
+            plain = re.sub(
+                r'<\s*br\s*/?\s*>|</\s*p\s*>',
+                '\n',
+                segment_html,
+                flags=re.I,
+            )
+            plain = html.unescape(re.sub(r'<[^>]+>', '', plain))
+            plain = re.sub(r'[ \t\f\v]+', ' ', plain)
+            plain = re.sub(r'\n{3,}', '\n\n', plain).strip()
+            if plain:
+                plain_parts.append(plain)
+
+            for image_index, match in enumerate(
+                image_pattern.finditer(segment_html),
+                start=1,
+            ):
+                image_url = urllib.parse.urljoin(
+                    chapter_url,
+                    html.unescape(match.group(2)).strip(),
+                )
+                if not image_url or image_url in seen_images:
+                    continue
+                seen_images.add(image_url)
+                parsed = urllib.parse.urlparse(image_url)
+                name = urllib.parse.unquote(
+                    os.path.basename(parsed.path)
+                ).split('?', 1)[0]
+                name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
+                if not name or not re.search(r'\.[A-Za-z0-9]{2,5}$', name):
+                    chapter_id = self._novelpia_chapter_id(chapter_url)
+                    name = (
+                        f'novelpia_{chapter_id or "chapter"}_'
+                        f'{image_index}.jpg'
+                    )
+                images.append({'url': image_url, 'name': name})
+
+        content_html = ''.join(html_parts).strip()
+        content_text = '\n'.join(plain_parts).strip()
+        error_probe = f'{content_text}\n{content_html}'.lower()
+        has_embedded_500 = bool(re.search(
+            r'["\'](?:status|code)["\']\s*:\s*500',
+            error_probe,
+        ))
+        if (
+            not content_html
+            or (
+                has_embedded_500
+                and ('잘못된 접근' in error_probe or 'errmsg' in error_probe)
+            )
+        ):
+            self.log(
+                f'  [Novelpia] Invalid rendered content rejected: '
+                f'{chapter_name}'
+            )
+            return None
+
+        return {
+            'chapterName': chapter_name,
+            'sourceChapterName': chapter_name,
+            'contentText': content_text,
+            'contentHtml': (
+                f'<div class="novelpia-content">{content_html}</div>'
+            ),
+            'contentCss': (
+                '.novelpia-content p { margin: 0 0 0.75em; '
+                'line-height: 1.8; }\n'
+                '.novelpia-content img { max-width: 100%; height: auto; }'
+            ),
+            'images': images,
+        }
+
+    def _novelpia_parse_chapter(
+        self,
+        chapter_url,
+        chapter_name,
+        page=None,
+    ):
+        """Open one viewer page and consume its single viewer_data response."""
+        target = page or self._page
+        if target is None:
+            if not self._start_novelpia_browser(chapter_url):
+                return None
+            target = self._page
+
+        chapter_id = self._novelpia_chapter_id(chapter_url)
+        if not chapter_id:
+            self.log(
+                f'  [Novelpia] Invalid chapter URL: {chapter_url}'
+            )
+            return None
+
+        response = None
+        try:
+            navigation_options = {
+                'wait_until': 'domcontentloaded',
+                'timeout': 30000,
+            }
+            if self._book_url:
+                navigation_options['referer'] = self._book_url
+            with target.expect_response(
+                lambda item: bool(re.search(
+                    rf'/proc/viewer_data/{re.escape(chapter_id)}'
+                    r'(?:[/?#]|$)',
+                    str(getattr(item, 'url', '') or ''),
+                )),
+                timeout=30000,
+            ) as response_info:
+                target.goto(
+                    chapter_url,
+                    **navigation_options,
+                )
+            response = response_info.value
+        except Exception as e:
+            self.log(
+                f'  [Novelpia] Viewer response was not received: '
+                f'{chapter_name}: {e}'
+            )
+            return None
+
+        try:
+            status = int(getattr(response, 'status', 0) or 0)
+            payload = response.text()
+        except Exception as e:
+            self.log(
+                f'  [Novelpia] Could not read viewer response: '
+                f'{chapter_name}: {e}'
+            )
+            return None
+        if status != 200:
+            self.log(
+                f'  [Novelpia] Viewer returned HTTP {status}: {chapter_name}'
+            )
+            return None
+
+        result = self._novelpia_build_chapter_result(
+            payload,
+            chapter_name,
+            chapter_url,
+        )
+        if result:
+            self.log(f'  [Novelpia] OK: {chapter_name}')
+        return result
+
     def _munpia_connect_cdp(self, port):
         """Attach Playwright to an existing Munpia Chrome CDP port."""
         try:
@@ -8169,6 +8829,12 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         Returns the parsed book dict or None on error.
         """
+        if self.is_novelpia(url):
+            self.log(
+                '[Novelpia] Detected Novelpia URL, using the External '
+                'Downloader browser profile.'
+            )
+            return self._novelpia_parse_book(url)
         # KakaoPage: use native scraper instead of JS rules
         if self.is_kakaopage(url):
             self.log("[KakaoPage] Detected KakaoPage URL, using native scraper.")
@@ -8285,6 +8951,21 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         if self._stop_requested:
             return None
 
+        if self._book_data and self._book_data.get('_novelpia'):
+            url = chapter_info.get('url', '')
+            name = (
+                chapter_info.get('fullName', '')
+                or chapter_info.get('name', '')
+            )
+            result = self._novelpia_parse_chapter(
+                url,
+                name,
+                page=page or self._page,
+            )
+            if interval > 0:
+                time.sleep(interval)
+            return result
+
         # KakaoPage: use native viewer scraping
         if self._book_data and self._book_data.get('_kakaopage'):
             url = chapter_info.get('url', '')
@@ -8399,6 +9080,27 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """
         if self._stop_requested or not batch_info:
             return [None] * len(batch_info)
+
+        # Novelpia is intentionally sequential. One navigation produces one
+        # viewer request; there is no speculative concurrency here.
+        if self._book_data and self._book_data.get('_novelpia'):
+            results = []
+            for index, chapter in enumerate(batch_info):
+                if self._stop_requested:
+                    results.append(None)
+                    continue
+                result = self._novelpia_parse_chapter(
+                    chapter.get('url', ''),
+                    (
+                        chapter.get('fullName', '')
+                        or chapter.get('name', '')
+                    ),
+                    page=self._page,
+                )
+                results.append(result)
+                if interval > 0 and index < len(batch_info) - 1:
+                    time.sleep(interval)
+            return results
 
         # KakaoPage: no batch API — fall back to sequential downloads
         if self._book_data and self._book_data.get('_kakaopage'):
