@@ -18,6 +18,58 @@ class AccessBlockedError(Exception):
     pass
 
 
+class InvalidChapterPayloadError(ValueError):
+    """Raised when viewer_data is an error response instead of chapter JSON."""
+    pass
+
+
+def validate_chapter_payload(payload):
+    """Return parsed chapter JSON or reject HTML/JSON server errors."""
+    text = payload.decode("utf-8", errors="replace") if isinstance(payload, bytes) else str(payload or "")
+    stripped = text.lstrip()
+    html_probe = stripped[:4096].lower()
+    if html_probe.startswith(("<!doctype html", "<html")):
+        raise InvalidChapterPayloadError(
+            "HTTP 200 contained an HTML error page"
+        )
+
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise InvalidChapterPayloadError(
+            f"invalid viewer JSON: {exc.msg}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise InvalidChapterPayloadError("viewer JSON root is not an object")
+
+    status = data.get("status")
+    code = data.get("code")
+    if status == 500 or code == 500:
+        message = (
+            data.get("errmsg")
+            or data.get("message")
+            or data.get("error")
+            or "server error"
+        )
+        raise InvalidChapterPayloadError(
+            f"viewer returned status/code 500: {message}"
+        )
+
+    if not isinstance(data.get("s"), list):
+        message = (
+            data.get("errmsg")
+            or data.get("message")
+            or data.get("error")
+            or "missing chapter segment list ('s')"
+        )
+        raise InvalidChapterPayloadError(
+            f"viewer returned no chapter content: {message}"
+        )
+
+    return data
+
+
 class DownloaderCore:
     def __init__(self, auth_instance, logger_func):
         self.auth = auth_instance
@@ -447,6 +499,12 @@ class DownloaderCore:
                             f"  \u2192 Hint: If free chapters work but premium ones don't, check that you have an active subscription or have purchased this chapter."
                         )
                         _schedule_retry("empty response body", attempt)
+                        continue
+
+                    try:
+                        validate_chapter_payload(text)
+                    except InvalidChapterPayloadError as exc:
+                        _schedule_retry(str(exc), attempt)
                         continue
 
                     # Common server-side blocks (login / age verification / generic auth).

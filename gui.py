@@ -141,7 +141,12 @@ except Exception:
 # or are imported. For this script to run standalone if you have the files, 
 # I am keeping the imports exactly as you provided.
 from novelpia_auth import NovelpiaAuth
-from downloader_core import DownloaderCore, AccessBlockedError
+from downloader_core import (
+    DownloaderCore,
+    AccessBlockedError,
+    InvalidChapterPayloadError,
+    validate_chapter_payload,
+)
 from epub_generator import EpubGenerator
 from font_mapper import FontMapper
 
@@ -581,12 +586,15 @@ def extract_chapter_content_and_images(
     APNG, animated AVIF) is flattened to its first frame — applied even to
     the GIF-preservation branch so it overrides `convert_gifs=False`.
     """
+    # Validate outside the broad processing try/except. An error payload must
+    # fail the chapter instead of becoming a visible paragraph in the EPUB.
+    validated_data = validate_chapter_payload(content_json)
     html_parts = []
     images = []
     _img_counter = [0]
     _img_failures = [0]
     try:
-        data = json.loads(content_json)
+        data = validated_data
         segments = data.get("s")
         if not isinstance(segments, list):
             return f"<p>{html.escape(str(data))}</p>", images, 0
@@ -3135,6 +3143,18 @@ table, th, td {
                 entry = cache_data.get(chap_id)
                 if entry is not None:
                     try:
+                        content_json = _cache_entry_to_json(entry)
+                        try:
+                            validate_chapter_payload(content_json)
+                        except InvalidChapterPayloadError as cache_error:
+                            cache_data.pop(chap_id, None)
+                            uncached_indices.append(idx)
+                            self.log_message(
+                                f"Rejected invalid cached chapter [{chap_id}]: "
+                                f"{cache_error}. Downloading it again."
+                            )
+                            continue
+
                         # Full cache hit (html + images stored) — skip all processing
                         if cache_images and _has_full_cache(entry):
                             cached_html = entry['html']
@@ -3157,7 +3177,6 @@ table, th, td {
                             full_cache_hits += 1
                         else:
                             # JSON-only cache hit — still need to process images
-                            content_json = _cache_entry_to_json(entry)
                             if content_json:
                                 cached_json_jobs.append((idx, content_json))
                                 json_cache_hits += 1
@@ -3370,14 +3389,28 @@ table, th, td {
         warn_text = dl_stats.warnings_summary()
         if warn_text:
             self.log_message(warn_text)
+        failed_count = len(dl_stats.failed_chapters)
+        blocked_count = len(dl_stats.blocked_chapters)
         if self._stop_requested:
             status = "stopped"
+            self.log_message(
+                f"FINAL SUMMARY: STOPPED | failed chapters: {failed_count} | "
+                f"blocked chapters: {blocked_count}"
+            )
             self.log_message("Download stopped by user.")
-        elif output_error:
+        elif output_error or failed_count or blocked_count:
             status = "failed"
+            self.log_message(
+                f"FINAL SUMMARY: FAILED | failed chapters: {failed_count} | "
+                f"blocked chapters: {blocked_count}"
+            )
             self.log_message("Download finished with errors.")
         else:
             status = "ok"
+            self.log_message(
+                "FINAL SUMMARY: SUCCESS | failed chapters: 0 | "
+                "blocked chapters: 0"
+            )
             self.log_message("Download Complete!")
         if _LOG_FILE:
             self.log_message(f"Log saved: {_LOG_FILE}")
