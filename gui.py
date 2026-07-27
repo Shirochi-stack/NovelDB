@@ -208,7 +208,11 @@ def extract_novel_id(value):
         return m.group(1)
     return None
 
-def process_text_content(content_json, strip_leading_spaces=False):
+def process_text_content(
+    content_json,
+    strip_leading_spaces=False,
+    remove_newlines=False,
+):
     """Parse the viewer_data JSON into readable HTML paragraphs."""
     try:
         data = json.loads(content_json)
@@ -228,6 +232,13 @@ def process_text_content(content_json, strip_leading_spaces=False):
 
             text = re.sub(r"<img.+?>", "", text)
             text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
+            if remove_newlines:
+                text = re.sub(r"<br\s*/?>", "", text, flags=re.IGNORECASE)
+                text = text.replace("\r", "").replace("\n", "")
+            else:
+                text = re.sub(r"<br\s*/?>", "<br/>", text, flags=re.IGNORECASE)
+                text = text.replace("\r\n", "\n").replace("\r", "\n")
+                text = text.replace("\n", "<br/>")
             if strip_leading_spaces:
                 text = _strip_leading_whitespace(text)
             paragraph_html.append(text)
@@ -553,9 +564,9 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
 def _strip_leading_whitespace(text):
     """Remove leading whitespace (including \u00a0 / &nbsp;) that Novelpia
     injects at the start of every text segment.  Works on both raw HTML
-    text and already-unescaped text."""
-    # Strip &nbsp; entities and raw \u00a0 from the very start of the string
-    text = re.sub(r'^(?:\s|\u00a0|&nbsp;)+', '', text)
+    text and already-unescaped text, without removing line breaks."""
+    # Newlines are controlled separately by the "Remove Newlines" option.
+    text = re.sub(r'^(?:[ \t\f\v\u00a0]|&nbsp;)+', '', text)
     return text
 
 
@@ -573,6 +584,7 @@ def extract_chapter_content_and_images(
     convert_gifs=False,
     static_only=False,
     strip_leading_spaces=False,
+    remove_newlines=False,
     max_retries=3,
     retry_delay=2.0,
 ):
@@ -682,6 +694,13 @@ def extract_chapter_content_and_images(
 
                 text = img_pat.sub(handle_img_match, text)
                 text = re.sub(r"<p\s+style=['\"]height:\s*0px;[^>]*>.*?</p>", "", text, flags=re.DOTALL | re.IGNORECASE)
+                if remove_newlines:
+                    text = re.sub(r"<br\s*/?>", "", text, flags=re.IGNORECASE)
+                    text = text.replace("\r", "").replace("\n", "")
+                else:
+                    text = re.sub(r"<br\s*/?>", "<br/>", text, flags=re.IGNORECASE)
+                    text = text.replace("\r\n", "\n").replace("\r", "\n")
+                    text = text.replace("\n", "<br/>")
                 html_parts.append(f"<p>{text}</p>")
                 continue
 
@@ -694,15 +713,24 @@ def extract_chapter_content_and_images(
                 _fmt_counter[0] += 1
                 _fmt_placeholders[key] = m.group(0)
                 return key
-            text = re.sub(r'</?(?:b|strong|i|em|u|s|strike|del|sub|sup|ruby|rb|rt|rp|rtc)(?:\s[^>]*)?>',
+            preserved_tags = (
+                r'b|strong|i|em|u|s|strike|del|sub|sup|ruby|rb|rt|rp|rtc'
+            )
+            if not remove_newlines:
+                preserved_tags += r'|br'
+            text = re.sub(rf'</?(?:{preserved_tags})\b[^>]*>',
                           _save_fmt_tag, text, flags=re.IGNORECASE)
             # Remove remaining HTML tags (tags starting with ASCII letters)
             # This preserves Korean/other text in angle brackets like <주인공>
             text = re.sub(r"</?[a-zA-Z][^>]*>", "", text)
-            # Remove newlines
-            text = text.replace("\n", "")
-            if not text.replace('\x00', '').strip():
-                continue
+            if remove_newlines:
+                text = text.replace("\r", "").replace("\n", "")
+                if not text.replace('\x00', '').strip():
+                    continue
+            else:
+                text = text.replace("\r\n", "\n").replace("\r", "\n")
+                if not text and not _fmt_placeholders:
+                    continue
             text = html.unescape(text)
             if strip_leading_spaces:
                 text = _strip_leading_whitespace(text)
@@ -714,8 +742,12 @@ def extract_chapter_content_and_images(
             if text:
                 # Escape the text for safe HTML output (this will convert < to &lt; and > to &gt;)
                 safe = html.escape(text)
+                if not remove_newlines:
+                    safe = safe.replace("\n", "<br/>")
                 # Restore preserved formatting tags
                 for key, tag in _fmt_placeholders.items():
+                    if re.match(r"</?br\b", tag, flags=re.IGNORECASE):
+                        tag = "<br/>"
                     safe = safe.replace(key, tag)
                 html_parts.append(f"<p>{safe}</p>")
 
@@ -1041,6 +1073,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_font_path = tk.StringVar()
         self.var_include_notices = tk.BooleanVar(value=True)
         self.var_strip_leading_spaces = tk.BooleanVar(value=False)
+        self.var_remove_newlines = tk.BooleanVar(value=False)
         
         # New visual-only variables to match screenshot
         self.var_save_html = tk.BooleanVar(value=False)
@@ -1216,6 +1249,17 @@ class NovelpiaGUI(tk.Tk):
         chk_strip = ttk.Checkbutton(misc_chk_frame, text="Remove Leading Spaces", variable=self.var_strip_leading_spaces)
         chk_strip.pack(side="left", padx=(15, 0))
         ToolTip(chk_strip, "Strip the leading whitespace (\u00a0 / &nbsp;) that\nNovelpia adds to the beginning of every paragraph.")
+        chk_newlines = ttk.Checkbutton(
+            misc_chk_frame,
+            text="Remove Newlines / <br>",
+            variable=self.var_remove_newlines,
+        )
+        chk_newlines.pack(side="left", padx=(15, 0))
+        ToolTip(
+            chk_newlines,
+            "Off (default): preserve source newlines and <br> line breaks.\n"
+            "On: remove them from chapter text.",
+        )
         
         comp_frame = ttk.Frame(dl_inner)
         comp_frame.grid(row=4, column=0, columnspan=3, sticky="w", pady=2)
@@ -2742,9 +2786,9 @@ class NovelpiaGUI(tk.Tk):
         cache_images = use_cache and self.var_cache_images.get()
         cache_data = {}
         cache_path = None
-        # Compute a fingerprint of every setting that influences what the
-        # encoded image bytes and filenames look like. If it doesn't match
-        # what the cache was written with, we invalidate the processed
+        # Compute a fingerprint of every setting that influences processed
+        # chapter HTML, image bytes, or image filenames. If it doesn't match
+        # what the cache was written with, invalidate the processed
         # html + images from each entry but keep the raw chapter JSON so
         # we don't have to re-download the text.
         current_fp = self._image_cache_fingerprint()
@@ -2768,7 +2812,7 @@ class NovelpiaGUI(tk.Tk):
                         if stored_fp and stored_fp != current_fp:
                             self._invalidate_cached_images(cache_data)
                             self.log_message(
-                                "\u26a0 Image settings changed since last cache "
+                                "\u26a0 Chapter processing settings changed since last cache "
                                 "write; dropping cached images and re-processing "
                                 "from cached JSON."
                             )
@@ -3135,6 +3179,7 @@ table, th, td {
         convert_gifs = self.var_convert_gifs.get()
         static_only = self.var_static_only.get()
         strip_leading_spaces = self.var_strip_leading_spaces.get()
+        remove_newlines = self.var_remove_newlines.get()
 
         # Process cached chapters first
         uncached_indices = []
@@ -3217,6 +3262,7 @@ table, th, td {
                 convert_gifs=convert_gifs,
                 static_only=static_only,
                 strip_leading_spaces=strip_leading_spaces,
+                remove_newlines=remove_newlines,
                 max_retries=max_retries,
                 retry_delay=interval,
             )
@@ -3364,15 +3410,19 @@ table, th, td {
                                 # Respect the source formatting: convert paragraphs to double newlines and <br> to single.
                                 text = h
                                 # 1. Convert <br> tags to single newlines.
-                                text = re.sub(r'<br\\s*/?>', '\n', text, flags=re.IGNORECASE)
+                                text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
                                 # 2. Convert paragraph endings to double newlines.
                                 text = re.sub(r'</(p|div)>', '\n\n', text, flags=re.IGNORECASE)
                                 # 3. Strip all other HTML tags.
                                 text = re.sub(r'<[^>]+>', '', text)
                                 # 4. Unescape HTML entities like &nbsp;
                                 text = html.unescape(text)
-                                # 5. Clean up excess blank lines to a maximum of one, preserving paragraphs.
-                                plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
+                                # 5. Only collapse blank lines when the user
+                                # explicitly enabled newline removal.
+                                if remove_newlines:
+                                    plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
+                                else:
+                                    plain = text.strip("\r\n")
                                 f.write(f"{t}\n\n{plain}\n\n\n")
             except Exception as e:
                 output_error = f"Save failed: {e}"
@@ -3439,19 +3489,20 @@ table, th, td {
     # Cache helpers
     # ------------------------------------------------------------------
     def _image_cache_fingerprint(self):
-        """Return a short hash of all settings that influence image output.
+        """Return a short hash of settings that influence cached chapter output.
 
-        Any setting that could change the *bytes* or *filename* of a cached
-        image is included so the cache knows to invalidate on change.
+        This covers processed HTML as well as image bytes and filenames.
         """
         import hashlib
         parts = [
-            "v1",
+            "v2",
             str(bool(self.var_compress_images.get())),
             str(int(self.var_jpeg_quality.get() or 0)),
             str(self.var_image_format.get() or ""),
             str(bool(self.var_convert_gifs.get())),
             str(bool(self.var_static_only.get())),
+            str(bool(self.var_strip_leading_spaces.get())),
+            str(bool(self.var_remove_newlines.get())),
         ]
         return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
 
@@ -3711,6 +3762,7 @@ table, th, td {
                 self.var_zip_compress_images.set(cfg.get("zip_compress_images", False))
                 self.var_include_notices.set(cfg.get("include_notices", True))
                 self.var_strip_leading_spaces.set(cfg.get("strip_leading_spaces", False))
+                self.var_remove_newlines.set(cfg.get("remove_newlines", False))
                 self.var_save_format.set(cfg.get("save_format", "epub"))
                 self.var_save_html.set(cfg.get("save_html", False))
                 # "retry_chapters" was a dead boolean; migrate silently to the new
@@ -3813,6 +3865,7 @@ table, th, td {
             "zip_compress_images": self.var_zip_compress_images.get(),
             "include_notices": self.var_include_notices.get(),
             "strip_leading_spaces": self.var_strip_leading_spaces.get(),
+            "remove_newlines": self.var_remove_newlines.get(),
             "save_format": self.var_save_format.get(),
             "save_html": self.var_save_html.get(),
             "max_retries": int(self.var_max_retries.get() or 5),
