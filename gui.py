@@ -583,6 +583,7 @@ def extract_chapter_content_and_images(
     chapter_num=None,
     convert_gifs=False,
     static_only=False,
+    save_image_urls_only=False,
     strip_leading_spaces=False,
     remove_newlines=False,
     max_retries=3,
@@ -593,6 +594,9 @@ def extract_chapter_content_and_images(
     image_failures is the number of <img> tags whose download/processing
     failed; callers can use it to avoid baking a "hole" into the full
     image cache (see _download_worker's cache-store logic).
+
+    In URL-only mode, source images remain viewable remote ``<img>`` elements
+    and the session is never used to fetch their bytes.
 
     When `static_only` is True every animated source (GIF, animated WebP,
     APNG, animated AVIF) is flattened to its first frame — applied even to
@@ -611,7 +615,10 @@ def extract_chapter_content_and_images(
         if not isinstance(segments, list):
             return f"<p>{html.escape(str(data))}</p>", images, 0
 
-        img_pat = re.compile(r"<img[^>]+src=\"([^\"]+)\"[^>]*>")
+        img_pat = re.compile(
+            r"<img\b[^>]*\bsrc=(['\"])(.*?)\1[^>]*>",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
 
         for seg in segments:
             if not isinstance(seg, dict):
@@ -626,17 +633,29 @@ def extract_chapter_content_and_images(
             if urls:
                 # Use a single-pass regex substitution with a callback to handle each <img> sequentially.
                 def handle_img_match(m):
-                    url = m.group(1)
-                    # Match gui.py behavior: if not starting with http, prefix with https:
-                    if url.startswith("http://") or url.startswith("https://"):
-                        url_dl = url
-                    else:
-                        url_dl = "https:" + url
+                    url = m.group(2)
 
                     _img_counter[0] += 1
                     ch_tag = f" [{chapter_title}]" if chapter_title else ""
                     ch_num = f"[{chapter_num}] " if chapter_num is not None else ""
                     lbl = f"{ch_num}Image #{_img_counter[0]}{ch_tag}"
+
+                    if save_image_urls_only:
+                        remote_tag = DownloaderCore.remote_image_html(
+                            url,
+                            alt=f"Image {_img_counter[0]}",
+                        )
+                        if remote_tag:
+                            return remote_tag
+                        logger(f"  \u2717 {lbl}: invalid image URL")
+                        _img_failures[0] += 1
+                        return ""
+
+                    url_dl = DownloaderCore.normalize_chapter_image_url(url)
+                    if not url_dl:
+                        logger(f"  \u2717 {lbl}: invalid image URL")
+                        _img_failures[0] += 1
+                        return ""
                     try:
                         img_bytes = _download_image_with_progress(
                             session,
@@ -1040,6 +1059,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_loginkey = tk.StringVar()
         self.var_novel_id = tk.StringVar()
         self.var_compress_images = tk.BooleanVar(value=True)
+        self.var_save_image_urls_only = tk.BooleanVar(value=False)
         self.var_jpeg_quality = tk.IntVar(value=50)
         self.var_image_format = tk.StringVar(value="WEBP")  # WEBP, JPEG, PNG, AVIF
         # When False (default) GIF sources are preserved as .gif (animation kept).
@@ -1286,9 +1306,24 @@ class NovelpiaGUI(tk.Tk):
             "On: EVERY animated source (GIF, animated WEBP, APNG, animated AVIF) is\n"
             "flattened to its first frame regardless of format. Smallest files possible.",
         )
+
+        image_url_frame = ttk.Frame(dl_inner)
+        image_url_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
+        chk_image_urls = ttk.Checkbutton(
+            image_url_frame,
+            text="Save Image URLs Only",
+            variable=self.var_save_image_urls_only,
+        )
+        chk_image_urls.pack(side="left")
+        ToolTip(
+            chk_image_urls,
+            "Keep website image URLs as remote <img src=\"...\"> elements.\n"
+            "No cover or chapter image files are downloaded or embedded.\n"
+            "Intended for EPUBs that will be extracted and uploaded to a website.",
+        )
         
         cover_frame = ttk.Frame(dl_inner)
-        cover_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
+        cover_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
         ttk.Checkbutton(cover_frame, text="Compress Cover", variable=self.var_compress_cover).pack(side="left")
         ttk.Label(cover_frame, text="Quality").pack(side="left", padx=(15, 5))
         ttk.Spinbox(cover_frame, textvariable=self.var_cover_quality, from_=10, to=100, width=5).pack(side="left")
@@ -1300,7 +1335,7 @@ class NovelpiaGUI(tk.Tk):
 
         # --- Target-size recompression row ---
         target_frame = ttk.Frame(dl_inner)
-        target_frame.grid(row=9, column=0, columnspan=3, sticky="w", pady=2)
+        target_frame.grid(row=10, column=0, columnspan=3, sticky="w", pady=2)
         chk_target = ttk.Checkbutton(
             target_frame,
             text="Recompress to meet target size",
@@ -1323,7 +1358,7 @@ class NovelpiaGUI(tk.Tk):
         ToolTip(spn_target, "Desired maximum size of the final EPUB/PDF, in megabytes.")
 
         notices_frame = ttk.Frame(dl_inner)
-        notices_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
+        notices_frame.grid(row=7, column=0, columnspan=3, sticky="w", pady=2)
         ttk.Checkbutton(notices_frame, text="Download Author Notices", variable=self.var_include_notices).pack(side="left")
         ttk.Label(notices_frame, text="Retries").pack(side="left", padx=(15, 3))
         spn_retries = ttk.Spinbox(
@@ -1353,7 +1388,7 @@ class NovelpiaGUI(tk.Tk):
         )
 
         pdf_group = ttk.LabelFrame(dl_inner, text="PDF Settings", padding=(6, 4))
-        pdf_group.grid(row=7, column=0, columnspan=3, sticky="w", pady=4)
+        pdf_group.grid(row=8, column=0, columnspan=3, sticky="w", pady=4)
         chk_pdf_toc = ttk.Checkbutton(pdf_group, text="Table of Contents", variable=self.var_pdf_toc)
         chk_pdf_toc.pack(side="left")
         chk_pdf_toc_pages = ttk.Checkbutton(pdf_group, text="TOC Page Numbers", variable=self.var_pdf_counter_layout)
@@ -1367,7 +1402,7 @@ class NovelpiaGUI(tk.Tk):
 
         # Batch Download Button (Bottom Right of DL frame)
         batch_btn_frame = ttk.Frame(dl_inner)
-        batch_btn_frame.grid(row=8, column=0, columnspan=3, sticky="e", pady=10)
+        batch_btn_frame.grid(row=9, column=0, columnspan=3, sticky="e", pady=10)
         self.btn_tag_retrieval = ttk.Button(batch_btn_frame, text="Tag Retrieval", command=self.action_tag_retrieval)
         self.btn_tag_retrieval.pack(side="left", padx=(0, 5))
         # Paste Batch: paste a list of IDs/URLs inline instead of using a file.
@@ -3015,6 +3050,12 @@ table, th, td {
         self.log_message(f"Preparing download: {len(selected)} chapter(s) + {len(notice_items)} notice(s) = {total_items} item(s)")
         save_as_epub = (self._output_format == 'epub')
         save_as_pdf = (self._output_format == 'pdf')
+        save_image_urls_only = self.var_save_image_urls_only.get()
+        if save_image_urls_only:
+            self.log_message(
+                "Image URL-only mode enabled: keeping remote image previews "
+                "without downloading image files."
+            )
         # Note: the EPUB/PDF is assembled from scratch by _build_output() just
         # before writing. We only gather cover bytes + info_html here; those
         # are passed into _build_output so that the target-size recompression
@@ -3022,7 +3063,11 @@ table, th, td {
 
         cover_image = None
         # cover
-        if meta.get('cover_url'):
+        if meta.get('cover_url') and save_image_urls_only:
+            self.log_message(
+                f"Keeping remote cover image URL: {meta['cover_url']}"
+            )
+        elif meta.get('cover_url'):
             cover_fp = self._cover_cache_fingerprint()
             cached_cover = cache_data.get('_cover_image') if (use_cache and cache_images) else None
             if isinstance(cached_cover, dict):
@@ -3162,18 +3207,28 @@ table, th, td {
         image_compression_workers = max(1, min(32, raw_image_compression_workers))
         interval = max(0.0, min(60.0, raw_interval))
         compress_images = self.var_compress_images.get()
-        effective_image_compression_workers = image_compression_workers if compress_images else 1
+        effective_image_compression_workers = (
+            image_compression_workers
+            if compress_images and not save_image_urls_only
+            else 1
+        )
         if threads != raw_threads:
             self.log_message(f"\u26a0 Threads clamped to {threads} (valid range: 1\u201332)")
         if image_compression_workers != raw_image_compression_workers:
             self.log_message(f"\u26a0 Image compression workers clamped to {image_compression_workers} (valid range: 1\u201332)")
         if interval != raw_interval:
             self.log_message(f"\u26a0 Interval clamped to {interval}s (valid range: 0\u201360)")
-        self.log_message(
-            f"Workers: {threads} chapter request(s), "
-            f"{effective_image_compression_workers} image compression job(s). "
-            "Image compression workers do not change chapter scraping."
-        )
+        if save_image_urls_only:
+            self.log_message(
+                f"Workers: {threads} chapter request(s). Remote image URLs "
+                "require no image download or compression jobs."
+            )
+        else:
+            self.log_message(
+                f"Workers: {threads} chapter request(s), "
+                f"{effective_image_compression_workers} image compression job(s). "
+                "Image compression workers do not change chapter scraping."
+            )
         image_quality = self.var_jpeg_quality.get()
         image_format = self.var_image_format.get()
         convert_gifs = self.var_convert_gifs.get()
@@ -3261,6 +3316,7 @@ table, th, td {
                 chapter_num=idx + 1,
                 convert_gifs=convert_gifs,
                 static_only=static_only,
+                save_image_urls_only=save_image_urls_only,
                 strip_leading_spaces=strip_leading_spaces,
                 remove_newlines=remove_newlines,
                 max_retries=max_retries,
@@ -3278,16 +3334,25 @@ table, th, td {
             try:
                 _idx, content_json, hb, imgs, img_fails = future.result()
                 results[idx] = (chap['title'], hb, imgs, chap.get('is_notice', False))
-                img_info = f" ({len(imgs)} images)" if imgs else ""
+                remote_image_count = (
+                    hb.count('class="remote-image"')
+                    if save_image_urls_only
+                    else 0
+                )
+                image_count = remote_image_count or len(imgs)
+                if remote_image_count:
+                    img_info = f" ({remote_image_count} remote image previews)"
+                else:
+                    img_info = f" ({len(imgs)} images)" if imgs else ""
                 if img_fails:
                     dl_stats.add_image_failures(chap['id'], chap.get('title', '?'), img_fails)
                     img_info += f", {img_fails} image failure(s)"
                 self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] {source_label}: {chap['title']}{img_info}")
 
-                if imgs:
+                if image_count:
                     img_bytes = sum(len(d) for _, d in imgs)
-                    dl_stats.add(len(imgs), img_bytes)
-                    self._img_downloaded_count += len(imgs)
+                    dl_stats.add(image_count, img_bytes)
+                    self._img_downloaded_count += image_count
                     self.after(0, lambda c=self._img_downloaded_count: self.lbl_img_count.config(text=f"Images: {c}"))
 
                 if use_cache:
@@ -3495,8 +3560,9 @@ table, th, td {
         """
         import hashlib
         parts = [
-            "v2",
+            "v3",
             str(bool(self.var_compress_images.get())),
+            str(bool(self.var_save_image_urls_only.get())),
             str(int(self.var_jpeg_quality.get() or 0)),
             str(self.var_image_format.get() or ""),
             str(bool(self.var_convert_gifs.get())),
@@ -3560,7 +3626,15 @@ table, th, td {
         """
         if self._output_format == 'epub':
             epub = EpubGenerator(
-                meta, self._output_path, css, self.var_zip_compress_images.get()
+                meta,
+                self._output_path,
+                css,
+                self.var_zip_compress_images.get(),
+                remote_cover_url=(
+                    DownloaderCore.normalize_chapter_image_url(meta.get('cover_url'))
+                    if self.var_save_image_urls_only.get()
+                    else None
+                ),
             )
             if cover_image and cover_image.get('data'):
                 epub.add_image(cover_image['filename'], cover_image['data'])
@@ -3747,6 +3821,7 @@ table, th, td {
                 # Download settings
                 self.var_novel_id.set(cfg.get("novel_id", ""))
                 self.var_compress_images.set(cfg.get("compress_images", True))
+                self.var_save_image_urls_only.set(cfg.get("save_image_urls_only", False))
                 self.var_jpeg_quality.set(cfg.get("jpeg_quality", 50))
                 self.var_image_format.set(cfg.get("image_format", "WEBP"))
                 self.var_convert_gifs.set(cfg.get("convert_gifs", False))
@@ -3853,6 +3928,7 @@ table, th, td {
             # Download settings
             "novel_id": self.var_novel_id.get(),
             "compress_images": self.var_compress_images.get(),
+            "save_image_urls_only": self.var_save_image_urls_only.get(),
             "jpeg_quality": self.var_jpeg_quality.get(),
             "image_format": self.var_image_format.get(),
             "convert_gifs": self.var_convert_gifs.get(),

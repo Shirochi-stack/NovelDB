@@ -5,7 +5,7 @@ import threading
 import html
 import base64
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from novelpia_search_terms import (
     ALL_SEARCH_TERMS,
@@ -98,6 +98,50 @@ class DownloaderCore:
         if not re.match(r"^https://images?\.novelpia\.com/imagebox/", value, re.IGNORECASE):
             return None
         return value
+
+    @staticmethod
+    def normalize_chapter_image_url(value):
+        """Return a usable absolute HTTP(S) URL for a chapter image.
+
+        Viewer payloads commonly use scheme-relative URLs (``//...``), but
+        older chapters may contain root-relative or escaped values.  Keep an
+        already-absolute source URL unchanged so URL-only EPUB exports point
+        at the same resource shown on the website.
+        """
+        if not value:
+            return None
+
+        value = html.unescape(str(value)).strip().strip("\"'")
+        value = value.replace("\\/", "/")
+        if not value:
+            return None
+
+        if value.startswith("//"):
+            value = "https:" + value
+        elif value.startswith("/imagebox/"):
+            value = "https://images.novelpia.com" + value
+        elif value.startswith("imagebox/"):
+            value = "https://images.novelpia.com/" + value
+        elif not urlparse(value).scheme:
+            value = urljoin("https://novelpia.com/", value)
+
+        parsed = urlparse(value)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            return None
+        return value
+
+    @classmethod
+    def remote_image_html(cls, value, alt="Image"):
+        """Build an XHTML-safe remote image element without fetching bytes."""
+        url = cls.normalize_chapter_image_url(value)
+        if not url:
+            return None
+        safe_url = html.escape(url, quote=True)
+        safe_alt = html.escape(str(alt or "Image"), quote=True)
+        return (
+            f'<img class="remote-image" alt="{safe_alt}" '
+            f'src="{safe_url}" width="100%"/>'
+        )
 
     def _extract_cover_url(self, text):
         """Prefer the real cover URL over R19 venobox preview URLs."""

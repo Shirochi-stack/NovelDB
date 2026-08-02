@@ -5,11 +5,19 @@ import os
 from datetime import datetime
 
 class EpubGenerator:
-    def __init__(self, metadata, output_path, css_template, zip_compress_images=False):
+    def __init__(
+        self,
+        metadata,
+        output_path,
+        css_template,
+        zip_compress_images=False,
+        remote_cover_url=None,
+    ):
         self.meta = metadata
         self.output_path = output_path
         self.css = css_template
         self.zip_compress_images = zip_compress_images
+        self.remote_cover_url = remote_cover_url
         # Chapters will store title, content, and a concrete filename
         self.chapters = []
         # Extra pages (like info.xhtml) that should appear after cover but
@@ -184,6 +192,9 @@ class EpubGenerator:
             cover_img = next((img for img in self.images if img['filename'].startswith('cover.')), None)
             if cover_img:
                 cover_img_tag = f'<img alt="Cover" src="../Images/{cover_img["filename"]}" />'
+            elif self.remote_cover_url:
+                remote_cover_url = html.escape(str(self.remote_cover_url), quote=True)
+                cover_img_tag = f'<img alt="Cover" src="{remote_cover_url}" />'
             cover_xhtml = f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
