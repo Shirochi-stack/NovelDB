@@ -124,6 +124,7 @@ def test_image_url_mode_keeps_remote_previews_without_network_requests():
     assert images == []
     assert failures == 0
     assert chapter_html.count('class="remote-image"') == 2
+    assert 'width="100%"' not in chapter_html
     assert (
         'src="https://images.novelpia.com/imagebox/'
         'sample.file?size=large&amp;page=1"'
@@ -140,6 +141,34 @@ def test_image_url_mode_changes_processed_cache_fingerprint():
     )
 
     assert downloaded_images != remote_images
+
+
+def test_image_url_mode_disables_and_restores_image_controls():
+    class Widget:
+        def __init__(self):
+            self.state = None
+
+        def configure(self, *, state):
+            self.state = state
+
+    normal_widget = Widget()
+    readonly_widget = Widget()
+    settings = SimpleNamespace(
+        var_save_image_urls_only=Setting(True),
+        _image_url_disabled_widgets=[
+            (normal_widget, "normal"),
+            (readonly_widget, "readonly"),
+        ],
+    )
+
+    NovelpiaGUI._sync_image_url_option_states(settings)
+    assert normal_widget.state == "disabled"
+    assert readonly_widget.state == "disabled"
+
+    settings.var_save_image_urls_only.value = False
+    NovelpiaGUI._sync_image_url_option_states(settings)
+    assert normal_widget.state == "normal"
+    assert readonly_widget.state == "readonly"
 
 
 def test_epub_cover_can_use_a_remote_image_url(tmp_path):

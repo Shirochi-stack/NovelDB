@@ -1144,6 +1144,19 @@ class NovelpiaGUI(tk.Tk):
             self._auto_login()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+    def _sync_image_url_option_states(self, *_args):
+        """Gray out image-byte settings while remote URL mode is active."""
+        disabled = bool(self.var_save_image_urls_only.get())
+        for widget, enabled_state in getattr(
+            self, "_image_url_disabled_widgets", ()
+        ):
+            try:
+                widget.configure(
+                    state="disabled" if disabled else enabled_state
+                )
+            except (tk.TclError, AttributeError):
+                pass
+
     def log_message(self, message):
         _logger.info(message)
         self.log_queue.put(message)
@@ -1217,7 +1230,8 @@ class NovelpiaGUI(tk.Tk):
         thread_frame.pack(fill="x", pady=(0, 10))
         ttk.Label(thread_frame, text="Threads").pack(side="left")
         ttk.Spinbox(thread_frame, from_=1, to=32, textvariable=self.var_threads, width=5).pack(side="left", padx=(5, 15))
-        ttk.Label(thread_frame, text="Image Compression Workers").pack(side="left")
+        lbl_image_workers = ttk.Label(thread_frame, text="Image Compression Workers")
+        lbl_image_workers.pack(side="left")
         img_workers_spin = ttk.Spinbox(thread_frame, from_=1, to=32, textvariable=self.var_image_compression_workers, width=5)
         img_workers_spin.pack(side="left", padx=(5, 15))
         ToolTip(
@@ -1281,12 +1295,31 @@ class NovelpiaGUI(tk.Tk):
             "On: remove them from chapter text.",
         )
         
+        image_url_frame = ttk.Frame(dl_inner)
+        image_url_frame.grid(row=4, column=0, columnspan=3, sticky="w", pady=2)
+        chk_image_urls = ttk.Checkbutton(
+            image_url_frame,
+            text="Save Image URLs Only",
+            variable=self.var_save_image_urls_only,
+        )
+        chk_image_urls.pack(side="left")
+        ToolTip(
+            chk_image_urls,
+            "Keep website image URLs as remote <img src=\"...\"> elements.\n"
+            "No cover or chapter image files are downloaded or embedded.\n"
+            "Intended for EPUBs that will be extracted and uploaded to a website.",
+        )
+
         comp_frame = ttk.Frame(dl_inner)
-        comp_frame.grid(row=4, column=0, columnspan=3, sticky="w", pady=2)
-        ttk.Checkbutton(comp_frame, text="Compress Images", variable=self.var_compress_images).pack(side="left")
-        ttk.Label(comp_frame, text="Quality").pack(side="left", padx=(15, 5))
-        ttk.Spinbox(comp_frame, textvariable=self.var_jpeg_quality, from_=10, to=100, width=5).pack(side="left")
-        ttk.Label(comp_frame, text="Format").pack(side="left", padx=(15, 5))
+        comp_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
+        chk_compress_images = ttk.Checkbutton(comp_frame, text="Compress Images", variable=self.var_compress_images)
+        chk_compress_images.pack(side="left")
+        lbl_image_quality = ttk.Label(comp_frame, text="Quality")
+        lbl_image_quality.pack(side="left", padx=(15, 5))
+        spn_image_quality = ttk.Spinbox(comp_frame, textvariable=self.var_jpeg_quality, from_=10, to=100, width=5)
+        spn_image_quality.pack(side="left")
+        lbl_image_format = ttk.Label(comp_frame, text="Format")
+        lbl_image_format.pack(side="left", padx=(15, 5))
         img_fmt_cb = ttk.Combobox(comp_frame, textvariable=self.var_image_format, values=["WEBP", "JPEG", "PNG", "AVIF"], state="readonly", width=7)
         img_fmt_cb.pack(side="left")
         ToolTip(img_fmt_cb, "Output format for chapter images.\nAVIF requires 'pillow-avif-plugin'.\nGIF sources are preserved as .gif unless 'Convert GIFs' is enabled.")
@@ -1307,31 +1340,21 @@ class NovelpiaGUI(tk.Tk):
             "flattened to its first frame regardless of format. Smallest files possible.",
         )
 
-        image_url_frame = ttk.Frame(dl_inner)
-        image_url_frame.grid(row=5, column=0, columnspan=3, sticky="w", pady=2)
-        chk_image_urls = ttk.Checkbutton(
-            image_url_frame,
-            text="Save Image URLs Only",
-            variable=self.var_save_image_urls_only,
-        )
-        chk_image_urls.pack(side="left")
-        ToolTip(
-            chk_image_urls,
-            "Keep website image URLs as remote <img src=\"...\"> elements.\n"
-            "No cover or chapter image files are downloaded or embedded.\n"
-            "Intended for EPUBs that will be extracted and uploaded to a website.",
-        )
-        
         cover_frame = ttk.Frame(dl_inner)
         cover_frame.grid(row=6, column=0, columnspan=3, sticky="w", pady=2)
-        ttk.Checkbutton(cover_frame, text="Compress Cover", variable=self.var_compress_cover).pack(side="left")
-        ttk.Label(cover_frame, text="Quality").pack(side="left", padx=(15, 5))
-        ttk.Spinbox(cover_frame, textvariable=self.var_cover_quality, from_=10, to=100, width=5).pack(side="left")
-        ttk.Label(cover_frame, text="Format").pack(side="left", padx=(15, 5))
+        chk_compress_cover = ttk.Checkbutton(cover_frame, text="Compress Cover", variable=self.var_compress_cover)
+        chk_compress_cover.pack(side="left")
+        lbl_cover_quality = ttk.Label(cover_frame, text="Quality")
+        lbl_cover_quality.pack(side="left", padx=(15, 5))
+        spn_cover_quality = ttk.Spinbox(cover_frame, textvariable=self.var_cover_quality, from_=10, to=100, width=5)
+        spn_cover_quality.pack(side="left")
+        lbl_cover_format = ttk.Label(cover_frame, text="Format")
+        lbl_cover_format.pack(side="left", padx=(15, 5))
         cov_fmt_cb = ttk.Combobox(cover_frame, textvariable=self.var_cover_format, values=["JPEG", "WEBP", "PNG", "AVIF"], state="readonly", width=7)
         cov_fmt_cb.pack(side="left")
         ToolTip(cov_fmt_cb, "Output format for the cover image.\nAVIF requires 'pillow-avif-plugin'.")
-        ttk.Checkbutton(cover_frame, text="ZIP Compress", variable=self.var_zip_compress_images).pack(side="left", padx=(15, 0))
+        chk_zip_compress = ttk.Checkbutton(cover_frame, text="ZIP Compress", variable=self.var_zip_compress_images)
+        chk_zip_compress.pack(side="left", padx=(15, 0))
 
         # --- Target-size recompression row ---
         target_frame = ttk.Frame(dl_inner)
@@ -1349,7 +1372,8 @@ class NovelpiaGUI(tk.Tk):
             "rebuild until the output fits (or quality hits the floor).\n"
             "No effect on text-only TXT output or lossless PNG images.",
         )
-        ttk.Label(target_frame, text="Target (MB)").pack(side="left", padx=(15, 5))
+        lbl_target_size = ttk.Label(target_frame, text="Target (MB)")
+        lbl_target_size.pack(side="left", padx=(15, 5))
         spn_target = ttk.Spinbox(
             target_frame, from_=1.0, to=2048.0, increment=1.0,
             textvariable=self.var_recompress_target_mb, width=7,
@@ -1377,6 +1401,37 @@ class NovelpiaGUI(tk.Tk):
         chk_cache_imgs = ttk.Checkbutton(notices_frame, text="Cache Images", variable=self.var_cache_images)
         chk_cache_imgs.pack(side="left", padx=(0, 5))
         ToolTip(chk_cache_imgs, "Also cache processed chapter images and cover images (heavy).\nMakes re-downloads fully offline but uses more disk.")
+
+        # URL-only exports keep remote <img> elements, so all byte download,
+        # encoding, compression, and image-cache controls are inapplicable.
+        # Preserve each widget's normal state so readonly comboboxes are
+        # restored correctly when URL-only mode is turned back off.
+        self._image_url_disabled_widgets = [
+            (lbl_image_workers, "normal"),
+            (img_workers_spin, "normal"),
+            (chk_compress_images, "normal"),
+            (lbl_image_quality, "normal"),
+            (spn_image_quality, "normal"),
+            (lbl_image_format, "normal"),
+            (img_fmt_cb, "readonly"),
+            (chk_convert_gifs, "normal"),
+            (chk_static_only, "normal"),
+            (chk_compress_cover, "normal"),
+            (lbl_cover_quality, "normal"),
+            (spn_cover_quality, "normal"),
+            (lbl_cover_format, "normal"),
+            (cov_fmt_cb, "readonly"),
+            (chk_zip_compress, "normal"),
+            (chk_target, "normal"),
+            (lbl_target_size, "normal"),
+            (spn_target, "normal"),
+            (chk_cache_imgs, "normal"),
+        ]
+        self.var_save_image_urls_only.trace_add(
+            "write", self._sync_image_url_option_states
+        )
+        self._sync_image_url_option_states()
+
         btn_open_cache = ttk.Button(
             notices_frame, text="Open Cache Folder", command=self.action_open_cache_folder
         )

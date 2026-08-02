@@ -140,7 +140,7 @@ class DownloaderCore:
         safe_alt = html.escape(str(alt or "Image"), quote=True)
         return (
             f'<img class="remote-image" alt="{safe_alt}" '
-            f'src="{safe_url}" width="100%"/>'
+            f'src="{safe_url}"/>'
         )
 
     def _extract_cover_url(self, text):
