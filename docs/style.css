@@ -472,8 +472,17 @@ a.card-cover-wrap {
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    overflow-wrap: anywhere;
     line-height: 1.4;
-    transition: font-size 0.15s ease;
+}
+
+/* If even the minimum readable font size cannot fit the line limit, show the
+   complete title instead of silently cutting it off. */
+.card-title.card-title-unclamped {
+    display: block;
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+    overflow: visible;
 }
 
 .card-title-kr {
@@ -851,10 +860,6 @@ a.card-cover-wrap {
     .card-tags {
         gap: 3px;
         margin-bottom: 0.5rem;
-    }
-
-    .card-title.card-title-sm {
-        font-size: 0.78rem;
     }
 
     .card-tag {

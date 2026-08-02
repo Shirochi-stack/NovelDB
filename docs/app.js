@@ -6295,6 +6295,69 @@
         return card;
     }
 
+    const CARD_TITLE_MIN_FONT_SIZE = 8;
+
+    function cardTitleOverflows(titleEl) {
+        return titleEl.scrollHeight > titleEl.clientHeight + 1
+            || titleEl.scrollWidth > titleEl.clientWidth + 1;
+    }
+
+    function fitCardTitle(titleEl) {
+        // Reset first so a title can grow again after moving to a wider grid.
+        titleEl.classList.remove("card-title-unclamped");
+        titleEl.style.removeProperty("font-size");
+
+        const maxFontSize = Number.parseFloat(getComputedStyle(titleEl).fontSize);
+        if (!Number.isFinite(maxFontSize) || !cardTitleOverflows(titleEl)) return;
+
+        const minFontSize = Math.min(CARD_TITLE_MIN_FONT_SIZE, maxFontSize);
+        titleEl.style.fontSize = `${minFontSize}px`;
+
+        // Very long titles should remain readable and complete rather than
+        // being truncated or reduced to an unusably small font.
+        if (cardTitleOverflows(titleEl)) {
+            titleEl.classList.add("card-title-unclamped");
+            return;
+        }
+
+        // Find the largest size that fits the card's desktop/mobile line cap.
+        let lower = minFontSize;
+        let upper = maxFontSize;
+        for (let i = 0; i < 8; i++) {
+            const candidate = (lower + upper) / 2;
+            titleEl.style.fontSize = `${candidate}px`;
+            if (cardTitleOverflows(titleEl)) upper = candidate;
+            else lower = candidate;
+        }
+        titleEl.style.fontSize = `${Math.floor(lower * 100) / 100}px`;
+    }
+
+    let cardTitleFitFrame = 0;
+    function scheduleCardTitleFit() {
+        cancelAnimationFrame(cardTitleFitFrame);
+        cardTitleFitFrame = requestAnimationFrame(() => {
+            cardTitleFitFrame = 0;
+            resultsEl.querySelectorAll(".card-title").forEach(fitCardTitle);
+        });
+    }
+
+    // Grid breakpoints and late-loading fonts both affect the available title
+    // width, so refit whenever either one changes.
+    let previousResultsWidth = 0;
+    if ("ResizeObserver" in window) {
+        const titleResizeObserver = new ResizeObserver(([entry]) => {
+            const resultsWidth = Math.round(entry.contentRect.width);
+            if (resultsWidth !== previousResultsWidth) {
+                previousResultsWidth = resultsWidth;
+                scheduleCardTitleFit();
+            }
+        });
+        titleResizeObserver.observe(resultsEl);
+    } else {
+        window.addEventListener("resize", scheduleCardTitleFit);
+    }
+    if (document.fonts) document.fonts.ready.then(scheduleCardTitleFit);
+
     function render(fade = false) {
         // Cancel pending staggered image loads from previous page
         for (const id of pendingImageTimers) clearTimeout(id);
@@ -6324,14 +6387,7 @@
                 pendingImageTimers.push(tid);
             });
 
-            // Dynamic font reduction for overflowing titles on mobile
-            if (window.innerWidth <= 768) {
-                resultsEl.querySelectorAll(".card-title").forEach(el => {
-                    if (el.scrollHeight > el.clientHeight + 1) {
-                        el.classList.add("card-title-sm");
-                    }
-                });
-            }
+            scheduleCardTitleFit();
 
             // Update both pagination bars
             const show = totalPages > 1;
