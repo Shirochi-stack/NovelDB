@@ -70,6 +70,10 @@ from playwright.sync_api import (
 
 APP_DATA_NAME = "NpiaDownloader"
 
+SHUBA_API_BASE = "https://app.novelapis.com/json"
+SHUBA_API_KEY = "chuanshuo_09_03"
+SHUBA_API_USER_AGENT = "NovelApp/2.1.1 (Android/16)"
+
 SFACG_OBFUSCATED_CHARS = (
     '宦缺泛洁槛掳马杉傲冷衡弗害烬遗刨饵韵动味碳骄寥凹汁姚也鼎勒痈慕来诊箔迅沁羞僚休儿唾摆窘厌椿母残貌盔弦沉恃棒菱沂巳釜没工溃春肢焦占遥浴轩儡栗梦陨嘴荤梢宇钮捆争土枣盛渝信茵厕忆士急败茁徘吁莉旋腆踪钩捂超峙蒙瘦差应漳沥瑚横阅文缸吱滨变形霉霹僻终愧甥券拽盘预奖鸟透真椅取堕舱票厂彩扯时宋檄瘫峨题楼搭报瘴础勤梨宠古坯忠鲍层癌键肠足荒秃认菏百涣坑投滥谚草坞太桨拓剧宾栋奉老上似丈避侥烯准种壁峦臻谴卤隆垂番协愚划鸦攻藏曾对痔跺墓根撰聂闯察咋发衅撵寡竣茶宏议亨艇务狗裤宣鹃逼饱宅孔诲遣警亿贤鄙沮译龟膀蹭絮伙触锌庚吹命躬圣追炯霞叫裴底族疟痴熊闸臆撂访午茨柿巡米鞍邹逃兑绎犀椎己控篡室劈巍参苦瞬冠摩凭胰甫讯否绅汉诛仙扁活醚挎荷篆黍捕汝吊蕊虱抓从略诞惶逆脉塔歧镶衰撮伍片阶凑松九菊固娄姻委惮酷封澎牙在翰裁南挫沾赏赫厅韩葵介鸡编欧捐能炉挠杀勘浦者粤杖幂琢焉刁爱如惫府武找佯捣锈灰茫铸肛敬阿可属沙创概廊墨乳湛咖级蚂淋反豁旺岭星琉凌嗜目侠迄喇靶福矾丹拔绥觉孟沫霖袭帕驼镁泰啊极孙实经趟当歼斗柑嗽录贡雍稽阜损铬尿痒醒岗渡宗莆捧筑岸井燎搐负粕励爵啮庄涌卢蝶垄仍脂操哉句热耽乓拐苍团斌掩孩沃堆眠闻毛歹齐辖育芳榜其蝇侩杰胞魄粱姬蜕淹轧甚寸舌播霓硒啥钎馅力皇擅染寂相熬必羹期腕跌租僵虏矫恿笨元物历砧噎犬帜舰柞腊定洽剐蕉惨摔珠着烘朋咎某丧酉友郡痹俘啦师蔑涅绒侨官戊锡泌误棘嗡顽谱懂捌潮员豢焰岁丽炕缘搁庐叁崭羔龙崩哩体酗穆猎餐机欺悉蔫寿髓庸焚洲技缠绰傍浅泄此嘶祸肪凶锣雪厢摧粗刷乙脯枪稿寝螟席扎杂第漠檀魂品籽氛越芥呕做滴债缕帛及募悬彰酌堑艘煤癣口售津耀冈涪蝗予攀棚木新泡猖宽躁阁健霍揍铰陕非樟问颠话缴况矽吗昂披努疵滩执拟鼓枷摄湃亚昏旁塑含阑荣安掐宁苞监放施辣浙主遍邀告枯释灾啪驭全断缩晌藐孵折据辕设离病呀解汲援娜幻辩很盆毡铆敢粳蔼榨游掉皑挽呈擦舀麦咏唁专肝伯章脸氖揪枚戏惠萍卧隶庙量啄贞烙响柒熙违泪娶吨矢艺培降迁映丙硬碾蠕囚怪删支适佑搽淆蜒判奄想障袄跑窜燕广登停嚷户铡挚要瘁猿甭韦嘿檬瘸烈招铅眶蜘火洛姐圾分雇阳剑练皋凝劳建脓一俏苔严洗睹耗茎国漾辆疲篱煽走歌亥诽藉狞径菠雁言审碰双慰森揣钠世芝炙蜗针奋曹鉴遁冬扫偶赐陶酚束砷兽噬揽永汤庇脖挣泣蓟本润饺常偏垛教悄芭琳计偷詹夏帝韭擂卵吧暗拆插忌橱搅条曲糖恳宙贯甲稼撇鳞鸭臭臀迂回磁淤统羽三功伏烹札杭暑凰弄祭币皿懦店萝眺瘤产菇勾笼引漏惭堡鹊闽恫宿累谰曙厩莽蔡杆烛镜碗费惧碑啡枫慧沧颊恕揭簇材握留伟灼墟噶恨俺腻赌娃蚊膨婴闺碟陵连晕扑递蜡勇沸这玻挑兜耙疫舶乃羌瓷进胖俐基卓谆企边眷独潭毅牢蛆砍而丫唆诺舟殖陈浇勉捡饮完托更腑瞎减幌我吟滑算钱枉睦妊冶红救贴忍旧刊淡依喘共斥侗先峡香紊候肺袒拄猫跳砖剂窑渔假果色挟界名逛膘蘑酪吃翟研翻频提忿饼腾倚疮脆婚甘赠鹰带摘匆锥瑟睛领钵柄祥烩蛮稗矗濒卫溜制扭藻吾赂拙辛肄轰哭哑凛羡窖筷俄姆楔缝兄民表痉舆膊捷岂蓖卡限肿倪好炬淑助且颤斋蔬莹又忻瞩二畜总坤心鸵眨挡戴榔页缨恍几胁帐传迭临锹煌典特沏向尼谷哇状溪胜衣养丛斟萤柠恼讳朱楷肆防禹烃零若醋夕倘铲岿茧薯牌罗妥距苏规瞳赘铜钒奇奸疆魁矿蛤澈呛父详丘叼路吼驮端凳床涕瓤仆撼腺亭禾乐白侯抵诧失铱慷铭识迪哨巴使涝巨棺碱奎芹掸颇浆悦激侣长埃禄袋踢舍侧舜寺盐叭鸿面局私贷比容掀搔藩览吞态左布素侵侮咀憾郸现娥记淀咯馆仿黎敖少寄匣贮脐看亩趴歉样斧酣奠旭筋狂筐蚜最聋遵酶晒擒妒拖窿鸥示抛娘县台导矮窒顺女邑慌齿蔷蜜字数竭瑶谨抒乌耕霸泥兵号亏匈侄猩褒琶署静住饿碉桂抬庆匙扬慈牟倾媚矣搀锤拇构吵嫩讹焊郁漫守贱拌效例弊灭桅尾道供葱狈垃壮筹栈扮躇疤骆揩露莫孰敏订购潍顷盈转胯撞居鞘摇周幽魔镍蚌水树戍谐飞梯豪添业晓挪柴袁烫苟怔冤念决初碎立臣纳陇异喉葬驯确死桌雾嘱臂沟殴歇丝造坛蚤围拴延自芋祟巷猜恭毒辟湖牧傅惺磐瞻砾壕踞疼尝骂咆同症耿呢敝穷饲钨块每耐巧王躯姑藕泳颈肃崖役犹辱您棕满锅垫措深忙酞讽化场馈赞节拒矛宴蛇乞杨赣咬均中邢蛛瞪睁韶悼鞋滇雄站骗于阂茅阀煎斜渴季哼跃暖签耻躲写宫剔叙载尊怒蒋翅请函贝姥穴驰盾势纵瓦罢存冲血龋脑敌瞧营仁扰刻狐啸珍荆知晤乍榴鲁冻咱竹今融烂咕喜踌赴财氏靡右琐忽贺汞赵躺垮瞒拥屏虐蒲邮壤颖破斯既棠誊彤铝蝉止案佐捞童椭凤贩那塘湿陷清圭诣须义萎梧箍蛙息入勃另锚棋舅筒卿收尽骑脏毋屡蔓胆痊膳钙并敞傀秘奶卯谭给峰远瞥禽卉傻掇冗器货悯咨剁维讲子药纲腮和嫡麓诚故些闭档选箕樱气幅酥赊辑虞怀蛊弧抢价俊跪斡雌甩绘罩忘晚驻龚斩靠涂螺锑雷步绚智组骸仅庭涸琴骚络旬乏杯灸呜椽斤寒输阉斑辐烟刑平涯般倒榷湘公氢嚎疚启乡茸芒巩鹿景甄誓秒炼杏绞剿葫筏翱骋管蓝蔗稚网君腥掺臼遇继脊瑰流磨瞅寨鸳送宝拷击汕圈蓬尉磕田疏妄绵畦仑竖刺硕渭棍试悲污豆箩云暴东憨让哈芽妖黔耍栖欠狠秆讶叉狡敷砌暮宪廉鞭彬炭嘘么首账践趣史迟瘪岳谅豺单拨拳船社厄厉天弃寇尤保摹佬尘炒苑夯匪扔顿毁雀窟熔洱湍究献姨蛔治蔽袖姜虹缀盗漱狰嚣哆豫虽煮削滚爸巫峪惕锐脱屑压泼纸荡证模院伞霄混砰谎彦糕奴派夷彻串忱耸酬致滞类郭撑樊辈哎抱缎妈艰绢朵荚颗摸事邱综冒菩稍婆轨库携懈鹏至思蹈滋痢酱论珐蜀咐窃军还强归肥爬秉莲注妓充垒瓶丢绍坊惰测柔炳榆埂掠掌董恶戳禁打菲坍开阻嚼灶逻额罐肯胶凋肤朽只匠腰蛹喊棵潘验倍柱卖裂喂粮贿门鳃勋笆迫蛾笛醛礼称奢纹卞陆趁蝴与升胺贫卸随党镐劲诫轿镊魏伎街缮估囊策屠泊舵皂疑集拼祁俯灿舷范佃征展出侈厦驴缓刀喝厚抿六港希糙才堰苹批辞聚舔缅蹄隔捍蕴弟柳州帖欢佣快桩慑生瓢椰翘骇鬃说阐蚁山瓮氮听殿渍辊办各济坠蹦联屯习月鼻植砚沿嫂区佰唉怕艳始校剥括雕祈旅置徽诈浪轴已邦裙碍窍哄撤哮部匀摊兼蓑潦橙关科绷嘻嘉妨搜值棉惩蟹倦驶税芯泻密运涧仇珊涨昌男琵渺正光呻硅有傣逐袜净吠缔溯将婶钡电迹股昧卜低无嘲兆诌沦恋溺糯钢宰饥悸夫版胃笋牡咒箭把泞虑易纤唐梅咳郑需象玉大譬崔晶洼赦弱丁馋四挂磊硝昆痰撒调蔚胳它抗猪幼镭秸谁恒印诀厨芍显恐猾冀司廷坚篮酵撕锰履位澳市汐哀辨则萧溢秦奈城隧叹茬政责炔铺掣赤兔撩蹬铃馒爪钥震凄畅移是辅讼翼栓瀑搪醉獭懒陌臃毫弛裳祷列毙岛浚遂澜盏郎贾扦酒呐境早余评作坎罚环窥狱炊淌郊怜书外册贰剪际滤油迎渊桶媒付担肌郴盂整袍就坏邻皮用谩瑞采栽吮雹烦克患轮探咸拈墅椒但恬愁裔肘峻敦件枕匿恤散谜央诵链绳讥捶烤薛直栏垣弓睬汀栅刚职畴敲扣读纱搂晰凡痞赃雏徊兴糟篇粒海复郝八赚之冯酸侍漓糜渠惋乎们晨垦吕乾千亡芜项的逸铂池僳往买搞车诬焙辗利妹富你查朝跋砸氦旷娠搓怎澡危氯契押曼帧纬受讨壹愈胚昨柬驱轻勿桓靖锭赖彼袱喧捏靴涩虚薪矩割末恩唱革幢日催五屁线情挖苯哲犊讣盟地十落去伶个苗间闹谋骏唬沼糠迈殉绊罕肖邪晋闷窗鱼嫁狭紫改炮浮灯迸锨孤诡汾抉孺甸增套灵著寞赡梭循疗弯京补乱重灌朔空粉桥演婉即昭鸽泵妆燥过彝具阴错匝人劝描亢抚张金犁氟耪板逮墙拜服喳阔址刽拿匹壶箱赔葛赎画贸帆辫沈射惊训绪沪久扼蹿叛埋劫钦爹庞绕淮颜缉悟楚叶波默颓簧擞蠢背竟驳鼠滔啃祖屿爷氰飘会苫哦雅酋堪篷邵咽伦仕伐秩柏获承屎蜂浩愉竿仗芦琼盎慨林干玄凉滦她李畏挥吝捻毕被胡崇膝馁宜踊指簿疽瘩抖皱侦掘呆巾农咙胎赛跟别剩普菜溅感权钞楞副虾膏鸯肉橡仪俗玩烽赶申万拦坷钉坦糊汛醇戈因望夹行蒸成觅钳绿资乘捎邯座险择钧为嚏述帅护笑炽讫毗不洋眩氓德花烷汪意渣浑许秀曝腿谦稻鹤蛰消雨寅玲壬嘛萄欲代由刘搬缆聘粟泉荧球寻亮村家省扛帽陀谬羊稠爽籍亲舒吭点乒衷晃振熏短汰诸烧梆惹坐屹桑丑肋速次喷理饭谊赋拭彭逝玫起骡贼了瓣谤疥退银娩黑授促河眯砒菌锗薄加圆锯辉睫褐泽或奥抠园伺揉墒刮猛兢埠年替朗玛锁微未艾呵吉琅排炎碘眉逾式趾浓卒尚客械啤帮优却沛腹胀队嵌镣谓怖垢冕叠叮像仔笔渐掷蹋笺令撬蚀接镑铣厘竞众呼痪肾愿桔孝峭疯岔黄橇隙邓媳褥该举弘川洞扒俱潜呸缄豹酝镇筛塞尧西锋脾头摈律检任翔青芬戎吐洪麻鳖诅窝声耶杜交尔拎盲盯姓隅丰伴续霜涟衙帘除标癸辰寓磋龄俞纯拢截鞠配姿郧逢爆英幕盒窄堤氨逞敛仰索痘聪见襟纺恢绝填靳沽盖碧忧鹅疾晾阵铁祝叔欣磅屉枝痕佳槐志吓房穿拧善小酿挝羚苛炸貉约猴颁益挛惯膜粪枢纪宛乖扶槽攒谢掂奏寐狸旨倔嗓蛋夸皖洒澄返豌软凿晴纂剃待蹲拂蚕求困毖积妙旗陡隘华怨憎康拍江督拣颅较膛伤逊淳享颂图滓牺荔尖神液蛀暇哥棱胸淖昼源修穗牵蝎裸合谣陪浸廓曰纫盼囱到夜惜蒂届份蒜下质孪稳涵赁徐釉隋锦颐悠俭耘答凸纽原格扇高戮抑嗣隐嫌扩漂涡劣伊肚骨嗅踩难钻帚愤处莎粥瞄娇狄拾茄鲜秤半璃毯包视馏途巢襄手淫孽硫性唯近浊怯装挤荫惦纷聊汽牛婿淘御航稀前医滁娱扳渗肩序堵硼砂钾驾坟战渤阮誉尸绸殃紧程绣结驹都戒涤畔耳备堂痛揖他拘绩伪精熟免饰焕迷伸潞溶掖绑阎铀换兹甜突踏便坡尹脚烁徒附朴虎憋术尺诗吴群桐衔挨漆料褂段简课噪戌辽吩允佛借荐仟诱殷歪儒影逗七腔抄旦吻核商身迢裹韧锄秽罪殆嘎佩饯坝盅勺绦法音碌挞吸靛戚何婪坪两秧蘸蓉推后乔熄衬曳塌剖昔狙覆度杠壳陋腐美唤谗刹跨悍翌贪怂辜通多鄂框湾梁碴词卑哪废梳赢型殊沤照兰睡款镀攫什抡抽萌闪镰召捅倡翠切织腋桃妮篓彪谈妻方妇冉疙株瓜廖学懊鲸篙持亦哺拱萨偿遮缚犯仓岩疹然褪汗辙翁威怠绽闰旱搏弥诉互等细销汹率系内瘟蕾狼淬庶茂里攘牲衫弹煞肇狮葡畸惟野繁石良仲宵拯趋所泅班博粹涉冰拉按以眼僧慢幸温卷俩舞明角粘陛嫉蓄食酮孜顾唇刃涛掏捉锻圃屈贬玖语遭夺鸣析哗顶涎够虫域苇鬼晦氧风抹码茹皆询哟北骤观惑纠颧考再架磷得慎淄钓溉谍礁喀燃藤暂遏孕疡纶悔屋秋闲裕崎梗埔达撅柯钟奔贵莱储吏墩抨饶囤娟擎啼鲤柜匡丸凯符肮喻磺钝衍汇'
 )
@@ -3591,6 +3595,21 @@ class ExternalScraper:
         )
 
     @staticmethod
+    def is_69shuba(url):
+        """Return True for 69shuba.tw book, catalog, and reader URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.hostname or '').lower()
+        if host not in ('69shuba.tw', 'www.69shuba.tw'):
+            return False
+        return bool(re.match(
+            r'^/(?:book|indexlist|read)/\d+(?:/\d+)?/?$',
+            parsed.path or '',
+        ))
+
+    @staticmethod
     def _normalize_title_for_match(value):
         value = html.unescape(value or '')
         value = unicodedata.normalize('NFKC', value)
@@ -3900,6 +3919,7 @@ class ExternalScraper:
             or self._book_data.get('_qidian')
             or self._book_data.get('_munpia')
             or self._book_data.get('_novelpia')
+            or self._book_data.get('_69shuba')
         ):
             return
 
@@ -8492,6 +8512,269 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 '\n\n'.join(css_parts))
 
     # ------------------------------------------------------------------
+    # 69shuba.tw native scraper
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _69shuba_book_id(url):
+        try:
+            match = re.match(
+                r'^/(?:book|indexlist|read)/(\d+)',
+                urllib.parse.urlparse(url or '').path or '',
+            )
+            return match.group(1) if match else ''
+        except Exception:
+            return ''
+
+    @staticmethod
+    def _69shuba_chapter_id(url):
+        try:
+            match = re.match(
+                r'^/read/\d+/(\d+)',
+                urllib.parse.urlparse(url or '').path or '',
+            )
+            return match.group(1) if match else ''
+        except Exception:
+            return ''
+
+    def _69shuba_api_request(self, endpoint, params=None, timeout=30):
+        """Call the JSON API used by 69shuba's official mobile client."""
+        import requests
+
+        timestamp = int(time.time())
+        token = hashlib.md5(
+            f'{SHUBA_API_KEY}{timestamp}'.encode('utf-8')
+        ).hexdigest()
+        payload = dict(params or {})
+        payload.update({
+            'token': token,
+            'timestamp': timestamp,
+            'lang': 'ft',
+        })
+        response = requests.post(
+            f"{SHUBA_API_BASE}/{endpoint.lstrip('/')}",
+            data=payload,
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': SHUBA_API_USER_AGENT,
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data == '-1' or data == -1:
+            raise RuntimeError('69shuba API rejected the request signature')
+        if isinstance(data, dict):
+            code = data.get('code')
+            if str(code).isdigit() and int(code) >= 400:
+                raise RuntimeError(
+                    data.get('msg') or f'69shuba API error {code}'
+                )
+        return data
+
+    def _69shuba_parse_book(self, url):
+        """Fetch 69shuba metadata and its complete chapter catalog."""
+        self._stop_requested = False
+        book_id = self._69shuba_book_id(url)
+        if not book_id:
+            self.log('[69shuba] ERROR: Could not extract book id from URL.')
+            return None
+
+        parsed = urllib.parse.urlparse(url)
+        scheme = parsed.scheme or 'https'
+        host = parsed.netloc or '69shuba.tw'
+        origin = f'{scheme}://{host}'
+        book_url = f'{origin}/book/{book_id}/'
+        self.log(f'[69shuba] Fetching book {book_id}...')
+
+        try:
+            info = self._69shuba_api_request(
+                'api_info.php', {'aid': book_id}
+            )
+            catalog = self._69shuba_api_request(
+                'api_indexlist.php', {'aid': book_id}
+            )
+        except Exception as e:
+            self.log(f'ERROR: [69shuba] API request failed: {e}')
+            return None
+
+        if not isinstance(info, dict) or not isinstance(catalog, dict):
+            self.log('ERROR: [69shuba] API returned an invalid book response.')
+            return None
+
+        rows = catalog.get('list')
+        if not isinstance(rows, list):
+            rows = catalog.get('chapterrows') or catalog.get('chapter_rows')
+        if not isinstance(rows, list):
+            rows = []
+
+        chapters = []
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            chapter_id = str(
+                row.get('chapterid') or row.get('cid') or ''
+            ).strip()
+            if not chapter_id.isdigit() or chapter_id in seen:
+                continue
+            seen.add(chapter_id)
+            name = str(
+                row.get('chaptername')
+                or row.get('cname')
+                or f'Chapter {len(chapters) + 1}'
+            ).strip()
+            chapter_path = row.get('chapter_url')
+            if not chapter_path:
+                chapter_path = f'/read/{book_id}/{chapter_id}'
+            chapter_url = urllib.parse.urljoin(origin + '/', chapter_path)
+            chapters.append({
+                'url': chapter_url,
+                'name': name,
+                'fullName': name,
+                'isVIP': False,
+                'isPaid': False,
+                'isAccessible': True,
+                '_chapterId': chapter_id,
+            })
+
+        if not chapters:
+            self.log('ERROR: [69shuba] No chapters found in the catalog.')
+            return None
+
+        title = str(
+            info.get('articlename') or info.get('bookname') or ''
+        ).strip()
+        author = str(info.get('author') or '').strip()
+        introduction = str(
+            info.get('intro_des') or info.get('introduction') or ''
+        ).strip()
+        introduction_html = str(info.get('intro_p') or '').strip()
+        if not introduction_html and introduction:
+            introduction_html = f'<p>{html.escape(introduction)}</p>'
+
+        cover_url = str(
+            info.get('img_url') or info.get('coverUrl') or ''
+        ).strip()
+        if cover_url:
+            cover_url = urllib.parse.urljoin(origin + '/', cover_url)
+
+        tags = info.get('keywords_arr')
+        if not isinstance(tags, list):
+            tags = [
+                value.strip()
+                for value in str(info.get('keywords') or '').split('|')
+                if value.strip()
+            ]
+        else:
+            tags = [str(value).strip() for value in tags if str(value).strip()]
+        category = str(
+            info.get('sortname') or info.get('sortname_2') or ''
+        ).strip()
+        status = str(info.get('isfull') or '').strip()
+
+        data = {
+            'bookname': title or f'69shuba Book {book_id}',
+            'author': author or 'Unknown',
+            'coverUrl': cover_url,
+            'description': introduction,
+            'introduction': introduction,
+            'introductionHTML': introduction_html,
+            'tags': tags,
+            'category': [category] if category else [],
+            'status': status,
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'zh',
+            '_69shuba': True,
+            '_69shuba_origin': origin,
+            '_69shuba_book_id': book_id,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        self.log(
+            f"[69shuba] Book: {data['bookname']} by {data['author']} - "
+            f"{len(chapters)} chapters"
+        )
+        return data
+
+    @staticmethod
+    def _69shuba_build_chapter_result(payload, source_name=''):
+        if not isinstance(payload, dict) or payload.get('contentMissing'):
+            return None
+
+        raw_paragraphs = payload.get('paragraphs')
+        if isinstance(raw_paragraphs, list):
+            paragraphs = [
+                str(value).replace('\r', '').strip()
+                for value in raw_paragraphs
+                if value is not None
+                and str(value).replace('\r', '').strip()
+            ]
+        else:
+            content = str(
+                payload.get('content') or payload.get('article_content') or ''
+            ).replace('\r\n', '\n').replace('\r', '\n')
+            paragraphs = [
+                line.strip() for line in content.split('\n') if line.strip()
+            ]
+
+        if not paragraphs:
+            return None
+
+        chapter_name = str(
+            payload.get('chaptername')
+            or payload.get('chapter_name')
+            or source_name
+            or 'Chapter'
+        ).strip()
+        content_text = '\n'.join(paragraphs)
+        content_html = '\n'.join(
+            f'<p>{html.escape(paragraph)}</p>'
+            for paragraph in paragraphs
+        )
+        return {
+            'chapterName': chapter_name,
+            'sourceChapterName': source_name or chapter_name,
+            'contentText': content_text,
+            'contentHtml': (
+                '<div class="shuba-content">\n'
+                f'{content_html}\n'
+                '</div>'
+            ),
+            'contentCss': (
+                '.shuba-content p { margin: 0 0 0.75em; '
+                'line-height: 1.8; }'
+            ),
+            'images': [],
+        }
+
+    def _69shuba_parse_chapter(self, chapter_url, chapter_name):
+        book_id = (
+            self._69shuba_book_id(chapter_url)
+            or str((self._book_data or {}).get('_69shuba_book_id') or '')
+        )
+        chapter_id = self._69shuba_chapter_id(chapter_url)
+        if not book_id or not chapter_id:
+            self.log(f'  [69shuba] Invalid chapter URL: {chapter_url}')
+            return None
+        try:
+            payload = self._69shuba_api_request(
+                'api_read.php',
+                {'aid': book_id, 'cid': chapter_id},
+            )
+        except Exception as e:
+            self.log(
+                f'  [69shuba] Chapter request failed: {chapter_name}: {e}'
+            )
+            return None
+
+        result = self._69shuba_build_chapter_result(payload, chapter_name)
+        if result is None:
+            self.log(f'  [69shuba] Empty chapter: {chapter_name}')
+        return result
+
+    # ------------------------------------------------------------------
     # Yeduji (夜读集) native scraper
     # ------------------------------------------------------------------
     _YEDUJI_UA = (
@@ -8829,6 +9112,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         Returns the parsed book dict or None on error.
         """
+        if self.is_69shuba(url):
+            self.log(
+                '[69shuba] Detected 69shuba.tw URL, using native scraper.'
+            )
+            return self._69shuba_parse_book(url)
         if self.is_novelpia(url):
             self.log(
                 '[Novelpia] Detected Novelpia URL, using the External '
@@ -8950,6 +9238,17 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """
         if self._stop_requested:
             return None
+
+        if self._book_data and self._book_data.get('_69shuba'):
+            url = chapter_info.get('url', '')
+            name = (
+                chapter_info.get('fullName', '')
+                or chapter_info.get('name', '')
+            )
+            result = self._69shuba_parse_chapter(url, name)
+            if interval > 0:
+                time.sleep(interval)
+            return result
 
         if self._book_data and self._book_data.get('_novelpia'):
             url = chapter_info.get('url', '')
@@ -9080,6 +9379,23 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """
         if self._stop_requested or not batch_info:
             return [None] * len(batch_info)
+
+        if self._book_data and self._book_data.get('_69shuba'):
+            from concurrent.futures import ThreadPoolExecutor
+
+            def fetch_69shuba(chapter):
+                if self._stop_requested:
+                    return None
+                return self._69shuba_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName', '') or chapter.get('name', ''),
+                )
+
+            # The dialog already sizes each batch from the user's thread setting,
+            # so run every item in that batch concurrently without a site cap.
+            max_workers = max(1, len(batch_info))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                return list(executor.map(fetch_69shuba, batch_info))
 
         # Novelpia is intentionally sequential. One navigation produces one
         # viewer request; there is no speculative concurrency here.

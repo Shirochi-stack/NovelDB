@@ -441,6 +441,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
                         and not self._scraper.is_yeduji(url)
+                        and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -486,8 +487,12 @@ class ExternalNovelDialog(tk.Toplevel):
             is_novelpia = bool(
                 self._book_data and self._book_data.get("_novelpia")
             )
+            is_69shuba = bool(
+                self._book_data and self._book_data.get("_69shuba")
+            )
             if (self._scraper and not self._scraper._context
                     and not is_ntk and not is_yeduji and not is_novelpia
+                    and not is_69shuba
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
@@ -1025,6 +1030,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
                         and not self._scraper.is_yeduji(url)
+                        and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -1236,6 +1242,7 @@ class ExternalNovelDialog(tk.Toplevel):
             try:
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
+                        and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_novelpia(url)
                         and not self._scraper._context):
                     self._scraper.start()
