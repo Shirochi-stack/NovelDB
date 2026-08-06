@@ -441,6 +441,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
                         and not self._scraper.is_yeduji(url)
+                        and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
@@ -490,9 +491,12 @@ class ExternalNovelDialog(tk.Toplevel):
             is_69shuba = bool(
                 self._book_data and self._book_data.get("_69shuba")
             )
+            is_1qxs = bool(
+                self._book_data and self._book_data.get("_1qxs")
+            )
             if (self._scraper and not self._scraper._context
                     and not is_ntk and not is_yeduji and not is_novelpia
-                    and not is_69shuba
+                    and not is_69shuba and not is_1qxs
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
@@ -1030,6 +1034,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
                         and not self._scraper.is_yeduji(url)
+                        and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
@@ -1242,6 +1247,7 @@ class ExternalNovelDialog(tk.Toplevel):
             try:
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qidian(url)
+                        and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_novelpia(url)
                         and not self._scraper._context):

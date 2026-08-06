@@ -205,6 +205,10 @@ class ExternalScraper:
         self._sfacg_app_cookie = None
         self._sfacg_app_cookie_checked = False
         self._sfacg_app_prefer_logged = False
+        self._1qxs_cookies = {}
+        self._1qxs_request_lock = threading.Lock()
+        self._1qxs_next_request_at = 0.0
+        self._1qxs_cooldown_until = 0.0
 
     def _install_bridge_bindings(self, page):
         """Expose Python-backed helpers used by the JS bridge stubs."""
@@ -3610,6 +3614,22 @@ class ExternalScraper:
         ))
 
     @staticmethod
+    def is_1qxs(url):
+        """Return True for supported 1qxs book, catalog, and reader URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.hostname or '').lower()
+        if host not in ('1qxs.com', 'www.1qxs.com', 'm.1qxs.com'):
+            return False
+        return bool(re.match(
+            r'^/(?:catalog|xs)(?:_\d+)?/\d+'
+            r'(?:/\d+(?:/\d+)?)?(?:\.html)?/?$',
+            parsed.path or '',
+        ))
+
+    @staticmethod
     def _normalize_title_for_match(value):
         value = html.unescape(value or '')
         value = unicodedata.normalize('NFKC', value)
@@ -3920,6 +3940,7 @@ class ExternalScraper:
             or self._book_data.get('_munpia')
             or self._book_data.get('_novelpia')
             or self._book_data.get('_69shuba')
+            or self._book_data.get('_1qxs')
         ):
             return
 
@@ -8512,6 +8533,427 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 '\n\n'.join(css_parts))
 
     # ------------------------------------------------------------------
+    # 1qxs.com native scraper
+    # ------------------------------------------------------------------
+    _1QXS_ORIGIN = 'https://www.1qxs.com'
+    _1QXS_UA = (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/140.0.0.0 Safari/537.36'
+    )
+    _1QXS_MIN_REQUEST_INTERVAL = 1.2
+
+    @staticmethod
+    def _1qxs_url_parts(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path or ''
+        except Exception:
+            return None
+        match = re.match(
+            r'^/(?P<kind>catalog|xs)(?P<variant>_\d+)?/'
+            r'(?P<book_id>\d+)'
+            r'(?:/(?P<chapter_id>\d+)(?:/(?P<page>\d+))?)?'
+            r'(?:\.html)?/?$',
+            path,
+        )
+        if not match:
+            return None
+        return match.groupdict(default='')
+
+    def _1qxs_new_session(self):
+        """Create an isolated HTTP session; no page scripts or ads run."""
+        import requests
+
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': self._1QXS_UA,
+            'Accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,*/*;q=0.8'
+            ),
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+        })
+        # Keep cookies isolated per worker. Reusing one uid concurrently causes
+        # 1qxs to return 403 responses on later pages of split chapters.
+        return session
+
+    def _1qxs_wait_for_request_slot(self):
+        """Pace requests from all chapter workers to avoid the 30s ban."""
+        while True:
+            if self._stop_requested:
+                raise RuntimeError('download stopped')
+            with self._1qxs_request_lock:
+                now = time.monotonic()
+                ready_at = max(
+                    self._1qxs_next_request_at,
+                    self._1qxs_cooldown_until,
+                )
+                if now >= ready_at:
+                    self._1qxs_next_request_at = (
+                        now + self._1QXS_MIN_REQUEST_INTERVAL
+                    )
+                    return
+                delay = min(0.2, ready_at - now)
+            time.sleep(delay)
+
+    def _1qxs_fetch_html(self, session, url, referer='', timeout=30):
+        """Fetch HTML, retrying the site's initial cookie handshake page."""
+        last_error = None
+        headers = {'Referer': referer} if referer else None
+        for attempt in range(6):
+            try:
+                self._1qxs_wait_for_request_slot()
+                response = session.get(url, headers=headers, timeout=timeout)
+                if response.status_code == 403:
+                    last_error = RuntimeError('1qxs returned HTTP 403')
+                    # This site uses HTTP 403 for its documented 30-second
+                    # "access too frequently" response.
+                    cooldown = 30.5
+                    should_log = False
+                    with self._1qxs_request_lock:
+                        now = time.monotonic()
+                        if self._1qxs_cooldown_until <= now + 1.0:
+                            should_log = True
+                        self._1qxs_cooldown_until = max(
+                            self._1qxs_cooldown_until,
+                            now + cooldown,
+                        )
+                    if should_log:
+                        self.log(
+                            '[1qxs] Site rate limit reached; waiting 30 '
+                            'seconds before retrying.'
+                        )
+                    try:
+                        session.cookies.clear()
+                    except Exception:
+                        pass
+                    continue
+                response.raise_for_status()
+                text = response.text
+                is_handshake_error = bool(re.search(
+                    r'<div\s+class=["\']error["\']', text, re.I
+                ))
+                if is_handshake_error:
+                    last_error = RuntimeError(
+                        '1qxs returned its cookie handshake page'
+                    )
+                    continue
+                try:
+                    self._1qxs_cookies = session.cookies.get_dict()
+                except Exception:
+                    pass
+                return text
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(f'1qxs request failed: {last_error}')
+
+    def _1qxs_parse_book(self, url):
+        """Fetch 1qxs metadata and the complete static chapter catalog."""
+        self._stop_requested = False
+        parts = self._1qxs_url_parts(url)
+        if not parts:
+            self.log('[1qxs] ERROR: Could not parse the supplied URL.')
+            return None
+
+        book_id = parts['book_id']
+        variant = parts['variant']
+        reader_prefix = f'xs{variant}'
+        catalog_prefix = f'catalog{variant}'
+        book_url = f'{self._1QXS_ORIGIN}/{reader_prefix}/{book_id}.html'
+        catalog_url = (
+            f'{self._1QXS_ORIGIN}/{catalog_prefix}/{book_id}.html'
+        )
+        self.log(
+            f'[1qxs] Fetching book {book_id} via direct HTTP '
+            '(site JavaScript and ads are not executed)...'
+        )
+
+        session = self._1qxs_new_session()
+        try:
+            # The first request also establishes the uid/refresh_token cookies.
+            catalog_html = self._1qxs_fetch_html(
+                session, catalog_url, referer=book_url
+            )
+            book_html = self._1qxs_fetch_html(
+                session, book_url, referer=catalog_url
+            )
+        except Exception as exc:
+            self.log(f'ERROR: [1qxs] Book request failed: {exc}')
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+        chapters = []
+        seen = set()
+        chapter_path_re = re.compile(
+            rf'^/{re.escape(reader_prefix)}/{re.escape(book_id)}/'
+            r'(\d+)\.html/?$'
+        )
+        for anchor in re.finditer(
+            r'<a\b([^>]*)>(.*?)</a>', catalog_html, re.I | re.S
+        ):
+            attrs = self._ntk_html_attrs(anchor.group(1))
+            href = html.unescape(attrs.get('href') or '').strip()
+            path = urllib.parse.urlparse(href).path or ''
+            chapter_match = chapter_path_re.match(path)
+            if not chapter_match:
+                continue
+            chapter_id = chapter_match.group(1)
+            if chapter_id in seen:
+                continue
+            name = self._ntk_plain_fragment(anchor.group(2))
+            if not name:
+                continue
+            seen.add(chapter_id)
+            chapters.append({
+                'url': (
+                    f'{self._1QXS_ORIGIN}/{reader_prefix}/'
+                    f'{book_id}/{chapter_id}.html'
+                ),
+                'name': name,
+                'fullName': name,
+                'isVIP': False,
+                'isPaid': False,
+                'isAccessible': True,
+                '_chapterId': chapter_id,
+            })
+
+        if not chapters:
+            self.log('ERROR: [1qxs] No chapters found in the catalog.')
+            return None
+
+        title = self._ntk_meta_content(
+            book_html, ('og:title', 'og:novel:book_name')
+        )
+        author = self._ntk_meta_content(
+            book_html, ('og:novel:author',)
+        )
+        description = self._ntk_meta_content(
+            book_html, ('og:description', 'description')
+        )
+        description = re.sub(
+            r'^.*?提供精彩免费全文阅读\s*[:：]\s*',
+            '',
+            description,
+            count=1,
+        ).strip()
+        cover_url = self._ntk_meta_content(book_html, ('og:image',))
+        category = self._ntk_meta_content(
+            book_html, ('og:novel:category',)
+        )
+        status = self._ntk_meta_content(
+            book_html, ('og:novel:status',)
+        )
+
+        if not title:
+            title_match = re.search(
+                r'<div\s+class=["\']book["\'][^>]*>.*?'
+                r'<h1[^>]*>(.*?)</h1>',
+                catalog_html,
+                re.I | re.S,
+            )
+            if title_match:
+                title = self._ntk_plain_fragment(title_match.group(1))
+        if not author:
+            author_match = re.search(
+                r'作者\s*[：:]\s*([^<&]+)', catalog_html, re.I
+            )
+            if author_match:
+                author = html.unescape(author_match.group(1)).strip()
+
+        data = {
+            'bookname': title or f'1qxs Book {book_id}',
+            'author': author or 'Unknown',
+            'coverUrl': urllib.parse.urljoin(
+                self._1QXS_ORIGIN + '/', cover_url
+            ) if cover_url else '',
+            'description': description,
+            'introduction': description,
+            'introductionHTML': (
+                f'<p>{html.escape(description)}</p>' if description else ''
+            ),
+            'tags': [],
+            'category': [category] if category else [],
+            'status': status,
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'zh',
+            '_1qxs': True,
+            '_1qxs_book_id': book_id,
+            '_1qxs_variant': variant,
+            '_1qxs_reader_prefix': reader_prefix,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        self.log(
+            f"[1qxs] Book: {data['bookname']} by {data['author']} - "
+            f'{len(chapters)} chapters'
+        )
+        return data
+
+    @staticmethod
+    def _1qxs_is_junk_paragraph(value):
+        compact = re.sub(r'\s+', '', value or '')
+        return bool(
+            ('小说免费阅读' in compact and '1qxs.com' in compact)
+            or ('一秒记住' in compact and '更新快' in compact)
+            or '如遇到内容无法显示或者显示不全' in compact
+            or '无法显示本章节全部内容' in compact
+            or ('本章未完' in compact and '下一页' in compact)
+            or compact in ('加载更多', '加|载|更|多')
+        )
+
+    @classmethod
+    def _1qxs_extract_paragraphs(cls, fragment):
+        paragraphs = []
+        for paragraph in re.finditer(
+            r'<p\b[^>]*>(.*?)</p>', fragment or '', re.I | re.S
+        ):
+            value = re.sub(
+                r'<br\s*/?>', '\n', paragraph.group(1), flags=re.I
+            )
+            value = html.unescape(re.sub(r'<[^>]+>', '', value))
+            value = value.replace('\r', '').strip()
+            if value and not cls._1qxs_is_junk_paragraph(value):
+                paragraphs.append(value)
+        return paragraphs
+
+    @staticmethod
+    def _1qxs_decode_p_key(page_html):
+        match = re.search(
+            r'\bp_key\s*=\s*["\']([^"\']+)["\']', page_html or ''
+        )
+        if not match:
+            return ''
+        encoded = match.group(1).strip()
+        encoded += '=' * (-len(encoded) % 4)
+        try:
+            return base64.b64decode(encoded).decode('utf-8')
+        except Exception as exc:
+            raise ValueError(f'invalid 1qxs p_key: {exc}') from exc
+
+    def _1qxs_parse_chapter(self, chapter_url, chapter_name):
+        parts = self._1qxs_url_parts(chapter_url)
+        book_data = self._book_data or {}
+        book_id = (parts or {}).get('book_id') or str(
+            book_data.get('_1qxs_book_id') or ''
+        )
+        chapter_id = (parts or {}).get('chapter_id') or ''
+        variant = (parts or {}).get('variant')
+        if variant is None:
+            variant = str(book_data.get('_1qxs_variant') or '')
+        if not book_id or not chapter_id:
+            self.log(f'  [1qxs] Invalid chapter URL: {chapter_url}')
+            return None
+
+        reader_prefix = f'xs{variant}'
+        base_url = (
+            f'{self._1QXS_ORIGIN}/{reader_prefix}/'
+            f'{book_id}/{chapter_id}.html'
+        )
+        catalog_url = (
+            f'{self._1QXS_ORIGIN}/catalog{variant}/{book_id}.html'
+        )
+        session = self._1qxs_new_session()
+        try:
+            first_html = self._1qxs_fetch_html(
+                session, base_url, referer=catalog_url
+            )
+            heading_match = re.search(
+                r'<h1[^>]*>(.*?)</h1>', first_html, re.I | re.S
+            )
+            heading = self._ntk_plain_fragment(
+                heading_match.group(1) if heading_match else ''
+            )
+            page_match = re.search(r'\((\d+)\s*/\s*(\d+)\)\s*$', heading)
+            page_count = int(page_match.group(2)) if page_match else 1
+            if page_count < 1 or page_count > 100:
+                raise RuntimeError(f'invalid page count: {page_count}')
+            clean_heading = re.sub(
+                r'\s*\(\d+\s*/\s*\d+\)\s*$', '', heading
+            ).strip()
+
+            all_paragraphs = []
+            for page_number in range(1, page_count + 1):
+                if self._stop_requested:
+                    return None
+                if page_number == 1:
+                    page_html = first_html
+                else:
+                    page_url = (
+                        f'{self._1QXS_ORIGIN}/{reader_prefix}/'
+                        f'{book_id}/{chapter_id}/{page_number}.html'
+                    )
+                    page_html = self._1qxs_fetch_html(
+                        session, page_url, referer=base_url
+                    )
+
+                content_match = re.search(
+                    r'<div\s+class=["\']content["\'][^>]*>'
+                    r'(.*?)</div>',
+                    page_html,
+                    re.I | re.S,
+                )
+                if not content_match:
+                    raise RuntimeError(
+                        f'content missing on page {page_number}/{page_count}'
+                    )
+                page_paragraphs = self._1qxs_extract_paragraphs(
+                    content_match.group(1)
+                )
+                hidden_html = self._1qxs_decode_p_key(page_html)
+                page_paragraphs.extend(
+                    self._1qxs_extract_paragraphs(hidden_html)
+                )
+                if not page_paragraphs:
+                    raise RuntimeError(
+                        f'empty content on page {page_number}/{page_count}'
+                    )
+                all_paragraphs.extend(page_paragraphs)
+        except Exception as exc:
+            self.log(
+                f'  [1qxs] Chapter request failed: {chapter_name}: {exc}'
+            )
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+        result_name = clean_heading or chapter_name or 'Chapter'
+        if (
+            all_paragraphs
+            and self._normalize_title_for_match(all_paragraphs[0])
+            == self._normalize_title_for_match(result_name)
+        ):
+            all_paragraphs.pop(0)
+        content_text = '\n'.join(all_paragraphs)
+        content_html = '\n'.join(
+            f'<p>{html.escape(paragraph)}</p>'
+            for paragraph in all_paragraphs
+        )
+        return {
+            'chapterName': result_name,
+            'sourceChapterName': chapter_name or result_name,
+            'contentText': content_text,
+            'contentHtml': (
+                '<div class="oneqxs-content">\n'
+                f'{content_html}\n'
+                '</div>'
+            ),
+            'contentCss': (
+                '.oneqxs-content p { margin: 0 0 0.75em; '
+                'line-height: 1.8; }'
+            ),
+            'images': [],
+        }
+
+    # ------------------------------------------------------------------
     # 69shuba.tw native scraper
     # ------------------------------------------------------------------
     @staticmethod
@@ -9112,6 +9554,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         Returns the parsed book dict or None on error.
         """
+        if self.is_1qxs(url):
+            self.log(
+                '[1qxs] Detected 1qxs URL, using the direct HTTP scraper.'
+            )
+            return self._1qxs_parse_book(url)
         if self.is_69shuba(url):
             self.log(
                 '[69shuba] Detected 69shuba.tw URL, using native scraper.'
@@ -9238,6 +9685,17 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """
         if self._stop_requested:
             return None
+
+        if self._book_data and self._book_data.get('_1qxs'):
+            url = chapter_info.get('url', '')
+            name = (
+                chapter_info.get('fullName', '')
+                or chapter_info.get('name', '')
+            )
+            result = self._1qxs_parse_chapter(url, name)
+            if interval > 0:
+                time.sleep(interval)
+            return result
 
         if self._book_data and self._book_data.get('_69shuba'):
             url = chapter_info.get('url', '')
@@ -9379,6 +9837,22 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         """
         if self._stop_requested or not batch_info:
             return [None] * len(batch_info)
+
+        if self._book_data and self._book_data.get('_1qxs'):
+            from concurrent.futures import ThreadPoolExecutor
+
+            def fetch_1qxs(chapter):
+                if self._stop_requested:
+                    return None
+                return self._1qxs_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName', '') or chapter.get('name', ''),
+                )
+
+            # batch_info is already sized from the user's thread setting.
+            max_workers = max(1, len(batch_info))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                return list(executor.map(fetch_1qxs, batch_info))
 
         if self._book_data and self._book_data.get('_69shuba'):
             from concurrent.futures import ThreadPoolExecutor
