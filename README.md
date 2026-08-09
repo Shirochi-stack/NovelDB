@@ -52,7 +52,7 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 
 1. Click **External Novel** in the main window.
 2. Paste the novel URL and click **Fetch Info**.
-3. Choose your format (EPUB / TXT / PDF), chapter range, and thread count.
+3. Choose one or more formats (EPUB / TXT / PDF / CBZ), the chapter range, and thread count.
 4. Click **Download**.
 
 The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
@@ -112,10 +112,10 @@ The main **Novel ID / URL** field in the single-download form also accepts a ful
 
 1. Click **Batch Download** (and pick a list file) or **Paste Batch** (and paste entries).
 2. If **Quick Download** is enabled, its folder is used as the output directory. Otherwise you'll be prompted for one.
-3. Every novel is downloaded with the **current UI settings** — format (EPUB/TXT/PDF), chapter range, compression, image format (WEBP/JPEG/PNG/**AVIF**), cover format, notices, cache, threads, image compression workers, and interval. Configure these **before** pressing the button.
+3. Every novel is downloaded with the **current UI settings** — selected format(s) (any combination of EPUB/TXT/PDF), chapter range, compression, image format (WEBP/JPEG/PNG/**AVIF**), cover format, notices, cache, threads, image compression workers, and interval. Configure these **before** pressing the button.
 4. Blank lines, `#` comments, and entries that cannot be resolved to a numeric ID are skipped. A 2 second pause is inserted between novels to reduce server load.
 5. Pressing **Stop** cancels the batch — the current novel finishes, then the run exits.
-6. Each novel is saved as `[<id>] <title>.<ext>` in the chosen folder. A final `OK / Failed / Skipped` summary is logged.
+6. Each novel is saved as `[<id>] <title>.<ext>` in the chosen folder, with one file per selected format. A final `OK / Failed / Skipped` summary is logged.
 
 **Tip:** you can generate a batch list automatically from **Tag Retrieval** (by tag or Top 100), then feed that file straight into Batch Download, or copy its contents into Paste Batch. An in-app help dialog is also available via the **?** button next to **Batch Download**.
 

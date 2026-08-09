@@ -2,7 +2,7 @@ import json
 import zipfile
 from types import SimpleNamespace
 
-from downloader_core import DownloaderCore
+from downloader_core import DownloaderCore, _without_tesseract_dll_directories
 from epub_generator import EpubGenerator
 from gui import NovelpiaGUI, extract_chapter_content_and_images
 
@@ -171,6 +171,51 @@ def test_image_url_mode_disables_and_restores_image_controls():
     assert readonly_widget.state == "readonly"
 
 
+def test_multiple_output_formats_are_returned_in_stable_order():
+    settings = SimpleNamespace(
+        var_save_epub=Setting(True),
+        var_save_txt=Setting(False),
+        var_save_pdf=Setting(True),
+    )
+
+    assert NovelpiaGUI._selected_output_formats(settings) == ["epub", "pdf"]
+
+
+def test_multiple_output_paths_share_the_save_dialog_base_name(tmp_path):
+    anchor = tmp_path / "book.epub"
+
+    paths = NovelpiaGUI._output_paths_from_anchor(
+        str(anchor), ["epub", "txt", "pdf"]
+    )
+
+    assert paths == {
+        "epub": str(tmp_path / "book.epub"),
+        "txt": str(tmp_path / "book.txt"),
+        "pdf": str(tmp_path / "book.pdf"),
+    }
+
+
+def test_single_output_path_preserves_custom_filename(tmp_path):
+    anchor = tmp_path / "book.custom"
+
+    paths = NovelpiaGUI._output_paths_from_anchor(str(anchor), ["txt"])
+
+    assert paths == {"txt": str(anchor)}
+
+
+def test_multiple_output_paths_keep_an_unrecognized_suffix_in_base(tmp_path):
+    anchor = tmp_path / "book.translation"
+
+    paths = NovelpiaGUI._output_paths_from_anchor(
+        str(anchor), ["epub", "pdf"]
+    )
+
+    assert paths == {
+        "epub": str(tmp_path / "book.translation.epub"),
+        "pdf": str(tmp_path / "book.translation.pdf"),
+    }
+
+
 def test_epub_cover_can_use_a_remote_image_url(tmp_path):
     output = tmp_path / "remote-cover.epub"
     generator = EpubGenerator(
@@ -200,3 +245,19 @@ def test_epub_cover_can_use_a_remote_image_url(tmp_path):
 
 def test_chapter_image_urls_reject_non_http_sources():
     assert DownloaderCore.normalize_chapter_image_url("javascript:alert(1)") is None
+
+
+def test_pdf_dll_path_excludes_tesseract_without_changing_other_entries():
+    original = (
+        r"C:\Python312;C:\Program Files\Tesseract-OCR;"
+        r"C:\msys64\mingw64\bin;C:\Tools\OCR"
+    )
+
+    cleaned, removed = _without_tesseract_dll_directories(
+        original, separator=';'
+    )
+
+    assert cleaned == (
+        r"C:\Python312;C:\msys64\mingw64\bin;C:\Tools\OCR"
+    )
+    assert removed == [r"C:\Program Files\Tesseract-OCR"]

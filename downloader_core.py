@@ -4,6 +4,7 @@ import time
 import threading
 import html
 import base64
+import os
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
@@ -12,6 +13,103 @@ from novelpia_search_terms import (
     DEFAULT_SEARCH_QUERY_COUNT,
     RETRYABLE_STATUS_CODES,
 )
+
+
+_WEASYPRINT_DLL_PATH_LOCK = threading.Lock()
+_WEASYPRINT_DLL_PATH_READY = False
+
+
+def _without_tesseract_dll_directories(path_value, separator=None):
+    """Return PATH without Tesseract's conflicting GTK/Pango directory.
+
+    Windows Tesseract distributions ship private DLLs named exactly like the
+    Pango and HarfBuzz libraries used by WeasyPrint. If Tesseract appears first
+    on PATH, CFFI probes those incompatible copies and Windows displays an
+    "Entry Point Not Found" dialog before WeasyPrint retries another copy.
+    Tesseract itself is not used by this application, so excluding that one
+    directory from this process is safe and leaves the system PATH untouched.
+    """
+    separator = os.pathsep if separator is None else separator
+    kept = []
+    removed = []
+    for entry in str(path_value or '').split(separator):
+        entry = entry.strip().strip('"')
+        if not entry:
+            continue
+        normalized = entry.replace('/', '\\').rstrip('\\')
+        leaf = normalized.rsplit('\\', 1)[-1].casefold()
+        if leaf == 'tesseract-ocr':
+            removed.append(entry)
+        else:
+            kept.append(entry)
+    return separator.join(kept), removed
+
+
+def _prepare_weasyprint_windows_dll_path(logger=None):
+    """Make WeasyPrint use a coherent GTK/Pango DLL set on Windows."""
+    global _WEASYPRINT_DLL_PATH_READY
+    if os.name != 'nt':
+        return
+
+    with _WEASYPRINT_DLL_PATH_LOCK:
+        if _WEASYPRINT_DLL_PATH_READY:
+            return
+
+        clean_path, removed = _without_tesseract_dll_directories(
+            os.environ.get('PATH', '')
+        )
+        path_entries = clean_path.split(os.pathsep) if clean_path else []
+
+        # Honor an explicit WeasyPrint runtime first. Otherwise use the same
+        # locations as WeasyPrint and the PyInstaller build specifications.
+        configured = os.environ.get('WEASYPRINT_DLL_DIRECTORIES', '')
+        configured, configured_removed = _without_tesseract_dll_directories(
+            configured, separator=';'
+        )
+        removed.extend(configured_removed)
+        dll_directories = [item for item in configured.split(';') if item]
+        if not dll_directories:
+            gtk_folder = os.environ.get('GTK_FOLDER', '')
+            candidates = [
+                os.path.join(gtk_folder, 'bin') if gtk_folder else '',
+                r'C:\msys64\mingw64\bin',
+                r'C:\msys64\ucrt64\bin',
+                r'C:\Program Files\GTK3-Runtime Win64\bin',
+            ]
+            for candidate in candidates:
+                if (
+                    candidate
+                    and os.path.isfile(
+                        os.path.join(candidate, 'libpango-1.0-0.dll')
+                    )
+                    and os.path.isfile(
+                        os.path.join(candidate, 'libharfbuzz-0.dll')
+                    )
+                ):
+                    dll_directories = [candidate]
+                    break
+
+        # CFFI may resolve the short DLL name through PATH before loading it,
+        # so merely calling os.add_dll_directory is not sufficient. Put the
+        # selected coherent runtime first and remove duplicate path entries.
+        preferred = []
+        seen = set()
+        for entry in dll_directories + path_entries:
+            key = os.path.normcase(os.path.normpath(entry))
+            if key not in seen:
+                seen.add(key)
+                preferred.append(entry)
+        os.environ['PATH'] = os.pathsep.join(preferred)
+        if dll_directories:
+            os.environ['WEASYPRINT_DLL_DIRECTORIES'] = ';'.join(
+                dll_directories
+            )
+
+        _WEASYPRINT_DLL_PATH_READY = True
+        if removed and logger:
+            logger(
+                "PDF renderer isolated from conflicting Tesseract OCR DLLs."
+            )
 
 class AccessBlockedError(Exception):
     """Raised when chapter access is blocked (login/age verification required)."""
@@ -693,6 +791,10 @@ class DownloaderCore:
         cover_image: dict {filename, data} or None
         info_html: optional HTML snippet (inner body) for metadata section
         """
+        # Do this immediately before the lazy WeasyPrint import. On Windows it
+        # prevents Tesseract OCR's incompatible Pango/Harfbuzz DLLs from being
+        # probed, which otherwise produces harmless but modal system dialogs.
+        _prepare_weasyprint_windows_dll_path(self.log)
         try:
             from weasyprint import HTML
         except Exception as e:

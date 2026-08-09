@@ -1089,7 +1089,13 @@ class NovelpiaGUI(tk.Tk):
         self.var_from_num = tk.IntVar(value=1)
         self.var_to_num = tk.IntVar(value=1)
         
+        # Output formats are independent so one chapter download can be reused
+        # to produce any combination of EPUB, TXT, and PDF files. Keep the
+        # legacy StringVar as the primary format for config compatibility.
         self.var_save_format = tk.StringVar(value="epub")
+        self.var_save_epub = tk.BooleanVar(value=True)
+        self.var_save_txt = tk.BooleanVar(value=False)
+        self.var_save_pdf = tk.BooleanVar(value=False)
         self.var_font_path = tk.StringVar()
         self.var_include_notices = tk.BooleanVar(value=True)
         self.var_strip_leading_spaces = tk.BooleanVar(value=False)
@@ -1128,6 +1134,8 @@ class NovelpiaGUI(tk.Tk):
         self.image_lock = threading.Lock()
         self._output_path = None
         self._output_format = "epub"
+        self._output_paths = {}
+        self._output_formats = ["epub"]
         self._stop_requested = False
         self._is_downloading = False
         self._last_download_result = None
@@ -1272,9 +1280,14 @@ class NovelpiaGUI(tk.Tk):
         ttk.Label(dl_inner, text="Format").grid(row=2, column=0, sticky="w", pady=5)
         fmt_frame = ttk.Frame(dl_inner)
         fmt_frame.grid(row=2, column=1, columnspan=2, sticky="w")
-        ttk.Radiobutton(fmt_frame, text="EPUB", variable=self.var_save_format, value="epub").pack(side="left", padx=(5, 15))
-        ttk.Radiobutton(fmt_frame, text="TXT", variable=self.var_save_format, value="txt").pack(side="left")
-        ttk.Radiobutton(fmt_frame, text="PDF", variable=self.var_save_format, value="pdf").pack(side="left", padx=(15, 0))
+        ttk.Checkbutton(fmt_frame, text="EPUB", variable=self.var_save_epub).pack(side="left", padx=(5, 15))
+        ttk.Checkbutton(fmt_frame, text="TXT", variable=self.var_save_txt).pack(side="left")
+        ttk.Checkbutton(fmt_frame, text="PDF", variable=self.var_save_pdf).pack(side="left", padx=(15, 0))
+        ToolTip(
+            fmt_frame,
+            "Select one or more output formats. Chapters are downloaded once,\n"
+            "then a separate file is generated for every selected format.",
+        )
 
         # Checkboxes
         misc_chk_frame = ttk.Frame(dl_inner)
@@ -2386,6 +2399,12 @@ class NovelpiaGUI(tk.Tk):
     def action_download(self):
         if self._is_downloading:
             return
+        if not self._selected_output_formats():
+            messagebox.showwarning(
+                "No Output Format",
+                "Select at least one output format (EPUB, TXT, or PDF).",
+            )
+            return
         self._set_downloading(True)
         threading.Thread(target=self._download_worker_wrapper, daemon=True).start()
 
@@ -2416,7 +2435,7 @@ class NovelpiaGUI(tk.Tk):
             "If 'Quick Download' is enabled, its folder is used as the output\n"
             "directory. Otherwise you will be prompted to pick one.\n\n"
             "For each entry, the app reuses ALL the settings currently shown\n"
-            "in the main window \u2014 format (EPUB/TXT/PDF), range, compression,\n"
+            "in the main window \u2014 format(s) (EPUB/TXT/PDF), range, compression,\n"
             "image format (WEBP/JPEG/PNG/AVIF), cover format, notices, cache,\n"
             "threads/image compression workers/interval, etc. So configure those first, then start the batch.\n\n"
             "Behavior and safety:\n"
@@ -2588,6 +2607,12 @@ class NovelpiaGUI(tk.Tk):
     def _start_batch_download(self, batch_source, output_dir, source_label):
         """Shared entry point: kicks off the batch worker from either a file or list."""
         if self._is_downloading:
+            return
+        if not self._selected_output_formats():
+            messagebox.showwarning(
+                "No Output Format",
+                "Select at least one output format (EPUB, TXT, or PDF).",
+            )
             return
         self._set_downloading(True)
         threading.Thread(
@@ -2806,6 +2831,17 @@ class NovelpiaGUI(tk.Tk):
             )
             self.lbl_status.config(text="Idle")
             return self._last_download_result
+        output_formats = self._selected_output_formats()
+        if not output_formats:
+            self._last_download_result = {
+                "status": "failed",
+                "novel_id": novel_id,
+                "title": novel_id,
+                "error": "No output format selected",
+            }
+            self.log_message("No output format selected.")
+            self.lbl_status.config(text="Idle")
+            return self._last_download_result
         if novel_input != novel_id:
             self.log_message(f"Resolved input to Novel ID: {novel_id}")
             self.var_novel_id.set(novel_id)
@@ -2935,36 +2971,68 @@ class NovelpiaGUI(tk.Tk):
             if use_cache:
                 cache_data['_meta'] = meta
 
-        # Determine output path
-        self._output_format = self.var_save_format.get()
+        # Determine output paths. For multiple formats the save dialog picks
+        # one shared base name, then sibling files receive their normal
+        # extensions (for example book.epub, book.txt, and book.pdf).
+        self._output_formats = self._selected_output_formats()
+        self._output_format = self._output_formats[0]
+        self.var_save_format.set(self._output_format)
         default_name = meta.get('title', f"novel_{novel_id}") if self.var_naming_mode.get() == 'title' else f"{novel_id}"
 
         def clean_filename(name):
             return "".join(c for c in name if c not in '\\/:*?"<>|').strip()
         
-        def format_ext(fmt):
-            if fmt == "epub":
-                return "epub"
-            if fmt == "pdf":
-                return "pdf"
-            return "txt"
-
         if self.var_quick_enable.get() and self.var_quick_path.get():
             folder = self.var_quick_path.get()
             base = clean_filename(default_name)
             if self.var_append_range.get() and self.var_from_enabled.get() and self.var_to_enabled.get():
                 base = f"{base}_{self.var_from_num.get()}-{self.var_to_num.get()}"
-            ext = format_ext(self._output_format)
-            filename = f"[{novel_id}] {base}.{ext}"
-            self._output_path = os.path.join(folder, filename)
+            anchor = os.path.join(folder, f"[{novel_id}] {base}")
+            self._output_paths = {
+                fmt: f"{anchor}.{fmt}" for fmt in self._output_formats
+            }
         else:
-            ext = format_ext(self._output_format)
-            suggested = f"[{novel_id}] {clean_filename(default_name)}.{ext}"
-            path = filedialog.asksaveasfilename(defaultextension='.' + ext, initialfile=suggested, filetypes=[(ext.upper(), f"*.{ext}"), ("All files", "*")])
+            primary = self._output_formats[0]
+            suggested = f"[{novel_id}] {clean_filename(default_name)}.{primary}"
+            dialog_title = (
+                "Choose output file"
+                if len(self._output_formats) == 1
+                else "Choose base name for output files"
+            )
+            path = filedialog.asksaveasfilename(
+                title=dialog_title,
+                defaultextension='.' + primary,
+                initialfile=suggested,
+                filetypes=[(primary.upper(), f"*.{primary}"), ("All files", "*")],
+            )
             if not path:
                 self.lbl_status.config(text="Idle")
                 return
-            self._output_path = path
+            self._output_paths = self._output_paths_from_anchor(
+                path, self._output_formats
+            )
+            sibling_overwrites = [
+                candidate
+                for candidate in self._output_paths.values()
+                if (
+                    os.path.normcase(os.path.abspath(candidate))
+                    != os.path.normcase(os.path.abspath(path))
+                    and os.path.exists(candidate)
+                )
+            ]
+            if sibling_overwrites:
+                names = "\n".join(
+                    f"  • {os.path.basename(candidate)}"
+                    for candidate in sibling_overwrites
+                )
+                if not messagebox.askyesno(
+                    "Replace Existing Output Files?",
+                    "These additional output files already exist:\n\n"
+                    f"{names}\n\nReplace them?",
+                ):
+                    self.lbl_status.config(text="Idle")
+                    return
+        self._output_path = self._output_paths[self._output_format]
 
         try:
             max_retries = max(1, int(self.var_max_retries.get() or 5))
@@ -3103,8 +3171,6 @@ table, th, td {
 """
         total_items = len(notice_items) + len(selected)
         self.log_message(f"Preparing download: {len(selected)} chapter(s) + {len(notice_items)} notice(s) = {total_items} item(s)")
-        save_as_epub = (self._output_format == 'epub')
-        save_as_pdf = (self._output_format == 'pdf')
         save_image_urls_only = self.var_save_image_urls_only.get()
         if save_image_urls_only:
             self.log_message(
@@ -3498,17 +3564,30 @@ table, th, td {
             except Exception as e:
                 self.log_message(f"Cache save error: {e}")
 
-        # Saving (initial pass uses whatever images are in `results`).
-        if save_as_epub or save_as_pdf:
+        # Generate every requested output from the same downloaded results.
+        # Recompression receives the original results for each rich format, so
+        # lowering image quality for one file never leaks into another.
+        output_errors = []
+        for output_format in self._output_formats:
+            self._output_format = output_format
+            self._output_path = self._output_paths[output_format]
             try:
-                self._build_output(results, meta, css, cover_image, info_html)
+                if output_format in ('epub', 'pdf'):
+                    self._build_output(results, meta, css, cover_image, info_html)
+                else:
+                    self._write_text_output(results, remove_newlines)
             except Exception as e:
-                output_error = f"Output generation failed: {e}"
-                self.log_message(output_error)
+                error = f"{output_format.upper()} generation failed: {e}"
+                output_errors.append(error)
+                self.log_message(error)
+                continue
 
             # Optional: keep re-encoding images at lower quality until the
             # final EPUB/PDF fits the user's target size.
-            if self.var_recompress_target_enable.get():
+            if (
+                output_format in ('epub', 'pdf')
+                and self.var_recompress_target_enable.get()
+            ):
                 try:
                     target_mb = float(self.var_recompress_target_mb.get() or 0)
                 except (TypeError, ValueError):
@@ -3518,37 +3597,7 @@ table, th, td {
                         results, meta, css, cover_image, info_html,
                         int(target_mb * 1024 * 1024),
                     )
-        else:
-            try:
-                with open(self._output_path, 'w', encoding='utf-8') as f:
-                    for res in results:
-                        if res:
-                            t, h, _, _ = res
-                            if self.var_save_html.get():
-                                f.write(f"<h2>{t}</h2>\n{h}\n\n")
-                            else:
-                                # Respect the source formatting: convert paragraphs to double newlines and <br> to single.
-                                text = h
-                                # 1. Convert <br> tags to single newlines.
-                                text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
-                                # 2. Convert paragraph endings to double newlines.
-                                text = re.sub(r'</(p|div)>', '\n\n', text, flags=re.IGNORECASE)
-                                # 3. Strip all other HTML tags.
-                                text = re.sub(r'<[^>]+>', '', text)
-                                # 4. Unescape HTML entities like &nbsp;
-                                text = html.unescape(text)
-                                # 5. Only collapse blank lines when the user
-                                # explicitly enabled newline removal.
-                                if remove_newlines:
-                                    plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
-                                else:
-                                    plain = text.strip("\r\n")
-                                f.write(f"{t}\n\n{plain}\n\n\n")
-            except Exception as e:
-                output_error = f"Save failed: {e}"
-                self.log_message(output_error)
 
-        if self._output_path and os.path.exists(self._output_path):
             try:
                 self.log_message(
                     f"Output file: {self._output_path} "
@@ -3556,6 +3605,14 @@ table, th, td {
                 )
             except OSError:
                 pass
+
+        if output_errors:
+            output_error = "; ".join(output_errors)
+
+        # Preserve the historical single-path fields for callers that only
+        # inspect `output_path`, while also returning every generated path.
+        self._output_format = self._output_formats[0]
+        self._output_path = self._output_paths[self._output_format]
 
         # Final summary
         if dl_stats.total_images > 0:
@@ -3593,6 +3650,7 @@ table, th, td {
             "novel_id": novel_id,
             "title": meta.get('title', novel_id),
             "output_path": self._output_path,
+            "output_paths": dict(self._output_paths),
             "error": output_error,
             "total_images": dl_stats.total_images,
             "total_image_bytes": dl_stats.total_bytes,
@@ -3673,6 +3731,61 @@ table, th, td {
     # ------------------------------------------------------------------
     # Output builders / target-size recompressor
     # ------------------------------------------------------------------
+    def _selected_output_formats(self):
+        """Return checked output formats in a stable, user-facing order."""
+        return [
+            fmt
+            for fmt, variable in (
+                ('epub', self.var_save_epub),
+                ('txt', self.var_save_txt),
+                ('pdf', self.var_save_pdf),
+            )
+            if variable.get()
+        ]
+
+    @staticmethod
+    def _output_paths_from_anchor(anchor_path, output_formats):
+        """Build one path per format from a Save As filename.
+
+        A single selection keeps the exact path for backward compatibility.
+        Multiple selections share a base name and use canonical extensions.
+        """
+        formats = list(output_formats)
+        if len(formats) == 1:
+            return {formats[0]: anchor_path}
+
+        base, extension = os.path.splitext(anchor_path)
+        if extension.lower().lstrip('.') not in {'epub', 'txt', 'pdf'}:
+            base = anchor_path
+        return {fmt: f"{base}.{fmt}" for fmt in formats}
+
+    def _write_text_output(self, results, remove_newlines):
+        """Write the TXT/HTML representation to the active output path."""
+        with open(self._output_path, 'w', encoding='utf-8') as f:
+            for res in results:
+                if not res:
+                    continue
+                title, html_body, _, _ = res
+                if self.var_save_html.get():
+                    f.write(f"<h2>{title}</h2>\n{html_body}\n\n")
+                    continue
+
+                # Respect source formatting: paragraphs become double
+                # newlines and <br> elements become single newlines.
+                text = re.sub(
+                    r'<br\s*/?>', '\n', html_body, flags=re.IGNORECASE
+                )
+                text = re.sub(
+                    r'</(p|div)>', '\n\n', text, flags=re.IGNORECASE
+                )
+                text = re.sub(r'<[^>]+>', '', text)
+                text = html.unescape(text)
+                if remove_newlines:
+                    plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
+                else:
+                    plain = text.strip("\r\n")
+                f.write(f"{title}\n\n{plain}\n\n\n")
+
     def _build_output(self, results, meta, css, cover_image, info_html):
         """Write the current output file (EPUB or PDF) from the given results.
 
@@ -3893,7 +4006,19 @@ table, th, td {
                 self.var_include_notices.set(cfg.get("include_notices", True))
                 self.var_strip_leading_spaces.set(cfg.get("strip_leading_spaces", False))
                 self.var_remove_newlines.set(cfg.get("remove_newlines", False))
-                self.var_save_format.set(cfg.get("save_format", "epub"))
+                configured_formats = cfg.get("save_formats")
+                if not isinstance(configured_formats, list):
+                    configured_formats = [cfg.get("save_format", "epub")]
+                configured_formats = [
+                    fmt for fmt in configured_formats
+                    if fmt in ("epub", "txt", "pdf")
+                ]
+                if not configured_formats:
+                    configured_formats = ["epub"]
+                self.var_save_epub.set("epub" in configured_formats)
+                self.var_save_txt.set("txt" in configured_formats)
+                self.var_save_pdf.set("pdf" in configured_formats)
+                self.var_save_format.set(configured_formats[0])
                 self.var_save_html.set(cfg.get("save_html", False))
                 # "retry_chapters" was a dead boolean; migrate silently to the new
                 # "max_retries" integer (default 5 if not present).
@@ -3966,6 +4091,11 @@ table, th, td {
 
     def _save_config(self):
         """Save current settings to config.json."""
+        selected_output_formats = self._selected_output_formats()
+        primary_output_format = (
+            selected_output_formats[0] if selected_output_formats else "epub"
+        )
+        self.var_save_format.set(primary_output_format)
         cfg = {
             # Login settings
             "email": self.var_email.get(),
@@ -3997,7 +4127,10 @@ table, th, td {
             "include_notices": self.var_include_notices.get(),
             "strip_leading_spaces": self.var_strip_leading_spaces.get(),
             "remove_newlines": self.var_remove_newlines.get(),
-            "save_format": self.var_save_format.get(),
+            # `save_format` is retained for older app/bot versions; new GUI
+            # builds restore the full checkbox selection from `save_formats`.
+            "save_format": primary_output_format,
+            "save_formats": selected_output_formats,
             "save_html": self.var_save_html.get(),
             "max_retries": int(self.var_max_retries.get() or 5),
             "use_cache": self.var_use_cache.get(),

@@ -3,7 +3,7 @@ external_dialog.py — Tkinter dialog for browser-based novel downloads.
 
 Provides a self-contained Toplevel window with:
   - URL input
-  - Format selection (EPUB / TXT)
+  - Multi-format selection (EPUB / TXT / PDF / CBZ)
   - Interval control for rate limiting
   - Chapter range selection
   - Fetch Info / Download / Stop buttons
@@ -81,6 +81,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._chapter_results = []
         self._downloading = False
         self._download_cancelled = False
+        self._active_output_formats = None
         self._start_time = None
         self._msg_queue = queue.Queue()
         self._paste_batch_text = ''      # persisted between dialog opens
@@ -148,15 +149,26 @@ class ExternalNovelDialog(tk.Toplevel):
         # Format
         fmt_frame = ttk.LabelFrame(settings_frame, text="Format", padding=4)
         fmt_frame.pack(side="left", padx=(0, 10))
+        # Independent format flags allow the scraped chapters to feed more
+        # than one writer. Keep _var_format as a legacy primary value for old
+        # config files and older builds.
         self._var_format = tk.StringVar(value="epub")
-        ttk.Radiobutton(fmt_frame, text="EPUB", variable=self._var_format,
-                         value="epub").pack(side="left", padx=5)
-        ttk.Radiobutton(fmt_frame, text="TXT", variable=self._var_format,
-                         value="txt").pack(side="left", padx=5)
-        ttk.Radiobutton(fmt_frame, text="PDF", variable=self._var_format,
-                         value="pdf").pack(side="left", padx=5)
-        ttk.Radiobutton(fmt_frame, text="CBZ", variable=self._var_format,
-                         value="cbz").pack(side="left", padx=5)
+        self._var_format_epub = tk.BooleanVar(value=True)
+        self._var_format_txt = tk.BooleanVar(value=False)
+        self._var_format_pdf = tk.BooleanVar(value=False)
+        self._var_format_cbz = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            fmt_frame, text="EPUB", variable=self._var_format_epub
+        ).pack(side="left", padx=5)
+        ttk.Checkbutton(
+            fmt_frame, text="TXT", variable=self._var_format_txt
+        ).pack(side="left", padx=5)
+        ttk.Checkbutton(
+            fmt_frame, text="PDF", variable=self._var_format_pdf
+        ).pack(side="left", padx=5)
+        ttk.Checkbutton(
+            fmt_frame, text="CBZ", variable=self._var_format_cbz
+        ).pack(side="left", padx=5)
 
         # Threads
         thr_frame = ttk.LabelFrame(settings_frame, text="Threads", padding=4)
@@ -970,6 +982,15 @@ class ExternalNovelDialog(tk.Toplevel):
         if not url:
             self._append_log("Please enter a URL.")
             return
+        output_formats = self._selected_output_formats()
+        if not output_formats:
+            messagebox.showwarning(
+                "No Output Format",
+                "Select at least one output format (EPUB, TXT, PDF, or CBZ).",
+                parent=self,
+            )
+            return
+        self._active_output_formats = output_formats
         self._url_var.set(url)
         self._save_ext_config()
 
@@ -1014,6 +1035,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
     def _on_download_finished(self):
         self._downloading = False
+        self._active_output_formats = None
         self._btn_download.configure(state="normal")
         self._btn_stop.configure(state="disabled")
         self._btn_browser.configure(state="normal")
@@ -1195,6 +1217,15 @@ class ExternalNovelDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     def _start_batch(self, urls):
         """Start batch processing a list of URLs."""
+        output_formats = self._selected_output_formats()
+        if not output_formats:
+            messagebox.showwarning(
+                "No Output Format",
+                "Select at least one output format (EPUB, TXT, PDF, or CBZ).",
+                parent=self,
+            )
+            return
+        self._active_output_formats = output_formats
         self._downloading = True
         self._download_cancelled = False
         self._btn_download.configure(state="disabled")
@@ -1319,8 +1350,21 @@ class ExternalNovelDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     # Output Generation
     # ------------------------------------------------------------------
+    def _selected_output_formats(self):
+        """Return checked output formats in their stable UI order."""
+        return [
+            fmt
+            for fmt, variable in (
+                ('epub', self._var_format_epub),
+                ('txt', self._var_format_txt),
+                ('pdf', self._var_format_pdf),
+                ('cbz', self._var_format_cbz),
+            )
+            if variable.get()
+        ]
+
     def _generate_output(self):
-        """Generate EPUB/TXT from downloaded chapter data."""
+        """Generate every selected format from downloaded chapter data."""
         data = self._book_data
         if not data:
             return
@@ -1328,17 +1372,40 @@ class ExternalNovelDialog(tk.Toplevel):
         title = _sanitize_filename(data.get('bookname', 'novel'))
         author = data.get('author', 'Unknown')
 
-        fmt = self._var_format.get()
-        if fmt == "txt":
-            self._generate_txt(title, author)
-        elif fmt == "pdf":
-            self._generate_pdf(title, author)
-        elif fmt == "cbz":
-            self._generate_image_archive(title, author)
-        elif self._var_long_image_layout.get() and self._has_long_image_chapters():
-            self._generate_image_archive(title, author)
-        else:
-            self._generate_epub(title, author)
+        formats = (
+            getattr(self, '_active_output_formats', None)
+            or self._selected_output_formats()
+        )
+        if not formats:
+            self._log("❌ No output format selected.")
+            return
+
+        self._var_format.set(formats[0])
+        self._log(
+            "Generating format(s): "
+            + ", ".join(fmt.upper() for fmt in formats)
+        )
+
+        long_image_to_cbz = (
+            'epub' in formats
+            and 'cbz' not in formats
+            and self._var_long_image_layout.get()
+            and self._has_long_image_chapters()
+        )
+        for fmt in formats:
+            if fmt == "txt":
+                self._generate_txt(title, author)
+            elif fmt == "pdf":
+                self._generate_pdf(title, author)
+            elif fmt == "cbz":
+                self._generate_image_archive(title, author)
+            elif long_image_to_cbz:
+                # Preserve the legacy behavior where long-image mode turns a
+                # lone EPUB choice into a CBZ. If CBZ is explicitly checked,
+                # EPUB remains an EPUB and both requested files are written.
+                self._generate_image_archive(title, author)
+            else:
+                self._generate_epub(title, author)
 
     def _get_output_dir(self):
         """Get output directory — respects parent GUI's Quick Download path."""
@@ -2553,7 +2620,20 @@ img { display: block; max-width: 100%; max-height: 100%;
             with open(cfg_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             self._url_var.set(cfg.get("ext_url", ""))
-            self._var_format.set(cfg.get("ext_format", "epub"))
+            configured_formats = cfg.get("ext_formats")
+            if not isinstance(configured_formats, list):
+                configured_formats = [cfg.get("ext_format", "epub")]
+            configured_formats = [
+                fmt for fmt in configured_formats
+                if fmt in ("epub", "txt", "pdf", "cbz")
+            ]
+            if not configured_formats:
+                configured_formats = ["epub"]
+            self._var_format_epub.set("epub" in configured_formats)
+            self._var_format_txt.set("txt" in configured_formats)
+            self._var_format_pdf.set("pdf" in configured_formats)
+            self._var_format_cbz.set("cbz" in configured_formats)
+            self._var_format.set(configured_formats[0])
             self._var_ext_threads.set(cfg.get("ext_threads", 4))
             self._var_ext_image_workers.set(cfg.get("ext_image_workers", 8))
             self._var_interval.set(cfg.get("ext_interval", 0.5))
@@ -2609,8 +2689,14 @@ img { display: block; max-width: 100%; max-height: 100%;
                     cfg = json.load(f)
             except Exception:
                 pass
+        selected_formats = self._selected_output_formats()
+        primary_format = selected_formats[0] if selected_formats else "epub"
+        self._var_format.set(primary_format)
         cfg["ext_url"] = self._url_var.get().strip()
-        cfg["ext_format"] = self._var_format.get()
+        # Keep the single value for backward compatibility; new builds restore
+        # all checkbox states from ext_formats.
+        cfg["ext_format"] = primary_format
+        cfg["ext_formats"] = selected_formats
         cfg["ext_threads"] = self._var_ext_threads.get()
         cfg["ext_image_workers"] = self._var_ext_image_workers.get()
         cfg["ext_interval"] = self._var_interval.get()
