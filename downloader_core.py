@@ -45,7 +45,7 @@ def _without_tesseract_dll_directories(path_value, separator=None):
     return separator.join(kept), removed
 
 
-def _prepare_weasyprint_windows_dll_path(logger=None):
+def _prepare_weasyprint_windows_dll_path():
     """Make WeasyPrint use a coherent GTK/Pango DLL set on Windows."""
     global _WEASYPRINT_DLL_PATH_READY
     if os.name != 'nt':
@@ -55,7 +55,7 @@ def _prepare_weasyprint_windows_dll_path(logger=None):
         if _WEASYPRINT_DLL_PATH_READY:
             return
 
-        clean_path, removed = _without_tesseract_dll_directories(
+        clean_path, _ = _without_tesseract_dll_directories(
             os.environ.get('PATH', '')
         )
         path_entries = clean_path.split(os.pathsep) if clean_path else []
@@ -63,10 +63,9 @@ def _prepare_weasyprint_windows_dll_path(logger=None):
         # Honor an explicit WeasyPrint runtime first. Otherwise use the same
         # locations as WeasyPrint and the PyInstaller build specifications.
         configured = os.environ.get('WEASYPRINT_DLL_DIRECTORIES', '')
-        configured, configured_removed = _without_tesseract_dll_directories(
+        configured, _ = _without_tesseract_dll_directories(
             configured, separator=';'
         )
-        removed.extend(configured_removed)
         dll_directories = [item for item in configured.split(';') if item]
         if not dll_directories:
             gtk_folder = os.environ.get('GTK_FOLDER', '')
@@ -106,10 +105,6 @@ def _prepare_weasyprint_windows_dll_path(logger=None):
             )
 
         _WEASYPRINT_DLL_PATH_READY = True
-        if removed and logger:
-            logger(
-                "PDF renderer isolated from conflicting Tesseract OCR DLLs."
-            )
 
 class AccessBlockedError(Exception):
     """Raised when chapter access is blocked (login/age verification required)."""
@@ -794,7 +789,7 @@ class DownloaderCore:
         # Do this immediately before the lazy WeasyPrint import. On Windows it
         # prevents Tesseract OCR's incompatible Pango/Harfbuzz DLLs from being
         # probed, which otherwise produces harmless but modal system dialogs.
-        _prepare_weasyprint_windows_dll_path(self.log)
+        _prepare_weasyprint_windows_dll_path()
         try:
             from weasyprint import HTML
         except Exception as e:
