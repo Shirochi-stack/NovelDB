@@ -1,3 +1,4 @@
+import queue
 from types import SimpleNamespace
 
 from external_dialog import ExternalNovelDialog
@@ -88,3 +89,59 @@ def test_explicit_epub_and_cbz_selection_generates_both_in_long_image_mode():
     ExternalNovelDialog._generate_output(dialog)
 
     assert [call[0] for call in calls] == ["epub", "cbz"]
+
+
+def test_external_retry_passes_use_main_gui_setting():
+    dialog = SimpleNamespace(_retry_variable=Setting(10))
+
+    assert ExternalNovelDialog._get_retry_passes(dialog) == 10
+
+
+def test_external_retry_passes_have_safe_minimum_and_default():
+    assert ExternalNovelDialog._get_retry_passes(
+        SimpleNamespace(_retry_variable=Setting(0))
+    ) == 1
+    assert ExternalNovelDialog._get_retry_passes(
+        SimpleNamespace(_retry_variable=None)
+    ) == 5
+
+
+def test_external_download_runs_configured_number_of_retry_passes():
+    logs = []
+
+    class Scraper:
+        _context = True
+        retry_calls = 0
+
+        @staticmethod
+        def parse_chapter_batch(_chapters, interval=0):
+            return [None]
+
+        def parse_chapter(self, _index, _chapter, interval=0):
+            self.retry_calls += 1
+            return None
+
+    scraper = Scraper()
+    dialog = SimpleNamespace(
+        _scraper=scraper,
+        _book_data={},
+        _downloading=True,
+        _download_cancelled=False,
+        _chapter_results=[],
+        _msg_queue=queue.Queue(),
+        _apply_scraper_options=lambda: None,
+        _sleep_while_downloading=lambda _seconds: True,
+        _log=logs.append,
+    )
+
+    ExternalNovelDialog._do_download(
+        dialog,
+        [{"name": "Failed chapter"}],
+        0,
+        1,
+        0,
+        retry_passes=3,
+    )
+
+    assert scraper.retry_calls == 3
+    assert any("Retry pass 3/3" in message for message in logs)

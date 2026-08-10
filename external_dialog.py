@@ -60,7 +60,7 @@ def _format_size(num_bytes):
 class ExternalNovelDialog(tk.Toplevel):
     """Tkinter downloader for Novelpia and external novel sites."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, retry_variable=None):
         super().__init__(parent)
         self.title("External / Novelpia Novel Download")
         self.transient(parent)
@@ -76,6 +76,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self.minsize(int(screen_w * 0.35), int(screen_h * 0.40))
 
         self._parent_gui = parent      # Access compression settings from main GUI
+        self._retry_variable = retry_variable
         self._scraper = None
         self._book_data = None
         self._chapter_results = []
@@ -479,7 +480,7 @@ class ExternalNovelDialog(tk.Toplevel):
         return self._downloading
 
     def _do_download(self, chapters, start, end, interval, num_threads=1,
-                      skip_paid=False):
+                      skip_paid=False, retry_passes=5):
         """Run chapter downloads on the worker thread.
 
         Chapters are split into batches of `num_threads` size.
@@ -633,12 +634,12 @@ class ExternalNovelDialog(tk.Toplevel):
                 if r is None and self._downloading
             ]
             if failed_indices and self._downloading and not is_novelpia:
-                max_retries = 2
-                for retry_pass in range(1, max_retries + 1):
+                retry_passes = max(1, int(retry_passes))
+                for retry_pass in range(1, retry_passes + 1):
                     if not failed_indices or not self._downloading:
                         break
                     self._log(
-                        f"Retry pass {retry_pass}/{max_retries}: "
+                        f"Retry pass {retry_pass}/{retry_passes}: "
                         f"{len(failed_indices)} failed chapter(s)..."
                     )
                     still_failed = []
@@ -977,6 +978,13 @@ class ExternalNovelDialog(tk.Toplevel):
             url = "https://" + url
         return url
 
+    def _get_retry_passes(self):
+        """Snapshot the main GUI's chapter retry setting on the UI thread."""
+        try:
+            return max(1, int(self._retry_variable.get()))
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return 5
+
     def _on_download(self):
         url = self._normalised_url()
         if not url:
@@ -1013,9 +1021,11 @@ class ExternalNovelDialog(tk.Toplevel):
         interval = self._var_interval.get()
         num_threads = max(1, self._var_ext_threads.get())
         skip_paid = self._var_skip_paid.get()
+        retry_passes = self._get_retry_passes()
 
         self._work_queue.put(("fetch_and_download", (url, interval,
-                                                      num_threads, skip_paid)))
+                                                      num_threads, skip_paid,
+                                                      retry_passes)))
 
     def _update_progress(self, current, total):
         if total > 0:
@@ -1047,7 +1057,8 @@ class ExternalNovelDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     # Combined fetch + download worker
     # ------------------------------------------------------------------
-    def _do_fetch_and_download(self, url, interval, num_threads, skip_paid):
+    def _do_fetch_and_download(self, url, interval, num_threads, skip_paid,
+                               retry_passes=5):
         """Fetch metadata then download chapters — runs on worker thread."""
         # Step 1: Fetch metadata
         try:
@@ -1092,7 +1103,7 @@ class ExternalNovelDialog(tk.Toplevel):
                   + (', skipping paid' if skip_paid else ''))
 
         self._do_download(chapters, start, end, interval, num_threads,
-                          skip_paid)
+                          skip_paid, retry_passes)
 
         # Generate output and signal completion
         try:
@@ -1240,20 +1251,21 @@ class ExternalNovelDialog(tk.Toplevel):
         interval = self._var_interval.get()
         num_threads = max(1, self._var_ext_threads.get())
         skip_paid = self._var_skip_paid.get()
+        retry_passes = self._get_retry_passes()
 
         self._log(f"Starting batch: {len(urls)} URL(s), "
                   f"threads={num_threads}, interval={interval}s"
                   + (', skipping paid' if skip_paid else ''))
 
         self._work_queue.put(("batch", (urls, interval, num_threads,
-                                         skip_paid)))
+                                         skip_paid, retry_passes)))
 
     # ------------------------------------------------------------------
     # Batch worker (runs on worker thread)
     # ------------------------------------------------------------------
     def _do_batch(self, payload):
         """Process multiple URLs sequentially on the worker thread."""
-        urls, interval, num_threads, skip_paid = payload
+        urls, interval, num_threads, skip_paid, retry_passes = payload
         output_dir = self._get_output_dir()
 
         if self._scraper is None:
@@ -1314,7 +1326,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
             self._chapter_results = []
             self._do_download(chapters, start, end, interval,
-                              num_threads, skip_paid)
+                              num_threads, skip_paid, retry_passes)
 
             if self._download_cancelled:
                 break

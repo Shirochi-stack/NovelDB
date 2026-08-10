@@ -4195,7 +4195,9 @@ table, th, td {
                 return
 
             from external_dialog import ExternalNovelDialog
-            self._external_dlg = ExternalNovelDialog(self)
+            self._external_dlg = ExternalNovelDialog(
+                self, retry_variable=self.var_max_retries
+            )
         except ImportError as e:
             self.log_message(f"External novel dialog unavailable: {e}")
             self.log_message(
