@@ -2,6 +2,7 @@ import queue
 from types import SimpleNamespace
 
 from external_dialog import ExternalNovelDialog
+from external_scraper import ExternalScraper
 
 
 class Setting:
@@ -117,7 +118,8 @@ def test_external_download_runs_configured_number_of_retry_passes():
         def parse_chapter_batch(_chapters, interval=0):
             return [None]
 
-        def parse_chapter(self, _index, _chapter, interval=0):
+        def parse_chapter(self, _index, _chapter, interval=0,
+                          log_errors=True):
             self.retry_calls += 1
             return None
 
@@ -144,4 +146,66 @@ def test_external_download_runs_configured_number_of_retry_passes():
     )
 
     assert scraper.retry_calls == 3
-    assert any("Retry pass 3/3" in message for message in logs)
+    assert any("Failed to fetch, retry 3/3" in message for message in logs)
+    assert not any("Retry pass" in message for message in logs)
+
+
+def test_external_retry_happens_before_the_next_batch():
+    events = []
+
+    class Scraper:
+        _context = True
+
+        @staticmethod
+        def parse_chapter_batch(chapters, interval=0):
+            name = chapters[0]["name"]
+            events.append(f"batch:{name}")
+            if name == "First":
+                return [None]
+            return [{"chapterName": name}]
+
+        @staticmethod
+        def parse_chapter(_index, chapter, interval=0, log_errors=True):
+            events.append(f"retry:{chapter['name']}")
+            return {"chapterName": chapter["name"]}
+
+    dialog = SimpleNamespace(
+        _scraper=Scraper(),
+        _book_data={},
+        _downloading=True,
+        _download_cancelled=False,
+        _chapter_results=[],
+        _msg_queue=queue.Queue(),
+        _apply_scraper_options=lambda: None,
+        _sleep_while_downloading=lambda _seconds: True,
+        _log=lambda _message: None,
+    )
+
+    ExternalNovelDialog._do_download(
+        dialog,
+        [{"name": "First"}, {"name": "Second"}],
+        0,
+        2,
+        0,
+        num_threads=1,
+        retry_passes=3,
+    )
+
+    assert events == ["batch:First", "retry:First", "batch:Second"]
+
+
+def test_failed_fetch_console_stack_is_suppressed():
+    logs = []
+    scraper = SimpleNamespace(log=logs.append)
+    message = SimpleNamespace(
+        text=(
+            "TypeError: Failed to fetch\n"
+            "    at tryFetch (...)\n"
+            "    at window.fetch (...)"
+        ),
+        type="error",
+    )
+
+    ExternalScraper._on_console(scraper, message)
+
+    assert logs == []

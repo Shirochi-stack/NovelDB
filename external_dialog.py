@@ -486,9 +486,10 @@ class ExternalNovelDialog(tk.Toplevel):
         Chapters are split into batches of `num_threads` size.
         Each batch uses the scraper's fastest available concurrent path.
         Qidian renders one chapter per browser page in the batch.
-        Failed chapters are retried individually after the main pass.
+        Failed chapters are retried immediately before the next batch starts.
         """
         try:
+            retry_passes = max(1, int(retry_passes))
             # Ensure the headless browser is alive.  After "Enter Browser"
             # the context is destroyed; start() re-launches it with fresh
             # cookies from browser_data (including any new login sessions).
@@ -595,7 +596,33 @@ class ExternalNovelDialog(tk.Toplevel):
                 batch_elapsed = time.perf_counter() - batch_t0
 
                 for j, data in enumerate(batch_results):
-                    results[batch_indices[j]] = data
+                    idx = batch_indices[j]
+                    if data is None and self._downloading and not is_novelpia:
+                        chapter = selected[idx]
+                        for retry_attempt in range(1, retry_passes + 1):
+                            if not self._downloading:
+                                break
+                            self._log(
+                                f"  [{idx + 1}/{total}] Failed to fetch, "
+                                f"retry {retry_attempt}/{retry_passes}"
+                            )
+                            data = self._scraper.parse_chapter(
+                                start + idx,
+                                chapter,
+                                interval=max(interval, 1.0),
+                                log_errors=False,
+                            )
+                            if data:
+                                self._log(
+                                    f"  [{idx + 1}/{total}] Retry succeeded."
+                                )
+                                break
+                        if data is None and self._downloading:
+                            self._log(
+                                f"  [{idx + 1}/{total}] Failed after "
+                                f"{retry_passes} retries."
+                            )
+                    results[idx] = data
 
                 completed += (batch_end - batch_start)
                 self._msg_queue.put(("progress", (completed, total)))
@@ -627,45 +654,12 @@ class ExternalNovelDialog(tk.Toplevel):
                         self._log("Download stopped by user.")
                         break
 
-            # --- Retry failed chapters individually ---
-            # Locked (paid) chapters are not retried — only truly failed ones.
+            # Novelpia intentionally does not retry failed chapters.
             failed_indices = [
                 i for i, r in enumerate(results)
                 if r is None and self._downloading
             ]
-            if failed_indices and self._downloading and not is_novelpia:
-                retry_passes = max(1, int(retry_passes))
-                for retry_pass in range(1, retry_passes + 1):
-                    if not failed_indices or not self._downloading:
-                        break
-                    self._log(
-                        f"Retry pass {retry_pass}/{retry_passes}: "
-                        f"{len(failed_indices)} failed chapter(s)..."
-                    )
-                    still_failed = []
-                    for idx in failed_indices:
-                        if not self._downloading:
-                            break
-                        ch = selected[idx]
-                        name = ch.get('name', f'Chapter {start + idx + 1}')
-                        self._log(f"  Retrying [{idx + 1}/{total}] {name}")
-                        # Use longer interval for retries
-                        data = self._scraper.parse_chapter(
-                            start + idx, ch, interval=max(interval, 1.0)
-                        )
-                        if data:
-                            results[idx] = data
-                            self._log(f"  Retry OK: {name}")
-                        else:
-                            still_failed.append(idx)
-                    failed_indices = still_failed
-
-                if failed_indices:
-                    self._log(
-                        f"WARNING: {len(failed_indices)} chapter(s) failed "
-                        f"after all retries."
-                    )
-            elif failed_indices and is_novelpia:
+            if failed_indices and is_novelpia:
                 self._log(
                     f"❌ [Novelpia] {len(failed_indices)} chapter(s) failed. "
                     "They were not retried."

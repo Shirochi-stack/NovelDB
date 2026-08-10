@@ -3539,6 +3539,8 @@ class ExternalScraper:
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
         text = msg.text
+        if 'TypeError: Failed to fetch' in text:
+            return
         if 'whoas.xyz/collect' in text:
             return
         if (
@@ -9671,7 +9673,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         )
         return data
 
-    def parse_chapter(self, index, chapter_info, interval=0.5, page=None):
+    def parse_chapter(self, index, chapter_info, interval=0.5, page=None,
+                      log_errors=True):
         """Parse a single chapter's content.
 
         Args:
@@ -9783,7 +9786,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             if page is None and self._ensure_page():
                 target_page = self._page
             else:
-                self.log(f"  [{index + 1}] No browser page available.")
+                if log_errors:
+                    self.log(f"  [{index + 1}] No browser page available.")
                 return None
 
         # Escape strings for JS (handle quotes and backslashes)
@@ -9801,24 +9805,28 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         try:
             result_json = target_page.evaluate(script)
         except Exception as e:
-            self.log(f"  [{index + 1}] Parse error: {e}")
+            if log_errors:
+                self.log(f"  [{index + 1}] Parse error: {e}")
             return None
 
         if interval > 0:
             time.sleep(interval)
 
         if not result_json:
-            self.log(f"  [{index + 1}] Empty result for: {name}")
+            if log_errors:
+                self.log(f"  [{index + 1}] Empty result for: {name}")
             return None
 
         try:
             data = json.loads(result_json)
         except (json.JSONDecodeError, TypeError) as e:
-            self.log(f"  [{index + 1}] JSON parse error for {name}: {e}")
+            if log_errors:
+                self.log(f"  [{index + 1}] JSON parse error for {name}: {e}")
             return None
 
         if "error" in data:
-            self.log(f"  [{index + 1}] Error: {data['error']}")
+            if log_errors:
+                self.log(f"  [{index + 1}] Error: {data['error']}")
             return None
 
         return data
@@ -10033,7 +10041,6 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             try:
                 data = json.loads(r) if isinstance(r, str) else r
                 if "error" in data:
-                    self.log(f"  Chapter error: {data['error']}")
                     parsed.append(None)
                 else:
                     parsed.append(data)
