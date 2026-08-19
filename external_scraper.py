@@ -188,6 +188,7 @@ class ExternalScraper:
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
         self._ntk_api_state = None
+        self._ntk_browser_fallback = False
         self.ntk_curl_command = os.environ.get("NPIA_NTK_CURL", "")
         if not self.ntk_curl_command:
             try:
@@ -3019,7 +3020,8 @@ class ExternalScraper:
             return False
 
     def _open_system_chrome(self, start_url, remote_debugging=False,
-                            user_data_dir=None, hidden=False):
+                            user_data_dir=None, hidden=False,
+                            headless=False):
         """Open installed Chrome as a normal process using our profile."""
         chrome_path = self._find_chrome_executable()
         if not chrome_path:
@@ -3038,7 +3040,15 @@ class ExternalScraper:
             "--disable-session-crashed-bubble",
             "--hide-crash-restore-bubble",
         ]
-        if hidden:
+        if headless:
+            args.extend([
+                "--headless=new",
+                "--window-size=1280,900",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-backgrounding-occluded-windows",
+            ])
+        elif hidden:
             args.extend([
                 "--start-minimized",
                 "--window-position=-32000,-32000",
@@ -3058,7 +3068,7 @@ class ExternalScraper:
             args.insert(3, "--remote-allow-origins=*")
 
         popen_kwargs = {}
-        if hidden:
+        if hidden or headless:
             popen_kwargs.update({
                 "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.DEVNULL,
@@ -3223,8 +3233,8 @@ class ExternalScraper:
         self.log("Browser ready.")
 
     def _start_ntk_browser(self, start_url):
-        """Launch normal visible Chrome and attach over CDP for NewToki."""
-        if self._context and self._page:
+        """Launch installed Chrome in real headless mode and attach over CDP."""
+        if self._ntk_temp_chrome and self._context and self._page:
             try:
                 self._page.evaluate("1")
                 return True
@@ -3232,7 +3242,7 @@ class ExternalScraper:
                 self.cleanup()
 
         self.cleanup()
-        self.log("Launching background Chrome for NewToki...")
+        self.log("Launching headless Chrome for NewToki...")
         user_data_dir = self._get_ntk_user_data_dir()
         self.log(f"Browser profile: {user_data_dir}")
         closed = self._close_ntk_profile_chrome(user_data_dir)
@@ -3245,13 +3255,12 @@ class ExternalScraper:
             start_url,
             remote_debugging=True,
             user_data_dir=user_data_dir,
-            hidden=True,
+            headless=True,
         )
         if not proc or not port:
             self.log(
-                "ERROR: Installed Chrome/Edge was not found. NewToki's "
-                "Cloudflare challenge usually will not pass in bundled "
-                "headless Chromium."
+                "ERROR: Installed Chrome/Edge was not found for NewToki's "
+                "headless browser mode."
             )
             return False
 
@@ -3292,7 +3301,7 @@ class ExternalScraper:
             self._page.on("console", self._on_console)
             if self._ntk_temp_chrome:
                 self._hide_ntk_chrome_windows()
-            self.log("Chrome session ready.")
+            self.log("Headless Chrome session ready.")
             return True
         except Exception as e:
             self.log(f"ERROR: Could not attach to Chrome: {e}")
@@ -5318,12 +5327,6 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             state = self._ntk_default_headers_and_cookies(index_url)
         state['novel_id'] = novel_id or self._ntk_novel_id_from_url(index_url)
         state['index_url'] = index_url
-        if state.get('from_live_browser') and self._ntk_temp_chrome:
-            self.log("[NewToki] Captured live Chrome session cookies; closing Chrome.")
-            closed = self._close_ntk_temp_chrome_now()
-            self.log(
-                f"[NewToki] Closed {closed} temporary Chrome process(es)."
-            )
         state['session'] = self._ntk_create_api_session(state)
         self._ntk_issue_nv(state, index_url)
         if state.get('from_profile_cookies'):
@@ -5772,27 +5775,662 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         return response.text
 
     def _ntk_refresh_cloudflare_session(self, url):
-        """Automated fallback: refresh CF cookies in real Chrome, then reuse API."""
-        self.log(
-            "[NewToki] Refreshing Cloudflare clearance with installed Chrome..."
-        )
+        """Open NewToki in installed headless Chrome and keep it alive."""
+        self.log("[NewToki] Navigating with installed headless Chrome...")
         if not self._start_ntk_browser(url):
             return False
         try:
             if self._page:
                 try:
-                    self._page.goto(url, wait_until="domcontentloaded",
-                                    timeout=30000)
-                except Exception:
-                    pass
+                    response = self._page.goto(
+                        url,
+                        wait_until="domcontentloaded",
+                        timeout=45000,
+                    )
+                    if response:
+                        self.log(
+                            f"[NewToki] Headless navigation returned HTTP "
+                            f"{response.status}."
+                        )
+                except Exception as e:
+                    self.log(f"[NewToki] Headless navigation warning: {e}")
                 try:
-                    self._page.wait_for_timeout(2500)
+                    self._page.wait_for_timeout(3000)
                 except Exception:
-                    time.sleep(2.5)
+                    time.sleep(3)
             return True
         except Exception as e:
             self.log(f"[NewToki] Chrome clearance refresh failed: {e}")
             return False
+
+    @staticmethod
+    def _ntk_browser_html_is_blocked(html_text):
+        text = (html_text or '').lower()
+        if any(marker in text for marker in (
+            'cf-browser-verification',
+            'just a moment',
+            'app_or_unknown_403',
+            'nginx_asn',
+            'this request was blocked by site security policy',
+            'country restriction: only kr is allowed',
+        )):
+            return True
+        return 'access denied' in text and 'cloudflare' in text
+
+    def _ntk_capture_browser_index_html(self):
+        """Capture the already-rendered index before handing off from Chrome."""
+        if not self._page:
+            return ''
+        try:
+            try:
+                self._page.wait_for_function(
+                    """() => document.querySelectorAll(
+                      'ul.novel-eps li a, li[data-ep] a, a[href*="/novel/"]'
+                    ).length > 0""",
+                    timeout=10000,
+                )
+            except Exception:
+                pass
+            html_text = self._page.content() or ''
+            if self._ntk_browser_html_is_blocked(html_text):
+                return ''
+            return html_text
+        except Exception as e:
+            self.log(f"[NewToki] Could not capture rendered Chrome index: {e}")
+            return ''
+
+    def _ntk_parse_index_browser(self, index_url):
+        """Extract metadata and chapters from NewToki's rendered headless DOM."""
+        if not self._page:
+            return None
+        novel_id = self._ntk_novel_id_from_url(index_url)
+        kind = self._ntk_content_kind_from_url(index_url)
+        try:
+            try:
+                self._page.wait_for_function(
+                    r"""
+({ novelId, kind }) => {
+  const prefix = `/${kind}/${novelId}/`;
+  const hasChapter = Array.from(document.querySelectorAll('a[href]'))
+    .some((link) => {
+      try { return new URL(link.href, location.href).pathname.startsWith(prefix); }
+      catch (_) { return false; }
+    });
+  const body = (document.body && document.body.innerText || '').toLowerCase();
+  const blocked = body.includes('access denied')
+    || body.includes('site security policy')
+    || body.includes('just a moment');
+  return hasChapter || blocked;
+}
+                    """,
+                    {'novelId': novel_id, 'kind': kind},
+                    timeout=30000,
+                )
+            except Exception:
+                pass
+
+            result = self._page.evaluate(
+                r"""
+({ novelId, kind }) => {
+  const text = (element) => element && element.textContent
+    ? element.textContent.trim()
+    : '';
+  const firstText = (selectors) => {
+    for (const selector of selectors) {
+      const value = text(document.querySelector(selector));
+      if (value) return value;
+    }
+    return '';
+  };
+  const firstHtml = (selectors) => {
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      if (element && element.innerHTML.trim()) return element.innerHTML.trim();
+    }
+    return '';
+  };
+  const firstImage = (selectors) => {
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      if (element && (element.currentSrc || element.src)) {
+        return element.currentSrc || element.src;
+      }
+    }
+    return '';
+  };
+
+  const prefix = `/${kind}/${novelId}/`;
+  const seen = new Set();
+  const chapters = [];
+  for (const link of document.querySelectorAll('a[href]')) {
+    let target;
+    try { target = new URL(link.href, location.href); } catch (_) { continue; }
+    if (target.origin !== location.origin || !target.pathname.startsWith(prefix)) {
+      continue;
+    }
+    const remainder = target.pathname.slice(prefix.length).replace(/\/$/, '');
+    if (!/^\d+$/.test(remainder) || seen.has(remainder)) continue;
+    seen.add(remainder);
+    const row = link.closest('li, tr, article, div');
+    const titleElement = link.querySelector('.ne-title, .ep-title, [class*="title"]');
+    chapters.push({
+      url: target.href,
+      episodeId: remainder,
+      name: text(titleElement) || text(link) || text(row) || `${chapters.length + 1}화`,
+      number: chapters.length + 1,
+    });
+  }
+
+  const tags = [];
+  for (const element of document.querySelectorAll(
+    '.hero-v2-tag, [class*="tag"] a, a[href*="tag"], a[href*="genre"]'
+  )) {
+    const value = text(element).replace(/^#/, '').trim();
+    if (value && value.length <= 50 && !tags.includes(value)) tags.push(value);
+  }
+  const bodyText = document.body && document.body.innerText || '';
+  return {
+    currentUrl: location.href,
+    title: firstText(['.novel-detail h1', 'main h1', 'h1'])
+      || (document.querySelector('meta[property="og:title"]') || {}).content
+      || document.title,
+    author: firstText([
+      '.nd-meta span:first-child',
+      '[class*="author"]',
+      '[rel="author"]',
+    ]),
+    introduction: firstText(['.nd-desc', '[class*="description"]', '[class*="intro"]']),
+    introductionHtml: firstHtml(['.nd-desc', '[class*="description"]', '[class*="intro"]']),
+    coverUrl: firstImage(['.nd-thumb img', '.novel-detail img', 'main img']),
+    tags,
+    chapters,
+    bodyText: bodyText.slice(0, 1000),
+    html: document.documentElement.outerHTML,
+  };
+}
+                """,
+                {'novelId': novel_id, 'kind': kind},
+            ) or {}
+        except Exception as e:
+            self.log(f"ERROR: [NewToki] Headless DOM extraction failed: {e}")
+            return None
+
+        page_html = result.pop('html', '') or ''
+        body_text = result.pop('bodyText', '') or ''
+        if self._ntk_browser_html_is_blocked(page_html + '\n' + body_text):
+            reason = re.sub(r'\s+', ' ', body_text).strip()[:240]
+            self.log(
+                "ERROR: [NewToki] Headless Chrome received an access-denied "
+                f"page{': ' + reason if reason else '.'}"
+            )
+            return None
+
+        chapters = []
+        seen = set()
+        for item in result.get('chapters') or []:
+            chapter_url = self._ntk_abs_url(index_url, item.get('url') or '')
+            episode_id = self._ntk_episode_id_from_url(chapter_url)
+            if (
+                not episode_id
+                or episode_id in seen
+                or self._ntk_novel_id_from_url(chapter_url) != novel_id
+            ):
+                continue
+            seen.add(episode_id)
+            name = re.sub(
+                r'\s+', ' ', html.unescape(item.get('name') or '')
+            ).strip()
+            chapters.append({
+                'url': chapter_url,
+                'name': name or f'{len(chapters) + 1}\ud654',
+                'fullName': name or f'{len(chapters) + 1}\ud654',
+                'number': len(chapters) + 1,
+                'episodeId': episode_id,
+                'kind': kind,
+                'isVIP': False,
+                'isPaid': False,
+            })
+
+        fallback = self._ntk_parse_index_html(page_html, index_url)
+        title = re.split(
+            r'\s+[-|]\s+', result.get('title') or fallback.get('bookname') or ''
+        )[0].strip()
+        author = self._ntk_clean_tag(result.get('author') or '')
+        introduction = re.sub(
+            r'\s+', ' ', result.get('introduction') or ''
+        ).strip()
+        cover_url = self._ntk_abs_url(
+            index_url, result.get('coverUrl') or fallback.get('coverUrl') or ''
+        )
+        tags = [
+            value for value in (
+                self._ntk_clean_tag(tag) for tag in (result.get('tags') or [])
+            ) if value
+        ]
+        return {
+            'bookUrl': index_url,
+            'bookname': title or f'Novel_{novel_id}',
+            'author': author or fallback.get('author') or '',
+            'coverUrl': cover_url,
+            'introduction': introduction or fallback.get('introduction') or '',
+            'introductionHTML': (
+                result.get('introductionHtml')
+                or fallback.get('introductionHTML')
+                or ''
+            ),
+            'language': 'ko',
+            'tags': tags or fallback.get('tags') or [],
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            '_ntk_kind': kind,
+            '_ntk_browser_url': result.get('currentUrl') or '',
+        }
+
+    def _ntk_browser_fetch_html(self, url):
+        """Fetch HTML in the live Chrome network context (including its proxy)."""
+        if not self._page or not url:
+            return None
+        try:
+            result = self._page.evaluate(
+                r"""
+async ({ url }) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const target = new URL(url, location.href);
+    target.searchParams.set('cb', String(Date.now()));
+    const response = await fetch(target.href, {
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: await response.text(),
+    };
+  } catch (error) {
+    return { ok: false, status: 0, error: String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+                """,
+                {'url': url},
+            ) or {}
+        except Exception as e:
+            self.log(f"  [NewToki] Chrome HTML fetch failed: {e}")
+            return None
+        if not result.get('ok'):
+            self.log(
+                f"  [NewToki] Chrome HTML fetch returned HTTP "
+                f"{result.get('status', 0)}: {result.get('error', '')}"
+            )
+            return None
+        html_text = result.get('text') or ''
+        if self._ntk_browser_html_is_blocked(html_text):
+            return None
+        return html_text
+
+    def _ntk_build_decrypted_chapter(self, title, plaintext, selector):
+        """Build a chapter from either plain text or the site's JSON envelope."""
+        value = (plaintext or '').strip()
+        payload = None
+        if value.startswith('{'):
+            try:
+                payload = json.loads(value)
+            except (TypeError, ValueError):
+                payload = None
+
+        if isinstance(payload, dict):
+            if payload.get('kind') == 'html' and isinstance(payload.get('html'), str):
+                content_html = payload['html'].strip()
+                content_html = re.sub(
+                    r'<(?:script|style|iframe)\b[^>]*>.*?</(?:script|style|iframe)>',
+                    '',
+                    content_html,
+                    flags=re.I | re.S,
+                )
+                text_value = re.sub(
+                    r'<\s*(?:br\s*/?|/p|/div|/li)\s*>',
+                    '\n',
+                    content_html,
+                    flags=re.I,
+                )
+                text_value = self._ntk_clean_plaintext(
+                    html.unescape(re.sub(r'<[^>]+>', '', text_value))
+                )
+                if content_html and text_value:
+                    return {
+                        'chapterName': title or 'Chapter',
+                        'sourceChapterName': title or 'Chapter',
+                        'contentText': text_value,
+                        'contentHtml': content_html,
+                        '_debugSelector': selector,
+                    }
+            if payload.get('kind') == 'text' and isinstance(payload.get('text'), str):
+                value = payload['text']
+
+        return self._ntk_build_text_chapter(title, value, selector)
+
+    def _ntk_fetch_rendered_chapter_browser(self, chapter_url, chapter_name):
+        """Navigate headlessly and extract the chapter the site rendered."""
+        if not self._page or not hasattr(self._page, 'goto'):
+            return None
+        try:
+            response = self._page.goto(
+                chapter_url,
+                wait_until='domcontentloaded',
+                timeout=45000,
+            )
+            if response:
+                self.log(
+                    f"  [NewToki] Headless chapter navigation returned HTTP "
+                    f"{response.status}."
+                )
+            try:
+                self._page.wait_for_function(
+                    r"""
+() => {
+  const body = document.body && document.body.innerText || '';
+  if (/access denied|site security policy|just a moment/i.test(body)) return true;
+  return Array.from(document.querySelectorAll('article, main, section, div'))
+    .some((element) => element.querySelectorAll('p').length >= 2
+      && (element.innerText || '').trim().length >= 40);
+}
+                    """,
+                    timeout=5000,
+                )
+            except Exception:
+                pass
+            result = self._page.evaluate(
+                r"""
+() => {
+  const bodyText = document.body && document.body.innerText || '';
+  const candidates = Array.from(
+    document.querySelectorAll('article, main, section, div')
+  ).filter((element) => {
+    if (element.closest('header, nav, footer, aside')) return false;
+    const style = getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    return (element.innerText || '').trim().length >= 40;
+  }).map((element) => ({
+    element,
+    paragraphs: element.querySelectorAll('p').length,
+    text: (element.innerText || '').trim(),
+    depth: (() => {
+      let value = 0;
+      for (let node = element; node; node = node.parentElement) value += 1;
+      return value;
+    })(),
+  }));
+
+  const paragraphCandidates = candidates.filter((item) => item.paragraphs >= 2);
+  const pool = paragraphCandidates.length ? paragraphCandidates : candidates.filter(
+    (item) => item.element.matches(
+      '.novel-epub-rendered, article, [class*="novel-content"], '
+      + '[class*="episode-content"], [class*="viewer-content"], .view-content'
+    )
+  );
+  pool.sort((left, right) => (
+    right.paragraphs - left.paragraphs
+    || left.text.length - right.text.length
+    || right.depth - left.depth
+  ));
+  const selected = pool[0];
+  return {
+    bodyText: bodyText.slice(0, 1000),
+    text: selected ? selected.text : '',
+    html: selected ? selected.element.innerHTML : '',
+    selector: selected
+      ? `${selected.element.tagName.toLowerCase()} rendered DOM`
+      : '',
+  };
+}
+                """
+            ) or {}
+        except Exception as e:
+            self.log(f"  [NewToki] Headless chapter navigation failed: {e}")
+            return None
+
+        if self._ntk_browser_html_is_blocked(result.get('bodyText') or ''):
+            self.log("  [NewToki] Headless chapter navigation was access-denied.")
+            return None
+        content_text = self._ntk_clean_plaintext(result.get('text') or '')
+        content_html = (result.get('html') or '').strip()
+        if len(content_text) < 40 or not content_html:
+            return None
+        data = self._ntk_build_decrypted_chapter(
+            chapter_name,
+            json.dumps({'kind': 'html', 'html': content_html}),
+            result.get('selector') or 'ntk rendered DOM',
+        )
+        if data and len(data.get('contentText', '')) >= 40:
+            return data
+        return None
+
+    def _ntk_fetch_chapter_browser(self, chapter_url, chapter_name):
+        """Use same-origin browser fetches when direct Python HTTP is blocked."""
+        if not self._page:
+            self.log("  [NewToki] Live Chrome page is not available.")
+            return None
+        rendered = self._ntk_fetch_rendered_chapter_browser(
+            chapter_url, chapter_name
+        )
+        if rendered:
+            return rendered
+        self.log(
+            "  [NewToki] Rendered DOM was unavailable; trying the content "
+            "API inside headless Chrome."
+        )
+        try:
+            result = self._page.evaluate(
+                r"""
+async ({ chapterUrl }) => {
+  const fetchWithTimeout = async (url, options = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const cookieValue = (name) => {
+    for (const part of document.cookie.split(';')) {
+      const item = part.trim();
+      const split = item.indexOf('=');
+      if (split < 0 || item.slice(0, split) !== name) continue;
+      const value = item.slice(split + 1);
+      try { return decodeURIComponent(value); } catch (_) { return value; }
+    }
+    return '';
+  };
+  const b64url = (bytes) => {
+    let binary = '';
+    for (const value of bytes) binary += String.fromCharCode(value);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const fromB64url = (value) => {
+    let normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (normalized.length % 4) normalized += '=';
+    const binary = atob(normalized);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  };
+
+  try {
+    const target = new URL(chapterUrl, location.href);
+    target.searchParams.set('cb', String(Date.now()));
+    const chapterResponse = await fetchWithTimeout(target.href, {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    const chapterHtml = await chapterResponse.text();
+    if (!chapterResponse.ok) {
+      return { ok: false, stage: 'chapter', status: chapterResponse.status };
+    }
+
+    const tokenMatch = chapterHtml.match(/\\"token\\":\\"([^\\"]+)\\"/)
+      || chapterHtml.match(/"token"\s*:\s*"([^"]+)"/);
+    if (!tokenMatch) return { ok: false, stage: 'token', status: 0 };
+    const cookieMatch = chapterHtml.match(/\\"cookieName\\":\\"([^\\"]+)\\"/)
+      || chapterHtml.match(/"cookieName"\s*:\s*"([^"]+)"/);
+    const cookieName = cookieMatch ? cookieMatch[1] : 'nv';
+
+    let nv = cookieValue(cookieName);
+    if (!nv) {
+      await fetchWithTimeout(new URL('/api/nv-issue', target.origin).href, {
+        method: 'POST',
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      nv = cookieValue(cookieName);
+    }
+    if (!nv) return { ok: false, stage: 'cookie', status: 0 };
+
+    const ids = target.pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/);
+    if (!ids) return { ok: false, stage: 'url', status: 0 };
+    const nonce = b64url(crypto.getRandomValues(new Uint8Array(24)));
+    const encoder = new TextEncoder();
+    const hmacKey = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(nv),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const signature = await crypto.subtle.sign(
+      'HMAC',
+      hmacKey,
+      encoder.encode(`${tokenMatch[1]}.${nonce}.${navigator.userAgent}`),
+    );
+    const proof = b64url(new Uint8Array(signature));
+    const contentResponse = await fetchWithTimeout(
+      new URL('/api/novel-content', target.origin).href,
+      {
+        method: 'POST',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: {
+          'content-type': 'application/json',
+          'x-novel-client': 'shadow-v2',
+        },
+        body: JSON.stringify({
+          novelId: ids[1],
+          episodeId: ids[2],
+          token: tokenMatch[1],
+          nonce,
+          proof,
+        }),
+      },
+    );
+    const content = await contentResponse.json().catch(() => null);
+    if (!contentResponse.ok || !content || !content.ok || !content.payload) {
+      return {
+        ok: false,
+        stage: 'content',
+        status: contentResponse.status,
+        error: content && content.error ? String(content.error) : '',
+      };
+    }
+
+    const key = fromB64url(nv.split('.')[0] || '');
+    const encrypted = fromB64url(content.payload);
+    if (!key.length) return { ok: false, stage: 'decrypt', status: 0 };
+    const decrypted = new Uint8Array(encrypted.length);
+    for (let index = 0; index < encrypted.length; index += 1) {
+      decrypted[index] = encrypted[index] ^ key[index % key.length];
+    }
+    return {
+      ok: true,
+      plaintext: new TextDecoder('utf-8').decode(decrypted),
+    };
+  } catch (error) {
+    return { ok: false, stage: 'exception', status: 0, error: String(error) };
+  }
+}
+                """,
+                {'chapterUrl': chapter_url},
+            ) or {}
+        except Exception as e:
+            self.log(f"  [NewToki] Chrome chapter fetch failed: {e}")
+            return None
+
+        if not result.get('ok'):
+            self.log(
+                f"  [NewToki] Chrome chapter fetch failed at "
+                f"{result.get('stage', 'unknown')} "
+                f"(HTTP {result.get('status', 0)})"
+                + (f": {result.get('error')}" if result.get('error') else '')
+            )
+            return None
+        data = self._ntk_build_decrypted_chapter(
+            chapter_name,
+            result.get('plaintext') or '',
+            'ntk browser api/novel-content',
+        )
+        if data and len(data.get('contentText', '')) >= 40:
+            return data
+        self.log("  [NewToki] Chrome returned empty/short chapter content.")
+        return None
+
+    def _ntk_fetch_webtoon_chapter_browser(self, chapter_url, chapter_name):
+        html_text = self._ntk_browser_fetch_html(chapter_url)
+        if not html_text:
+            return None
+        image_urls = self._ntk_image_url_candidates(html_text, chapter_url)
+        return self._ntk_build_image_chapter(
+            chapter_name,
+            image_urls,
+            'ntk browser webtoon image scrape',
+        )
+
+    def _ntk_fetch_binary_browser(self, url):
+        if not self._page or not url:
+            return None
+        try:
+            result = self._page.evaluate(
+                r"""
+async ({ url }) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(url, {
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) return { ok: false, status: response.status };
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return {
+      ok: true,
+      status: response.status,
+      contentType: response.headers.get('content-type') || '',
+      data: btoa(binary),
+    };
+  } catch (error) {
+    return { ok: false, status: 0, error: String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+                """,
+                {'url': url},
+            ) or {}
+            if result.get('ok') and result.get('data'):
+                return base64.b64decode(result['data'])
+            self.log(
+                f"  [NewToki] Chrome asset fetch failed "
+                f"(HTTP {result.get('status', 0)})."
+            )
+        except Exception as e:
+            self.log(f"  [NewToki] Chrome asset fetch failed: {e}")
+        return None
 
     def _ntk_fetch_chapter_api(self, chapter_url, chapter_name, state=None):
         state = state or self._ntk_api_state
@@ -6037,42 +6675,50 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     def fetch_ntk_binary(self, url, referer=None):
         """Fetch a NewToki binary asset with the verified API session."""
         state = self._ntk_api_state
-        if not state or not state.get('session') or not url:
+        if not url:
             return None
-        headers = dict(state.get('doc_headers') or {})
-        headers.update({
-            'Accept': (
-                'image/avif,image/webp,image/apng,image/svg+xml,'
-                'image/*,*/*;q=0.8'
-            ),
-            'Referer': referer or state.get('index_url') or state.get('origin') or '',
-            'sec-fetch-dest': 'image',
-            'sec-fetch-mode': 'no-cors',
-            'sec-fetch-site': 'same-origin',
-        })
-        try:
-            response = self._ntk_request_get(state['session'], url, headers)
-            content_type = response.headers.get('content-type', '')
-            if (
-                response.status_code == 200
-                and len(response.content) > 100
-                and (
-                    content_type.startswith('image/')
-                    or response.content[:4] == b'\x89PNG'
-                    or response.content[:3] == b'\xff\xd8\xff'
-                    or response.content[:4] == b'RIFF'
-                    or response.content[:4] == b'GIF8'
-                    or response.content[:12] == b'\x00\x00\x00\x18ftypavif'
+        if self._ntk_browser_fallback and self._page:
+            return self._ntk_fetch_binary_browser(url)
+        if state and state.get('session'):
+            headers = dict(state.get('doc_headers') or {})
+            headers.update({
+                'Accept': (
+                    'image/avif,image/webp,image/apng,image/svg+xml,'
+                    'image/*,*/*;q=0.8'
+                ),
+                'Referer': (
+                    referer
+                    or state.get('index_url')
+                    or state.get('origin')
+                    or ''
+                ),
+                'sec-fetch-dest': 'image',
+                'sec-fetch-mode': 'no-cors',
+                'sec-fetch-site': 'same-origin',
+            })
+            try:
+                response = self._ntk_request_get(state['session'], url, headers)
+                content_type = response.headers.get('content-type', '')
+                if (
+                    response.status_code == 200
+                    and len(response.content) > 100
+                    and (
+                        content_type.startswith('image/')
+                        or response.content[:4] == b'\x89PNG'
+                        or response.content[:3] == b'\xff\xd8\xff'
+                        or response.content[:4] == b'RIFF'
+                        or response.content[:4] == b'GIF8'
+                        or response.content[:12] == b'\x00\x00\x00\x18ftypavif'
+                    )
+                ):
+                    return response.content
+                self.log(
+                    f"  [NewToki] Direct cover asset fetch failed "
+                    f"(HTTP {response.status_code}, {len(response.content)} bytes, "
+                    f"{content_type or 'unknown content-type'})."
                 )
-            ):
-                return response.content
-            self.log(
-                f"  [NewToki] Cover asset fetch failed "
-                f"(HTTP {response.status_code}, {len(response.content)} bytes, "
-                f"{content_type or 'unknown content-type'})."
-            )
-        except Exception as e:
-            self.log(f"  [NewToki] Cover asset fetch failed: {e}")
+            except Exception as e:
+                self.log(f"  [NewToki] Direct cover asset fetch failed: {e}")
         return None
 
     def _ntk_dump_debug_page(self, page, label):
@@ -6093,66 +6739,29 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return None
 
     def _ntk_parse_book(self, url):
-        """Scrape ntk metadata using the site's encrypted content API."""
+        """Scrape NewToki entirely through installed headless Chrome."""
         self._stop_requested = False
+        self._ntk_browser_fallback = True
+        self._ntk_api_state = None
         kind = self._ntk_content_kind_from_url(url)
         self.log(
-            f"[NewToki] Detected ntk {kind} URL, using curl_cffi API scraper."
+            f"[NewToki] Detected {kind} URL, using headless browser scraper."
         )
-        self.log(f"[NewToki] Refreshing Chrome clearance before API fetch: {url}")
+        self.log(f"[NewToki] Opening book in headless Chrome: {url}")
 
         novel_id = self._ntk_novel_id_from_url(url)
-        index_html = None
         if not self._ntk_refresh_cloudflare_session(url):
-            self.log("ERROR: [NewToki] Could not refresh Chrome clearance.")
+            self.log("ERROR: [NewToki] Could not start headless Chrome.")
             return None
-        state = self._ntk_prepare_api_state(url, novel_id)
-        try:
-            self.cleanup()
-        except Exception:
-            pass
-        try:
-            closed = self._close_ntk_profile_chrome(
-                self._get_ntk_user_data_dir()
-            )
-            if closed:
-                self.log(
-                    f"[NewToki] Closed {closed} temporary Chrome "
-                    "process(es)."
-                )
-        except Exception:
-            pass
-        if not state:
-            self.log("ERROR: [NewToki] Could not create API session.")
-            return None
-        self.log("[NewToki] Fetching index via verified Chrome session.")
-        index_html = self._ntk_fetch_index_via_api_session(url, state)
-        if not index_html:
+        data = self._ntk_parse_index_browser(url)
+        if not data or not data.get('chapters'):
             self.log(
-                "ERROR: [NewToki] API index fetch failed after Chrome "
-                "clearance refresh. If Cloudflare is stricter on your IP, "
-                "set NPIA_NTK_CURL to a copied Chrome cURL request and retry."
+                "ERROR: [NewToki] Headless Chrome did not expose a usable "
+                "chapter list."
             )
+            self._ntk_dump_debug_page(self._page, f'index_{novel_id}')
             return None
-        data = self._ntk_parse_index_html(index_html, url)
         chapters = data.get('chapters') or []
-        if not chapters:
-            self.log("ERROR: [NewToki] No episode links found on page.")
-            try:
-                logs_dir = os.path.join(_get_base_dir(), 'logs')
-                os.makedirs(logs_dir, exist_ok=True)
-                kind = data.get('_ntk_kind') or self._ntk_content_kind_from_url(url)
-                stamp = time.strftime('%Y%m%d_%H%M%S')
-                path = os.path.join(
-                    logs_dir,
-                    f'ntk_{kind}_index_debug_{stamp}_{novel_id}.html',
-                )
-                with open(path, 'w', encoding='utf-8') as f:
-                    f.write(index_html or '')
-                self.log(f"[NewToki] Index debug saved: {path}")
-            except Exception:
-                pass
-            return None
 
         data['coverUrl'] = self._ntk_prefer_novelpia_cover_url(
             data.get('coverUrl', '')
@@ -6163,7 +6772,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             self.log("[NewToki] Cover URL not found on index page.")
 
         data['_ntk_novel'] = True
-        data['_ntk_api'] = True
+        data['_ntk_api'] = False
+        data['_ntk_headless_browser'] = True
         data['_ntk_novel_id'] = novel_id
         data['_ntk_kind'] = kind
         self._book_data = data
@@ -6177,19 +6787,36 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     def _ntk_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Fetch one ntk novel/webtoon chapter."""
         if self._book_data and self._book_data.get('_ntk_kind') == 'webtoon':
-            data = self._ntk_fetch_webtoon_chapter(chapter_url, chapter_name)
+            if self._ntk_browser_fallback:
+                data = self._ntk_fetch_webtoon_chapter_browser(
+                    chapter_url, chapter_name
+                )
+            else:
+                data = self._ntk_fetch_webtoon_chapter(
+                    chapter_url, chapter_name
+                )
             if data:
                 debug_selector = data.pop('_debugSelector', '')
-                self.log("  [NewToki] Used webtoon image scrape.")
+                self.log(
+                    "  [NewToki] Used "
+                    + ("Chrome " if self._ntk_browser_fallback else "")
+                    + "webtoon image scrape."
+                )
                 if debug_selector:
                     self.log(f"  [NewToki] Content selector: {debug_selector}")
                 return data
             self.log(f"  [NewToki] Webtoon chapter fetch failed: {chapter_name}")
             return None
-        data = self._ntk_fetch_chapter_api(chapter_url, chapter_name)
+        if self._ntk_browser_fallback:
+            data = self._ntk_fetch_chapter_browser(chapter_url, chapter_name)
+        else:
+            data = self._ntk_fetch_chapter_api(chapter_url, chapter_name)
         if data:
             debug_selector = data.pop('_debugSelector', '')
-            self.log("  [NewToki] Used encrypted content API.")
+            self.log(
+                "  [NewToki] Used encrypted content API through "
+                + ("Chrome." if self._ntk_browser_fallback else "direct HTTP.")
+            )
             if debug_selector:
                 self.log(f"  [NewToki] Content selector: {debug_selector}")
             return data
@@ -9941,6 +10568,30 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         if self._book_data and self._book_data.get('_qidian'):
             return self._qidian_parse_chapter_batch_parallel(batch_info)
         if self._book_data and self._book_data.get('_ntk_novel'):
+            if self._ntk_browser_fallback:
+                results = []
+                for index, chapter in enumerate(batch_info):
+                    if self._stop_requested:
+                        results.append(None)
+                        continue
+                    chapter_url = chapter.get('url', '')
+                    chapter_name = (
+                        chapter.get('fullName', '')
+                        or chapter.get('name', '')
+                    )
+                    if self._book_data.get('_ntk_kind') == 'webtoon':
+                        result = self._ntk_fetch_webtoon_chapter_browser(
+                            chapter_url, chapter_name
+                        )
+                    else:
+                        result = self._ntk_fetch_chapter_browser(
+                            chapter_url, chapter_name
+                        )
+                    results.append(result)
+                    if interval > 0 and index < len(batch_info) - 1:
+                        time.sleep(min(interval, 0.15))
+                return results
+
             from concurrent.futures import ThreadPoolExecutor
 
             def fetch_one(ch):
