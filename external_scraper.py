@@ -4838,7 +4838,9 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return False
         host = (parsed.netloc or '').lower()
         return bool(
-            re.fullmatch(r'(?:www\.)?ntk\d+\.com', host)
+            re.fullmatch(
+                r'(?:www\.)?(?:ntk|newtoki)\d+\.(?:com|org)', host
+            )
             and re.match(r'^/(?:novel|webtoon)/\d+(?:/\d+)?/?$', parsed.path or '')
         )
 
@@ -5582,7 +5584,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return ''
         if re.fullmatch(r'[\d\s.,:;+\-]+', value):
             return ''
-        if re.search(r'https?://|ntk\d+\.com|newtoki', value, re.I):
+        if re.search(r'https?://|ntk\d+\.(?:com|org)|newtoki', value, re.I):
             return ''
         return value
 
