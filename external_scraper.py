@@ -6014,14 +6014,23 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             ).strip()
             chapters.append({
                 'url': chapter_url,
-                'name': name or f'{len(chapters) + 1}\ud654',
-                'fullName': name or f'{len(chapters) + 1}\ud654',
-                'number': len(chapters) + 1,
+                'name': name,
+                'fullName': name,
+                'number': 0,
                 'episodeId': episode_id,
                 'kind': kind,
                 'isVIP': False,
                 'isPaid': False,
             })
+
+        # NewToki renders its episode list newest-first. Downloads and chapter
+        # range controls are expected to use publication order, oldest-first.
+        chapters.reverse()
+        for chapter_number, chapter in enumerate(chapters, start=1):
+            chapter['number'] = chapter_number
+            if not chapter['name']:
+                chapter['name'] = f'{chapter_number}\ud654'
+                chapter['fullName'] = chapter['name']
 
         fallback = self._ntk_parse_index_html(page_html, index_url)
         title = re.split(
@@ -6177,10 +6186,6 @@ async ({ url }) => {
         if not self._page:
             self.log("  [NewToki] Live Chrome page is not available.")
             return None
-        self.log(
-            "  [NewToki] Fetching encrypted chapter content inside "
-            "headless Chrome."
-        )
         try:
             result = self._page.evaluate(
                 r"""
@@ -6494,8 +6499,13 @@ async ({ url }) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(url, {
-      credentials: 'include',
+    const target = new URL(url, location.href);
+    const sameOrigin = target.origin === location.origin;
+    const response = await fetch(target.href, {
+      // CDN covers commonly reply with Access-Control-Allow-Origin: *.
+      // Browsers reject that response when cookies are included, so only
+      // send the NewToki session to same-origin assets.
+      credentials: sameOrigin ? 'include' : 'omit',
       cache: 'no-store',
       signal: controller.signal,
     });
@@ -10560,19 +10570,26 @@ async ({ url }) => {
         return data
 
     def parse_chapter_batch(self, batch_info, interval=0.5,
-                            _skip_sfacg_app=False):
+                            _skip_sfacg_app=False, success_callback=None):
         """Parse multiple chapters concurrently via JS Promise.all.
 
         Args:
             batch_info: List of dicts with 'url', 'name', 'isVIP', 'isPaid'.
             interval: Delay between chapters (seconds). Used by KakaoPage
                       sequential fallback; normal batch uses JS Promise.all.
+            success_callback: Optional ``(batch_index, result)`` callback used
+                              by sequential scrapers for live success logging.
 
         Returns list of parsed chapter dicts (or None for failures).
         The browser fires all HTTP requests in parallel.
         """
         if self._stop_requested or not batch_info:
             return [None] * len(batch_info)
+
+        def report_success(index, result):
+            if result is None or success_callback is None:
+                return
+            success_callback(index, result)
 
         if self._book_data and self._book_data.get('_1qxs'):
             from concurrent.futures import ThreadPoolExecutor
@@ -10687,6 +10704,7 @@ async ({ url }) => {
                             chapter_url, chapter_name
                         )
                     results.append(result)
+                    report_success(index, result)
                     if interval > 0 and index < len(batch_info) - 1:
                         time.sleep(min(interval, 0.15))
                 return results
@@ -10711,7 +10729,10 @@ async ({ url }) => {
 
             max_workers = max(1, min(5, len(batch_info)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                return list(executor.map(fetch_one, batch_info))
+                results = list(executor.map(fetch_one, batch_info))
+            for index, result in enumerate(results):
+                report_success(index, result)
+            return results
 
         if (not _skip_sfacg_app
                 and self._sfacg_should_prefer_app_api()):

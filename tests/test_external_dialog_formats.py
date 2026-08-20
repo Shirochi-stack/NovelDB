@@ -194,6 +194,53 @@ def test_external_retry_happens_before_the_next_batch():
     assert events == ["batch:First", "retry:First", "batch:Second"]
 
 
+def test_ntk_progress_is_logged_only_after_successful_content_fetch():
+    logs = []
+    events = []
+
+    class Scraper:
+        _context = True
+
+        @staticmethod
+        def parse_chapter_batch(chapters, interval=0, success_callback=None):
+            assert not logs
+            results = []
+            for index, chapter in enumerate(chapters):
+                events.append(chapter["name"])
+                result = {
+                    "chapterName": chapter["name"],
+                    "contentText": "content",
+                }
+                results.append(result)
+                success_callback(index, result)
+                assert logs[-1].endswith(chapter["name"])
+            return results
+
+    dialog = SimpleNamespace(
+        _scraper=Scraper(),
+        _book_data={"_ntk_novel": True},
+        _downloading=True,
+        _download_cancelled=False,
+        _chapter_results=[],
+        _msg_queue=queue.Queue(),
+        _apply_scraper_options=lambda: None,
+        _sleep_while_downloading=lambda _seconds: True,
+        _log=logs.append,
+    )
+
+    ExternalNovelDialog._do_download(
+        dialog,
+        [{"name": "Chapter 1"}, {"name": "Chapter 2"}],
+        0,
+        2,
+        0,
+        num_threads=2,
+    )
+
+    assert events == ["Chapter 1", "Chapter 2"]
+    assert logs == ["  [1/2] Chapter 1", "  [2/2] Chapter 2"]
+
+
 def test_failed_fetch_console_stack_is_suppressed():
     logs = []
     scraper = SimpleNamespace(log=logs.append)

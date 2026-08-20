@@ -582,17 +582,38 @@ class ExternalNovelDialog(tk.Toplevel):
 
                 batch = [selected[i] for i in batch_indices]
 
-                # Log which chapters we're fetching
-                for i in batch_indices:
-                    name = selected[i].get('name', f'Chapter {start + i + 1}')
-                    self._log(f"  [{i + 1}/{total}] {name}")
+                # Most scrapers historically announce work before fetching.
+                # NewToki defers this line until content is actually present,
+                # making the progress entry an unambiguous success signal.
+                if not is_ntk:
+                    for i in batch_indices:
+                        name = selected[i].get(
+                            'name', f'Chapter {start + i + 1}'
+                        )
+                        self._log(f"  [{i + 1}/{total}] {name}")
 
-                # Fire batch concurrently in JS
+                # Fire batch concurrently in JS. NewToki's headless path is
+                # sequential, so its callback can report each chapter at the
+                # exact point the decrypted content becomes available.
                 batch_number = (batch_start // batch_size) + 1
                 batch_t0 = time.perf_counter()
-                batch_results = self._scraper.parse_chapter_batch(
-                    batch, interval=interval
-                )
+                if is_ntk:
+                    def log_ntk_success(batch_index, _data):
+                        idx = batch_indices[batch_index]
+                        name = selected[idx].get(
+                            'name', f'Chapter {start + idx + 1}'
+                        )
+                        self._log(f"  [{idx + 1}/{total}] {name}")
+
+                    batch_results = self._scraper.parse_chapter_batch(
+                        batch,
+                        interval=interval,
+                        success_callback=log_ntk_success,
+                    )
+                else:
+                    batch_results = self._scraper.parse_chapter_batch(
+                        batch, interval=interval
+                    )
                 batch_elapsed = time.perf_counter() - batch_t0
 
                 for j, data in enumerate(batch_results):
@@ -613,9 +634,18 @@ class ExternalNovelDialog(tk.Toplevel):
                                 log_errors=False,
                             )
                             if data:
-                                self._log(
-                                    f"  [{idx + 1}/{total}] Retry succeeded."
-                                )
+                                if is_ntk:
+                                    name = selected[idx].get(
+                                        'name', f'Chapter {start + idx + 1}'
+                                    )
+                                    self._log(
+                                        f"  [{idx + 1}/{total}] {name}"
+                                    )
+                                else:
+                                    self._log(
+                                        f"  [{idx + 1}/{total}] "
+                                        "Retry succeeded."
+                                    )
                                 break
                         if data is None and self._downloading:
                             self._log(
