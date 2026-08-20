@@ -3296,8 +3296,34 @@ class ExternalScraper:
                 if self._browser.contexts
                 else self._browser.new_context()
             )
+            volatile_cookies = (
+                'nv',
+                'ad_ack',
+                'ad_ack_c',
+                'ntk_blk_ok_sig',
+                '__ntk_ev_id',
+                'ntk_blk',
+                'ntk_dev_warn',
+            )
+            for cookie_name in volatile_cookies:
+                try:
+                    self._context.clear_cookies(name=cookie_name)
+                except Exception:
+                    pass
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
+            try:
+                self._page.evaluate(
+                    """(keys) => {
+                      for (const key of keys) {
+                        try { localStorage.removeItem(key); } catch (_) {}
+                        try { sessionStorage.removeItem(key); } catch (_) {}
+                      }
+                    }""",
+                    list(volatile_cookies),
+                )
+            except Exception:
+                pass
             self._page.on("console", self._on_console)
             if self._ntk_temp_chrome:
                 self._hide_ntk_chrome_windows()
@@ -4840,7 +4866,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
     @staticmethod
     def is_ntk_novel(url):
-        """Check if the URL is a NewToki/ntk novel or webtoon page."""
+        """Check if the URL is a NewToki/ntk/sbxh novel or webtoon page."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
@@ -4848,7 +4874,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         host = (parsed.netloc or '').lower()
         return bool(
             re.fullmatch(
-                r'(?:www\.)?(?:ntk|newtoki)\d+\.(?:com|org)', host
+                r'(?:www\.)?(?:ntk|newtoki|sbxh)\d+\.(?:com|org)', host
             )
             and re.match(r'^/(?:novel|webtoon)/\d+(?:/\d+)?/?$', parsed.path or '')
         )
@@ -5931,8 +5957,14 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   const bodyText = document.body && document.body.innerText || '';
   return {
     currentUrl: location.href,
-    title: firstText(['.novel-detail h1', 'main h1', 'h1'])
+    title: firstText([
+      '.novel-detail h1',
+      '.novel-title',
+      '.nd-title',
+      '[data-novel-title]',
+    ])
       || (document.querySelector('meta[property="og:title"]') || {}).content
+      || firstText(['main h1', 'h1'])
       || document.title,
     author: firstText([
       '.nd-meta span:first-child',
@@ -6108,120 +6140,46 @@ async ({ url }) => {
                         'contentHtml': content_html,
                         '_debugSelector': selector,
                     }
-            if payload.get('kind') == 'text' and isinstance(payload.get('text'), str):
+            kind = payload.get('kind')
+            if (
+                kind == 'text-shuffled'
+                and isinstance(payload.get('paragraphs'), list)
+                and isinstance(payload.get('perm'), list)
+            ):
+                paragraphs = payload['paragraphs']
+                permutation = payload['perm']
+                ordered = [''] * len(paragraphs)
+                for source_index, paragraph in enumerate(paragraphs):
+                    if source_index >= len(permutation):
+                        continue
+                    try:
+                        destination_index = int(permutation[source_index])
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        0 <= destination_index < len(ordered)
+                        and isinstance(paragraph, str)
+                    ):
+                        ordered[destination_index] = paragraph
+                value = '\n\n'.join(part for part in ordered if part.strip())
+            elif kind == 'text' and isinstance(payload.get('paragraphs'), list):
+                value = '\n\n'.join(
+                    paragraph for paragraph in payload['paragraphs']
+                    if isinstance(paragraph, str) and paragraph.strip()
+                )
+            elif isinstance(payload.get('text'), str):
                 value = payload['text']
 
         return self._ntk_build_text_chapter(title, value, selector)
 
-    def _ntk_fetch_rendered_chapter_browser(self, chapter_url, chapter_name):
-        """Navigate headlessly and extract the chapter the site rendered."""
-        if not self._page or not hasattr(self._page, 'goto'):
-            return None
-        try:
-            response = self._page.goto(
-                chapter_url,
-                wait_until='domcontentloaded',
-                timeout=45000,
-            )
-            if response:
-                self.log(
-                    f"  [NewToki] Headless chapter navigation returned HTTP "
-                    f"{response.status}."
-                )
-            try:
-                self._page.wait_for_function(
-                    r"""
-() => {
-  const body = document.body && document.body.innerText || '';
-  if (/access denied|site security policy|just a moment/i.test(body)) return true;
-  return Array.from(document.querySelectorAll('article, main, section, div'))
-    .some((element) => element.querySelectorAll('p').length >= 2
-      && (element.innerText || '').trim().length >= 40);
-}
-                    """,
-                    timeout=5000,
-                )
-            except Exception:
-                pass
-            result = self._page.evaluate(
-                r"""
-() => {
-  const bodyText = document.body && document.body.innerText || '';
-  const candidates = Array.from(
-    document.querySelectorAll('article, main, section, div')
-  ).filter((element) => {
-    if (element.closest('header, nav, footer, aside')) return false;
-    const style = getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    return (element.innerText || '').trim().length >= 40;
-  }).map((element) => ({
-    element,
-    paragraphs: element.querySelectorAll('p').length,
-    text: (element.innerText || '').trim(),
-    depth: (() => {
-      let value = 0;
-      for (let node = element; node; node = node.parentElement) value += 1;
-      return value;
-    })(),
-  }));
-
-  const paragraphCandidates = candidates.filter((item) => item.paragraphs >= 2);
-  const pool = paragraphCandidates.length ? paragraphCandidates : candidates.filter(
-    (item) => item.element.matches(
-      '.novel-epub-rendered, article, [class*="novel-content"], '
-      + '[class*="episode-content"], [class*="viewer-content"], .view-content'
-    )
-  );
-  pool.sort((left, right) => (
-    right.paragraphs - left.paragraphs
-    || left.text.length - right.text.length
-    || right.depth - left.depth
-  ));
-  const selected = pool[0];
-  return {
-    bodyText: bodyText.slice(0, 1000),
-    text: selected ? selected.text : '',
-    html: selected ? selected.element.innerHTML : '',
-    selector: selected
-      ? `${selected.element.tagName.toLowerCase()} rendered DOM`
-      : '',
-  };
-}
-                """
-            ) or {}
-        except Exception as e:
-            self.log(f"  [NewToki] Headless chapter navigation failed: {e}")
-            return None
-
-        if self._ntk_browser_html_is_blocked(result.get('bodyText') or ''):
-            self.log("  [NewToki] Headless chapter navigation was access-denied.")
-            return None
-        content_text = self._ntk_clean_plaintext(result.get('text') or '')
-        content_html = (result.get('html') or '').strip()
-        if len(content_text) < 40 or not content_html:
-            return None
-        data = self._ntk_build_decrypted_chapter(
-            chapter_name,
-            json.dumps({'kind': 'html', 'html': content_html}),
-            result.get('selector') or 'ntk rendered DOM',
-        )
-        if data and len(data.get('contentText', '')) >= 40:
-            return data
-        return None
-
     def _ntk_fetch_chapter_browser(self, chapter_url, chapter_name):
-        """Use same-origin browser fetches when direct Python HTTP is blocked."""
+        """Fetch and decrypt the chapter using NewToki's browser-only API."""
         if not self._page:
             self.log("  [NewToki] Live Chrome page is not available.")
             return None
-        rendered = self._ntk_fetch_rendered_chapter_browser(
-            chapter_url, chapter_name
-        )
-        if rendered:
-            return rendered
         self.log(
-            "  [NewToki] Rendered DOM was unavailable; trying the content "
-            "API inside headless Chrome."
+            "  [NewToki] Fetching encrypted chapter content inside "
+            "headless Chrome."
         )
         try:
             result = self._page.evaluate(
@@ -6246,6 +6204,10 @@ async ({ chapterUrl }) => {
     }
     return '';
   };
+  const deleteCookie = (name) => {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  };
   const b64url = (bytes) => {
     let binary = '';
     for (const value of bytes) binary += String.fromCharCode(value);
@@ -6257,94 +6219,231 @@ async ({ chapterUrl }) => {
     const binary = atob(normalized);
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
   };
+  const randomHex = (size) => Array.from(
+    crypto.getRandomValues(new Uint8Array(size)),
+    (value) => value.toString(16).padStart(2, '0'),
+  ).join('');
+  const jsonPost = async (url, body, extraHeaders = {}) => {
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: {
+        'content-type': 'application/json',
+        ...extraHeaders,
+      },
+      body: JSON.stringify(body),
+    });
+    return {
+      response,
+      data: await response.json().catch(() => null),
+    };
+  };
 
   try {
     const target = new URL(chapterUrl, location.href);
-    target.searchParams.set('cb', String(Date.now()));
-    const chapterResponse = await fetchWithTimeout(target.href, {
-      credentials: 'include',
-      cache: 'no-store',
-    });
-    const chapterHtml = await chapterResponse.text();
-    if (!chapterResponse.ok) {
-      return { ok: false, stage: 'chapter', status: chapterResponse.status };
+    const ids = target.pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/);
+    if (!ids) return { ok: false, stage: 'url', status: 0 };
+    const encoder = new TextEncoder();
+
+    for (const badCookie of ['ntk_blk', 'ntk_dev_warn']) {
+      if (cookieValue(badCookie)) deleteCookie(badCookie);
     }
 
-    const tokenMatch = chapterHtml.match(/\\"token\\":\\"([^\\"]+)\\"/)
-      || chapterHtml.match(/"token"\s*:\s*"([^"]+)"/);
-    if (!tokenMatch) return { ok: false, stage: 'token', status: 0 };
-    const cookieMatch = chapterHtml.match(/\\"cookieName\\":\\"([^\\"]+)\\"/)
-      || chapterHtml.match(/"cookieName"\s*:\s*"([^"]+)"/);
-    const cookieName = cookieMatch ? cookieMatch[1] : 'nv';
+    if (!window.__npiaNtkEventSynced) {
+      await fetchWithTimeout(new URL('/api/me', target.origin).href, {
+        credentials: 'include',
+        cache: 'no-store',
+      }).catch(() => null);
+      let eventId = cookieValue('__ntk_ev_id');
+      if (!eventId) {
+        eventId = randomHex(32);
+        const secure = location.protocol === 'https:' ? '; Secure' : '';
+        document.cookie = `__ntk_ev_id=${eventId}; Path=/; SameSite=Lax${secure}`;
+      }
+      const sync = await jsonPost(
+        new URL('/api/ev/sync', target.origin).href,
+        { evId: eventId },
+      ).catch(() => null);
+      if (sync && sync.response.ok) window.__npiaNtkEventSynced = true;
+    }
 
-    let nv = cookieValue(cookieName);
-    if (!nv) {
-      await fetchWithTimeout(new URL('/api/nv-issue', target.origin).href, {
-        method: 'POST',
+    let forceNvReissue = false;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      target.searchParams.set('cb', String(Date.now()));
+      const chapterResponse = await fetchWithTimeout(target.href, {
         credentials: 'include',
         cache: 'no-store',
       });
-      nv = cookieValue(cookieName);
-    }
-    if (!nv) return { ok: false, stage: 'cookie', status: 0 };
+      const chapterHtml = await chapterResponse.text();
+      if (!chapterResponse.ok) {
+        return { ok: false, stage: 'chapter', status: chapterResponse.status };
+      }
 
-    const ids = target.pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/);
-    if (!ids) return { ok: false, stage: 'url', status: 0 };
-    const nonce = b64url(crypto.getRandomValues(new Uint8Array(24)));
-    const encoder = new TextEncoder();
-    const hmacKey = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(nv),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    );
-    const signature = await crypto.subtle.sign(
-      'HMAC',
-      hmacKey,
-      encoder.encode(`${tokenMatch[1]}.${nonce}.${navigator.userAgent}`),
-    );
-    const proof = b64url(new Uint8Array(signature));
-    const contentResponse = await fetchWithTimeout(
-      new URL('/api/novel-content', target.origin).href,
-      {
-        method: 'POST',
-        credentials: 'include',
-        cache: 'no-store',
-        headers: {
-          'content-type': 'application/json',
-          'x-novel-client': 'shadow-v2',
-        },
-        body: JSON.stringify({
+      const tokenPattern = /(?:\\"|")token(?:\\"|")\s*:\s*(?:\\"|")([A-Za-z0-9_=.-]+)(?:\\"|")/g;
+      const tokens = Array.from(chapterHtml.matchAll(tokenPattern), (match) => match[1]);
+      const token = tokens.find((value) => (
+        value.startsWith('eyJuIjoi') || value.startsWith('eyJlIjoi')
+      ));
+      if (!token) return { ok: false, stage: 'token', status: 0 };
+
+      const cookieMatch = chapterHtml.match(/\\"cookieName\\":\\"([^\\"]+)\\"/)
+        || chapterHtml.match(/"cookieName"\s*:\s*"([^"]+)"/);
+      const cookieName = cookieMatch ? cookieMatch[1] : 'nv';
+      const chapterPath = target.pathname;
+
+      const challengeToken = tokens.find((value) => value.startsWith('eyJ2Ijoy'));
+      const slotMatch = chapterHtml.match(
+        /(?:\\"|")slotNonces(?:\\"|")\s*:\s*\[(.*?)\]/,
+      );
+      const slotNonces = slotMatch
+        ? Array.from(
+          slotMatch[1].matchAll(/(?:\\"|")([^"\\]+)(?:\\"|")/g),
+          (match) => match[1],
+        )
+        : [];
+      let challenge = challengeToken && slotNonces.length
+        ? { token: challengeToken, slotNonces }
+        : null;
+      if (!challenge) {
+        const challengeReply = await jsonPost(
+          new URL('/api/ad/challenge', target.origin).href,
+          { path: chapterPath },
+        );
+        if (challengeReply.response.ok && challengeReply.data) {
+          challenge = challengeReply.data.challenge || null;
+        }
+      }
+
+      if (challenge && challenge.token) {
+        await jsonPost(
+          new URL('/api/ad/canary', target.origin).href,
+          {
+            adAckCanary: true,
+            challengeToken: challenge.token,
+            path: chapterPath,
+          },
+        );
+        let totalAds = Array.from(
+          chapterHtml.matchAll(/data-br-n=(?:\\"|")?(\d+)(?:\\"|")?/g),
+          (match) => Number.parseInt(match[1], 10) || 0,
+        ).reduce((total, value) => total + value, 0);
+        const nonces = Array.isArray(challenge.slotNonces)
+          ? challenge.slotNonces
+          : [];
+        if (!totalAds && nonces.length) totalAds = nonces.length;
+        const visibleNonces = totalAds > 0 ? nonces.slice(0, totalAds) : nonces;
+        const ack = await jsonPost(
+          new URL('/api/ad/ack', target.origin).href,
+          {
+            challengeToken: challenge.token,
+            total: totalAds,
+            visible: totalAds,
+            path: chapterPath,
+            slotNonces: visibleNonces,
+          },
+        );
+        if (!ack.response.ok || !ack.data || !ack.data.ok) {
+          return {
+            ok: false,
+            stage: 'ad-ack',
+            status: ack.response.status,
+            error: ack.data && ack.data.error ? String(ack.data.error) : '',
+          };
+        }
+      }
+
+      let nv = cookieValue(cookieName);
+      if (!nv || forceNvReissue) {
+        if (forceNvReissue) deleteCookie(cookieName);
+        await fetchWithTimeout(new URL('/api/nv-issue', target.origin).href, {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        nv = cookieValue(cookieName);
+        forceNvReissue = false;
+      }
+      if (!nv) return { ok: false, stage: 'cookie', status: 0 };
+
+      const nonce = b64url(crypto.getRandomValues(new Uint8Array(24)));
+      const hmacKey = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(nv),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      );
+      const signature = await crypto.subtle.sign(
+        'HMAC',
+        hmacKey,
+        encoder.encode(`${token}.${nonce}.${navigator.userAgent}`),
+      );
+      const proof = b64url(new Uint8Array(signature));
+      const contentReply = await jsonPost(
+        new URL('/api/novel-content', target.origin).href,
+        {
           novelId: ids[1],
           episodeId: ids[2],
-          token: tokenMatch[1],
+          token,
           nonce,
           proof,
-        }),
-      },
-    );
-    const content = await contentResponse.json().catch(() => null);
-    if (!contentResponse.ok || !content || !content.ok || !content.payload) {
+        },
+        { 'x-novel-client': 'shadow-v3' },
+      );
+      const content = contentReply.data;
+      if (
+        !contentReply.response.ok
+        || !content
+        || !content.ok
+        || !content.payload
+      ) {
+        const error = content && content.error ? String(content.error) : '';
+        if (error === 'expired') {
+          forceNvReissue = true;
+          continue;
+        }
+        if (error === 'ad_ack_required') continue;
+        return {
+          ok: false,
+          stage: 'content',
+          status: contentReply.response.status,
+          error,
+        };
+      }
+
+      const cookieKey = fromB64url(nv.split('.')[0] || '');
+      const encrypted = fromB64url(content.payload);
+      if (!cookieKey.length || encrypted.length < 29) {
+        return { ok: false, stage: 'decrypt', status: 0 };
+      }
+      const suffix = encoder.encode(`:${ids[1]}:${ids[2]}:v3`);
+      const material = new Uint8Array(cookieKey.length + suffix.length);
+      material.set(cookieKey, 0);
+      material.set(suffix, cookieKey.length);
+      const aesKeyBytes = await crypto.subtle.digest('SHA-256', material);
+      const aesKey = await crypto.subtle.importKey(
+        'raw',
+        aesKeyBytes,
+        { name: 'AES-GCM' },
+        false,
+        ['decrypt'],
+      );
+      const plaintext = await crypto.subtle.decrypt(
+        {
+          name: 'AES-GCM',
+          iv: encrypted.slice(0, 12),
+          tagLength: 128,
+        },
+        aesKey,
+        encrypted.slice(12),
+      );
       return {
-        ok: false,
-        stage: 'content',
-        status: contentResponse.status,
-        error: content && content.error ? String(content.error) : '',
+        ok: true,
+        plaintext: new TextDecoder('utf-8').decode(plaintext),
       };
     }
-
-    const key = fromB64url(nv.split('.')[0] || '');
-    const encrypted = fromB64url(content.payload);
-    if (!key.length) return { ok: false, stage: 'decrypt', status: 0 };
-    const decrypted = new Uint8Array(encrypted.length);
-    for (let index = 0; index < encrypted.length; index += 1) {
-      decrypted[index] = encrypted[index] ^ key[index % key.length];
-    }
-    return {
-      ok: true,
-      plaintext: new TextDecoder('utf-8').decode(decrypted),
-    };
+    return { ok: false, stage: 'retry', status: 0 };
   } catch (error) {
     return { ok: false, stage: 'exception', status: 0, error: String(error) };
   }
