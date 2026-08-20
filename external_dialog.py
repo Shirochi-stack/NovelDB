@@ -2554,7 +2554,72 @@ img { display: block; max-width: 100%; max-height: 100%;
             'author': data.get('author', author),
         }
 
-        # Build chapter list and image map
+        import base64
+        import requests as _req
+
+        image_session = _req.Session()
+        image_session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/120.0.0.0 Safari/537.36',
+            'Referer': data.get('bookUrl', ''),
+        })
+        if data.get('_kakaopage'):
+            image_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://page.kakao.com/',
+                'Origin': 'https://page.kakao.com',
+            })
+            self._copy_browser_cookies_to_session(image_session)
+
+        def fetch_pdf_asset(url, label, data_url=None, referer=None):
+            raw = None
+            if data_url and ',' in data_url:
+                try:
+                    raw = base64.b64decode(data_url.split(',', 1)[1])
+                except Exception:
+                    raw = None
+            if raw:
+                return raw
+            if data.get('_ntk_novel') and self._scraper and url:
+                fetch_ntk_binary = getattr(
+                    self._scraper, 'fetch_ntk_binary', None
+                )
+                if fetch_ntk_binary:
+                    raw = fetch_ntk_binary(
+                        url,
+                        referer or data.get('bookUrl') or '',
+                    )
+                    if raw:
+                        return raw
+            if url:
+                return self._download_image_python(
+                    url,
+                    label,
+                    session=image_session,
+                    log_success=False,
+                    log_failure=True,
+                )
+            return None
+
+        cover_image = None
+        cover_url = data.get('coverUrl', '')
+        if cover_url:
+            cover_bytes = fetch_pdf_asset(
+                cover_url,
+                'PDF cover',
+                referer=data.get('bookUrl') or '',
+            )
+            if cover_bytes:
+                cover_ext = self._image_ext_from_bytes(cover_bytes)
+                cover_image = {
+                    'filename': f'cover.{cover_ext}',
+                    'data': cover_bytes,
+                }
+                self._log(f"  📷 PDF cover: OK ({len(cover_bytes)} bytes)")
+
+        # Build chapter list and download every referenced image. The PDF
+        # engine only embeds bytes present in image_map; unlike EPUB it cannot
+        # resolve the scraper's ../Images paths on its own.
         chapters_for_pdf = []
         image_map = {}
         for i, ch_data in enumerate(self._chapter_results):
@@ -2562,20 +2627,68 @@ img { display: block; max-width: 100%; max-height: 100%;
                 continue
             ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
             content_html = ch_data.get('contentHtml', '')
+            rename_map = {}
 
-            # Process images
-            if ch_data.get('images'):
-                import base64
-                for img_info in ch_data['images']:
-                    img_data_url = img_info.get('data')
-                    if img_data_url and ',' in img_data_url:
-                        _, b64 = img_data_url.split(',', 1)
-                        try:
-                            raw = base64.b64decode(b64)
-                            img_name = img_info.get('name', f'img_{i}')
-                            image_map[img_name] = raw
-                        except Exception:
-                            pass
+            for img_index, img_info in enumerate(ch_data.get('images') or [], 1):
+                img_url = html.unescape(img_info.get('url', '')).strip()
+                raw = fetch_pdf_asset(
+                    img_url,
+                    f'PDF chapter {i + 1} image {img_index}',
+                    data_url=img_info.get('data'),
+                    referer=(
+                        ch_data.get('chapterUrl')
+                        or data.get('bookUrl')
+                        or ''
+                    ),
+                )
+                if not raw:
+                    continue
+                original_name = img_info.get('name') or (
+                    f'img_{i + 1}_{img_index}.'
+                    f'{self._image_ext_from_bytes(raw)}'
+                )
+                img_name = os.path.basename(
+                    original_name.replace('\\', '/')
+                ) or f'img_{i + 1}_{img_index}.jpg'
+                if img_name in image_map and image_map[img_name] != raw:
+                    img_name = f'ch{i + 1:04d}_{img_index:04d}_{img_name}'
+                image_map[img_name] = raw
+                rename_map[original_name] = img_name
+                if img_url:
+                    content_html = content_html.replace(
+                        img_url, f'../Images/{img_name}'
+                    )
+                    content_html = content_html.replace(
+                        html.escape(img_url, quote=True),
+                        f'../Images/{img_name}',
+                    )
+
+            # Include remote image tags not represented in the images array.
+            inline_urls = re.findall(
+                r'<img\b[^>]*\bsrc=["\'](https?://[^"\']+)["\']',
+                content_html,
+                flags=re.IGNORECASE,
+            )
+            for inline_index, inline_url in enumerate(inline_urls, 1):
+                raw = fetch_pdf_asset(
+                    html.unescape(inline_url),
+                    f'PDF chapter {i + 1} inline image {inline_index}',
+                    referer=(
+                        ch_data.get('chapterUrl')
+                        or data.get('bookUrl')
+                        or ''
+                    ),
+                )
+                if not raw:
+                    continue
+                ext = self._image_ext_from_bytes(raw)
+                img_name = f'pdf_ch{i + 1:04d}_{inline_index:04d}.{ext}'
+                image_map[img_name] = raw
+                content_html = content_html.replace(
+                    inline_url, f'../Images/{img_name}'
+                )
+
+            content_html = self._fix_nd_img_tags(content_html, rename_map)
 
             chapters_for_pdf.append({
                 "title": ch_name,
@@ -2600,6 +2713,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                 chapters_for_pdf,
                 css,
                 image_map=image_map,
+                cover_image=cover_image,
+                info_html=data.get('introductionHTML') or None,
                 show_toc=show_toc,
                 show_page_numbers=show_pages,
                 use_counter_layout=counter_layout,
@@ -2609,6 +2724,8 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._log(f"\u274c PDF generation failed: {e}")
             self._log("Falling back to TXT output...")
             self._generate_txt(title, author)
+        finally:
+            image_session.close()
 
     # ------------------------------------------------------------------
     # Stop / Close

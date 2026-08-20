@@ -1,6 +1,7 @@
 import queue
 from types import SimpleNamespace
 
+from downloader_core import DownloaderCore
 from external_dialog import ExternalNovelDialog
 from external_scraper import ExternalScraper
 
@@ -239,6 +240,98 @@ def test_ntk_progress_is_logged_only_after_successful_content_fetch():
 
     assert events == ["Chapter 1", "Chapter 2"]
     assert logs == ["  [1/2] Chapter 1", "  [2/2] Chapter 2"]
+
+
+def test_external_pdf_embeds_ntk_cover_and_remote_chapter_images(
+    monkeypatch, tmp_path
+):
+    cover_bytes = b"\xff\xd8\xff\xe0pdf-cover"
+    figure_bytes = b"\x89PNG\r\n\x1a\npdf-figure"
+    captured = {}
+    fetched = []
+    logs = []
+
+    class Scraper:
+        @staticmethod
+        def fetch_ntk_binary(url, referer=None):
+            fetched.append((url, referer))
+            if url.endswith("cover.jpg"):
+                return cover_bytes
+            if url.endswith("figure.png"):
+                return figure_bytes
+            return None
+
+    def capture_pdf(
+        _self, metadata, output_path, chapters, css, **kwargs
+    ):
+        captured.update({
+            "metadata": metadata,
+            "output_path": output_path,
+            "chapters": chapters,
+            "css": css,
+            **kwargs,
+        })
+
+    monkeypatch.setattr(DownloaderCore, "generate_pdf", capture_pdf)
+
+    parent_gui = SimpleNamespace()
+    dialog = SimpleNamespace(
+        _book_data={
+            "bookname": "Example",
+            "author": "Author",
+            "bookUrl": "https://sbxh9.com/novel/58410",
+            "coverUrl": "https://aws-cdn9.site/cover.jpg",
+            "introductionHTML": "<p>Introduction</p>",
+            "_ntk_novel": True,
+        },
+        _chapter_results=[{
+            "chapterName": "Episode 1",
+            "chapterUrl": "https://sbxh9.com/novel/58410/100001",
+            "contentHtml": (
+                '<p>Text</p><img data-src-address="figure.png" '
+                'alt="figure.png">'
+            ),
+            "images": [{
+                "name": "figure.png",
+                "url": "https://aws-cdn9.site/figure.png",
+            }],
+        }],
+        _scraper=Scraper(),
+        _parent_gui=parent_gui,
+        _get_output_dir=lambda: str(tmp_path),
+        _download_image_python=lambda *_args, **_kwargs: None,
+        _copy_browser_cookies_to_session=lambda _session: None,
+        _kakao_extra_css=lambda: '',
+        _generate_txt=lambda *_args: None,
+        _log=logs.append,
+    )
+    dialog._image_ext_from_bytes = lambda raw, default="jpg": (
+        ExternalNovelDialog._image_ext_from_bytes(dialog, raw, default)
+    )
+    dialog._fix_nd_img_tags = lambda html_str, rename_map=None: (
+        ExternalNovelDialog._fix_nd_img_tags(dialog, html_str, rename_map)
+    )
+
+    ExternalNovelDialog._generate_pdf(dialog, "Example", "Author")
+
+    assert captured["cover_image"] == {
+        "filename": "cover.jpg",
+        "data": cover_bytes,
+    }
+    assert captured["image_map"] == {"figure.png": figure_bytes}
+    assert 'src="../Images/figure.png"' in captured["chapters"][0]["html"]
+    assert captured["info_html"] == "<p>Introduction</p>"
+    assert fetched == [
+        (
+            "https://aws-cdn9.site/cover.jpg",
+            "https://sbxh9.com/novel/58410",
+        ),
+        (
+            "https://aws-cdn9.site/figure.png",
+            "https://sbxh9.com/novel/58410/100001",
+        ),
+    ]
+    assert any("PDF cover: OK" in line for line in logs)
 
 
 def test_failed_fetch_console_stack_is_suppressed():

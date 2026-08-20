@@ -5865,6 +5865,233 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             self.log(f"[NewToki] Could not capture rendered Chrome index: {e}")
             return ''
 
+    @staticmethod
+    def _ntk_display_chapter_number(item):
+        """Return the human episode number exposed by an index row."""
+        if not isinstance(item, dict):
+            return None
+        try:
+            display_number = int(item.get('displayNumber'))
+        except (TypeError, ValueError):
+            display_number = None
+        if display_number and display_number > 0:
+            return display_number
+        matches = re.findall(r'\d+', str(item.get('name') or ''))
+        if matches:
+            try:
+                number = int(matches[-1])
+                return number if number > 0 else None
+            except ValueError:
+                pass
+        try:
+            number = int(item.get('number'))
+        except (TypeError, ValueError):
+            number = None
+        if number is not None:
+            if number > 0:
+                return number
+        return None
+
+    def _ntk_browser_index_looks_partial(self, chapters):
+        """Detect a newest-page-only list such as episodes 69 through 130."""
+        numbers = [
+            number for number in (
+                self._ntk_display_chapter_number(item)
+                for item in (chapters or [])
+            ) if number is not None
+        ]
+        return bool(numbers) and min(numbers) > 1
+
+    def _ntk_collect_all_browser_chapters(self, index_url):
+        """Collect virtualized and paginated episode rows in live Chrome."""
+        if not self._page:
+            return []
+        novel_id = self._ntk_novel_id_from_url(index_url)
+        kind = self._ntk_content_kind_from_url(index_url)
+        try:
+            return self._page.evaluate(
+                r"""
+async ({ novelId, kind }) => {
+  const basePath = `/${kind}/${novelId}`;
+  const chapterPrefix = `${basePath}/`;
+  const chapters = new Map();
+  const text = (element) => element && element.textContent
+    ? element.textContent.trim()
+    : '';
+  const pause = (milliseconds) => new Promise(
+    (resolve) => setTimeout(resolve, milliseconds)
+  );
+
+  const collect = (root, baseUrl) => {
+    const allLinks = Array.from(root.querySelectorAll('a[href]'));
+    const episodeRowLinks = allLinks.filter(
+      (link) => link.closest('li[data-ep]')
+    );
+    const candidateLinks = episodeRowLinks.length ? episodeRowLinks : allLinks;
+    for (const link of candidateLinks) {
+      let target;
+      try {
+        const href = link.getAttribute('href') || link.href;
+        target = new URL(href, baseUrl);
+      } catch (_) {
+        continue;
+      }
+      if (target.origin !== location.origin
+          || !target.pathname.startsWith(chapterPrefix)) {
+        continue;
+      }
+      const remainder = target.pathname
+        .slice(chapterPrefix.length)
+        .replace(/\/$/, '');
+      if (!/^\d+$/.test(remainder)) continue;
+      const row = link.closest('li[data-ep], li, tr, article, div');
+      const titleElement = link.querySelector(
+        '.ne-title, .ep-title, [class*="title"]'
+      );
+      const chapterName = text(titleElement) || text(link) || text(row) || '';
+      if (/(?:1\s*화부터\s*보기|최신화부터)/.test(chapterName)) continue;
+      chapters.set(remainder, {
+        url: target.href,
+        episodeId: remainder,
+        displayNumber: row && row.getAttribute('data-ep') || '',
+        name: chapterName,
+      });
+    }
+  };
+
+  collect(document, location.href);
+
+  // Some sbxh indexes virtualize the long episode list. Walk every relevant
+  // scroll container while retaining rows that disappear from the live DOM.
+  const initialNumbers = Array.from(chapters.values())
+    .map((item) => Number.parseInt(item.displayNumber, 10))
+    .filter((number) => Number.isFinite(number) && number > 0);
+  if (initialNumbers.length && Math.min(...initialNumbers) > 1) {
+    const clicked = new Set();
+    let stableRounds = 0;
+    for (let round = 0; round < 80 && stableRounds < 3; round += 1) {
+      const before = chapters.size;
+      let moved = false;
+
+      for (const element of document.querySelectorAll(
+        'button, [role="button"], a[href="#"], a[href^="javascript:"]'
+      )) {
+        if (clicked.has(element)) continue;
+        const label = text(element).replace(/\s+/g, ' ');
+        if (!/(?:더\s*보기|전체\s*(?:목록|보기)|이전\s*(?:목록|회차)|load\s*more|show\s*all|older)/i.test(label)) {
+          continue;
+        }
+        clicked.add(element);
+        try {
+          element.click();
+          moved = true;
+        } catch (_) {}
+      }
+
+      const scrollers = new Set();
+      for (const link of document.querySelectorAll(
+        `a[href*="${chapterPrefix}"]`
+      )) {
+        let node = link.parentElement;
+        while (node && node !== document.body) {
+          const style = getComputedStyle(node);
+          if (node.scrollHeight > node.clientHeight + 8
+              && /(auto|scroll)/.test(style.overflowY)) {
+            scrollers.add(node);
+          }
+          node = node.parentElement;
+        }
+      }
+      if (document.scrollingElement) scrollers.add(document.scrollingElement);
+      for (const scroller of scrollers) {
+        const oldTop = scroller.scrollTop;
+        const step = Math.max(scroller.clientHeight * 0.8, 300);
+        scroller.scrollTop = Math.min(
+          scroller.scrollHeight - scroller.clientHeight,
+          oldTop + step,
+        );
+        if (scroller.scrollTop > oldTop + 1) moved = true;
+        try { scroller.dispatchEvent(new Event('scroll')); } catch (_) {}
+      }
+
+      await pause(100);
+      collect(document, location.href);
+      if (chapters.size === before && !moved) stableRounds += 1;
+      else stableRounds = 0;
+    }
+  }
+
+  // Traditional indexes expose older episode pages as links. Follow them in
+  // the same verified browser session and recursively discover further pages.
+  const queue = [];
+  const queued = new Set();
+  const visited = new Set([new URL(location.href).href.split('#')[0]]);
+  const discoverPages = (root, baseUrl) => {
+    for (const link of root.querySelectorAll('a[href]')) {
+      let target;
+      try {
+        target = new URL(link.getAttribute('href') || link.href, baseUrl);
+      } catch (_) {
+        continue;
+      }
+      target.hash = '';
+      if (target.origin !== location.origin) continue;
+      const normalizedPath = target.pathname.replace(/\/$/, '');
+      const suffix = normalizedPath.startsWith(basePath)
+        ? normalizedPath.slice(basePath.length)
+        : '';
+      const isIndexPage = normalizedPath === basePath && Boolean(target.search);
+      const isPagedPath = /^\/(?:page|p)\/\d+$/i.test(suffix);
+      if (!isIndexPage && !isPagedPath) continue;
+      if (visited.has(target.href) || queued.has(target.href)) continue;
+      queued.add(target.href);
+      queue.push(target.href);
+    }
+  };
+
+  discoverPages(document, location.href);
+  let fetchedPages = 0;
+  while (queue.length && fetchedPages < 20) {
+    const pageUrl = queue.shift();
+    queued.delete(pageUrl);
+    if (visited.has(pageUrl)) continue;
+    visited.add(pageUrl);
+    fetchedPages += 1;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(pageUrl, {
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (!response.ok) continue;
+      const pageHtml = await response.text();
+      const lowered = pageHtml.toLowerCase();
+      if (lowered.includes('access denied')
+          || lowered.includes('site security policy')
+          || lowered.includes('just a moment')) {
+        continue;
+      }
+      const pageDocument = new DOMParser().parseFromString(pageHtml, 'text/html');
+      collect(pageDocument, pageUrl);
+      discoverPages(pageDocument, pageUrl);
+    } catch (_) {
+      // Keep the already collected rows if one optional index page fails.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return Array.from(chapters.values());
+}
+                """,
+                {'novelId': novel_id, 'kind': kind},
+            ) or []
+        except Exception as e:
+            self.log(f"[NewToki] Extended chapter index scan failed: {e}")
+            return []
+
     def _ntk_parse_index_browser(self, index_url):
         """Extract metadata and chapters from NewToki's rendered headless DOM."""
         if not self._page:
@@ -5928,7 +6155,12 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   const prefix = `/${kind}/${novelId}/`;
   const seen = new Set();
   const chapters = [];
-  for (const link of document.querySelectorAll('a[href]')) {
+  const allLinks = Array.from(document.querySelectorAll('a[href]'));
+  const episodeRowLinks = allLinks.filter(
+    (link) => link.closest('li[data-ep]')
+  );
+  const candidateLinks = episodeRowLinks.length ? episodeRowLinks : allLinks;
+  for (const link of candidateLinks) {
     let target;
     try { target = new URL(link.href, location.href); } catch (_) { continue; }
     if (target.origin !== location.origin || !target.pathname.startsWith(prefix)) {
@@ -5939,10 +6171,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     seen.add(remainder);
     const row = link.closest('li, tr, article, div');
     const titleElement = link.querySelector('.ne-title, .ep-title, [class*="title"]');
+    const chapterName = text(titleElement) || text(link) || text(row) || '';
+    if (/(?:1\s*화부터\s*보기|최신화부터)/.test(chapterName)) continue;
     chapters.push({
       url: target.href,
       episodeId: remainder,
-      name: text(titleElement) || text(link) || text(row) || `${chapters.length + 1}화`,
+      displayNumber: row && row.getAttribute('data-ep') || '',
+      name: chapterName || `${chapters.length + 1}화`,
       number: chapters.length + 1,
     });
   }
@@ -5997,6 +6232,16 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             )
             return None
 
+        initial_chapters = result.get('chapters') or []
+        if self._ntk_browser_index_looks_partial(initial_chapters):
+            expanded_chapters = self._ntk_collect_all_browser_chapters(index_url)
+            if len(expanded_chapters) > len(initial_chapters):
+                self.log(
+                    f"[NewToki] Expanded chapter index from "
+                    f"{len(initial_chapters)} to {len(expanded_chapters)} chapters."
+                )
+                result['chapters'] = expanded_chapters
+
         chapters = []
         seen = set()
         for item in result.get('chapters') or []:
@@ -6012,6 +6257,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             name = re.sub(
                 r'\s+', ' ', html.unescape(item.get('name') or '')
             ).strip()
+            source_number = self._ntk_display_chapter_number(item)
             chapters.append({
                 'url': chapter_url,
                 'name': name,
@@ -6021,12 +6267,23 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 'kind': kind,
                 'isVIP': False,
                 'isPaid': False,
+                '_sourceNumber': source_number,
             })
 
-        # NewToki renders its episode list newest-first. Downloads and chapter
-        # range controls are expected to use publication order, oldest-first.
-        chapters.reverse()
+        # Prefer data-ep ordering when every row exposes it. This merges
+        # paginated/virtualized sbxh rows reliably. Older pages without that
+        # field still render newest-first, so reverse as a fallback.
+        source_numbers = [chapter['_sourceNumber'] for chapter in chapters]
+        if (
+            source_numbers
+            and all(number is not None for number in source_numbers)
+            and len(set(source_numbers)) == len(source_numbers)
+        ):
+            chapters.sort(key=lambda chapter: chapter['_sourceNumber'])
+        else:
+            chapters.reverse()
         for chapter_number, chapter in enumerate(chapters, start=1):
+            chapter.pop('_sourceNumber', None)
             chapter['number'] = chapter_number
             if not chapter['name']:
                 chapter['name'] = f'{chapter_number}\ud654'
