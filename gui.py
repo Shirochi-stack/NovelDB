@@ -21,6 +21,7 @@ import sys
 import multiprocessing
 import tempfile
 import logging
+import subprocess
 from datetime import datetime
 
 from app_version import APP_NAME
@@ -1084,6 +1085,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_image_compression_workers = tk.IntVar(value=1)
         self.var_interval = tk.DoubleVar(value=0.5)
         self.var_interval_max = tk.DoubleVar(value=0.5)
+        self.var_shutdown_after_success = tk.BooleanVar(value=False)
         
         # Range vars
         self.var_from_enabled = tk.BooleanVar(value=False)
@@ -1397,6 +1399,21 @@ class NovelpiaGUI(tk.Tk):
         )
         spn_target.pack(side="left")
         ToolTip(spn_target, "Desired maximum size of the final EPUB/PDF, in megabytes.")
+
+        shutdown_frame = ttk.Frame(dl_inner)
+        shutdown_frame.grid(row=11, column=0, columnspan=3, sticky="w", pady=2)
+        chk_shutdown = ttk.Checkbutton(
+            shutdown_frame,
+            text="Shut down computer after successful download",
+            variable=self.var_shutdown_after_success,
+        )
+        chk_shutdown.pack(side="left")
+        ToolTip(
+            chk_shutdown,
+            "Windows only. Schedules shutdown 60 seconds after every requested output\n"
+            "is generated successfully. It will not run after errors, blocked chapters,\n"
+            "warnings, or a user-requested stop. Cancel with: shutdown.exe /a",
+        )
 
         notices_frame = ttk.Frame(dl_inner)
         notices_frame.grid(row=7, column=0, columnspan=3, sticky="w", pady=2)
@@ -2415,7 +2432,8 @@ class NovelpiaGUI(tk.Tk):
     def _download_worker_wrapper(self):
         """Wrapper that ensures UI state is restored after download."""
         try:
-            self._download_worker()
+            result = self._download_worker()
+            self._schedule_shutdown_after_success(result)
         except Exception as e:
             self.log_message(f"Download failed: {e}")
             self.lbl_status.config(text="Idle")
@@ -2628,9 +2646,36 @@ class NovelpiaGUI(tk.Tk):
     def _batch_download_wrapper(self, batch_source, output_dir, source_label):
         """Wrapper that ensures UI state is restored after batch download."""
         try:
-            self._batch_download_worker(batch_source, output_dir, source_label)
+            result = self._batch_download_worker(batch_source, output_dir, source_label)
+            self._schedule_shutdown_after_success(result)
         finally:
             self.after(0, lambda: self._set_downloading(False))
+
+    def _schedule_shutdown_after_success(self, result):
+        """Schedule a Windows shutdown only after an entirely clean run."""
+        if not self.var_shutdown_after_success.get():
+            return
+        if not result or result.get("status") != "ok":
+            self.log_message("Shutdown skipped because the download did not finish successfully.")
+            return
+        if self._batch_result_has_warnings(result):
+            self.log_message("Shutdown skipped because the download finished with warnings.")
+            return
+        if os.name != "nt":
+            self.log_message("Shutdown after download is currently supported on Windows only.")
+            return
+        try:
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.Popen(
+                ["shutdown.exe", "/s", "/t", "60"],
+                creationflags=creationflags,
+            )
+            self.log_message(
+                "Successful download complete. Windows shutdown scheduled in 60 seconds. "
+                "Run 'shutdown.exe /a' to cancel."
+            )
+        except Exception as e:
+            self.log_message(f"Could not schedule Windows shutdown: {e}")
 
     @staticmethod
     def _parse_batch_line(line):
@@ -2709,6 +2754,7 @@ class NovelpiaGUI(tk.Tk):
         succeeded, failed, skipped = 0, 0, 0
         failed_items = []
         warning_items = []
+        batch_result = None
 
         try:
             os.makedirs(output_dir, exist_ok=True)
@@ -2805,8 +2851,22 @@ class NovelpiaGUI(tk.Tk):
                     self.log_message(f"  - [{nid}] {item_title}: {warning_text}")
                     for cid, chap_title, count in item.get("image_failure_chapters") or []:
                         self.log_message(f"      image [{cid}] {chap_title}: {count} failed")
+            batch_result = {
+                "status": (
+                    "ok"
+                    if succeeded > 0
+                    and not self._stop_requested
+                    and failed == 0
+                    and not warning_items
+                    else "failed"
+                ),
+                "failed_chapters": [],
+                "blocked_chapters": [],
+                "image_failures": 0,
+            }
         except Exception as e:
             self.log_message(f"Batch download failed: {e}")
+            batch_result = {"status": "failed", "error": str(e)}
         finally:
             self.var_quick_enable.set(prev_quick_enable)
             self.var_quick_path.set(prev_quick_path)
@@ -2814,6 +2874,7 @@ class NovelpiaGUI(tk.Tk):
             self._reset_progress()
             self.after(0, lambda: self.lbl_batch.config(text=""))
             self.lbl_status.config(text="Idle")
+        return batch_result
 
     def _download_worker(self):
         self.lbl_status.config(text="Analyzing...")
@@ -4014,6 +4075,9 @@ table, th, td {
                 self.var_interval_max.set(
                     cfg.get("interval_max_num", cfg.get("interval_num", 0.5))
                 )
+                self.var_shutdown_after_success.set(
+                    cfg.get("shutdown_after_success", False)
+                )
                 
                 # Font mapping
                 self.var_font_path.set(cfg.get("mapping_path", ""))
@@ -4141,6 +4205,7 @@ table, th, td {
             "image_compression_workers": self.var_image_compression_workers.get(),
             "interval_num": self.var_interval.get(),
             "interval_max_num": self.var_interval_max.get(),
+            "shutdown_after_success": self.var_shutdown_after_success.get(),
             
             # Font mapping
             "mapping_path": self.var_font_path.get(),
