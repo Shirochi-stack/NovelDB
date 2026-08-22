@@ -12,6 +12,7 @@ import os
 import json
 import html
 import re
+import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import io
@@ -1082,6 +1083,7 @@ class NovelpiaGUI(tk.Tk):
         self.var_threads = tk.IntVar(value=1)
         self.var_image_compression_workers = tk.IntVar(value=1)
         self.var_interval = tk.DoubleVar(value=0.5)
+        self.var_interval_max = tk.DoubleVar(value=0.5)
         
         # Range vars
         self.var_from_enabled = tk.BooleanVar(value=False)
@@ -1249,8 +1251,10 @@ class NovelpiaGUI(tk.Tk):
         )
         
         ttk.Label(thread_frame, text="sec").pack(side="right")
-        ttk.Spinbox(thread_frame, from_=0.0, to=60.0, increment=0.1, textvariable=self.var_interval, width=5).pack(side="right", padx=5)
-        ttk.Label(thread_frame, text="Interval").pack(side="right")
+        ttk.Spinbox(thread_frame, from_=0.0, to=300.0, increment=0.1, textvariable=self.var_interval_max, width=5).pack(side="right", padx=5)
+        ttk.Label(thread_frame, text="Max").pack(side="right")
+        ttk.Spinbox(thread_frame, from_=0.0, to=300.0, increment=0.1, textvariable=self.var_interval, width=5).pack(side="right", padx=5)
+        ttk.Label(thread_frame, text="Interval Min").pack(side="right")
 
         # 3. Download Group
         dl_frame = ttk.LabelFrame(left_panel, text="Download", padding=(10, 10))
@@ -3323,10 +3327,17 @@ table, th, td {
             raw_interval = float(self.var_interval.get() or 0.0)
         except Exception:
             raw_interval = 0.5
+        try:
+            raw_interval_max = float(self.var_interval_max.get() or 0.0)
+        except Exception:
+            raw_interval_max = raw_interval
 
         threads = max(1, min(32, raw_threads))
         image_compression_workers = max(1, min(32, raw_image_compression_workers))
-        interval = max(0.0, min(60.0, raw_interval))
+        interval = max(0.0, min(300.0, raw_interval))
+        interval_max = max(0.0, min(300.0, raw_interval_max))
+        if interval_max < interval:
+            interval, interval_max = interval_max, interval
         compress_images = self.var_compress_images.get()
         effective_image_compression_workers = (
             image_compression_workers
@@ -3337,8 +3348,16 @@ table, th, td {
             self.log_message(f"\u26a0 Threads clamped to {threads} (valid range: 1\u201332)")
         if image_compression_workers != raw_image_compression_workers:
             self.log_message(f"\u26a0 Image compression workers clamped to {image_compression_workers} (valid range: 1\u201332)")
-        if interval != raw_interval:
-            self.log_message(f"\u26a0 Interval clamped to {interval}s (valid range: 0\u201360)")
+        if interval != raw_interval or interval_max != raw_interval_max:
+            self.log_message(
+                f"\u26a0 Interval range normalized to {interval:g}\u2013{interval_max:g}s "
+                "(valid range: 0\u2013300)"
+            )
+        self.log_message(
+            f"Chapter interval: {interval:g}\u2013{interval_max:g}s"
+            if interval != interval_max
+            else f"Chapter interval: {interval:g}s (fixed)"
+        )
         if save_image_urls_only:
             self.log_message(
                 f"Workers: {threads} chapter request(s). Remote image URLs "
@@ -3511,6 +3530,7 @@ table, th, td {
                     _queue_image_job(image_executor, idx, content_json, "Cached")
 
                 if uncached_indices:
+                    access_blocked_detected = False
                     with ThreadPoolExecutor(max_workers=threads) as chapter_executor:
                         for i in range(0, len(uncached_indices), threads):
                             if self._stop_requested:
@@ -3540,14 +3560,25 @@ table, th, td {
                                     dl_stats.add_blocked(chap['id'], chap.get('title', '?'))
                                     self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Blocked: {chap.get('title', '?')}")
                                     self._update_progress(value=self.progress_value + 1)
+                                    access_blocked_detected = True
+                                    self.downloader.stop_signal = True
                                 except Exception as e:
                                     dl_stats.add_failed(chap['id'], chap.get('title', '?'))
                                     self.log_message(f"[{self.progress_value + 1}/{self.progress_total}] Error {chap.get('title','?')}: {e}")
                                     self._update_progress(value=self.progress_value + 1)
                                 _drain_finished_image_futures(wait_for_all=False)
 
-                            if interval > 0:
-                                time.sleep(interval)
+                            if access_blocked_detected:
+                                self.log_message(
+                                    "Access/rate-limit response detected. Stopping immediately "
+                                    "to avoid repeated requests."
+                                )
+                                break
+
+                            if interval_max > 0:
+                                delay = random.uniform(interval, interval_max)
+                                self.log_message(f"Next chapter request in {delay:.1f}s...")
+                                time.sleep(delay)
                             _drain_finished_image_futures(wait_for_all=False)
 
                 _drain_finished_image_futures(wait_for_all=True)
@@ -3980,6 +4011,9 @@ table, th, td {
                 self.var_threads.set(cfg.get("thread_num", 1))
                 self.var_image_compression_workers.set(cfg.get("image_compression_workers", 1))
                 self.var_interval.set(cfg.get("interval_num", 0.5))
+                self.var_interval_max.set(
+                    cfg.get("interval_max_num", cfg.get("interval_num", 0.5))
+                )
                 
                 # Font mapping
                 self.var_font_path.set(cfg.get("mapping_path", ""))
@@ -4106,6 +4140,7 @@ table, th, td {
             "thread_num": self.var_threads.get(),
             "image_compression_workers": self.var_image_compression_workers.get(),
             "interval_num": self.var_interval.get(),
+            "interval_max_num": self.var_interval_max.get(),
             
             # Font mapping
             "mapping_path": self.var_font_path.get(),
