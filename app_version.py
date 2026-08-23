@@ -1,6 +1,6 @@
 """Single source of truth for Novelpia Downloader build/version names."""
 
-VERSION_NUMBER = 70
+VERSION_NUMBER = 71
 VERSION = str(VERSION_NUMBER)
 
 APP_NAME = f"ND{VERSION}"
