@@ -11115,7 +11115,10 @@ async ({ url }) => {
             name = ch.get('name', f'Chapter {start_idx + i + 1}')
             self.log(f"  [{i + 1}/{total}] {name}")
 
+            chapter_number = start_idx + i + 1
             data = self.parse_chapter(start_idx + i, ch, interval=interval)
+            if isinstance(data, dict):
+                data.setdefault('_chapter_number', chapter_number)
             results.append(data)
 
             if progress_callback:

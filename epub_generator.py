@@ -31,18 +31,26 @@ class EpubGenerator:
         self._notice_index = 1
 
     def add_chapter(self, title, html_content, is_notice: bool = False,
-                    show_title: bool = True):
+                    show_title: bool = True, chapter_number=None):
         """Add a chapter to the book.
 
         Normal chapters are named chapter0001.xhtml, chapter0002.xhtml, ...
         Notice chapters are named chapter_notice0001.xhtml, chapter_notice0002.xhtml, ...
+
+        ``chapter_number`` can preserve a chapter's position in the source
+        book when only a range is being generated.  Notices keep their own
+        independent sequence.
         """
         if is_notice:
             filename = f"chapter_notice{self._notice_index:04d}.xhtml"
             self._notice_index += 1
         else:
-            filename = f"chapter{self._normal_index:04d}.xhtml"
-            self._normal_index += 1
+            if chapter_number is None:
+                chapter_number = self._normal_index
+            else:
+                chapter_number = max(1, int(chapter_number))
+            filename = f"chapter{chapter_number:04d}.xhtml"
+            self._normal_index = max(self._normal_index, chapter_number + 1)
         self.chapters.append({
             "title": title,
             "content": html_content,

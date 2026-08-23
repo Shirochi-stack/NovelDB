@@ -3573,7 +3573,11 @@ table, th, td {
             self._output_path = self._output_paths[output_format]
             try:
                 if output_format in ('epub', 'pdf'):
-                    self._build_output(results, meta, css, cover_image, info_html)
+                    self._build_output(
+                        results, meta, css, cover_image, info_html,
+                        chapter_start=start_idx + 1,
+                        notice_count=len(notice_items),
+                    )
                 else:
                     self._write_text_output(results, remove_newlines)
             except Exception as e:
@@ -3596,6 +3600,8 @@ table, th, td {
                     self._recompress_to_target_size(
                         results, meta, css, cover_image, info_html,
                         int(target_mb * 1024 * 1024),
+                        chapter_start=start_idx + 1,
+                        notice_count=len(notice_items),
                     )
 
             try:
@@ -3786,7 +3792,8 @@ table, th, td {
                     plain = text.strip("\r\n")
                 f.write(f"{title}\n\n{plain}\n\n\n")
 
-    def _build_output(self, results, meta, css, cover_image, info_html):
+    def _build_output(self, results, meta, css, cover_image, info_html,
+                      chapter_start=1, notice_count=0):
         """Write the current output file (EPUB or PDF) from the given results.
 
         Called once normally, and again by `_recompress_to_target_size` after
@@ -3808,12 +3815,20 @@ table, th, td {
                 epub.add_image(cover_image['filename'], cover_image['data'])
             if info_html:
                 epub.add_extra_page('info.xhtml', info_html)
-            for res in results:
+            for result_index, res in enumerate(results):
                 if res:
                     t, h, imgs, notice = res
                     for name, data in imgs:
                         epub.add_image(name, data)
-                    epub.add_chapter(t, h, is_notice=notice)
+                    chapter_number = None
+                    if not notice:
+                        chapter_number = (
+                            chapter_start + result_index - notice_count
+                        )
+                    epub.add_chapter(
+                        t, h, is_notice=notice,
+                        chapter_number=chapter_number,
+                    )
             epub.generate()
         elif self._output_format == 'pdf':
             chapters_for_pdf = []
@@ -3872,7 +3887,8 @@ table, th, td {
             return data, fname
 
     def _recompress_to_target_size(self, results, meta, css, cover_image,
-                                   info_html, target_bytes):
+                                   info_html, target_bytes, chapter_start=1,
+                                   notice_count=0):
         """Iteratively lower image quality and rebuild until size <= target.
 
         Uses a simple ratio-based heuristic (quality *= sqrt(target/size))
@@ -3943,7 +3959,11 @@ table, th, td {
                 cover_image = {'filename': new_name, 'data': new_data}
 
             try:
-                self._build_output(results, meta, css, cover_image, info_html)
+                self._build_output(
+                    results, meta, css, cover_image, info_html,
+                    chapter_start=chapter_start,
+                    notice_count=notice_count,
+                )
             except Exception as e:
                 self.log_message(f"  Rebuild failed on pass {attempt}: {e}")
                 return

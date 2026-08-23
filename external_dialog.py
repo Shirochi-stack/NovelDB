@@ -80,6 +80,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._scraper = None
         self._book_data = None
         self._chapter_results = []
+        self._chapter_number_start = 1
         self._downloading = False
         self._download_cancelled = False
         self._active_output_formats = None
@@ -488,6 +489,9 @@ class ExternalNovelDialog(tk.Toplevel):
         Qidian renders one chapter per browser page in the batch.
         Failed chapters are retried immediately before the next batch starts.
         """
+        # Keep the source-book position after slicing.  Output writers use
+        # this instead of restarting their filenames at chapter 1.
+        self._chapter_number_start = max(1, start + 1)
         try:
             retry_passes = max(1, int(retry_passes))
             # Ensure the headless browser is alive.  After "Enter Browser"
@@ -559,7 +563,8 @@ class ExternalNovelDialog(tk.Toplevel):
                     if (ch.get('isVIP', False)
                             and not ch.get('isAccessible', False)):
                         results[i] = {'_locked': True,
-                                      'chapterName': ch.get('name', '')}
+                                      'chapterName': ch.get('name', ''),
+                                      '_chapter_number': start + i + 1}
                         skipped += 1
                 if skipped:
                     self._log(f"  Skipped {skipped} paid chapter(s).")
@@ -652,6 +657,8 @@ class ExternalNovelDialog(tk.Toplevel):
                                 f"  [{idx + 1}/{total}] Failed after "
                                 f"{retry_passes} retries."
                             )
+                    if isinstance(data, dict):
+                        data.setdefault('_chapter_number', start + idx + 1)
                     results[idx] = data
 
                 completed += (batch_end - batch_start)
@@ -1399,6 +1406,21 @@ class ExternalNovelDialog(tk.Toplevel):
             if variable.get()
         ]
 
+    def _result_chapter_number(self, result_index, chapter_data=None):
+        """Return the chapter's 1-based position in the unsliced book."""
+        if isinstance(chapter_data, dict):
+            stored_number = chapter_data.get('_chapter_number')
+            try:
+                if stored_number is not None:
+                    return max(1, int(stored_number))
+            except (TypeError, ValueError):
+                pass
+        try:
+            start = max(1, int(getattr(self, '_chapter_number_start', 1)))
+        except (TypeError, ValueError):
+            start = 1
+        return start + result_index
+
     def _generate_output(self):
         """Generate every selected format from downloaded chapter data."""
         data = self._book_data
@@ -1469,7 +1491,12 @@ class ExternalNovelDialog(tk.Toplevel):
                 for i, ch_data in enumerate(self._chapter_results):
                     if ch_data is None or ch_data.get('_locked'):
                         continue
-                    ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+                    chapter_number = ExternalNovelDialog._result_chapter_number(
+                        self, i, ch_data
+                    )
+                    ch_name = ch_data.get(
+                        'chapterName', f'Chapter {chapter_number}'
+                    )
                     content = ch_data.get('contentText', '')
                     f.write(f"\n{'─' * 40}\n")
                     f.write(f"{ch_name}\n")
@@ -1602,17 +1629,22 @@ class ExternalNovelDialog(tk.Toplevel):
                 for i, ch_data in enumerate(self._chapter_results):
                     if ch_data is None or ch_data.get('_locked'):
                         continue
-                    ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+                    chapter_number = ExternalNovelDialog._result_chapter_number(
+                        self, i, ch_data
+                    )
+                    ch_name = ch_data.get(
+                        'chapterName', f'Chapter {chapter_number}'
+                    )
                     safe_ch = _sanitize_filename(ch_name)
                     images = ch_data.get('images') or []
                     if not images:
                         self._log(
-                            f"  Skipping CBZ chapter {i + 1}: "
+                            f"  Skipping CBZ chapter {chapter_number}: "
                             f"{ch_name} (no images)"
                         )
                         continue
                     self._log(
-                        f"  Building CBZ chapter {i + 1}: {ch_name} "
+                        f"  Building CBZ chapter {chapter_number}: {ch_name} "
                         f"({len(images)} image(s))"
                     )
                     chapter_start = time.time()
@@ -1624,7 +1656,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         ).strip()
                         raw = fetch_image(
                             img_url,
-                            f"Ch{i+1} image {img_idx}/{len(images)}",
+                            f"Ch{chapter_number} image {img_idx}/{len(images)}",
                             img_data_url=img_info.get('data'),
                             log_failure=(img_idx <= 3),
                         )
@@ -1638,7 +1670,8 @@ class ExternalNovelDialog(tk.Toplevel):
                             )
                             ext = self._format_ext(image_format)
                         archive_name = (
-                            f"{i+1:04d}_{safe_ch}/{img_idx:04d}.{ext}"
+                            f"{chapter_number:04d}_{safe_ch}/"
+                            f"{img_idx:04d}.{ext}"
                         )
                         zf.writestr(
                             archive_name,
@@ -1941,16 +1974,23 @@ img { display: block; max-width: 100%; max-height: 100%;
             for i, ch_data in enumerate(self._chapter_results):
                 if ch_data is None or ch_data.get('_locked'):
                     continue
-                ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+                chapter_number = ExternalNovelDialog._result_chapter_number(
+                    self, i, ch_data
+                )
+                ch_name = ch_data.get(
+                    'chapterName', f'Chapter {chapter_number}'
+                )
                 content_html = ch_data.get('contentHtml', '')
                 img_total = len(ch_data.get('images') or [])
                 if img_total:
                     self._log(
-                        f"  Building EPUB chapter {i + 1}: {ch_name} "
+                        f"  Building EPUB chapter {chapter_number}: {ch_name} "
                         f"({img_total} image(s))"
                     )
                 else:
-                    self._log(f"  Building EPUB chapter {i + 1}: {ch_name}")
+                    self._log(
+                        f"  Building EPUB chapter {chapter_number}: {ch_name}"
+                    )
 
                 # Process images: use browser-provided base64 data when
                 # available, fall back to Python-side download otherwise.
@@ -2016,7 +2056,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                                     dl_session = img_session
                                 raw = self._download_image_python(
                                     img_url,
-                                    f"Ch{i+1} image {img_idx}/"
+                                    f"Ch{chapter_number} image {img_idx}/"
                                     f"{len(image_items)}",
                                     session=dl_session,
                                     log_success=False,
@@ -2038,7 +2078,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                         base = safe_orig.rsplit('.', 1)[0]
                         ext = safe_orig.rsplit('.', 1)[1].lower() \
                             if '.' in safe_orig else 'jpg'
-                        img_name = f'ch{i+1:04d}_{img_idx:04d}_{base}.{ext}'
+                        img_name = (
+                            f'ch{chapter_number:04d}_{img_idx:04d}_{base}.{ext}'
+                        )
 
                         if compress_images:
                             raw = self._compress_image(
@@ -2048,7 +2090,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                             if new_ext == 'jpeg':
                                 new_ext = 'jpg'
                             img_name = (
-                                f'ch{i+1:04d}_{img_idx:04d}_{base}.{new_ext}'
+                                f'ch{chapter_number:04d}_{img_idx:04d}_'
+                                f'{base}.{new_ext}'
                             )
 
                         return img_idx, {
@@ -2173,7 +2216,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                 # weren't in the images array (e.g. inline images)
                 content_html = self._download_inline_images(
                     content_html, epub, img_session, img_counter,
-                    compress_images, jpeg_quality, image_format, i
+                    compress_images, jpeg_quality, image_format,
+                    chapter_number,
                 )
 
                 # Fix novel-downloader's img format for EPUB rendering:
@@ -2187,7 +2231,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                 if use_long_image_layout and ch_data.get('images'):
                     show_chapter_title = False
                 epub.add_chapter(
-                    ch_name, content_html, show_title=show_chapter_title
+                    ch_name, content_html, show_title=show_chapter_title,
+                    chapter_number=chapter_number,
                 )
 
             if is_kakao and self._var_kakao_dedupe_images.get():
@@ -2386,7 +2431,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         return None
 
     def _download_inline_images(self, html_str, epub, session, counter,
-                                compress, quality, fmt, ch_idx):
+                                compress, quality, fmt, chapter_number):
         """Find <img src="http..."> in HTML, download, and replace with
         local EPUB paths.  Skips images already pointing to ../Images/."""
         import re
@@ -2403,7 +2448,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             if '../Images/' in url:
                 continue  # Already replaced
             raw = self._download_image_python(
-                url, f"Ch{ch_idx+1} inline img", session=session
+                url, f"Ch{chapter_number} inline img", session=session
             )
             if raw:
                 counter[0] += 1
@@ -2414,7 +2459,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     ext = 'webp'
                 elif raw[:3] == b'GIF':
                     ext = 'gif'
-                name = f'img_{ch_idx}_{counter[0]}.{ext}'
+                name = f'img_{chapter_number}_{counter[0]}.{ext}'
                 if compress:
                     raw = self._compress_image(raw, quality, fmt)
                 epub.add_image(name, raw)
@@ -2625,7 +2670,12 @@ img { display: block; max-width: 100%; max-height: 100%;
         for i, ch_data in enumerate(self._chapter_results):
             if ch_data is None or ch_data.get('_locked'):
                 continue
-            ch_name = ch_data.get('chapterName', f'Chapter {i + 1}')
+            chapter_number = ExternalNovelDialog._result_chapter_number(
+                self, i, ch_data
+            )
+            ch_name = ch_data.get(
+                'chapterName', f'Chapter {chapter_number}'
+            )
             content_html = ch_data.get('contentHtml', '')
             rename_map = {}
 
@@ -2633,7 +2683,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                 img_url = html.unescape(img_info.get('url', '')).strip()
                 raw = fetch_pdf_asset(
                     img_url,
-                    f'PDF chapter {i + 1} image {img_index}',
+                    f'PDF chapter {chapter_number} image {img_index}',
                     data_url=img_info.get('data'),
                     referer=(
                         ch_data.get('chapterUrl')
@@ -2644,14 +2694,16 @@ img { display: block; max-width: 100%; max-height: 100%;
                 if not raw:
                     continue
                 original_name = img_info.get('name') or (
-                    f'img_{i + 1}_{img_index}.'
+                    f'img_{chapter_number}_{img_index}.'
                     f'{self._image_ext_from_bytes(raw)}'
                 )
                 img_name = os.path.basename(
                     original_name.replace('\\', '/')
-                ) or f'img_{i + 1}_{img_index}.jpg'
+                ) or f'img_{chapter_number}_{img_index}.jpg'
                 if img_name in image_map and image_map[img_name] != raw:
-                    img_name = f'ch{i + 1:04d}_{img_index:04d}_{img_name}'
+                    img_name = (
+                        f'ch{chapter_number:04d}_{img_index:04d}_{img_name}'
+                    )
                 image_map[img_name] = raw
                 rename_map[original_name] = img_name
                 if img_url:
@@ -2672,7 +2724,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             for inline_index, inline_url in enumerate(inline_urls, 1):
                 raw = fetch_pdf_asset(
                     html.unescape(inline_url),
-                    f'PDF chapter {i + 1} inline image {inline_index}',
+                    f'PDF chapter {chapter_number} inline image {inline_index}',
                     referer=(
                         ch_data.get('chapterUrl')
                         or data.get('bookUrl')
@@ -2682,7 +2734,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                 if not raw:
                     continue
                 ext = self._image_ext_from_bytes(raw)
-                img_name = f'pdf_ch{i + 1:04d}_{inline_index:04d}.{ext}'
+                img_name = (
+                    f'pdf_ch{chapter_number:04d}_{inline_index:04d}.{ext}'
+                )
                 image_map[img_name] = raw
                 content_html = content_html.replace(
                     inline_url, f'../Images/{img_name}'

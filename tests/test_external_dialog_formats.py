@@ -1,4 +1,5 @@
 import queue
+import zipfile
 from types import SimpleNamespace
 
 from downloader_core import DownloaderCore
@@ -193,6 +194,94 @@ def test_external_retry_happens_before_the_next_batch():
     )
 
     assert events == ["batch:First", "retry:First", "batch:Second"]
+
+
+def test_external_download_preserves_selected_range_numbers():
+    class Scraper:
+        _context = True
+
+        @staticmethod
+        def parse_chapter_batch(chapters, interval=0):
+            return [
+                {"chapterName": chapter["name"]}
+                for chapter in chapters
+            ]
+
+    dialog = SimpleNamespace(
+        _scraper=Scraper(),
+        _book_data={},
+        _downloading=True,
+        _download_cancelled=False,
+        _chapter_results=[],
+        _msg_queue=queue.Queue(),
+        _apply_scraper_options=lambda: None,
+        _sleep_while_downloading=lambda _seconds: True,
+        _log=lambda _message: None,
+    )
+    chapters = [{"name": f"Chapter {number}"} for number in range(1, 8)]
+
+    ExternalNovelDialog._do_download(
+        dialog, chapters, 4, 7, 0, num_threads=3
+    )
+
+    assert dialog._chapter_number_start == 5
+    assert [
+        result["_chapter_number"] for result in dialog._chapter_results
+    ] == [5, 6, 7]
+
+
+def test_external_result_number_prefers_preserved_source_position():
+    dialog = SimpleNamespace(_chapter_number_start=20)
+
+    assert ExternalNovelDialog._result_chapter_number(
+        dialog, 2, {"_chapter_number": 57}
+    ) == 57
+    assert ExternalNovelDialog._result_chapter_number(dialog, 2, {}) == 22
+
+
+def test_external_epub_filename_uses_preserved_range_number(tmp_path):
+    dialog = object.__new__(ExternalNovelDialog)
+    dialog._book_data = {"bookname": "Range Test", "author": "Author"}
+    dialog._chapter_results = [{
+        "chapterName": "Chapter 25",
+        "contentHtml": "<p>Content</p>",
+        "_chapter_number": 25,
+    }]
+    dialog._parent_gui = SimpleNamespace()
+    dialog._scraper = None
+    dialog._var_long_image_layout = Setting(False)
+    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_ext_image_workers = Setting(1)
+    dialog._get_output_dir = lambda: str(tmp_path)
+    dialog._log = lambda _message: None
+    dialog._generate_txt = lambda *_args: None
+
+    dialog._generate_epub("Range Test", "Author")
+
+    with zipfile.ZipFile(tmp_path / "Range Test.epub") as archive:
+        archive_names = archive.namelist()
+
+    assert "OEBPS/Text/chapter0025.xhtml" in archive_names
+    assert "OEBPS/Text/chapter0001.xhtml" not in archive_names
+
+
+def test_external_scraper_range_results_retain_source_numbers():
+    scraper = SimpleNamespace(
+        _stop_requested=False,
+        log=lambda _message: None,
+        parse_chapter=lambda index, chapter, interval=0: {
+            "chapterName": chapter["name"],
+            "parsedIndex": index,
+        },
+    )
+    chapters = [{"name": f"Chapter {number}"} for number in range(1, 8)]
+
+    results = ExternalScraper.parse_all_chapters(
+        scraper, chapters, interval=0, start_idx=4, end_idx=7
+    )
+
+    assert [result["_chapter_number"] for result in results] == [5, 6, 7]
+    assert [result["parsedIndex"] for result in results] == [4, 5, 6]
 
 
 def test_ntk_progress_is_logged_only_after_successful_content_fetch():

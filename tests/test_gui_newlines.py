@@ -243,6 +243,57 @@ def test_epub_cover_can_use_a_remote_image_url(tmp_path):
     assert not any(name.startswith("OEBPS/Images/") for name in archive_names)
 
 
+def test_epub_chapter_filename_can_preserve_source_range_number(tmp_path):
+    output = tmp_path / "chapter-range.epub"
+    generator = EpubGenerator(
+        {"title": "Test", "author": "Author"}, str(output), ""
+    )
+
+    generator.add_chapter("Chapter 42", "<p>Content</p>", chapter_number=42)
+    generator.add_chapter("Chapter 43", "<p>Content</p>")
+    generator.generate()
+
+    with zipfile.ZipFile(output) as archive:
+        archive_names = archive.namelist()
+
+    assert "OEBPS/Text/chapter0042.xhtml" in archive_names
+    assert "OEBPS/Text/chapter0043.xhtml" in archive_names
+    assert "OEBPS/Text/chapter0001.xhtml" not in archive_names
+
+
+def test_gui_range_keeps_source_number_after_notice_and_failed_chapter(tmp_path):
+    output = tmp_path / "gui-range.epub"
+    gui = SimpleNamespace(
+        _output_format="epub",
+        _output_path=str(output),
+        var_zip_compress_images=SimpleNamespace(get=lambda: False),
+        var_save_image_urls_only=SimpleNamespace(get=lambda: False),
+    )
+    results = [
+        ("Notice", "<p>Notice</p>", [], True),
+        None,
+        ("Chapter 21", "<p>Content</p>", [], False),
+    ]
+
+    NovelpiaGUI._build_output(
+        gui,
+        results,
+        {"title": "Test", "author": "Author"},
+        "",
+        None,
+        None,
+        chapter_start=20,
+        notice_count=1,
+    )
+
+    with zipfile.ZipFile(output) as archive:
+        archive_names = archive.namelist()
+
+    assert "OEBPS/Text/chapter_notice0001.xhtml" in archive_names
+    assert "OEBPS/Text/chapter0021.xhtml" in archive_names
+    assert "OEBPS/Text/chapter0001.xhtml" not in archive_names
+
+
 def test_chapter_image_urls_reject_non_http_sources():
     assert DownloaderCore.normalize_chapter_image_url("javascript:alert(1)") is None
 
