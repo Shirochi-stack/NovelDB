@@ -6438,10 +6438,69 @@ async ({ url }) => {
 
         return self._ntk_build_text_chapter(title, value, selector)
 
+    def _ntk_prepare_chapter_page_browser(self, chapter_url):
+        """Enter the chapter so NewToki can establish its page-bound ad ack."""
+        page = self._page
+        if not page or not hasattr(page, 'goto'):
+            return True
+        try:
+            target = urllib.parse.urlparse(chapter_url)
+            current = urllib.parse.urlparse(page.url or '')
+        except Exception:
+            return True
+        if current.netloc == target.netloc and current.path == target.path:
+            return True
+
+        # NewToki validates /api/ad/challenge against the current document's
+        # chapter path. Let its own frontend complete that handshake, but abort
+        # the frontend's content request so the scraper performs it only once.
+        content_pattern = "**/api/novel-content"
+        content_attempted = []
+
+        def hold_content(route):
+            content_attempted.append(True)
+            try:
+                route.abort()
+            except Exception:
+                pass
+
+        try:
+            page.route(content_pattern, hold_content)
+            response = page.goto(
+                chapter_url,
+                wait_until='domcontentloaded',
+                timeout=45000,
+            )
+            if response and response.status >= 400:
+                self.log(
+                    f"  [NewToki] Chapter navigation returned HTTP "
+                    f"{response.status}."
+                )
+                return False
+            for _ in range(50):
+                if content_attempted:
+                    break
+                page.wait_for_timeout(100)
+        except Exception as e:
+            self.log(f"  [NewToki] Chapter handshake navigation failed: {e}")
+            return False
+        finally:
+            try:
+                page.unroute(content_pattern, hold_content)
+            except Exception:
+                pass
+        return bool(content_attempted)
+
     def _ntk_fetch_chapter_browser(self, chapter_url, chapter_name):
         """Fetch and decrypt the chapter using NewToki's browser-only API."""
         if not self._page:
             self.log("  [NewToki] Live Chrome page is not available.")
+            return None
+        if not self._ntk_prepare_chapter_page_browser(chapter_url):
+            self.log(
+                "  [NewToki] Chapter page did not complete its acknowledgement "
+                "handshake."
+            )
             return None
         try:
             result = self._page.evaluate(
@@ -6501,12 +6560,38 @@ async ({ chapterUrl }) => {
       data: await response.json().catch(() => null),
     };
   };
+  const normalizeChallenge = (data, fallbackScope) => {
+    if (!data || typeof data !== 'object') return null;
+    const nestedData = data.data && typeof data.data === 'object'
+      ? data.data
+      : null;
+    const source = data.challenge
+      || (nestedData && nestedData.challenge)
+      || nestedData
+      || data;
+    if (!source || typeof source !== 'object') return null;
+    const token = source.token || source.challengeToken || '';
+    if (!token) return null;
+    const slotNonces = Array.isArray(source.slotNonces)
+      ? source.slotNonces
+      : (Array.isArray(source.nonces) ? source.nonces : []);
+    return {
+      token,
+      slotNonces,
+      scope: source.scope || data.scope || fallbackScope,
+    };
+  };
 
   try {
     const target = new URL(chapterUrl, location.href);
     const ids = target.pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/);
     if (!ids) return { ok: false, stage: 'url', status: 0 };
+    const contentScope = target.pathname.split('/')[1] || 'novel';
     const encoder = new TextEncoder();
+    const extractTokens = (pageHtml) => {
+      const pattern = /(?:\\"|")token(?:\\"|")\s*:\s*(?:\\"|")([A-Za-z0-9_=.-]+)(?:\\"|")/g;
+      return Array.from(pageHtml.matchAll(pattern), (match) => match[1]);
+    };
 
     for (const badCookie of ['ntk_blk', 'ntk_dev_warn']) {
       if (cookieValue(badCookie)) deleteCookie(badCookie);
@@ -6531,6 +6616,7 @@ async ({ chapterUrl }) => {
     }
 
     let forceNvReissue = false;
+    let lastRetryFailure = { ok: false, stage: 'retry', status: 0 };
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       target.searchParams.set('cb', String(Date.now()));
       const chapterResponse = await fetchWithTimeout(target.href, {
@@ -6542,19 +6628,31 @@ async ({ chapterUrl }) => {
         return { ok: false, stage: 'chapter', status: chapterResponse.status };
       }
 
-      const tokenPattern = /(?:\\"|")token(?:\\"|")\s*:\s*(?:\\"|")([A-Za-z0-9_=.-]+)(?:\\"|")/g;
-      const tokens = Array.from(chapterHtml.matchAll(tokenPattern), (match) => match[1]);
-      const token = tokens.find((value) => (
+      const tokens = extractTokens(chapterHtml);
+      let token = tokens.find((value) => (
         value.startsWith('eyJuIjoi') || value.startsWith('eyJlIjoi')
       ));
       if (!token) return { ok: false, stage: 'token', status: 0 };
 
       const cookieMatch = chapterHtml.match(/\\"cookieName\\":\\"([^\\"]+)\\"/)
         || chapterHtml.match(/"cookieName"\s*:\s*"([^"]+)"/);
-      const cookieName = cookieMatch ? cookieMatch[1] : 'nv';
+      let cookieName = cookieMatch ? cookieMatch[1] : 'nv';
       const chapterPath = target.pathname;
+      const handshake = [];
 
-      const challengeToken = tokens.find((value) => value.startsWith('eyJ2Ijoy'));
+      const explicitChallengeMatch = chapterHtml.match(
+        /(?:\\"|")challengeToken(?:\\"|")\s*:\s*(?:\\"|")([^"\\]+)(?:\\"|")/,
+      );
+      const challengeToken = explicitChallengeMatch
+        ? explicitChallengeMatch[1]
+        : tokens.find((value) => value !== token && value.startsWith('eyJ'));
+      const scopePattern = /(?:\\"|")(?:adScope|challengeScope|scope)(?:\\"|")\s*:\s*(?:\\"|")([^"\\]+)(?:\\"|")/g;
+      const embeddedScopes = Array.from(
+        chapterHtml.matchAll(scopePattern),
+        (match) => match[1],
+      ).filter((value, index, values) => (
+        value && value.length <= 500 && values.indexOf(value) === index
+      ));
       const slotMatch = chapterHtml.match(
         /(?:\\"|")slotNonces(?:\\"|")\s*:\s*\[(.*?)\]/,
       );
@@ -6564,27 +6662,70 @@ async ({ chapterUrl }) => {
           (match) => match[1],
         )
         : [];
-      let challenge = challengeToken && slotNonces.length
-        ? { token: challengeToken, slotNonces }
+      let challenge = challengeToken
+        ? {
+          token: challengeToken,
+          slotNonces,
+          scope: embeddedScopes[0] || contentScope,
+        }
         : null;
       if (!challenge) {
-        const challengeReply = await jsonPost(
-          new URL('/api/ad/challenge', target.origin).href,
-          { path: chapterPath },
-        );
-        if (challengeReply.response.ok && challengeReply.data) {
-          challenge = challengeReply.data.challenge || null;
+        const challengeUrl = new URL('/api/ad/challenge', target.origin).href;
+        const scopeCandidates = [
+          ...embeddedScopes,
+          'chapter',
+          `${contentScope}-content`,
+          contentScope,
+          chapterPath,
+        ].filter((value, index, values) => values.indexOf(value) === index);
+        const challengePayloads = [{ path: chapterPath, force: false }];
+        challengePayloads.push(...scopeCandidates.map((scope) => ({
+          scope,
+          path: chapterPath,
+        })));
+        challengePayloads.push({ path: chapterPath });
+        for (const challengePayload of challengePayloads) {
+          const challengeReply = await jsonPost(
+            challengeUrl,
+            challengePayload,
+          );
+          const challengeData = challengeReply.data;
+          const challengeError = challengeData && challengeData.error
+            ? String(challengeData.error)
+            : '';
+          handshake.push(
+            `challenge=${challengeReply.response.status}`
+            + (challengeError ? `/${challengeError}` : ''),
+          );
+          if (challengeReply.response.ok && challengeData) {
+            challenge = normalizeChallenge(
+              challengeData,
+              challengePayload.scope || contentScope,
+            );
+            if (challenge) break;
+          }
+          if (challengeError !== 'bad_scope') break;
         }
+      } else {
+        handshake.push('challenge=embedded');
       }
 
       if (challenge && challenge.token) {
-        await jsonPost(
+        const canary = await jsonPost(
           new URL('/api/ad/canary', target.origin).href,
           {
             adAckCanary: true,
             challengeToken: challenge.token,
+            scope: challenge.scope || contentScope,
             path: chapterPath,
           },
+        );
+        const canaryError = canary.data && canary.data.error
+          ? String(canary.data.error)
+          : '';
+        handshake.push(
+          `canary=${canary.response.status}`
+          + (canaryError ? `/${canaryError}` : ''),
         );
         let totalAds = Array.from(
           chapterHtml.matchAll(/data-br-n=(?:\\"|")?(\d+)(?:\\"|")?/g),
@@ -6599,6 +6740,7 @@ async ({ chapterUrl }) => {
           new URL('/api/ad/ack', target.origin).href,
           {
             challengeToken: challenge.token,
+            scope: challenge.scope || contentScope,
             total: totalAds,
             visible: totalAds,
             path: chapterPath,
@@ -6613,6 +6755,36 @@ async ({ chapterUrl }) => {
             error: ack.data && ack.data.error ? String(ack.data.error) : '',
           };
         }
+        handshake.push(`ack=${ack.response.status}`);
+
+        // The content token is scoped to the acknowledgement state. Fetch a
+        // fresh chapter document after a successful acknowledgement instead
+        // of reusing the token issued before it.
+        target.searchParams.set('cb', String(Date.now() + 1));
+        const refreshedResponse = await fetchWithTimeout(target.href, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const refreshedHtml = await refreshedResponse.text();
+        if (!refreshedResponse.ok) {
+          return {
+            ok: false,
+            stage: 'post-ack-chapter',
+            status: refreshedResponse.status,
+          };
+        }
+        const refreshedToken = extractTokens(refreshedHtml).find((value) => (
+          value.startsWith('eyJuIjoi') || value.startsWith('eyJlIjoi')
+        ));
+        if (!refreshedToken) {
+          return { ok: false, stage: 'post-ack-token', status: 0 };
+        }
+        token = refreshedToken;
+        const refreshedCookieMatch = refreshedHtml.match(
+          /\\"cookieName\\":\\"([^\\"]+)\\"/,
+        ) || refreshedHtml.match(/"cookieName"\s*:\s*"([^"]+)"/);
+        if (refreshedCookieMatch) cookieName = refreshedCookieMatch[1];
+        handshake.push('refresh=token');
       }
 
       let nv = cookieValue(cookieName);
@@ -6662,10 +6834,24 @@ async ({ chapterUrl }) => {
       ) {
         const error = content && content.error ? String(content.error) : '';
         if (error === 'expired') {
+          lastRetryFailure = {
+            ok: false,
+            stage: 'content',
+            status: contentReply.response.status,
+            error: `${error} (${handshake.join(', ')})`,
+          };
           forceNvReissue = true;
           continue;
         }
-        if (error === 'ad_ack_required') continue;
+        if (error === 'ad_ack_required') {
+          lastRetryFailure = {
+            ok: false,
+            stage: 'content',
+            status: contentReply.response.status,
+            error: `${error} (${handshake.join(', ')})`,
+          };
+          continue;
+        }
         return {
           ok: false,
           stage: 'content',
@@ -6705,7 +6891,7 @@ async ({ chapterUrl }) => {
         plaintext: new TextDecoder('utf-8').decode(plaintext),
       };
     }
-    return { ok: false, stage: 'retry', status: 0 };
+    return lastRetryFailure;
   } catch (error) {
     return { ok: false, stage: 'exception', status: 0, error: String(error) };
   }

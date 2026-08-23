@@ -268,8 +268,10 @@ def test_ntk_browser_fallback_batch_avoids_direct_http_workers(monkeypatch):
 
 def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
     cookie_key = b"headless-browser-key-123"
+    stale_novel_token = "eyJuIjoi-stale-novel-token"
     novel_token = "eyJuIjoi-test-novel-token"
     challenge_token = "eyJ2Ijoy-test-ad-challenge"
+    challenge_scope = "signed-page-issued-ad-scope"
     plaintext = (
         "The headless browser fetched and decrypted this chapter correctly. "
         "It contains enough text to pass the scraper validation."
@@ -285,8 +287,11 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
     )
     api_requests = []
     event_sync_requests = []
+    challenge_requests = []
     canary_requests = []
     ack_requests = []
+    chapter_requests = []
+    ack_completed = False
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
@@ -300,13 +305,14 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
         page = context.new_page()
 
         def handle(route):
+            nonlocal ack_completed
             request = route.request
             if "/api/novel-content" in request.url:
                 api_requests.append({
                     "body": request.post_data_json,
                     "headers": request.headers,
                 })
-                if len(api_requests) == 1:
+                if request.post_data_json["token"] != novel_token:
                     route.fulfill(
                         status=403,
                         content_type="application/json",
@@ -331,8 +337,41 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
                     content_type="application/json",
                     body=json.dumps({"ok": True}),
                 )
+            elif "/api/ad/challenge" in request.url:
+                challenge_requests.append(request.post_data_json)
+                if request.post_data_json.get("scope") != challenge_scope:
+                    route.fulfill(
+                        status=400,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "ok": False,
+                            "error": "bad_scope",
+                        }),
+                    )
+                    return
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "challenge": {
+                            "token": challenge_token,
+                            "slotNonces": ["slot-a", "slot-b"],
+                        },
+                    }),
+                )
             elif "/api/ad/canary" in request.url:
                 canary_requests.append(request.post_data_json)
+                if request.post_data_json.get("scope") != challenge_scope:
+                    route.fulfill(
+                        status=400,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "ok": False,
+                            "error": "bad_scope",
+                        }),
+                    )
+                    return
                 route.fulfill(
                     status=200,
                     content_type="application/json",
@@ -340,6 +379,17 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
                 )
             elif "/api/ad/ack" in request.url:
                 ack_requests.append(request.post_data_json)
+                if request.post_data_json.get("scope") != challenge_scope:
+                    route.fulfill(
+                        status=400,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "ok": False,
+                            "error": "bad_scope",
+                        }),
+                    )
+                    return
+                ack_completed = True
                 route.fulfill(
                     status=200,
                     content_type="application/json",
@@ -352,6 +402,10 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
                     body=json.dumps({"ok": True}),
                 )
             elif "/novel/58669/5862851" in request.url:
+                chapter_requests.append(request.url)
+                active_token = (
+                    novel_token if ack_completed else stale_novel_token
+                )
                 route.fulfill(
                     status=200,
                     content_type="text/html",
@@ -362,10 +416,10 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
                         '</form></main>'
                         '<div data-br-n="2"></div>'
                         '<script>window.chapter={"token":"'
-                        + novel_token
-                        + '","cookieName":"nv","challenge":{"token":"'
-                        + challenge_token
-                        + '","slotNonces":["slot-a","slot-b"]}}</script>'
+                        + active_token
+                        + '","cookieName":"nv","adScope":"'
+                        + challenge_scope
+                        + '"}</script>'
                     ),
                 )
             else:
@@ -381,6 +435,7 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
 
         scraper, _messages = make_scraper()
         scraper._page = page
+        scraper._ntk_prepare_chapter_page_browser = lambda _url: True
         book = scraper._ntk_parse_index_browser(
             "https://newtoki1.org/novel/58669"
         )
@@ -392,7 +447,8 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
         assert book["bookname"] == "Browser Routed Novel"
         assert book["chapterCount"] == 1
         assert api_chapter["contentText"] == plaintext.decode("utf-8")
-        assert len(api_requests) == 2
+        assert len(chapter_requests) == 2
+        assert len(api_requests) == 1
         final_request = api_requests[-1]
         assert final_request["body"]["novelId"] == "58669"
         assert final_request["body"]["episodeId"] == "5862851"
@@ -406,20 +462,33 @@ def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
         ).decode().rstrip("=")
         assert final_request["body"]["proof"] == expected_proof
         assert event_sync_requests and event_sync_requests[0]["evId"]
+        expected_challenge = {
+            "scope": challenge_scope,
+            "path": "/novel/58669/5862851",
+        }
+        assert challenge_requests == [
+            {
+                "path": "/novel/58669/5862851",
+                "force": False,
+            },
+            expected_challenge,
+        ]
         expected_canary = {
             "adAckCanary": True,
             "challengeToken": challenge_token,
+            "scope": challenge_scope,
             "path": "/novel/58669/5862851",
         }
-        assert canary_requests == [expected_canary, expected_canary]
+        assert canary_requests == [expected_canary]
         expected_ack = {
             "challengeToken": challenge_token,
+            "scope": challenge_scope,
             "total": 2,
             "visible": 2,
             "path": "/novel/58669/5862851",
             "slotNonces": ["slot-a", "slot-b"],
         }
-        assert ack_requests == [expected_ack, expected_ack]
+        assert ack_requests == [expected_ack]
 
         browser.close()
 
