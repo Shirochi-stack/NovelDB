@@ -240,12 +240,16 @@ def test_ntk_browser_fallback_batch_avoids_direct_http_workers(monkeypatch):
     scraper._book_data = {"_ntk_novel": True, "_ntk_kind": "novel"}
     fetched = []
 
-    def fetch_browser_batch(chapters, interval):
+    def fetch_browser_batch(chapters, interval, success_callback=None):
         fetched.extend((item["url"], item["name"]) for item in chapters)
-        return [
+        results = [
             {"chapterName": item["name"], "contentText": "content"}
             for item in chapters
         ]
+        if success_callback is not None:
+            for index, result in enumerate(results):
+                success_callback(index, result)
+        return results
 
     monkeypatch.setattr(
         scraper,
@@ -306,8 +310,8 @@ def test_ntk_browser_batch_uses_independent_pages_and_exact_interval(monkeypatch
                 handler(Response())
 
         @staticmethod
-        def wait_for_timeout(_milliseconds):
-            return None
+        def wait_for_timeout(milliseconds):
+            time.sleep(milliseconds / 1000)
 
     pages = [Page(), Page(), Page()]
     monkeypatch.setattr(scraper, "_ntk_parallel_pages", lambda count: pages[:count])
@@ -329,13 +333,23 @@ def test_ntk_browser_batch_uses_independent_pages_and_exact_interval(monkeypatch
         for index in range(1, 4)
     ]
 
-    results = scraper._ntk_fetch_chapter_batch_browser(chapters, interval=0.02)
+    completed = []
+    results = scraper._ntk_fetch_chapter_batch_browser(
+        chapters,
+        interval=0.02,
+        success_callback=lambda index, _result: completed.append(
+            (index, time.perf_counter())
+        ),
+    )
 
     assert [page.loaded_url for page in pages] == [
         chapter["url"] for chapter in chapters
     ]
     assert pages[1].started_at - pages[0].started_at >= 0.015
     assert pages[2].started_at - pages[1].started_at >= 0.015
+    assert [index for index, _finished_at in completed] == [0, 1, 2]
+    assert completed[0][1] <= pages[1].started_at
+    assert completed[1][1] <= pages[2].started_at
     assert [result["chapterName"] for result in results] == [
         chapter["name"] for chapter in chapters
     ]

@@ -6597,8 +6597,10 @@ async ({ chapterUrl, payload }) => {
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 
-    def _ntk_fetch_chapter_batch_browser(self, batch_info, interval=0.5):
-        """Fetch a batch concurrently using one page-bound tab per chapter."""
+    def _ntk_fetch_chapter_batch_browser(
+        self, batch_info, interval=0.5, success_callback=None
+    ):
+        """Fetch a batch and report each worker as soon as it completes."""
         if not batch_info:
             return []
         pages = self._ntk_parallel_pages(len(batch_info))
@@ -6606,6 +6608,8 @@ async ({ chapterUrl, payload }) => {
             return [None] * len(batch_info)
 
         responses = [None] * len(batch_info)
+        results = [None] * len(batch_info)
+        finished = set()
         handlers = []
         for index, page in enumerate(pages):
             def capture(response, worker_index=index):
@@ -6614,6 +6618,51 @@ async ({ chapterUrl, payload }) => {
 
             handlers.append(capture)
             page.on('response', capture)
+
+        def finish_response(index):
+            page = pages[index]
+            chapter = batch_info[index]
+            response = responses[index]
+            try:
+                content = response.json()
+            except Exception as e:
+                self.log(f"  [NewToki] Invalid content response: {e}")
+                return
+            if (
+                response.status != 200
+                or not isinstance(content, dict)
+                or not content.get('ok')
+                or not content.get('payload')
+            ):
+                error = content.get('error', '') if isinstance(content, dict) else ''
+                self.log(
+                    f"  [NewToki] Chrome chapter fetch failed at content "
+                    f"(HTTP {response.status})"
+                    + (f": {error}" if error else '')
+                )
+                return
+            decrypted = self._ntk_decrypt_payload_browser(
+                page,
+                chapter.get('url', ''),
+                content.get('payload', ''),
+            )
+            if not decrypted.get('ok'):
+                self.log(
+                    f"  [NewToki] Chrome chapter decrypt failed: "
+                    f"{decrypted.get('error', 'unknown')}"
+                )
+                return
+            name = chapter.get('fullName', '') or chapter.get('name', '')
+            data = self._ntk_build_decrypted_chapter(
+                name,
+                decrypted.get('plaintext', ''),
+                'ntk parallel browser api/novel-content',
+            )
+            if data and len(data.get('contentText', '')) >= 40:
+                results[index] = data
+                if success_callback is not None:
+                    success_callback(index, data)
+            finished.add(index)
 
         try:
             for index, (page, chapter) in enumerate(zip(pages, batch_info)):
@@ -6633,69 +6682,37 @@ async ({ chapterUrl, payload }) => {
                         f"{chapter.get('name', 'chapter')}: {e}"
                     )
                 if interval > 0 and index < len(batch_info) - 1:
-                    time.sleep(interval)
-
-            deadline = time.time() + 45
-            while (
-                any(response is None for response in responses)
-                and time.time() < deadline
-                and not self._stop_requested
-            ):
-                for index, page in enumerate(pages):
-                    if responses[index] is not None:
-                        continue
                     try:
-                        page.wait_for_timeout(50)
+                        page.wait_for_timeout(round(interval * 1000))
                     except Exception:
-                        pass
+                        time.sleep(interval)
+                for completed_index, response in enumerate(responses):
+                    if response is not None and completed_index not in finished:
+                        finish_response(completed_index)
 
-            results = [None] * len(batch_info)
-            for index, (page, chapter, response) in enumerate(
-                zip(pages, batch_info, responses)
-            ):
-                if response is None:
-                    self.log(
-                        f"  [NewToki] Timed out waiting for chapter content: "
-                        f"{chapter.get('name', 'chapter')}"
-                    )
-                    continue
-                try:
-                    content = response.json()
-                except Exception as e:
-                    self.log(f"  [NewToki] Invalid content response: {e}")
-                    continue
-                if (
-                    response.status != 200
-                    or not isinstance(content, dict)
-                    or not content.get('ok')
-                    or not content.get('payload')
-                ):
-                    error = content.get('error', '') if isinstance(content, dict) else ''
-                    self.log(
-                        f"  [NewToki] Chrome chapter fetch failed at content "
-                        f"(HTTP {response.status})"
-                        + (f": {error}" if error else '')
-                    )
-                    continue
-                decrypted = self._ntk_decrypt_payload_browser(
-                    page,
-                    chapter.get('url', ''),
-                    content.get('payload', ''),
+            pending = set(range(len(batch_info))) - finished
+            deadline = time.time() + 45
+            while pending and time.time() < deadline and not self._stop_requested:
+                for index in list(pending):
+                    if responses[index] is None:
+                        try:
+                            pages[index].wait_for_timeout(25)
+                        except Exception:
+                            pass
+                        continue
+                    finish_response(index)
+                    pending.remove(index)
+
+            # Process responses that arrived at the deadline boundary.
+            for index in list(pending):
+                if responses[index] is not None:
+                    finish_response(index)
+                    pending.remove(index)
+            for index in sorted(pending):
+                self.log(
+                    f"  [NewToki] Timed out waiting for chapter content: "
+                    f"{batch_info[index].get('name', 'chapter')}"
                 )
-                if not decrypted.get('ok'):
-                    self.log(
-                        f"  [NewToki] Chrome chapter decrypt failed: "
-                        f"{decrypted.get('error', 'unknown')}"
-                    )
-                    continue
-                name = chapter.get('fullName', '') or chapter.get('name', '')
-                data = self._ntk_build_decrypted_chapter(
-                    name,
-                    decrypted.get('plaintext', ''),
-                    'ntk parallel browser api/novel-content',
-                )
-                if data and len(data.get('contentText', '')) >= 40:
-                    results[index] = data
             return results
         finally:
             for page, handler in zip(pages, handlers):
@@ -11358,9 +11375,8 @@ async ({ url }) => {
                 results = self._ntk_fetch_chapter_batch_browser(
                     batch_info,
                     interval=interval,
+                    success_callback=success_callback,
                 )
-                for index, result in enumerate(results):
-                    report_success(index, result)
                 return results
 
             from concurrent.futures import ThreadPoolExecutor
