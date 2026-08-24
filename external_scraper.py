@@ -6438,9 +6438,9 @@ async ({ url }) => {
 
         return self._ntk_build_text_chapter(title, value, selector)
 
-    def _ntk_prepare_chapter_page_browser(self, chapter_url):
+    def _ntk_prepare_chapter_page_browser(self, chapter_url, page=None):
         """Enter the chapter so NewToki can establish its page-bound ad ack."""
-        page = self._page
+        page = page or self._page
         if not page or not hasattr(page, 'goto'):
             return True
         try:
@@ -6490,6 +6490,219 @@ async ({ url }) => {
             except Exception:
                 pass
         return bool(content_attempted)
+
+    def _ntk_parallel_pages(self, count):
+        """Return one shared-session Chrome page per NewToki worker."""
+        count = max(1, count)
+        if not self._context or not self._page_is_usable(self._page):
+            return []
+
+        usable_workers = []
+        for page in self._worker_pages:
+            if self._page_is_usable(page):
+                usable_workers.append(page)
+            else:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+        self._worker_pages = usable_workers
+
+        needed_workers = max(0, count - 1)
+        if len(self._worker_pages) > needed_workers:
+            for page in self._worker_pages[needed_workers:]:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            self._worker_pages = self._worker_pages[:needed_workers]
+
+        while len(self._worker_pages) < needed_workers:
+            try:
+                page = self._context.new_page()
+                page.on("console", self._on_console)
+                self._worker_pages.append(page)
+            except Exception as e:
+                self.log(f"  [NewToki] Worker page failed: {e}")
+                break
+        return ([self._page] + self._worker_pages)[:count]
+
+    @staticmethod
+    def _ntk_content_response_matches(url):
+        try:
+            return urllib.parse.urlparse(url or '').path == '/api/novel-content'
+        except Exception:
+            return False
+
+    def _ntk_decrypt_payload_browser(self, page, chapter_url, payload):
+        """Decrypt a v3 content payload using that worker page's nv cookie."""
+        try:
+            return page.evaluate(
+                r"""
+async ({ chapterUrl, payload }) => {
+  const target = new URL(chapterUrl, location.href);
+  const ids = target.pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/);
+  if (!ids) return { ok: false, error: 'url' };
+  const html = document.documentElement && document.documentElement.innerHTML || '';
+  const cookieMatch = html.match(/\\"cookieName\\":\\"([^\\"]+)\\"/)
+    || html.match(/"cookieName"\s*:\s*"([^"]+)"/);
+  const cookieName = cookieMatch ? cookieMatch[1] : 'nv';
+  let nv = '';
+  for (const part of document.cookie.split(';')) {
+    const item = part.trim();
+    const split = item.indexOf('=');
+    if (split < 0 || item.slice(0, split) !== cookieName) continue;
+    nv = item.slice(split + 1);
+    try { nv = decodeURIComponent(nv); } catch (_) {}
+    break;
+  }
+  if (!nv) return { ok: false, error: 'cookie' };
+  const fromB64url = (value) => {
+    let normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (normalized.length % 4) normalized += '=';
+    const binary = atob(normalized);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  };
+  const encoder = new TextEncoder();
+  const cookieKey = fromB64url(nv.split('.')[0] || '');
+  const encrypted = fromB64url(payload);
+  if (!cookieKey.length || encrypted.length < 29) {
+    return { ok: false, error: 'payload' };
+  }
+  const suffix = encoder.encode(`:${ids[1]}:${ids[2]}:v3`);
+  const material = new Uint8Array(cookieKey.length + suffix.length);
+  material.set(cookieKey, 0);
+  material.set(suffix, cookieKey.length);
+  const aesKeyBytes = await crypto.subtle.digest('SHA-256', material);
+  const aesKey = await crypto.subtle.importKey(
+    'raw', aesKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']
+  );
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv: encrypted.slice(0, 12),
+      tagLength: 128,
+    },
+    aesKey,
+    encrypted.slice(12),
+  );
+  return {
+    ok: true,
+    plaintext: new TextDecoder('utf-8').decode(plaintext),
+  };
+}
+                """,
+                {'chapterUrl': chapter_url, 'payload': payload},
+            ) or {}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def _ntk_fetch_chapter_batch_browser(self, batch_info, interval=0.5):
+        """Fetch a batch concurrently using one page-bound tab per chapter."""
+        if not batch_info:
+            return []
+        pages = self._ntk_parallel_pages(len(batch_info))
+        if len(pages) < len(batch_info):
+            return [None] * len(batch_info)
+
+        responses = [None] * len(batch_info)
+        handlers = []
+        for index, page in enumerate(pages):
+            def capture(response, worker_index=index):
+                if self._ntk_content_response_matches(response.url):
+                    responses[worker_index] = response
+
+            handlers.append(capture)
+            page.on('response', capture)
+
+        try:
+            for index, (page, chapter) in enumerate(zip(pages, batch_info)):
+                if self._stop_requested:
+                    break
+                try:
+                    goto_options = {
+                        'wait_until': 'commit',
+                        'timeout': 45000,
+                    }
+                    if self._book_url:
+                        goto_options['referer'] = self._book_url
+                    page.goto(chapter.get('url', ''), **goto_options)
+                except Exception as e:
+                    self.log(
+                        f"  [NewToki] Worker navigation failed for "
+                        f"{chapter.get('name', 'chapter')}: {e}"
+                    )
+                if interval > 0 and index < len(batch_info) - 1:
+                    time.sleep(interval)
+
+            deadline = time.time() + 45
+            while (
+                any(response is None for response in responses)
+                and time.time() < deadline
+                and not self._stop_requested
+            ):
+                for index, page in enumerate(pages):
+                    if responses[index] is not None:
+                        continue
+                    try:
+                        page.wait_for_timeout(50)
+                    except Exception:
+                        pass
+
+            results = [None] * len(batch_info)
+            for index, (page, chapter, response) in enumerate(
+                zip(pages, batch_info, responses)
+            ):
+                if response is None:
+                    self.log(
+                        f"  [NewToki] Timed out waiting for chapter content: "
+                        f"{chapter.get('name', 'chapter')}"
+                    )
+                    continue
+                try:
+                    content = response.json()
+                except Exception as e:
+                    self.log(f"  [NewToki] Invalid content response: {e}")
+                    continue
+                if (
+                    response.status != 200
+                    or not isinstance(content, dict)
+                    or not content.get('ok')
+                    or not content.get('payload')
+                ):
+                    error = content.get('error', '') if isinstance(content, dict) else ''
+                    self.log(
+                        f"  [NewToki] Chrome chapter fetch failed at content "
+                        f"(HTTP {response.status})"
+                        + (f": {error}" if error else '')
+                    )
+                    continue
+                decrypted = self._ntk_decrypt_payload_browser(
+                    page,
+                    chapter.get('url', ''),
+                    content.get('payload', ''),
+                )
+                if not decrypted.get('ok'):
+                    self.log(
+                        f"  [NewToki] Chrome chapter decrypt failed: "
+                        f"{decrypted.get('error', 'unknown')}"
+                    )
+                    continue
+                name = chapter.get('fullName', '') or chapter.get('name', '')
+                data = self._ntk_build_decrypted_chapter(
+                    name,
+                    decrypted.get('plaintext', ''),
+                    'ntk parallel browser api/novel-content',
+                )
+                if data and len(data.get('contentText', '')) >= 40:
+                    results[index] = data
+            return results
+        finally:
+            for page, handler in zip(pages, handlers):
+                try:
+                    page.remove_listener('response', handler)
+                except Exception:
+                    pass
 
     def _ntk_fetch_chapter_browser(self, chapter_url, chapter_name):
         """Fetch and decrypt the chapter using NewToki's browser-only API."""
@@ -10924,7 +11137,7 @@ async ({ url }) => {
             target_page = page or self._page
             result = self._ntk_parse_chapter(url, name, page=target_page)
             if interval > 0:
-                time.sleep(min(interval, 0.15))
+                time.sleep(interval)
             return result
         if self._book_data and self._book_data.get('_yeduji'):
             url = chapter_info.get('url', '')
@@ -11128,28 +11341,26 @@ async ({ url }) => {
             return self._qidian_parse_chapter_batch_parallel(batch_info)
         if self._book_data and self._book_data.get('_ntk_novel'):
             if self._ntk_browser_fallback:
-                results = []
-                for index, chapter in enumerate(batch_info):
-                    if self._stop_requested:
-                        results.append(None)
-                        continue
-                    chapter_url = chapter.get('url', '')
-                    chapter_name = (
-                        chapter.get('fullName', '')
-                        or chapter.get('name', '')
-                    )
-                    if self._book_data.get('_ntk_kind') == 'webtoon':
+                if self._book_data.get('_ntk_kind') == 'webtoon':
+                    results = []
+                    for index, chapter in enumerate(batch_info):
                         result = self._ntk_fetch_webtoon_chapter_browser(
-                            chapter_url, chapter_name
+                            chapter.get('url', ''),
+                            chapter.get('fullName', '')
+                            or chapter.get('name', ''),
                         )
-                    else:
-                        result = self._ntk_fetch_chapter_browser(
-                            chapter_url, chapter_name
-                        )
-                    results.append(result)
+                        results.append(result)
+                        report_success(index, result)
+                        if interval > 0 and index < len(batch_info) - 1:
+                            time.sleep(interval)
+                    return results
+
+                results = self._ntk_fetch_chapter_batch_browser(
+                    batch_info,
+                    interval=interval,
+                )
+                for index, result in enumerate(results):
                     report_success(index, result)
-                    if interval > 0 and index < len(batch_info) - 1:
-                        time.sleep(min(interval, 0.15))
                 return results
 
             from concurrent.futures import ThreadPoolExecutor

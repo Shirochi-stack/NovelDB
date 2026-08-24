@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import time
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -239,11 +240,18 @@ def test_ntk_browser_fallback_batch_avoids_direct_http_workers(monkeypatch):
     scraper._book_data = {"_ntk_novel": True, "_ntk_kind": "novel"}
     fetched = []
 
-    def fetch_browser(url, name):
-        fetched.append((url, name))
-        return {"chapterName": name, "contentText": "content"}
+    def fetch_browser_batch(chapters, interval):
+        fetched.extend((item["url"], item["name"]) for item in chapters)
+        return [
+            {"chapterName": item["name"], "contentText": "content"}
+            for item in chapters
+        ]
 
-    monkeypatch.setattr(scraper, "_ntk_fetch_chapter_browser", fetch_browser)
+    monkeypatch.setattr(
+        scraper,
+        "_ntk_fetch_chapter_batch_browser",
+        fetch_browser_batch,
+    )
     monkeypatch.setattr(
         scraper,
         "_ntk_clone_api_state",
@@ -264,6 +272,73 @@ def test_ntk_browser_fallback_batch_avoids_direct_http_workers(monkeypatch):
 
     assert [result["chapterName"] for result in results] == ["One", "Two"]
     assert fetched == [(item["url"], item["name"]) for item in chapters]
+
+
+def test_ntk_browser_batch_uses_independent_pages_and_exact_interval(monkeypatch):
+    scraper, _messages = make_scraper()
+
+    class Response:
+        url = "https://newtoki1.org/api/novel-content"
+        status = 200
+
+        @staticmethod
+        def json():
+            return {"ok": True, "payload": "encrypted-fixture"}
+
+    class Page:
+        def __init__(self):
+            self.handlers = []
+            self.started_at = None
+            self.loaded_url = None
+
+        def on(self, event, handler):
+            assert event == "response"
+            self.handlers.append(handler)
+
+        def remove_listener(self, event, handler):
+            assert event == "response"
+            self.handlers.remove(handler)
+
+        def goto(self, url, **_kwargs):
+            self.loaded_url = url
+            self.started_at = time.perf_counter()
+            for handler in list(self.handlers):
+                handler(Response())
+
+        @staticmethod
+        def wait_for_timeout(_milliseconds):
+            return None
+
+    pages = [Page(), Page(), Page()]
+    monkeypatch.setattr(scraper, "_ntk_parallel_pages", lambda count: pages[:count])
+    monkeypatch.setattr(
+        scraper,
+        "_ntk_decrypt_payload_browser",
+        lambda _page, url, _payload: {
+            "ok": True,
+            "plaintext": (
+                "Parallel chapter content is long enough for validation. " + url
+            ),
+        },
+    )
+    chapters = [
+        {
+            "url": f"https://newtoki1.org/novel/58669/{index}",
+            "name": f"Episode {index}",
+        }
+        for index in range(1, 4)
+    ]
+
+    results = scraper._ntk_fetch_chapter_batch_browser(chapters, interval=0.02)
+
+    assert [page.loaded_url for page in pages] == [
+        chapter["url"] for chapter in chapters
+    ]
+    assert pages[1].started_at - pages[0].started_at >= 0.015
+    assert pages[2].started_at - pages[1].started_at >= 0.015
+    assert [result["chapterName"] for result in results] == [
+        chapter["name"] for chapter in chapters
+    ]
 
 
 def test_ntk_real_headless_browser_extracts_index_and_decrypts_chapter():
