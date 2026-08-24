@@ -145,6 +145,10 @@ def validate_chapter_payload(payload):
             or data.get("error")
             or "server error"
         )
+        if "잘못된 접근" in str(message):
+            raise AccessBlockedError(
+                f"viewer access restricted: {message}"
+            )
         raise InvalidChapterPayloadError(
             f"viewer returned status/code 500: {message}"
         )
@@ -614,6 +618,10 @@ class DownloaderCore:
                     # other cookies (USERKEY, NPK*) that the server needs.
                     response = self.auth.session.post(url, timeout=15)
 
+                    if response.status_code == 429:
+                        raise AccessBlockedError(
+                            f"Chapter {chapter_id}: HTTP 429 rate limit"
+                        )
                     if response.status_code != 200:
                         _schedule_retry(f"HTTP {response.status_code}", attempt)
                         continue
