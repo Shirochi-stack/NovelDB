@@ -185,6 +185,8 @@ class ExternalScraper:
         self._munpia_cdp_port = None
         self._novelpia_chrome = False
         self._novelpia_cdp_port = None
+        self._ridi_chrome = False
+        self._ridi_cdp_port = None
         self._global_novelpia_session = None
         self._global_novelpia_login_at = ''
         self._global_novelpia_refresh_attempted = False
@@ -3200,6 +3202,52 @@ class ExternalScraper:
         except UnicodeEncodeError:
             self._raw_log(msg.encode('ascii', 'replace').decode())
 
+    @staticmethod
+    def _normalize_interval_range(interval=0.5, interval_max=None):
+        """Clamp and order a min/max chapter-delay range."""
+        try:
+            minimum = float(interval or 0.0)
+        except (TypeError, ValueError):
+            minimum = 0.5
+        try:
+            maximum = (
+                minimum
+                if interval_max is None
+                else float(interval_max or 0.0)
+            )
+        except (TypeError, ValueError):
+            maximum = minimum
+        minimum = max(0.0, min(300.0, minimum))
+        maximum = max(0.0, min(300.0, maximum))
+        if maximum < minimum:
+            minimum, maximum = maximum, minimum
+        return minimum, maximum
+
+    @classmethod
+    def _random_interval_delay(cls, interval=0.5, interval_max=None):
+        """Draw one delay, preserving legacy fixed intervals by default."""
+        minimum, maximum = cls._normalize_interval_range(
+            interval, interval_max
+        )
+        if maximum <= 0:
+            return 0.0
+        if minimum == maximum:
+            return minimum
+        return random.uniform(minimum, maximum)
+
+    @classmethod
+    def _sleep_interval(cls, interval=0.5, interval_max=None,
+                        minimum=0.0):
+        """Sleep once using a normalized random delay and optional floor."""
+        low, high = cls._normalize_interval_range(interval, interval_max)
+        floor = max(0.0, min(300.0, float(minimum or 0.0)))
+        low = max(low, floor)
+        high = max(high, low)
+        delay = low if low == high else random.uniform(low, high)
+        if delay > 0:
+            time.sleep(delay)
+        return delay
+
     def start(self):
         """Launch headless browser with persistent context."""
         if self._context:
@@ -3928,9 +3976,13 @@ class ExternalScraper:
         """Release browser resources."""
         self._backup_storage_state()
         site_cdp_port = (
-            self._novelpia_cdp_port
-            if self._novelpia_chrome
-            else self._munpia_cdp_port
+            self._ridi_cdp_port
+            if self._ridi_chrome
+            else (
+                self._novelpia_cdp_port
+                if self._novelpia_chrome
+                else self._munpia_cdp_port
+            )
         )
         if site_cdp_port:
             try:
@@ -3984,6 +4036,8 @@ class ExternalScraper:
         self._munpia_cdp_port = None
         self._novelpia_chrome = False
         self._novelpia_cdp_port = None
+        self._ridi_chrome = False
+        self._ridi_cdp_port = None
         try:
             if self._global_novelpia_session:
                 self._global_novelpia_session.close()
@@ -6647,7 +6701,8 @@ async ({ chapterUrl, payload }) => {
             return {'ok': False, 'error': str(e)}
 
     def _ntk_fetch_chapter_batch_browser(
-        self, batch_info, interval=0.5, success_callback=None
+        self, batch_info, interval=0.5, success_callback=None,
+        interval_max=None,
     ):
         """Fetch a batch and report each worker as soon as it completes."""
         if not batch_info:
@@ -6730,11 +6785,17 @@ async ({ chapterUrl, payload }) => {
                         f"  [NewToki] Worker navigation failed for "
                         f"{chapter.get('name', 'chapter')}: {e}"
                     )
-                if interval > 0 and index < len(batch_info) - 1:
+                if index < len(batch_info) - 1:
+                    delay = self._random_interval_delay(
+                        interval, interval_max
+                    )
+                else:
+                    delay = 0.0
+                if delay > 0:
                     try:
-                        page.wait_for_timeout(round(interval * 1000))
+                        page.wait_for_timeout(round(delay * 1000))
                     except Exception:
-                        time.sleep(interval)
+                        time.sleep(delay)
                 for completed_index, response in enumerate(responses):
                     if response is not None and completed_index not in finished:
                         finish_response(completed_index)
@@ -7659,6 +7720,7 @@ async ({ url }) => {
     # ------------------------------------------------------------------
     _GLOBAL_NOVELPIA_BASE = 'https://global.novelpia.com'
     _GLOBAL_NOVELPIA_API = 'https://api-global.novelpia.com'
+    _GLOBAL_NOVELPIA_TIMEOUT = 90
     _GLOBAL_NOVELPIA_IMAGE_COOKIES = (
         'CloudFront-Policy',
         'CloudFront-Key-Pair-Id',
@@ -7685,12 +7747,29 @@ async ({ url }) => {
 
     def _global_novelpia_sync_browser_cookies(self, session):
         """Copy the dedicated External Downloader profile into requests."""
-        if not self._context:
-            return 0
-        try:
-            cookies = self._context.cookies()
-        except Exception:
-            return 0
+        if self._context:
+            try:
+                cookies = self._context.cookies()
+            except Exception:
+                cookies = []
+        else:
+            # The anonymous fast path does not launch Chromium. Preserve the
+            # ability to authenticate lazily by reading cookies previously
+            # saved through Enter Browser.
+            cookies = []
+            seen = set()
+            for origin in (
+                self._GLOBAL_NOVELPIA_BASE,
+                self._GLOBAL_NOVELPIA_API,
+            ):
+                for cookie in self._storage_cookies_for_url(origin):
+                    key = (
+                        cookie.get('name'), cookie.get('domain'),
+                        cookie.get('path'),
+                    )
+                    if key not in seen:
+                        seen.add(key)
+                        cookies.append(cookie)
         copied = 0
         for cookie in cookies or []:
             domain = (cookie.get('domain') or '').lower()
@@ -7754,23 +7833,29 @@ async ({ url }) => {
                 domain='.novelpia.com', path='/',
             )
 
-        if refresh_login or (
-            not self._global_novelpia_login_at
-            and not self._global_novelpia_refresh_attempted
-        ):
+        # Book discovery and free chapters begin anonymously. Account access
+        # is refreshed lazily only after an episode endpoint rejects anonymous
+        # access, unless a caller explicitly requests a refresh.
+        if refresh_login:
             self._global_novelpia_refresh_login()
         return session
 
     def _global_novelpia_refresh_login(self, expected_token=None):
         """Exchange Global Novelpia cookies for a fresh LOGINAT token."""
         with self._global_novelpia_auth_lock:
-            self._global_novelpia_refresh_attempted = True
             if (
-                expected_token
+                expected_token is not None
                 and self._global_novelpia_login_at
                 and self._global_novelpia_login_at != expected_token
             ):
                 return True
+            if (
+                not expected_token
+                and self._global_novelpia_refresh_attempted
+                and not self._global_novelpia_login_at
+            ):
+                return False
+            self._global_novelpia_refresh_attempted = True
             session = self._global_novelpia_session
             if session is None:
                 return False
@@ -7778,7 +7863,7 @@ async ({ url }) => {
             try:
                 response = session.get(
                     f'{self._GLOBAL_NOVELPIA_API}/v1/login/refresh',
-                    timeout=30,
+                    timeout=self._GLOBAL_NOVELPIA_TIMEOUT,
                 )
                 payload = response.json()
             except Exception:
@@ -7830,7 +7915,7 @@ async ({ url }) => {
                     url,
                     headers=headers or None,
                     params=params,
-                    timeout=30,
+                    timeout=self._GLOBAL_NOVELPIA_TIMEOUT,
                 )
                 last_status = int(response.status_code or 0)
                 try:
@@ -7923,35 +8008,26 @@ async ({ url }) => {
 
         self._stop_requested = False
         book_url = f'{self._GLOBAL_NOVELPIA_BASE}/novel/{novel_id}'
-        if not self._page:
-            self.start()
-        if self._page:
-            try:
-                self._page.goto(
-                    book_url,
-                    wait_until='domcontentloaded',
-                    timeout=30000,
-                )
-            except Exception as e:
-                if 'ERR_ABORTED' not in str(e):
-                    self.log(f'[Global Novelpia] Page load warning: {e}')
+        self.log(
+            '[Global Novelpia] Note: this site can respond slowly. API '
+            f'requests may wait up to {self._GLOBAL_NOVELPIA_TIMEOUT} seconds.'
+        )
+        self.log(
+            '[Global Novelpia] Starting immediately in anonymous access mode; '
+            'saved account access is checked only if a chapter requires it.'
+        )
 
-        session = self._global_novelpia_ensure_session(refresh_login=True)
+        # Metadata and episode lists are public API calls. Do not spend time
+        # loading the website or refreshing LOGINAT before they are needed.
+        session = self._global_novelpia_ensure_session(refresh_login=False)
         if session is None:
             return None
-        if self._global_novelpia_login_at:
-            self.log('[Global Novelpia] Authenticated browser session detected.')
-        else:
-            self.log(
-                '[Global Novelpia] Using anonymous access. Use Enter Browser '
-                'and log in to download chapters owned by your account.'
-            )
 
         status, novel_payload = self._global_novelpia_request_json(
             session,
             f'{self._GLOBAL_NOVELPIA_API}/v1/novel',
             params={'novel_no': novel_id},
-            login_at=self._global_novelpia_login_at,
+            login_at=None,
         )
         result = novel_payload.get('result') if isinstance(novel_payload, dict) else None
         novel = result.get('novel') if isinstance(result, dict) else None
@@ -7974,7 +8050,7 @@ async ({ url }) => {
             session,
             f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode/list',
             params={'novel_no': novel_id, 'rows': rows, 'sort': 'ASC'},
-            login_at=self._global_novelpia_login_at,
+            login_at=None,
         )
         list_result = list_payload.get('result') if isinstance(list_payload, dict) else None
         episodes = list_result.get('list') if isinstance(list_result, dict) else None
@@ -8553,6 +8629,299 @@ async ({ url }) => {
             name = f'ridi_{chapter_id or "chapter"}_{image_index}.jpg'
         return name
 
+    def _ridi_connect_cdp(self, port):
+        """Attach to the installed-Chrome session used for Ridi.
+
+        Ridi currently challenges the bundled headless Chromium build.  The
+        contributed extension runs in the user's normal Chrome session, so
+        the native port needs to preserve that browser/fingerprint boundary
+        as well as the profile's Ridi login cookies.
+        """
+        try:
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.connect_over_cdp(
+                f'http://127.0.0.1:{port}'
+            )
+            self._context = (
+                self._browser.contexts[0]
+                if self._browser.contexts
+                else self._browser.new_context()
+            )
+            pages = self._context.pages
+            self._page = pages[0] if pages else self._context.new_page()
+            self._page.on('console', self._on_console)
+            self._ridi_chrome = True
+            self._ridi_cdp_port = port
+            self.log('[Ridi] Installed-Chrome session ready.')
+            return True
+        except Exception as e:
+            self.log(f'ERROR: [Ridi] Could not attach to Chrome: {e}')
+            self.cleanup()
+            return False
+
+    def _start_ridi_browser(self, start_url):
+        """Run Ridi in installed Chrome with the saved external profile."""
+        if self._context and self._page:
+            try:
+                self._page.evaluate('1')
+                if self._ridi_chrome:
+                    return True
+                self.cleanup()
+            except Exception:
+                self.cleanup()
+        elif self._context or self._browser or self._chrome_process:
+            self.cleanup()
+
+        user_data_dir = self._get_user_data_dir()
+        self.log(
+            '[Ridi] Starting headed installed Chrome off-screen with the '
+            'External Downloader profile...'
+        )
+        self.log(f'Browser profile: {user_data_dir}')
+
+        locked_pids = self._chrome_processes_using_profile(user_data_dir)
+        if locked_pids:
+            visible = self._visible_browser_window_pids(locked_pids)
+            ports = (
+                []
+                if visible
+                else self._chrome_remote_debugging_ports_using_profile(
+                    user_data_dir
+                )
+            )
+            for port in ports:
+                if self._wait_for_cdp(port, timeout=2):
+                    self.log(
+                        '[Ridi] Reusing the existing External Downloader '
+                        'browser session.'
+                    )
+                    return self._ridi_connect_cdp(port)
+
+            pids = ', '.join(str(pid) for pid in locked_pids)
+            self.log(
+                '[Ridi] The External Downloader browser profile is already '
+                f'open in process(es): {pids}'
+            )
+            self.log(
+                '[Ridi] Close the Enter Browser window, then click Download '
+                'again.'
+            )
+            return False
+
+        proc, port = self._open_system_chrome(
+            start_url,
+            remote_debugging=True,
+            user_data_dir=user_data_dir,
+            hidden=False,
+        )
+        if not proc or not port:
+            self.log('ERROR: [Ridi] Installed Chrome/Edge was not found.')
+            return False
+
+        self._chrome_process = proc
+        ready = False
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            self._park_chrome_windows_for_profile(user_data_dir)
+            if self._wait_for_cdp(port, timeout=0.75):
+                ready = True
+                break
+        if not ready:
+            self.log('ERROR: [Ridi] External browser did not become ready.')
+            self.cleanup()
+            return False
+
+        self._park_chrome_windows_for_profile(user_data_dir)
+        return self._ridi_connect_cdp(port)
+
+    @staticmethod
+    def _ridi_api_title(payload):
+        """Read a usable episode title from one book-api response."""
+        title = (payload or {}).get('title')
+        if isinstance(title, str):
+            return title.strip()
+        if isinstance(title, dict):
+            for key in ('main', 'full', 'name', 'short'):
+                value = title.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ''
+
+    @staticmethod
+    def _ridi_api_next_id(payload):
+        prop = ((payload or {}).get('series') or {}).get('property') or {}
+        next_books = prop.get('next_books') or {}
+        if not isinstance(next_books, dict):
+            return ''
+        for value in next_books.keys():
+            value = str(value or '').strip()
+            if value.isdigit():
+                return value
+        return ''
+
+    def _ridi_open_api_book(self, book_id):
+        """Open the API as a top-level document and return its first JSON.
+
+        A top-level navigation is deliberately used here.  Fetching the API
+        from the Ridi product page is blocked by that page's CSP, while a raw
+        Python/APIRequestContext client gets a separate Cloudflare challenge.
+        Installed Chrome navigation uses the same browser identity as the
+        contributed extension and establishes a same-origin API page for the
+        remaining requests.
+        """
+        if not self._context:
+            raise RuntimeError('Ridi browser context is unavailable')
+        page = self._context.new_page()
+        page.on('console', self._on_console)
+        api_url = f'https://book-api.ridibooks.com/books/{book_id}'
+        try:
+            page.goto(
+                api_url,
+                wait_until='domcontentloaded',
+                timeout=45000,
+                referer=f'https://ridibooks.com/books/{book_id}',
+            )
+            deadline = time.monotonic() + 30
+            last_text = ''
+            while time.monotonic() < deadline and not self._stop_requested:
+                try:
+                    last_text = page.locator('body').inner_text(timeout=3000)
+                except Exception:
+                    last_text = ''
+                stripped = last_text.lstrip()
+                if stripped.startswith('{'):
+                    return page, json.loads(stripped)
+                page.wait_for_timeout(500)
+            title = ''
+            try:
+                title = page.title()
+            except Exception:
+                pass
+            if 'just a moment' in title.lower() or 'cloudflare' in last_text.lower():
+                raise RuntimeError(
+                    'Cloudflare verification did not complete. Use Enter '
+                    'Browser on the Ridi URL, finish verification, close the '
+                    'browser, and retry.'
+                )
+            raise RuntimeError('book API did not return JSON')
+        except Exception:
+            try:
+                page.close()
+            except Exception:
+                pass
+            raise
+
+    def _ridi_api_fetch_book(self, api_page, book_id, retries=3):
+        """Fetch one book through the API page's same-origin context."""
+        for attempt in range(1, max(1, int(retries)) + 1):
+            if self._stop_requested:
+                return None
+            try:
+                response = api_page.evaluate(
+                    """
+                    async ({bookId}) => {
+                      try {
+                        const result = await fetch(`/books/${bookId}`, {
+                          credentials: 'include',
+                          headers: {Accept: 'application/json'},
+                        });
+                        return {
+                          status: result.status,
+                          text: await result.text(),
+                        };
+                      } catch (error) {
+                        return {status: 0, error: String(error || '')};
+                      }
+                    }
+                    """,
+                    {'bookId': str(book_id)},
+                ) or {}
+                status = int(response.get('status') or 0)
+                if 200 <= status < 300:
+                    return json.loads(response.get('text') or '{}')
+                delay = 2 * attempt if status == 429 else attempt
+            except Exception:
+                delay = attempt
+            if attempt < retries:
+                try:
+                    api_page.wait_for_timeout(delay * 1000)
+                except Exception:
+                    time.sleep(delay)
+        return None
+
+    def _ridi_discover_episode_chain(self, series_id):
+        """Follow series.property.next_books outside the product-page CSP."""
+        result = {
+            'links': [],
+            'titleById': {},
+            'diagnostics': [],
+            'isSerial': None,
+            'error': '',
+        }
+        api_page = None
+        try:
+            api_page, first_data = self._ridi_open_api_book(series_id)
+            prop = (first_data.get('series') or {}).get('property') or {}
+            total = int(
+                prop.get('total_book_count')
+                or prop.get('opened_book_count')
+                or 0
+            )
+            result['isSerial'] = bool(prop.get('is_serial'))
+            result['diagnostics'].append(
+                f'Series episode count: {total or "unknown"}'
+            )
+
+            ordered_ids = [str(series_id)]
+            seen = set(ordered_ids)
+            current_data = first_data
+            first_title = self._ridi_api_title(first_data)
+            if first_title:
+                result['titleById'][str(series_id)] = first_title
+
+            # A non-serial book must not be turned into a one-chapter
+            # webnovel merely because the API request itself succeeded.
+            if not result['isSerial']:
+                return result
+
+            safety_limit = min(max(total or 10000, 1), 10000)
+            while len(ordered_ids) < safety_limit and not self._stop_requested:
+                next_id = self._ridi_api_next_id(current_data)
+                if not next_id or next_id in seen:
+                    break
+                seen.add(next_id)
+                ordered_ids.append(next_id)
+                current_data = self._ridi_api_fetch_book(api_page, next_id)
+                if not current_data:
+                    result['error'] = (
+                        f'book API stopped at episode {len(ordered_ids)} '
+                        f'({next_id})'
+                    )
+                    break
+                episode_title = self._ridi_api_title(current_data)
+                if episode_title:
+                    result['titleById'][next_id] = episode_title
+                if len(ordered_ids) % 20 == 0:
+                    api_page.wait_for_timeout(300)
+
+            result['links'] = [
+                f'https://ridibooks.com/books/{episode_id}/view'
+                for episode_id in ordered_ids
+            ]
+            result['diagnostics'].append(
+                f'Chained episode links: {len(ordered_ids)}'
+            )
+            return result
+        except Exception as e:
+            result['error'] = str(e)
+            return result
+        finally:
+            if api_page:
+                try:
+                    api_page.close()
+                except Exception:
+                    pass
+
     def _ridi_parse_book(self, url):
         """Read Ridi metadata and discover its complete webnovel episode chain."""
         book_id = self._ridi_book_id(url)
@@ -8562,8 +8931,13 @@ async ({ url }) => {
 
         self._stop_requested = False
         book_url = f'https://ridibooks.com/books/{book_id}'
-        if not self._page:
-            self.start()
+        # The bundled headless browser is currently challenged by Ridi's
+        # Cloudflare configuration. Match the contributed Chrome extension's
+        # execution environment by retaining the real installed-Chrome
+        # profile for metadata, API discovery, and chapter rendering.
+        if self._context is not None or self._page is None:
+            if not self._ridi_chrome and not self._start_ridi_browser(book_url):
+                return None
         if not self._page:
             self.log('[Ridi] ERROR: Browser could not be started.')
             return None
@@ -8584,12 +8958,11 @@ async ({ url }) => {
                 self.log(f'[Ridi] ERROR: Page load failed: {e}')
                 return None
 
-        # This is the extension's three-part strategy in a native Playwright
-        # form: collect rendered episode buttons, find the series root embedded
-        # in the page, then follow series.property.next_books until complete.
+        # Collect metadata, any rendered episode buttons, and the embedded
+        # series root here. API chaining happens afterward in a separate
+        # book-api origin page so this product page's CSP cannot block it.
         script = r"""
         async () => {
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
           const absolute = (value) => {
             try { return new URL(value || '', location.href).href; }
@@ -8804,64 +9177,7 @@ async ({ url }) => {
           if (!seriesId) seriesId = location.pathname.match(/\/books\/(\d+)/)?.[1] || '';
           diagnostics.push(`Series ID: ${seriesId || 'not found'}`);
 
-          const fetchBook = async (id, retries = 3) => {
-            for (let attempt = 1; attempt <= retries; attempt += 1) {
-              try {
-                const response = await fetch(
-                  `https://book-api.ridibooks.com/books/${id}`,
-                  {credentials: 'include'}
-                );
-                if (response.ok) return await response.json();
-                if (response.status === 429) {
-                  await sleep(2000 * attempt);
-                  continue;
-                }
-              } catch (_) {}
-              if (attempt < retries) await sleep(1000 * attempt);
-            }
-            return null;
-          };
-
-          if (seriesId) {
-            const firstData = await fetchBook(seriesId);
-            const property = firstData?.series?.property || {};
-            const total = Number(
-              property.total_book_count || property.opened_book_count || 0
-            );
-            diagnostics.push(`Series episode count: ${total || 'unknown'}`);
-            if (firstData && total > links.length) {
-              const orderedIds = [seriesId];
-              let currentId = seriesId;
-              let nextId = Object.keys(property.next_books || {})[0] || '';
-              if (nextId && nextId !== seriesId) {
-                orderedIds.push(nextId);
-                currentId = nextId;
-              }
-              let consecutiveFailures = 0;
-              while (orderedIds.length < total && consecutiveFailures < 3) {
-                const currentData = await fetchBook(currentId);
-                if (!currentData) {
-                  consecutiveFailures += 1;
-                  continue;
-                }
-                consecutiveFailures = 0;
-                nextId = Object.keys(
-                  currentData?.series?.property?.next_books || {}
-                )[0] || '';
-                if (!nextId || orderedIds.includes(nextId)) break;
-                orderedIds.push(nextId);
-                currentId = nextId;
-                if (orderedIds.length % 20 === 0) await sleep(300);
-              }
-              if (orderedIds.length > links.length) {
-                links = orderedIds.map((id) => `/books/${id}/view`);
-              }
-              diagnostics.push(`Chained episode links: ${orderedIds.length}`);
-            }
-          }
-
-          // A final DOM check preserves the extension's fallback if the API is
-          // unavailable but the page expanded while discovery was running.
+          // A final DOM check preserves the extension's rendered-list fallback.
           const finalLinks = collectLinks();
           if (finalLinks.length > links.length) links = finalLinks;
           const seenLinks = new Set();
@@ -8879,7 +9195,7 @@ async ({ url }) => {
             title, author, synopsis, cover,
             publisher: jsonData.publisher || '',
             tags: [...new Set(tags)],
-            links, titleById, diagnostics,
+            links, titleById, seriesId, diagnostics,
           };
         }
         """
@@ -8893,7 +9209,22 @@ async ({ url }) => {
             self.log(f'[Ridi] {line}')
 
         links = meta.get('links') or []
-        title_by_id = meta.get('titleById') or {}
+        title_by_id = dict(meta.get('titleById') or {})
+        series_id = str(meta.get('seriesId') or '')
+        api_result = None
+        if series_id and self._context:
+            api_result = self._ridi_discover_episode_chain(series_id)
+            for line in api_result.get('diagnostics') or []:
+                self.log(f'[Ridi] {line}')
+            api_links = api_result.get('links') or []
+            if len(api_links) > len(links):
+                links = api_links
+            title_by_id.update(api_result.get('titleById') or {})
+            if api_result.get('error'):
+                self.log(
+                    '[Ridi] Episode API warning: '
+                    f"{api_result.get('error')}"
+                )
         chapters = []
         seen = set()
         for chapter_number, raw_chapter_url in enumerate(links, start=1):
@@ -8917,10 +9248,18 @@ async ({ url }) => {
             })
 
         if not chapters:
-            self.log(
-                '[Ridi] ERROR: No webnovel episodes were found. This scraper '
-                'supports Ridi webnovels, not downloadable volume ebooks.'
-            )
+            if api_result and api_result.get('error'):
+                self.log(
+                    '[Ridi] ERROR: Webnovel episode discovery failed. '
+                    'Complete Ridi/Cloudflare verification with Enter Browser '
+                    'and retry.'
+                )
+            else:
+                self.log(
+                    '[Ridi] ERROR: No webnovel episodes were found. This '
+                    'scraper supports Ridi webnovels, not downloadable volume '
+                    'ebooks.'
+                )
             return None
 
         title = meta.get('title') or f'Ridi {book_id}'
@@ -9314,7 +9653,7 @@ async ({ url }) => {
         """Open and extract one authenticated Ridi webnovel viewer page."""
         target = page or self._page
         if target is None:
-            self.start()
+            self._start_ridi_browser(chapter_url)
             target = self._page
         if target is None:
             return None
@@ -9339,7 +9678,7 @@ async ({ url }) => {
         """Return up to the extension's four authenticated Ridi worker pages."""
         count = max(1, min(4, int(count or 1)))
         if not self._context or not self._page:
-            self.start()
+            self._start_ridi_browser(self._book_url or 'https://ridibooks.com/')
         if not self._context or not self._page:
             return []
         if not self._page_is_usable(self._page):
@@ -9377,7 +9716,9 @@ async ({ url }) => {
                 break
         return ([self._page] + self._worker_pages)[:count]
 
-    def _ridi_parse_chapter_batch_parallel(self, batch_info, interval=0):
+    def _ridi_parse_chapter_batch_parallel(
+        self, batch_info, interval=0, interval_max=None
+    ):
         """Render Ridi chapters in a polite worker pool capped at four pages."""
         if not batch_info:
             return []
@@ -9411,11 +9752,10 @@ async ({ url }) => {
                     name,
                 )
             if (
-                interval > 0
-                and chunk_start + len(chunk) < len(batch_info)
+                chunk_start + len(chunk) < len(batch_info)
                 and not self._stop_requested
             ):
-                time.sleep(interval)
+                self._sleep_interval(interval, interval_max)
         return results
 
     # ------------------------------------------------------------------
@@ -12967,13 +13307,15 @@ async ({ url }) => {
         return data
 
     def parse_chapter(self, index, chapter_info, interval=0.5, page=None,
-                      log_errors=True):
+                      log_errors=True, interval_max=None):
         """Parse a single chapter's content.
 
         Args:
             index: Chapter index (0-based).
             chapter_info: Dict with 'url', 'name', 'isVIP', 'isPaid'.
-            interval: Delay in seconds after fetching (rate limiting).
+            interval: Minimum delay in seconds after fetching.
+            interval_max: Maximum delay. ``None`` keeps the legacy fixed
+                          delay represented by ``interval``.
             page: Specific Playwright page to use (for parallel downloads).
                   Defaults to the primary page.
 
@@ -12989,8 +13331,7 @@ async ({ url }) => {
                 or chapter_info.get('name', '')
             )
             result = self._1qxs_parse_chapter(url, name)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
 
         if self._book_data and self._book_data.get('_69shuba'):
@@ -13000,8 +13341,7 @@ async ({ url }) => {
                 or chapter_info.get('name', '')
             )
             result = self._69shuba_parse_chapter(url, name)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
 
         if self._book_data and self._book_data.get('_global_novelpia'):
@@ -13011,8 +13351,7 @@ async ({ url }) => {
                 or chapter_info.get('name', '')
             )
             result = self._global_novelpia_parse_chapter(url, name)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
 
         if self._book_data and self._book_data.get('_ridibooks'):
@@ -13026,8 +13365,7 @@ async ({ url }) => {
                 name,
                 page=page or self._page,
             )
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
 
         if self._book_data and self._book_data.get('_novelpia'):
@@ -13042,8 +13380,7 @@ async ({ url }) => {
                 page=page or self._page,
             )
             result = self._novelpia_tag_chapter_result(result, chapter_info)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
 
         # KakaoPage: use native viewer scraping
@@ -13054,39 +13391,37 @@ async ({ url }) => {
             target_page = page or self._page
             result = self._kakao_parse_chapter(url, full_name,
                                                page=target_page)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
         if self._book_data and self._book_data.get('_ntk_novel'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
             target_page = page or self._page
             result = self._ntk_parse_chapter(url, name, page=target_page)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
         if self._book_data and self._book_data.get('_yeduji'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
             is_paid = chapter_info.get('isPaid', False)
             result = self._yeduji_parse_chapter(url, name, is_paid=is_paid)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
         if self._book_data and self._book_data.get('_munpia'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
             result = self._munpia_parse_chapter(url, name, page=page)
-            if interval > 0:
-                time.sleep(interval)
+            self._sleep_interval(interval, interval_max)
             return result
         if self._book_data and self._book_data.get('_qidian'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
             result = self._qidian_parse_chapter(url, name, page=page)
-            delay = max(0, interval, self._QIDIAN_MIN_INTERVAL)
-            if delay > 0:
-                time.sleep(delay)
+            self._sleep_interval(
+                interval,
+                interval_max,
+                minimum=self._QIDIAN_MIN_INTERVAL,
+            )
             return result
 
         url = chapter_info.get('url', '')
@@ -13096,8 +13431,7 @@ async ({ url }) => {
         if self._sfacg_should_prefer_app_api():
             data = self._sfacg_parse_chapter_app_api(url, name)
             if data:
-                if interval > 0:
-                    time.sleep(interval)
+                self._sleep_interval(interval, interval_max)
                 return data
 
         target_page = page or self._page
@@ -13129,8 +13463,7 @@ async ({ url }) => {
                 self.log(f"  [{index + 1}] Parse error: {e}")
             return None
 
-        if interval > 0:
-            time.sleep(interval)
+        self._sleep_interval(interval, interval_max)
 
         if not result_json:
             if log_errors:
@@ -13152,13 +13485,14 @@ async ({ url }) => {
         return data
 
     def parse_chapter_batch(self, batch_info, interval=0.5,
-                            _skip_sfacg_app=False, success_callback=None):
+                            _skip_sfacg_app=False, success_callback=None,
+                            interval_max=None):
         """Parse multiple chapters concurrently via JS Promise.all.
 
         Args:
             batch_info: List of dicts with 'url', 'name', 'isVIP', 'isPaid'.
-            interval: Delay between chapters (seconds). Used by KakaoPage
-                      sequential fallback; normal batch uses JS Promise.all.
+            interval: Minimum delay between sequential requests.
+            interval_max: Maximum delay. ``None`` preserves fixed-delay calls.
             success_callback: Optional ``(batch_index, result)`` callback used
                               by sequential scrapers for live success logging.
 
@@ -13210,9 +13544,11 @@ async ({ url }) => {
             return self._global_novelpia_parse_chapter_batch(batch_info)
 
         if self._book_data and self._book_data.get('_ridibooks'):
+            options = {'interval': interval}
+            if interval_max is not None:
+                options['interval_max'] = interval_max
             return self._ridi_parse_chapter_batch_parallel(
-                batch_info,
-                interval=interval,
+                batch_info, **options
             )
 
         # Novelpia is intentionally sequential. One navigation produces one
@@ -13233,8 +13569,8 @@ async ({ url }) => {
                 )
                 result = self._novelpia_tag_chapter_result(result, chapter)
                 results.append(result)
-                if interval > 0 and index < len(batch_info) - 1:
-                    time.sleep(interval)
+                if index < len(batch_info) - 1:
+                    self._sleep_interval(interval, interval_max)
             return results
 
         # KakaoPage: no batch API — fall back to sequential downloads
@@ -13250,8 +13586,8 @@ async ({ url }) => {
                     page=self._page
                 )
                 results.append(data)
-                if interval > 0 and i < len(batch_info) - 1:
-                    time.sleep(interval)
+                if i < len(batch_info) - 1:
+                    self._sleep_interval(interval, interval_max)
             return results
         # Yeduji: sequential urllib fetches (no browser needed)
         if self._book_data and self._book_data.get('_yeduji'):
@@ -13266,8 +13602,8 @@ async ({ url }) => {
                     is_paid=ch.get('isPaid', False),
                 )
                 results.append(data)
-                if interval > 0 and i < len(batch_info) - 1:
-                    time.sleep(interval)
+                if i < len(batch_info) - 1:
+                    self._sleep_interval(interval, interval_max)
             return results
         if self._book_data and self._book_data.get('_munpia'):
             return self._munpia_parse_chapter_batch_parallel(batch_info)
@@ -13287,14 +13623,18 @@ async ({ url }) => {
                         )
                         results.append(result)
                         report_success(index, result)
-                        if interval > 0 and index < len(batch_info) - 1:
-                            time.sleep(interval)
+                        if index < len(batch_info) - 1:
+                            self._sleep_interval(interval, interval_max)
                     return results
 
+                options = {
+                    'interval': interval,
+                    'success_callback': success_callback,
+                }
+                if interval_max is not None:
+                    options['interval_max'] = interval_max
                 results = self._ntk_fetch_chapter_batch_browser(
-                    batch_info,
-                    interval=interval,
-                    success_callback=success_callback,
+                    batch_info, **options
                 )
                 return results
 
@@ -13334,10 +13674,17 @@ async ({ url }) => {
             cookie_header = self._sfacg_app_cookie_header()
 
             max_workers = max(1, min(len(batch_info), 16))
+            launch_delays = [0.0]
+            for _index in range(1, len(batch_info)):
+                launch_delays.append(
+                    launch_delays[-1]
+                    + self._random_interval_delay(interval, interval_max)
+                )
+
             def fetch_sfacg_app(item):
                 offset, ch = item
-                if interval > 0 and offset > 0:
-                    time.sleep(interval * offset)
+                if launch_delays[offset] > 0:
+                    time.sleep(launch_delays[offset])
                 return self._sfacg_parse_chapter_app_api(
                     ch.get('url', ''),
                     ch.get('name', ''),
@@ -13359,10 +13706,14 @@ async ({ url }) => {
                 return results
 
             fallback_batch = [batch_info[i] for i in fallback_indices]
+            fallback_options = {
+                'interval': interval,
+                '_skip_sfacg_app': True,
+            }
+            if interval_max is not None:
+                fallback_options['interval_max'] = interval_max
             fallback_results = self.parse_chapter_batch(
-                fallback_batch,
-                interval=interval,
-                _skip_sfacg_app=True,
+                fallback_batch, **fallback_options
             )
             for offset, result in zip(fallback_indices, fallback_results):
                 results[offset] = result
@@ -13418,12 +13769,13 @@ async ({ url }) => {
 
     def parse_all_chapters(self, chapters, interval=0.5,
                            start_idx=0, end_idx=None,
-                           progress_callback=None):
+                           progress_callback=None, interval_max=None):
         """Parse all chapters sequentially.
 
         Args:
             chapters: List of chapter info dicts from parse_book().
-            interval: Delay between chapter fetches (seconds).
+            interval: Minimum delay between chapter fetches.
+            interval_max: Maximum delay; omitted means a fixed interval.
             start_idx: First chapter index (0-based).
             end_idx: Last chapter index (exclusive). None = all.
             progress_callback: Optional fn(current, total) for progress updates.
@@ -13437,7 +13789,17 @@ async ({ url }) => {
         total = len(selected)
         results = []
 
-        self.log(f"Downloading {total} chapters (interval: {interval}s)...")
+        interval, normalized_max = ExternalScraper._normalize_interval_range(
+            interval, interval_max
+        )
+        interval_display = (
+            f'{interval:g}–{normalized_max:g}s'
+            if interval != normalized_max
+            else f'{interval:g}s'
+        )
+        self.log(
+            f"Downloading {total} chapters (interval: {interval_display})..."
+        )
 
         for i, ch in enumerate(selected):
             if self._stop_requested:
@@ -13448,7 +13810,10 @@ async ({ url }) => {
             self.log(f"  [{i + 1}/{total}] {name}")
 
             chapter_number = start_idx + i + 1
-            data = self.parse_chapter(start_idx + i, ch, interval=interval)
+            options = {'interval': interval}
+            if interval_max is not None:
+                options['interval_max'] = normalized_max
+            data = self.parse_chapter(start_idx + i, ch, **options)
             if isinstance(data, dict):
                 data.setdefault('_chapter_number', chapter_number)
             results.append(data)

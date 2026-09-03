@@ -4,7 +4,7 @@ external_dialog.py — Tkinter dialog for browser-based novel downloads.
 Provides a self-contained Toplevel window with:
   - URL input
   - Multi-format selection (EPUB / TXT / PDF / CBZ)
-  - Interval control for rate limiting
+  - Minimum/maximum interval controls for randomized rate limiting
   - Chapter range selection
   - Fetch Info / Download / Stop buttons
   - Book info panel and log console
@@ -191,11 +191,21 @@ class ExternalNovelDialog(tk.Toplevel):
         # Interval
         int_frame = ttk.LabelFrame(settings_frame, text="Rate Limiting", padding=4)
         int_frame.pack(side="left", padx=(0, 10))
-        ttk.Label(int_frame, text="Interval (s):").pack(side="left", padx=(0, 3))
+        ttk.Label(int_frame, text="Min:").pack(side="left", padx=(0, 3))
         self._var_interval = tk.DoubleVar(value=0.5)
-        spn = ttk.Spinbox(int_frame, from_=0.0, to=30.0, increment=0.1,
-                           textvariable=self._var_interval, width=5)
-        spn.pack(side="left")
+        ttk.Spinbox(
+            int_frame, from_=0.0, to=300.0, increment=0.1,
+            textvariable=self._var_interval, width=5,
+        ).pack(side="left")
+        ttk.Label(int_frame, text="Max:").pack(
+            side="left", padx=(6, 3)
+        )
+        self._var_interval_max = tk.DoubleVar(value=0.5)
+        ttk.Spinbox(
+            int_frame, from_=0.0, to=300.0, increment=0.1,
+            textvariable=self._var_interval_max, width=5,
+        ).pack(side="left")
+        ttk.Label(int_frame, text="s").pack(side="left", padx=(3, 0))
 
         # Range
         rng_frame = ttk.LabelFrame(settings_frame, text="Chapter Range", padding=4)
@@ -463,6 +473,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
+                        and not self._scraper.is_global_novelpia(url)
+                        and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -487,7 +499,7 @@ class ExternalNovelDialog(tk.Toplevel):
         return self._downloading
 
     def _do_download(self, chapters, start, end, interval, num_threads=1,
-                      skip_paid=False, retry_passes=5):
+                      skip_paid=False, retry_passes=5, interval_max=None):
         """Run chapter downloads on the worker thread.
 
         Chapters are split into batches of `num_threads` size.
@@ -499,6 +511,10 @@ class ExternalNovelDialog(tk.Toplevel):
         # this instead of restarting their filenames at chapter 1.
         self._chapter_number_start = max(1, start + 1)
         try:
+            interval_max_supplied = interval_max is not None
+            interval, interval_max = ExternalScraper._normalize_interval_range(
+                interval, interval_max
+            )
             retry_passes = max(1, int(retry_passes))
             # Ensure the headless browser is alive.  After "Enter Browser"
             # the context is destroyed; start() re-launches it with fresh
@@ -512,6 +528,13 @@ class ExternalNovelDialog(tk.Toplevel):
             is_novelpia = bool(
                 self._book_data and self._book_data.get("_novelpia")
             )
+            is_ridibooks = bool(
+                self._book_data and self._book_data.get("_ridibooks")
+            )
+            is_global_novelpia = bool(
+                self._book_data
+                and self._book_data.get("_global_novelpia")
+            )
             is_69shuba = bool(
                 self._book_data and self._book_data.get("_69shuba")
             )
@@ -520,6 +543,8 @@ class ExternalNovelDialog(tk.Toplevel):
             )
             if (self._scraper and not self._scraper._context
                     and not is_ntk and not is_yeduji and not is_novelpia
+                    and not is_ridibooks
+                    and not is_global_novelpia
                     and not is_69shuba and not is_1qxs
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
@@ -560,15 +585,22 @@ class ExternalNovelDialog(tk.Toplevel):
             )
             batch_size = 1 if is_novelpia else max(1, num_threads)
             rate_interval = interval
+            rate_interval_max = interval_max
             if is_novelpia:
                 self._log(
                     "[Novelpia] Safe mode: one chapter request at a time; "
                     "automatic chapter retries are disabled."
                 )
             if is_qidian and self._scraper:
+                qidian_floor = getattr(
+                    self._scraper, '_QIDIAN_MIN_INTERVAL', 0.0
+                )
                 rate_interval = max(
                     interval,
-                    getattr(self._scraper, '_QIDIAN_MIN_INTERVAL', 0.0),
+                    qidian_floor,
+                )
+                rate_interval_max = max(
+                    interval_max, rate_interval
                 )
             completed = 0
 
@@ -628,14 +660,21 @@ class ExternalNovelDialog(tk.Toplevel):
                         )
                         self._log(f"  [{idx + 1}/{total}] {name}")
 
+                    batch_options = {
+                        'interval': interval,
+                        'success_callback': log_ntk_success,
+                    }
+                    if interval_max_supplied:
+                        batch_options['interval_max'] = interval_max
                     batch_results = self._scraper.parse_chapter_batch(
-                        batch,
-                        interval=interval,
-                        success_callback=log_ntk_success,
+                        batch, **batch_options
                     )
                 else:
+                    batch_options = {'interval': interval}
+                    if interval_max_supplied:
+                        batch_options['interval_max'] = interval_max
                     batch_results = self._scraper.parse_chapter_batch(
-                        batch, interval=interval
+                        batch, **batch_options
                     )
                 batch_elapsed = time.perf_counter() - batch_t0
 
@@ -650,11 +689,16 @@ class ExternalNovelDialog(tk.Toplevel):
                                 f"  [{idx + 1}/{total}] Failed to fetch, "
                                 f"retry {retry_attempt}/{retry_passes}"
                             )
+                            retry_options = {
+                                'interval': max(interval, 1.0),
+                                'log_errors': False,
+                            }
+                            if interval_max_supplied:
+                                retry_options['interval_max'] = max(
+                                    interval_max, 1.0
+                                )
                             data = self._scraper.parse_chapter(
-                                start + idx,
-                                chapter,
-                                interval=max(interval, 1.0),
-                                log_errors=False,
+                                start + idx, chapter, **retry_options
                             )
                             if data:
                                 if is_ntk:
@@ -703,11 +747,11 @@ class ExternalNovelDialog(tk.Toplevel):
                     break
 
                 # Rate limiting between batches
-                sleep_time = (
-                    rate_interval
-                    if rate_interval > 0 and batch_end < total
-                    else 0
-                )
+                sleep_time = 0.0
+                if rate_interval_max > 0 and batch_end < total:
+                    sleep_time = ExternalScraper._random_interval_delay(
+                        rate_interval, rate_interval_max
+                    )
                 if is_qidian:
                     sleep_display = (
                         f"{sleep_time:.1f}s"
@@ -718,8 +762,12 @@ class ExternalNovelDialog(tk.Toplevel):
                         f"[Qidian] Batch {batch_number} took "
                         f"{batch_elapsed:.1f}s; rate sleep {sleep_display}"
                     )
-                if rate_interval > 0 and batch_end < total:
-                    if not self._sleep_while_downloading(rate_interval):
+                elif sleep_time > 0:
+                    self._log(
+                        f"Next chapter batch in {sleep_time:.1f}s..."
+                    )
+                if sleep_time > 0:
+                    if not self._sleep_while_downloading(sleep_time):
                         self._download_cancelled = True
                         self._log("Download stopped by user.")
                         break
@@ -1053,6 +1101,27 @@ class ExternalNovelDialog(tk.Toplevel):
         except (AttributeError, TypeError, ValueError, tk.TclError):
             return 5
 
+    def _get_interval_range(self):
+        """Snapshot and normalize the external chapter-delay controls."""
+        try:
+            interval = self._var_interval.get()
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            interval = 0.5
+        try:
+            interval_max = self._var_interval_max.get()
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            # Old dialogs/configs exposed only the fixed ext_interval value.
+            interval_max = interval
+        return ExternalScraper._normalize_interval_range(
+            interval, interval_max
+        )
+
+    @staticmethod
+    def _format_interval_range(interval, interval_max):
+        if interval == interval_max:
+            return f"{interval:g}s"
+        return f"{interval:g}–{interval_max:g}s"
+
     def _on_download(self):
         url = self._normalised_url()
         if not url:
@@ -1086,14 +1155,18 @@ class ExternalNovelDialog(tk.Toplevel):
         self._lbl_author.configure(text="—")
         self._lbl_chapters.configure(text="—")
 
-        interval = self._var_interval.get()
+        interval, interval_max = self._get_interval_range()
         num_threads = max(1, self._var_ext_threads.get())
         skip_paid = self._var_skip_paid.get()
         retry_passes = self._get_retry_passes()
 
-        self._work_queue.put(("fetch_and_download", (url, interval,
-                                                      num_threads, skip_paid,
-                                                      retry_passes)))
+        self._work_queue.put((
+            "fetch_and_download",
+            (
+                url, interval, num_threads, skip_paid, retry_passes,
+                interval_max,
+            ),
+        ))
 
     def _update_progress(self, current, total):
         if total > 0:
@@ -1126,7 +1199,7 @@ class ExternalNovelDialog(tk.Toplevel):
     # Combined fetch + download worker
     # ------------------------------------------------------------------
     def _do_fetch_and_download(self, url, interval, num_threads, skip_paid,
-                               retry_passes=5):
+                               retry_passes=5, interval_max=None):
         """Fetch metadata then download chapters — runs on worker thread."""
         # Step 1: Fetch metadata
         try:
@@ -1170,12 +1243,22 @@ class ExternalNovelDialog(tk.Toplevel):
         if self._var_to_enabled.get():
             end = min(end, self._var_to.get())
 
+        interval_max_supplied = interval_max is not None
+        interval, interval_max = ExternalScraper._normalize_interval_range(
+            interval, interval_max
+        )
+        interval_display = self._format_interval_range(
+            interval, interval_max
+        )
         self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
-                  f"threads={num_threads}, interval={interval}s"
+                  f"threads={num_threads}, interval={interval_display}"
                   + (', skipping paid' if skip_paid else ''))
 
         self._do_download(chapters, start, end, interval, num_threads,
-                          skip_paid, retry_passes)
+                          skip_paid, retry_passes,
+                          interval_max=(
+                              interval_max if interval_max_supplied else None
+                          ))
 
         # Generate output and signal completion
         try:
@@ -1320,24 +1403,39 @@ class ExternalNovelDialog(tk.Toplevel):
         self._progress['value'] = 0
         self._start_time = time.time()
 
-        interval = self._var_interval.get()
+        interval, interval_max = self._get_interval_range()
         num_threads = max(1, self._var_ext_threads.get())
         skip_paid = self._var_skip_paid.get()
         retry_passes = self._get_retry_passes()
 
+        interval_display = self._format_interval_range(
+            interval, interval_max
+        )
         self._log(f"Starting batch: {len(urls)} URL(s), "
-                  f"threads={num_threads}, interval={interval}s"
+                  f"threads={num_threads}, interval={interval_display}"
                   + (', skipping paid' if skip_paid else ''))
 
-        self._work_queue.put(("batch", (urls, interval, num_threads,
-                                         skip_paid, retry_passes)))
+        self._work_queue.put((
+            "batch",
+            (
+                urls, interval, num_threads, skip_paid, retry_passes,
+                interval_max,
+            ),
+        ))
 
     # ------------------------------------------------------------------
     # Batch worker (runs on worker thread)
     # ------------------------------------------------------------------
     def _do_batch(self, payload):
         """Process multiple URLs sequentially on the worker thread."""
-        urls, interval, num_threads, skip_paid, retry_passes = payload
+        if len(payload) >= 6:
+            (urls, interval, num_threads, skip_paid, retry_passes,
+             interval_max) = payload[:6]
+            interval_max_supplied = True
+        else:
+            urls, interval, num_threads, skip_paid, retry_passes = payload
+            interval_max = interval
+            interval_max_supplied = False
         output_dir = self._get_output_dir()
 
         if self._scraper is None:
@@ -1402,7 +1500,11 @@ class ExternalNovelDialog(tk.Toplevel):
 
             self._chapter_results = []
             self._do_download(chapters, start, end, interval,
-                              num_threads, skip_paid, retry_passes)
+                              num_threads, skip_paid, retry_passes,
+                              interval_max=(
+                                  interval_max
+                                  if interval_max_supplied else None
+                              ))
 
             if self._download_cancelled:
                 break
@@ -2974,6 +3076,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_ext_threads.set(cfg.get("ext_threads", 4))
             self._var_ext_image_workers.set(cfg.get("ext_image_workers", 8))
             self._var_interval.set(cfg.get("ext_interval", 0.5))
+            self._var_interval_max.set(
+                cfg.get("ext_interval_max", cfg.get("ext_interval", 0.5))
+            )
             self._var_from_enabled.set(cfg.get("ext_from_enabled", False))
             self._var_to_enabled.set(cfg.get("ext_to_enabled", False))
             self._var_from.set(cfg.get("ext_from", 1))
@@ -3036,7 +3141,10 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_formats"] = selected_formats
         cfg["ext_threads"] = self._var_ext_threads.get()
         cfg["ext_image_workers"] = self._var_ext_image_workers.get()
+        # Keep ext_interval as the minimum so older builds/config files retain
+        # their former fixed-delay behavior.
         cfg["ext_interval"] = self._var_interval.get()
+        cfg["ext_interval_max"] = self._var_interval_max.get()
         cfg["ext_from_enabled"] = self._var_from_enabled.get()
         cfg["ext_to_enabled"] = self._var_to_enabled.get()
         cfg["ext_from"] = self._var_from.get()

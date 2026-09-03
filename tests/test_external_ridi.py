@@ -64,6 +64,123 @@ def test_ridi_book_converts_discovered_chain_to_external_records():
     assert any('Chained episode links: 2' in message for message in messages)
 
 
+def test_ridi_book_api_discovery_runs_outside_product_page_csp():
+    seen = {}
+
+    class Page:
+        def goto(self, *_args, **_kwargs):
+            return None
+
+        def wait_for_load_state(self, *_args, **_kwargs):
+            return None
+
+        def evaluate(self, script):
+            seen['script'] = script
+            return {
+                'title': 'CSP-safe Ridi Novel',
+                'author': 'Author',
+                'links': [],
+                'titleById': {},
+                'seriesId': '6251000001',
+                'diagnostics': ['Rendered episode links: 0'],
+            }
+
+    scraper, messages = make_scraper()
+    scraper._page = Page()
+    scraper._context = object()
+    scraper._ridi_chrome = True
+    scraper._ridi_discover_episode_chain = lambda series_id: {
+        'links': [
+            'https://ridibooks.com/books/6251000001/view',
+            'https://ridibooks.com/books/6251000002/view',
+        ],
+        'titleById': {
+            '6251000001': 'Episode one',
+            '6251000002': 'Episode two',
+        },
+        'diagnostics': ['Chained episode links: 2'],
+        'isSerial': True,
+        'error': '',
+    }
+
+    book = scraper._ridi_parse_book(
+        'https://ridibooks.com/books/6251000001'
+    )
+
+    assert 'book-api.ridibooks.com' not in seen['script']
+    assert 'fetchBook' not in seen['script']
+    assert book['chapterCount'] == 2
+    assert [chapter['name'] for chapter in book['chapters']] == [
+        'Episode one',
+        'Episode two',
+    ]
+    assert any('Chained episode links: 2' in message for message in messages)
+
+
+def test_ridi_api_chain_follows_next_books_and_collects_titles():
+    class ApiPage:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+        def wait_for_timeout(self, _milliseconds):
+            return None
+
+    page = ApiPage()
+    first = {
+        'title': {'main': 'Episode 1'},
+        'series': {
+            'property': {
+                'is_serial': True,
+                'total_book_count': 3,
+                'next_books': {'1002': {'b_id': '1002'}},
+            }
+        },
+    }
+    payloads = {
+        '1002': {
+            'title': {'main': 'Episode 2'},
+            'series': {
+                'property': {
+                    'is_serial': True,
+                    'next_books': {'1003': {'b_id': '1003'}},
+                }
+            },
+        },
+        '1003': {
+            'title': {'main': 'Episode 3'},
+            'series': {
+                'property': {
+                    'is_serial': True,
+                    'next_books': {},
+                }
+            },
+        },
+    }
+    scraper, _messages = make_scraper()
+    scraper._ridi_open_api_book = lambda series_id: (page, first)
+    scraper._ridi_api_fetch_book = (
+        lambda _page, book_id, retries=3: payloads.get(book_id)
+    )
+
+    result = scraper._ridi_discover_episode_chain('1001')
+
+    assert [ExternalScraper._ridi_book_id(url) for url in result['links']] == [
+        '1001',
+        '1002',
+        '1003',
+    ]
+    assert result['titleById'] == {
+        '1001': 'Episode 1',
+        '1002': 'Episode 2',
+        '1003': 'Episode 3',
+    }
+    assert result['isSerial'] is True
+    assert result['error'] == ''
+    assert page.closed is True
+
+
 def test_ridi_book_rejects_volume_without_webnovel_episode_links():
     class Page:
         def goto(self, *_args, **_kwargs):

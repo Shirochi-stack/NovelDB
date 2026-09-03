@@ -1,3 +1,4 @@
+import json
 import queue
 import zipfile
 from types import SimpleNamespace
@@ -107,6 +108,112 @@ def test_external_retry_passes_have_safe_minimum_and_default():
     assert ExternalNovelDialog._get_retry_passes(
         SimpleNamespace(_retry_variable=None)
     ) == 5
+
+
+def test_external_interval_range_normalizes_like_main_downloader():
+    assert ExternalScraper._normalize_interval_range(2.0, 0.5) == (0.5, 2.0)
+    assert ExternalScraper._normalize_interval_range(-4, 500) == (0.0, 300.0)
+    assert ExternalScraper._normalize_interval_range(1.25) == (1.25, 1.25)
+
+
+def test_external_interval_ui_keeps_legacy_single_value_fixed():
+    legacy_dialog = SimpleNamespace(_var_interval=Setting(1.25))
+    range_dialog = SimpleNamespace(
+        _var_interval=Setting(2.0),
+        _var_interval_max=Setting(0.5),
+    )
+
+    assert ExternalNovelDialog._get_interval_range(legacy_dialog) == (
+        1.25,
+        1.25,
+    )
+    assert ExternalNovelDialog._get_interval_range(range_dialog) == (0.5, 2.0)
+
+
+def test_external_config_migrates_legacy_interval_to_fixed_range(
+    monkeypatch, tmp_path
+):
+    (tmp_path / 'config.json').write_text(
+        json.dumps({'ext_interval': 1.75}),
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(
+        'external_dialog._get_base_dir', lambda: str(tmp_path)
+    )
+    setting_names = (
+        '_url_var', '_var_format_epub', '_var_format_txt',
+        '_var_format_pdf', '_var_format_cbz', '_var_format',
+        '_var_ext_threads', '_var_ext_image_workers', '_var_interval',
+        '_var_interval_max', '_var_from_enabled', '_var_to_enabled',
+        '_var_from', '_var_to', '_var_skip_paid', '_var_regular_browser',
+        '_var_ntk_novelpia_cover', '_var_syosetu_amazon_cover',
+        '_var_long_image_layout', '_var_kakao_skip_last_page',
+        '_var_kakao_keep_filler', '_var_kakao_dedupe_images',
+        '_var_kakao_dedupe_leading_images',
+    )
+    dialog = SimpleNamespace(**{
+        name: Setting(None) for name in setting_names
+    })
+    dialog._spn_kakao_dedupe_leading = SimpleNamespace(
+        configure=lambda **_kwargs: None
+    )
+
+    ExternalNovelDialog._load_ext_config(dialog)
+
+    assert dialog._var_interval.get() == 1.75
+    assert dialog._var_interval_max.get() == 1.75
+
+
+def test_external_download_forwards_range_and_randomizes_each_batch(
+    monkeypatch,
+):
+    calls = []
+    sleeps = []
+
+    class Scraper:
+        _context = True
+
+        @staticmethod
+        def parse_chapter_batch(chapters, interval=0,
+                                interval_max=None):
+            calls.append((len(chapters), interval, interval_max))
+            return [
+                {'chapterName': chapter['name']}
+                for chapter in chapters
+            ]
+
+    monkeypatch.setattr(
+        'external_scraper.random.uniform',
+        lambda minimum, maximum: maximum,
+    )
+    dialog = SimpleNamespace(
+        _scraper=Scraper(),
+        _book_data={},
+        _downloading=True,
+        _download_cancelled=False,
+        _chapter_results=[],
+        _msg_queue=queue.Queue(),
+        _apply_scraper_options=lambda: None,
+        _sleep_while_downloading=lambda seconds: sleeps.append(seconds) or True,
+        _log=lambda _message: None,
+    )
+
+    ExternalNovelDialog._do_download(
+        dialog,
+        [
+            {'name': 'Chapter 1'},
+            {'name': 'Chapter 2'},
+            {'name': 'Chapter 3'},
+        ],
+        0,
+        3,
+        0.25,
+        num_threads=2,
+        interval_max=0.75,
+    )
+
+    assert calls == [(2, 0.25, 0.75), (1, 0.25, 0.75)]
+    assert sleeps == [0.75]
 
 
 def test_external_novelpia_notices_follow_main_download_setting():

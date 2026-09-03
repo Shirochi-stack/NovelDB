@@ -54,18 +54,30 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 
 1. Click **External Novel** in the main window.
 2. Paste the novel URL and click **Fetch Info**.
-3. Choose one or more formats (EPUB / TXT / PDF / CBZ), the chapter range, and thread count.
+3. Choose one or more formats (EPUB / TXT / PDF / CBZ), the chapter range,
+   thread count, and minimum/maximum interval.
 4. Click **Download**.
 
 The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
 
+The External Downloader chooses a fresh random chapter delay between **Min**
+and **Max**. Setting both to the same value produces a fixed delay. Existing
+configurations containing only `ext_interval` continue to load it as both ends
+of the range.
+
 Global Novelpia support integrates the `pia-scrap` API workflow directly into
 the External Downloader. Free chapters and chapters available to the saved
-browser account are supported, including signed chapter images.
+browser account are supported, including signed chapter images. Book discovery
+starts directly through the anonymous API without loading the website or
+probing account access. Saved login access is refreshed lazily only when a
+chapter requires it; the slower Global API uses a 90-second request timeout.
 
 Ridi support covers serialized webnovels, not volume ebooks. Free episodes and
 episodes purchased or rented by the logged-in account can be downloaded; other
-premium episodes are reported as locked.
+premium episodes are reported as locked. Ridi runs in the saved installed-Chrome
+profile so its product page, book API, and Cloudflare session share one browser
+identity. If Ridi requests verification, open the URL with **Enter Browser**,
+complete it, close that window, and retry.
 
 ### Updating Rules
 

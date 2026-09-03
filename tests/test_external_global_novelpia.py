@@ -25,15 +25,22 @@ def test_global_novelpia_url_detection_does_not_use_korean_scraper():
 def test_global_novelpia_book_uses_api_metadata_and_ascending_episode_order():
     class Page:
         def goto(self, *_args, **_kwargs):
-            return None
+            raise AssertionError('anonymous book discovery must not load the site')
 
-    scraper, _messages = make_scraper()
+    scraper, messages = make_scraper()
     scraper._page = Page()
     session = object()
-    scraper._global_novelpia_ensure_session = lambda refresh_login=False: session
+    session_modes = []
+
+    def ensure_session(refresh_login=False):
+        session_modes.append(refresh_login)
+        return session
+
+    scraper._global_novelpia_ensure_session = ensure_session
 
     def request_json(_session, url, params=None, **_kwargs):
         assert _session is session
+        assert _kwargs.get('login_at') is None
         if url.endswith('/v1/novel'):
             assert params == {'novel_no': '123'}
             return 200, {
@@ -87,6 +94,54 @@ def test_global_novelpia_book_uses_api_metadata_and_ascending_episode_order():
         chapter['_globalNovelpiaChapterNumber']
         for chapter in book['chapters']
     ] == [2, 10]
+    assert session_modes == [False]
+    assert any('site can respond slowly' in message for message in messages)
+    assert any(
+        'Starting immediately in anonymous access mode' in message
+        for message in messages
+    )
+
+
+def test_global_novelpia_api_uses_extended_slow_site_timeout():
+    calls = []
+
+    class Response:
+        status_code = 200
+        text = ''
+
+        @staticmethod
+        def json():
+            return {'result': {}}
+
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return Response()
+
+    scraper, _messages = make_scraper()
+    status, payload = scraper._global_novelpia_request_json(
+        Session(),
+        'https://api-global.novelpia.com/v1/novel',
+        max_retries=1,
+    )
+
+    assert status == 200
+    assert payload == {'result': {}}
+    assert calls[0][1]['timeout'] == 90
+
+
+def test_global_novelpia_session_does_not_probe_account_by_default():
+    scraper, _messages = make_scraper()
+    scraper._global_novelpia_sync_browser_cookies = lambda _session: 0
+    scraper._global_novelpia_refresh_login = lambda *_args: (_ for _ in ()).throw(
+        AssertionError('account refresh must be lazy')
+    )
+
+    session = scraper._global_novelpia_ensure_session()
+
+    assert session is not None
+    assert scraper._global_novelpia_login_at == ''
+    assert scraper._global_novelpia_refresh_attempted is False
 
 
 def test_global_novelpia_ticket_and_segment_helpers_follow_api_shapes():
@@ -243,6 +298,33 @@ def test_global_novelpia_batch_uses_native_api_path():
 
     assert result[0]['chapterName'] == 'One'
     assert calls == [chapters]
+
+
+def test_native_chapter_retry_uses_random_interval_range(monkeypatch):
+    scraper, _messages = make_scraper()
+    scraper._book_data = {'_global_novelpia': True}
+    scraper._global_novelpia_parse_chapter = lambda _url, name: {
+        'chapterName': name,
+        'contentHtml': '<p>ok</p>',
+    }
+    sleeps = []
+    monkeypatch.setattr(
+        'external_scraper.random.uniform',
+        lambda minimum, maximum: maximum,
+    )
+    monkeypatch.setattr(
+        'external_scraper.time.sleep', sleeps.append
+    )
+
+    result = scraper.parse_chapter(
+        0,
+        {'url': 'https://global.novelpia.com/viewer/1', 'name': 'One'},
+        interval=0.1,
+        interval_max=0.4,
+    )
+
+    assert result['chapterName'] == 'One'
+    assert sleeps == [0.4]
 
 
 def test_signed_image_cookies_are_only_forwarded_to_novelpia_cdn():
