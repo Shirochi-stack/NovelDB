@@ -3655,6 +3655,18 @@ class ExternalScraper:
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
         text = msg.text
+        lowered = text.lower()
+        # Ridi emits these two known browser/analytics messages on every
+        # otherwise-successful product page. They do not affect scraping and
+        # should not be presented to the user as downloader failures.
+        if (
+            'permissions policy violation: unload is not allowed' in lowered
+            or (
+                'amplitude logger [error]' in lowered
+                and 'event rejected due to missing api key' in lowered
+            )
+        ):
+            return
         if 'TypeError: Failed to fetch' in text:
             return
         if 'whoas.xyz/collect' in text:
@@ -9521,7 +9533,65 @@ async ({ url }) => {
                     time.sleep(delay)
         return None
 
-    def _ridi_discover_episode_chain(self, series_id):
+    @classmethod
+    def _ridi_contiguous_catalog_ids(
+        cls, series_id, total, rendered_links, first_data
+    ):
+        """Infer a serial catalog only when Ridi proves IDs are contiguous.
+
+        Ridi's product page renders an initial run of episode links. For
+        series whose official root payload reports the same consecutive next
+        ID, that run safely establishes the numeric catalog pattern. The
+        caller still validates the final generated ID against book-api before
+        accepting this fast path.
+        """
+        series_id = str(series_id or '')
+        if not series_id.isdigit() or total < 2 or total > 10000:
+            return []
+        rendered_ids = []
+        for link in rendered_links or []:
+            book_id = cls._ridi_book_id(link)
+            if book_id and book_id not in rendered_ids:
+                rendered_ids.append(book_id)
+        if len(rendered_ids) < 2 or series_id not in rendered_ids:
+            return []
+
+        start = int(series_id)
+        rendered_numbers = sorted(int(book_id) for book_id in rendered_ids)
+        expected_rendered = list(range(start, start + len(rendered_numbers)))
+        if rendered_numbers != expected_rendered:
+            return []
+
+        width = len(series_id)
+        expected_next = str(start + 1).zfill(width)
+        if cls._ridi_api_next_id(first_data) != expected_next:
+            return []
+        return [
+            str(start + offset).zfill(width)
+            for offset in range(total)
+        ]
+
+    @classmethod
+    def _ridi_generated_catalog_titles(cls, first_title, ordered_ids):
+        """Expand an API title such as ``Book 1화`` for the fast catalog."""
+        first_title = str(first_title or '').strip()
+        if not first_title or not ordered_ids:
+            return {}
+        match = re.match(
+            r'^(.*?)(\d+)(\s*(?:화|회|권|episode|chapter|volume))(.*)$',
+            first_title,
+            re.I,
+        )
+        if not match:
+            return {ordered_ids[0]: first_title}
+        number = int(match.group(2))
+        prefix, marker, suffix = match.group(1), match.group(3), match.group(4)
+        return {
+            book_id: f'{prefix}{number + index}{marker}{suffix}'
+            for index, book_id in enumerate(ordered_ids)
+        }
+
+    def _ridi_discover_episode_chain(self, series_id, rendered_links=None):
         """Follow series.property.next_books outside the product-page CSP."""
         result = {
             'links': [],
@@ -9555,6 +9625,56 @@ async ({ url }) => {
             # webnovel merely because the API request itself succeeded.
             if not result['isSerial']:
                 return result
+
+            # Most Ridi webnovels use a contiguous episode-ID range. Prove
+            # that from the rendered initial run and the root API's next ID,
+            # then validate the official final ID. This replaces hundreds of
+            # sequential next_books requests with one validation request.
+            fast_ids = self._ridi_contiguous_catalog_ids(
+                series_id, total, rendered_links, first_data
+            )
+            if fast_ids:
+                last_id = fast_ids[-1]
+                last_data = self._ridi_api_fetch_book(
+                    api_page, last_id, retries=2
+                )
+                last_prop = (
+                    ((last_data or {}).get('series') or {}).get('property')
+                    or {}
+                )
+                try:
+                    last_total = int(
+                        last_prop.get('total_book_count')
+                        or last_prop.get('opened_book_count')
+                        or 0
+                    )
+                except (TypeError, ValueError):
+                    last_total = 0
+                final_is_valid = bool(
+                    last_data
+                    and last_prop.get('is_serial')
+                    and (not last_total or last_total == total)
+                    and not self._ridi_api_next_id(last_data)
+                )
+                if final_is_valid:
+                    ordered_ids = fast_ids
+                    result['titleById'].update(
+                        self._ridi_generated_catalog_titles(
+                            first_title, ordered_ids
+                        )
+                    )
+                    last_title = self._ridi_api_title(last_data)
+                    if last_title:
+                        result['titleById'][last_id] = last_title
+                    result['links'] = [
+                        f'https://ridibooks.com/books/{episode_id}/view'
+                        for episode_id in ordered_ids
+                    ]
+                    result['diagnostics'].append(
+                        f'Fast episode catalog: {len(ordered_ids)} '
+                        'contiguous links validated.'
+                    )
+                    return result
 
             safety_limit = min(max(total or 10000, 1), 10000)
             while len(ordered_ids) < safety_limit and not self._stop_requested:
@@ -9663,10 +9783,26 @@ async ({ url }) => {
                 wait_until='domcontentloaded',
                 timeout=45000,
             )
-            try:
-                self._page.wait_for_load_state('load', timeout=15000)
-            except Exception:
-                pass
+            # Do not wait for the full load event: Ridi's analytics resources
+            # can keep it pending for 15 seconds even though the server-rendered
+            # metadata and series shell are already ready.
+            wait_for_function = getattr(self._page, 'wait_for_function', None)
+            if wait_for_function:
+                try:
+                    wait_for_function(
+                        r"""
+() => {
+  if (!document.querySelector('h1, meta[property="og:title"]')) return false;
+  if (document.querySelector('.serial_book_direct_view_button')) return true;
+  return [...document.querySelectorAll('script:not([src])')].some((node) =>
+    /"seriesId"\s*:\s*"\d+"/.test(node.textContent || '')
+  );
+}
+""",
+                        timeout=5000,
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             if 'ERR_ABORTED' not in str(e):
                 self.log(f'[Ridi] ERROR: Page load failed: {e}')
@@ -9927,7 +10063,9 @@ async ({ url }) => {
         series_id = str(meta.get('seriesId') or '')
         api_result = None
         if series_id and self._context:
-            api_result = self._ridi_discover_episode_chain(series_id)
+            api_result = self._ridi_discover_episode_chain(
+                series_id, rendered_links=links
+            )
             for line in api_result.get('diagnostics') or []:
                 self.log(f'[Ridi] {line}')
             api_links = api_result.get('links') or []

@@ -6,6 +6,26 @@ def make_scraper():
     return ExternalScraper(logger=messages.append), messages
 
 
+def test_ridi_harmless_policy_and_amplitude_console_noise_is_hidden():
+    scraper, messages = make_scraper()
+
+    class Message:
+        type = 'error'
+
+        def __init__(self, text):
+            self.text = text
+
+    scraper._on_console(Message(
+        'Permissions policy violation: unload is not allowed in this document.'
+    ))
+    scraper._on_console(Message(
+        'Amplitude Logger [Error]: Event rejected due to missing API key'
+    ))
+    scraper._on_console(Message('Unexpected Ridi renderer failure'))
+
+    assert messages == ['[JS] Unexpected Ridi renderer failure']
+
+
 def test_ridi_url_detection_is_scoped_to_book_and_viewer_pages():
     assert ExternalScraper.is_ridibooks(
         'https://ridibooks.com/books/1234567890'
@@ -27,7 +47,9 @@ def test_ridi_book_converts_discovered_chain_to_external_records():
             return None
 
         def wait_for_load_state(self, *_args, **_kwargs):
-            return None
+            raise AssertionError(
+                'Ridi metadata must not wait for tracker-driven full load'
+            )
 
         def evaluate(self, _script):
             return {
@@ -91,7 +113,7 @@ def test_ridi_book_api_discovery_runs_outside_product_page_csp():
     scraper._page = Page()
     scraper._context = object()
     scraper._ridi_chrome = True
-    scraper._ridi_discover_episode_chain = lambda series_id: {
+    scraper._ridi_discover_episode_chain = lambda series_id, **_kwargs: {
         'links': [
             'https://ridibooks.com/books/6251000001/view',
             'https://ridibooks.com/books/6251000002/view',
@@ -181,6 +203,129 @@ def test_ridi_api_chain_follows_next_books_and_collects_titles():
     assert result['isSerial'] is True
     assert result['error'] == ''
     assert page.closed is True
+
+
+def test_ridi_api_uses_validated_contiguous_fast_catalog():
+    class ApiPage:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    page = ApiPage()
+    first = {
+        'title': {'main': 'Example Novel 1화'},
+        'series': {
+            'property': {
+                'is_serial': True,
+                'total_book_count': 182,
+                'next_books': {'6251000002': {}},
+            }
+        },
+    }
+    last = {
+        'title': {'main': 'Example Novel 182화'},
+        'series': {
+            'property': {
+                'is_serial': True,
+                'total_book_count': 182,
+                'next_books': {},
+            }
+        },
+    }
+    fetches = []
+    scraper, _messages = make_scraper()
+    scraper._ridi_open_api_book = lambda _series_id: (page, first)
+
+    def fetch(_page, book_id, retries=3):
+        fetches.append((book_id, retries))
+        return last if book_id == '6251000182' else None
+
+    scraper._ridi_api_fetch_book = fetch
+    result = scraper._ridi_discover_episode_chain(
+        '6251000001',
+        rendered_links=[
+            f'https://ridibooks.com/books/{book_id}/view'
+            for book_id in range(6251000001, 6251000026)
+        ],
+    )
+
+    ids = [ExternalScraper._ridi_book_id(url) for url in result['links']]
+    assert len(ids) == 182
+    assert ids[:2] == ['6251000001', '6251000002']
+    assert ids[-1] == '6251000182'
+    assert fetches == [('6251000182', 2)]
+    assert result['titleById']['6251000002'] == 'Example Novel 2화'
+    assert result['titleById']['6251000182'] == 'Example Novel 182화'
+    assert any(
+        'Fast episode catalog: 182 contiguous links validated.' == diagnostic
+        for diagnostic in result['diagnostics']
+    )
+    assert page.closed is True
+
+
+def test_ridi_noncontiguous_rendered_ids_fall_back_to_next_book_chain():
+    class ApiPage:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+        def wait_for_timeout(self, _milliseconds):
+            return None
+
+    page = ApiPage()
+    first = {
+        'title': {'main': 'Episode 1'},
+        'series': {
+            'property': {
+                'is_serial': True,
+                'total_book_count': 3,
+                'next_books': {'1002': {}},
+            }
+        },
+    }
+    payloads = {
+        '1002': {
+            'title': {'main': 'Episode 2'},
+            'series': {'property': {
+                'is_serial': True,
+                'next_books': {'1003': {}},
+            }},
+        },
+        '1003': {
+            'title': {'main': 'Episode 3'},
+            'series': {'property': {
+                'is_serial': True,
+                'next_books': {},
+            }},
+        },
+    }
+    fetches = []
+    scraper, _messages = make_scraper()
+    scraper._ridi_open_api_book = lambda _series_id: (page, first)
+
+    def fetch(_page, book_id, retries=3):
+        fetches.append(book_id)
+        return payloads.get(book_id)
+
+    scraper._ridi_api_fetch_book = fetch
+    result = scraper._ridi_discover_episode_chain(
+        '1001',
+        rendered_links=[
+            'https://ridibooks.com/books/1001/view',
+            'https://ridibooks.com/books/1003/view',
+        ],
+    )
+
+    assert fetches == ['1002', '1003']
+    assert [ExternalScraper._ridi_book_id(url) for url in result['links']] == [
+        '1001', '1002', '1003',
+    ]
+    assert not any(
+        diagnostic.startswith('Fast episode catalog:')
+        for diagnostic in result['diagnostics']
+    )
 
 
 def test_ridi_api_chain_reopens_failed_episode_and_continues():
