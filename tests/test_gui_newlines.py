@@ -298,6 +298,56 @@ def test_chapter_image_urls_reject_non_http_sources():
     assert DownloaderCore.normalize_chapter_image_url("javascript:alert(1)") is None
 
 
+def test_author_notices_are_returned_in_reading_order():
+    class Response:
+        text = """
+            <table class="notice_table">
+                <tr><td onclick="location='/viewer/103'"><b>Chapter notice 3</b></td></tr>
+                <tr><td onclick="location='/viewer/102'"><b>Chapter notice 2</b></td></tr>
+                <tr><td onclick="location='/viewer/101'"><b>Chapter notice 1</b></td></tr>
+            </table>
+        """
+
+    class Session:
+        def get(self, *_args, **_kwargs):
+            return Response()
+
+    downloader = DownloaderCore(
+        SimpleNamespace(session=Session()), lambda _message: None
+    )
+
+    notices = downloader.fetch_notice_ids("novel-id")
+
+    assert [notice["id"] for notice in notices] == ["101", "102", "103"]
+    assert [notice["title"] for notice in notices] == [
+        "Notice: Chapter notice 1",
+        "Notice: Chapter notice 2",
+        "Notice: Chapter notice 3",
+    ]
+
+
+def test_cache_invalidation_keeps_legacy_and_image_cache_json_compatible():
+    cache_data = {
+        "101": '{"s": [{"text": "notice 1"}]}',
+        "102": {
+            "json": '{"s": [{"text": "notice 2"}]}',
+            "html": "<p>notice 2</p>",
+            "images": [["1.webp", "encoded-image"]],
+        },
+        "_image_fingerprint": "old-settings",
+    }
+
+    assert NovelpiaGUI._has_cached_images(cache_data) is True
+
+    NovelpiaGUI._invalidate_cached_images(cache_data)
+
+    assert cache_data == {
+        "101": '{"s": [{"text": "notice 1"}]}',
+        "102": '{"s": [{"text": "notice 2"}]}',
+        "_image_fingerprint": "old-settings",
+    }
+
+
 def test_pdf_dll_path_excludes_tesseract_without_changing_other_entries():
     original = (
         r"C:\Python312;C:\Program Files\Tesseract-OCR;"

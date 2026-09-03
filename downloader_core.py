@@ -778,6 +778,11 @@ class DownloaderCore:
                 clean_title = re.sub(r"<.*?>", "", raw_title).strip()
                 title = "Notice: " + clean_title if clean_title else "Notice"
                 results.append({"id": chap_id, "title": html.unescape(title)})
+            # The notice table is rendered newest-first, unlike the episode
+            # list requested with sort=DOWN.  Downloads place notices before
+            # regular chapters, so normalize them to the same reading order:
+            # the earliest (for example, "Notice 1") must be first.
+            results.reverse()
             self.log(f"Found {len(results)} author notice(s).")
             return results
         except Exception as e:
