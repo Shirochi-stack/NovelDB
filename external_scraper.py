@@ -7745,6 +7745,73 @@ async ({ url }) => {
         match = re.search(r'/viewer/(\d+)', path, re.I)
         return match.group(1) if match else ''
 
+    def _global_novelpia_profile_cookies(self):
+        """Read current cookies from the saved External Browser profile.
+
+        Enter Browser uses installed Chrome directly, so its cookie database
+        can be newer than ``nd_storage_state.json``. In particular, Global
+        Novelpia may add TKEY during login; using the older snapshot causes
+        the API refresh to reject an otherwise valid browser session.
+        """
+        profile_dir = self._get_user_data_dir()
+        cookies_db = os.path.join(
+            profile_dir, 'Default', 'Network', 'Cookies'
+        )
+        if not os.path.exists(cookies_db):
+            return []
+        key = self._ntk_chrome_master_key(profile_dir)
+        now_chrome = int((time.time() + 11644473600) * 1000000)
+        temp_path = None
+        try:
+            fd, temp_path = tempfile.mkstemp(
+                prefix='global_novelpia_cookies_', suffix='.db'
+            )
+            os.close(fd)
+            shutil.copy2(cookies_db, temp_path)
+            connection = sqlite3.connect(temp_path)
+            try:
+                rows = connection.execute(
+                    """
+                    SELECT host_key, name, value, encrypted_value,
+                           expires_utc, path, is_secure
+                    FROM cookies
+                    WHERE host_key = 'novelpia.com'
+                       OR host_key = '.novelpia.com'
+                       OR host_key LIKE '%.novelpia.com'
+                    """
+                ).fetchall()
+            finally:
+                connection.close()
+
+            records = []
+            for (
+                domain, name, value, encrypted_value,
+                expires_utc, path, is_secure,
+            ) in rows:
+                if expires_utc and expires_utc < now_chrome:
+                    continue
+                cookie_value = value or self._ntk_decrypt_chrome_cookie(
+                    domain, encrypted_value, key
+                )
+                if not name or not cookie_value:
+                    continue
+                records.append({
+                    'name': name,
+                    'value': cookie_value,
+                    'domain': domain,
+                    'path': path or '/',
+                    'secure': bool(is_secure),
+                })
+            return records
+        except Exception:
+            return []
+        finally:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
     def _global_novelpia_sync_browser_cookies(self, session):
         """Copy the dedicated External Downloader profile into requests."""
         if self._context:
@@ -7756,8 +7823,7 @@ async ({ url }) => {
             # The anonymous fast path does not launch Chromium. Preserve the
             # ability to authenticate lazily by reading cookies previously
             # saved through Enter Browser.
-            cookies = []
-            seen = set()
+            cookie_records = {}
             for origin in (
                 self._GLOBAL_NOVELPIA_BASE,
                 self._GLOBAL_NOVELPIA_API,
@@ -7767,9 +7833,15 @@ async ({ url }) => {
                         cookie.get('name'), cookie.get('domain'),
                         cookie.get('path'),
                     )
-                    if key not in seen:
-                        seen.add(key)
-                        cookies.append(cookie)
+                    cookie_records[key] = cookie
+            # Current Chrome data wins over the exported fallback snapshot.
+            for cookie in self._global_novelpia_profile_cookies():
+                key = (
+                    cookie.get('name'), cookie.get('domain'),
+                    cookie.get('path'),
+                )
+                cookie_records[key] = cookie
+            cookies = list(cookie_records.values())
         copied = 0
         for cookie in cookies or []:
             domain = (cookie.get('domain') or '').lower()
@@ -7794,6 +7866,22 @@ async ({ url }) => {
             except Exception:
                 pass
         return copied
+
+    @staticmethod
+    def _global_novelpia_has_saved_login(session):
+        """Recognize browser auth cookies without making a network probe."""
+        values = {}
+        try:
+            for cookie in session.cookies:
+                values[cookie.name] = cookie.value
+        except Exception:
+            return False
+        userkey = str(values.get('USERKEY') or '').strip()
+        tkey = str(values.get('TKEY') or '').strip()
+        login_key = str(values.get('LOGINKEY') or '').strip()
+        is_login = str(values.get('ISLOGIN') or '').strip().lower()
+        login_marker = is_login not in ('', '0', 'false', 'n', 'no')
+        return bool(userkey and (tkey or (login_key and login_marker)))
 
     def _global_novelpia_ensure_session(self, refresh_login=False):
         """Create an API session and import the latest browser credentials."""
@@ -8012,22 +8100,35 @@ async ({ url }) => {
             '[Global Novelpia] Note: this site can respond slowly. API '
             f'requests may wait up to {self._GLOBAL_NOVELPIA_TIMEOUT} seconds.'
         )
-        self.log(
-            '[Global Novelpia] Starting immediately in anonymous access mode; '
-            'saved account access is checked only if a chapter requires it.'
-        )
 
-        # Metadata and episode lists are public API calls. Do not spend time
-        # loading the website or refreshing LOGINAT before they are needed.
+        # Metadata and episode lists do not require loading the website. Read
+        # the saved profile locally, then exchange its login cookies for the
+        # API token only when an authenticated browser session actually exists.
         session = self._global_novelpia_ensure_session(refresh_login=False)
         if session is None:
             return None
+        if self._global_novelpia_has_saved_login(session):
+            if self._global_novelpia_refresh_login():
+                self.log(
+                    '[Global Novelpia] Using the saved authenticated browser '
+                    'session.'
+                )
+            else:
+                self.log(
+                    '[Global Novelpia] Saved browser login could not be used; '
+                    'continuing with anonymous access.'
+                )
+        else:
+            self.log(
+                '[Global Novelpia] No saved login found; using anonymous '
+                'access without an account check.'
+            )
 
         status, novel_payload = self._global_novelpia_request_json(
             session,
             f'{self._GLOBAL_NOVELPIA_API}/v1/novel',
             params={'novel_no': novel_id},
-            login_at=None,
+            login_at=self._global_novelpia_login_at or None,
         )
         result = novel_payload.get('result') if isinstance(novel_payload, dict) else None
         novel = result.get('novel') if isinstance(result, dict) else None
@@ -8050,7 +8151,7 @@ async ({ url }) => {
             session,
             f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode/list',
             params={'novel_no': novel_id, 'rows': rows, 'sort': 'ASC'},
-            login_at=None,
+            login_at=self._global_novelpia_login_at or None,
         )
         list_result = list_payload.get('result') if isinstance(list_payload, dict) else None
         episodes = list_result.get('list') if isinstance(list_result, dict) else None
@@ -8571,8 +8672,6 @@ async ({ url }) => {
                     chapter_url,
                     self._global_novelpia_signed_image_cookies(ticket),
                 )
-                if result:
-                    self.log(f'  [Global Novelpia] OK: {chapter_name}')
                 return result
             finally:
                 session.close()

@@ -68,9 +68,11 @@ of the range.
 Global Novelpia support integrates the `pia-scrap` API workflow directly into
 the External Downloader. Free chapters and chapters available to the saved
 browser account are supported, including signed chapter images. Book discovery
-starts directly through the anonymous API without loading the website or
-probing account access. Saved login access is refreshed lazily only when a
-chapter requires it; the slower Global API uses a 90-second request timeout.
+starts directly through the API without loading the website. Current cookies
+are read from the saved installed-Chrome profile: a detected login is converted
+to the API credential before chapter 1, while users without saved login cookies
+continue anonymously without an account request. The slower Global API uses a
+90-second request timeout.
 
 Ridi support covers serialized webnovels, not volume ebooks. Free episodes and
 episodes purchased or rented by the logged-in account can be downloaded; other

@@ -97,9 +97,93 @@ def test_global_novelpia_book_uses_api_metadata_and_ascending_episode_order():
     assert session_modes == [False]
     assert any('site can respond slowly' in message for message in messages)
     assert any(
-        'Starting immediately in anonymous access mode' in message
+        'using anonymous access without an account check' in message
         for message in messages
     )
+
+
+def test_global_novelpia_saved_login_is_ready_before_book_download():
+    import requests
+
+    scraper, messages = make_scraper()
+    session = requests.Session()
+    session.cookies.set('USERKEY', 'saved-user', domain='.novelpia.com')
+    session.cookies.set('TKEY', 'saved-token', domain='.novelpia.com')
+    scraper._global_novelpia_ensure_session = lambda **_kwargs: session
+    refreshes = []
+
+    def refresh_login(*_args):
+        refreshes.append(True)
+        scraper._global_novelpia_login_at = 'api-login-token'
+        return True
+
+    scraper._global_novelpia_refresh_login = refresh_login
+    request_tokens = []
+
+    def request_json(_session, url, login_at=None, **_kwargs):
+        request_tokens.append(login_at)
+        if url.endswith('/v1/novel'):
+            return 200, {
+                'result': {
+                    'novel': {'novel_name': 'Authenticated Book'},
+                    'info': {'epi_cnt': 1},
+                }
+            }
+        return 200, {
+            'result': {
+                'list': [
+                    {'episode_no': 1, 'epi_num': 1, 'epi_title': 'Paid'}
+                ]
+            }
+        }
+
+    scraper._global_novelpia_request_json = request_json
+
+    book = scraper._global_novelpia_parse_book(
+        'https://global.novelpia.com/novel/123'
+    )
+
+    assert book['chapterCount'] == 1
+    assert refreshes == [True]
+    assert request_tokens == ['api-login-token', 'api-login-token']
+    assert any(
+        'Using the saved authenticated browser session' in message
+        for message in messages
+    )
+
+
+def test_global_novelpia_current_profile_cookies_replace_stale_snapshot():
+    import requests
+
+    scraper, _messages = make_scraper()
+    scraper._storage_cookies_for_url = lambda _url: [{
+        'name': 'TKEY',
+        'value': 'stale-token',
+        'domain': '.novelpia.com',
+        'path': '/',
+    }]
+    scraper._global_novelpia_profile_cookies = lambda: [
+        {
+            'name': 'USERKEY',
+            'value': 'current-user',
+            'domain': '.novelpia.com',
+            'path': '/',
+        },
+        {
+            'name': 'TKEY',
+            'value': 'current-token',
+            'domain': '.novelpia.com',
+            'path': '/',
+        },
+    ]
+    session = requests.Session()
+
+    copied = scraper._global_novelpia_sync_browser_cookies(session)
+    cookies = session.cookies.get_dict(domain='.novelpia.com')
+
+    assert copied == 2
+    assert cookies['USERKEY'] == 'current-user'
+    assert cookies['TKEY'] == 'current-token'
 
 
 def test_global_novelpia_api_uses_extended_slow_site_timeout():
@@ -208,7 +292,7 @@ def test_global_novelpia_normalizes_lazy_and_background_images():
 
 
 def test_global_novelpia_chapter_fetches_ticket_content_and_signed_images():
-    scraper, _messages = make_scraper()
+    scraper, messages = make_scraper()
 
     class Session:
         def close(self):
@@ -256,6 +340,7 @@ def test_global_novelpia_chapter_fetches_ticket_content_and_signed_images():
     assert calls[0][1] == {'episode_no': '456'}
     assert calls[0][2] == 'login-token'
     assert calls[1][1] == {'_t': 'header.payload.signature'}
+    assert not any('[Global Novelpia] OK:' in message for message in messages)
 
 
 def test_global_novelpia_denied_ticket_is_reported_as_locked():
