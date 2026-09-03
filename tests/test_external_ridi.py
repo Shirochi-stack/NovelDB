@@ -572,6 +572,41 @@ def test_ridi_chapter_restarts_session_after_browser_closes_during_goto():
     assert not any('LOCKED' in message for message in messages)
 
 
+def test_ridi_chrome_is_created_offscreen_without_minimizing_or_headless():
+    class Process:
+        pid = 4321
+
+    scraper, _messages = make_scraper()
+    launches = []
+    parked = []
+    scraper._get_user_data_dir = lambda: 'ridi-profile'
+    scraper._chrome_processes_using_profile = lambda _path: []
+    scraper._open_system_chrome = lambda url, **kwargs: (
+        launches.append((url, kwargs)) or (Process(), 9222)
+    )
+    scraper._wait_for_cdp = lambda _port, timeout=0: True
+    scraper._park_chrome_windows_for_profile = lambda path: (
+        parked.append(path) or True
+    )
+    scraper._ridi_connect_cdp = lambda port: port == 9222
+
+    assert scraper._start_ridi_browser(
+        'https://ridibooks.com/books/6251000001'
+    )
+
+    assert launches == [(
+        'https://ridibooks.com/books/6251000001',
+        {
+            'remote_debugging': True,
+            'user_data_dir': 'ridi-profile',
+            'hidden': False,
+            'window_size': (1280, 900),
+            'window_position': (-32000, -32000),
+        },
+    )]
+    assert parked == ['ridi-profile', 'ridi-profile']
+
+
 def test_ridi_rendered_chapter_uses_contributed_cleanup_payload():
     class Page:
         url = 'https://ridibooks.com/books/1001/view'

@@ -9679,6 +9679,8 @@ async ({ url }) => {
             remote_debugging=True,
             user_data_dir=user_data_dir,
             hidden=False,
+            window_size=(1280, 900),
+            window_position=(-32000, -32000),
         )
         if not proc or not port:
             self.log('ERROR: [Ridi] Installed Chrome/Edge was not found.')
