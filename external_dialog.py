@@ -372,6 +372,12 @@ class ExternalNovelDialog(tk.Toplevel):
         self._scraper.ntk_prefer_novelpia_cover = (
             self._var_ntk_novelpia_cover.get()
         )
+        include_notices = getattr(
+            self._parent_gui, 'var_include_notices', None
+        )
+        self._scraper.novelpia_include_notices = (
+            include_notices.get() if include_notices else True
+        )
         self._scraper.syosetu_amazon_cover_fallback = (
             self._var_syosetu_amazon_cover.get()
         )
@@ -534,7 +540,19 @@ class ExternalNovelDialog(tk.Toplevel):
                         pass
             self._apply_scraper_options()
 
-            selected = chapters[start:end]
+            if is_novelpia:
+                notices = [ch for ch in chapters if ch.get('isNotice')]
+                regular_chapters = [
+                    ch for ch in chapters if not ch.get('isNotice')
+                ]
+                # Match the main downloader: author notices are prepended,
+                # while From/To continues to select regular chapters only.
+                selected_regular = regular_chapters[start:end]
+                selected = (
+                    notices + selected_regular if selected_regular else []
+                )
+            else:
+                selected = chapters[start:end]
             total = len(selected)
             results = [None] * total
             is_qidian = bool(
@@ -658,7 +676,18 @@ class ExternalNovelDialog(tk.Toplevel):
                                 f"{retry_passes} retries."
                             )
                     if isinstance(data, dict):
-                        data.setdefault('_chapter_number', start + idx + 1)
+                        chapter_info = selected[idx]
+                        is_notice = bool(chapter_info.get('isNotice'))
+                        data.setdefault('_is_notice', is_notice)
+                        if is_notice:
+                            source_number = chapter_info.get(
+                                '_novelpiaNoticeNumber', idx + 1
+                            )
+                        else:
+                            source_number = chapter_info.get(
+                                '_novelpiaChapterNumber', start + idx + 1
+                            )
+                        data.setdefault('_chapter_number', source_number)
                     results[idx] = data
 
                 completed += (batch_end - batch_start)
@@ -992,7 +1021,11 @@ class ExternalNovelDialog(tk.Toplevel):
         self._lbl_title.configure(text=data.get('bookname', '?'))
         self._lbl_author.configure(text=data.get('author', '?'))
         chapter_count = data.get('chapterCount', 0)
-        self._lbl_chapters.configure(text=str(chapter_count))
+        notice_count = data.get('noticeCount', 0)
+        chapter_label = str(chapter_count)
+        if notice_count:
+            chapter_label += f" (+{notice_count} author notices)"
+        self._lbl_chapters.configure(text=chapter_label)
 
         if chapter_count > 0:
             # Only auto-fill 'To' if the user hasn't explicitly set a range
@@ -1123,11 +1156,15 @@ class ExternalNovelDialog(tk.Toplevel):
         # Step 2: Download chapters
         chapters = data.get('chapters', [])
         start = 0
-        end = len(chapters)
+        end = (
+            data.get('chapterCount', len(chapters))
+            if data.get('_novelpia')
+            else len(chapters)
+        )
         if self._var_from_enabled.get():
             start = max(0, self._var_from.get() - 1)
         if self._var_to_enabled.get():
-            end = min(len(chapters), self._var_to.get())
+            end = min(end, self._var_to.get())
 
         self._log(f"Starting download: chapters {start + 1}\u2013{end}, "
                   f"threads={num_threads}, interval={interval}s"
@@ -1349,11 +1386,15 @@ class ExternalNovelDialog(tk.Toplevel):
                 continue
 
             start = 0
-            end = len(chapters)
+            end = (
+                data.get('chapterCount', len(chapters))
+                if data.get('_novelpia')
+                else len(chapters)
+            )
             if self._var_from_enabled.get():
                 start = max(0, self._var_from.get() - 1)
             if self._var_to_enabled.get():
-                end = min(len(chapters), self._var_to.get())
+                end = min(end, self._var_to.get())
 
             self._chapter_results = []
             self._do_download(chapters, start, end, interval,
@@ -1980,6 +2021,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                 ch_name = ch_data.get(
                     'chapterName', f'Chapter {chapter_number}'
                 )
+                is_notice = bool(ch_data.get('_is_notice'))
                 content_html = ch_data.get('contentHtml', '')
                 img_total = len(ch_data.get('images') or [])
                 if img_total:
@@ -2232,7 +2274,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                     show_chapter_title = False
                 epub.add_chapter(
                     ch_name, content_html, show_title=show_chapter_title,
-                    chapter_number=chapter_number,
+                    is_notice=is_notice,
+                    chapter_number=None if is_notice else chapter_number,
                 )
 
             if is_kakao and self._var_kakao_dedupe_images.get():
@@ -2747,7 +2790,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             chapters_for_pdf.append({
                 "title": ch_name,
                 "html": content_html,
-                "is_notice": False,
+                "is_notice": bool(ch_data.get('_is_notice')),
             })
 
         # Read PDF settings from parent GUI

@@ -167,6 +167,43 @@ def validate_chapter_payload(payload):
     return data
 
 
+def parse_novelpia_notice_html(source):
+    """Return author-notice chapter records in oldest-first reading order."""
+    source = source or ""
+    table_match = re.search(
+        r'<table\b[^>]*\bclass=["\'][^"\']*\bnotice_table\b'
+        r'[^"\']*["\'][^>]*>.*?</table>',
+        source,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not table_match:
+        return []
+
+    table_html = table_match.group(0)
+    matches = re.findall(
+        r"location=['\"]/viewer/(\d+)['\"][^>]*><b>(.*?)</b>",
+        table_html,
+        flags=re.DOTALL,
+    )
+    if not matches:
+        matches = re.findall(
+            r"href=['\"]/viewer/(\d+)['\"][^>]*><b>(.*?)</b>",
+            table_html,
+            flags=re.DOTALL,
+        )
+
+    results = []
+    for chapter_id, raw_title in matches:
+        clean_title = re.sub(r"<.*?>", "", raw_title).strip()
+        title = "Notice: " + clean_title if clean_title else "Notice"
+        results.append({"id": chapter_id, "title": html.unescape(title)})
+
+    # Novelpia renders this table newest-first. Downloads place notices before
+    # regular chapters, so normalize it to oldest-first reading order.
+    results.reverse()
+    return results
+
+
 class DownloaderCore:
     def __init__(self, auth_instance, logger_func):
         self.auth = auth_instance
@@ -766,23 +803,10 @@ class DownloaderCore:
             self.log(f"Scanning notices on novel page for {novel_id}...")
             resp = self.auth.session.get(url, timeout=15)
             text = resp.text or ""
-            m = re.search(r'<table[^>]+class="notice_table[^"]*"[^>]*>.*?</table>', text, flags=re.IGNORECASE | re.DOTALL)
-            if not m:
+            results = parse_novelpia_notice_html(text)
+            if not re.search(r'\bnotice_table\b', text, re.IGNORECASE):
                 self.log("No notice table found.")
                 return []
-            table_html = m.group(0)
-            matches = re.findall(r"location=['\"]/viewer/(\d+)['\"][^>]*><b>(.*?)</b>", table_html, flags=re.DOTALL)
-            if not matches:
-                matches = re.findall(r"href=['\"]/viewer/(\d+)['\"][^>]*><b>(.*?)</b>", table_html, flags=re.DOTALL)
-            for chap_id, raw_title in matches:
-                clean_title = re.sub(r"<.*?>", "", raw_title).strip()
-                title = "Notice: " + clean_title if clean_title else "Notice"
-                results.append({"id": chap_id, "title": html.unescape(title)})
-            # The notice table is rendered newest-first, unlike the episode
-            # list requested with sort=DOWN.  Downloads place notices before
-            # regular chapters, so normalize them to the same reading order:
-            # the earliest (for example, "Notice 1") must be first.
-            results.reverse()
             self.log(f"Found {len(results)} author notice(s).")
             return results
         except Exception as e:

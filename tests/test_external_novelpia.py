@@ -44,6 +44,60 @@ def test_episode_html_is_converted_and_deduplicated():
     assert chapters[1]["isAccessible"] is True
 
 
+def test_novelpia_book_includes_author_notices_oldest_first():
+    class Page:
+        def goto(self, *_args, **_kwargs):
+            return None
+
+        def content(self):
+            return """
+                <table class="notice_table">
+                  <tr><td onclick="location='/viewer/202'"><b>Notice 2</b></td></tr>
+                  <tr><td onclick="location='/viewer/201'"><b>Notice 1</b></td></tr>
+                </table>
+            """
+
+        def evaluate(self, script, args=None):
+            if '/proc/episode_list' not in script:
+                return {
+                    "title": "Example",
+                    "author": "Author",
+                    "introduction": "Summary",
+                    "tags": [],
+                    "cover": "",
+                }
+            if args["pageNo"] == 0:
+                return {
+                    "status": 200,
+                    "text": (
+                        '<tr><td><i id="bookmark_301"></i>'
+                        'Chapter 1</b></td></tr>'
+                    ),
+                }
+            return {"status": 200, "text": ""}
+
+    scraper, messages = make_scraper()
+    scraper._page = Page()
+    scraper._start_novelpia_browser = lambda _url: True
+
+    book = scraper._novelpia_parse_book("https://novelpia.com/novel/123")
+
+    assert book["chapterCount"] == 1
+    assert book["noticeCount"] == 2
+    assert [chapter["id"] for chapter in book["chapters"]] == [
+        "201",
+        "202",
+        "301",
+    ]
+    assert [chapter.get("isNotice", False) for chapter in book["chapters"]] == [
+        True,
+        True,
+        False,
+    ]
+    assert book["chapters"][2]["_novelpiaChapterNumber"] == 1
+    assert any("2 author notice(s)" in message for message in messages)
+
+
 def test_valid_viewer_json_becomes_external_chapter_data():
     scraper, messages = make_scraper()
     payload = json.dumps(

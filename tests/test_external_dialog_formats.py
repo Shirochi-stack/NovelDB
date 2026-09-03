@@ -109,6 +109,22 @@ def test_external_retry_passes_have_safe_minimum_and_default():
     ) == 5
 
 
+def test_external_novelpia_notices_follow_main_download_setting():
+    scraper = SimpleNamespace()
+    dialog = SimpleNamespace(
+        _scraper=scraper,
+        _parent_gui=SimpleNamespace(var_include_notices=Setting(False)),
+        _var_kakao_skip_last_page=Setting(False),
+        _var_kakao_keep_filler=Setting(False),
+        _var_ntk_novelpia_cover=Setting(False),
+        _var_syosetu_amazon_cover=Setting(False),
+    )
+
+    ExternalNovelDialog._apply_scraper_options(dialog)
+
+    assert scraper.novelpia_include_notices is False
+
+
 def test_external_download_runs_configured_number_of_retry_passes():
     logs = []
 
@@ -230,6 +246,63 @@ def test_external_download_preserves_selected_range_numbers():
     ] == [5, 6, 7]
 
 
+def test_novelpia_range_prepends_notices_without_shifting_chapter_numbers():
+    calls = []
+
+    class Scraper:
+        _context = True
+
+        @staticmethod
+        def parse_chapter_batch(chapters, interval=0):
+            calls.extend(chapter["name"] for chapter in chapters)
+            return [
+                {"chapterName": chapter["name"]}
+                for chapter in chapters
+            ]
+
+    dialog = SimpleNamespace(
+        _scraper=Scraper(),
+        _book_data={"_novelpia": True},
+        _downloading=True,
+        _download_cancelled=False,
+        _chapter_results=[],
+        _msg_queue=queue.Queue(),
+        _apply_scraper_options=lambda: None,
+        _sleep_while_downloading=lambda _seconds: True,
+        _log=lambda _message: None,
+    )
+    chapters = [
+        {
+            "name": "Notice 1",
+            "isNotice": True,
+            "_novelpiaNoticeNumber": 1,
+        },
+        {
+            "name": "Notice 2",
+            "isNotice": True,
+            "_novelpiaNoticeNumber": 2,
+        },
+        {"name": "Chapter 1", "_novelpiaChapterNumber": 1},
+        {"name": "Chapter 2", "_novelpiaChapterNumber": 2},
+        {"name": "Chapter 3", "_novelpiaChapterNumber": 3},
+    ]
+
+    ExternalNovelDialog._do_download(
+        dialog, chapters, 1, 3, 0, num_threads=8
+    )
+
+    assert calls == ["Notice 1", "Notice 2", "Chapter 2", "Chapter 3"]
+    assert [result["_is_notice"] for result in dialog._chapter_results] == [
+        True,
+        True,
+        False,
+        False,
+    ]
+    assert [
+        result["_chapter_number"] for result in dialog._chapter_results[2:]
+    ] == [2, 3]
+
+
 def test_external_result_number_prefers_preserved_source_position():
     dialog = SimpleNamespace(_chapter_number_start=20)
 
@@ -263,6 +336,41 @@ def test_external_epub_filename_uses_preserved_range_number(tmp_path):
 
     assert "OEBPS/Text/chapter0025.xhtml" in archive_names
     assert "OEBPS/Text/chapter0001.xhtml" not in archive_names
+
+
+def test_external_epub_uses_separate_notice_filenames(tmp_path):
+    dialog = object.__new__(ExternalNovelDialog)
+    dialog._book_data = {"bookname": "Notice Test", "author": "Author"}
+    dialog._chapter_results = [
+        {
+            "chapterName": "Notice 1",
+            "contentHtml": "<p>Notice</p>",
+            "_chapter_number": 1,
+            "_is_notice": True,
+        },
+        {
+            "chapterName": "Chapter 25",
+            "contentHtml": "<p>Content</p>",
+            "_chapter_number": 25,
+            "_is_notice": False,
+        },
+    ]
+    dialog._parent_gui = SimpleNamespace()
+    dialog._scraper = None
+    dialog._var_long_image_layout = Setting(False)
+    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_ext_image_workers = Setting(1)
+    dialog._get_output_dir = lambda: str(tmp_path)
+    dialog._log = lambda _message: None
+    dialog._generate_txt = lambda *_args: None
+
+    dialog._generate_epub("Notice Test", "Author")
+
+    with zipfile.ZipFile(tmp_path / "Notice Test.epub") as archive:
+        archive_names = archive.namelist()
+
+    assert "OEBPS/Text/chapter_notice0001.xhtml" in archive_names
+    assert "OEBPS/Text/chapter0025.xhtml" in archive_names
 
 
 def test_external_scraper_range_results_retain_source_numbers():

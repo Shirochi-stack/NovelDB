@@ -67,6 +67,7 @@ from playwright.sync_api import (
     Browser,
     TimeoutError as PlaywrightTimeoutError,
 )
+from downloader_core import parse_novelpia_notice_html
 
 APP_DATA_NAME = "NpiaDownloader"
 
@@ -199,6 +200,7 @@ class ExternalScraper:
             except Exception:
                 self.ntk_curl_command = ""
         self.ntk_prefer_novelpia_cover = False
+        self.novelpia_include_notices = True
         self.syosetu_amazon_cover_fallback = False
         self._kakao_css_cache = {}
         self.kakao_keep_filler = False
@@ -7667,6 +7669,43 @@ async ({ url }) => {
             })
         return chapters
 
+    @staticmethod
+    def _novelpia_parse_notice_html(source):
+        """Convert the novel page's notice table into chapter records."""
+        notices = []
+        for index, notice in enumerate(
+            parse_novelpia_notice_html(source), start=1
+        ):
+            chapter_id = notice['id']
+            title = notice['title']
+            notices.append({
+                'id': chapter_id,
+                'url': f'https://novelpia.com/viewer/{chapter_id}',
+                'name': title,
+                'fullName': title,
+                'isVIP': False,
+                'isPaid': False,
+                'isAccessible': True,
+                'isNotice': True,
+                '_novelpiaNoticeNumber': index,
+            })
+        return notices
+
+    @staticmethod
+    def _novelpia_tag_chapter_result(result, chapter_info):
+        """Carry notice/source-position metadata into parsed chapter data."""
+        if not isinstance(result, dict):
+            return result
+        is_notice = bool(chapter_info.get('isNotice'))
+        result.setdefault('_is_notice', is_notice)
+        if is_notice:
+            source_number = chapter_info.get('_novelpiaNoticeNumber')
+        else:
+            source_number = chapter_info.get('_novelpiaChapterNumber')
+        if source_number is not None:
+            result.setdefault('_chapter_number', source_number)
+        return result
+
     def _novelpia_connect_cdp(self, port):
         """Attach the external scraper to its installed-Chrome session."""
         try:
@@ -7854,6 +7893,21 @@ async ({ url }) => {
             self.log(f'[Novelpia] ERROR: Metadata extraction failed: {e}')
             return None
 
+        notices = []
+        if self.novelpia_include_notices:
+            try:
+                notices = self._novelpia_parse_notice_html(
+                    self._page.content()
+                )
+            except Exception as e:
+                # Notices are optional; a page-layout issue must not prevent
+                # the regular episode list from being downloaded.
+                self.log(f'[Novelpia] Author notice scan failed: {e}')
+            if notices:
+                self.log(
+                    f'[Novelpia] Found {len(notices)} author notice(s).'
+                )
+
         chapters = []
         seen = set()
         page_no = 0
@@ -7932,6 +7986,9 @@ async ({ url }) => {
             )
             return None
 
+        for chapter_number, chapter in enumerate(chapters, start=1):
+            chapter['_novelpiaChapterNumber'] = chapter_number
+
         title = meta.get('title') or f'Novelpia {novel_id}'
         data = {
             'bookname': title,
@@ -7941,7 +7998,8 @@ async ({ url }) => {
             'introductionHTML': meta.get('introductionHTML') or '',
             'bookUrl': book_url,
             'chapterCount': len(chapters),
-            'chapters': chapters,
+            'chapters': notices + chapters,
+            'noticeCount': len(notices),
             'language': 'ko',
             'tags': meta.get('tags') or [],
             '_novelpia': True,
@@ -7951,7 +8009,8 @@ async ({ url }) => {
         self._book_url = book_url
         self.log(
             f'[Novelpia] Book: {title} by '
-            f"{data.get('author') or '?'} - {len(chapters)} chapters"
+            f"{data.get('author') or '?'} - {len(chapters)} chapters, "
+            f'{len(notices)} author notice(s)'
         )
         return data
 
@@ -11133,6 +11192,7 @@ async ({ url }) => {
                 name,
                 page=page or self._page,
             )
+            result = self._novelpia_tag_chapter_result(result, chapter_info)
             if interval > 0:
                 time.sleep(interval)
             return result
@@ -11313,6 +11373,7 @@ async ({ url }) => {
                     ),
                     page=self._page,
                 )
+                result = self._novelpia_tag_chapter_result(result, chapter)
                 results.append(result)
                 if interval > 0 and index < len(batch_info) - 1:
                     time.sleep(interval)
