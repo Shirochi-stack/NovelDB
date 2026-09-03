@@ -701,6 +701,8 @@ class ExternalNovelDialog(tk.Toplevel):
                                 start + idx, chapter, **retry_options
                             )
                             if data:
+                                if data.get('_locked'):
+                                    break
                                 if is_ntk:
                                     name = selected[idx].get(
                                         'name', f'Chapter {start + idx + 1}'
@@ -784,15 +786,26 @@ class ExternalNovelDialog(tk.Toplevel):
                 )
 
             # --- Summary ---
+            ad_required = sum(1 for r in results
+                              if r and r.get('_ad_required'))
             locked = sum(1 for r in results
-                         if r and r.get('_locked'))
+                         if r and r.get('_locked')
+                         and not r.get('_ad_required'))
             succeeded = sum(1 for r in results
                             if r and not r.get('_locked'))
             if self._download_cancelled:
-                if locked:
+                if locked or ad_required:
+                    incomplete = []
+                    if locked:
+                        incomplete.append(f"{locked} locked/paid")
+                    if ad_required:
+                        incomplete.append(
+                            f"{ad_required} advertisement(s) not completed"
+                        )
                     self._log(
                         f"Download cancelled: {succeeded} succeeded, "
-                        f"{locked} locked/paid. Output generation skipped."
+                        f"{', '.join(incomplete)}. "
+                        "Output generation skipped."
                     )
                 else:
                     self._log(
@@ -807,25 +820,39 @@ class ExternalNovelDialog(tk.Toplevel):
             if is_novelpia:
                 status = (
                     "FAILED" if failed
-                    else "PARTIAL" if locked
+                    else "PARTIAL" if locked or ad_required
                     else "SUCCESS"
                 )
                 self._log(
                     f"FINAL SUMMARY: {status} | "
                     f"downloaded chapters: {succeeded} | "
                     f"failed chapters: {failed} | "
-                    f"locked chapters: {locked}"
+                    f"locked chapters: {locked} | "
+                    f"ads not completed: {ad_required}"
                 )
 
-            if locked:
+            if locked or ad_required:
+                incomplete = []
+                if locked:
+                    incomplete.append(f"{locked} locked (paid)")
+                if ad_required:
+                    incomplete.append(
+                        f"{ad_required} advertisement(s) not completed"
+                    )
                 self._log(
                     f"Download complete: {succeeded} succeeded, "
-                    f"{locked} locked (paid), {failed} failed."
+                    f"{', '.join(incomplete)}, {failed} failed."
                 )
-                self._log(
-                    "⚠ Locked chapters require a subscription "
-                    "or ticket purchase to access."
-                )
+                if locked:
+                    self._log(
+                        "⚠ Locked chapters require a subscription "
+                        "or ticket purchase to access."
+                    )
+                if ad_required:
+                    self._log(
+                        "⚠ Ad-gated chapters were skipped because Novelpia "
+                        "did not confirm the displayed advertisement."
+                    )
             elif failed:
                 self._log(
                     f"Download complete: {succeeded} succeeded, "
@@ -1210,6 +1237,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
+                        and not self._scraper.is_global_novelpia(url)
+                        and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -1462,6 +1491,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_qidian(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
+                        and not self._scraper.is_global_novelpia(url)
+                        and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_novelpia(url)
                         and not self._scraper._context):
                     self._scraper.start()

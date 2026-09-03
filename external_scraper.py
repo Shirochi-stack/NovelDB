@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import os
 import platform
+import queue
 import random
 import re
 import shutil
@@ -191,6 +192,17 @@ class ExternalScraper:
         self._global_novelpia_login_at = ''
         self._global_novelpia_refresh_attempted = False
         self._global_novelpia_auth_lock = threading.Lock()
+        self._global_novelpia_ad_state_lock = threading.Lock()
+        self._global_novelpia_ad_queue = None
+        self._global_novelpia_ad_thread = None
+        self._global_novelpia_ad_stop = threading.Event()
+        self._global_novelpia_ad_playwright = None
+        self._global_novelpia_ad_browser = None
+        self._global_novelpia_ad_context = None
+        self._global_novelpia_ad_page = None
+        self._global_novelpia_ad_process = None
+        self._global_novelpia_ad_cdp_port = None
+        self._global_novelpia_ad_profile = None
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
@@ -3030,7 +3042,8 @@ class ExternalScraper:
 
     def _open_system_chrome(self, start_url, remote_debugging=False,
                             user_data_dir=None, hidden=False,
-                            headless=False):
+                            headless=False, window_size=None,
+                            window_position=None):
         """Open installed Chrome as a normal process using our profile."""
         chrome_path = self._find_chrome_executable()
         if not chrome_path:
@@ -3065,9 +3078,21 @@ class ExternalScraper:
                 "--disable-backgrounding-occluded-windows",
             ])
         else:
+            if window_size:
+                width, height = window_size
+                if window_position:
+                    x, y = window_position
+                else:
+                    x, y = 40, 40
+                window_args = [
+                    f"--window-position={int(x)},{int(y)}",
+                    f"--window-size={int(width)},{int(height)}",
+                ]
+            else:
+                window_args = self._centered_chrome_window_args()
             args.extend([
                 "--new-window",
-                *self._centered_chrome_window_args(),
+                *window_args,
             ])
         args.append(start_url or "about:blank")
         port = None
@@ -3974,6 +3999,7 @@ class ExternalScraper:
 
     def cleanup(self):
         """Release browser resources."""
+        self._global_novelpia_shutdown_ad_worker()
         self._backup_storage_state()
         site_cdp_port = (
             self._ridi_cdp_port
@@ -7981,6 +8007,446 @@ async ({ url }) => {
         session.cookies.update(source.cookies)
         return session
 
+    @staticmethod
+    def _global_novelpia_compact_ad_geometry():
+        """Place the real 300x250 reward ad in a small visible window."""
+        width, height = 520, 500
+        if sys.platform != 'win32':
+            return 40, 40, width, height
+        try:
+            user32 = ctypes.windll.user32
+            screen_width = max(width, int(user32.GetSystemMetrics(0)))
+            return max(0, screen_width - width - 24), 64, width, height
+        except Exception:
+            return 40, 40, width, height
+
+    def _global_novelpia_browser_cookie_records(self):
+        """Build Playwright cookies from the live and saved API sessions."""
+        records = {}
+        for cookie in self._global_novelpia_profile_cookies():
+            key = (
+                cookie.get('name'), cookie.get('domain'),
+                cookie.get('path') or '/',
+            )
+            records[key] = cookie
+        session = self._global_novelpia_session
+        if session is not None:
+            try:
+                for cookie in session.cookies:
+                    record = {
+                        'name': cookie.name,
+                        'value': cookie.value,
+                        'domain': cookie.domain or '.novelpia.com',
+                        'path': cookie.path or '/',
+                        'secure': bool(cookie.secure),
+                    }
+                    records[(
+                        record['name'], record['domain'], record['path'],
+                    )] = record
+            except Exception:
+                pass
+
+        cookies = []
+        for record in records.values():
+            domain = str(record.get('domain') or '').lower()
+            host = domain.lstrip('.')
+            if host != 'novelpia.com' and not host.endswith('.novelpia.com'):
+                continue
+            name = record.get('name')
+            value = record.get('value')
+            if not name or value is None:
+                continue
+            cookies.append({
+                'name': str(name),
+                'value': str(value),
+                'domain': domain or '.novelpia.com',
+                'path': str(record.get('path') or '/'),
+                'secure': bool(record.get('secure')),
+            })
+        return cookies
+
+    def _global_novelpia_apply_ad_cookies(self, context):
+        cookies = self._global_novelpia_browser_cookie_records()
+        if not cookies:
+            return 0
+        try:
+            context.add_cookies(cookies)
+            return len(cookies)
+        except Exception:
+            return 0
+
+    def _global_novelpia_apply_ad_storage(self, context):
+        """Restore saved Global Novelpia localStorage into the ad window."""
+        try:
+            with open(self._get_storage_state_path(), 'r', encoding='utf-8') as f:
+                state = json.load(f)
+        except Exception:
+            return 0
+        origins = [
+            origin for origin in (state.get('origins') or [])
+            if isinstance(origin, dict)
+            and str(origin.get('origin') or '').rstrip('/')
+            == self._GLOBAL_NOVELPIA_BASE
+        ]
+        if not origins:
+            return 0
+        script = r"""
+(() => {
+  const saved = __ORIGINS__;
+  const current = saved.find((entry) => entry.origin === location.origin);
+  for (const item of (current?.localStorage || [])) {
+    try { localStorage.setItem(item.name, item.value); } catch (_) {}
+  }
+})();
+""".replace('__ORIGINS__', json.dumps(origins))
+        try:
+            context.add_init_script(script=script)
+            return len(origins)
+        except Exception:
+            return 0
+
+    def _global_novelpia_close_ad_browser_owned(self):
+        """Close compact-ad resources on their owning worker thread."""
+        page = self._global_novelpia_ad_page
+        context = self._global_novelpia_ad_context
+        browser = self._global_novelpia_ad_browser
+        playwright = self._global_novelpia_ad_playwright
+        process = self._global_novelpia_ad_process
+        port = self._global_novelpia_ad_cdp_port
+        profile = self._global_novelpia_ad_profile
+        self._global_novelpia_ad_page = None
+        self._global_novelpia_ad_context = None
+        self._global_novelpia_ad_browser = None
+        self._global_novelpia_ad_playwright = None
+        self._global_novelpia_ad_process = None
+        self._global_novelpia_ad_cdp_port = None
+        self._global_novelpia_ad_profile = None
+        for resource in (page, context, browser):
+            try:
+                if resource:
+                    resource.close()
+            except Exception:
+                pass
+        try:
+            if playwright:
+                playwright.stop()
+        except Exception:
+            pass
+        try:
+            if process and process.poll() is None:
+                self._request_cdp_browser_close(port)
+                process.wait(timeout=5)
+        except Exception:
+            try:
+                if process and process.poll() is None:
+                    process.terminate()
+            except Exception:
+                pass
+        try:
+            if profile:
+                profile.cleanup()
+        except Exception:
+            pass
+
+    def _global_novelpia_start_ad_browser_owned(self):
+        """Start/reuse the compact visible Chrome on the ad worker thread."""
+        if self._page_is_usable(self._global_novelpia_ad_page):
+            self._global_novelpia_apply_ad_cookies(
+                self._global_novelpia_ad_context
+            )
+            return self._global_novelpia_ad_page
+
+        self._global_novelpia_close_ad_browser_owned()
+        profile = tempfile.TemporaryDirectory(prefix='npia_global_ad_')
+        profile_dir = os.path.join(profile.name, 'browser_data')
+        x, y, width, height = self._global_novelpia_compact_ad_geometry()
+        process = None
+        port = None
+        playwright = None
+        try:
+            process, port = self._open_system_chrome(
+                'about:blank',
+                remote_debugging=True,
+                user_data_dir=profile_dir,
+                window_size=(width, height),
+                window_position=(x, y),
+            )
+            if not process or not port or not self._wait_for_cdp(port, timeout=15):
+                raise RuntimeError('installed Chrome did not expose DevTools')
+            playwright = sync_playwright().start()
+            browser = playwright.chromium.connect_over_cdp(
+                f'http://127.0.0.1:{port}'
+            )
+            contexts = browser.contexts
+            if not contexts:
+                raise RuntimeError('Chrome did not create a browser context')
+            context = contexts[0]
+            pages = context.pages
+            page = pages[-1] if pages else context.new_page()
+            self._global_novelpia_ad_profile = profile
+            self._global_novelpia_ad_process = process
+            self._global_novelpia_ad_cdp_port = port
+            self._global_novelpia_ad_playwright = playwright
+            self._global_novelpia_ad_browser = browser
+            self._global_novelpia_ad_context = context
+            self._global_novelpia_ad_page = page
+            self._global_novelpia_apply_ad_cookies(context)
+            self._global_novelpia_apply_ad_storage(context)
+            return page
+        except Exception as error:
+            self.log(
+                '[Global Novelpia] Could not open the compact ad window: '
+                f'{error}'
+            )
+            try:
+                if playwright:
+                    playwright.stop()
+            except Exception:
+                pass
+            try:
+                if process and process.poll() is None:
+                    self._request_cdp_browser_close(port)
+                    process.terminate()
+            except Exception:
+                pass
+            try:
+                profile.cleanup()
+            except Exception:
+                pass
+            return None
+
+    def _global_novelpia_ticket_available(self, episode_no):
+        session = self._global_novelpia_clone_session()
+        if session is None:
+            return False
+        try:
+            status, payload = self._global_novelpia_request_json(
+                session,
+                f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode',
+                params={'episode_no': str(episode_no)},
+                login_at=self._global_novelpia_login_at or None,
+                max_retries=1,
+            )
+            if status != 200:
+                return False
+            token, direct_url = self._global_novelpia_extract_ticket_token(
+                payload
+            )
+            return bool(token or direct_url)
+        finally:
+            session.close()
+
+    def _global_novelpia_run_ad_request(self, request):
+        """Render one real site reward ad and wait for server confirmation."""
+        episode_no = request['episode_no']
+        chapter_name = request['chapter_name']
+        if self._global_novelpia_ticket_available(episode_no):
+            return True
+
+        page = self._global_novelpia_start_ad_browser_owned()
+        if not page:
+            return False
+        context = self._global_novelpia_ad_context
+        self._global_novelpia_apply_ad_cookies(context)
+        grant_seen = threading.Event()
+
+        def inspect_response(response):
+            try:
+                parsed = urllib.parse.urlparse(response.url or '')
+                if (
+                    parsed.hostname == 'api-global.novelpia.com'
+                    and parsed.path == '/v1/ad/reward/grant'
+                    and response.request.method.upper() == 'POST'
+                    and 200 <= int(response.status) < 300
+                ):
+                    grant_seen.set()
+            except Exception:
+                pass
+
+        try:
+            context.on('response', inspect_response)
+        except Exception:
+            pass
+        self.log(
+            f'  [Global Novelpia] Advertisement required: {chapter_name}'
+        )
+        self.log(
+            '  [Global Novelpia] A compact ad window is open. Complete the '
+            'displayed ad; the download will resume automatically.'
+        )
+        chapter_url = f'{self._GLOBAL_NOVELPIA_BASE}/viewer/{episode_no}'
+        try:
+            page.goto(
+                chapter_url,
+                wait_until='domcontentloaded',
+                timeout=self._GLOBAL_NOVELPIA_TIMEOUT * 1000,
+            )
+        except PlaywrightTimeoutError:
+            self.log(
+                '  [Global Novelpia] The ad page is responding slowly; '
+                'continuing to wait in the compact window.'
+            )
+        except Exception as error:
+            self.log(
+                f'  [Global Novelpia] Ad page failed to open for '
+                f'{chapter_name}: {error}'
+            )
+            try:
+                context.remove_listener('response', inspect_response)
+            except Exception:
+                pass
+            return False
+
+        deadline = time.monotonic() + 240
+        next_ticket_check = time.monotonic() + 3
+        activation_attempted = False
+        try:
+            while (
+                time.monotonic() < deadline
+                and not self._global_novelpia_ad_stop.is_set()
+                and not self._stop_requested
+            ):
+                if not self._page_is_usable(page):
+                    self.log(
+                        '  [Global Novelpia] The compact ad window was closed '
+                        f'before completion: {chapter_name}'
+                    )
+                    return False
+                now = time.monotonic()
+                if not activation_attempted and now + 3 >= next_ticket_check:
+                    # The current viewer normally opens its reward modal with
+                    # `instant: true`. This narrowly-scoped fallback clicks
+                    # only Novelpia's own main-page "watch ad" control, never
+                    # content inside an advertiser iframe.
+                    try:
+                        activation_attempted = bool(page.evaluate(r"""
+() => {
+  const pattern = /(?:watch|view|show|play).{0,20}(?:ad|advertisement)|free pass/i;
+  const candidates = [...document.querySelectorAll('button, [role="button"]')];
+  const button = candidates.find((node) => pattern.test(
+    (node.innerText || node.textContent || '').trim()
+  ));
+  if (!button) return false;
+  button.click();
+  return true;
+}
+"""))
+                    except Exception:
+                        activation_attempted = True
+                if now >= next_ticket_check:
+                    if self._global_novelpia_ticket_available(episode_no):
+                        self.log(
+                            '  [Global Novelpia] Advertisement confirmed; '
+                            f'resuming {chapter_name}.'
+                        )
+                        return True
+                    next_ticket_check = now + (1 if grant_seen.is_set() else 3)
+                try:
+                    page.wait_for_timeout(250)
+                except Exception:
+                    time.sleep(0.25)
+            self.log(
+                '  [Global Novelpia] Advertisement was not confirmed within '
+                f'four minutes: {chapter_name}'
+            )
+            return False
+        finally:
+            try:
+                context.remove_listener('response', inspect_response)
+            except Exception:
+                pass
+
+    def _global_novelpia_ad_worker_main(self, work_queue):
+        try:
+            while not self._global_novelpia_ad_stop.is_set():
+                try:
+                    request = work_queue.get(timeout=0.25)
+                except queue.Empty:
+                    continue
+                if request is None:
+                    break
+                try:
+                    request['success'] = bool(
+                        self._global_novelpia_run_ad_request(request)
+                    )
+                except Exception as error:
+                    self.log(
+                        '[Global Novelpia] Compact ad window error: '
+                        f'{error}'
+                    )
+                    request['success'] = False
+                finally:
+                    request['done'].set()
+        finally:
+            self._global_novelpia_close_ad_browser_owned()
+            while True:
+                try:
+                    pending = work_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if isinstance(pending, dict):
+                    pending['success'] = False
+                    pending['done'].set()
+            with self._global_novelpia_ad_state_lock:
+                if self._global_novelpia_ad_thread is threading.current_thread():
+                    self._global_novelpia_ad_thread = None
+
+    def _global_novelpia_complete_ad(
+        self, novel_no, episode_no, chapter_name
+    ):
+        """Queue an ad-gated episode on the single browser-owning thread."""
+        request = {
+            'novel_no': str(novel_no or ''),
+            'episode_no': str(episode_no),
+            'chapter_name': chapter_name,
+            'done': threading.Event(),
+            'success': False,
+        }
+        with self._global_novelpia_ad_state_lock:
+            thread = self._global_novelpia_ad_thread
+            if not thread or not thread.is_alive():
+                self._global_novelpia_ad_stop.clear()
+                self._global_novelpia_ad_queue = queue.Queue()
+                thread = threading.Thread(
+                    target=self._global_novelpia_ad_worker_main,
+                    args=(self._global_novelpia_ad_queue,),
+                    name='GlobalNovelpiaAd',
+                    daemon=True,
+                )
+                self._global_novelpia_ad_thread = thread
+                thread.start()
+            work_queue = self._global_novelpia_ad_queue
+            work_queue.put(request)
+
+        while not request['done'].wait(0.25):
+            if self._global_novelpia_ad_stop.is_set() or self._stop_requested:
+                return False
+        return bool(request['success'])
+
+    def _global_novelpia_shutdown_ad_worker(self):
+        """Stop the ad owner without touching the downloader's main Chrome."""
+        thread = self._global_novelpia_ad_thread
+        if not thread:
+            return
+        self._global_novelpia_ad_stop.set()
+        work_queue = self._global_novelpia_ad_queue
+        if work_queue:
+            try:
+                work_queue.put_nowait(None)
+            except Exception:
+                pass
+        port = self._global_novelpia_ad_cdp_port
+        if port:
+            self._request_cdp_browser_close(port)
+        if thread is not threading.current_thread():
+            thread.join(timeout=8)
+        process = self._global_novelpia_ad_process
+        if thread.is_alive() and process and process.poll() is None:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+
     def _global_novelpia_request_json(
         self,
         session,
@@ -8016,7 +8482,11 @@ async ({ url }) => {
                 last_status = 0
                 last_payload = {'error': str(e)}
 
-            retryable = last_status == 429 or last_status >= 500 or not last_status
+            retryable = (
+                last_status == 429 or last_status >= 500 or not last_status
+            ) and not self._global_novelpia_ad_required(
+                last_status, last_payload
+            )
             if not retryable or attempt >= max_retries:
                 return last_status, last_payload
             if last_status == 429:
@@ -8073,6 +8543,49 @@ async ({ url }) => {
                 result.get('name'), result.get('code'),
             ])
         return ' '.join(str(value) for value in values if value).strip()
+
+    @classmethod
+    def _global_novelpia_ad_required(cls, status, payload):
+        """Recognize the server's basic-advertisement episode gate."""
+        if not isinstance(payload, dict):
+            return False
+        result = payload.get('result')
+        result = result if isinstance(result, dict) else {}
+        code = payload.get('code')
+        if code in (None, ''):
+            code = result.get('code')
+        code_text = str(code or '').strip()
+        name = str(result.get('name') or payload.get('name') or '').upper()
+        message = cls._global_novelpia_payload_message(payload).lower()
+        code_match = code_text in ('0010', '10')
+        return bool(
+            status >= 400
+            and (
+                (code_match and (name == 'NOVEL_ERROR' or 'advertisement' in message))
+                or 'basic advertisement' in message
+            )
+        )
+
+    @staticmethod
+    def _global_novelpia_ad_novel_id(payload):
+        """Extract novel_no from the episode error payload when provided."""
+        def walk(value):
+            if isinstance(value, dict):
+                novel_no = value.get('novel_no')
+                if novel_no not in (None, ''):
+                    return str(novel_no)
+                for nested in value.values():
+                    found = walk(nested)
+                    if found:
+                        return found
+            elif isinstance(value, list):
+                for nested in value:
+                    found = walk(nested)
+                    if found:
+                        return found
+            return ''
+
+        return walk(payload)
 
     @classmethod
     def _global_novelpia_access_denied(cls, status, payload):
@@ -8580,7 +9093,9 @@ async ({ url }) => {
 
         if self._global_novelpia_session is None:
             self._global_novelpia_ensure_session()
-        for auth_attempt in range(2):
+        auth_refreshed = False
+        ad_attempted = False
+        for _request_attempt in range(4):
             session = self._global_novelpia_clone_session()
             if session is None:
                 return None
@@ -8605,9 +9120,37 @@ async ({ url }) => {
                         and 'expire' in ticket_message
                     )
                 )
-                if auth_expired and auth_attempt == 0:
+                if auth_expired and not auth_refreshed:
+                    auth_refreshed = True
                     if self._global_novelpia_refresh_login(login_at):
                         continue
+                if self._global_novelpia_ad_required(status, ticket):
+                    if ad_attempted:
+                        self.log(
+                            '  [Global Novelpia] Advertisement completion was '
+                            f'not accepted for {chapter_name}.'
+                        )
+                        return {
+                            '_locked': True,
+                            '_ad_required': True,
+                            'chapterName': chapter_name,
+                        }
+                    ad_attempted = True
+                    novel_no = (
+                        self._global_novelpia_ad_novel_id(ticket)
+                        or str((self._book_data or {}).get(
+                            '_global_novelpia_novel_id', ''
+                        ))
+                    )
+                    if self._global_novelpia_complete_ad(
+                        novel_no, episode_no, chapter_name
+                    ):
+                        continue
+                    return {
+                        '_locked': True,
+                        '_ad_required': True,
+                        'chapterName': chapter_name,
+                    }
                 if status >= 400 or not status:
                     if self._global_novelpia_access_denied(status, ticket):
                         self.log(
@@ -8727,6 +9270,32 @@ async ({ url }) => {
         if not name or not re.search(r'\.[A-Za-z0-9]{2,5}$', name):
             name = f'ridi_{chapter_id or "chapter"}_{image_index}.jpg'
         return name
+
+    @staticmethod
+    def _ridi_page_is_usable(page):
+        """Treat a disconnected Playwright page as unavailable."""
+        if page is None:
+            return False
+        checker = getattr(page, 'is_closed', None)
+        if checker is None:
+            # Lightweight test/fallback page objects do not expose is_closed.
+            return True
+        try:
+            return not checker()
+        except Exception:
+            return False
+
+    @staticmethod
+    def _ridi_browser_closed_error(error):
+        message = str(error or '').lower()
+        return any(fragment in message for fragment in (
+            'target page, context or browser has been closed',
+            'browser has been closed',
+            'context has been closed',
+            'page has been closed',
+            'connection closed',
+            'browser disconnected',
+        ))
 
     def _ridi_connect_cdp(self, port):
         """Attach to the installed-Chrome session used for Ridi.
@@ -8915,6 +9484,8 @@ async ({ url }) => {
         for attempt in range(1, max(1, int(retries)) + 1):
             if self._stop_requested:
                 return None
+            if not self._ridi_page_is_usable(api_page):
+                return None
             try:
                 response = api_page.evaluate(
                     """
@@ -8939,7 +9510,9 @@ async ({ url }) => {
                 if 200 <= status < 300:
                     return json.loads(response.get('text') or '{}')
                 delay = 2 * attempt if status == 429 else attempt
-            except Exception:
+            except Exception as e:
+                if self._ridi_browser_closed_error(e):
+                    return None
                 delay = attempt
             if attempt < retries:
                 try:
@@ -8988,20 +9561,59 @@ async ({ url }) => {
                 next_id = self._ridi_api_next_id(current_data)
                 if not next_id or next_id in seen:
                     break
-                seen.add(next_id)
-                ordered_ids.append(next_id)
                 current_data = self._ridi_api_fetch_book(api_page, next_id)
                 if not current_data:
-                    result['error'] = (
-                        f'book API stopped at episode {len(ordered_ids)} '
-                        f'({next_id})'
-                    )
-                    break
+                    # A long series can outlive a transient API tab or Chrome
+                    # process. Reopen at the exact failed ID and continue the
+                    # next_books chain instead of silently returning a partial
+                    # catalog that leaves chapter workers with a dead context.
+                    recovery_attempt = 0
+                    while recovery_attempt < 3 and not current_data:
+                        recovery_attempt += 1
+                        try:
+                            if api_page:
+                                api_page.close()
+                        except Exception:
+                            pass
+                        api_page = None
+                        if not self._ridi_page_is_usable(self._page):
+                            self.log(
+                                '[Ridi] Browser session closed during episode '
+                                'discovery; restarting it.'
+                            )
+                            if not self._start_ridi_browser(
+                                f'https://ridibooks.com/books/{series_id}'
+                            ):
+                                break
+                        try:
+                            api_page, current_data = (
+                                self._ridi_open_api_book(next_id)
+                            )
+                        except Exception:
+                            current_data = None
+                        if current_data:
+                            result['diagnostics'].append(
+                                'Episode API session recovered at '
+                                f'{next_id}.'
+                            )
+                    if not current_data:
+                        result['error'] = (
+                            f'book API stopped after episode {len(ordered_ids)} '
+                            f'({next_id}) after recovery attempts'
+                        )
+                        break
+                seen.add(next_id)
+                ordered_ids.append(next_id)
                 episode_title = self._ridi_api_title(current_data)
                 if episode_title:
                     result['titleById'][next_id] = episode_title
                 if len(ordered_ids) % 20 == 0:
-                    api_page.wait_for_timeout(300)
+                    try:
+                        api_page.wait_for_timeout(300)
+                    except Exception:
+                        # The next fetch performs the normal session recovery
+                        # if Chrome disappeared during this courtesy pause.
+                        time.sleep(0.3)
 
             result['links'] = [
                 f'https://ridibooks.com/books/{episode_id}/view'
@@ -9034,10 +9646,13 @@ async ({ url }) => {
         # Cloudflare configuration. Match the contributed Chrome extension's
         # execution environment by retaining the real installed-Chrome
         # profile for metadata, API discovery, and chapter rendering.
-        if self._context is not None or self._page is None:
-            if not self._ridi_chrome and not self._start_ridi_browser(book_url):
+        if (
+            not self._ridi_chrome
+            or not self._ridi_page_is_usable(self._page)
+        ):
+            if not self._start_ridi_browser(book_url):
                 return None
-        if not self._page:
+        if not self._ridi_page_is_usable(self._page):
             self.log('[Ridi] ERROR: Browser could not be started.')
             return None
 
@@ -9673,15 +10288,27 @@ async ({ url }) => {
 
     def _ridi_finish_loaded_chapter(self, page, chapter_url, chapter_name):
         """Validate, retry, and extract a Ridi page after navigation starts."""
+        # Never interpret the last URL cached on a dead Playwright page. A
+        # disconnected page commonly retains the series product URL, which
+        # previously made a browser crash look like a paid-chapter redirect.
+        if not self._ridi_page_is_usable(page):
+            return None
         try:
             page.wait_for_load_state('load', timeout=30000)
-        except Exception:
-            pass
+        except Exception as e:
+            if (
+                self._ridi_browser_closed_error(e)
+                or not self._ridi_page_is_usable(page)
+            ):
+                return None
+
+        if not self._ridi_page_is_usable(page):
+            return None
 
         try:
             current_url = page.url or ''
         except Exception:
-            current_url = ''
+            return None
         if current_url and not self._ridi_is_viewer_url(current_url):
             self.log(
                 f'  [Ridi] LOCKED or unpurchased (redirected to {current_url}): '
@@ -9693,9 +10320,13 @@ async ({ url }) => {
         for attempt in range(1, 4):
             if self._stop_requested:
                 return None
+            if not self._ridi_page_is_usable(page):
+                return None
             if self._ridi_wait_for_content(page, timeout=30):
                 content_ready = True
                 break
+            if not self._ridi_page_is_usable(page):
+                return None
             wall = self._ridi_detect_access_wall(page)
             if wall.get('wall'):
                 self.log(
@@ -9725,13 +10356,22 @@ async ({ url }) => {
                     self.log(
                         f'  [Ridi] Reload warning for {chapter_name}: {e}'
                     )
+                    if (
+                        self._ridi_browser_closed_error(e)
+                        or not self._ridi_page_is_usable(page)
+                    ):
+                        return None
 
         if not content_ready:
             self.log(f'  [Ridi] Viewer did not stabilize: {chapter_name}')
             return None
 
+        if not self._ridi_page_is_usable(page):
+            return None
         payload = self._ridi_extract_loaded_content(page, chapter_name)
         if not payload or not payload.get('content'):
+            if not self._ridi_page_is_usable(page):
+                return None
             wall = self._ridi_detect_access_wall(page)
             if wall.get('wall'):
                 self.log(f'  [Ridi] LOCKED or unpurchased: {chapter_name}')
@@ -9751,45 +10391,84 @@ async ({ url }) => {
     def _ridi_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Open and extract one authenticated Ridi webnovel viewer page."""
         target = page or self._page
-        if target is None:
-            self._start_ridi_browser(chapter_url)
-            target = self._page
-        if target is None:
-            return None
+        for session_attempt in range(2):
+            if not self._ridi_page_is_usable(target):
+                if target is not None or session_attempt:
+                    self.log(
+                        '  [Ridi] Browser session closed before chapter load; '
+                        'restarting it.'
+                    )
+                if not self._start_ridi_browser(
+                    self._book_url or chapter_url
+                ):
+                    return None
+                target = self._page
+                if not self._ridi_page_is_usable(target):
+                    return None
 
-        try:
-            kwargs = {
-                'wait_until': 'domcontentloaded',
-                'timeout': 45000,
-            }
-            if self._book_url:
-                kwargs['referer'] = self._book_url
-            target.goto(chapter_url, **kwargs)
-        except Exception as e:
-            self.log(f'  [Ridi] Page load warning for {chapter_name}: {e}')
-        return self._ridi_finish_loaded_chapter(
-            target,
-            chapter_url,
-            chapter_name,
-        )
+            navigation_failed = False
+            try:
+                kwargs = {
+                    'wait_until': 'domcontentloaded',
+                    'timeout': 45000,
+                }
+                if self._book_url:
+                    kwargs['referer'] = self._book_url
+                target.goto(chapter_url, **kwargs)
+            except Exception as e:
+                navigation_failed = True
+                self.log(f'  [Ridi] Page load warning for {chapter_name}: {e}')
+                if (
+                    self._ridi_browser_closed_error(e)
+                    or not self._ridi_page_is_usable(target)
+                ):
+                    target = None
+                    continue
 
-    def _ridi_parallel_pages(self, count):
+            # A timeout can occur after the viewer itself committed. It is safe
+            # to finish that page only when it is the requested viewer. A stale
+            # product URL after a failed goto is not evidence of a paywall.
+            if navigation_failed:
+                try:
+                    current_url = target.url or ''
+                except Exception:
+                    return None
+                if (
+                    not self._ridi_is_viewer_url(current_url)
+                    or self._ridi_book_id(current_url)
+                    != self._ridi_book_id(chapter_url)
+                ):
+                    return None
+
+            result = self._ridi_finish_loaded_chapter(
+                target,
+                chapter_url,
+                chapter_name,
+            )
+            if (
+                result is None
+                and not self._ridi_page_is_usable(target)
+                and not session_attempt
+            ):
+                target = None
+                continue
+            return result
+        return None
+
+    def _ridi_parallel_pages(self, count, _restarted=False):
         """Return up to the extension's four authenticated Ridi worker pages."""
         count = max(1, min(4, int(count or 1)))
-        if not self._context or not self._page:
-            self._start_ridi_browser(self._book_url or 'https://ridibooks.com/')
-        if not self._context or not self._page:
-            return []
-        if not self._page_is_usable(self._page):
-            try:
-                self._page = self._context.new_page()
-                self._page.on('console', self._on_console)
-            except Exception:
+        if not self._context or not self._ridi_page_is_usable(self._page):
+            if not self._start_ridi_browser(
+                self._book_url or 'https://ridibooks.com/'
+            ):
                 return []
+        if not self._context or not self._ridi_page_is_usable(self._page):
+            return []
 
         usable = []
         for worker in self._worker_pages:
-            if self._page_is_usable(worker):
+            if self._ridi_page_is_usable(worker):
                 usable.append(worker)
             else:
                 try:
@@ -9812,6 +10491,16 @@ async ({ url }) => {
                 self._worker_pages.append(worker)
             except Exception as e:
                 self.log(f'  [Ridi] Worker page failed: {e}')
+                if self._ridi_browser_closed_error(e) and not _restarted:
+                    self.log(
+                        '  [Ridi] Browser session closed while creating '
+                        'chapter workers; it will be restarted.'
+                    )
+                    self.cleanup()
+                    if self._start_ridi_browser(
+                        self._book_url or 'https://ridibooks.com/'
+                    ):
+                        return self._ridi_parallel_pages(count, _restarted=True)
                 break
         return ([self._page] + self._worker_pages)[:count]
 
@@ -9826,30 +10515,83 @@ async ({ url }) => {
             if self._stop_requested:
                 break
             chunk = batch_info[chunk_start:chunk_start + 4]
-            pages = self._ridi_parallel_pages(len(chunk))
-            if not pages:
-                break
-            active = []
-            for offset, (page, chapter) in enumerate(zip(pages, chunk)):
-                url = chapter.get('url', '')
-                name = chapter.get('fullName', '') or chapter.get('name', '')
-                try:
-                    kwargs = {'wait_until': 'commit', 'timeout': 15000}
-                    if self._book_url:
-                        kwargs['referer'] = self._book_url
-                    page.goto(url, **kwargs)
-                except Exception as e:
-                    self.log(f'  [Ridi] Page load warning for {name}: {e}')
-                active.append((chunk_start + offset, page, url, name))
-
-            for result_index, page, url, name in active:
-                if self._stop_requested:
+            chunk_results = {}
+            for session_attempt in range(2):
+                pages = self._ridi_parallel_pages(len(chunk))
+                if not pages:
                     break
-                results[result_index] = self._ridi_finish_loaded_chapter(
-                    page,
-                    url,
-                    name,
-                )
+                active = []
+                session_lost = False
+                for offset, (page, chapter) in enumerate(zip(pages, chunk)):
+                    url = chapter.get('url', '')
+                    name = (
+                        chapter.get('fullName', '')
+                        or chapter.get('name', '')
+                    )
+                    navigation_failed = False
+                    try:
+                        kwargs = {'wait_until': 'commit', 'timeout': 15000}
+                        if self._book_url:
+                            kwargs['referer'] = self._book_url
+                        page.goto(url, **kwargs)
+                    except Exception as e:
+                        navigation_failed = True
+                        self.log(
+                            f'  [Ridi] Page load warning for {name}: {e}'
+                        )
+                        if (
+                            self._ridi_browser_closed_error(e)
+                            or not self._ridi_page_is_usable(page)
+                        ):
+                            session_lost = True
+                            break
+
+                    if navigation_failed:
+                        try:
+                            current_url = page.url or ''
+                        except Exception:
+                            current_url = ''
+                        if (
+                            not self._ridi_is_viewer_url(current_url)
+                            or self._ridi_book_id(current_url)
+                            != self._ridi_book_id(url)
+                        ):
+                            continue
+                    active.append((chunk_start + offset, page, url, name))
+
+                if not session_lost:
+                    for result_index, page, url, name in active:
+                        if self._stop_requested:
+                            break
+                        value = self._ridi_finish_loaded_chapter(
+                            page,
+                            url,
+                            name,
+                        )
+                        if (
+                            value is None
+                            and not self._ridi_page_is_usable(page)
+                        ):
+                            session_lost = True
+                            break
+                        chunk_results[result_index] = value
+
+                if not session_lost or self._stop_requested:
+                    break
+                if session_attempt == 0:
+                    self.log(
+                        '  [Ridi] Browser session closed during chapter '
+                        'download; restarting this batch.'
+                    )
+                    self.cleanup()
+                    if not self._start_ridi_browser(
+                        self._book_url or chunk[0].get('url', '')
+                    ):
+                        break
+                    chunk_results = {}
+
+            for result_index, value in chunk_results.items():
+                results[result_index] = value
             if (
                 chunk_start + len(chunk) < len(batch_info)
                 and not self._stop_requested

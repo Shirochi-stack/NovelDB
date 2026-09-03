@@ -1,3 +1,5 @@
+import threading
+import time
 from types import SimpleNamespace
 
 from external_dialog import ExternalNovelDialog
@@ -214,6 +216,40 @@ def test_global_novelpia_api_uses_extended_slow_site_timeout():
     assert calls[0][1]['timeout'] == 90
 
 
+def test_global_novelpia_ad_gate_is_not_retried_as_a_transient_500():
+    calls = []
+
+    class Response:
+        status_code = 500
+        text = ''
+
+        @staticmethod
+        def json():
+            return {
+                'code': '0010',
+                'result': {
+                    'name': 'NOVEL_ERROR',
+                    'message': 'This episode has a basic advertisement.',
+                },
+            }
+
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return Response()
+
+    scraper, _messages = make_scraper()
+    status, payload = scraper._global_novelpia_request_json(
+        Session(),
+        'https://api-global.novelpia.com/v1/novel/episode',
+        max_retries=4,
+    )
+
+    assert status == 500
+    assert ExternalScraper._global_novelpia_ad_required(status, payload)
+    assert len(calls) == 1
+
+
 def test_global_novelpia_session_does_not_probe_account_by_default():
     scraper, _messages = make_scraper()
     scraper._global_novelpia_sync_browser_cookies = lambda _session: 0
@@ -341,6 +377,128 @@ def test_global_novelpia_chapter_fetches_ticket_content_and_signed_images():
     assert calls[0][2] == 'login-token'
     assert calls[1][1] == {'_t': 'header.payload.signature'}
     assert not any('[Global Novelpia] OK:' in message for message in messages)
+
+
+def test_global_novelpia_ad_completion_retries_ticket_then_downloads():
+    scraper, _messages = make_scraper()
+
+    class Session:
+        def close(self):
+            return None
+
+    scraper._global_novelpia_ensure_session = lambda *args, **kwargs: Session()
+    scraper._global_novelpia_clone_session = lambda: Session()
+    scraper._book_data = {'_global_novelpia_novel_id': '4770'}
+    ad_calls = []
+    ticket_calls = []
+
+    def complete_ad(novel_no, episode_no, chapter_name):
+        ad_calls.append((novel_no, episode_no, chapter_name))
+        return True
+
+    def request_json(_session, url, params=None, **_kwargs):
+        if url.endswith('/v1/novel/episode'):
+            ticket_calls.append(params)
+            if len(ticket_calls) == 1:
+                return 500, {
+                    'code': '0010',
+                    'result': {
+                        'name': 'NOVEL_ERROR',
+                        'message': 'This episode has a basic advertisement.',
+                        'data': {'novel_no': 4770},
+                    },
+                }
+            return 200, {'result': {'_t': 'ticket'}}
+        return 200, {'result': {'data': {'epi_content': '<p>Unlocked</p>'}}}
+
+    scraper._global_novelpia_complete_ad = complete_ad
+    scraper._global_novelpia_request_json = request_json
+
+    result = scraper._global_novelpia_parse_chapter(
+        'https://global.novelpia.com/viewer/670412',
+        '36 - Example',
+    )
+
+    assert result['contentText'] == 'Unlocked'
+    assert ad_calls == [('4770', '670412', '36 - Example')]
+    assert ticket_calls == [
+        {'episode_no': '670412'},
+        {'episode_no': '670412'},
+    ]
+
+
+def test_global_novelpia_unconfirmed_ad_returns_non_retrying_skip_marker():
+    scraper, _messages = make_scraper()
+
+    class Session:
+        def close(self):
+            return None
+
+    scraper._global_novelpia_ensure_session = lambda *args, **kwargs: Session()
+    scraper._global_novelpia_clone_session = lambda: Session()
+    scraper._global_novelpia_complete_ad = lambda *_args: False
+    scraper._global_novelpia_request_json = lambda *_args, **_kwargs: (
+        500,
+        {
+            'code': '0010',
+            'result': {
+                'name': 'NOVEL_ERROR',
+                'message': 'This episode has a basic advertisement.',
+            },
+        },
+    )
+
+    result = scraper._global_novelpia_parse_chapter(
+        'https://global.novelpia.com/viewer/670412',
+        '36 - Example',
+    )
+
+    assert result == {
+        '_locked': True,
+        '_ad_required': True,
+        'chapterName': '36 - Example',
+    }
+
+
+def test_global_novelpia_parallel_ad_requests_share_one_owner_thread():
+    scraper, _messages = make_scraper()
+    owner_threads = []
+    active = 0
+    peak_active = 0
+    guard = threading.Lock()
+
+    def run_ad(request):
+        nonlocal active, peak_active
+        with guard:
+            active += 1
+            peak_active = max(peak_active, active)
+            owner_threads.append(threading.get_ident())
+        time.sleep(0.02)
+        with guard:
+            active -= 1
+        return bool(request['episode_no'])
+
+    scraper._global_novelpia_run_ad_request = run_ad
+    results = []
+
+    def request_ad(episode):
+        results.append(scraper._global_novelpia_complete_ad(
+            '4770', episode, f'Episode {episode}'
+        ))
+
+    callers = [
+        threading.Thread(target=request_ad, args=(str(index),))
+        for index in range(1, 5)
+    ]
+    for caller in callers:
+        caller.start()
+    for caller in callers:
+        caller.join()
+    scraper._global_novelpia_shutdown_ad_worker()
+
+    assert results == [True, True, True, True]
+    assert len(set(owner_threads)) == 1
+    assert peak_active == 1
 
 
 def test_global_novelpia_denied_ticket_is_reported_as_locked():

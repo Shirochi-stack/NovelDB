@@ -47,6 +47,8 @@ def test_ridi_book_converts_discovered_chain_to_external_records():
 
     scraper, messages = make_scraper()
     scraper._page = Page()
+    scraper._context = object()
+    scraper._ridi_chrome = True
 
     book = scraper._ridi_parse_book('https://ridibooks.com/books/1001')
 
@@ -181,6 +183,78 @@ def test_ridi_api_chain_follows_next_books_and_collects_titles():
     assert page.closed is True
 
 
+def test_ridi_api_chain_reopens_failed_episode_and_continues():
+    class ApiPage:
+        def __init__(self, name):
+            self.name = name
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+        def wait_for_timeout(self, _milliseconds):
+            return None
+
+    first_page = ApiPage('first')
+    recovered_page = ApiPage('recovered')
+    first = {
+        'title': {'main': 'Episode 1'},
+        'series': {
+            'property': {
+                'is_serial': True,
+                'total_book_count': 3,
+                'next_books': {'1002': {}},
+            }
+        },
+    }
+    second = {
+        'title': {'main': 'Episode 2'},
+        'series': {
+            'property': {
+                'is_serial': True,
+                'next_books': {'1003': {}},
+            }
+        },
+    }
+    third = {
+        'title': {'main': 'Episode 3'},
+        'series': {
+            'property': {'is_serial': True, 'next_books': {}},
+        },
+    }
+    open_calls = []
+
+    def open_api(book_id):
+        open_calls.append(book_id)
+        if book_id == '1001':
+            return first_page, first
+        assert book_id == '1002'
+        return recovered_page, second
+
+    scraper, _messages = make_scraper()
+    scraper._page = object()
+    scraper._ridi_open_api_book = open_api
+    scraper._ridi_api_fetch_book = lambda page, book_id, retries=3: (
+        None if page is first_page else third
+    )
+
+    result = scraper._ridi_discover_episode_chain('1001')
+
+    assert open_calls == ['1001', '1002']
+    assert [ExternalScraper._ridi_book_id(url) for url in result['links']] == [
+        '1001',
+        '1002',
+        '1003',
+    ]
+    assert result['error'] == ''
+    assert any(
+        'Episode API session recovered at 1002' in diagnostic
+        for diagnostic in result['diagnostics']
+    )
+    assert first_page.closed is True
+    assert recovered_page.closed is True
+
+
 def test_ridi_book_rejects_volume_without_webnovel_episode_links():
     class Page:
         def goto(self, *_args, **_kwargs):
@@ -199,6 +273,8 @@ def test_ridi_book_rejects_volume_without_webnovel_episode_links():
 
     scraper, messages = make_scraper()
     scraper._page = Page()
+    scraper._context = object()
+    scraper._ridi_chrome = True
 
     assert scraper._ridi_parse_book(
         'https://ridibooks.com/books/9999'
@@ -267,6 +343,90 @@ def test_ridi_redirected_unpurchased_chapter_is_locked_without_retry():
     assert any('LOCKED or unpurchased' in message for message in messages)
 
 
+def test_ridi_closed_page_is_not_misclassified_as_locked_redirect():
+    class ClosedPage:
+        url = 'https://ridibooks.com/books/1001'
+
+        @staticmethod
+        def is_closed():
+            return True
+
+        def wait_for_load_state(self, *_args, **_kwargs):
+            raise AssertionError('a closed page must not be inspected')
+
+    scraper, messages = make_scraper()
+
+    result = scraper._ridi_finish_loaded_chapter(
+        ClosedPage(),
+        'https://ridibooks.com/books/1001/view',
+        'Free episode',
+    )
+
+    assert result is None
+    assert not any('LOCKED' in message for message in messages)
+
+
+def test_ridi_chapter_restarts_session_after_browser_closes_during_goto():
+    class ClosingPage:
+        url = 'https://ridibooks.com/books/1001'
+
+        def __init__(self):
+            self.closed = False
+
+        def is_closed(self):
+            return self.closed
+
+        def goto(self, *_args, **_kwargs):
+            self.closed = True
+            raise RuntimeError(
+                'Target page, context or browser has been closed'
+            )
+
+    class RecoveredPage:
+        def __init__(self):
+            self.url = ''
+            self.goto_calls = []
+
+        @staticmethod
+        def is_closed():
+            return False
+
+        def goto(self, url, **kwargs):
+            self.url = url
+            self.goto_calls.append((url, kwargs))
+
+    closing_page = ClosingPage()
+    recovered_page = RecoveredPage()
+    starts = []
+    scraper, messages = make_scraper()
+    scraper._page = closing_page
+    scraper._context = object()
+    scraper._ridi_chrome = True
+    scraper._book_url = 'https://ridibooks.com/books/1001'
+
+    def restart(_url):
+        starts.append(_url)
+        scraper._page = recovered_page
+        scraper._context = object()
+        scraper._ridi_chrome = True
+        return True
+
+    scraper._start_ridi_browser = restart
+    scraper._ridi_finish_loaded_chapter = (
+        lambda _page, _url, name: {'chapterName': name, 'contentHtml': '<p>x</p>'}
+    )
+
+    result = scraper._ridi_parse_chapter(
+        'https://ridibooks.com/books/1001/view',
+        'Free episode',
+    )
+
+    assert result['chapterName'] == 'Free episode'
+    assert starts == ['https://ridibooks.com/books/1001']
+    assert recovered_page.goto_calls[0][0].endswith('/1001/view')
+    assert not any('LOCKED' in message for message in messages)
+
+
 def test_ridi_rendered_chapter_uses_contributed_cleanup_payload():
     class Page:
         url = 'https://ridibooks.com/books/1001/view'
@@ -317,3 +477,54 @@ def test_ridi_batch_uses_native_parallel_path():
 
     assert [result['chapterName'] for result in results] == ['One', 'Two']
     assert calls == [(chapters, 1.25)]
+
+
+def test_ridi_batch_restarts_when_browser_closes_during_navigation():
+    class ClosingPage:
+        url = 'https://ridibooks.com/books/1001'
+
+        def __init__(self):
+            self.closed = False
+
+        def is_closed(self):
+            return self.closed
+
+        def goto(self, *_args, **_kwargs):
+            self.closed = True
+            raise RuntimeError(
+                'Target page, context or browser has been closed'
+            )
+
+    class HealthyPage:
+        def __init__(self):
+            self.url = ''
+
+        @staticmethod
+        def is_closed():
+            return False
+
+        def goto(self, url, **_kwargs):
+            self.url = url
+
+    page_sets = [[ClosingPage()], [HealthyPage()]]
+    starts = []
+    scraper, messages = make_scraper()
+    scraper._book_url = 'https://ridibooks.com/books/1001'
+    scraper._ridi_parallel_pages = lambda _count: page_sets.pop(0)
+    scraper.cleanup = lambda: None
+    scraper._start_ridi_browser = lambda url: starts.append(url) or True
+    scraper._ridi_finish_loaded_chapter = (
+        lambda _page, _url, name: {'chapterName': name, 'contentHtml': '<p>x</p>'}
+    )
+
+    result = scraper._ridi_parse_chapter_batch_parallel([
+        {
+            'url': 'https://ridibooks.com/books/1001/view',
+            'name': 'Free episode',
+        }
+    ])
+
+    assert result[0]['chapterName'] == 'Free episode'
+    assert starts == ['https://ridibooks.com/books/1001']
+    assert any('restarting this batch' in message for message in messages)
+    assert not any('LOCKED' in message for message in messages)
