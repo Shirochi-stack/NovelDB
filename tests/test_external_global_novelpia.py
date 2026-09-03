@@ -229,6 +229,12 @@ def test_global_novelpia_spoiler_shield_persists_across_continue_reload():
     assert '__npia-global-spoiler-shield' in scripts[0]
     assert 'Advertisement complete. Preparing the chapter' in scripts[0]
     assert "sessionStorage.getItem(marker) === '1'" in scripts[0]
+    assert "['pointerdown', 'mousedown', 'touchstart', 'click']" in scripts[0]
+    assert "event.composedPath()" in scripts[0]
+    assert 'new MutationObserver(queueContinueScan)' in scripts[0]
+    assert scripts[0].index('window.__npiaInstallSpoilerShield();') < (
+        scripts[0].index('button.click();')
+    )
 
 
 def test_global_novelpia_continue_is_exact_and_shields_before_click():

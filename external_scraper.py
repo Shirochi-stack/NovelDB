@@ -8130,6 +8130,83 @@ async ({ url }) => {
     }
     return true;
   };
+
+  const normalize = (value) => String(value || '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  const isContinue = (node) => {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (!node.matches('button, [role="button"], a')) return false;
+    return normalize(node.innerText || node.textContent) === 'continue';
+  };
+  const isActionable = (node) => {
+    if (!isContinue(node) || node.disabled
+        || node.getAttribute('aria-disabled') === 'true') return false;
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && style.pointerEvents !== 'none' && rect.width > 0 && rect.height > 0;
+  };
+
+  // Arm the cover during the capture phase. This runs before the site's own
+  // handler, so a manual pointer, touch, or keyboard activation cannot reveal
+  // the viewer before the next document installs its shield.
+  const guardContinue = (event) => {
+    let candidate = null;
+    if (event.type === 'keydown') {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      candidate = document.activeElement;
+    } else {
+      const path = typeof event.composedPath === 'function'
+        ? event.composedPath() : [event.target];
+      candidate = path.find(isContinue);
+    }
+    if (isContinue(candidate)) window.__npiaInstallSpoilerShield();
+  };
+  for (const eventName of ['pointerdown', 'mousedown', 'touchstart', 'click']) {
+    document.addEventListener(eventName, guardContinue, true);
+  }
+  document.addEventListener('keydown', guardContinue, true);
+
+  // The site's Continue control is created only when the real advertisement
+  // has finished. Observe that main-page UI and activate it in the same task
+  // in which it becomes actionable. The Playwright loop remains as a fallback
+  // for controls hosted in an open shadow root.
+  let scanQueued = false;
+  let lastAutoClick = 0;
+  const scanForContinue = () => {
+    scanQueued = false;
+    if (!/^\/viewer\//i.test(location.pathname)) return;
+    const roots = [document];
+    for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
+      const root = roots[rootIndex];
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+      }
+      const button = [...root.querySelectorAll('button, [role="button"], a')]
+        .find(isActionable);
+      if (!button) continue;
+      const now = Date.now();
+      if (now - lastAutoClick < 100) return;
+      lastAutoClick = now;
+      window.__npiaInstallSpoilerShield();
+      button.click();
+      return;
+    }
+  };
+  const queueContinueScan = () => {
+    if (scanQueued) return;
+    scanQueued = true;
+    queueMicrotask(scanForContinue);
+  };
+  new MutationObserver(queueContinueScan).observe(document, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['class', 'style', 'disabled', 'aria-disabled']
+  });
+  queueContinueScan();
+
   try {
     if (sessionStorage.getItem(marker) === '1') {
       window.__npiaInstallSpoilerShield();
@@ -8505,7 +8582,7 @@ async ({ url }) => {
                     )
                     if continue_clicked:
                         activation_attempted = True
-                    next_continue_check = now + 0.35
+                    next_continue_check = now + 0.1
                 if not activation_attempted and now + 3 >= next_ticket_check:
                     # The current viewer normally opens its reward modal with
                     # `instant: true`. This narrowly-scoped fallback clicks
@@ -8550,9 +8627,9 @@ async ({ url }) => {
                             return True
                     next_ticket_check = now + (1 if grant_seen.is_set() else 3)
                 try:
-                    page.wait_for_timeout(250)
+                    page.wait_for_timeout(50)
                 except Exception:
-                    time.sleep(0.25)
+                    time.sleep(0.05)
             self.log(
                 '  [Global Novelpia] Advertisement was not confirmed within '
                 f'four minutes: {chapter_name}'
