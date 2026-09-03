@@ -653,14 +653,20 @@ class ExternalNovelDialog(tk.Toplevel):
                         )
                         self._log(f"  [{i + 1}/{total}] {name}")
 
-                # The callback is invoked by each native scraper as soon as a
-                # worker has produced usable content. This preserves the
-                # chapter's range position while showing actual finish order.
+                # Workers report as soon as content is ready. Hold later
+                # entries briefly so near-simultaneous completions are printed
+                # in chapter order instead of thread scheduling order.
                 batch_number = (batch_start // batch_size) + 1
                 batch_t0 = time.perf_counter()
                 batch_options = {'interval': interval}
                 if log_on_success:
+                    pending_chapter_logs = {}
+                    logged_batch_indices = set()
+                    next_log_batch_index = 0
+                    chapter_log_lock = threading.Lock()
+
                     def log_chapter_success(batch_index, data):
+                        nonlocal next_log_batch_index
                         idx = batch_indices[batch_index]
                         name = (
                             (data or {}).get('chapterName')
@@ -668,7 +674,29 @@ class ExternalNovelDialog(tk.Toplevel):
                                 'name', f'Chapter {start + idx + 1}'
                             )
                         )
-                        self._log(f"  [{idx + 1}/{total}] {name}")
+                        line = f"  [{idx + 1}/{total}] {name}"
+                        with chapter_log_lock:
+                            if batch_index in logged_batch_indices:
+                                return
+                            pending_chapter_logs[batch_index] = line
+                            while next_log_batch_index in pending_chapter_logs:
+                                self._log(pending_chapter_logs.pop(
+                                    next_log_batch_index
+                                ))
+                                logged_batch_indices.add(
+                                    next_log_batch_index
+                                )
+                                next_log_batch_index += 1
+
+                    def flush_chapter_success_logs():
+                        with chapter_log_lock:
+                            for batch_index in sorted(pending_chapter_logs):
+                                if batch_index not in logged_batch_indices:
+                                    self._log(
+                                        pending_chapter_logs[batch_index]
+                                    )
+                                    logged_batch_indices.add(batch_index)
+                            pending_chapter_logs.clear()
 
                     batch_options['success_callback'] = log_chapter_success
                 if interval_max_supplied:
@@ -704,16 +732,7 @@ class ExternalNovelDialog(tk.Toplevel):
                                 if data.get('_locked'):
                                     break
                                 if log_on_success:
-                                    name = (
-                                        data.get('chapterName')
-                                        or selected[idx].get(
-                                            'name',
-                                            f'Chapter {start + idx + 1}',
-                                        )
-                                    )
-                                    self._log(
-                                        f"  [{idx + 1}/{total}] {name}"
-                                    )
+                                    log_chapter_success(j, data)
                                 else:
                                     self._log(
                                         f"  [{idx + 1}/{total}] "
@@ -743,6 +762,12 @@ class ExternalNovelDialog(tk.Toplevel):
                             )
                         data.setdefault('_chapter_number', source_number)
                     results[idx] = data
+
+                if log_on_success:
+                    # A failed or locked earlier chapter has no success
+                    # callback. Flush later successes now rather than holding
+                    # them past the next-batch message.
+                    flush_chapter_success_logs()
 
                 completed += (batch_end - batch_start)
                 self._msg_queue.put(("progress", (completed, total)))

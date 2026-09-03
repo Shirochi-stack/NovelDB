@@ -551,7 +551,7 @@ def test_ntk_progress_is_logged_only_after_successful_content_fetch():
     assert logs == ["  [1/2] Chapter 1", "  [2/2] Chapter 2"]
 
 
-def test_ridi_progress_replaces_queue_and_ok_logs_with_completion_lines():
+def test_native_progress_briefly_buffers_completions_into_chapter_order():
     logs = []
 
     class Scraper:
@@ -571,7 +571,7 @@ def test_ridi_progress_replaces_queue_and_ok_logs_with_completion_lines():
 
     dialog = SimpleNamespace(
         _scraper=Scraper(),
-        _book_data={"_ridibooks": True},
+        _book_data={"_global_novelpia": True},
         _downloading=True,
         _download_cancelled=False,
         _chapter_results=[],
@@ -590,7 +590,7 @@ def test_ridi_progress_replaces_queue_and_ok_logs_with_completion_lines():
         num_threads=2,
     )
 
-    assert logs == ["  [2/2] Viewer Two", "  [1/2] Viewer One"]
+    assert logs == ["  [1/2] Viewer One", "  [2/2] Viewer Two"]
     assert not any("Queued" in message or "OK:" in message for message in logs)
 
 
