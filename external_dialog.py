@@ -637,45 +637,45 @@ class ExternalNovelDialog(tk.Toplevel):
 
                 batch = [selected[i] for i in batch_indices]
 
-                # Most scrapers historically announce work before fetching.
-                # NewToki defers this line until content is actually present,
-                # making the progress entry an unambiguous success signal.
-                if not is_ntk:
+                # For the native browser/API scrapers, a numbered chapter line
+                # means that chapter has actually completed. Other legacy
+                # scrapers keep announcing work before the fetch starts.
+                log_on_success = (
+                    is_ntk
+                    or is_ridibooks
+                    or is_global_novelpia
+                    or is_novelpia
+                )
+                if not log_on_success:
                     for i in batch_indices:
                         name = selected[i].get(
                             'name', f'Chapter {start + i + 1}'
                         )
                         self._log(f"  [{i + 1}/{total}] {name}")
 
-                # Fire batch concurrently in JS. NewToki's headless path is
-                # sequential, so its callback can report each chapter at the
-                # exact point the decrypted content becomes available.
+                # The callback is invoked by each native scraper as soon as a
+                # worker has produced usable content. This preserves the
+                # chapter's range position while showing actual finish order.
                 batch_number = (batch_start // batch_size) + 1
                 batch_t0 = time.perf_counter()
-                if is_ntk:
-                    def log_ntk_success(batch_index, _data):
+                batch_options = {'interval': interval}
+                if log_on_success:
+                    def log_chapter_success(batch_index, data):
                         idx = batch_indices[batch_index]
-                        name = selected[idx].get(
-                            'name', f'Chapter {start + idx + 1}'
+                        name = (
+                            (data or {}).get('chapterName')
+                            or selected[idx].get(
+                                'name', f'Chapter {start + idx + 1}'
+                            )
                         )
                         self._log(f"  [{idx + 1}/{total}] {name}")
 
-                    batch_options = {
-                        'interval': interval,
-                        'success_callback': log_ntk_success,
-                    }
-                    if interval_max_supplied:
-                        batch_options['interval_max'] = interval_max
-                    batch_results = self._scraper.parse_chapter_batch(
-                        batch, **batch_options
-                    )
-                else:
-                    batch_options = {'interval': interval}
-                    if interval_max_supplied:
-                        batch_options['interval_max'] = interval_max
-                    batch_results = self._scraper.parse_chapter_batch(
-                        batch, **batch_options
-                    )
+                    batch_options['success_callback'] = log_chapter_success
+                if interval_max_supplied:
+                    batch_options['interval_max'] = interval_max
+                batch_results = self._scraper.parse_chapter_batch(
+                    batch, **batch_options
+                )
                 batch_elapsed = time.perf_counter() - batch_t0
 
                 for j, data in enumerate(batch_results):
@@ -703,9 +703,13 @@ class ExternalNovelDialog(tk.Toplevel):
                             if data:
                                 if data.get('_locked'):
                                     break
-                                if is_ntk:
-                                    name = selected[idx].get(
-                                        'name', f'Chapter {start + idx + 1}'
+                                if log_on_success:
+                                    name = (
+                                        data.get('chapterName')
+                                        or selected[idx].get(
+                                            'name',
+                                            f'Chapter {start + idx + 1}',
+                                        )
                                     )
                                     self._log(
                                         f"  [{idx + 1}/{total}] {name}"

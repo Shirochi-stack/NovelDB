@@ -188,8 +188,16 @@ def test_novelpia_batch_is_sequential_and_does_not_retry():
         {"url": "https://novelpia.com/viewer/2", "name": "Two"},
     ]
 
-    results = scraper.parse_chapter_batch(chapters, interval=0)
+    completed = []
+    results = scraper.parse_chapter_batch(
+        chapters,
+        interval=0,
+        success_callback=lambda index, data: completed.append(
+            (index, data["chapterName"])
+        ),
+    )
 
     assert len(calls) == 2
     assert results[0]["chapterName"] == "One"
     assert results[1] is None
+    assert completed == [(0, "One")]

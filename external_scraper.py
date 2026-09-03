@@ -9428,23 +9428,36 @@ async ({ url }) => {
                 session.close()
         return None
 
-    def _global_novelpia_parse_chapter_batch(self, batch_info):
+    def _global_novelpia_parse_chapter_batch(
+        self, batch_info, success_callback=None
+    ):
         """Fetch one External Downloader batch through pia-scrap's API path."""
         if not batch_info:
             return []
         self._global_novelpia_ensure_session()
         from concurrent.futures import ThreadPoolExecutor
 
-        def fetch_one(chapter):
+        def fetch_one(item):
+            index, chapter = item
             if self._stop_requested:
                 return None
-            return self._global_novelpia_parse_chapter(
+            result = self._global_novelpia_parse_chapter(
                 chapter.get('url', ''),
                 chapter.get('fullName', '') or chapter.get('name', ''),
             )
+            if (
+                result
+                and not result.get('_locked')
+                and success_callback is not None
+            ):
+                try:
+                    success_callback(index, result)
+                except Exception:
+                    pass
+            return result
 
         with ThreadPoolExecutor(max_workers=max(1, len(batch_info))) as executor:
-            return list(executor.map(fetch_one, batch_info))
+            return list(executor.map(fetch_one, enumerate(batch_info)))
 
     # ------------------------------------------------------------------
     # Ridibooks webnovel scraper (ported from the contributed ridi-dl extension)
@@ -10713,14 +10726,11 @@ async ({ url }) => {
             self.log(f'  [Ridi] No chapter content extracted: {chapter_name}')
             return None
 
-        result = self._ridi_build_chapter_result(
+        return self._ridi_build_chapter_result(
             payload,
             chapter_name,
             chapter_url,
         )
-        if result:
-            self.log(f'  [Ridi] OK: {result.get("chapterName") or chapter_name}')
-        return result
 
     def _ridi_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Open and extract one authenticated Ridi webnovel viewer page."""
@@ -10839,12 +10849,14 @@ async ({ url }) => {
         return ([self._page] + self._worker_pages)[:count]
 
     def _ridi_parse_chapter_batch_parallel(
-        self, batch_info, interval=0, interval_max=None
+        self, batch_info, interval=0, interval_max=None,
+        success_callback=None,
     ):
         """Render Ridi chapters in a polite worker pool capped at four pages."""
         if not batch_info:
             return []
         results = [None] * len(batch_info)
+        reported_successes = set()
         for chunk_start in range(0, len(batch_info), 4):
             if self._stop_requested:
                 break
@@ -10909,6 +10921,17 @@ async ({ url }) => {
                             session_lost = True
                             break
                         chunk_results[result_index] = value
+                        if (
+                            value
+                            and not value.get('_locked')
+                            and success_callback is not None
+                            and result_index not in reported_successes
+                        ):
+                            reported_successes.add(result_index)
+                            try:
+                                success_callback(result_index, value)
+                            except Exception:
+                                pass
 
                 if not session_lost or self._stop_requested:
                     break
@@ -11551,14 +11574,11 @@ async ({ url }) => {
             )
             return None
 
-        result = self._novelpia_build_chapter_result(
+        return self._novelpia_build_chapter_result(
             payload,
             chapter_name,
             chapter_url,
         )
-        if result:
-            self.log(f'  [Novelpia] OK: {chapter_name}')
-        return result
 
     def _munpia_connect_cdp(self, port):
         """Attach Playwright to an existing Munpia Chrome CDP port."""
@@ -14669,7 +14689,7 @@ async ({ url }) => {
             interval: Minimum delay between sequential requests.
             interval_max: Maximum delay. ``None`` preserves fixed-delay calls.
             success_callback: Optional ``(batch_index, result)`` callback used
-                              by sequential scrapers for live success logging.
+                              for live completion logging.
 
         Returns list of parsed chapter dicts (or None for failures).
         The browser fires all HTTP requests in parallel.
@@ -14678,9 +14698,16 @@ async ({ url }) => {
             return [None] * len(batch_info)
 
         def report_success(index, result):
-            if result is None or success_callback is None:
+            if (
+                not result
+                or result.get('_locked')
+                or success_callback is None
+            ):
                 return
-            success_callback(index, result)
+            try:
+                success_callback(index, result)
+            except Exception:
+                pass
 
         if self._book_data and self._book_data.get('_1qxs'):
             from concurrent.futures import ThreadPoolExecutor
@@ -14716,10 +14743,16 @@ async ({ url }) => {
                 return list(executor.map(fetch_69shuba, batch_info))
 
         if self._book_data and self._book_data.get('_global_novelpia'):
-            return self._global_novelpia_parse_chapter_batch(batch_info)
+            return self._global_novelpia_parse_chapter_batch(
+                batch_info,
+                success_callback=success_callback,
+            )
 
         if self._book_data and self._book_data.get('_ridibooks'):
-            options = {'interval': interval}
+            options = {
+                'interval': interval,
+                'success_callback': success_callback,
+            }
             if interval_max is not None:
                 options['interval_max'] = interval_max
             return self._ridi_parse_chapter_batch_parallel(
@@ -14744,6 +14777,7 @@ async ({ url }) => {
                 )
                 result = self._novelpia_tag_chapter_result(result, chapter)
                 results.append(result)
+                report_success(index, result)
                 if index < len(batch_info) - 1:
                     self._sleep_interval(interval, interval_max)
             return results

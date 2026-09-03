@@ -597,7 +597,7 @@ def test_ridi_rendered_chapter_uses_contributed_cleanup_payload():
     assert result['chapterName'] == 'Viewer title'
     assert '<blockquote>Author note</blockquote>' in result['contentHtml']
     assert result['images'] == []
-    assert any('[Ridi] OK: Viewer title' in message for message in messages)
+    assert not any('[Ridi] OK:' in message for message in messages)
 
 
 def test_ridi_batch_uses_native_parallel_path():
@@ -605,12 +605,17 @@ def test_ridi_batch_uses_native_parallel_path():
     scraper._book_data = {'_ridibooks': True}
     calls = []
 
-    def fake_batch(chapters, interval=0):
-        calls.append((chapters, interval))
-        return [
+    def fake_batch(
+        chapters, interval=0, interval_max=None, success_callback=None
+    ):
+        calls.append((chapters, interval, interval_max))
+        results = [
             {'chapterName': chapter['name'], 'contentHtml': '<p>ok</p>'}
             for chapter in chapters
         ]
+        for index, result in enumerate(results):
+            success_callback(index, result)
+        return results
 
     scraper._ridi_parse_chapter_batch_parallel = fake_batch
     chapters = [
@@ -618,10 +623,18 @@ def test_ridi_batch_uses_native_parallel_path():
         {'url': 'https://ridibooks.com/books/1002/view', 'name': 'Two'},
     ]
 
-    results = scraper.parse_chapter_batch(chapters, interval=1.25)
+    completed = []
+    results = scraper.parse_chapter_batch(
+        chapters,
+        interval=1.25,
+        success_callback=lambda index, result: completed.append(
+            (index, result['chapterName'])
+        ),
+    )
 
     assert [result['chapterName'] for result in results] == ['One', 'Two']
-    assert calls == [(chapters, 1.25)]
+    assert calls == [(chapters, 1.25, None)]
+    assert completed == [(0, 'One'), (1, 'Two')]
 
 
 def test_ridi_batch_restarts_when_browser_closes_during_navigation():
@@ -662,14 +675,18 @@ def test_ridi_batch_restarts_when_browser_closes_during_navigation():
         lambda _page, _url, name: {'chapterName': name, 'contentHtml': '<p>x</p>'}
     )
 
+    completed = []
     result = scraper._ridi_parse_chapter_batch_parallel([
         {
             'url': 'https://ridibooks.com/books/1001/view',
             'name': 'Free episode',
         }
-    ])
+    ], success_callback=lambda index, data: completed.append(
+        (index, data['chapterName'])
+    ))
 
     assert result[0]['chapterName'] == 'Free episode'
+    assert completed == [(0, 'Free episode')]
     assert starts == ['https://ridibooks.com/books/1001']
     assert any('restarting this batch' in message for message in messages)
     assert not any('LOCKED' in message for message in messages)

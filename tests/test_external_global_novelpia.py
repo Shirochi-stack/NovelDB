@@ -619,16 +619,54 @@ def test_global_novelpia_batch_uses_native_api_path():
     chapters = [{'url': 'https://global.novelpia.com/viewer/1', 'name': 'One'}]
     calls = []
 
-    def fake_batch(value):
+    def fake_batch(value, success_callback=None):
         calls.append(value)
-        return [{'chapterName': 'One', 'contentHtml': '<p>ok</p>'}]
+        result = {'chapterName': 'One', 'contentHtml': '<p>ok</p>'}
+        success_callback(0, result)
+        return [result]
 
     scraper._global_novelpia_parse_chapter_batch = fake_batch
 
-    result = scraper.parse_chapter_batch(chapters, interval=0)
+    completed = []
+    result = scraper.parse_chapter_batch(
+        chapters,
+        interval=0,
+        success_callback=lambda index, data: completed.append(
+            (index, data['chapterName'])
+        ),
+    )
 
     assert result[0]['chapterName'] == 'One'
     assert calls == [chapters]
+    assert completed == [(0, 'One')]
+
+
+def test_global_novelpia_batch_reports_workers_in_completion_order():
+    scraper, _messages = make_scraper()
+    scraper._global_novelpia_ensure_session = lambda: object()
+
+    def fake_parse(_url, name):
+        if name == 'One':
+            time.sleep(0.05)
+        return {'chapterName': f'Viewer {name}', 'contentHtml': '<p>ok</p>'}
+
+    scraper._global_novelpia_parse_chapter = fake_parse
+    completed = []
+    results = scraper._global_novelpia_parse_chapter_batch(
+        [
+            {'url': 'https://global.novelpia.com/viewer/1', 'name': 'One'},
+            {'url': 'https://global.novelpia.com/viewer/2', 'name': 'Two'},
+        ],
+        success_callback=lambda index, data: completed.append(
+            (index, data['chapterName'])
+        ),
+    )
+
+    assert [result['chapterName'] for result in results] == [
+        'Viewer One',
+        'Viewer Two',
+    ]
+    assert completed == [(1, 'Viewer Two'), (0, 'Viewer One')]
 
 
 def test_native_chapter_retry_uses_random_interval_range(monkeypatch):

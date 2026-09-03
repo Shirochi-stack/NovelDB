@@ -360,12 +360,17 @@ def test_novelpia_range_prepends_notices_without_shifting_chapter_numbers():
         _context = True
 
         @staticmethod
-        def parse_chapter_batch(chapters, interval=0):
+        def parse_chapter_batch(
+            chapters, interval=0, success_callback=None
+        ):
             calls.extend(chapter["name"] for chapter in chapters)
-            return [
+            results = [
                 {"chapterName": chapter["name"]}
                 for chapter in chapters
             ]
+            for index, result in enumerate(results):
+                success_callback(index, result)
+            return results
 
     dialog = SimpleNamespace(
         _scraper=Scraper(),
@@ -544,6 +549,49 @@ def test_ntk_progress_is_logged_only_after_successful_content_fetch():
 
     assert events == ["Chapter 1", "Chapter 2"]
     assert logs == ["  [1/2] Chapter 1", "  [2/2] Chapter 2"]
+
+
+def test_ridi_progress_replaces_queue_and_ok_logs_with_completion_lines():
+    logs = []
+
+    class Scraper:
+        _context = True
+
+        @staticmethod
+        def parse_chapter_batch(
+            chapters, interval=0, success_callback=None
+        ):
+            results = [
+                {"chapterName": "Viewer One", "contentText": "content"},
+                {"chapterName": "Viewer Two", "contentText": "content"},
+            ]
+            success_callback(1, results[1])
+            success_callback(0, results[0])
+            return results
+
+    dialog = SimpleNamespace(
+        _scraper=Scraper(),
+        _book_data={"_ridibooks": True},
+        _downloading=True,
+        _download_cancelled=False,
+        _chapter_results=[],
+        _msg_queue=queue.Queue(),
+        _apply_scraper_options=lambda: None,
+        _sleep_while_downloading=lambda _seconds: True,
+        _log=logs.append,
+    )
+
+    ExternalNovelDialog._do_download(
+        dialog,
+        [{"name": "Queued One"}, {"name": "Queued Two"}],
+        0,
+        2,
+        0,
+        num_threads=2,
+    )
+
+    assert logs == ["  [2/2] Viewer Two", "  [1/2] Viewer One"]
+    assert not any("Queued" in message or "OK:" in message for message in logs)
 
 
 def test_external_pdf_embeds_ntk_cover_and_remote_chapter_images(
