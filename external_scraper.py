@@ -8094,6 +8094,175 @@ async ({ url }) => {
                 state = json.load(f)
         except Exception:
             return 0
+
+    @staticmethod
+    def _global_novelpia_install_spoiler_shield(context):
+        """Install a reload-persistent neutral cover for unlocked viewers."""
+        script = r"""
+(() => {
+  const marker = '__npia_global_spoiler_shield';
+  const shieldId = '__npia-global-spoiler-shield';
+  const install = () => {
+    if (document.getElementById(shieldId)) return true;
+    const parent = document.body || document.documentElement;
+    if (!parent) return false;
+    const shield = document.createElement('div');
+    shield.id = shieldId;
+    shield.setAttribute('role', 'status');
+    shield.setAttribute('aria-live', 'polite');
+    shield.style.cssText = [
+      'position:fixed !important', 'inset:0 !important',
+      'z-index:2147483647 !important', 'display:flex !important',
+      'align-items:center !important', 'justify-content:center !important',
+      'padding:24px !important', 'box-sizing:border-box !important',
+      'background:#111827 !important', 'color:#d1d5db !important',
+      'font:600 15px/1.5 system-ui,sans-serif !important',
+      'text-align:center !important', 'pointer-events:none !important'
+    ].join(';');
+    shield.textContent = 'Advertisement complete. Preparing the chapter…';
+    parent.appendChild(shield);
+    return true;
+  };
+  window.__npiaInstallSpoilerShield = () => {
+    try { sessionStorage.setItem(marker, '1'); } catch (_) {}
+    if (!install()) {
+      document.addEventListener('DOMContentLoaded', install, {once: true});
+    }
+    return true;
+  };
+  try {
+    if (sessionStorage.getItem(marker) === '1') {
+      window.__npiaInstallSpoilerShield();
+    }
+  } catch (_) {}
+})();
+"""
+        try:
+            context.add_init_script(script=script)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _global_novelpia_prepare_ad_navigation(page):
+        """Clear only the next-document marker, keeping the current story hidden."""
+        try:
+            return bool(page.evaluate(r"""
+() => {
+  try { sessionStorage.removeItem('__npia_global_spoiler_shield'); }
+  catch (_) {}
+  return true;
+}
+"""))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _global_novelpia_hide_ad_story(page):
+        """Cover viewer content without obscuring an ad that is still running."""
+        try:
+            return bool(page.evaluate(r"""
+() => {
+  if (typeof window.__npiaInstallSpoilerShield === 'function') {
+    return window.__npiaInstallSpoilerShield();
+  }
+  try { sessionStorage.setItem('__npia_global_spoiler_shield', '1'); }
+  catch (_) {}
+  let shield = document.getElementById('__npia-global-spoiler-shield');
+  if (!shield) {
+    shield = document.createElement('div');
+    shield.id = '__npia-global-spoiler-shield';
+    shield.style.cssText = 'position:fixed!important;inset:0!important;'
+      + 'z-index:2147483647!important;background:#111827!important;'
+      + 'color:#d1d5db!important;display:flex!important;'
+      + 'align-items:center!important;justify-content:center!important;'
+      + 'padding:24px!important;box-sizing:border-box!important;'
+      + 'font:600 15px/1.5 system-ui,sans-serif!important;'
+      + 'text-align:center!important;pointer-events:none!important';
+    shield.textContent = 'Advertisement complete. Preparing the chapter…';
+    (document.body || document.documentElement).appendChild(shield);
+  }
+  return true;
+}
+"""))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _global_novelpia_click_ad_continue(page):
+        """Click only Novelpia's exact Continue control, shielding first."""
+        # Playwright's role locator pierces open shadow DOM, which plain
+        # querySelector does not. Ezoic commonly renders its completion UI in
+        # such a shadow root. Page-level locators intentionally do not search
+        # advertiser frames, so an ad creative's own CTA cannot be clicked.
+        def click_first(matches):
+            for index in range(matches.count()):
+                candidate = matches.nth(index)
+                if not candidate.is_visible():
+                    continue
+                ExternalScraper._global_novelpia_hide_ad_story(page)
+                try:
+                    candidate.click(timeout=1500)
+                except Exception:
+                    candidate.evaluate('(node) => node.click()')
+                return True
+            return False
+
+        exact_continue = re.compile(r'^\s*continue\s*$', re.I)
+        get_by_role = getattr(page, 'get_by_role', None)
+        if get_by_role:
+            try:
+                if click_first(get_by_role('button', name=exact_continue)):
+                    return True
+            except Exception:
+                pass
+        get_by_text = getattr(page, 'get_by_text', None)
+        if get_by_text:
+            try:
+                if click_first(get_by_text(exact_continue)):
+                    return True
+            except Exception:
+                pass
+        try:
+            return bool(page.evaluate(r"""
+() => {
+  const normalize = (value) => String(value || '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  const candidates = [...document.querySelectorAll(
+    'button, [role="button"], a'
+  )];
+  const button = candidates.find((node) => {
+    if (normalize(node.innerText || node.textContent) !== 'continue') {
+      return false;
+    }
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && rect.width > 0 && rect.height > 0;
+  });
+  if (!button) return false;
+
+  // Install the neutral cover before dispatching the site's Continue event.
+  // The saved session marker reapplies it at document start if the button
+  // causes a reload, preventing a one-frame story-content flash.
+  if (typeof window.__npiaInstallSpoilerShield === 'function') {
+    window.__npiaInstallSpoilerShield();
+  } else {
+    try { sessionStorage.setItem('__npia_global_spoiler_shield', '1'); }
+    catch (_) {}
+    const shield = document.createElement('div');
+    shield.id = '__npia-global-spoiler-shield';
+    shield.style.cssText = 'position:fixed!important;inset:0!important;'
+      + 'z-index:2147483647!important;background:#111827!important;'
+      + 'pointer-events:none!important';
+    (document.body || document.documentElement).appendChild(shield);
+  }
+  button.click();
+  return true;
+}
+"""))
+        except Exception:
+            return False
         origins = [
             origin for origin in (state.get('origins') or [])
             if isinstance(origin, dict)
@@ -8204,6 +8373,7 @@ async ({ url }) => {
             self._global_novelpia_ad_page = page
             self._global_novelpia_apply_ad_cookies(context)
             self._global_novelpia_apply_ad_storage(context)
+            self._global_novelpia_install_spoiler_shield(context)
             return page
         except Exception as error:
             self.log(
@@ -8283,10 +8453,11 @@ async ({ url }) => {
             f'  [Global Novelpia] Advertisement required: {chapter_name}'
         )
         self.log(
-            '  [Global Novelpia] A compact ad window is open. Complete the '
-            'displayed ad; the download will resume automatically.'
+            '  [Global Novelpia] A compact ad window is open. Let the ad '
+            'finish; Continue will be clicked automatically.'
         )
         chapter_url = f'{self._GLOBAL_NOVELPIA_BASE}/viewer/{episode_no}'
+        self._global_novelpia_prepare_ad_navigation(page)
         try:
             page.goto(
                 chapter_url,
@@ -8311,7 +8482,10 @@ async ({ url }) => {
 
         deadline = time.monotonic() + 240
         next_ticket_check = time.monotonic() + 3
+        next_continue_check = time.monotonic()
         activation_attempted = False
+        continue_clicked = False
+        ticket_confirmed_at = None
         try:
             while (
                 time.monotonic() < deadline
@@ -8325,6 +8499,13 @@ async ({ url }) => {
                     )
                     return False
                 now = time.monotonic()
+                if not continue_clicked and now >= next_continue_check:
+                    continue_clicked = self._global_novelpia_click_ad_continue(
+                        page
+                    )
+                    if continue_clicked:
+                        activation_attempted = True
+                    next_continue_check = now + 0.35
                 if not activation_attempted and now + 3 >= next_ticket_check:
                     # The current viewer normally opens its reward modal with
                     # `instant: true`. This narrowly-scoped fallback clicks
@@ -8347,11 +8528,26 @@ async ({ url }) => {
                         activation_attempted = True
                 if now >= next_ticket_check:
                     if self._global_novelpia_ticket_available(episode_no):
-                        self.log(
-                            '  [Global Novelpia] Advertisement confirmed; '
-                            f'resuming {chapter_name}.'
-                        )
-                        return True
+                        # Some ad providers grant the ticket just before the
+                        # Continue control is painted. Hide the viewer now,
+                        # keep looking briefly, and click it as soon as it
+                        # exists. Providers without a Continue step resume
+                        # after the short grace period.
+                        self._global_novelpia_hide_ad_story(page)
+                        if not continue_clicked:
+                            continue_clicked = (
+                                self._global_novelpia_click_ad_continue(page)
+                            )
+                        ticket_confirmed_at = ticket_confirmed_at or now
+                        if (
+                            continue_clicked
+                            or now - ticket_confirmed_at >= 3
+                        ):
+                            self.log(
+                                '  [Global Novelpia] Advertisement confirmed; '
+                                f'resuming {chapter_name}.'
+                            )
+                            return True
                     next_ticket_check = now + (1 if grant_seen.is_set() else 3)
                 try:
                     page.wait_for_timeout(250)

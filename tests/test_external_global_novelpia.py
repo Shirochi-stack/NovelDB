@@ -216,6 +216,94 @@ def test_global_novelpia_api_uses_extended_slow_site_timeout():
     assert calls[0][1]['timeout'] == 90
 
 
+def test_global_novelpia_spoiler_shield_persists_across_continue_reload():
+    scripts = []
+
+    class Context:
+        def add_init_script(self, script):
+            scripts.append(script)
+
+    assert ExternalScraper._global_novelpia_install_spoiler_shield(Context())
+    assert len(scripts) == 1
+    assert '__npia_global_spoiler_shield' in scripts[0]
+    assert '__npia-global-spoiler-shield' in scripts[0]
+    assert 'Advertisement complete. Preparing the chapter' in scripts[0]
+    assert "sessionStorage.getItem(marker) === '1'" in scripts[0]
+
+
+def test_global_novelpia_continue_is_exact_and_shields_before_click():
+    scripts = []
+
+    class Page:
+        def evaluate(self, script):
+            scripts.append(script)
+            return True
+
+    assert ExternalScraper._global_novelpia_click_ad_continue(Page())
+    script = scripts[0]
+    assert "!== 'continue'" in script
+    assert "window.__npiaInstallSpoilerShield();" in script
+    assert script.index('__npiaInstallSpoilerShield();') < script.index(
+        'button.click();'
+    )
+
+
+def test_global_novelpia_continue_locator_pierces_shadow_dom_and_shields_first():
+    events = []
+
+    class Candidate:
+        @staticmethod
+        def is_visible():
+            return True
+
+        @staticmethod
+        def click(timeout):
+            events.append(('click', timeout))
+
+        @staticmethod
+        def evaluate(_script):
+            raise AssertionError('normal locator click should succeed')
+
+    class Matches:
+        @staticmethod
+        def count():
+            return 1
+
+        @staticmethod
+        def nth(index):
+            assert index == 0
+            return Candidate()
+
+    class Page:
+        @staticmethod
+        def get_by_role(role, name):
+            events.append(('locate', role, name.pattern))
+            return Matches()
+
+        @staticmethod
+        def evaluate(_script):
+            events.append(('shield',))
+            return True
+
+    assert ExternalScraper._global_novelpia_click_ad_continue(Page())
+    assert events[0] == ('locate', 'button', r'^\s*continue\s*$')
+    assert events[1] == ('shield',)
+    assert events[2] == ('click', 1500)
+
+
+def test_global_novelpia_next_ad_clears_marker_but_keeps_current_shield():
+    scripts = []
+
+    class Page:
+        def evaluate(self, script):
+            scripts.append(script)
+            return True
+
+    assert ExternalScraper._global_novelpia_prepare_ad_navigation(Page())
+    assert "sessionStorage.removeItem('__npia_global_spoiler_shield')" in scripts[0]
+    assert '.remove()' not in scripts[0]
+
+
 def test_global_novelpia_ad_gate_is_not_retried_as_a_transient_500():
     calls = []
 
