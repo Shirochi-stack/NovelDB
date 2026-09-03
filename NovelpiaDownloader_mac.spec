@@ -128,6 +128,8 @@ a = Analysis(
         'pyee',
         'requests',
         'requests.utils',
+        'bs4',
+        'bs4.element',
         'curl_cffi',
         'curl_cffi.requests',
     ],

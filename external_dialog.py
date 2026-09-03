@@ -685,7 +685,11 @@ class ExternalNovelDialog(tk.Toplevel):
                             )
                         else:
                             source_number = chapter_info.get(
-                                '_novelpiaChapterNumber', start + idx + 1
+                                '_novelpiaChapterNumber',
+                                chapter_info.get(
+                                    '_globalNovelpiaChapterNumber',
+                                    start + idx + 1,
+                                ),
                             )
                         data.setdefault('_chapter_number', source_number)
                     results[idx] = data
@@ -1610,18 +1614,21 @@ class ExternalNovelDialog(tk.Toplevel):
                 'Origin': 'https://ridibooks.com',
             })
             self._copy_browser_cookies_to_session(img_session)
+        elif data.get('_global_novelpia'):
+            img_session.headers.update({
+                'Referer': (
+                    data.get('bookUrl') or 'https://global.novelpia.com/'
+                ),
+                'Origin': 'https://global.novelpia.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
         img_compress_type = (
             zipfile.ZIP_DEFLATED if zip_compress else zipfile.ZIP_STORED
         )
 
-        def fetch_image(img_url, label, img_data_url=None, log_failure=False):
-            raw = None
-            if img_data_url and ',' in img_data_url:
-                _, b64 = img_data_url.split(',', 1)
-                try:
-                    raw = base64.b64decode(b64)
-                except Exception:
-                    raw = None
+        def fetch_image(img_url, label, img_data_url=None, log_failure=False,
+                        request_cookies=None):
+            raw = ExternalNovelDialog._decode_image_data_url(img_data_url)
             if raw:
                 return raw
             if data.get('_ntk_novel') and self._scraper and img_url:
@@ -1635,6 +1642,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     img_url,
                     label,
                     session=img_session,
+                    request_cookies=request_cookies,
                     log_success=False,
                     log_failure=log_failure,
                 )
@@ -1706,6 +1714,10 @@ class ExternalNovelDialog(tk.Toplevel):
                             f"Ch{chapter_number} image {img_idx}/{len(images)}",
                             img_data_url=img_info.get('data'),
                             log_failure=(img_idx <= 3),
+                            request_cookies=(
+                                img_info.get('_cookies')
+                                or ch_data.get('_imageCookies')
+                            ),
                         )
                         if not raw:
                             failed_count += 1
@@ -1961,6 +1973,14 @@ img { display: block; max-width: 100%; max-height: 100%;
                 'Origin': 'https://ridibooks.com',
             })
             self._copy_browser_cookies_to_session(img_session)
+        elif data.get('_global_novelpia'):
+            img_session.headers.update({
+                'Referer': (
+                    data.get('bookUrl') or 'https://global.novelpia.com/'
+                ),
+                'Origin': 'https://global.novelpia.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
         img_counter = [0]
 
         try:
@@ -2087,15 +2107,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                         img_idx, img_info = item
                         img_url = html.unescape(img_info.get('url', '')).strip()
                         img_data_url = img_info.get('data')
-                        raw = None
-
-                        # Try browser-provided base64 data first
-                        if img_data_url and ',' in img_data_url:
-                            _, b64 = img_data_url.split(',', 1)
-                            try:
-                                raw = base64.b64decode(b64)
-                            except Exception:
-                                pass
+                        raw = ExternalNovelDialog._decode_image_data_url(
+                            img_data_url
+                        )
 
                         # Fall back to Python-side download. Use one Session
                         # per worker. requests.Session should not be shared
@@ -2113,6 +2127,10 @@ img { display: block; max-width: 100%; max-height: 100%;
                                     f"Ch{chapter_number} image {img_idx}/"
                                     f"{len(image_items)}",
                                     session=dl_session,
+                                    request_cookies=(
+                                        img_info.get('_cookies')
+                                        or ch_data.get('_imageCookies')
+                                    ),
                                     log_success=False,
                                     log_failure=(img_idx <= 3),
                                 )
@@ -2272,6 +2290,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     content_html, epub, img_session, img_counter,
                     compress_images, jpeg_quality, image_format,
                     chapter_number,
+                    request_cookies=ch_data.get('_imageCookies'),
                 )
 
                 # Fix novel-downloader's img format for EPUB rendering:
@@ -2436,9 +2455,24 @@ img { display: block; max-width: 100%; max-height: 100%;
             html_str = re.sub(img_pattern, '', html_str, flags=re.IGNORECASE)
         return html_str
 
+    @staticmethod
+    def _decode_image_data_url(data_url):
+        """Decode base64 or percent-encoded inline images."""
+        if not data_url or ',' not in data_url:
+            return None
+        try:
+            import base64
+            import urllib.parse
+            header, payload = data_url.split(',', 1)
+            if ';base64' in header.lower():
+                return base64.b64decode(payload)
+            return urllib.parse.unquote_to_bytes(payload)
+        except Exception:
+            return None
+
     def _download_image_python(self, url, label="Image", session=None,
                                max_retries=3, log_success=True,
-                               log_failure=False):
+                               log_failure=False, request_cookies=None):
         """Download an image using requests (no CORS/mixed-content issues).
 
         Automatically upgrades http:// to https:// and retries on failure.
@@ -2460,7 +2494,28 @@ img { display: block; max-width: 100%; max-height: 100%;
         last_error = None
         for attempt in range(max_retries):
             try:
-                r = sess.get(url, timeout=15)
+                request_options = {'timeout': 15}
+                if request_cookies:
+                    effective_cookies = dict(request_cookies)
+                    cloudfront_names = {
+                        'CloudFront-Policy',
+                        'CloudFront-Key-Pair-Id',
+                        'CloudFront-Signature',
+                    }
+                    if cloudfront_names.intersection(effective_cookies):
+                        import urllib.parse
+                        image_host = (
+                            urllib.parse.urlparse(url).hostname or ''
+                        ).lower()
+                        if image_host != 'pv-gn.novelpia.com':
+                            effective_cookies = {
+                                key: value
+                                for key, value in effective_cookies.items()
+                                if key not in cloudfront_names
+                            }
+                    if effective_cookies:
+                        request_options['cookies'] = effective_cookies
+                r = sess.get(url, **request_options)
                 last_status = r.status_code
                 last_length = len(r.content)
                 last_type = r.headers.get('content-type', '')
@@ -2486,7 +2541,8 @@ img { display: block; max-width: 100%; max-height: 100%;
         return None
 
     def _download_inline_images(self, html_str, epub, session, counter,
-                                compress, quality, fmt, chapter_number):
+                                compress, quality, fmt, chapter_number,
+                                request_cookies=None):
         """Find <img src="http..."> in HTML, download, and replace with
         local EPUB paths.  Skips images already pointing to ../Images/."""
         import re
@@ -2503,7 +2559,10 @@ img { display: block; max-width: 100%; max-height: 100%;
             if '../Images/' in url:
                 continue  # Already replaced
             raw = self._download_image_python(
-                url, f"Ch{chapter_number} inline img", session=session
+                url,
+                f"Ch{chapter_number} inline img",
+                session=session,
+                request_cookies=request_cookies,
             )
             if raw:
                 counter[0] += 1
@@ -2676,14 +2735,18 @@ img { display: block; max-width: 100%; max-height: 100%;
                 'Origin': 'https://ridibooks.com',
             })
             self._copy_browser_cookies_to_session(image_session)
+        elif data.get('_global_novelpia'):
+            image_session.headers.update({
+                'Referer': (
+                    data.get('bookUrl') or 'https://global.novelpia.com/'
+                ),
+                'Origin': 'https://global.novelpia.com',
+            })
+            self._copy_browser_cookies_to_session(image_session)
 
-        def fetch_pdf_asset(url, label, data_url=None, referer=None):
-            raw = None
-            if data_url and ',' in data_url:
-                try:
-                    raw = base64.b64decode(data_url.split(',', 1)[1])
-                except Exception:
-                    raw = None
+        def fetch_pdf_asset(url, label, data_url=None, referer=None,
+                            request_cookies=None):
+            raw = ExternalNovelDialog._decode_image_data_url(data_url)
             if raw:
                 return raw
             if data.get('_ntk_novel') and self._scraper and url:
@@ -2702,6 +2765,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     url,
                     label,
                     session=image_session,
+                    request_cookies=request_cookies,
                     log_success=False,
                     log_failure=True,
                 )
@@ -2751,6 +2815,10 @@ img { display: block; max-width: 100%; max-height: 100%;
                         or data.get('bookUrl')
                         or ''
                     ),
+                    request_cookies=(
+                        img_info.get('_cookies')
+                        or ch_data.get('_imageCookies')
+                    ),
                 )
                 if not raw:
                     continue
@@ -2791,6 +2859,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                         or data.get('bookUrl')
                         or ''
                     ),
+                    request_cookies=ch_data.get('_imageCookies'),
                 )
                 if not raw:
                     continue

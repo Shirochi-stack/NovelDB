@@ -107,6 +107,8 @@ a = Analysis(
         'pyee',                     # Event emitter used by playwright
         'requests',                 # Used by external/API/image helpers
         'requests.utils',
+        'bs4',                      # Global Novelpia HTML normalization
+        'bs4.element',
         'curl_cffi',
         'curl_cffi.requests',
     ],

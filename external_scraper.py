@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import os
 import platform
+import random
 import re
 import shutil
 import shlex
@@ -184,6 +185,10 @@ class ExternalScraper:
         self._munpia_cdp_port = None
         self._novelpia_chrome = False
         self._novelpia_cdp_port = None
+        self._global_novelpia_session = None
+        self._global_novelpia_login_at = ''
+        self._global_novelpia_refresh_attempted = False
+        self._global_novelpia_auth_lock = threading.Lock()
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._book_data = None
@@ -3349,6 +3354,7 @@ class ExternalScraper:
             regular_browser
             or self.is_ntk_novel(start_url)
             or self.is_novelpia(start_url)
+            or self.is_global_novelpia(start_url)
         )
         if use_regular and self.is_ntk_novel(start_url):
             user_data_dir = self._get_ntk_user_data_dir()
@@ -3628,6 +3634,8 @@ class ExternalScraper:
         except Exception:
             return False
         host = (parsed.hostname or '').lower()
+        if host == 'global.novelpia.com':
+            return False
         if host != 'novelpia.com' and not host.endswith('.novelpia.com'):
             return False
         return bool(
@@ -3636,6 +3644,21 @@ class ExternalScraper:
                 parsed.path or '',
             )
         )
+
+    @staticmethod
+    def is_global_novelpia(url):
+        """Return True for Global Novelpia novel index URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        if (parsed.hostname or '').lower() != 'global.novelpia.com':
+            return False
+        return bool(re.match(
+            r'^/novel/\d+(?:[/?#]|$)',
+            parsed.path or '',
+            re.I,
+        ))
 
     @staticmethod
     def is_ridibooks(url):
@@ -3961,6 +3984,14 @@ class ExternalScraper:
         self._munpia_cdp_port = None
         self._novelpia_chrome = False
         self._novelpia_cdp_port = None
+        try:
+            if self._global_novelpia_session:
+                self._global_novelpia_session.close()
+        except Exception:
+            pass
+        self._global_novelpia_session = None
+        self._global_novelpia_login_at = ''
+        self._global_novelpia_refresh_attempted = False
         if self._ntk_temp_chrome:
             try:
                 closed = self._close_ntk_profile_chrome(
@@ -7622,6 +7653,872 @@ async ({ url }) => {
             return data
         self.log(f"  [NewToki] API chapter fetch failed: {chapter_name}")
         return None
+
+    # ------------------------------------------------------------------
+    # Global Novelpia scraper (ported from the user's pia-scrap project)
+    # ------------------------------------------------------------------
+    _GLOBAL_NOVELPIA_BASE = 'https://global.novelpia.com'
+    _GLOBAL_NOVELPIA_API = 'https://api-global.novelpia.com'
+    _GLOBAL_NOVELPIA_IMAGE_COOKIES = (
+        'CloudFront-Policy',
+        'CloudFront-Key-Pair-Id',
+        'CloudFront-Signature',
+    )
+
+    @staticmethod
+    def _global_novelpia_novel_id(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path or ''
+        except Exception:
+            return ''
+        match = re.search(r'/novel/(\d+)', path, re.I)
+        return match.group(1) if match else ''
+
+    @staticmethod
+    def _global_novelpia_episode_id(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path or ''
+        except Exception:
+            return ''
+        match = re.search(r'/viewer/(\d+)', path, re.I)
+        return match.group(1) if match else ''
+
+    def _global_novelpia_sync_browser_cookies(self, session):
+        """Copy the dedicated External Downloader profile into requests."""
+        if not self._context:
+            return 0
+        try:
+            cookies = self._context.cookies()
+        except Exception:
+            return 0
+        copied = 0
+        for cookie in cookies or []:
+            domain = (cookie.get('domain') or '').lower()
+            cookie_host = domain.lstrip('.')
+            if (
+                cookie_host != 'novelpia.com'
+                and not cookie_host.endswith('.novelpia.com')
+            ):
+                continue
+            name = cookie.get('name')
+            value = cookie.get('value')
+            if not name or value is None:
+                continue
+            try:
+                session.cookies.set(
+                    name,
+                    value,
+                    domain=cookie.get('domain') or '.novelpia.com',
+                    path=cookie.get('path') or '/',
+                )
+                copied += 1
+            except Exception:
+                pass
+        return copied
+
+    def _global_novelpia_ensure_session(self, refresh_login=False):
+        """Create an API session and import the latest browser credentials."""
+        try:
+            import requests
+        except Exception as e:
+            self.log(f'[Global Novelpia] requests is unavailable: {e}')
+            return None
+
+        if self._global_novelpia_session is None:
+            session = requests.Session()
+            session.headers.update({
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Origin': self._GLOBAL_NOVELPIA_BASE,
+                'Referer': f'{self._GLOBAL_NOVELPIA_BASE}/',
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                    'Chrome/147.0.0.0 Safari/537.36'
+                ),
+                'X-Requested-With': 'XMLHttpRequest',
+            })
+            self._global_novelpia_session = session
+
+        session = self._global_novelpia_session
+        self._global_novelpia_sync_browser_cookies(session)
+        cookie_names = {cookie.name for cookie in session.cookies}
+        if 'USERKEY' not in cookie_names:
+            session.cookies.set(
+                'USERKEY', uuid.uuid4().hex,
+                domain='.novelpia.com', path='/',
+            )
+        if 'last_login' not in cookie_names:
+            session.cookies.set(
+                'last_login', 'basic',
+                domain='.novelpia.com', path='/',
+            )
+
+        if refresh_login or (
+            not self._global_novelpia_login_at
+            and not self._global_novelpia_refresh_attempted
+        ):
+            self._global_novelpia_refresh_login()
+        return session
+
+    def _global_novelpia_refresh_login(self, expected_token=None):
+        """Exchange Global Novelpia cookies for a fresh LOGINAT token."""
+        with self._global_novelpia_auth_lock:
+            self._global_novelpia_refresh_attempted = True
+            if (
+                expected_token
+                and self._global_novelpia_login_at
+                and self._global_novelpia_login_at != expected_token
+            ):
+                return True
+            session = self._global_novelpia_session
+            if session is None:
+                return False
+            self._global_novelpia_sync_browser_cookies(session)
+            try:
+                response = session.get(
+                    f'{self._GLOBAL_NOVELPIA_API}/v1/login/refresh',
+                    timeout=30,
+                )
+                payload = response.json()
+            except Exception:
+                return False
+            result = payload.get('result') if isinstance(payload, dict) else {}
+            token = result.get('LOGINAT') if isinstance(result, dict) else None
+            status_code = payload.get('statusCode') if isinstance(payload, dict) else None
+            if (
+                response.status_code == 200
+                and str(status_code or 200) == '200'
+                and isinstance(token, str)
+                and bool(token.strip())
+            ):
+                self._global_novelpia_login_at = urllib.parse.unquote(token)
+                return True
+            return False
+
+    def _global_novelpia_clone_session(self):
+        source = self._global_novelpia_session
+        if source is None:
+            source = self._global_novelpia_ensure_session()
+        if source is None:
+            return None
+        import requests
+        session = requests.Session()
+        session.headers.update(source.headers)
+        session.cookies.update(source.cookies)
+        return session
+
+    def _global_novelpia_request_json(
+        self,
+        session,
+        url,
+        params=None,
+        login_at=None,
+        max_retries=3,
+    ):
+        """Request one pia-scrap API payload with bounded retry/backoff."""
+        headers = {}
+        if login_at:
+            headers['login-at'] = urllib.parse.unquote(login_at)
+        last_status = 0
+        last_payload = {}
+        for attempt in range(1, max(1, max_retries) + 1):
+            if self._stop_requested:
+                return 0, {'error': 'cancelled'}
+            try:
+                response = session.get(
+                    url,
+                    headers=headers or None,
+                    params=params,
+                    timeout=30,
+                )
+                last_status = int(response.status_code or 0)
+                try:
+                    last_payload = response.json()
+                except Exception:
+                    last_payload = {
+                        'error': (response.text or '')[:300],
+                    }
+            except Exception as e:
+                last_status = 0
+                last_payload = {'error': str(e)}
+
+            retryable = last_status == 429 or last_status >= 500 or not last_status
+            if not retryable or attempt >= max_retries:
+                return last_status, last_payload
+            if last_status == 429:
+                delay = max(5.0, 1.25 ** (attempt + 2))
+            else:
+                delay = min(3.0, 1.25 ** attempt)
+            delay += random.uniform(0.2, 0.8)
+            deadline = time.monotonic() + delay
+            while time.monotonic() < deadline and not self._stop_requested:
+                time.sleep(max(0.0, min(
+                    0.1, deadline - time.monotonic()
+                )))
+        return last_status, last_payload
+
+    @staticmethod
+    def _global_novelpia_safe_int(value, fallback=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    @staticmethod
+    def _global_novelpia_pick_strings(items, *keys):
+        values = []
+        if not isinstance(items, list):
+            return values
+        for item in items:
+            if isinstance(item, str):
+                value = item.strip()
+                if value:
+                    values.append(value)
+                continue
+            if not isinstance(item, dict):
+                continue
+            for key in keys:
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    values.append(value.strip())
+                    break
+        return values
+
+    @staticmethod
+    def _global_novelpia_payload_message(payload):
+        if not isinstance(payload, dict):
+            return str(payload or '')
+        result = payload.get('result') or {}
+        values = [
+            payload.get('errmsg'), payload.get('message'), payload.get('error'),
+            payload.get('code'),
+        ]
+        if isinstance(result, dict):
+            values.extend([
+                result.get('errmsg'), result.get('message'),
+                result.get('name'), result.get('code'),
+            ])
+        return ' '.join(str(value) for value in values if value).strip()
+
+    @classmethod
+    def _global_novelpia_access_denied(cls, status, payload):
+        message = cls._global_novelpia_payload_message(payload).lower()
+        return bool(
+            status in (401, 403)
+            or re.search(
+                r'login|logged in|purchase|paid|permission|forbidden|'
+                r'access denied|not available|구매|로그인|권한',
+                message,
+                re.I,
+            )
+        )
+
+    def _global_novelpia_parse_book(self, url):
+        """Load Global Novelpia metadata and its canonical ASC episode list."""
+        novel_id = self._global_novelpia_novel_id(url)
+        if not novel_id:
+            self.log('[Global Novelpia] ERROR: Invalid novel URL.')
+            return None
+
+        self._stop_requested = False
+        book_url = f'{self._GLOBAL_NOVELPIA_BASE}/novel/{novel_id}'
+        if not self._page:
+            self.start()
+        if self._page:
+            try:
+                self._page.goto(
+                    book_url,
+                    wait_until='domcontentloaded',
+                    timeout=30000,
+                )
+            except Exception as e:
+                if 'ERR_ABORTED' not in str(e):
+                    self.log(f'[Global Novelpia] Page load warning: {e}')
+
+        session = self._global_novelpia_ensure_session(refresh_login=True)
+        if session is None:
+            return None
+        if self._global_novelpia_login_at:
+            self.log('[Global Novelpia] Authenticated browser session detected.')
+        else:
+            self.log(
+                '[Global Novelpia] Using anonymous access. Use Enter Browser '
+                'and log in to download chapters owned by your account.'
+            )
+
+        status, novel_payload = self._global_novelpia_request_json(
+            session,
+            f'{self._GLOBAL_NOVELPIA_API}/v1/novel',
+            params={'novel_no': novel_id},
+            login_at=self._global_novelpia_login_at,
+        )
+        result = novel_payload.get('result') if isinstance(novel_payload, dict) else None
+        novel = result.get('novel') if isinstance(result, dict) else None
+        if status != 200 or not isinstance(novel, dict):
+            message = self._global_novelpia_payload_message(novel_payload)
+            self.log(
+                f'[Global Novelpia] ERROR: Metadata request failed '
+                f'(HTTP {status or "network"})'
+                + (f': {message}' if message else '.')
+            )
+            return None
+
+        info = result.get('info') or {}
+        episode_count = info.get('epi_cnt') or novel.get('count_epi') or 0
+        try:
+            rows = max(1, int(episode_count or 1000))
+        except (TypeError, ValueError):
+            rows = 1000
+        list_status, list_payload = self._global_novelpia_request_json(
+            session,
+            f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode/list',
+            params={'novel_no': novel_id, 'rows': rows, 'sort': 'ASC'},
+            login_at=self._global_novelpia_login_at,
+        )
+        list_result = list_payload.get('result') if isinstance(list_payload, dict) else None
+        episodes = list_result.get('list') if isinstance(list_result, dict) else None
+        if list_status != 200 or not isinstance(episodes, list):
+            message = self._global_novelpia_payload_message(list_payload)
+            self.log(
+                f'[Global Novelpia] ERROR: Episode list failed '
+                f'(HTTP {list_status or "network"})'
+                + (f': {message}' if message else '.')
+            )
+            return None
+
+        indexed_episodes = list(enumerate(episodes))
+        indexed_episodes.sort(key=lambda item: (
+            self._global_novelpia_safe_int(
+                item[1].get('epi_num'), item[0] + 1
+            ),
+            item[0],
+        ))
+        chapters = []
+        seen = set()
+        for source_index, episode in indexed_episodes:
+            if not isinstance(episode, dict):
+                continue
+            episode_no = episode.get('episode_no')
+            try:
+                episode_no = str(int(episode_no))
+            except (TypeError, ValueError):
+                continue
+            if episode_no in seen:
+                continue
+            seen.add(episode_no)
+            episode_number = self._global_novelpia_safe_int(
+                episode.get('epi_num'), len(chapters) + 1
+            )
+            title = str(
+                episode.get('epi_title') or f'Episode {episode_number}'
+            ).strip()
+            chapters.append({
+                'id': episode_no,
+                'url': f'{self._GLOBAL_NOVELPIA_BASE}/viewer/{episode_no}',
+                'name': title,
+                'fullName': title,
+                'isVIP': False,
+                'isPaid': False,
+                'isAccessible': True,
+                '_globalNovelpiaChapterNumber': episode_number,
+                '_globalNovelpiaEpisode': episode,
+            })
+
+        if not chapters:
+            self.log('[Global Novelpia] ERROR: No episodes were found.')
+            return None
+
+        writers = result.get('writer_list') or []
+        author = ''
+        if writers and isinstance(writers[0], dict):
+            author = str(writers[0].get('writer_name') or '').strip()
+        tags = self._global_novelpia_pick_strings(
+            result.get('tag_list'), 'tag_name', 'name', 'title'
+        ) + self._global_novelpia_pick_strings(
+            novel.get('tag_list'), 'tag_name', 'name', 'title'
+        )
+        categories = self._global_novelpia_pick_strings(
+            result.get('cate_list'), 'cate_name', 'name', 'title'
+        ) + self._global_novelpia_pick_strings(
+            novel.get('cate_list'), 'cate_name', 'name', 'title'
+        ) + self._global_novelpia_pick_strings(
+            result.get('genre_list'), 'genre_name', 'name', 'title'
+        ) + self._global_novelpia_pick_strings(
+            novel.get('genre_list'), 'genre_name', 'name', 'title'
+        )
+        subjects = list(dict.fromkeys(categories + tags))
+        cover_url = novel.get('novel_full_img') or novel.get('novel_img') or ''
+        if str(cover_url).startswith('//'):
+            cover_url = f'https:{cover_url}'
+        else:
+            cover_url = urllib.parse.urljoin(book_url, str(cover_url or ''))
+        introduction = str(novel.get('novel_story') or '').strip()
+        publisher = str(
+            novel.get('cp_name')
+            or novel.get('publisher_name')
+            or (result.get('cp_info') or {}).get('cp_name')
+            or ''
+        ).strip()
+        title = str(novel.get('novel_name') or f'Novel {novel_id}').strip()
+        data = {
+            'bookname': title,
+            'author': author,
+            'coverUrl': cover_url,
+            'description': introduction,
+            'introduction': introduction,
+            'introductionHTML': (
+                '<p>' + html.escape(introduction).replace('\n', '<br/>\n') + '</p>'
+                if introduction else ''
+            ),
+            'publisher': publisher,
+            'status': (
+                'Completed' if str(novel.get('flag_complete', 0)) == '1'
+                else 'Ongoing'
+            ),
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'en',
+            'tags': subjects,
+            '_global_novelpia': True,
+            '_global_novelpia_novel_id': novel_id,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        self.log(
+            f'[Global Novelpia] Book: {title} by {author or "?"} - '
+            f'{len(chapters)} chapters'
+        )
+        return data
+
+    @staticmethod
+    def _global_novelpia_looks_like_jwt(value):
+        if not isinstance(value, str):
+            return False
+        parts = value.split('.')
+        if len(parts) != 3 or not all(parts):
+            return False
+        try:
+            for part in parts:
+                base64.urlsafe_b64decode(part + '===')
+        except Exception:
+            return False
+        return True
+
+    @classmethod
+    def _global_novelpia_extract_ticket_token(cls, payload):
+        """Return the ticket token/direct URL using pia-scrap's strict order."""
+        result = payload.get('result') if isinstance(payload, dict) else {}
+        result = result if isinstance(result, dict) else {}
+        fallback = ''
+        for key in ('_t', 't', 'token'):
+            value = result.get(key)
+            if isinstance(value, str) and value:
+                if cls._global_novelpia_looks_like_jwt(value):
+                    return value, ''
+                fallback = fallback or value
+        for value in result.values():
+            if not isinstance(value, dict):
+                continue
+            for key in ('_t', 't', 'token'):
+                nested = value.get(key)
+                if isinstance(nested, str) and nested:
+                    if cls._global_novelpia_looks_like_jwt(nested):
+                        return nested, ''
+                    fallback = fallback or nested
+
+        def iter_strings(value):
+            if isinstance(value, str):
+                yield value
+            elif isinstance(value, dict):
+                for nested in value.values():
+                    yield from iter_strings(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    yield from iter_strings(nested)
+
+        for value in iter_strings(payload):
+            if not value.startswith(('http://', 'https://')):
+                continue
+            try:
+                parsed = urllib.parse.urlparse(value)
+                if (
+                    parsed.hostname == 'api-global.novelpia.com'
+                    and parsed.path.endswith('/v1/novel/episode/content')
+                ):
+                    token = (
+                        urllib.parse.parse_qs(parsed.query).get('_t') or ['']
+                    )[0]
+                    if token:
+                        if cls._global_novelpia_looks_like_jwt(token):
+                            return token, value
+                        fallback = fallback or token
+            except Exception:
+                pass
+        return (fallback, '') if fallback else ('', '')
+
+    @classmethod
+    def _global_novelpia_signed_image_cookies(cls, ticket_payload):
+        result = ticket_payload.get('result') if isinstance(ticket_payload, dict) else {}
+        signed = result.get('signed_key') if isinstance(result, dict) else {}
+        if not isinstance(signed, dict):
+            return {}
+        return {
+            name: str(signed[name])
+            for name in cls._GLOBAL_NOVELPIA_IMAGE_COOKIES
+            if signed.get(name)
+        }
+
+    @staticmethod
+    def _global_novelpia_raw_content(content_payload):
+        result = content_payload.get('result') if isinstance(content_payload, dict) else {}
+        result = result if isinstance(result, dict) else {}
+        data = result.get('data') or {}
+        parts = []
+        if isinstance(data, dict):
+            def content_key(key):
+                match = re.search(r'(\d+)$', str(key))
+                return (
+                    0 if str(key) == 'epi_content' else 1,
+                    int(match.group(1)) if match else 0,
+                )
+            keys = [key for key in data if str(key).startswith('epi_content')]
+            for key in sorted(keys, key=content_key):
+                value = data.get(key)
+                if isinstance(value, str) and value:
+                    parts.append(value)
+        raw = ''.join(parts).strip()
+        if raw:
+            return raw
+        for value in (
+            result.get('content'), result.get('html'), result.get('text'),
+            content_payload.get('content') if isinstance(content_payload, dict) else '',
+        ):
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ''
+
+    @staticmethod
+    def _global_novelpia_best_srcset(value):
+        value = str(value or '').strip()
+        if value.startswith('data:'):
+            return value
+        candidates = []
+        for raw_candidate in value.split(','):
+            bits = raw_candidate.strip().split()
+            if not bits:
+                continue
+            score = 1.0
+            if len(bits) > 1:
+                descriptor = bits[-1].lower()
+                try:
+                    if descriptor.endswith('w'):
+                        score = float(descriptor[:-1])
+                    elif descriptor.endswith('x'):
+                        score = float(descriptor[:-1]) * 10000.0
+                except ValueError:
+                    score = 1.0
+            candidates.append((bits[0], score))
+        return max(candidates, key=lambda item: item[1])[0] if candidates else ''
+
+    @staticmethod
+    def _global_novelpia_image_name(image_url, episode_no, image_index):
+        if str(image_url).startswith('data:'):
+            mime = str(image_url).split(';', 1)[0].lower()
+            extension = {
+                'data:image/png': 'png',
+                'data:image/gif': 'gif',
+                'data:image/webp': 'webp',
+                'data:image/avif': 'avif',
+                'data:image/svg+xml': 'svg',
+            }.get(mime, 'jpg')
+            return f'global_novelpia_{episode_no}_{image_index}.{extension}'
+        try:
+            name = urllib.parse.unquote(
+                os.path.basename(urllib.parse.urlparse(image_url).path)
+            )
+        except Exception:
+            name = ''
+        name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
+        if not name or not re.search(r'\.[A-Za-z0-9]{2,5}$', name):
+            name = f'global_novelpia_{episode_no}_{image_index}.jpg'
+        return name
+
+    def _global_novelpia_build_chapter_result(
+        self,
+        raw_html,
+        chapter_name,
+        chapter_url,
+        signed_cookies=None,
+    ):
+        """Normalize pia-scrap chapter HTML and expose all assets to writers."""
+        try:
+            from bs4 import BeautifulSoup
+            from bs4.element import Tag
+        except Exception as e:
+            self.log(f'  [Global Novelpia] BeautifulSoup unavailable: {e}')
+            return None
+        soup = BeautifulSoup(raw_html or '', 'html.parser')
+        lazy_attributes = (
+            'data-original', 'data-lazy-src', 'data-src', 'data-url',
+            'data-image', 'data-cfsrc',
+        )
+        source_attributes = ('data-srcset', 'srcset')
+
+        def normalize_url(value):
+            value = html.unescape(str(value or '').strip())
+            if not value or value.startswith('blob:'):
+                return ''
+            if value.startswith('data:'):
+                return value
+            return urllib.parse.urldefrag(
+                urllib.parse.urljoin(chapter_url, value)
+            )[0]
+
+        def choose_source(image):
+            picture = (
+                image.parent
+                if isinstance(image.parent, Tag) and image.parent.name == 'picture'
+                else None
+            )
+            if picture is not None:
+                for source in picture.find_all('source'):
+                    for attribute in source_attributes:
+                        candidate = self._global_novelpia_best_srcset(
+                            source.get(attribute)
+                        )
+                        if candidate:
+                            return normalize_url(candidate)
+            candidate = self._global_novelpia_best_srcset(
+                image.get('data-srcset')
+            )
+            if candidate:
+                return normalize_url(candidate)
+            for attribute in lazy_attributes:
+                candidate = image.get(attribute)
+                if candidate:
+                    return normalize_url(candidate)
+            candidate = self._global_novelpia_best_srcset(image.get('srcset'))
+            if candidate:
+                return normalize_url(candidate)
+            return normalize_url(image.get('src'))
+
+        asset_urls = []
+        for image in soup.find_all('img'):
+            source = choose_source(image)
+            if source:
+                image['src'] = source
+                asset_urls.append(source)
+            for attribute in (*lazy_attributes, *source_attributes):
+                image.attrs.pop(attribute, None)
+        for source in soup.find_all('source'):
+            source.decompose()
+        for picture in soup.find_all('picture'):
+            picture.unwrap()
+
+        background_re = re.compile(
+            r'url\(\s*(["\']?)(.*?)\1\s*\)', re.I
+        )
+
+        def replace_background(match):
+            source = normalize_url(match.group(2))
+            if not source:
+                return 'none'
+            asset_urls.append(source)
+            return f'url("{source}")'
+
+        for element in soup.find_all(style=True):
+            element['style'] = background_re.sub(
+                replace_background,
+                str(element.get('style') or ''),
+            )
+        for style_node in soup.find_all('style'):
+            if style_node.string:
+                style_node.string.replace_with(background_re.sub(
+                    replace_background,
+                    str(style_node.string),
+                ))
+        for node in soup.find_all(['script', 'noscript', 'iframe']):
+            node.decompose()
+
+        content_root = soup.body or soup
+        content_html = ''.join(str(node) for node in content_root.contents).strip()
+        content_text = content_root.get_text('\n')
+        content_text = '\n'.join(
+            line.strip() for line in content_text.splitlines() if line.strip()
+        )
+        if not content_html:
+            return None
+
+        images = []
+        seen = set()
+        cookies = dict(signed_cookies or {})
+        episode_no = self._global_novelpia_episode_id(chapter_url) or 'chapter'
+        for image_index, image_url in enumerate(asset_urls, start=1):
+            if not image_url or image_url in seen:
+                continue
+            seen.add(image_url)
+            entry = {
+                'url': image_url,
+                'name': self._global_novelpia_image_name(
+                    image_url, episode_no, image_index
+                ),
+            }
+            if image_url.startswith('data:'):
+                entry['data'] = image_url
+            try:
+                image_host = (
+                    urllib.parse.urlparse(image_url).hostname or ''
+                ).lower()
+            except Exception:
+                image_host = ''
+            if cookies and image_host == 'pv-gn.novelpia.com':
+                entry['_cookies'] = cookies
+            images.append(entry)
+
+        return {
+            'chapterName': chapter_name,
+            'sourceChapterName': chapter_name,
+            'contentText': content_text,
+            'contentHtml': (
+                f'<div class="global-novelpia-content">{content_html}</div>'
+            ),
+            'contentCss': (
+                '.global-novelpia-content p { margin: 0 0 0.75em; '
+                'line-height: 1.8; }\n'
+                '.global-novelpia-content img { max-width: 100%; height: auto; }'
+            ),
+            'images': images,
+            'chapterUrl': chapter_url,
+            '_imageCookies': cookies,
+        }
+
+    def _global_novelpia_parse_chapter(self, chapter_url, chapter_name):
+        """Fetch a Global Novelpia ticket, content payload, and signed images."""
+        episode_no = self._global_novelpia_episode_id(chapter_url)
+        if not episode_no:
+            self.log(f'  [Global Novelpia] Invalid chapter URL: {chapter_url}')
+            return None
+
+        if self._global_novelpia_session is None:
+            self._global_novelpia_ensure_session()
+        for auth_attempt in range(2):
+            session = self._global_novelpia_clone_session()
+            if session is None:
+                return None
+            login_at = self._global_novelpia_login_at
+            try:
+                status, ticket = self._global_novelpia_request_json(
+                    session,
+                    f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode',
+                    params={'episode_no': episode_no},
+                    login_at=login_at,
+                    max_retries=4,
+                )
+                ticket_message = self._global_novelpia_payload_message(
+                    ticket
+                ).lower()
+                auth_expired = (
+                    status in (401, 403)
+                    or 'logged in' in ticket_message
+                    or 'login' in ticket_message
+                    or (
+                        'token' in ticket_message
+                        and 'expire' in ticket_message
+                    )
+                )
+                if auth_expired and auth_attempt == 0:
+                    if self._global_novelpia_refresh_login(login_at):
+                        continue
+                if status >= 400 or not status:
+                    if self._global_novelpia_access_denied(status, ticket):
+                        self.log(
+                            f'  [Global Novelpia] LOCKED or login required: '
+                            f'{chapter_name}'
+                        )
+                        return {'_locked': True, 'chapterName': chapter_name}
+                    message = self._global_novelpia_payload_message(ticket)
+                    self.log(
+                        f'  [Global Novelpia] Ticket failed for {chapter_name} '
+                        f'(HTTP {status or "network"})'
+                        + (f': {message}' if message else '.')
+                    )
+                    return None
+
+                token, direct_url = self._global_novelpia_extract_ticket_token(
+                    ticket
+                )
+                if not token and not direct_url:
+                    if self._global_novelpia_access_denied(status, ticket):
+                        return {'_locked': True, 'chapterName': chapter_name}
+                    self.log(
+                        f'  [Global Novelpia] Ticket contained no content '
+                        f'token: {chapter_name}'
+                    )
+                    return None
+                content_url = (
+                    direct_url
+                    or f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode/content'
+                )
+                content_status, content_payload = (
+                    self._global_novelpia_request_json(
+                        session,
+                        content_url,
+                        params=None if direct_url else {'_t': token},
+                        max_retries=3,
+                    )
+                )
+                if content_status >= 400 or not content_status:
+                    if self._global_novelpia_access_denied(
+                        content_status, content_payload
+                    ):
+                        return {'_locked': True, 'chapterName': chapter_name}
+                    message = self._global_novelpia_payload_message(
+                        content_payload
+                    )
+                    self.log(
+                        f'  [Global Novelpia] Content failed for {chapter_name} '
+                        f'(HTTP {content_status or "network"})'
+                        + (f': {message}' if message else '.')
+                    )
+                    return None
+                raw_html = self._global_novelpia_raw_content(content_payload)
+                if not raw_html:
+                    self.log(
+                        f'  [Global Novelpia] Empty content: {chapter_name}'
+                    )
+                    return None
+                result = self._global_novelpia_build_chapter_result(
+                    raw_html,
+                    chapter_name,
+                    chapter_url,
+                    self._global_novelpia_signed_image_cookies(ticket),
+                )
+                if result:
+                    self.log(f'  [Global Novelpia] OK: {chapter_name}')
+                return result
+            finally:
+                session.close()
+        return None
+
+    def _global_novelpia_parse_chapter_batch(self, batch_info):
+        """Fetch one External Downloader batch through pia-scrap's API path."""
+        if not batch_info:
+            return []
+        self._global_novelpia_ensure_session()
+        from concurrent.futures import ThreadPoolExecutor
+
+        def fetch_one(chapter):
+            if self._stop_requested:
+                return None
+            return self._global_novelpia_parse_chapter(
+                chapter.get('url', ''),
+                chapter.get('fullName', '') or chapter.get('name', ''),
+            )
+
+        with ThreadPoolExecutor(max_workers=max(1, len(batch_info))) as executor:
+            return list(executor.map(fetch_one, batch_info))
 
     # ------------------------------------------------------------------
     # Ridibooks webnovel scraper (ported from the contributed ridi-dl extension)
@@ -11950,6 +12847,12 @@ async ({ url }) => {
                 '[69shuba] Detected 69shuba.tw URL, using native scraper.'
             )
             return self._69shuba_parse_book(url)
+        if self.is_global_novelpia(url):
+            self.log(
+                '[Global Novelpia] Detected Global Novelpia URL, using the '
+                "integrated pia-scrap API scraper."
+            )
+            return self._global_novelpia_parse_book(url)
         if self.is_ridibooks(url):
             self.log(
                 '[Ridi] Detected Ridibooks webnovel URL, using the '
@@ -12097,6 +13000,17 @@ async ({ url }) => {
                 or chapter_info.get('name', '')
             )
             result = self._69shuba_parse_chapter(url, name)
+            if interval > 0:
+                time.sleep(interval)
+            return result
+
+        if self._book_data and self._book_data.get('_global_novelpia'):
+            url = chapter_info.get('url', '')
+            name = (
+                chapter_info.get('fullName', '')
+                or chapter_info.get('name', '')
+            )
+            result = self._global_novelpia_parse_chapter(url, name)
             if interval > 0:
                 time.sleep(interval)
             return result
@@ -12291,6 +13205,9 @@ async ({ url }) => {
             max_workers = max(1, len(batch_info))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 return list(executor.map(fetch_69shuba, batch_info))
+
+        if self._book_data and self._book_data.get('_global_novelpia'):
+            return self._global_novelpia_parse_chapter_batch(batch_info)
 
         if self._book_data and self._book_data.get('_ridibooks'):
             return self._ridi_parse_chapter_batch_parallel(

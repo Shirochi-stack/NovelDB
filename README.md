@@ -44,6 +44,7 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 | Qidian | book.qidian.com |
 | JJWXC | jjwxc.net |
 | Kakao Page | page.kakao.com |
+| Global Novelpia | global.novelpia.com |
 | Ridi webnovels | ridibooks.com |
 | SFACG | book.sfacg.com |
 | Hameln | syosetu.org |
@@ -57,6 +58,10 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 4. Click **Download**.
 
 The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
+
+Global Novelpia support integrates the `pia-scrap` API workflow directly into
+the External Downloader. Free chapters and chapters available to the saved
+browser account are supported, including signed chapter images.
 
 Ridi support covers serialized webnovels, not volume ebooks. Free episodes and
 episodes purchased or rented by the logged-in account can be downloaded; other
