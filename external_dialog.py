@@ -1604,6 +1604,12 @@ class ExternalNovelDialog(tk.Toplevel):
                           'Chrome/120.0.0.0 Safari/537.36',
             'Referer': data.get('bookUrl', ''),
         })
+        if data.get('_ridibooks'):
+            img_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
+                'Origin': 'https://ridibooks.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
         img_compress_type = (
             zipfile.ZIP_DEFLATED if zip_compress else zipfile.ZIP_STORED
         )
@@ -1947,6 +1953,12 @@ img { display: block; max-width: 100%; max-height: 100%;
             img_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://page.kakao.com/',
                 'Origin': 'https://page.kakao.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
+        elif data.get('_ridibooks'):
+            img_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
+                'Origin': 'https://ridibooks.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         img_counter = [0]
@@ -2656,6 +2668,12 @@ img { display: block; max-width: 100%; max-height: 100%;
             image_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://page.kakao.com/',
                 'Origin': 'https://page.kakao.com',
+            })
+            self._copy_browser_cookies_to_session(image_session)
+        elif data.get('_ridibooks'):
+            image_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
+                'Origin': 'https://ridibooks.com',
             })
             self._copy_browser_cookies_to_session(image_session)
 

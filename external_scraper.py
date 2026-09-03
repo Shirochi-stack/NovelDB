@@ -3638,6 +3638,22 @@ class ExternalScraper:
         )
 
     @staticmethod
+    def is_ridibooks(url):
+        """Return True for Ridi webnovel book and viewer URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.hostname or '').lower()
+        if host != 'ridibooks.com' and not host.endswith('.ridibooks.com'):
+            return False
+        return bool(re.match(
+            r'^/books/\d+(?:/view)?/?$',
+            parsed.path or '',
+            re.I,
+        ))
+
+    @staticmethod
     def is_69shuba(url):
         """Return True for 69shuba.tw book, catalog, and reader URLs."""
         try:
@@ -7608,6 +7624,904 @@ async ({ url }) => {
         return None
 
     # ------------------------------------------------------------------
+    # Ridibooks webnovel scraper (ported from the contributed ridi-dl extension)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _ridi_book_id(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path or ''
+        except Exception:
+            return ''
+        match = re.search(r'/books/(\d+)', path, re.I)
+        return match.group(1) if match else ''
+
+    @staticmethod
+    def _ridi_is_viewer_url(url):
+        try:
+            path = urllib.parse.urlparse(url or '').path or ''
+        except Exception:
+            return False
+        return bool(re.search(r'/books/\d+/view(?:/)?$', path, re.I))
+
+    @staticmethod
+    def _ridi_image_name(image_url, chapter_id, image_index):
+        """Build a stable EPUB-safe name for a Ridi chapter image."""
+        try:
+            parsed = urllib.parse.urlparse(image_url or '')
+            name = urllib.parse.unquote(os.path.basename(parsed.path))
+        except Exception:
+            name = ''
+        name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
+        if not name or not re.search(r'\.[A-Za-z0-9]{2,5}$', name):
+            name = f'ridi_{chapter_id or "chapter"}_{image_index}.jpg'
+        return name
+
+    def _ridi_parse_book(self, url):
+        """Read Ridi metadata and discover its complete webnovel episode chain."""
+        book_id = self._ridi_book_id(url)
+        if not book_id:
+            self.log('[Ridi] ERROR: Invalid Ridibooks URL.')
+            return None
+
+        self._stop_requested = False
+        book_url = f'https://ridibooks.com/books/{book_id}'
+        if not self._page:
+            self.start()
+        if not self._page:
+            self.log('[Ridi] ERROR: Browser could not be started.')
+            return None
+
+        self.log(f'[Ridi] Opening: {book_url}')
+        try:
+            self._page.goto(
+                book_url,
+                wait_until='domcontentloaded',
+                timeout=45000,
+            )
+            try:
+                self._page.wait_for_load_state('load', timeout=15000)
+            except Exception:
+                pass
+        except Exception as e:
+            if 'ERR_ABORTED' not in str(e):
+                self.log(f'[Ridi] ERROR: Page load failed: {e}')
+                return None
+
+        # This is the extension's three-part strategy in a native Playwright
+        # form: collect rendered episode buttons, find the series root embedded
+        # in the page, then follow series.property.next_books until complete.
+        script = r"""
+        async () => {
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+          const absolute = (value) => {
+            try { return new URL(value || '', location.href).href; }
+            catch (_) { return value || ''; }
+          };
+          const meta = (...names) => {
+            for (const name of names) {
+              const node = document.querySelector(
+                `meta[property="${name}"], meta[name="${name}"]`
+              );
+              const value = node?.getAttribute('content');
+              if (value && value.trim()) return value.trim();
+            }
+            return '';
+          };
+          const pickText = (selectors) => {
+            for (const selector of selectors) {
+              try {
+                const node = document.querySelector(selector);
+                const value = clean(node?.innerText || node?.textContent || '');
+                if (value) return value;
+              } catch (_) {}
+            }
+            return '';
+          };
+
+          // Metadata logic ported from scrapeNovelMeta() in ridi-dl.
+          const jsonData = {
+            author: '', description: '', image: '', title: '', publisher: ''
+          };
+          const descriptions = [];
+          for (const script of document.querySelectorAll(
+            'script[type="application/json"]'
+          )) {
+            let root;
+            try { root = JSON.parse(script.textContent || ''); }
+            catch (_) { continue; }
+            const seen = new Set();
+            (function walk(value) {
+              if (!value || typeof value !== 'object' || seen.has(value)) return;
+              seen.add(value);
+              if (Array.isArray(value)) {
+                for (const item of value) walk(item);
+                return;
+              }
+              if (value.author != null && !jsonData.author) {
+                if (typeof value.author === 'string' && value.author.trim()) {
+                  jsonData.author = value.author.trim();
+                } else if (typeof value.author === 'object') {
+                  const names = Object.values(value.author)
+                    .filter((item) => typeof item === 'string' && item.trim());
+                  if (names.length) jsonData.author = names.join(', ');
+                }
+              }
+              if (typeof value.description === 'string' && value.description.trim()) {
+                descriptions.push(value.description);
+              }
+              if (typeof value.image === 'string'
+                  && /ridicdn\.net\/cover/.test(value.image)
+                  && !jsonData.image) {
+                jsonData.image = value.image;
+              }
+              if (typeof value.title === 'string' && value.title.trim()
+                  && value.title.length < 200 && !jsonData.title) {
+                jsonData.title = value.title;
+              }
+              if (typeof value.publisher === 'string' && value.publisher.trim()
+                  && !jsonData.publisher) {
+                jsonData.publisher = value.publisher;
+              }
+              for (const key in value) {
+                try { walk(value[key]); } catch (_) {}
+              }
+            })(root);
+          }
+
+          let bestDescription = '';
+          let bestDescriptionScore = -Infinity;
+          for (const description of descriptions) {
+            if (/리디\s*가입|포인트|가입하면|이벤트|쿠폰|할인받|무료.?체험/.test(
+              description
+            )) continue;
+            let score = description.length;
+            if (/책\s*소개|작가\s*의\s*말|줄거리/.test(description)) score += 3000;
+            if (/&lt;|<\/?[a-z][^>]*>/i.test(description)) score += 5000;
+            if (/[.。…]{2,}\s*$/.test(description)) score -= 2000;
+            if (score > bestDescriptionScore) {
+              bestDescriptionScore = score;
+              bestDescription = description;
+            }
+          }
+
+          const synopsisFromScripts = () => {
+            let best = null;
+            const expression = /"description"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+            for (const script of document.querySelectorAll('script')) {
+              const source = script.textContent || '';
+              if (!source.includes('description')) continue;
+              expression.lastIndex = 0;
+              let match;
+              while ((match = expression.exec(source))) {
+                let value;
+                try { value = JSON.parse('"' + match[1] + '"'); }
+                catch (_) { continue; }
+                if (!value || !value.trim()) continue;
+                if (/리디\s*가입|포인트|가입하면|이벤트|쿠폰|할인받|무료.?체험/.test(
+                  value
+                )) continue;
+                const marker = /책\s*소개|작품\s*소개|작가\s*의\s*말|줄거리|<b>|&lt;/i.test(
+                  value
+                );
+                const truncated = /[.。…]{2,}\s*$/.test(value);
+                if (!marker && value.length < 60) continue;
+                const score = value.length + (marker ? 100000 : 0)
+                  + (truncated ? 0 : 5000);
+                if (!best || score > best.score) best = {value, score};
+              }
+            }
+            return best?.value || '';
+          };
+          const synopsisByHeading = () => {
+            for (const heading of document.querySelectorAll('h1,h2,h3,h4')) {
+              if (!/^(작품\s*소개|책\s*소개|줄거리|소개)$/.test(
+                clean(heading.textContent)
+              )) continue;
+              let node = heading.nextElementSibling;
+              for (let index = 0; node && index < 3;
+                   index += 1, node = node.nextElementSibling) {
+                if (node.tagName === 'BUTTON') continue;
+                const value = clean(node.innerText || node.textContent);
+                if (value.length > 4) return value;
+              }
+            }
+            return '';
+          };
+          let synopsis = synopsisFromScripts() || synopsisByHeading()
+            || bestDescription
+            || meta('og:description', 'twitter:description', 'description');
+          if (synopsis) {
+            synopsis = synopsis
+              .replace(/<br\s*\/?>/gi, '\n')
+              .replace(/<\/(p|div|li)>/gi, '\n')
+              .replace(/<[^>]+>/g, '')
+              .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+              .replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+              .replace(/&#0?39;/g, "'").replace(/&nbsp;/g, ' ')
+              .replace(/^\s*[<\[]\s*(책\s*소개|작품\s*소개)\s*[>\]]\s*/i, '')
+              .replace(/\s*(더보기|접기)\s*$/, '')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim();
+          }
+
+          const coverNode = document.querySelector(
+            'img[src*="ridicdn.net/cover"], img[srcset*="ridicdn.net/cover"], '
+            + '[class*="cover"] img, [class*="Cover"] img, .thumbnail img'
+          );
+          const cover = absolute(
+            meta('og:image', 'twitter:image', 'twitter:image:src')
+            || jsonData.image
+            || coverNode?.currentSrc || coverNode?.src
+            || (coverNode?.getAttribute('srcset') || '').split(',').pop()
+              ?.trim().split(' ')[0]
+            || coverNode?.getAttribute('data-src') || ''
+          );
+          const title = meta('og:title') || jsonData.title
+            || pickText(['h1', '[class*="title"]', '.book_title'])
+            || 'Untitled Novel';
+          const author = jsonData.author || pickText([
+            'a[href^="/author/"]', 'a[href*="/author/"]',
+            '[class*="author"] a', '[class*="Author"]'
+          ]) || meta('og:novel:author', 'book:author', 'author');
+
+          // Save the cheaply available DOM titles before episode discovery.
+          const titleById = {};
+          const collectLinks = () => Array.from(document.querySelectorAll(
+            '.serial_book_direct_view_button'
+          )).map((node) => node.getAttribute('href')).filter(Boolean);
+          for (const button of document.querySelectorAll(
+            '.serial_book_direct_view_button'
+          )) {
+            const href = button.getAttribute('href') || '';
+            const id = href.match(/\/books\/(\d+)/)?.[1];
+            if (!id) continue;
+            let node = button;
+            let episodeTitle = '';
+            for (let depth = 0; depth < 5 && node; depth += 1) {
+              node = node.parentElement;
+              if (!node) break;
+              const candidate = node.querySelector(
+                '[class*="title"], [class*="Title"], h3, h4, .book_title, strong'
+              );
+              if (candidate && clean(candidate.textContent)) {
+                episodeTitle = clean(candidate.textContent);
+                break;
+              }
+            }
+            if (episodeTitle && episodeTitle.length <= 200) {
+              titleById[id] = episodeTitle;
+            }
+          }
+
+          let links = collectLinks();
+          const diagnostics = [`Rendered episode links: ${links.length}`];
+          let seriesId = '';
+          for (const script of document.querySelectorAll('script:not([src])')) {
+            const match = (script.textContent || '').match(
+              /"seriesId"\s*:\s*"(\d+)"/
+            );
+            if (match) { seriesId = match[1]; break; }
+          }
+          if (!seriesId) seriesId = links[0]?.match(/\/books\/(\d+)/)?.[1] || '';
+          if (!seriesId) seriesId = location.pathname.match(/\/books\/(\d+)/)?.[1] || '';
+          diagnostics.push(`Series ID: ${seriesId || 'not found'}`);
+
+          const fetchBook = async (id, retries = 3) => {
+            for (let attempt = 1; attempt <= retries; attempt += 1) {
+              try {
+                const response = await fetch(
+                  `https://book-api.ridibooks.com/books/${id}`,
+                  {credentials: 'include'}
+                );
+                if (response.ok) return await response.json();
+                if (response.status === 429) {
+                  await sleep(2000 * attempt);
+                  continue;
+                }
+              } catch (_) {}
+              if (attempt < retries) await sleep(1000 * attempt);
+            }
+            return null;
+          };
+
+          if (seriesId) {
+            const firstData = await fetchBook(seriesId);
+            const property = firstData?.series?.property || {};
+            const total = Number(
+              property.total_book_count || property.opened_book_count || 0
+            );
+            diagnostics.push(`Series episode count: ${total || 'unknown'}`);
+            if (firstData && total > links.length) {
+              const orderedIds = [seriesId];
+              let currentId = seriesId;
+              let nextId = Object.keys(property.next_books || {})[0] || '';
+              if (nextId && nextId !== seriesId) {
+                orderedIds.push(nextId);
+                currentId = nextId;
+              }
+              let consecutiveFailures = 0;
+              while (orderedIds.length < total && consecutiveFailures < 3) {
+                const currentData = await fetchBook(currentId);
+                if (!currentData) {
+                  consecutiveFailures += 1;
+                  continue;
+                }
+                consecutiveFailures = 0;
+                nextId = Object.keys(
+                  currentData?.series?.property?.next_books || {}
+                )[0] || '';
+                if (!nextId || orderedIds.includes(nextId)) break;
+                orderedIds.push(nextId);
+                currentId = nextId;
+                if (orderedIds.length % 20 === 0) await sleep(300);
+              }
+              if (orderedIds.length > links.length) {
+                links = orderedIds.map((id) => `/books/${id}/view`);
+              }
+              diagnostics.push(`Chained episode links: ${orderedIds.length}`);
+            }
+          }
+
+          // A final DOM check preserves the extension's fallback if the API is
+          // unavailable but the page expanded while discovery was running.
+          const finalLinks = collectLinks();
+          if (finalLinks.length > links.length) links = finalLinks;
+          const seenLinks = new Set();
+          links = links.map(absolute).filter((href) => {
+            if (!href || seenLinks.has(href)) return false;
+            seenLinks.add(href);
+            return /\/books\/\d+\/view(?:[/?#]|$)/.test(href);
+          });
+
+          const tags = Array.from(document.querySelectorAll(
+            '[class*="keyword"] a, [class*="tag"] a'
+          )).map((node) => clean(node.textContent).replace(/^#/, ''))
+            .filter(Boolean);
+          return {
+            title, author, synopsis, cover,
+            publisher: jsonData.publisher || '',
+            tags: [...new Set(tags)],
+            links, titleById, diagnostics,
+          };
+        }
+        """
+        try:
+            meta = self._page.evaluate(script) or {}
+        except Exception as e:
+            self.log(f'[Ridi] ERROR: Book discovery failed: {e}')
+            return None
+
+        for line in meta.get('diagnostics') or []:
+            self.log(f'[Ridi] {line}')
+
+        links = meta.get('links') or []
+        title_by_id = meta.get('titleById') or {}
+        chapters = []
+        seen = set()
+        for chapter_number, raw_chapter_url in enumerate(links, start=1):
+            chapter_url = urllib.parse.urljoin(book_url, raw_chapter_url)
+            chapter_id = self._ridi_book_id(chapter_url)
+            if not chapter_id or chapter_id in seen:
+                continue
+            seen.add(chapter_id)
+            title = title_by_id.get(chapter_id) or f'Episode {chapter_number}'
+            chapters.append({
+                'id': chapter_id,
+                'url': chapter_url,
+                'name': title,
+                'fullName': title,
+                'isVIP': False,
+                'isPaid': False,
+                # Ridi's catalog does not reveal whether this browser profile
+                # owns a chapter. The rendered viewer makes that determination.
+                'isAccessible': True,
+                '_ridiChapterNumber': chapter_number,
+            })
+
+        if not chapters:
+            self.log(
+                '[Ridi] ERROR: No webnovel episodes were found. This scraper '
+                'supports Ridi webnovels, not downloadable volume ebooks.'
+            )
+            return None
+
+        title = meta.get('title') or f'Ridi {book_id}'
+        introduction = meta.get('synopsis') or ''
+        data = {
+            'bookname': title,
+            'author': meta.get('author') or '',
+            'coverUrl': meta.get('cover') or '',
+            'description': introduction,
+            'introduction': introduction,
+            'introductionHTML': (
+                '<p>' + html.escape(introduction).replace('\n', '<br/>\n') + '</p>'
+                if introduction else ''
+            ),
+            'publisher': meta.get('publisher') or '',
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'ko',
+            'tags': meta.get('tags') or [],
+            '_ridibooks': True,
+            '_ridi_book_id': book_id,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        self.log(
+            f'[Ridi] Book: {title} by {data.get("author") or "?"} - '
+            f'{len(chapters)} chapters'
+        )
+        return data
+
+    def _ridi_content_state(self, page):
+        """Return the contribution's viewer readiness signal."""
+        try:
+            return page.evaluate(r"""
+            () => {
+              const selectors = [
+                'div.pages', '#viewer_contents', '[id^="ridi_c"]',
+                'article.chapter', '.chapter'
+              ];
+              let content = null;
+              for (const selector of selectors) {
+                content = document.querySelector(selector);
+                if (content) break;
+              }
+              const length = (content?.innerText || '').trim().length;
+              return {
+                complete: document.readyState === 'complete',
+                found: !!content,
+                ready: document.readyState === 'complete' && length > 500,
+                length,
+              };
+            }
+            """) or {}
+        except Exception:
+            return {}
+
+    def _ridi_wait_for_content(self, page, timeout=30):
+        """Wait until the rendered viewer text is both complete and stable."""
+        deadline = time.monotonic() + max(1, timeout)
+        last_length = -1
+        stable_count = 0
+        while time.monotonic() < deadline and not self._stop_requested:
+            state = self._ridi_content_state(page)
+            length = int(state.get('length') or 0)
+            if state.get('ready') and length >= 500:
+                if length == last_length:
+                    stable_count += 1
+                    if stable_count >= 2:
+                        return True
+                else:
+                    stable_count = 0
+                    last_length = length
+            else:
+                stable_count = 0
+                last_length = -1
+            try:
+                page.wait_for_timeout(700)
+            except Exception:
+                time.sleep(0.7)
+        return False
+
+    def _ridi_detect_access_wall(self, page):
+        """Classify Ridi purchase/login redirects without retrying them."""
+        try:
+            return page.evaluate(r"""
+            () => {
+              const selectors = [
+                'div.pages', '#viewer_contents', '[id^="ridi_c"]',
+                'article.chapter', '.chapter'
+              ];
+              if (selectors.some((selector) => document.querySelector(selector))) {
+                return {wall: false, offViewer: false, hits: 0, url: location.href};
+              }
+              const offViewer = !/\/books\/\d+\/view(?:\/|$|\?|#)/.test(
+                location.href
+              );
+              const text = (document.body?.innerText || '').slice(0, 6000);
+              const keywords = ['구매', '대여', '로그인', '결제', '소장', '미리보기'];
+              const hits = keywords.filter((keyword) => text.includes(keyword)).length;
+              return {
+                wall: offViewer || hits >= 2,
+                offViewer,
+                hits,
+                url: location.href,
+              };
+            }
+            """) or {'wall': False}
+        except Exception:
+            return {'wall': False}
+
+    def _ridi_extract_loaded_content(self, page, fallback_title):
+        """Extract and clean the currently rendered Ridi viewer document."""
+        try:
+            return page.evaluate(r"""
+            (fallbackTitle) => {
+              const stripInvisible = (value) => String(value || '').replace(
+                /[\u200B-\u200F\u2028-\u202F\u2060-\u2069\uFEFF\u00AD]/g,
+                ''
+              );
+              const selectors = [
+                'div.pages', '#viewer_contents', '[id^="ridi_c"]',
+                'article.chapter', '.chapter'
+              ];
+              let source = null;
+              for (const selector of selectors) {
+                source = document.querySelector(selector);
+                if (source) break;
+              }
+              if (!source) return null;
+
+              // Work on a clone: the contributed extension cleaned the live
+              // node because its worker tab was disposable; our tab is reused.
+              const content = source.cloneNode(true);
+              let title = (
+                document.querySelector('h2.wv-1xn0gxv')?.textContent || ''
+              ).trim() || fallbackTitle;
+              const imageUrls = [];
+              for (const image of content.querySelectorAll('img[src]')) {
+                const original = image.getAttribute('src');
+                if (!original) continue;
+                let absolute = original;
+                try { absolute = new URL(original, location.href).href; }
+                catch (_) { continue; }
+                image.setAttribute('src', absolute);
+                imageUrls.push({original, absolute});
+              }
+
+              content.querySelectorAll('.content_footer').forEach(
+                (node) => node.remove()
+              );
+              const chapterHeader = content.querySelector('.chapter-header');
+              if (chapterHeader) {
+                const heading = chapterHeader.querySelector('h1,h2,h3,h4');
+                const value = (heading?.textContent || '').trim();
+                if (value && value.length < 200) title = value;
+                chapterHeader.remove();
+              } else {
+                const heading = content.querySelector('h1,h2,h3');
+                const value = (heading?.textContent || '').trim();
+                if (value && value.length < 200) {
+                  title = value;
+                  heading.remove();
+                } else {
+                  const firstParagraph = content.querySelector('p');
+                  const bold = firstParagraph?.querySelector('strong,b');
+                  const paragraphText = (firstParagraph?.textContent || '').trim();
+                  const boldText = (bold?.textContent || '').trim();
+                  if (bold && paragraphText === boldText
+                      && boldText && boldText.length < 200) {
+                    title = boldText;
+                    firstParagraph.remove();
+                  }
+                }
+              }
+
+              content.querySelectorAll(
+                'script,style,iframe,noscript'
+              ).forEach((node) => node.remove());
+              content.querySelectorAll('pre').forEach((node) => {
+                if (!(node.textContent || '').trim()) node.remove();
+              });
+              content.querySelectorAll('hr').forEach((node) => node.remove());
+
+              content.querySelectorAll('div.ridiborder').forEach((node) => {
+                const blockquote = document.createElement('blockquote');
+                while (node.firstChild) blockquote.appendChild(node.firstChild);
+                node.parentNode.replaceChild(blockquote, node);
+              });
+              content.querySelectorAll('.ridicenter').forEach((node) => {
+                const paragraph = document.createElement('p');
+                paragraph.setAttribute('align', 'center');
+                while (node.firstChild) paragraph.appendChild(node.firstChild);
+                node.parentNode.replaceChild(paragraph, node);
+              });
+              for (const selector of ['article', '.aegix', '.chapter-content']) {
+                content.querySelectorAll(selector).forEach((node) => {
+                  while (node.firstChild) {
+                    node.parentNode.insertBefore(node.firstChild, node);
+                  }
+                  node.remove();
+                });
+              }
+
+              content.querySelectorAll('*').forEach((node) => {
+                node.removeAttribute('id');
+                node.removeAttribute('class');
+                node.removeAttribute('style');
+                for (const attribute of [...node.attributes]) {
+                  if (attribute.name.startsWith('data-')) {
+                    node.removeAttribute(attribute.name);
+                  }
+                }
+              });
+              const walker = document.createTreeWalker(
+                content, NodeFilter.SHOW_TEXT
+              );
+              const textNodes = [];
+              while (walker.nextNode()) textNodes.push(walker.currentNode);
+              for (const node of textNodes) {
+                node.nodeValue = stripInvisible(node.nodeValue);
+                if (!node.nodeValue) node.remove();
+              }
+              content.querySelectorAll('div').forEach((node) => {
+                if (!(node.textContent || '').trim() && !node.querySelector('img')) {
+                  node.remove();
+                }
+              });
+
+              let contentHtml = content.innerHTML
+                .replace(/<!--.*?-->/gs, '')
+                .replace(/<br\s*>/gi, '<br/>')
+                .replace(/<img([^>]*?)(?<!\/)>/gi, '<img$1/>')
+                .replace(/\s+/g, ' ')
+                .replace(/>\s+</g, '>\n<');
+              contentHtml = stripInvisible(contentHtml).trim();
+              let blocks = [...content.querySelectorAll(
+                'p,h1,h2,h3,h4,h5,h6,li,blockquote'
+              )].map((node) => stripInvisible(node.textContent).replace(
+                /[ \t\f\v]+/g, ' '
+              ).trim()).filter(Boolean);
+              if (!blocks.length) {
+                blocks = stripInvisible(content.textContent).split(/\n+/)
+                  .map((line) => line.replace(/\s+/g, ' ').trim())
+                  .filter(Boolean);
+              }
+              return {
+                title: stripInvisible(title).trim() || fallbackTitle,
+                content: contentHtml,
+                contentText: blocks.join('\n'),
+                imageUrls,
+              };
+            }
+            """, fallback_title) or None
+        except Exception as e:
+            self.log(f'  [Ridi] Chapter extraction failed: {fallback_title}: {e}')
+            return None
+
+    def _ridi_build_chapter_result(
+        self,
+        payload,
+        chapter_name,
+        chapter_url,
+    ):
+        """Convert the cleaned extension payload to External Downloader data."""
+        if not isinstance(payload, dict) or not payload.get('content'):
+            return None
+        content_html = payload.get('content') or ''
+        images = []
+        seen = set()
+        chapter_id = self._ridi_book_id(chapter_url)
+        for image_index, item in enumerate(payload.get('imageUrls') or [], start=1):
+            if not isinstance(item, dict):
+                continue
+            original = html.unescape(str(item.get('original') or '')).strip()
+            absolute = urllib.parse.urljoin(
+                chapter_url,
+                html.unescape(str(item.get('absolute') or original)).strip(),
+            )
+            if not absolute or absolute in seen:
+                continue
+            seen.add(absolute)
+            if original and original != absolute:
+                content_html = content_html.replace(original, absolute)
+                content_html = content_html.replace(
+                    html.escape(original, quote=True),
+                    html.escape(absolute, quote=True),
+                )
+            images.append({
+                'url': absolute,
+                'name': self._ridi_image_name(
+                    absolute,
+                    chapter_id,
+                    image_index,
+                ),
+            })
+        display_name = payload.get('title') or chapter_name
+        return {
+            'chapterName': display_name,
+            'sourceChapterName': chapter_name,
+            'contentText': payload.get('contentText') or '',
+            'contentHtml': f'<div class="ridi-content">{content_html}</div>',
+            'contentCss': (
+                '.ridi-content p { margin: 0 0 0.75em; line-height: 1.8; }\n'
+                '.ridi-content blockquote { margin: 1em 1.5em; padding: 0.5em 1em; '
+                'border-left: 0.25em solid #999; }\n'
+                '.ridi-content img { max-width: 100%; height: auto; }'
+            ),
+            'images': images,
+            'chapterUrl': chapter_url,
+        }
+
+    def _ridi_finish_loaded_chapter(self, page, chapter_url, chapter_name):
+        """Validate, retry, and extract a Ridi page after navigation starts."""
+        try:
+            page.wait_for_load_state('load', timeout=30000)
+        except Exception:
+            pass
+
+        try:
+            current_url = page.url or ''
+        except Exception:
+            current_url = ''
+        if current_url and not self._ridi_is_viewer_url(current_url):
+            self.log(
+                f'  [Ridi] LOCKED or unpurchased (redirected to {current_url}): '
+                f'{chapter_name}'
+            )
+            return {'_locked': True, 'chapterName': chapter_name}
+
+        content_ready = False
+        for attempt in range(1, 4):
+            if self._stop_requested:
+                return None
+            if self._ridi_wait_for_content(page, timeout=30):
+                content_ready = True
+                break
+            wall = self._ridi_detect_access_wall(page)
+            if wall.get('wall'):
+                self.log(
+                    f'  [Ridi] LOCKED or unpurchased: {chapter_name} '
+                    f'(redirect={bool(wall.get("offViewer"))}, '
+                    f'purchase/login markers={wall.get("hits", 0)})'
+                )
+                return {'_locked': True, 'chapterName': chapter_name}
+            self.log(
+                f'  [Ridi] Content validation failed for {chapter_name} '
+                f'(attempt {attempt}/3).'
+            )
+            if attempt < 3:
+                try:
+                    kwargs = {
+                        'wait_until': 'domcontentloaded',
+                        'timeout': 45000,
+                    }
+                    if self._book_url:
+                        kwargs['referer'] = self._book_url
+                    page.goto(chapter_url, **kwargs)
+                    try:
+                        page.wait_for_load_state('load', timeout=30000)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    self.log(
+                        f'  [Ridi] Reload warning for {chapter_name}: {e}'
+                    )
+
+        if not content_ready:
+            self.log(f'  [Ridi] Viewer did not stabilize: {chapter_name}')
+            return None
+
+        payload = self._ridi_extract_loaded_content(page, chapter_name)
+        if not payload or not payload.get('content'):
+            wall = self._ridi_detect_access_wall(page)
+            if wall.get('wall'):
+                self.log(f'  [Ridi] LOCKED or unpurchased: {chapter_name}')
+                return {'_locked': True, 'chapterName': chapter_name}
+            self.log(f'  [Ridi] No chapter content extracted: {chapter_name}')
+            return None
+
+        result = self._ridi_build_chapter_result(
+            payload,
+            chapter_name,
+            chapter_url,
+        )
+        if result:
+            self.log(f'  [Ridi] OK: {result.get("chapterName") or chapter_name}')
+        return result
+
+    def _ridi_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Open and extract one authenticated Ridi webnovel viewer page."""
+        target = page or self._page
+        if target is None:
+            self.start()
+            target = self._page
+        if target is None:
+            return None
+
+        try:
+            kwargs = {
+                'wait_until': 'domcontentloaded',
+                'timeout': 45000,
+            }
+            if self._book_url:
+                kwargs['referer'] = self._book_url
+            target.goto(chapter_url, **kwargs)
+        except Exception as e:
+            self.log(f'  [Ridi] Page load warning for {chapter_name}: {e}')
+        return self._ridi_finish_loaded_chapter(
+            target,
+            chapter_url,
+            chapter_name,
+        )
+
+    def _ridi_parallel_pages(self, count):
+        """Return up to the extension's four authenticated Ridi worker pages."""
+        count = max(1, min(4, int(count or 1)))
+        if not self._context or not self._page:
+            self.start()
+        if not self._context or not self._page:
+            return []
+        if not self._page_is_usable(self._page):
+            try:
+                self._page = self._context.new_page()
+                self._page.on('console', self._on_console)
+            except Exception:
+                return []
+
+        usable = []
+        for worker in self._worker_pages:
+            if self._page_is_usable(worker):
+                usable.append(worker)
+            else:
+                try:
+                    worker.close()
+                except Exception:
+                    pass
+        self._worker_pages = usable
+        needed = count - 1
+        if len(self._worker_pages) > needed:
+            for worker in self._worker_pages[needed:]:
+                try:
+                    worker.close()
+                except Exception:
+                    pass
+            self._worker_pages = self._worker_pages[:needed]
+        while len(self._worker_pages) < needed:
+            try:
+                worker = self._context.new_page()
+                worker.on('console', self._on_console)
+                self._worker_pages.append(worker)
+            except Exception as e:
+                self.log(f'  [Ridi] Worker page failed: {e}')
+                break
+        return ([self._page] + self._worker_pages)[:count]
+
+    def _ridi_parse_chapter_batch_parallel(self, batch_info, interval=0):
+        """Render Ridi chapters in a polite worker pool capped at four pages."""
+        if not batch_info:
+            return []
+        results = [None] * len(batch_info)
+        for chunk_start in range(0, len(batch_info), 4):
+            if self._stop_requested:
+                break
+            chunk = batch_info[chunk_start:chunk_start + 4]
+            pages = self._ridi_parallel_pages(len(chunk))
+            if not pages:
+                break
+            active = []
+            for offset, (page, chapter) in enumerate(zip(pages, chunk)):
+                url = chapter.get('url', '')
+                name = chapter.get('fullName', '') or chapter.get('name', '')
+                try:
+                    kwargs = {'wait_until': 'commit', 'timeout': 15000}
+                    if self._book_url:
+                        kwargs['referer'] = self._book_url
+                    page.goto(url, **kwargs)
+                except Exception as e:
+                    self.log(f'  [Ridi] Page load warning for {name}: {e}')
+                active.append((chunk_start + offset, page, url, name))
+
+            for result_index, page, url, name in active:
+                if self._stop_requested:
+                    break
+                results[result_index] = self._ridi_finish_loaded_chapter(
+                    page,
+                    url,
+                    name,
+                )
+            if (
+                interval > 0
+                and chunk_start + len(chunk) < len(batch_info)
+                and not self._stop_requested
+            ):
+                time.sleep(interval)
+        return results
+
+    # ------------------------------------------------------------------
     # Novelpia native scraper
     # ------------------------------------------------------------------
     @staticmethod
@@ -11036,6 +11950,12 @@ async ({ url }) => {
                 '[69shuba] Detected 69shuba.tw URL, using native scraper.'
             )
             return self._69shuba_parse_book(url)
+        if self.is_ridibooks(url):
+            self.log(
+                '[Ridi] Detected Ridibooks webnovel URL, using the '
+                'contributed native scraper.'
+            )
+            return self._ridi_parse_book(url)
         if self.is_novelpia(url):
             self.log(
                 '[Novelpia] Detected Novelpia URL, using the External '
@@ -11177,6 +12097,21 @@ async ({ url }) => {
                 or chapter_info.get('name', '')
             )
             result = self._69shuba_parse_chapter(url, name)
+            if interval > 0:
+                time.sleep(interval)
+            return result
+
+        if self._book_data and self._book_data.get('_ridibooks'):
+            url = chapter_info.get('url', '')
+            name = (
+                chapter_info.get('fullName', '')
+                or chapter_info.get('name', '')
+            )
+            result = self._ridi_parse_chapter(
+                url,
+                name,
+                page=page or self._page,
+            )
             if interval > 0:
                 time.sleep(interval)
             return result
@@ -11356,6 +12291,12 @@ async ({ url }) => {
             max_workers = max(1, len(batch_info))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 return list(executor.map(fetch_69shuba, batch_info))
+
+        if self._book_data and self._book_data.get('_ridibooks'):
+            return self._ridi_parse_chapter_batch_parallel(
+                batch_info,
+                interval=interval,
+            )
 
         # Novelpia is intentionally sequential. One navigation produces one
         # viewer request; there is no speculative concurrency here.

@@ -44,6 +44,7 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 | Qidian | book.qidian.com |
 | JJWXC | jjwxc.net |
 | Kakao Page | page.kakao.com |
+| Ridi webnovels | ridibooks.com |
 | SFACG | book.sfacg.com |
 | Hameln | syosetu.org |
 | …and 90+ more | See [novel-downloader](https://github.com/404-novel-project/novel-downloader) |
@@ -56,6 +57,10 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 4. Click **Download**.
 
 The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
+
+Ridi support covers serialized webnovels, not volume ebooks. Free episodes and
+episodes purchased or rented by the logged-in account can be downloaded; other
+premium episodes are reported as locked.
 
 ### Updating Rules
 
@@ -174,6 +179,7 @@ This project is a fork of CjangCjengh's NovelpiaDownloader and is intended for p
 
 - **[novel-downloader](https://github.com/404-novel-project/novel-downloader)** by [404-novel-project](https://github.com/404-novel-project) — Powers the external novel download feature with support for 100+ sites.
 - **[NTKDownloader](https://github.com/tyuop077/NTKDownloader/tree/main)** by [tyuop077](https://github.com/tyuop077) — Reference implementation for the NewToki `curl_cffi` Chrome impersonation, `nv` issue flow, HMAC-signed `/api/novel-content` requests, and payload decryption approach used by this project.
+- **Razure** — Contributed the `ridi-dl` Chrome extension whose episode discovery, metadata, viewer cleanup, paywall detection, and image handling power the native Ridi external scraper.
 - **[CjangCjengh/NovelpiaDownloader](https://github.com/CjangCjengh/NovelpiaDownloader)** — Original Novelpia downloader this project is forked from.
 
 -----
