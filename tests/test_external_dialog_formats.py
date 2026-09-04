@@ -3,6 +3,8 @@ import queue
 import zipfile
 from types import SimpleNamespace
 
+import pytest
+
 from downloader_core import DownloaderCore
 from external_dialog import ExternalNovelDialog
 from external_scraper import ExternalScraper
@@ -515,6 +517,39 @@ def test_external_epub_filename_uses_preserved_range_number(tmp_path):
 
     assert "OEBPS/Text/chapter0025.xhtml" in archive_names
     assert "OEBPS/Text/chapter0001.xhtml" not in archive_names
+
+
+@pytest.mark.parametrize('status', ['Ongoing', 'Completed'])
+@pytest.mark.parametrize('introduction', ['', '<p>Synopsis</p>'])
+def test_novelpia_epub_info_includes_status(tmp_path, status, introduction):
+    dialog = object.__new__(ExternalNovelDialog)
+    dialog._book_data = {
+        'bookname': 'Status Test',
+        'author': 'Author',
+        '_novelpia': True,
+        'status': status,
+        'introductionHTML': introduction,
+    }
+    dialog._chapter_results = [{
+        'chapterName': 'Chapter 1',
+        'contentHtml': '<p>Content</p>',
+    }]
+    dialog._parent_gui = SimpleNamespace()
+    dialog._scraper = None
+    dialog._var_long_image_layout = Setting(False)
+    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_ext_image_workers = Setting(1)
+    dialog._get_output_dir = lambda: str(tmp_path)
+    dialog._log = lambda _message: None
+    dialog._generate_txt = lambda *_args: None
+
+    dialog._generate_epub('Status Test', 'Author')
+
+    with zipfile.ZipFile(tmp_path / 'Status Test.epub') as archive:
+        info = archive.read('OEBPS/Text/info.xhtml').decode('utf-8')
+    assert f'<strong>Status:</strong> {status}' in info
+    if introduction:
+        assert introduction in info
 
 
 def test_external_epub_uses_separate_notice_filenames(tmp_path):

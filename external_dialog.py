@@ -2250,10 +2250,16 @@ img { display: block; max-width: 100%; max-height: 100%;
 
             # Add introduction page if available (synopsis/description)
             intro_html = data.get('introductionHTML', '')
-            if intro_html:
+            status = data.get('status', '') if data.get('_novelpia') else ''
+            status_html = (
+                f'<p><strong>Status:</strong> {html.escape(status)}</p>'
+                if status else ''
+            )
+            if intro_html or status:
                 intro_page = f"""
 <h2>{html.escape(data.get('bookname', title))}</h2>
 <h3>{html.escape(data.get('author', author))}</h3>
+{status_html}
 <hr/>
 {intro_html}
 """

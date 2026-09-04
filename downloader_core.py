@@ -167,6 +167,18 @@ def validate_chapter_payload(payload):
     return data
 
 
+def parse_novelpia_status(source):
+    """Read the novel's completion badge, never unrelated page text."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(source or "", "html.parser")
+    badges = soup.select_one('.epnew-novel-info .in-badge')
+    if badges is None:
+        # A login/error page or an unrecognized layout has no known status.
+        return ''
+    return 'Completed' if badges.select_one('.b_comp') else 'Ongoing'
+
+
 def parse_novelpia_notice_html(source):
     """Return author-notice chapter records in oldest-first reading order."""
     source = source or ""
@@ -497,9 +509,7 @@ class DownloaderCore:
 
                 # Prefer the longer one (sometimes they differ)
                 description = og_desc if len(og_desc) > len(meta_desc) else meta_desc
-            # Status Extraction (best-effort): look for common Korean status words
-            status_match = re.search(r'(완결|연재중|연재|휴재|완결됨)', text)
-            status = status_match.group(1) if status_match else ''
+            status = parse_novelpia_status(text)
 
             self.log(f"Metadata acquired: {title} by {author}")
             if cover_url:

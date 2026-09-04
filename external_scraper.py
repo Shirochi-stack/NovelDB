@@ -69,7 +69,7 @@ from playwright.sync_api import (
     Browser,
     TimeoutError as PlaywrightTimeoutError,
 )
-from downloader_core import parse_novelpia_notice_html
+from downloader_core import parse_novelpia_notice_html, parse_novelpia_status
 
 APP_DATA_NAME = "NpiaDownloader"
 
@@ -11321,11 +11321,17 @@ async ({ url }) => {
             self.log(f'[Novelpia] ERROR: Metadata extraction failed: {e}')
             return None
 
+        page_html = ''
+        try:
+            page_html = self._page.content()
+            meta['status'] = parse_novelpia_status(page_html)
+        except Exception as e:
+            self.log(f'[Novelpia] Status extraction failed: {e}')
         notices = []
         if self.novelpia_include_notices:
             try:
                 notices = self._novelpia_parse_notice_html(
-                    self._page.content()
+                    page_html
                 )
             except Exception as e:
                 # Notices are optional; a page-layout issue must not prevent
@@ -11432,6 +11438,7 @@ async ({ url }) => {
             'tags': meta.get('tags') or [],
             '_novelpia': True,
             '_novelpia_novel_id': novel_id,
+            'status': meta.get('status') or '',
         }
         self._book_data = data
         self._book_url = book_url

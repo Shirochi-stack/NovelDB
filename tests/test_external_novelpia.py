@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from external_scraper import ExternalScraper
 
 
@@ -44,13 +46,22 @@ def test_episode_html_is_converted_and_deduplicated():
     assert chapters[1]["isAccessible"] is True
 
 
-def test_novelpia_book_includes_author_notices_oldest_first():
+@pytest.mark.parametrize('complete', [False, True])
+@pytest.mark.parametrize('include_notices', [False, True])
+def test_novelpia_book_includes_author_notices_oldest_first(
+    complete, include_notices,
+):
     class Page:
         def goto(self, *_args, **_kwargs):
             return None
 
         def content(self):
-            return """
+            badge = '<span class="b_comp s_inv">완결</span>' if complete else ''
+            return (
+                '<option>완결까지 파이팅</option>'
+                '<div class="epnew-novel-info"><p class="in-badge">'
+                f'<span class="b_plus">PLUS</span>{badge}</p></div>'
+            ) + """
                 <table class="notice_table">
                   <tr><td onclick="location='/viewer/202'"><b>Notice 2</b></td></tr>
                   <tr><td onclick="location='/viewer/201'"><b>Notice 1</b></td></tr>
@@ -79,10 +90,16 @@ def test_novelpia_book_includes_author_notices_oldest_first():
     scraper, messages = make_scraper()
     scraper._page = Page()
     scraper._start_novelpia_browser = lambda _url: True
+    scraper.novelpia_include_notices = include_notices
 
     book = scraper._novelpia_parse_book("https://novelpia.com/novel/123")
 
     assert book["chapterCount"] == 1
+    assert book["status"] == ('Completed' if complete else 'Ongoing')
+    if not include_notices:
+        assert book['noticeCount'] == 0
+        assert [chapter['id'] for chapter in book['chapters']] == ['301']
+        return
     assert book["noticeCount"] == 2
     assert [chapter["id"] for chapter in book["chapters"]] == [
         "201",
