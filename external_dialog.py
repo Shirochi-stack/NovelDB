@@ -84,6 +84,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._downloading = False
         self._download_cancelled = False
         self._active_output_formats = None
+        self._active_generate_on_stop = False
         self._start_time = None
         self._msg_queue = queue.Queue()
         self._paste_batch_text = ''      # persisted between dialog opens
@@ -305,6 +306,14 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_stop = ttk.Button(btn_frame, text="Stop",
                                      command=self._on_stop, state="disabled")
         self._btn_stop.pack(side="left", padx=(0, 5), ipady=3)
+
+        self._var_generate_on_stop = tk.BooleanVar(value=False)
+        self._chk_generate_on_stop = ttk.Checkbutton(
+            btn_frame,
+            text="Generate on stop",
+            variable=self._var_generate_on_stop,
+        )
+        self._chk_generate_on_stop.pack(side="left", padx=(0, 10))
 
         self._btn_browser = ttk.Button(btn_frame, text="Enter Browser",
                                         command=self._on_enter_browser)
@@ -823,6 +832,17 @@ class ExternalNovelDialog(tk.Toplevel):
             succeeded = sum(1 for r in results
                             if r and not r.get('_locked'))
             if self._download_cancelled:
+                generate_on_stop = bool(
+                    getattr(self, '_active_generate_on_stop', False)
+                )
+                if generate_on_stop and succeeded:
+                    output_status = "Partial output will be generated."
+                elif generate_on_stop:
+                    output_status = (
+                        "No downloaded chapters are available for output."
+                    )
+                else:
+                    output_status = "Output generation skipped."
                 if locked or ad_required:
                     incomplete = []
                     if locked:
@@ -834,12 +854,12 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._log(
                         f"Download cancelled: {succeeded} succeeded, "
                         f"{', '.join(incomplete)}. "
-                        "Output generation skipped."
+                        f"{output_status}"
                     )
                 else:
                     self._log(
                         f"Download cancelled: {succeeded} succeeded. "
-                        "Output generation skipped."
+                        f"{output_status}"
                     )
                 self._chapter_results = results
                 return
@@ -1192,6 +1212,9 @@ class ExternalNovelDialog(tk.Toplevel):
             )
             return
         self._active_output_formats = output_formats
+        self._active_generate_on_stop = bool(
+            self._var_generate_on_stop.get()
+        )
         self._url_var.set(url)
         self._save_ext_config()
 
@@ -1199,6 +1222,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._download_cancelled = False
         self._btn_download.configure(state="disabled")
         self._btn_stop.configure(state="normal")
+        self._chk_generate_on_stop.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
         self._btn_sfacg_app.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
@@ -1243,8 +1267,10 @@ class ExternalNovelDialog(tk.Toplevel):
     def _on_download_finished(self):
         self._downloading = False
         self._active_output_formats = None
+        self._active_generate_on_stop = False
         self._btn_download.configure(state="normal")
         self._btn_stop.configure(state="disabled")
+        self._chk_generate_on_stop.configure(state="normal")
         self._btn_browser.configure(state="normal")
         self._btn_sfacg_app.configure(state="normal")
         self._btn_paste_batch.configure(state="normal")
@@ -1320,14 +1346,24 @@ class ExternalNovelDialog(tk.Toplevel):
 
         # Generate output and signal completion
         try:
-            if self._download_cancelled:
+            generate_after_stop = (
+                self._download_cancelled
+                and bool(getattr(
+                    self, '_active_generate_on_stop', False
+                ))
+            )
+            if self._download_cancelled and not generate_after_stop:
                 return
             successes = sum(1 for r in self._chapter_results
                             if r is not None and not r.get('_locked'))
             failures = sum(
                 1 for result in self._chapter_results if result is None
             )
-            if data.get('_novelpia') and failures:
+            if (
+                data.get('_novelpia')
+                and failures
+                and not generate_after_stop
+            ):
                 self._log(
                     f"❌ [Novelpia] Output not generated because {failures} "
                     "chapter(s) failed. No partial EPUB was written."
@@ -1450,10 +1486,14 @@ class ExternalNovelDialog(tk.Toplevel):
             )
             return
         self._active_output_formats = output_formats
+        self._active_generate_on_stop = bool(
+            self._var_generate_on_stop.get()
+        )
         self._downloading = True
         self._download_cancelled = False
         self._btn_download.configure(state="disabled")
         self._btn_stop.configure(state="normal")
+        self._chk_generate_on_stop.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
         self._btn_sfacg_app.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
@@ -1566,7 +1606,13 @@ class ExternalNovelDialog(tk.Toplevel):
                                   if interval_max_supplied else None
                               ))
 
-            if self._download_cancelled:
+            generate_after_stop = (
+                self._download_cancelled
+                and bool(getattr(
+                    self, '_active_generate_on_stop', False
+                ))
+            )
+            if self._download_cancelled and not generate_after_stop:
                 break
 
             # Generate output if any succeeded
@@ -1575,7 +1621,11 @@ class ExternalNovelDialog(tk.Toplevel):
             failures = sum(
                 1 for result in self._chapter_results if result is None
             )
-            if data.get('_novelpia') and failures:
+            if (
+                data.get('_novelpia')
+                and failures
+                and not generate_after_stop
+            ):
                 self._log(
                     f"❌ [Novelpia] Output not generated because {failures} "
                     "chapter(s) failed. No partial file was written."
@@ -1592,6 +1642,9 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._log(f"❌ Output generation error: {e}")
                 finally:
                     self._book_data = old_book
+
+            if self._download_cancelled:
+                break
 
         self._log(f"\nBatch complete: processed {total_urls} URL(s).")
         self._log("Finished.")
@@ -3144,6 +3197,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_from.set(cfg.get("ext_from", 1))
             self._var_to.set(cfg.get("ext_to", 1))
             self._var_skip_paid.set(cfg.get("ext_skip_paid", False))
+            self._var_generate_on_stop.set(
+                cfg.get("ext_generate_on_stop", False)
+            )
             self._var_regular_browser.set(
                 cfg.get("ext_regular_browser", False)
             )
@@ -3210,6 +3266,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_from"] = self._var_from.get()
         cfg["ext_to"] = self._var_to.get()
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
+        cfg["ext_generate_on_stop"] = self._var_generate_on_stop.get()
         cfg["ext_regular_browser"] = self._var_regular_browser.get()
         cfg["ext_ntk_novelpia_cover"] = (
             self._var_ntk_novelpia_cover.get()

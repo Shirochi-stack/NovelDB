@@ -146,6 +146,7 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
         '_var_ext_threads', '_var_ext_image_workers', '_var_interval',
         '_var_interval_max', '_var_from_enabled', '_var_to_enabled',
         '_var_from', '_var_to', '_var_skip_paid', '_var_regular_browser',
+        '_var_generate_on_stop',
         '_var_ntk_novelpia_cover', '_var_syosetu_amazon_cover',
         '_var_long_image_layout', '_var_kakao_skip_last_page',
         '_var_kakao_keep_filler', '_var_kakao_dedupe_images',
@@ -162,6 +163,72 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
 
     assert dialog._var_interval.get() == 1.75
     assert dialog._var_interval_max.get() == 1.75
+    assert dialog._var_generate_on_stop.get() is False
+
+
+def test_generate_on_stop_toggle_controls_partial_output_generation():
+    generated_by_setting = {}
+
+    for enabled in (False, True):
+        generated = []
+        logs = []
+        data = {
+            "bookname": "Stopped book",
+            "author": "Author",
+            "chapterCount": 2,
+            "chapters": [
+                {"name": "One"},
+                {"name": "Two"},
+            ],
+        }
+
+        class Scraper:
+            @staticmethod
+            def parse_book(_url):
+                return data
+
+        dialog = SimpleNamespace(
+            _scraper=Scraper(),
+            _apply_scraper_options=lambda: None,
+            _book_data=None,
+            _msg_queue=queue.Queue(),
+            _download_cancelled=False,
+            _downloading=True,
+            _active_generate_on_stop=enabled,
+            _chapter_results=[],
+            _var_from_enabled=Setting(False),
+            _var_to_enabled=Setting(False),
+            _format_interval_range=lambda low, high: f"{low}-{high}",
+            _log=logs.append,
+            _generate_output=lambda: generated.append("output"),
+        )
+
+        def stop_after_one(*_args, **_kwargs):
+            dialog._chapter_results = [
+                {"chapterName": "One", "contentText": "Downloaded"},
+                None,
+            ]
+            dialog._download_cancelled = True
+            dialog._downloading = False
+
+        dialog._do_download = stop_after_one
+
+        ExternalNovelDialog._do_fetch_and_download(
+            dialog,
+            "https://example.com/book",
+            0,
+            2,
+            False,
+        )
+        generated_by_setting[enabled] = generated
+
+        if enabled:
+            assert any(
+                "Generating output from 1 chapter(s)" in message
+                for message in logs
+            )
+
+    assert generated_by_setting == {False: [], True: ["output"]}
 
 
 def test_external_download_forwards_range_and_randomizes_each_batch(
