@@ -209,6 +209,7 @@ class ExternalScraper:
         self._book_url = None     # Stored for initialising worker pages
         self._ntk_api_state = None
         self._ntk_browser_fallback = False
+        self._ntk_spa_origin = None
         self.ntk_curl_command = os.environ.get("NPIA_NTK_CURL", "")
         if not self.ntk_curl_command:
             try:
@@ -3331,8 +3332,10 @@ class ExternalScraper:
                 f"[NewToki] Closed {closed} stale Chrome process(es) using "
                 "the dedicated ntk profile."
             )
+        # Attach before making the first site request; the refresh method
+        # performs the navigation once the persistent context is available.
         proc, port = self._open_system_chrome(
-            start_url,
+            "about:blank",
             remote_debugging=True,
             user_data_dir=user_data_dir,
             headless=True,
@@ -3376,34 +3379,10 @@ class ExternalScraper:
                 if self._browser.contexts
                 else self._browser.new_context()
             )
-            volatile_cookies = (
-                'nv',
-                'ad_ack',
-                'ad_ack_c',
-                'ntk_blk_ok_sig',
-                '__ntk_ev_id',
-                'ntk_blk',
-                'ntk_dev_warn',
-            )
-            for cookie_name in volatile_cookies:
-                try:
-                    self._context.clear_cookies(name=cookie_name)
-                except Exception:
-                    pass
+            # Keep the cookies and storage saved by Enter Browser. Clearing
+            # them here would discard that session before the index request.
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
-            try:
-                self._page.evaluate(
-                    """(keys) => {
-                      for (const key of keys) {
-                        try { localStorage.removeItem(key); } catch (_) {}
-                        try { sessionStorage.removeItem(key); } catch (_) {}
-                      }
-                    }""",
-                    list(volatile_cookies),
-                )
-            except Exception:
-                pass
             self._page.on("console", self._on_console)
             if self._ntk_temp_chrome:
                 self._hide_ntk_chrome_windows()
@@ -5941,6 +5920,58 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return None
         return response.text
 
+    def _ntk_navigate_site_route(self, page, url):
+        """Use the site's own client router when document deep links fail.
+
+        Current NewToki serves its homepage normally but can reject a direct
+        book/chapter document request. In-site links use Next's client router
+        instead. Keep its normal requests, session and access checks intact.
+        """
+        target = urllib.parse.urlsplit(url)
+        origin = f'{target.scheme}://{target.netloc}'
+        if target.scheme not in ('http', 'https') or not self.is_ntk_novel(url):
+            return False
+        try:
+            ready = page.evaluate(
+                """origin => location.origin === origin
+                  && typeof window.next?.router?.push === 'function'""",
+                origin,
+            )
+            # Pushing an already-mounted route does not rerun its frontend.
+            # A retry must start a new visit, not reuse the failed chapter.
+            current = urllib.parse.urlsplit(page.url or '')
+            if (current.scheme, current.netloc, current.path.rstrip('/')) == (
+                target.scheme, target.netloc, target.path.rstrip('/'),
+            ):
+                ready = False
+            if not ready:
+                response = page.goto(
+                    origin + '/', wait_until='domcontentloaded', timeout=45000,
+                )
+                if response and response.status >= 400:
+                    self.log(
+                        f"[NewToki] Site homepage returned HTTP {response.status}; "
+                        "in-site navigation is unavailable."
+                    )
+                    return False
+                page.wait_for_function(
+                    """() => typeof window.next?.router?.push === 'function'""",
+                    timeout=15000,
+                )
+            return bool(page.evaluate(
+                """url => {
+                  const target = new URL(url);
+                  if (target.origin !== location.origin
+                      || typeof window.next?.router?.push !== 'function') return false;
+                  window.next.router.push(target.pathname + target.search, {scroll: false});
+                  return true;
+                }""",
+                url,
+            ))
+        except Exception as e:
+            self.log(f"[NewToki] In-site navigation failed: {e}")
+            return False
+
     def _ntk_refresh_cloudflare_session(self, url):
         """Open NewToki in installed headless Chrome and keep it alive."""
         self.log("[NewToki] Navigating with installed headless Chrome...")
@@ -5959,6 +5990,19 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                             f"[NewToki] Headless navigation returned HTTP "
                             f"{response.status}."
                         )
+                    if response and response.status == 403:
+                        self.log(
+                            "[NewToki] Direct book navigation was denied; "
+                            "trying the site's normal in-page navigation."
+                        )
+                        if self._ntk_navigate_site_route(self._page, url):
+                            target = urllib.parse.urlsplit(url)
+                            self._ntk_spa_origin = f'{target.scheme}://{target.netloc}'
+                        else:
+                            self._ntk_dump_debug_page(
+                                self._page, f'index_{self._ntk_novel_id_from_url(url)}',
+                            )
+                            return False
                 except Exception as e:
                     self.log(f"[NewToki] Headless navigation warning: {e}")
                 try:
@@ -6257,7 +6301,7 @@ async ({ novelId, kind }) => {
   return hasChapter || blocked;
 }
                     """,
-                    {'novelId': novel_id, 'kind': kind},
+                    arg={'novelId': novel_id, 'kind': kind},
                     timeout=30000,
                 )
             except Exception:
@@ -6750,6 +6794,7 @@ async ({ chapterUrl, payload }) => {
             return [None] * len(batch_info)
 
         responses = [None] * len(batch_info)
+        navigation_errors = [None] * len(batch_info)
         results = [None] * len(batch_info)
         finished = set()
         handlers = []
@@ -6757,9 +6802,28 @@ async ({ chapterUrl, payload }) => {
             def capture(response, worker_index=index):
                 if self._ntk_content_response_matches(response.url):
                     responses[worker_index] = response
+                elif response.status in (401, 403):
+                    target = urllib.parse.urlsplit(batch_info[worker_index].get('url', ''))
+                    actual = urllib.parse.urlsplit(response.url)
+                    if (
+                        (actual.scheme, actual.netloc, actual.path.rstrip('/'))
+                        == (target.scheme, target.netloc, target.path.rstrip('/'))
+                        and response.request.resource_type == 'document'
+                        and response.request.frame == pages[worker_index].main_frame
+                    ):
+                        navigation_errors[worker_index] = response.status
 
             handlers.append(capture)
             page.on('response', capture)
+
+        def finish_navigation_error(index):
+            self.log(
+                f"  [NewToki] Chapter page access denied "
+                f"(HTTP {navigation_errors[index]}): "
+                f"{batch_info[index].get('name', 'chapter')}. "
+                "No chapter content was returned. Check this chapter in Enter Browser."
+            )
+            finished.add(index)
 
         def finish_response(index):
             page = pages[index]
@@ -6811,13 +6875,19 @@ async ({ chapterUrl, payload }) => {
                 if self._stop_requested:
                     break
                 try:
-                    goto_options = {
-                        'wait_until': 'commit',
-                        'timeout': 45000,
-                    }
-                    if self._book_url:
-                        goto_options['referer'] = self._book_url
-                    page.goto(chapter.get('url', ''), **goto_options)
+                    chapter_url = chapter.get('url', '')
+                    target = urllib.parse.urlsplit(chapter_url)
+                    if self._ntk_spa_origin == f'{target.scheme}://{target.netloc}':
+                        if not self._ntk_navigate_site_route(page, chapter_url):
+                            finished.add(index)
+                    else:
+                        goto_options = {
+                            'wait_until': 'commit',
+                            'timeout': 45000,
+                        }
+                        if self._book_url:
+                            goto_options['referer'] = self._book_url
+                        page.goto(chapter_url, **goto_options)
                 except Exception as e:
                     self.log(
                         f"  [NewToki] Worker navigation failed for "
@@ -6835,13 +6905,21 @@ async ({ chapterUrl, payload }) => {
                     except Exception:
                         time.sleep(delay)
                 for completed_index, response in enumerate(responses):
-                    if response is not None and completed_index not in finished:
+                    if completed_index in finished:
+                        continue
+                    if navigation_errors[completed_index] is not None:
+                        finish_navigation_error(completed_index)
+                    elif response is not None:
                         finish_response(completed_index)
 
             pending = set(range(len(batch_info))) - finished
             deadline = time.time() + 45
             while pending and time.time() < deadline and not self._stop_requested:
                 for index in list(pending):
+                    if navigation_errors[index] is not None:
+                        finish_navigation_error(index)
+                        pending.remove(index)
+                        continue
                     if responses[index] is None:
                         try:
                             pages[index].wait_for_timeout(25)
@@ -6871,6 +6949,13 @@ async ({ chapterUrl, payload }) => {
 
     def _ntk_fetch_chapter_browser(self, chapter_url, chapter_name):
         """Fetch and decrypt the chapter using NewToki's browser-only API."""
+        target = urllib.parse.urlsplit(chapter_url)
+        if self._ntk_spa_origin == f'{target.scheme}://{target.netloc}':
+            # Retry through the same frontend as the initial batch, rather
+            # than switching back to the older manual acknowledgement API.
+            return self._ntk_fetch_chapter_batch_browser(
+                [{'url': chapter_url, 'name': chapter_name}], interval=0,
+            )[0]
         if not self._page:
             self.log("  [NewToki] Live Chrome page is not available.")
             return None
@@ -7673,6 +7758,7 @@ async ({ url }) => {
         self._stop_requested = False
         self._ntk_browser_fallback = True
         self._ntk_api_state = None
+        self._ntk_spa_origin = None
         kind = self._ntk_content_kind_from_url(url)
         self.log(
             f"[NewToki] Detected {kind} URL, using headless browser scraper."
@@ -7681,7 +7767,7 @@ async ({ url }) => {
 
         novel_id = self._ntk_novel_id_from_url(url)
         if not self._ntk_refresh_cloudflare_session(url):
-            self.log("ERROR: [NewToki] Could not start headless Chrome.")
+            self.log("ERROR: [NewToki] Could not open the book in headless Chrome.")
             return None
         data = self._ntk_parse_index_browser(url)
         if not data or not data.get('chapters'):

@@ -64,8 +64,8 @@ def test_ntk_url_detection_rejects_unsupported_domains_and_paths(url):
 
 
 class IndexPage:
-    def wait_for_function(self, _script, arguments, timeout):
-        assert arguments == {"novelId": "58669", "kind": "novel"}
+    def wait_for_function(self, _script, *, arg, timeout):
+        assert arg == {"novelId": "58669", "kind": "novel"}
         assert timeout == 30000
 
     def evaluate(self, _script, arguments):
