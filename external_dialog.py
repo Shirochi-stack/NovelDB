@@ -384,6 +384,9 @@ class ExternalNovelDialog(tk.Toplevel):
         """Copy current dialog options into the scraper instance."""
         if not self._scraper:
             return
+        self._scraper.munpia_interval, self._scraper.munpia_interval_max = (
+            self._get_interval_range()
+        )
         self._scraper.kakao_skip_last_page = (
             self._var_kakao_skip_last_page.get()
         )
@@ -484,6 +487,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_munpia(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -537,6 +541,9 @@ class ExternalNovelDialog(tk.Toplevel):
             is_novelpia = bool(
                 self._book_data and self._book_data.get("_novelpia")
             )
+            is_munpia = bool(
+                self._book_data and self._book_data.get("_munpia")
+            )
             is_ridibooks = bool(
                 self._book_data and self._book_data.get("_ridibooks")
             )
@@ -552,6 +559,7 @@ class ExternalNovelDialog(tk.Toplevel):
             )
             if (self._scraper and not self._scraper._context
                     and not is_ntk and not is_yeduji and not is_novelpia
+                    and not is_munpia
                     and not is_ridibooks
                     and not is_global_novelpia
                     and not is_69shuba and not is_1qxs
@@ -616,17 +624,51 @@ class ExternalNovelDialog(tk.Toplevel):
             # Pre-filter paid chapters if the user opted to skip them.
             # For Kakao, skip only rows that the product list marks as not
             # accessible to this account. Purchased/rented rows are kept.
-            if skip_paid:
+            # Munpia's free-only option excludes purchased paid chapters too.
+            # Explicitly inaccessible Munpia rows never need a viewer request.
+            if skip_paid or is_munpia:
                 skipped = 0
+                unavailable = 0
                 for i, ch in enumerate(selected):
-                    if (ch.get('isVIP', False)
-                            and not ch.get('isAccessible', False)):
+                    if is_munpia:
+                        inaccessible = ch.get('isAccessible') is False
+                        should_skip = inaccessible or (
+                            skip_paid and bool(
+                                ch.get('isVIP', False)
+                                or ch.get('isPaid', False)
+                            )
+                        )
+                        unavailable += int(inaccessible)
+                    else:
+                        should_skip = (
+                            ch.get('isVIP', False)
+                            and not ch.get('isAccessible', False)
+                        )
+                    if should_skip:
                         results[i] = {'_locked': True,
                                       'chapterName': ch.get('name', ''),
                                       '_chapter_number': start + i + 1}
                         skipped += 1
                 if skipped:
-                    self._log(f"  Skipped {skipped} paid chapter(s).")
+                    if is_munpia:
+                        if unavailable:
+                            self._log(
+                                f"  [Munpia] Skipped {unavailable} chapter(s) "
+                                "unavailable to this account."
+                            )
+                        if skipped > unavailable:
+                            self._log(
+                                f"  [Munpia] Skipped {skipped - unavailable} "
+                                "paid chapter(s) (free-only)."
+                            )
+                    else:
+                        self._log(f"  Skipped {skipped} paid chapter(s).")
+
+            last_download_index = (
+                max((i for i, result in enumerate(results) if result is None),
+                    default=-1)
+                if is_munpia else total - 1
+            )
 
             for batch_start in range(0, total, batch_size):
                 if not self._downloading:
@@ -654,6 +696,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     or is_ridibooks
                     or is_global_novelpia
                     or is_novelpia
+                    or is_munpia
                 )
                 if not log_on_success:
                     for i in batch_indices:
@@ -788,7 +831,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
                 # Rate limiting between batches
                 sleep_time = 0.0
-                if rate_interval_max > 0 and batch_end < total:
+                if rate_interval_max > 0 and batch_end <= last_download_index:
                     sleep_time = ExternalScraper._random_interval_delay(
                         rate_interval, rate_interval_max
                     )
@@ -996,6 +1039,15 @@ class ExternalNovelDialog(tk.Toplevel):
                 "[Novelpia] Enter Browser uses the External Downloader's "
                 "regular installed-Chrome profile. Log in normally, then "
                 "close that window."
+            )
+        elif start_url and ExternalScraper.is_munpia(start_url):
+            regular_browser = True
+            self._var_regular_browser.set(True)
+            self._append_log(
+                "[Munpia] Enter Browser uses the External Downloader's "
+                "saved browser profile. Log in to access your purchased "
+                "chapters, then close that window. Skip paid selects "
+                "only free chapters."
             )
         if regular_browser:
             self._append_log(
@@ -1294,6 +1346,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_munpia(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -1562,6 +1615,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_munpia(url)
                         and not self._scraper.is_novelpia(url)
                         and not self._scraper._context):
                     self._scraper.start()
@@ -1827,6 +1881,12 @@ class ExternalNovelDialog(tk.Toplevel):
             img_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
                 'Origin': 'https://ridibooks.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
+        elif data.get('_munpia'):
+            img_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
+                'Origin': 'https://www.munpia.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         elif data.get('_global_novelpia'):
@@ -2186,6 +2246,12 @@ img { display: block; max-width: 100%; max-height: 100%;
             img_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
                 'Origin': 'https://ridibooks.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
+        elif data.get('_munpia'):
+            img_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
+                'Origin': 'https://www.munpia.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         elif data.get('_global_novelpia'):
@@ -2954,6 +3020,12 @@ img { display: block; max-width: 100%; max-height: 100%;
             image_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
                 'Origin': 'https://ridibooks.com',
+            })
+            self._copy_browser_cookies_to_session(image_session)
+        elif data.get('_munpia'):
+            image_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
+                'Origin': 'https://www.munpia.com',
             })
             self._copy_browser_cookies_to_session(image_session)
         elif data.get('_global_novelpia'):

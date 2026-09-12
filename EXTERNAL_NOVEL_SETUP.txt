@@ -14,6 +14,9 @@ then injects the novel-downloader's compiled JavaScript rules into the page.
 The rules extract book metadata, chapter lists, and chapter content — all
 without needing the actual browser extension installed.
 
+Some sites, including Munpia, use a native Python scraper instead of the
+rule bundle. See the Munpia section below for its login and download options.
+
 Three JS files are required in the NpiaDownloader folder:
 
   gm_stubs.js   — Provides fake Tampermonkey/Greasemonkey APIs so the rules
@@ -88,6 +91,41 @@ button in the External Novel Download dialog:
 Your login session (cookies, localStorage) is saved in the browser_data/
 folder and persists across app restarts. The headless scraper reuses this
 data, so you stay authenticated without entering credentials again.
+
+
+MUNPIA
+-------
+Both current and legacy novel URLs are supported, for example:
+
+  https://www.munpia.com/novel/detail/564583
+  https://novel.munpia.com/564583
+
+Paste the URL into the External Novel Download dialog. To use your Munpia
+account, click Enter Browser, log in, then close that browser window before
+downloading. Munpia automatically uses installed Chrome/Edge with the app's
+saved browser profile, normally at:
+
+  %LOCALAPPDATA%\NpiaDownloader\browser_data
+
+The scraper reuses that profile's cookies and browser data. A login in your
+usual browser profile is separate; use Enter Browser to save the app's session.
+Without a valid login, only free chapters can be downloaded.
+
+  Skip paid checked:   Download only free chapters, excluding paid chapters
+                       even if you have purchased or rented them.
+  Skip paid unchecked: Download free chapters and paid chapters already
+                       available through your purchases or current rentals.
+
+The downloader does not buy chapters, start rentals, or spend account credit.
+Locked chapters are skipped when the saved account cannot read them.
+
+Rate Limiting Min/Max controls randomized request pacing; Threads controls
+the chapter batch size. Chapter Range, retries, Stop/Generate on stop, batch
+downloads, output format selection (EPUB/TXT/PDF/CBZ), and Image Workers use
+the shared external-downloader settings. CBZ contains chapter images when
+present. Kakao-specific page/filler/image options and the NTK source-cover
+option continue to apply to their respective sites.
+
 
 SFACG VIP TEXT CHAPTERS
 -----------------------

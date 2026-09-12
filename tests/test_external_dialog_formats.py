@@ -290,6 +290,7 @@ def test_external_novelpia_notices_follow_main_download_setting():
     dialog = SimpleNamespace(
         _scraper=scraper,
         _parent_gui=SimpleNamespace(var_include_notices=Setting(False)),
+        _get_interval_range=lambda: (0.5, 0.5),
         _var_kakao_skip_last_page=Setting(False),
         _var_kakao_keep_filler=Setting(False),
         _var_ntk_novelpia_cover=Setting(False),
