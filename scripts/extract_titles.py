@@ -40,6 +40,15 @@ SOURCES = {
     },
 }
 
+# New adapters use normalized state so title changes invalidate stale English.
+# Existing source commands keep their original paths and behavior.
+NEW_METADATA_SOURCES = ("naver", "joara", "munpia")
+for _source in NEW_METADATA_SOURCES:
+    SOURCES[_source] = {
+        "data": os.path.join("docs", "data", f"{_source}_novels.json"),
+        "en": os.path.join("docs", "data", f"{_source}_titles_en.txt"),
+    }
+
 
 def load_existing_translations(path):
     """Load existing English translations from a _en.txt file."""
@@ -63,6 +72,14 @@ def extract(source):
 
     if not os.path.exists(cfg["data"]):
         print(f"  Skipping {source}: {cfg['data']} not found.")
+        return
+
+    if source in NEW_METADATA_SOURCES:
+        if __package__:
+            from .metadata_pipeline import ROOT, prepare
+        else:
+            from metadata_pipeline import ROOT, prepare
+        prepare(source, ROOT / "docs/data", ROOT / "metadata/state", fields=("title",))
         return
 
     print(f"\n[{source.upper()}] Loading {cfg['data']}...")

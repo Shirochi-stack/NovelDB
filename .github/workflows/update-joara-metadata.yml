@@ -1,0 +1,20 @@
+name: Update Joara Metadata
+on:
+  schedule:
+    - cron: '0 8 * * 3'
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        default: catalog
+        options: [catalog, rankings, build, resume]
+permissions:
+  contents: write
+jobs:
+  update:
+    uses: ./.github/workflows/metadata-source-job.yml
+    with:
+      source: joara
+      operation: ${{ github.event_name == 'schedule' && github.event.schedule == '0 18 * * *' && 'rankings' || inputs.operation || 'catalog' }}
+    secrets: inherit

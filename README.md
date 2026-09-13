@@ -7,6 +7,7 @@ A fork of that enhances the user experience and output quality. This version add
 ## 📚 Table of Contents
 
   - [✨ Features]
+  - [🌐 NovelDB Metadata Website](#-noveldb-metadata-website)
   - [🌐 External Novel Downloader](#-external-novel-downloader)
   - [🚀 Usage]
   - [💾 Space-Saving Tips]
@@ -27,6 +28,19 @@ A fork of that enhances the user experience and output quality. This version add
   - **Author Notices Support:** Download author notices and illustrations ! 
 
 <img width="880" height="698" alt="image" src="https://github.com/user-attachments/assets/81b5a264-cc22-4f82-8a4b-341d342c9fc3" />
+
+-----
+
+## 🌐 NovelDB Metadata Website
+
+This repository also contains **NovelDB**, a static search website in `docs/`. Its metadata pipeline supports Novelpia, Kakao Page, SFACG, Naver Web Novel, Munpia, and Joara. Users search and filter listings, read synopses, and follow links to the original platforms. New sources become selectable when their validated catalogs are published.
+
+- [Metadata pipeline and script reference](docs/metadata-pipeline.md): discovery, field schemas, historical records, translations, website loading, batch entry points, and scheduled workflows.
+- [Naver Web Novel, Munpia, and Joara integration](docs/metadata-source-expansion.md): implemented anonymous collectors, commands, durable history, translation/build stages, workflows, tests, and full-crawl limitations.
+
+For a bounded staged sample, run `python scripts/metadata_pipeline.py run --source naver --mode sample --output-dir .cache/naver-sample --state-dir .cache/naver-state` (also supports `munpia` and `joara`). Add `--dry-run` for zero requests and zero writes. Collection and local builds do not publish; translation and promotion are explicit operations. Implementation verification used anonymous samples and mocked translation, with existing production data unchanged.
+
+The website metadata pipeline is separate from the desktop novel downloader described below.
 
 -----
 

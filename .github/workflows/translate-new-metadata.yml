@@ -1,0 +1,21 @@
+name: Translate New Metadata Sources
+on:
+  workflow_run:
+    workflows: [Update Naver Metadata, Update Joara Metadata, Update Munpia Metadata]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source:
+        required: true
+        type: choice
+        options: [naver, joara, munpia]
+permissions:
+  contents: write
+jobs:
+  translate:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/metadata-source-job.yml
+    with:
+      source: ${{ inputs.source || (github.event.workflow_run.name == 'Update Naver Metadata' && 'naver') || (github.event.workflow_run.name == 'Update Joara Metadata' && 'joara') || 'munpia' }}
+      operation: translate
+    secrets: inherit

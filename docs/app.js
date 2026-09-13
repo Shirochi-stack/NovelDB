@@ -1,5 +1,6 @@
 (() => {
     "use strict";
+    const metadata = window.NovelMetadata;
 
     // === Tag Translation (Korean → English) ===
                                                                                                 const TAG_MAP = {
@@ -6000,6 +6001,7 @@
     // adult   → adult/plus ranks
     // r15     → all ranks (no dedicated R15 ranking on Novelpia)
     function getRank(novel, type) {
+        if (type.startsWith("rank:")) return metadata.nativeRank(novel, type);
         // SFACG-specific rank types
         if (type === "sfacg_popularity") return novel.popularityRank || 0;
         if (type === "sfacg_bestseller") return novel.bestSellerRank || 0;
@@ -6047,14 +6049,11 @@
 
             // Status filter
             const status = statusSelect.value;
-            if (status === "complete" && !n.complete) return false;
-            if (status === "ongoing" && n.complete) return false;
+            if (!metadata.matchesStatus(n, status)) return false;
 
             // Audience filter
             const audience = audienceSelect.value;
-            if (audience === "adult" && !((n.source === "novelpia" || n.source === "kakao") && n.age === 19)) return false;
-            if (audience === "r15" && !((n.source === "sfacg" && n.age === 19) || (n.source === "novelpia" && n.age === 15))) return false;
-            if (audience === "general" && n.age === 19) return false;
+            if (!metadata.matchesAudience(n, audience)) return false;
 
             // Tag filter (include): AND tags + OR tags
             const hasAndTags = andTags.size > 0;
@@ -6091,6 +6090,14 @@
 
         // Sort
         filtered.sort((a, b) => {
+            if (sortBy.startsWith("rank:")) {
+                return metadata.compareNullable(getRank(a, sortBy), getRank(b, sortBy), order === "asc" ? "desc" : "asc")
+                    || metadata.compareNullable(a.views, b.views, "desc");
+            }
+            if (sortBy.startsWith("metric:")) {
+                const metric = sortBy.slice(7);
+                return metadata.compareNullable(metadata.nullableNumber(a.metrics?.[metric]), metadata.nullableNumber(b.metrics?.[metric]), order);
+            }
             let va, vb;
             switch (sortBy) {
                 case "views": va = a.views; vb = b.views; break;
@@ -6117,19 +6124,18 @@
                     const bSrc = b.source || currentSource;
                     if (aSrc === preferred && bSrc !== preferred) return -1;
                     if (bSrc === preferred && aSrc !== preferred) return 1;
-                    return b.views - a.views;
+                    return metadata.compareNullable(a.views, b.views, "desc");
                 }
                 default: va = a.views; vb = b.views;
             }
             if (sortBy === "title" || sortBy === "updated") {
-                const cmp = String(va).localeCompare(String(vb));
-                return order === "asc" ? cmp : -cmp;
+                return metadata.compareNullable(va, vb, order, true);
             }
-            return order === "asc" ? va - vb : vb - va;
+            return metadata.compareNullable(va, vb, order);
         });
 
         displayCount = BATCH;
-        if (resetPage) currentPage = 1;
+        if (resetPage) { currentPage = 1; catalogRequestedPage = null; }
         render(fade);
     }
 
@@ -6142,7 +6148,7 @@
         card.dataset.source = novelSource;
         card.dataset.novelId = String(n.id);
         const cfg = SOURCES[novelSource] || SOURCES.novelpia;
-        const cardLink = `${cfg.linkPrefix}${n.id}`;
+        const cardLink = n.canonicalUrl || `${cfg.linkPrefix}${n.id}`;
 
         // Novelpia fallback covers
         const NPIA_COVER_R19 = "https://images.novelpia.com/img/novel/adult_cover_img.jpg";
@@ -6162,16 +6168,20 @@
 
         const sortBy = sortSelect.value;
         const isSfacgSort = sortBy.startsWith("sfacg_");
-        const isRankSort = sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly" || isSfacgSort;
+        const isRankSort = sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly" || isSfacgSort || sortBy.startsWith("rank:");
         let displayRank;
         if (isRankSort) {
             displayRank = getRank(n, sortBy);
         } else {
             // Show any available rank badge
             displayRank = getRank(n, "daily") || getRank(n, "weekly") || getRank(n, "monthly")
-                || n.popularityRank || n.bestSellerRank || n.newBooksRank || n.bookmarksRank || n.jpRank || n.ticketRank;
+                || n.popularityRank || n.bestSellerRank || n.newBooksRank || n.bookmarksRank || n.jpRank || n.ticketRank
+                || Object.values(n.rankings || {})[0];
         }
-        const rankBadge = displayRank ? `<span class="card-badge badge-rank">#${displayRank}</span>` : "";
+        const rankKey = sortBy.startsWith(`rank:${novelSource}:`) ? sortBy.slice(`rank:${novelSource}:`.length) : Object.keys(n.rankings || {})[0];
+        const rankInfo = cfg.boards?.[rankKey];
+        const rankTitle = rankInfo ? `${rankInfo.label}${rankInfo.observed_at ? ` — ${rankInfo.observed_at}` : ""}${rankInfo.stale ? " (last known ranking)" : ""}` : "";
+        const rankBadge = displayRank ? `<span class="card-badge badge-rank" title="${escHtml(rankTitle)}">#${displayRank}</span>` : "";
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
         const badgeHTML = completeBadge + rankBadge;
 
@@ -6188,8 +6198,11 @@
             : "";
 
         const synopsisHTML = n.synopsis ? `
-                <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(n.synopsis).replace(/\n+/g, '<br>')}</div>` : "";
+                <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(n.synopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</div>` : "";
         if (!n.synopsis) card.dataset.needsSynopsis = "true";
+        const statsHTML = n.metadataV1
+            ? metadata.metricEntries(n).map((metric) => `<span class="stat" title="${escHtml(metric.label)}">${escHtml(metric.label)}: ${fmt(metric.value)}${metric.scale ? `/${metric.scale}` : ""}</span>`).join("")
+            : `<span class="stat">👁 ${fmt(n.views)}</span><span class="stat">❤ ${fmt(n.likes)}</span><span class="stat">📄 ${fmt(n.chapters)}</span>`;
 
         card.innerHTML = `
             <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
@@ -6203,9 +6216,7 @@
                 <div class="card-author" data-author="${escHtml(n.author)}">Author: ${escHtml(n.author)}</div>
                 <div class="card-tags">${tagsHTML}</div>
                 <div class="card-stats">
-                    <span class="stat">👁 ${fmt(n.views)}</span>
-                    <span class="stat">❤ ${fmt(n.likes)}</span>
-                    <span class="stat">📄 ${fmt(n.chapters)}</span>
+                    ${statsHTML}
                 </div>${n.updated ? `<div class="card-updated">⏳ Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML}
             </div>
         `;
@@ -6372,7 +6383,7 @@
             const start = (currentPage - 1) * BATCH;
             const end = Math.min(start + BATCH, filtered.length);
 
-            resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}`;
+            resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}${catalogStatusSuffix()}`;
 
             resultsEl.innerHTML = "";
             for (let i = start; i < end; i++) {
@@ -6413,6 +6424,7 @@
                         btn.textContent = p;
                         btn.addEventListener("click", () => {
                             currentPage = p;
+                            if (activeCatalogController) catalogRequestedPage = currentPage;
                             render();
                             saveState();
                             window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
@@ -6542,6 +6554,7 @@
     batchSelect.addEventListener("change", () => {
         setBatch(batchSelect.value);
         currentPage = 1;
+        catalogRequestedPage = null;
         render();
     });
 
@@ -6549,6 +6562,7 @@
         bar.querySelector(".prev-page").addEventListener("click", () => {
             if (currentPage > 1) {
                 currentPage--;
+                if (activeCatalogController) catalogRequestedPage = currentPage;
                 render();
                 saveState();
                 window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
@@ -6558,6 +6572,7 @@
             const totalPages = Math.ceil(filtered.length / BATCH);
             if (currentPage < totalPages) {
                 currentPage++;
+                if (activeCatalogController) catalogRequestedPage = currentPage;
                 render();
                 saveState();
                 window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
@@ -6571,6 +6586,7 @@
             const val = parseInt(pageInput.value);
             if (val >= 1 && val <= totalPages) {
                 currentPage = val;
+                if (activeCatalogController) catalogRequestedPage = currentPage;
                 render();
                 saveState();
                 window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
@@ -6624,7 +6640,7 @@
 
     // === DOM ref ===
     const sourceSelect = $("#sourceSelect");
-    const DATA_VERSION = "2026-07-17-1";
+    const DATA_VERSION = "2026-09-13-1";
 
     function versionedDataUrl(url) {
         const sep = url.includes("?") ? "&" : "?";
@@ -6634,6 +6650,7 @@
     // === Source configs ===
     const SOURCES = {
         novelpia: {
+            label: "Novelpia",
             dataUrl: "data/novels.json",
             format: "array",
             coverPrefix: "https://images.novelpia.com",
@@ -6646,6 +6663,7 @@
             descriptionShardPrefix: "data/descriptions_shard_",
         },
         kakao: {
+            label: "KakaoPage",
             dataUrl: "data/kakao_novels.json",
             format: "array",
             coverPrefix: "",
@@ -6657,6 +6675,7 @@
             descriptionShardPrefix: "data/kakao_descriptions_shard_",
         },
         sfacg: {
+            label: "SFACG",
             dataUrl: "data/sfacg_novels.json",
             format: "array",
             coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
@@ -6669,10 +6688,84 @@
             descriptionShardCount: 128,
             descriptionShardPrefix: "data/sfacg_descriptions_shard_",
         },
+        naver: {
+            label: "Naver Web Novel", format: "metadata-v1", manifestUrl: "data/naver_chunk_manifest.json",
+            linkHosts: ["novel.naver.com"], purchaseHosts: ["series.naver.com", "m.series.naver.com", "novel.naver.com"],
+        },
+        joara: {
+            label: "Joara", format: "metadata-v1", manifestUrl: "data/joara_chunk_manifest.json",
+            linkHosts: ["www.joara.com", "joara.com"],
+        },
+        munpia: {
+            label: "Munpia", format: "metadata-v1", manifestUrl: "data/munpia_chunk_manifest.json",
+            linkHosts: ["www.munpia.com"],
+        },
     };
 
     let currentSource = "novelpia";
     let activeCatalogController = null;
+    let catalogRequestedPage = null;
+    let catalogLoading = new Map();
+    let catalogWarnings = new Set();
+
+    function catalogStatusSuffix() {
+        const loading = [...catalogLoading.values()];
+        const warnings = [...catalogWarnings];
+        return (loading.length ? ` — loading ${loading.join(", ")}` : "")
+            + (warnings.length ? ` — Partial results: ${warnings.join("; ")}` : "");
+    }
+
+    function ensureSortValue(value) {
+        if (value && value.startsWith("rank:") && SOURCES[value.split(":")[1]]
+            && !Array.from(sortSelect.options).some((option) => option.value === value)) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = `${SOURCES[value.split(":")[1]].label}: ranking`;
+            sortSelect.appendChild(option);
+        }
+        sortSelect.value = value || "daily";
+        if (!sortSelect.value) sortSelect.value = "daily";
+    }
+
+    function registerBoards(source, boards) {
+        for (const [key, board] of Object.entries(boards || {})) {
+            const value = `rank:${source}:${key}`;
+            let option = Array.from(sortSelect.options).find((item) => item.value === value);
+            if (!option) {
+                option = document.createElement("option");
+                option.value = value;
+                sortSelect.appendChild(option);
+            }
+            option.textContent = `${SOURCES[source].label}: ${board.label}${board.stale ? " (last known)" : ""}`;
+            option.title = board.observed_at || "";
+        }
+    }
+
+    async function ensureSourceConfig(source) {
+        const cfg = SOURCES[source];
+        if (!cfg) throw new Error("Unknown novel source");
+        if (!cfg.manifestUrl) return cfg;
+        if (!cfg.manifestPromise) {
+            cfg.manifestPromise = (async () => {
+                const response = await fetch(versionedDataUrl(cfg.manifestUrl));
+                const option = Array.from(sourceSelect.options).find((item) => item.value === source);
+                if (response.status === 404) {
+                    cfg.available = false;
+                    if (option) { option.disabled = true; option.title = "Metadata has not been published"; }
+                    return null;
+                }
+                if (!response.ok) throw new Error(`HTTP ${response.status} for ${cfg.label} manifest`);
+                Object.assign(cfg, metadata.manifestConfig(await response.json(), source), { available: true });
+                if (option) { option.disabled = false; option.title = ""; }
+                registerBoards(source, cfg.boards);
+                return cfg;
+            })().catch((error) => {
+                cfg.manifestPromise = null;
+                throw error;
+            });
+        }
+        return cfg.manifestPromise;
+    }
     const descriptionShardCache = new Map();
     const descriptionShardPromises = new Map();
     const descriptionLoadQueue = [];
@@ -6680,8 +6773,8 @@
     const DESCRIPTION_LOAD_CONCURRENCY = 4;
     let activeDescriptionLoads = 0;
 
-    async function fetchWithProgress(url) {
-        const resp = await fetch(url);
+    async function fetchWithProgress(url, signal) {
+        const resp = await fetch(url, { signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
         const contentLength = resp.headers.get("content-length");
@@ -6698,11 +6791,11 @@
                 const mb = (received / 1024 / 1024).toFixed(1);
                 const totalMb = (total / 1024 / 1024).toFixed(1);
                 const pct = Math.round((received / total) * 100);
-                resultsEl.innerHTML = `<div class="loading-spinner">Downloading... ${mb}/${totalMb} MB (${pct}%)</div>`;
+                if (!signal?.aborted) resultCount.textContent = `Downloading... ${mb}/${totalMb} MB (${pct}%)`;
             }
             const blob = new Blob(chunks);
             const text = await blob.text();
-            resultsEl.innerHTML = `<div class="loading-spinner">Parsing ${(received / 1024 / 1024).toFixed(1)} MB...</div>`;
+            if (!signal?.aborted) resultCount.textContent = `Parsing ${(received / 1024 / 1024).toFixed(1)} MB...`;
             return JSON.parse(text);
         } else {
             return await resp.json();
@@ -6742,7 +6835,8 @@
         throw lastErr;
     }
 
-    function normalizeSynopsis(text) {
+    function normalizeSynopsis(text, sourceName) {
+        if (SOURCES[sourceName]?.format === "metadata-v1") return String(text || "");
         return String(text || "")
             .replace(/\\r\\n|\\n/g, "\n")
             .replace(/\r\n|\r/g, "\n")
@@ -6752,7 +6846,8 @@
     function updateCardSynopsis(card, synopsis) {
         const body = card.querySelector(".card-body");
         if (!body || !synopsis) return;
-        synopsis = normalizeSynopsis(synopsis);
+        const isMetadata = SOURCES[card.dataset.source]?.format === "metadata-v1";
+        synopsis = normalizeSynopsis(synopsis, card.dataset.source);
         if (!synopsis) return;
         let synopsisEl = body.querySelector(".card-synopsis");
         if (!synopsisEl) {
@@ -6760,7 +6855,7 @@
             synopsisEl.className = "card-synopsis";
             body.appendChild(synopsisEl);
         }
-        synopsisEl.innerHTML = `<span class="synopsis-label">Synopsis:</span> ${escHtml(synopsis).replace(/\n+/g, "<br>")}`;
+        synopsisEl.innerHTML = `<span class="synopsis-label">Synopsis:</span> ${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}`;
         delete card.dataset.needsSynopsis;
     }
 
@@ -6883,12 +6978,27 @@
                             loaded++;
                         }
                     }
-                    TAG_KEY_CACHE.clear();
                     return loaded;
                 })
                 .catch((err) => {
                     console.warn("Failed to load gzipped tag translations; using bundled fallback", err);
                     return 0;
+                })
+                .then(async (loaded) => {
+                    try {
+                        const extra = await fetchGzChunk("data/tags_extra.json.gz");
+                        if (extra && typeof extra === "object" && !Array.isArray(extra)) {
+                            for (const [tag, translation] of Object.entries(extra)) {
+                                if (tag && typeof translation === "string" && translation
+                                    && !Object.prototype.hasOwnProperty.call(TAG_MAP, tag)) {
+                                    Object.defineProperty(TAG_MAP, tag, { value: translation, enumerable: true, writable: true, configurable: true });
+                                    loaded++;
+                                }
+                            }
+                        }
+                    } catch (_) { /* Supplemental tag translations are optional. */ }
+                    TAG_KEY_CACHE.clear();
+                    return loaded;
                 });
         }
         return tagTranslationsPromise;
@@ -6900,7 +7010,7 @@
      */
     async function fetchChunkedSource(cfg, sourceName, onChunkLoaded, signal) {
         signal = signal || (activeCatalogController && activeCatalogController.signal);
-        const { chunkCount, chunkPrefix } = cfg;
+        const { chunkCount, chunkPrefix, chunkFiles } = cfg;
         let loaded = 0;
         let failed = 0;
         let nextChunk = 0;
@@ -6909,7 +7019,7 @@
         async function loadNextChunks() {
             while (nextChunk < chunkCount) {
                 const index = nextChunk++;
-                const url = `${chunkPrefix}${index}.json.gz`;
+                const url = chunkFiles ? chunkFiles[index] : `${chunkPrefix}${index}.json.gz`;
                 try {
                     const raw = await fetchGzChunkWithRetry(url, 2, signal);
                     if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -6928,7 +7038,7 @@
                     for (const novel of novels) {
                         const id = String(novel.id);
                         if (translations[id]) novel.titleEn = translations[id];
-                        if (descriptions[id]) novel.synopsis = normalizeSynopsis(descriptions[id]);
+                        if (descriptions[id]) novel.synopsis = normalizeSynopsis(descriptions[id], sourceName);
                     }
                     results[index] = novels;
                     if (onChunkLoaded) onChunkLoaded(novels, loaded, chunkCount);
@@ -6949,66 +7059,29 @@
         if (novels.length === 0 && failed > 0) {
             throw new Error(`Failed to load ${sourceName} chunks (${failed}/${chunkCount})`);
         }
+        if (failed > 0) novels.partialFailure = `${cfg.label}: ${failed}/${chunkCount} chunks unavailable`;
+        if (cfg.totalEntries != null && novels.length !== cfg.totalEntries) {
+            novels.partialFailure = `${cfg.label}: loaded ${novels.length.toLocaleString()} of ${cfg.totalEntries.toLocaleString()} records`;
+        }
         return novels;
     }
 
 
     function parseNovels(raw, sourceName, cfg) {
-        // SFACG format (18-21 fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
-        //                               popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank,
-        //                               synopsis, latestChapterTitle, latestChapterId, latestChapterTime]
-        // Novelpia/Kakao format (13+ fields): [id, title, author, cover, tags, views, likes, chapters, complete, updated, weeklyRank, age, monthlyRank, ...]
-        const sfacg = cfg.sfacgRanks;
-        return raw.map((r) => {
-            let tags = r[4];
-            if (!Array.isArray(tags)) tags = tags ? Object.values(tags) : [];
-            const novel = {
-                id: r[0],
-                title: r[1] || "",
-                author: r[2] || "",
-                cover: r[3] ? (cfg.coverPrefix && !r[3].startsWith("http") ? cfg.coverPrefix + r[3] : r[3]) : "",
-                tags,
-                views: r[5] || 0,
-                likes: r[6] || 0,
-                chapters: r[7] || 0,
-                complete: r[8] || 0,
-                updated: r[9] || "",
-                age: (sfacg ? r[10] : r[11]) || 0,
-                source: sourceName,
-            };
-            if (sfacg) {
-                novel.popularityRank = r[11] || 0;
-                novel.bestSellerRank = r[12] || 0;
-                novel.newBooksRank = r[13] || 0;
-                novel.bookmarksRank = r[14] || 0;
-                novel.jpRank = r[15] || 0;
-                novel.ticketRank = r[16] || 0;
-                if (r[17]) novel.synopsis = normalizeSynopsis(r[17]);
-                return novel;
-            }
-            novel.weeklyRank = r[10] || 0;
-            if (sourceName === "novelpia") {
-                novel.monthlyRank = r[12] || 0;
-                novel.dailyRank = r[13] || 0;
-                novel.weeklyRankAdult = r[14] || 0;
-                novel.monthlyRankAdult = r[15] || 0;
-                novel.dailyRankAdult = r[16] || 0;
-                novel.weeklyRankTeen = r[17] || 0;
-                novel.monthlyRankTeen = r[18] || 0;
-                novel.dailyRankTeen = r[19] || 0;
-            }
-            return novel;
-        });
+        return metadata.parseRows(raw, sourceName, cfg);
     }
 
     // Title translations are embedded in catalog chunks; descriptions load only near the viewport.
 
     async function loadSource(source, keepState = false) {
+        if (source !== "all" && !SOURCES[source]) source = "all";
         if (activeCatalogController) activeCatalogController.abort();
         const controller = new AbortController();
         activeCatalogController = controller;
         const { signal } = controller;
+        const isCurrent = () => !signal.aborted && activeCatalogController === controller;
         currentSource = source;
+        sourceSelect.value = source;
         if (descriptionObserver) descriptionObserver.disconnect();
         for (const timer of pendingImageTimers) clearTimeout(timer);
         pendingImageTimers = [];
@@ -7017,222 +7090,120 @@
         filtered = [];
         allTagGroups = [];
         top80Tags.clear();
-        resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : source} database...</div>`;
+        catalogWarnings = new Set();
+        const selectedSources = source === "all" ? Object.keys(SOURCES) : [source];
+        catalogLoading = new Map(selectedSources.map((name) => [name, SOURCES[name].label]));
+        resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : escHtml(SOURCES[source].label)} database...</div>`;
+        resultCount.textContent = `Loading metadata${catalogStatusSuffix()}`;
         for (const bar of paginationBars) bar.style.display = "none";
-
-        // Clear filters (unless restoring state)
         if (!keepState) {
-            andTags.clear();
-            orTags.clear();
-            excludeTags.clear();
+            andTags.clear(); orTags.clear(); excludeTags.clear();
             activeAuthorFilter = null;
             authorFilterRestoreState = null;
             searchInput.value = "";
             currentPage = 1;
         }
+        catalogRequestedPage = keepState ? currentPage : null;
+
+        const sourceRecords = new Map();
+        let rendered = false;
+        function addRecords(name, incoming) {
+            let records = sourceRecords.get(name);
+            if (!records) { records = new Map(); sourceRecords.set(name, records); }
+            for (const novel of incoming) {
+                const old = records.get(novel.id);
+                records.set(novel.id, old ? { ...old, ...novel,
+                    titleEn: novel.titleEn || old.titleEn,
+                    synopsis: novel.synopsis || old.synopsis } : novel);
+            }
+        }
+        function publish() {
+            if (!isCurrent()) return;
+            allNovels = [];
+            // Registry order stays deterministic regardless of network completion order.
+            for (const name of selectedSources) {
+                for (const novel of sourceRecords.get(name)?.values() || []) allNovels.push(novel);
+            }
+            rendered = allNovels.length > 0;
+            buildTags(allNovels);
+            applyFilters({ resetPage: false, fade: false });
+        }
+        function applyEmbedded(data, name, cfg) {
+            const novels = parseNovels(data.novels || data, name, cfg);
+            for (const novel of novels) {
+                if (data.translations?.[novel.id]) novel.titleEn = String(data.translations[novel.id]);
+                if (data.descriptions?.[novel.id]) novel.synopsis = normalizeSynopsis(data.descriptions[novel.id], name);
+            }
+            return novels;
+        }
+        async function loadSingle(name) {
+            try {
+                const cfg = await ensureSourceConfig(name);
+                if (!isCurrent()) return;
+                if (!cfg) {
+                    if (source !== "all") catalogWarnings.add(`${SOURCES[name].label} metadata has not been published`);
+                    return;
+                }
+                if (cfg.coverage?.complete === false) catalogWarnings.add(`${cfg.label}: partial catalog coverage`);
+                // Small top bundles remain the first visible results for existing sources.
+                if (cfg.topUrl) {
+                    try {
+                        const data = await fetchGzChunk(cfg.topUrl, signal);
+                        if (!isCurrent()) return;
+                        const top = applyEmbedded(data, name, cfg);
+                        addRecords(name, top);
+                        if (top.length) publish();
+                    } catch (error) {
+                        if (error?.name === "AbortError") throw error;
+                        // A top bundle is optional; catalog chunks remain authoritative.
+                    }
+                }
+                if (!isCurrent()) return;
+                let novels;
+                if (cfg.chunked) {
+                    novels = await fetchChunkedSource(cfg, name, (chunk, loaded, total) => {
+                        if (!isCurrent()) return;
+                        addRecords(name, chunk);
+                        catalogLoading.set(name, `${cfg.label} ${loaded}/${total}`);
+                        if (!rendered && chunk.length) publish();
+                        else resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found${catalogStatusSuffix()}`;
+                    }, signal);
+                } else {
+                    novels = parseNovels(await fetchWithProgress(cfg.dataUrl, signal), name, cfg);
+                }
+                if (!isCurrent()) return;
+                if (novels.partialFailure) catalogWarnings.add(novels.partialFailure);
+                // Keep top-only rows only on partial failure; complete chunks win over old top data.
+                if (!novels.partialFailure) sourceRecords.delete(name);
+                addRecords(name, novels);
+            } catch (error) {
+                if (!isCurrent() || error?.name === "AbortError") return;
+                console.warn(`${name} metadata source failed:`, error);
+                catalogWarnings.add(`${SOURCES[name].label} unavailable`);
+            } finally {
+                if (isCurrent()) { catalogLoading.delete(name); publish(); }
+            }
+        }
 
         try {
             await loadTagTranslations();
-            if (signal.aborted) return;
-
-            // Helper: load top rankings instantly, return parsed novels with translations applied
-            async function loadTopRankings(sourceName) {
-                const cfg = SOURCES[sourceName];
-                if (!cfg || !cfg.topUrl) return null;
-                const data = await fetchGzChunk(cfg.topUrl, signal);
-                const novels = parseNovels(data.novels, sourceName, cfg);
-                // Apply embedded translations
-                if (data.translations) {
-                    for (const n of novels) {
-                        if (data.translations[n.id]) n.titleEn = data.translations[n.id];
-                    }
-                }
-                // Apply embedded descriptions
-                if (data.descriptions) {
-                    for (const n of novels) {
-                        if (data.descriptions[n.id]) {
-                            n.synopsis = normalizeSynopsis(data.descriptions[n.id]);
-                        }
-                    }
-                }
-                return novels;
+            if (!isCurrent()) return;
+            await Promise.all(selectedSources.map(loadSingle));
+            if (!isCurrent()) return;
+            if (catalogRequestedPage != null) currentPage = catalogRequestedPage;
+            catalogRequestedPage = null;
+            publish();
+            if (!allNovels.length) {
+                resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">${catalogWarnings.size
+                    ? escHtml([...catalogWarnings].join("; ")) : "No novels found."}</div>`;
             }
-
-            if (source === "all") {
-                // === Instant load: show top rankings immediately ===
-                let topNovels = null;
-                try {
-                    topNovels = await loadTopRankings("novelpia");
-                } catch (e) { /* fall through to normal load */ }
-
-                if (topNovels && topNovels.length > 0) {
-                    allNovels = [...topNovels];
-                    buildTags(allNovels);
-                    applyFilters({ resetPage: false, fade: false });
-                }
-
-                // === Background: load ALL sources in parallel ===
-                const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
-                let firstRendered = topNovels && topNovels.length > 0;
-
-                const loadSingle = async (s) => {
-                    const cfg = SOURCES[s];
-                    let novels;
-                    if (cfg.chunked) {
-                        novels = await fetchChunkedSource(cfg, s, (chunk, loaded, total) => {
-                            if (!firstRendered) {
-                                resultsEl.innerHTML = `<div class="loading-spinner">Loading ${s}... chunk ${loaded}/${total}</div>`;
-                            } else {
-                                resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading ${s}... ${loaded}/${total}`;
-                            }
-                        });
-                    } else {
-                        const raw = await fetchWithProgress(cfg.dataUrl);
-                        novels = parseNovels(raw, s, cfg);
-                    }
-                    // Translations and descriptions are embedded in chunks
-                    return novels;
-                };
-
-                // Start ALL sources loading in parallel immediately
-                const novelpiaPromise = loadSingle("novelpia");
-                const kakaoPromise = loadSingle("kakao").catch((err) => {
-                    console.warn("Kakao source failed during background load:", err);
-                    return [];
-                });
-                const sfacgPromise = loadSingle("sfacg").catch((err) => {
-                    console.warn("SFACG source failed during background load:", err);
-                    return [];
-                });
-
-                // Merge each source as it finishes
-                const novelpiaNovels = await novelpiaPromise;
-                const deduped = novelpiaNovels.filter((n) => !topIds.has(n.id));
-                allNovels = [...(topNovels || []), ...deduped];
-                // Translations & descriptions are now embedded in chunks
-                // Top novels already have translations from topUrl
-                buildTags(allNovels);
-                applyFilters({ resetPage: false, fade: false });
-                firstRendered = true;
-
-                // Await remaining sources (already loading in background)
-                const [kakaoNovels, sfacgNovels] = await Promise.all([kakaoPromise, sfacgPromise]);
-                allNovels = [...allNovels, ...kakaoNovels, ...sfacgNovels];
-                buildTags(allNovels);
-                applyFilters({ resetPage: false, fade: false });
-            } else if (source === "novelpia") {
-                // === Single source: Novelpia with instant top ===
-                let topNovels = null;
-                try {
-                    topNovels = await loadTopRankings("novelpia");
-                } catch (e) { /* fall through */ }
-
-                if (topNovels && topNovels.length > 0) {
-                    allNovels = [...topNovels];
-                    buildTags(allNovels);
-                    applyFilters({ resetPage: false, fade: false });
-                }
-
-                const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
-                const cfg = SOURCES.novelpia;
-                let firstRender = !(topNovels && topNovels.length > 0);
-                const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
-                    if (firstRender) {
-                        allNovels.push(...chunk);
-                        resultsEl.innerHTML = `<div class="loading-spinner">Loading chunk ${loaded}/${total}...</div>`;
-                        buildTags(allNovels);
-                        applyFilters({ resetPage: false, fade: false });
-                        firstRender = false;
-                    } else {
-                        resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading chunk ${loaded}/${total}`;
-                    }
-                });
-                // Deduplicate and merge
-                const deduped = allChunkNovels.filter((n) => !topIds.has(n.id));
-                allNovels = [...(topNovels || []), ...deduped];
-                // Translations and descriptions are embedded in chunks
-            } else if (source === "sfacg") {
-                // === SFACG with instant top ===
-                const cfg = SOURCES.sfacg;
-                let topNovels = null;
-                if (cfg.topUrl) {
-                    try {
-                        const topData = await fetchGzChunk(cfg.topUrl, signal);
-                        topNovels = parseNovels(topData.novels, "sfacg", cfg);
-                        if (topData.translations) {
-                            for (const n of topNovels) {
-                                if (topData.translations[n.id]) n.titleEn = topData.translations[n.id];
-                            }
-                        }
-                        if (topData.descriptions) {
-                            for (const n of topNovels) {
-                                if (topData.descriptions[n.id]) {
-                                    n.synopsis = normalizeSynopsis(topData.descriptions[n.id]);
-                                }
-                            }
-                        }
-                    } catch (e) { /* fall through */ }
-                }
-
-                if (topNovels && topNovels.length > 0) {
-                    allNovels = [...topNovels];
-                    buildTags(allNovels);
-                    applyFilters({ resetPage: false, fade: false });
-                }
-
-                const topIds = new Set(topNovels ? topNovels.map((n) => n.id) : []);
-                let firstRender = !(topNovels && topNovels.length > 0);
-                const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
-                    if (firstRender) {
-                        allNovels.push(...chunk);
-                        resultCount.textContent = `Loading sfacg... chunk ${loaded}/${total}`;
-                        buildTags(allNovels);
-                        applyFilters({ resetPage: false, fade: false });
-                        firstRender = false;
-                    } else {
-                        resultCount.textContent = `${allNovels.length.toLocaleString()} novel(s) — loading sfacg... ${loaded}/${total}`;
-                    }
-                });
-                const deduped = allChunkNovels.filter((n) => !topIds.has(n.id));
-                allNovels = [...(topNovels || []), ...deduped];
-                // Translations and descriptions are embedded in chunks
-            } else {
-                const cfg = SOURCES[source];
-                if (cfg.chunked) {
-                    // Progressive chunked loading — show results as chunks arrive
-                    allNovels = [];
-                    let firstRender = true;
-                    const allChunkNovels = await fetchChunkedSource(cfg, source, (chunk, loaded, total) => {
-                        allNovels.push(...chunk);
-                        resultCount.textContent = `Loading ${source}... chunk ${loaded}/${total}`;
-                        // Render after first chunk so user sees results immediately
-                        if (firstRender) {
-                            firstRender = false;
-                            buildTags(allNovels);
-                            applyFilters({ resetPage: false, fade: false });
-                        }
-                    });
-                    allNovels = allChunkNovels;
-                    // Translations and descriptions are embedded in chunks
-                } else {
-                    const raw = await fetchWithProgress(cfg.dataUrl);
-                    allNovels = parseNovels(raw, source, cfg);
-                    // Translations and descriptions are embedded in chunks
-                }
-            }
-
-            if (signal.aborted || activeCatalogController !== controller) return;
-            buildTags(allNovels);
-            applyFilters({ resetPage: false, fade: false });
             activeCatalogController = null;
-        } catch (err) {
-            if (activeCatalogController === controller) activeCatalogController = null;
-            if (err && err.name === "AbortError") return;
-            console.error("Load error:", err);
-            resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">
-                ❌ Failed to load ${source} data.<br>
-                <small style="color:var(--text-muted)">${err.message}</small>
-            </div>`;
+        } catch (error) {
+            if (!isCurrent() || error?.name === "AbortError") return;
+            catalogLoading.clear();
+            catalogWarnings.add("Metadata could not be loaded");
+            publish();
+            activeCatalogController = null;
         }
     }
     // === State persistence via URL hash ===
@@ -7246,7 +7217,8 @@
         if (statusSelect.value !== "all") state.status = statusSelect.value;
         if (audienceSelect.value !== "all") state.audience = audienceSelect.value;
         if (batchSelect.value !== "30") state.batch = batchSelect.value;
-        if (currentPage > 1) state.page = currentPage;
+        const savedPage = activeCatalogController && catalogRequestedPage != null ? catalogRequestedPage : currentPage;
+        if (savedPage > 1) state.page = savedPage;
         if (sourceSelect.value !== "all") state.src = sourceSelect.value;
         if (andTags.size > 0) state.tags = [...andTags].join(",");
         if (orTags.size > 0) state.ortags = [...orTags].join(",");
@@ -7267,7 +7239,10 @@
         const params = {};
         for (const pair of hash.replace(/^#/, "").split("&")) {
             const eq = pair.indexOf("=");
-            if (eq > 0) params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1));
+            if (eq > 0) {
+                try { params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1)); }
+                catch (_) { /* Ignore an invalid escaped URL value. */ }
+            }
         }
         return params;
     }
@@ -7277,12 +7252,13 @@
         activeAuthorFilter = params.author || null;
         authorFilterRestoreState = null;
         searchInput.value = params.author || params.q || "";
-        sortSelect.value = params.sort || "daily";
+        ensureSortValue(params.sort);
         orderSelect.value = params.order || "desc";
         statusSelect.value = params.status || "all";
         audienceSelect.value = params.audience || "all";
-        if (params.batch) setBatch(params.batch);
-        currentPage = params.page ? parseInt(params.page) : 1;
+        setBatch(params.batch || "30");
+        currentPage = Math.max(1, parseInt(params.page, 10) || 1);
+        if (activeCatalogController) catalogRequestedPage = currentPage;
         if (params.tmode) tagMode = params.tmode;
 
         // Restore AND tags
@@ -7322,7 +7298,10 @@
 
         _lastHash = window.location.hash;
         updateActiveTagsSummary();
-        _origApplyFilters({ resetPage: false });
+        const source = params.src && SOURCES[params.src] ? params.src : "all";
+        sourceSelect.value = source;
+        if (source !== currentSource) loadSource(source, true);
+        else _origApplyFilters({ resetPage: false });
     }
 
     function restoreState() {
@@ -7336,15 +7315,17 @@
             activeAuthorFilter = null;
             searchInput.value = params.q;
         }
-        if (params.sort) sortSelect.value = params.sort;
+        if (params.sort) ensureSortValue(params.sort);
         if (params.order) orderSelect.value = params.order;
         if (params.status) statusSelect.value = params.status;
         if (params.audience) audienceSelect.value = params.audience;
         if (params.batch) setBatch(params.batch);
-        if (params.page) currentPage = parseInt(params.page);
-        if (params.src) sourceSelect.value = params.src;
+        if (params.page) currentPage = Math.max(1, parseInt(params.page, 10) || 1);
+        if (params.src && SOURCES[params.src]) sourceSelect.value = params.src;
 
-        // Tags are restored after data loads (in loadSource callback)
+        for (const tag of (params.tags || "").split(",").filter(Boolean)) andTags.add(tag);
+        for (const tag of (params.ortags || "").split(",").filter(Boolean)) orTags.add(tag);
+        for (const tag of (params.xtags || "").split(",").filter(Boolean)) excludeTags.add(tag);
         return params;
     }
 
@@ -7359,44 +7340,6 @@
         saveState();
     };
 
-    // After data loads, restore tags then re-apply
-    const _origLoadSource = loadSource;
-    if (hasRestoredState) {
-        loadSource = async function(source, keepState) {
-            await _origLoadSource(source, true);
-            if (savedParams.tags) {
-                for (const t of savedParams.tags.split(",")) {
-                    andTags.add(t);
-                    tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                        if (tagsMatch(c.dataset.tag, t)) c.classList.add("active");
-                    });
-                }
-            }
-            if (savedParams.ortags) {
-                for (const t of savedParams.ortags.split(",")) {
-                    orTags.add(t);
-                    tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                        if (tagsMatch(c.dataset.tag, t)) c.classList.add("active-or");
-                    });
-                }
-            }
-            if (savedParams.xtags) {
-                for (const t of savedParams.xtags.split(",")) {
-                    excludeTags.add(t);
-                    excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                        if (tagsMatch(c.dataset.tag, t)) c.classList.add("excluded");
-                    });
-                }
-            }
-            // Re-apply with restored state
-            updateActiveTagsSummary();
-            _origApplyFilters({ resetPage: false });
-            saveState();
-            // Only restore once
-            loadSource = _origLoadSource;
-        };
-    }
-
     // Source change listener
     sourceSelect.addEventListener("change", () => {
         currentPage = 1;
@@ -7404,5 +7347,9 @@
         saveState();
     });
 
+    // Check publication manifests even when the initial view selects an old source.
+    for (const [name, cfg] of Object.entries(SOURCES)) {
+        if (cfg.manifestUrl) ensureSourceConfig(name).catch((error) => console.warn(`${cfg.label} manifest unavailable:`, error));
+    }
     loadSource(initialSource, hasRestoredState);
 })();

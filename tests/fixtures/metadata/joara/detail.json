@@ -1,0 +1,27 @@
+{
+  "status": 1,
+  "book": {
+    "book_code": "412770",
+    "showcostcategory": "1001",
+    "category": "1",
+    "sub_category": "0",
+    "subject": "Book",
+    "intro": "판타지판타지!",
+    "keyword": [],
+    "writer_name": "낙화花",
+    "total_bytes": "0",
+    "book_img": "https://cf-image.joara.com/literature_file/default1.gif",
+    "chk_finish": "FALSE",
+    "cnt_chapter": 3,
+    "cnt_page_read": 7,
+    "cnt_recom": 0,
+    "cnt_favorite": 1,
+    "is_finish": "FALSE",
+    "is_premium": "FALSE",
+    "redate": "1265193035",
+    "created": "20100202144706",
+    "updated": "20100203193035",
+    "is_ebook": "FALSE",
+    "is_adult": "FALSE"
+  }
+}

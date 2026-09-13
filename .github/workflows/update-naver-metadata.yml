@@ -1,0 +1,21 @@
+name: Update Naver Metadata
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        default: catalog
+        options: [catalog, rankings, build, resume]
+permissions:
+  contents: write
+jobs:
+  update:
+    uses: ./.github/workflows/metadata-source-job.yml
+    with:
+      source: naver
+      operation: ${{ github.event_name == 'schedule' && github.event.schedule == '0 16 * * *' && 'rankings' || inputs.operation || 'catalog' }}
+    secrets: inherit
+

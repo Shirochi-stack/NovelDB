@@ -1,0 +1,20 @@
+name: Update Munpia Metadata
+on:
+  schedule:
+    - cron: '0 8 * * 2'
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        default: catalog
+        options: [catalog, rankings, build, resume]
+permissions:
+  contents: write
+jobs:
+  update:
+    uses: ./.github/workflows/metadata-source-job.yml
+    with:
+      source: munpia
+      operation: ${{ github.event_name == 'schedule' && github.event.schedule == '0 17 * * *' && 'rankings' || inputs.operation || 'catalog' }}
+    secrets: inherit

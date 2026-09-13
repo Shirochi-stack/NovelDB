@@ -54,6 +54,19 @@ python scripts/chunk_and_compress.py --input docs/data/kakao_novels.json --prefi
 if errorlevel 1 echo   (Kakao data not found or failed — skipping)
 echo.
 
+echo Building available anonymous metadata source artifacts...
+echo   New sources are staged and validated before promotion.
+echo   Existing partial catalogs retain their coverage reports during this rebuild.
+for %%S in (naver joara munpia) do (
+    if exist "metadata\state\%%S.json.gz" (
+        python scripts/metadata_pipeline.py build --source %%S --output-dir ".cache/metadata-build/%%S" --state-dir metadata/state
+        if errorlevel 1 goto :error
+        python scripts/metadata_pipeline.py promote --source %%S --output-dir ".cache/metadata-build/%%S" --target-dir docs/data --allow-partial --include-tags
+        if errorlevel 1 goto :error
+    )
+)
+echo.
+
 echo ============================================
 echo  Done! Site data rebuilt successfully.
 echo ============================================

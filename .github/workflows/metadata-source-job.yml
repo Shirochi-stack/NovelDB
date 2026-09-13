@@ -1,0 +1,119 @@
+name: Metadata source reusable job
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        required: true
+        type: string
+      operation:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# The caller must not claim the same lock while awaiting this reusable job.
+concurrency:
+  group: data-write-lock
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      METADATA_SOURCE: ${{ inputs.source }}
+      METADATA_OPERATION: ${{ inputs.operation }}
+      TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install metadata dependencies
+        run: python -m pip install requests beautifulsoup4 tiktoken
+      - name: Collect or rebuild source metadata
+        timeout-minutes: 330
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$METADATA_SOURCE" in naver|joara|munpia) ;; *) exit 2 ;; esac
+          case "$METADATA_OPERATION" in catalog|rankings|resume|build|translate) ;; *) exit 2 ;; esac
+          stage=".cache/metadata-build/$METADATA_SOURCE"
+          state="metadata/state"
+          if [ "$METADATA_OPERATION" = translate ]; then
+            python scripts/metadata_pipeline.py prepare --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
+            python scripts/metadata_pipeline.py translate --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
+            python scripts/metadata_pipeline.py merge --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
+            python scripts/metadata_pipeline.py build --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
+          elif [ "$METADATA_OPERATION" = build ]; then
+            python scripts/metadata_pipeline.py prepare --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
+            python scripts/metadata_pipeline.py build --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
+          elif [ "$METADATA_OPERATION" = resume ] || [ "$METADATA_OPERATION" = catalog ]; then
+            python scripts/metadata_pipeline.py run --source "$METADATA_SOURCE" --mode catalog --resume --output-dir "$stage" --state-dir "$state" --max-runtime 18000
+          else
+            python scripts/metadata_pipeline.py run --source "$METADATA_SOURCE" --mode "$METADATA_OPERATION" --output-dir "$stage" --state-dir "$state" --max-runtime 18000
+          fi
+      - name: Validate and promote source artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=".cache/metadata-build/$METADATA_SOURCE"
+          if [ "$METADATA_OPERATION" = translate ]; then
+            python scripts/metadata_pipeline.py promote --source "$METADATA_SOURCE" --output-dir "$stage" --target-dir docs/data --allow-partial --include-tags
+          else
+            python scripts/metadata_pipeline.py promote --source "$METADATA_SOURCE" --output-dir "$stage" --target-dir docs/data --allow-partial
+          fi
+      - name: Commit original metadata or translated metadata independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -- "metadata/state/$METADATA_SOURCE.json.gz" "docs/data/${METADATA_SOURCE}_*"
+          if [ "$METADATA_OPERATION" = translate ]; then
+            git add -- docs/data/tags_en.txt docs/data/tags_en.txt.gz
+            if [ -f docs/data/tags_extra.json.gz ]; then
+              git add -- docs/data/tags_extra.json.gz
+            fi
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "Update $METADATA_SOURCE metadata ($METADATA_OPERATION)"
+            git push
+          fi
+      - name: Preserve durable source progress after a failed run
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$METADATA_SOURCE" in naver|joara|munpia) ;; *) exit 2 ;; esac
+          state_file="metadata/state/$METADATA_SOURCE.json.gz"
+          if [ ! -f "$state_file" ]; then exit 0; fi
+          python -c "import sys; sys.path.insert(0, 'scripts'); from metadata_common import load_state; load_state(sys.argv[1], 'metadata/state')" "$METADATA_SOURCE"
+          stage=".cache/metadata-build/$METADATA_SOURCE"
+          if [ "$METADATA_OPERATION" = translate ] && [ -d "$stage" ]; then
+            python scripts/metadata_pipeline.py merge --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir metadata/state
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -- "$state_file"
+          if ! git diff --cached --quiet -- "$state_file"; then
+            git commit --only -m "Preserve $METADATA_SOURCE metadata progress after failure" -- "$state_file"
+            git push
+          fi
+      - name: Preserve source progress and coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-${{ inputs.source }}-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true
+          path: |
+            metadata/state/${{ inputs.source }}.json.gz
+            .cache/metadata-build/${{ inputs.source }}/${{ inputs.source }}_run_report.json
+            .cache/metadata-build/${{ inputs.source }}/${{ inputs.source }}_*untranslated.txt

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NovelDB — Browse & Filter Web Novels</title>
-    <meta name="description" content="Search, filter, and browse web novels from Novelpia, KakaoPage, and SFACG by tags, views, likes, and more.">
+    <meta name="description" content="Search novel metadata across Novelpia, KakaoPage, SFACG, Naver Web Novel, Joara, and Munpia, and find official publication pages.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -39,6 +39,9 @@
                         <option value="novelpia">Novelpia</option>
                         <option value="kakao">KakaoPage</option>
                         <option value="sfacg">SFACG</option>
+                        <option value="naver" disabled>Naver Web Novel</option>
+                        <option value="joara" disabled>Joara</option>
+                        <option value="munpia" disabled>Munpia</option>
                     </select>
                 </div>
                 <div class="control-group">
@@ -55,6 +58,10 @@
                         <option value="likes">Likes</option>
                         <option value="views">Views</option>
                         <option value="chapters">Chapters</option>
+                        <option value="metric:favorites">Favorites</option>
+                        <option value="metric:recommendations">Recommendations</option>
+                        <option value="metric:rating">Rating</option>
+                        <option value="metric:downloads">Downloads</option>
                         <option value="updated">Last Updated</option>
                         <option value="title">Title</option>
                     </select>
@@ -145,7 +152,8 @@
         </div>
     </main>
 
-    <script src="app.js?v=44"></script>
+    <script src="metadata-core.js?v=1"></script>
+    <script src="app.js?v=45"></script>
 </body>
 
 </html>
