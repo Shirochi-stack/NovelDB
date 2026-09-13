@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  pages: write
 
 # The caller must not claim the same lock while awaiting this reusable job.
 concurrency:
@@ -85,6 +86,24 @@ jobs:
             git commit -m "Update $METADATA_SOURCE metadata ($METADATA_OPERATION)"
             git push
           fi
+      # Bot pushes do not start a branch-based Pages build. Request one explicitly
+      # after the successful push, including on no-change reruns after a build failure.
+      - name: Request GitHub Pages build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: site } = await github.request('GET /repos/{owner}/{repo}/pages', context.repo);
+            if (site.build_type !== 'legacy' || site.source?.path !== '/docs') {
+              core.setFailed('Expected branch-based GitHub Pages publishing from /docs; no build requested.');
+              return;
+            }
+            if (context.ref !== `refs/heads/${site.source.branch}`) {
+              core.setFailed(`Run this workflow on the Pages publishing branch (${site.source.branch}); no build requested.`);
+              return;
+            }
+            const { data: build } = await github.request('POST /repos/{owner}/{repo}/pages/builds', context.repo);
+            core.info(`GitHub Pages build requested for ${site.source.branch}${site.source.path}: ${build.status}`);
+            core.setOutput('status', build.status);
       - name: Preserve durable source progress after a failed run
         if: failure()
         shell: bash

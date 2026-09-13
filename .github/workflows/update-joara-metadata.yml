@@ -11,6 +11,7 @@ on:
         options: [catalog, rankings, build, resume]
 permissions:
   contents: write
+  pages: write
 jobs:
   update:
     uses: ./.github/workflows/metadata-source-job.yml

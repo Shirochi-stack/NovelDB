@@ -11,6 +11,7 @@ on:
         options: [naver, joara, munpia]
 permissions:
   contents: write
+  pages: write
 jobs:
   translate:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}

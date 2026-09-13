@@ -395,6 +395,8 @@ The thin workflows dispatch catalog/rankings/build/resume operations to [metadat
 
 [translate-new-metadata.yml](../.github/workflows/translate-new-metadata.yml) runs only after a successful source workflow or manual invocation. Original metadata is already independently published before translation. Translation failures cannot discard original metadata; stale ranking boards retain prior observations. These are configured behaviors, not claims of a completed production backfill.
 
+The shared new-source job explicitly requests a branch-based GitHub Pages build after a successful metadata or translation push, including no-change reruns. `pages: write` is granted by the shared job and its source/translation callers. The request checks the configured `/docs` publishing source and run branch before submitting the build; API failures fail the workflow visibly. GitHub then builds asynchronously. This closes the gap where bot commits updated repository files without starting a live-site rebuild. Pages settings remain unchanged, and no build was dispatched during local verification.
+
 ### Desktop release automation
 
 [build-macos.yml](../.github/workflows/build-macos.yml) is a separate manual workflow. It builds full/lite macOS DMGs, uploads build artifacts, and attaches them to the already-existing release identified by `app_version.RELEASE_TAG`, overwriting matching assets. It does not create a metadata catalog or implement the website's data pipeline.

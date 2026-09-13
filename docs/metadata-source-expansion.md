@@ -134,6 +134,8 @@ Thin source workflows expose catalog/rankings/build/resume dispatch choices. The
 
 [Translate New Metadata Sources](../.github/workflows/translate-new-metadata.yml) chains only after upstream success, or manual invocation. It uses the same shared job/lock to prepare, translate, merge and repackage. Workflow definitions were checked locally; none were dispatched or published during implementation.
 
+After a successful metadata or translation push, the shared job explicitly requests a GitHub Pages build through `POST /repos/{owner}/{repo}/pages/builds`. This is necessary because ordinary `GITHUB_TOKEN` pushes do not trigger branch-based Pages builds. The shared job and all four callers grant `pages: write`; no extra deployment secret is needed. The step verifies branch-based `/docs` publishing and requires the run to target the configured publishing branch (`main` here). It does not change Pages settings. A rejected build request fails visibly; a no-change rerun still requests a build, allowing recovery after a previous request failure. An accepted request queues GitHub's asynchronous Pages build; its eventual status is visible in Pages build/deployment runs. See the [official Pages build API](https://docs.github.com/en/rest/pages/pages#request-a-github-pages-build).
+
 ## Validation and remaining limits
 
 Default bounded catalog samples produced:
@@ -157,7 +159,10 @@ The final run passed **151 Python tests** (including three Chromium scenarios an
 ```powershell
 python -m pytest tests/test_metadata_common.py tests/test_metadata_naver.py tests/test_metadata_munpia.py tests/test_metadata_joara.py tests/test_metadata_pipeline.py tests/test_metadata_frontend_browser.py tests/test_novelpia_metadata.py -q
 node --test tests/test_metadata_frontend.cjs
+node --test tests/test_metadata_pages.cjs
 ```
+
+The Pages trigger has five additional offline tests that execute its workflow script with mocked GitHub responses, checking request order, configuration/branch guards, failure handling and permission propagation. No live build request was sent while testing this fix.
 
 Full-catalog completeness, deep-page limits, sustained crawl rates, every ranking window and all restricted/publication tiers remain untested. Moving catalogs overlap and totals change; sample counts are observations, not platform totals. Naver league-promotion continuity and Joara client-asset changes need ongoing verification. Separate local processes must not write the same source state concurrently; scheduled jobs use the shared lock. These limitations remain visible in coverage and outcomes; they do not establish deletion or cross-platform matching.
 
