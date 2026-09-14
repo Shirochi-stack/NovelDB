@@ -107,6 +107,52 @@ async def wait_loaded(page):
     await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !document.querySelector('#resultCount').textContent.startsWith('Loading')")
 
 
+def test_new_sources_r19_badges_audience_filter_and_reload(monkeypatch):
+    original_row = row
+    new_sources = ("naver", "joara", "munpia", "ridi")
+    def age_row(source, ident=7, known=False, completed=False):
+        result = original_row(source, ident, known, completed)
+        if source in new_sources:
+            result[10] = {7: None, 8: 19, 9: 0}[ident]
+        elif source == "novelpia":
+            result[11] = 19
+        return result
+    monkeypatch.setitem(globals(), "row", age_row)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route("**/*", FixtureSite().route)
+            await page.goto("http://metadata.test/#src=all")
+            await wait_loaded(page)
+            await page.select_option("#audienceSelect", "adult")
+            await page.wait_for_function("document.querySelectorAll('.novel-card').length === 5")
+            assert set(await page.locator('.novel-card').evaluate_all("cards => cards.map(c => c.dataset.source)")) == {"novelpia", *new_sources}
+            assert await page.locator('.badge-r19').all_text_contents() == ["19+"] * 5
+            for source in new_sources:
+                await page.select_option("#sourceSelect", source)
+                await wait_loaded(page)
+                await page.wait_for_function("document.querySelectorAll('.novel-card').length === 1")
+                card = page.locator('.novel-card')
+                assert await card.get_attribute('data-novel-id') == '8'
+                assert await card.locator('.badge-r19').get_attribute('aria-label') == 'Rated 19+'
+            await page.reload()
+            await wait_loaded(page)
+            assert await page.locator('#audienceSelect').input_value() == 'adult'
+            assert await page.locator('#sourceSelect').input_value() == 'ridi'
+            assert await page.locator('.novel-card').get_attribute('data-novel-id') == '8'
+            await page.select_option('#audienceSelect', 'general')
+            await page.wait_for_function("document.querySelector('.novel-card')?.dataset.novelId === '9'")
+            assert await page.locator('.novel-card').count() == 1
+            assert await page.locator('.badge-r19').count() == 0
+            await page.select_option('#audienceSelect', 'all')
+            await page.wait_for_function("document.querySelectorAll('.novel-card').length === 3")
+            assert await page.locator('.novel-card[data-novel-id="7"] .badge-r19').count() == 0
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_metadata_frontend_browser_all_sources_filters_links_and_hash():
     async def scenario():
         async with async_playwright() as playwright:

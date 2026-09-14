@@ -6194,10 +6194,10 @@
             .map((t) => `<span class="card-tag${isFocused && tagsMatch(focusedCard.tag, t) ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
-        const isR15 = (novelSource === "sfacg" && n.age === 19) || (novelSource === "novelpia" && n.age === 15);
-        const isR19 = (novelSource !== "sfacg" && n.age === 19);
-        const ageBadge = isR15 ? `<span class="badge-r15">15</span>`
-            : isR19 ? `<span class="badge-r19">19</span>`
+        const isR15 = metadata.matchesAudience(n, "r15");
+        const isR19 = metadata.matchesAudience(n, "adult");
+        const ageBadge = isR15 ? `<span class="badge-r15" title="Teen Only (R15+)" aria-label="Rated 15+">15</span>`
+            : isR19 ? `<span class="badge-r19" title="Adult Only (19+)" aria-label="Rated 19+">19+</span>`
             : "";
 
         const synopsisHTML = descriptionsEnabled && savedSynopsis ? `
