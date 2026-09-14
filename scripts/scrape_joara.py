@@ -231,6 +231,7 @@ class JoaraAdapter:
         return set(parse_qs(parsed.query, keep_blank_values=True)).issubset({
             "api_key", "ver", "device", "deviceuid", "devicetoken", "category",
             "store", "orderby", "page", "offset", "book_code", "promotion_code", "best",
+            "use_cursor_pagination", "cursor_point",
         })
 
     def _bootstrap(self, client):
@@ -272,20 +273,40 @@ class JoaraAdapter:
                        "store": store, "catalog": catalog, "page_size": 20}
                       for store in STORES for catalog in CATALOG_PATHS]
         # Anonymous category responses verified on 2026-09-14. These supplement
-        # the all-genre window; they do not evade or remove its 100-page limit.
+        # the all-genre catalog; latest lists use the same public cursor protocol.
         supplemental = [{"key": f"series:latest:category:{code}", "tier": "series", "start_page": 1,
                          "store": "series", "catalog": "latest", "page_size": 20, "category": code}
                         for code in ("22", "9")]  # Romance fantasy and parody.
-        return partitions[:1] + supplemental + partitions[1:]
+        partitions = partitions[:1] + supplemental + partitions[1:]
+        for partition in partitions:
+            if partition["catalog"] == "latest":
+                partition["pagination"] = "joara-cursor-v1"
+        return partitions
 
     def fetch_page(self, client, partition, page):
-        payload = None
         try:
-            payload = self._get(client, CATALOG_PATHS[partition["catalog"]], {
+            cursor_mode = partition.get("pagination") == "joara-cursor-v1"
+            params = {
                 "category": partition.get("category", "0"), "store": partition["store"], "orderby": "redate",
-                "page": page, "offset": partition.get("page_size", 20),
-            })
-            rows, total, size = _listing_response(payload, page)
+                "page": 1 if cursor_mode else page, "offset": partition.get("page_size", 20),
+            }
+            if cursor_mode:
+                params.update(use_cursor_pagination="y", cursor_point=partition.get("cursor_point", ""))
+            payload = self._get(client, CATALOG_PATHS[partition["catalog"]], params)
+            if cursor_mode:
+                # Cursor responses intentionally have no numbered `page` field.
+                if not isinstance(payload, dict) or payload.get("status") != 1:
+                    raise ValueError("Joara rejected the cursor request")
+                data = payload.get("data")
+                total, size = _integer(payload.get("total_cnt")), _integer(payload.get("offset"))
+                if (not isinstance(data, dict) or not isinstance(data.get("list"), list)
+                        or total is None or size != params["offset"]):
+                    raise ValueError("Malformed Joara cursor response")
+                rows = data["list"]
+                if len(rows) != min(size, max(0, total - (page - 1) * size)):
+                    raise ValueError("Joara cursor response has unexplained row count")
+            else:
+                rows, total, size = _listing_response(payload, page)
             records, skipped_rows = [], []
             for position, row in enumerate(rows, start=1):
                 # A few public listings have a real book ID but a blank title.
@@ -304,7 +325,8 @@ class JoaraAdapter:
                 raise ValueError("No usable titled rows in catalog page")
             records = list({record["id"]: record for record in records}.values())
             return CatalogPage(records=records, next_page=page + 1 if page * size < total else None,
-                               observed_total=total, skipped_rows=skipped_rows)
+                               observed_total=total, skipped_rows=skipped_rows,
+                               next_cursor=payload.get("cursor_point") if cursor_mode else None)
         except BudgetExceeded:
             raise
         except (FetchError, ValueError, TypeError, KeyError) as error:

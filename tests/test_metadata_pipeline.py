@@ -12,7 +12,7 @@ from scripts import metadata_pipeline as pipeline
 
 def record(source="naver", ident="129"):
     urls = {"naver": "https://novel.naver.com/best/list?novelId=",
-            "joara": "https://www.joara.com/book/", "munpia": "https://www.munpia.com/novel/detail/"}
+            "joara": "https://www.joara.com/book/", "munpia": "https://www.munpia.com/novel/detail/", "ridi": "https://ridibooks.com/books/"}
     return {"id": ident, "title": "제목|||원문", "author": "작가", "cover": "",
             "tags": ["판타지"], "genres": ["판타지"], "synopsis": "첫 줄\n둘째|||줄",
             "views": None, "likes": 0, "episodes": None, "complete": None,
@@ -254,3 +254,18 @@ def test_pipeline_rejects_state_inside_website_before_writes(tmp_path, monkeypat
         operation("naver", output, tmp_path / "docs" / "data" / ".state")
     assert not output.exists()
     assert not (tmp_path / "docs").exists()
+
+
+def test_ridi_translation_merge_and_artifact_joins(tmp_path):
+    state_dir = save(tmp_path, "ridi")
+    output = tmp_path / "ridi-stage"
+    pipeline.prepare("ridi", output, state_dir, shared_tags=tmp_path / "none")
+    patch(output, "ridi", "titles_untranslated.txt", "129", record("ridi")["title"], "Translated Ridibooks title")
+    assert pipeline.merge("ridi", output, state_dir, shared_tags=tmp_path / "none")["accepted"] == 1
+    pipeline.build("ridi", output, state_dir)
+    files, manifest = pipeline.validate_artifacts("ridi", output)
+    assert manifest["source"] == "ridi" and manifest["descriptionShardCount"] == 128
+    assert len([f for f in files if "descriptions_shard_" in f and f.endswith(".gz")]) == 128
+    top = pipeline.read_gzip_json(output / "ridi_top.json.gz")
+    assert top["translations"]["129"] == "Translated Ridibooks title"
+    assert top["novels"][0][11] == "https://ridibooks.com/books/129"

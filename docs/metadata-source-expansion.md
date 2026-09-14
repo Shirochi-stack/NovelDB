@@ -1,4 +1,4 @@
-# Naver, Munpia and Joara metadata integration
+# Naver, Munpia, Joara and Ridibooks metadata integration
 
 Initially implemented on **2026-09-13**, with collection, workflow and website fixes validated on **2026-09-14**. These sources have anonymous collectors, durable history, translation preparation and merging, packaging, browser support and scheduled workflow definitions. New sources remain unavailable in the selector until their manifests exist. **No new-source catalog was published during implementation.**
 
@@ -10,7 +10,7 @@ Collectors retrieve public titles, authors, synopses, cover URLs, genres/tags, c
 
 Naver covers Challenge, Best and Series Edition on `novel.naver.com`. Series storefront links can be outbound purchase destinations, but that separate storefront is not crawled.
 
-Install `requests` and `beautifulsoup4`, or the existing project requirements. All three entrypoints use the same CLI:
+Install `requests` and `beautifulsoup4`, or the existing project requirements. All four entrypoints use the same CLI:
 
 ```powershell
 python scripts/scrape_naver.py --mode sample --output-dir .cache/naver-sample --state-dir .cache/naver-state
@@ -33,7 +33,7 @@ python scripts/scrape_naver.py --mode sample --output-dir .cache/naver-plan --dr
 
 Sample defaults are one worker, two seconds between requests, two catalog pages per tier, five details, twenty requests and 300 seconds. Joara bootstrap requests count toward this ceiling. Catalog defaults are four workers, at least 0.5 seconds between host request starts, at most four attempts and 18,000 seconds. Retries honor `Retry-After` and consume the same budgets.
 
-The [common pipeline](../scripts/metadata_pipeline.py) provides `prepare`, `translate`, `merge`, `build`, `promote` and `run`. Replace `naver` with either other source:
+The [common pipeline](../scripts/metadata_pipeline.py) provides `prepare`, `translate`, `merge`, `build`, `promote` and `run`. Replace `naver` with `munpia`, `joara`, or `ridi`:
 
 ```powershell
 # Collect and package in staging, without translation or promotion.
@@ -120,7 +120,7 @@ Full ranking observations remain in state. Validation checks schema, filenames/c
 
 ## Website and workflows
 
-[app.js](app.js), [metadata-core.js](metadata-core.js) and [index.html](index.html) register all six sources. All Sources iterates the registry and isolates failures. New manifests determine chunk counts; missing manifests leave options unavailable. Progressive callbacks check cancellation. Incomplete coverage or failed chunks produce a partial-results indication.
+[app.js](app.js), [metadata-core.js](metadata-core.js) and [index.html](index.html) register all seven sources. All Sources iterates the registry and isolates failures. New manifests determine chunk counts; missing manifests leave options unavailable. Progressive callbacks check cancellation. Incomplete coverage or failed chunks produce a partial-results indication.
 
 Source-and-ID keys protect deduplication, translations, focused cards and lazy synopsis joins. Original/English title, author and ID search, tag inclusion/exclusion, pagination and hash restoration work across sources. Unknown numbers sort last in either direction; unknown age/status does not falsely match narrow filters. Native rankings identify source and scope. Cards retain the existing layout and use tier-specific canonical links.
 
@@ -152,7 +152,7 @@ Catalog plus ranking-discovered staged data contained **491 Naver, 481 Munpia an
 
 After the final resume/allowlist fixes, a smaller fresh smoke check used seven Naver, two Munpia and six Joara requests. It observed 60/40/59 listings respectively, with one successful detail request each, including Joara's V1 endpoint. Those records also passed the complete mocked translation/build validation. These checks remained isolated in `.cache/metadata-implementation`.
 
-Offline tests cover mappings, pagination/end conditions/repetition, malformed/restricted responses, units, booleans/dates, interruption/resume/history, failed boards, equal cross-platform IDs, reversible text and stale patches, schema/manifests/shards/top, import safety, dry runs and allowlists. Node tests cover browser helpers. Fully intercepted Chromium tests exercise all six sources, ranks, hash restoration, lazy synopses, missing manifests, failed chunks and source switching, without external browser requests.
+Offline tests cover mappings, pagination/end conditions/repetition, malformed/restricted responses, units, booleans/dates, interruption/resume/history, failed boards, equal cross-platform IDs, reversible text and stale patches, schema/manifests/shards/top, import safety, dry runs and allowlists. Node tests cover browser helpers. Fully intercepted Chromium tests exercise all seven sources, ranks, hash restoration, lazy synopses, missing manifests, failed chunks and source switching, without external browser requests.
 
 The final run passed **151 Python tests** (including three Chromium scenarios and existing Novelpia metadata regressions) and **six Node tests**. Workflow YAML, exact source schedules, documentation links and the complete 42-module script inventory were checked separately.
 
@@ -181,7 +181,9 @@ Live logs identify source, operation, worker/pacing settings, partition/page, ro
 
 ### Joara boundary evidence
 
-Anonymous latest-book requests for the all-genre Free/Noblesse windows reset at requested page 101: the API returned page 1, offset 0, total 0 and an empty list. Category 22 (romance fantasy) and category 9 (parody) were also checked: page 1 correctly returned only the requested genre, but page 101 reset for both. Those two verified Free latest-book category windows supplement discovery; they do **not** establish access to the entire catalog. The six original store/latest/finished partitions remain in place. No guessed API endpoints or account routes were added.
+The old numbered latest-book requests reset at page 101. This was a scraper pagination defect, not a hard public catalog limit. Joara's public client uses `use_cursor_pagination=y`, keeps API `page=1`, and passes the response's top-level `cursor_point` into the next request. All five latest partitions now use this protocol. Completed-list pagination is unchanged.
+
+Resume saves the opaque cursor together with the logical next-page checkpoint. Old latest-list checkpoints restart from the head to establish valid cursors; known novels and translations remain saved, and finished-list checkpoints remain intact. Missing/non-advancing cursors, repeated pages and invalid responses stop with diagnostics. A bounded live check traversed 103 Free latest batches: 2,060 unique novels, including 20 new rows each at batches 100, 101, 102 and 103, with no duplicate IDs. This verifies passage beyond the previous failure, not a completed backfill.
 
 The saved 41,911-record Joara snapshot stopped seven catalog partitions: all five latest-book windows at page 101, Free finished at page 621, and Noblesse finished at page 75. Premium finished reached its end. A later check of the two failed finished pages found usable rows alongside a blank-title entry: ID `212133` on Free page 621 and ID `1556465` on Noblesse page 75. Previously, one such entry rejected its entire page and left all later pages in that partition unscanned. The collector now retains valid rows and continues past these specific blank-title entries, recording each omitted ID, page and row in coverage. These omissions still prevent a complete-catalog claim. Repeated whole pages, reset pagination, malformed envelopes and unexplained empty pages still stop that partition with explicit diagnostics. Overlapping catalog windows and retained historical records mean the number of missing unique novels cannot be inferred from page totals.
 
@@ -202,7 +204,7 @@ A successful original-metadata update publishes independently, then triggers the
 
 All data-lock workflows use `group: data-write-lock` and `cancel-in-progress: false`, and check out the current branch head after acquiring the lock. The lock is claimed once by the reusable job, never by a caller waiting on it. Standard concurrency retains one active and one pending run; additional arrivals can replace a pending run. If a pending continuation is canceled, manually choose `resume`; durable metadata is preserved. Metadata publication still requests the existing Pages build explicitly. Translation success is not required for original metadata publication.
 
-All six platforms' translator defaults and scheduled/manual fallback models are **`gpt-5.6-luna`**. Set repository secret **`OPENAI_API_KEY`** in Settings → Secrets and variables → Actions. Recognized GPT models use OpenAI credentials; a DeepSeek key is never substituted. A configured `TRANSLATION_API_KEY` or explicit provider/model/base-URL override retains its existing precedence. Luna uses Chat Completions with `reasoning_effort=none` and `max_completion_tokens`, omitting sampling temperature. Missing credentials produce a provider-specific error. Existing valid English remains active while its original is unchanged; this change does not bulk retranslate historical English.
+All seven platforms' translator defaults and scheduled/manual fallback models are **`gpt-5.6-luna`**. Set repository secret **`OPENAI_API_KEY`** in Settings → Secrets and variables → Actions. Recognized GPT models use OpenAI credentials; a DeepSeek key is never substituted. A configured `TRANSLATION_API_KEY` or explicit provider/model/base-URL override retains its existing precedence. Luna uses Chat Completions with `reasoning_effort=none` and `max_completion_tokens`, omitting sampling temperature. Missing credentials produce a provider-specific error. Existing valid English remains active while its original is unchanged; this change does not bulk retranslate historical English.
 
 Translation output defaults to **16,384 tokens per request** across all platforms, including Naver, Joara and Munpia. Every Translate workflow exposes `output_token_limit` under **Run workflow**. For automatic runs, set the Actions repository variable `TRANSLATION_OUTPUT_TOKEN_LIMIT`; manual input takes precedence, and clearing it uses that variable (or 16,384 if unset). Use a positive integer supported by the selected provider/model. Local translation accepts the same environment variable or `--output-token-limit`, with the CLI option taking precedence. With the default compression factor of 2.0, the input chunk target is 8,192 tokens; complete rows remain unsplit.
 
@@ -224,8 +226,23 @@ Coverage messages distinguish ranking-only initialization, active catalog collec
 
 Each source was capped at ten requests, one page per tier and two details. All samples passed extraction, mocked translation, merging, gzip packaging and manifest validation; each produced 139 validated artifacts including 128 synopsis shards. Staging evidence is in ignored `.cache/metadata-fixes-validation/validation.json`. Hashes confirmed all 879 production catalog/corpus/state files unchanged. Separate bounded public-asset/category probes established the Joara evidence above.
 
-Offline regression tests cover discovery-before-details, continuous worker refilling, bounded checkpoint frequency, resume across ranking refreshes, failed-board/history preservation, no-progress stopping, duplicate/stale dispatch, Luna credential/payload routing, and Joara reset/short/duplicate responses. Intercepted browser fixtures cover all six sources, failed chunks, switching during loading, native ranks, persistent description suppression, late-response cancellation and card/image node identity. No full backfill, account login, paid translation, production workflow dispatch or publication was performed.
+Offline regression tests cover discovery-before-details, continuous worker refilling, bounded checkpoint frequency, resume across ranking refreshes, failed-board/history preservation, no-progress stopping, duplicate/stale dispatch, Luna credential/payload routing, and Joara reset/short/duplicate responses. Intercepted browser fixtures cover all seven sources, failed chunks, switching during loading, native ranks, persistent description suppression, late-response cancellation and card/image node identity. No full backfill, account login, paid translation, production workflow dispatch or publication was performed.
 
 The first September 14 update added `queue: max` and suppressed its local validation error. Removing that setting did **not** resolve the instant failures: Joara runs 34820049974 and 34820029571 used the corrected commit `867af0f` and still failed with zero jobs. GitHub returned no error annotation, so the earlier attribution to concurrency was not confirmed.
 
 The new manual `workers` input also crossed the reusable-workflow boundary without conversion. Dispatch numeric inputs can arrive as strings, while `workflow_call` requires a number ([reported Actions issue](https://github.com/actions/runner/issues/2848)). All three callers now use `fromJSON(format('{0}', inputs.workers || 4))` to handle manual/API strings, numeric values, and missing scheduled inputs. Offline tests using GitHub's `@actions/expressions` engine reproduce the old string result and check the actual caller expressions against the reusable workflow's declared types, including operation, continuation flags and checkpoints. Run `npm ci --prefix tests/workflows` then `npm test --prefix tests/workflows`. Syntax checks also run with `actionlint` without ignored diagnostics. This fixes a reproduced input-type defect; confirmation that it resolves these particular GitHub runs requires a new run after pushing the patch. No workflow was dispatched or published during validation.
+
+
+## Ridibooks integration (September 14)
+
+`scrape_ridi.py` uses the public website's `/v2/category/books` and `/v2/category/books/total-count` API routes. Four webnovel categories are included: Romance (1650), Romance Fantasy (6050), Fantasy (1750), and BL (4150). Ebooks, comics and episode content are outside this collector's scope. Catalog discovery uses the All tab, `order_by=recent`, and 60-row offsets; totals and row counts must agree. Weekly/monthly bestseller boards are separate native top-100 lists per genre.
+
+The mapping follows the official frontend's serial renderer: canonical `bookId`, whole-work `serial.title`, cover and episode total, contributor roles, categories, public introduction, explicit completion/age values, and weighted native rating/count. Missing views, likes, dates and synopses remain unknown. Listing introductions come from the API's description field rather than the page's truncated preview. No account session or age-verification bypass is used.
+
+The source key is `ridi`, including in `metadata_site.bat` and `metadata_pipeline.py`. `Update Ridibooks Metadata` schedules weekly catalogs on Thursday at 08:00 UTC and daily rankings at 19:00 UTC. It uses the common resume, continuation, translation, validation and packaging stages; translation inherits the configurable 16,384-token default. The site enables Ridibooks only after a validated manifest is published.
+
+**Live access remains blocked on this development host:** anonymous HTTP requests to the website and public API returned Cloudflare HTTP 403. The browser can display the public catalog, but that does not establish unattended scraper access. The adapter reports failed partitions and preserves checkpoints instead of publishing an empty successful catalog. Its API mapping is verified against the official frontend definitions and offline schema fixtures; a successful live API collection and full backfill are still unverified. No Ridibooks production data was fabricated or published.
+
+```powershell
+python scripts/metadata_pipeline.py run --source ridi --mode sample --output-dir .cache/ridi-sample --state-dir .cache/ridi-state
+```

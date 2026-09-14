@@ -27,7 +27,7 @@ import requests
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_LABELS = {"naver": "Naver Web Novel", "munpia": "Munpia", "joara": "Joara"}
+SOURCE_LABELS = {"naver": "Naver Web Novel", "munpia": "Munpia", "joara": "Joara", "ridi": "Ridibooks"}
 FORMAT = "metadata-v1"
 FIELDS = ("id", "title", "author", "cover", "tags", "views", "likes", "episodes",
           "complete", "updated", "age", "canonical_url", "tier", "purchase_url",
@@ -71,6 +71,7 @@ class CatalogPage:
     error: str | None = None
     observed_total: int | None = None
     skipped_rows: list = field(default_factory=list)
+    next_cursor: str | None = None
 
 
 def catalog_coverage(cursors):
@@ -562,16 +563,25 @@ def run_source(adapter, args, *, client=None):
             for partition in partitions:
                 key, tier = partition["key"], partition["tier"]
                 cursor = cursors.setdefault(key, {"next_page": partition["start_page"], "complete": False})
+                cursor_mode = partition.get("pagination")
+                if cursor_mode and cursor.get("pagination") != cursor_mode:
+                    # Numbered-page checkpoints cannot identify an opaque API cursor.
+                    # Restart only this partition, retaining known novels/translations.
+                    cursor.clear()
+                    cursor.update(next_page=partition["start_page"], complete=False,
+                                  pagination=cursor_mode, cursor_point="")
                 if cursor.get("complete"):
                     continue
                 # Revisit one page once per cursor. Persisting that overlap prevents
                 # a one-page/request-bounded resume from getting stuck forever.
                 overlap_for = cursor["next_page"]
-                overlap = args.resume and cursor.get("overlap_checked_for") != overlap_for
+                overlap = not cursor_mode and args.resume and cursor.get("overlap_checked_for") != overlap_for
                 page = max(partition["start_page"], overlap_for - (1 if overlap else 0))
                 page_signatures = set()
                 while args.max_pages is None or tier_pages.get(tier, 0) < args.max_pages:
                     try:
+                        if cursor_mode:
+                            partition["cursor_point"] = cursor.get("cursor_point", "")
                         result = adapter.fetch_page(client, partition, page)
                     except BudgetExceeded:
                         raise
@@ -581,6 +591,15 @@ def run_source(adapter, args, *, client=None):
                     tier_pages[tier] = tier_pages.get(tier, 0) + 1
                     if not result.complete or result.error:
                         cursor["error"] = result.error or "Incomplete catalog response"
+                        cursor["error_page"] = page
+                        coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
+                        log(f"Catalog {key} page {page}: {cursor['error']}")
+                        checkpoint()
+                        break
+                    if cursor_mode and result.next_page is not None and (
+                            not isinstance(result.next_cursor, str) or not result.next_cursor
+                            or result.next_cursor == cursor.get("cursor_point")):
+                        cursor["error"] = "Missing or non-advancing catalog cursor"
                         cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
@@ -646,6 +665,8 @@ def run_source(adapter, args, *, client=None):
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                     else:
                         cursor["next_page"] = result.next_page
+                        if cursor_mode:
+                            cursor["cursor_point"] = result.next_cursor
                     cursor["last_page"] = page
                     cursor["last_page_signature"] = signature
                     advanced(len(ids))
@@ -698,6 +719,11 @@ def run_source(adapter, args, *, client=None):
                     for item in result.records:
                         ident = valid_id(item.get("id"))
                         if ident and ident not in state["records"]:
+                            if item.get("_detail_complete"):
+                                # Some boards include full catalog metadata, explicitly
+                                # marked by the adapter. Persist it before a budget stop.
+                                merge_record(state, {k: v for k, v in item.items() if k != "rank"}, detail=True)
+                                continue
                             # Windowed ranking counts never become lifetime catalog metrics.
                             seed = {k: v for k, v in item.items() if k in ("id", "title", "author", "cover", "canonical_url", "tier")}
                             merge_record(state, seed)

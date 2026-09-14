@@ -41,6 +41,45 @@ class Client:
     log = []
 
 
+def test_cursor_resume_migrates_numbered_checkpoint_and_preserves_records(tmp_path):
+    state = m.empty_state("naver")
+    state["records"]["99"] = {"id": "99", "title": "Saved", "translations": {"title": {"english": "Saved translation"}}}
+    state["progress"]["partitions"] = {"best": {"next_page": 101, "complete": False, "error": "old page limit"}}
+    m.save_state(state, tmp_path / "state")
+    seen = []
+    class CursorAdapter(Adapter):
+        def partitions(self, client):
+            return [{"key": "best", "tier": "best", "start_page": 1, "pagination": "cursor-v1"}]
+        def fetch_page(self, client, partition, page):
+            seen.append((page, partition["cursor_point"]))
+            return m.CatalogPage([{"id": str(page), "title": "Title", "_detail_complete": True}],
+                                 page + 1 if page < 3 else None, next_cursor=f"cursor-{page}")
+    adapter = CursorAdapter()
+    for _ in range(3):
+        m.run_source(adapter, args(tmp_path, "--mode", "catalog", "--resume", "--max-pages", "1"), client=Client())
+    assert seen == [(1, ""), (2, "cursor-1"), (3, "cursor-2")]
+    saved = m.load_state("naver", tmp_path / "state")
+    assert saved["records"]["99"]["translations"]["title"]["english"] == "Saved translation"
+    assert saved["progress"]["partitions"]["best"]["complete"]
+
+
+@pytest.mark.parametrize("next_cursor", [None, "", "existing"])
+def test_bad_cursor_does_not_advance_checkpoint(tmp_path, next_cursor):
+    state = m.empty_state("naver")
+    state["progress"]["partitions"] = {"best": {"next_page": 101, "complete": False,
+        "pagination": "cursor-v1", "cursor_point": "existing"}}
+    m.save_state(state, tmp_path / "state")
+    class BadCursor(Adapter):
+        def partitions(self, client):
+            return [{"key": "best", "tier": "best", "start_page": 1, "pagination": "cursor-v1"}]
+        def fetch_page(self, client, partition, page):
+            return m.CatalogPage([{"id": "1", "title": "Title"}], 102, next_cursor=next_cursor)
+    report = m.run_source(BadCursor(), args(tmp_path, "--mode", "catalog", "--resume"), client=Client())
+    cursor = m.load_state("naver", tmp_path / "state")["progress"]["partitions"]["best"]
+    assert cursor["next_page"] == 101 and cursor["cursor_point"] == "existing"
+    assert report["coverage"]["catalog"]["errors"][0]["page"] == 101
+
+
 def test_skipped_catalog_rows_preserve_later_pages_and_partial_coverage(tmp_path):
     seen = []
     class MissingTitle(Adapter):
@@ -79,6 +118,20 @@ def test_catalog_failure_reports_actual_overlap_page(tmp_path):
         {"partition": "best", "page": 2, "error": "Malformed payload"}]
 
 
+def test_full_catalog_metadata_on_rankings_is_persisted_without_detail_request(tmp_path):
+    class RichRanking(Adapter):
+        def rankings(self, client, *, skip_keys=()):
+            yield m.RankingResult("best", "Native Best", [{"id": "10", "title": "Novel", "rank": 1,
+                "synopsis": "Full public synopsis", "episodes": 75, "_detail_complete": True}])
+        def detail(self, client, record):
+            pytest.fail("Already complete metadata should not be fetched again")
+    m.run_source(RichRanking(), args(tmp_path, "--mode", "rankings"), client=Client())
+    state = m.load_state("naver", tmp_path / "state")
+    assert state["records"]["10"]["synopsis"] == "Full public synopsis"
+    assert state["records"]["10"]["episodes"] == 75
+    assert not state["progress"]["pending_details"]
+
+
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch, tmp_path):
     def unexpected(*args, **kwargs):
@@ -92,7 +145,7 @@ def args(tmp_path, *extra):
 
 
 def test_imports_and_dry_run_do_not_write_or_connect(tmp_path, monkeypatch):
-    for name in ("scripts.metadata_common", "scripts.scrape_naver", "scripts.scrape_munpia", "scripts.scrape_joara"):
+    for name in ("scripts.metadata_common", "scripts.scrape_naver", "scripts.scrape_munpia", "scripts.scrape_joara", "scripts.scrape_ridi"):
         importlib.import_module(name)
     def unexpected(*args, **kwargs):
         raise AssertionError("Dry run constructed a network client")
@@ -104,7 +157,7 @@ def test_imports_and_dry_run_do_not_write_or_connect(tmp_path, monkeypatch):
 
 def test_all_entrypoints_dry_run_and_import_safety(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    code = "import requests,pathlib; requests.Session.request=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network')); import scripts.scrape_naver,scripts.scrape_munpia,scripts.scrape_joara"
+    code = "import requests,pathlib; requests.Session.request=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network')); import scripts.scrape_naver,scripts.scrape_munpia,scripts.scrape_joara,scripts.scrape_ridi"
     subprocess.run([sys.executable, "-B", "-c", code], cwd=root, check=True, capture_output=True)
     for source in m.SOURCE_LABELS:
         result = subprocess.run([sys.executable, "-B", str(root / "scripts" / ("scrape_" + source + ".py")),

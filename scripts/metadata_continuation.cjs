@@ -1,6 +1,6 @@
 // Dispatch only a progressing catalog checkpoint after the translation attempt.
 function validDecision(decision, source) {
-    return ['naver', 'munpia', 'joara'].includes(source)
+    return ['naver', 'munpia', 'joara', 'ridi'].includes(source)
         && decision?.source === source && decision.eligible === true
         && /^[a-f0-9]{32}$/.test(decision.scan_id || '')
         && /^\d+$/.test(String(decision.revision))

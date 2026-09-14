@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright
 
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
-SOURCES = ("novelpia", "kakao", "sfacg", "naver", "joara", "munpia")
+SOURCES = ("novelpia", "kakao", "sfacg", "naver", "joara", "munpia", "ridi")
 
 
 def row(source, ident=7, known=False, completed=False):
@@ -21,7 +21,7 @@ def row(source, ident=7, known=False, completed=False):
         return [ident, "SFACG original", "Author", "", [], 100, 7, 9000, 0, "2026-01-01", 19, 1, 0, 0, 0, 0, 0, "", "Chapter", 9, "2026-01-01"]
     url = {"naver": f"https://novel.naver.com/best/list?novelId={ident}",
            "joara": f"https://www.joara.com/book/{ident}",
-           "munpia": f"https://www.munpia.com/novel/detail/{ident}"}[source]
+           "munpia": f"https://www.munpia.com/novel/detail/{ident}", "ridi": f"https://ridibooks.com/books/{ident}"}[source]
     return [str(ident), f"{source} original {ident}", "작가", "", ["판타지"],
             100 if known else None, None, 5 if known else None,
             int(completed) if known else None, "2026-09-13" if known else None,
@@ -87,7 +87,7 @@ class FixtureSite:
                 return
             if self.delay_naver and source == "naver":
                 await asyncio.sleep(0.4)
-            if source in ("naver", "joara", "munpia"):
+            if source in ("naver", "joara", "munpia", "ridi"):
                 novels = [row(source), row(source, 8, True, True), row(source, 9, True, False)]
             else:
                 novels = [row(source)] if name.endswith("_0.json.gz") else []
@@ -118,9 +118,9 @@ def test_metadata_frontend_browser_all_sources_filters_links_and_hash():
             await page.route("**/*", site.route)
             await page.goto("http://metadata.test/")
             await wait_loaded(page)
-            assert await page.locator(".novel-card").count() == 12
+            assert await page.locator(".novel-card").count() == 15
             identities = await page.locator(".novel-card").evaluate_all("cards => cards.map(c => c.dataset.source + ':' + c.dataset.novelId)")
-            assert len(set(identities)) == 12
+            assert len(set(identities)) == 15
             assert all(f"{source}:7" in identities for source in SOURCES)
             assert await page.locator('#sourceSelect option[value="naver"]').is_enabled()
             await page.select_option("#sourceSelect", "naver")
@@ -190,7 +190,7 @@ def test_metadata_frontend_browser_missing_manifest_failure_and_cancellation():
             assert await page.locator(".novel-card").get_attribute("data-source") == "kakao"
             await page.select_option("#sourceSelect", "all")
             await wait_loaded(page)
-            assert await page.locator(".novel-card").count() == 6
+            assert await page.locator(".novel-card").count() == 9
             assert await page.locator('#sourceSelect option[value="joara"]').is_disabled()
             assert "Partial results" in await page.locator("#resultCount").inner_text()
             assert "Munpia unavailable" in await page.locator("#resultCount").inner_text()
@@ -325,7 +325,7 @@ def test_joara_catalog_diagnostics_explain_legacy_pages_and_clear_on_source_chan
             assert await details.evaluate("el => el.open")
             items = await details.locator('li').all_inner_texts()
             assert len(items) == 7
-            assert sum("first 100 pages" in item for item in items) == 5
+            assert sum("requires cursor pagination" in item for item in items) == 5
             assert "Free publication · Latest · Romance fantasy (category 22)" in items[1]
             assert "Free publication · Latest · Parody (category 9)" in items[2]
             assert "Free publication · Completed — page 621" in items[3]
@@ -446,7 +446,7 @@ def test_clicked_card_tags_keep_source_order_across_all_platforms(monkeypatch):
                 await clicked.click()
                 await page.wait_for_function('''source => document.querySelector(`.novel-card[data-source="${source}"][data-novel-id="7"] .card-tag[data-tag="Harem"]`)?.classList.contains('active')''', arg=source)
                 assert await tags.all_text_contents() == before, source
-                assert await page.locator('.novel-card').count() == 12
+                assert await page.locator('.novel-card').count() == 15
                 # Other cards sharing the selected tag must retain their order too.
                 orders = await page.locator('.card-tags').evaluate_all('elements => elements.map(el => [...el.children].map(tag => tag.textContent))')
                 assert all(order == before for order in orders)

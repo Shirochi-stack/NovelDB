@@ -15,6 +15,28 @@ FIXTURES = Path(__file__).parent / "fixtures" / "metadata" / "joara"
 PARTITION = {"tier": "series", "store": "series", "catalog": "latest", "page_size": 2}
 
 
+def test_latest_cursor_response_has_no_page_field_and_keeps_api_page_one():
+    payload = fixture("catalog.json")
+    payload.pop("page", None)
+    payload.update(total_cnt=10000, cursor_point="next-opaque-cursor")
+    client = FakeClient(payload)
+    partition = {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "previous-cursor"}
+    result = JoaraAdapter().fetch_page(client, partition, 101)
+    assert result.complete and result.next_page == 102
+    assert result.next_cursor == "next-opaque-cursor"
+    params = client.calls[-1][1]
+    assert params["page"] == 1 and params["use_cursor_pagination"] == "y"
+    assert params["cursor_point"] == "previous-cursor"
+
+
+def test_cursor_rejects_a_truncated_batch_before_its_reported_end():
+    payload = fixture("catalog.json")
+    payload.update(total_cnt=10000, cursor_point="next")
+    payload["data"]["list"] = payload["data"]["list"][:1]
+    result = JoaraAdapter().fetch_page(FakeClient(payload), {**PARTITION, "pagination": "joara-cursor-v1"}, 101)
+    assert not result.complete and "row count" in result.error
+
+
 def fixture(name):
     content = (FIXTURES / name).read_text(encoding="utf-8")
     return json.loads(content) if name.endswith(".json") else content

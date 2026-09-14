@@ -19,7 +19,7 @@ import tempfile
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ("naver", "joara", "munpia")
+SOURCES = ("naver", "joara", "munpia", "ridi")
 SHARDS = 128
 FIELDS = {
     "title": ("titles_en.txt", "titles_untranslated.txt"),
@@ -425,7 +425,7 @@ def validate_artifacts(source, output_dir):
     if len(set(ids)) != len(ids) or any(not nid for nid in ids):
         raise ValueError("Catalog IDs must be unique and nonempty")
     hosts = {"naver": {"novel.naver.com"}, "joara": {"www.joara.com", "joara.com"},
-             "munpia": {"www.munpia.com", "munpia.com"}}
+             "munpia": {"www.munpia.com", "munpia.com"}, "ridi": {"ridibooks.com"}}
     for row in rows:
         link = urlsplit(str(row[11] or ""))
         if not row[1] or link.scheme != "https" or link.hostname not in hosts[source]:

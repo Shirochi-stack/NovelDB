@@ -6210,7 +6210,7 @@
                 const value = `${fmt(metric.value)}${metric.scale ? `/${metric.scale}` : ""}`;
                 return `<span class="stat" title="${escHtml(metric.label)}" aria-label="${escHtml(metric.label)}: ${escHtml(value)}"><span aria-hidden="true">${icon}</span> ${value}</span>`;
             }).join("")
-            : `<span class="stat">👁 ${fmt(n.views)}</span><span class="stat">❤ ${fmt(n.likes)}</span><span class="stat">📄 ${fmt(n.chapters)}</span>`;
+            : `<span class="stat" title="Views" aria-label="Views: ${fmt(n.views)}"><span aria-hidden="true">👁</span> ${fmt(n.views)}</span><span class="stat" title="Likes" aria-label="Likes: ${fmt(n.likes)}"><span aria-hidden="true">❤</span> ${fmt(n.likes)}</span><span class="stat" title="Episodes" aria-label="Episodes: ${fmt(n.chapters)}"><span aria-hidden="true">📄</span> ${fmt(n.chapters)}</span>`;
 
         card.innerHTML = `
             <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
@@ -6722,6 +6722,10 @@
             label: "Munpia", format: "metadata-v1", manifestUrl: "data/munpia_chunk_manifest.json",
             linkHosts: ["www.munpia.com"],
         },
+        ridi: {
+            label: "Ridibooks", format: "metadata-v1", manifestUrl: "data/ridi_chunk_manifest.json",
+            linkHosts: ["ridibooks.com"],
+        },
     };
 
     let currentSource = "novelpia";
@@ -6762,7 +6766,7 @@
                     const explanation = skipped
                         ? "This invalid row was omitted; the other rows were collected and the scan continued. Omitted listings are checked again on a fresh catalog scan."
                         : latestLimit
-                            ? "Joara's public latest catalog exposes the first 100 pages. Page 101 resets to an empty page 1, so this scan cannot continue beyond page 100."
+                            ? "This older scan used numbered pages. Joara requires cursor pagination beyond this point. Resume with the updated scraper to rebuild the latest-list cursor and collect the missing pages."
                             : `This catalog scan stopped${page != null ? ` at page ${page}` : ""}; the failed page and later pages were not collected in this scan.`;
                     const item = document.createElement("li");
                     const detail = document.createElement("p");

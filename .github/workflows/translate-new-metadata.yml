@@ -2,14 +2,14 @@ name: Translate New Metadata Sources
 run-name: Translate ${{ inputs.source || github.event.workflow_run.name }} — ${{ inputs.model || 'gpt-5.6-luna' }}
 on:
   workflow_run:
-    workflows: [Update Naver Metadata, Update Joara Metadata, Update Munpia Metadata]
+    workflows: [Update Naver Metadata, Update Joara Metadata, Update Munpia Metadata, Update Ridibooks Metadata]
     types: [completed]
   workflow_dispatch:
     inputs:
       source:
         required: true
         type: choice
-        options: [naver, joara, munpia]
+        options: [naver, joara, munpia, ridi]
       model:
         description: Translation model (OPENAI_API_KEY for Luna)
         type: string
@@ -34,7 +34,7 @@ jobs:
       source: ${{ steps.decision.outputs.source }}
       decision: ${{ steps.decision.outputs.decision }}
     env:
-      METADATA_SOURCE: ${{ inputs.source || (github.event.workflow_run.name == 'Update Naver Metadata' && 'naver') || (github.event.workflow_run.name == 'Update Joara Metadata' && 'joara') || 'munpia' }}
+      METADATA_SOURCE: ${{ inputs.source || (github.event.workflow_run.name == 'Update Naver Metadata' && 'naver') || (github.event.workflow_run.name == 'Update Joara Metadata' && 'joara') || (github.event.workflow_run.name == 'Update Ridibooks Metadata' && 'ridi') || 'munpia' }}
     steps:
       - uses: actions/checkout@v4
         with:

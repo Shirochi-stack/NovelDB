@@ -23,7 +23,7 @@ test('reproduces the original string-valued worker input failure before conversi
 });
 
 const callee = workflow('metadata-source-job').on.workflow_call.inputs;
-for (const source of ['naver', 'munpia', 'joara']) {
+for (const source of ['naver', 'munpia', 'joara', 'ridi']) {
     const caller = workflow(`update-${source}-metadata`);
     const bindings = caller.jobs.update.with;
     for (const operation of ['catalog', 'rankings', 'build', 'resume']) {
