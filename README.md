@@ -35,7 +35,7 @@ A fork of that enhances the user experience and output quality. This version add
 
 This repository also contains **NovelDB**, a static search website in `docs/`. Its metadata pipeline supports Novelpia, Kakao Page, SFACG, Naver Web Novel, Munpia, Joara, and Ridibooks. Users search and filter listings, read synopses, and follow links to the original platforms. New sources become selectable when their validated catalogs are published.
 
-Ridibooks is integrated for four webnovel genres, but live automated access returned HTTP 403 on the development host; collection remains unverified until the public API is reachable. Joara latest-list scans now use persistent continuation cursors, verified past the old page-101 failure. Resume migrates old checkpoints while preserving saved novels and translations.
+Ridibooks uses a fresh browser-compatible HTTP session for its public API. Live checks collected 480 novels with synopses and verified all four webnovel genres. Its category API limits offsets to below 6,000, so larger catalogs remain explicitly partial. Joara latest-list scans now use persistent continuation cursors, verified past the old page-101 failure. Resume migrates old checkpoints while preserving saved novels and translations.
 
 - [Metadata pipeline and script reference](docs/metadata-pipeline.md): discovery, field schemas, historical records, translations, website loading, batch entry points, and scheduled workflows.
 - [Naver Web Novel, Munpia, Joara, and Ridibooks integration](docs/metadata-source-expansion.md): implemented anonymous collectors, commands, durable history, translation/build stages, workflows, tests, and full-crawl limitations.

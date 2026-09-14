@@ -256,6 +256,7 @@ class AnonymousClient:
     def __init__(self, adapter, *, max_requests=None, max_runtime=18000, delay=0.5, retries=4,
                  clock=time.monotonic, sleep=time.sleep):
         self.adapter = adapter
+        self.request_errors = (requests.RequestException,) + getattr(adapter, "request_errors", ())
         self.max_requests = max_requests
         self.clock, self.sleep = clock, sleep
         self.started = clock()
@@ -286,10 +287,12 @@ class AnonymousClient:
 
     def _session(self):
         if not hasattr(self._local, "session"):
-            session = requests.Session()
+            factory = getattr(self.adapter, "create_session", None)
+            session = factory() if factory else requests.Session()
             session.trust_env = False  # Prevent .netrc credentials or ambient proxy authentication.
-            session.headers.update({"User-Agent": "NovelMetadataIndex/1.0 (public catalog and metadata only)",
-                                    "Accept": "application/json,text/html;q=0.9,*/*;q=0.1"})
+            if not factory:
+                session.headers.update({"User-Agent": "NovelMetadataIndex/1.0 (public catalog and metadata only)"})
+            session.headers.update({"Accept": "application/json,text/html;q=0.9,*/*;q=0.1"})
             self._local.session = session
             with self._lock:
                 self._sessions.append(session)
@@ -336,7 +339,7 @@ class AnonymousClient:
                 remaining = max(0.1, min(30, self.deadline - self.clock()))
                 try:
                     response = self._session().get(url, params=params, timeout=remaining, allow_redirects=False)
-                except requests.RequestException:
+                except self.request_errors:
                     entry["status"] = "network_error"
                     if attempt + 1 >= self.retries:
                         raise FetchError("Metadata request failed after bounded attempts") from None

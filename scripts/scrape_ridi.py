@@ -5,9 +5,11 @@ account cookies, or challenge bypasses. HTTP restrictions remain resumable error
 """
 import math
 import re
+from html import unescape
 from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup
+from curl_cffi import requests as browser_requests
 
 try:
     from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult, run_cli
@@ -47,7 +49,10 @@ def normalize(item, tier):
         rating_count = sum(r["count"] for r in ratings)
         rating = sum(r["count"] * r["rating"] for r in ratings) / rating_count if rating_count else None
     intro = obj(book.get("introduction")).get("description")
-    synopsis = BeautifulSoup(intro, "html.parser").get_text("\n", strip=True) if isinstance(intro, str) else ""
+    synopsis = ""
+    if isinstance(intro, str):
+        synopsis = BeautifulSoup(intro, "html.parser").get_text("\n", strip=True) if re.search(r"</?[A-Za-z][^>]*>", intro) else unescape(intro).strip()
+        synopsis = synopsis.replace("\r\n", "\n").replace("\r", "\n")
     cover = obj(serial.get("cover")) or obj(book.get("cover"))
     url = "https://ridibooks.com/books/" + ident
     return {"id": ident, "title": title.strip(),
@@ -64,7 +69,7 @@ def normalize(item, tier):
 
 
 def data(payload):
-    if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+    if not isinstance(payload, dict) or payload.get("success") is False or not isinstance(payload.get("data"), dict):
         raise ValueError("Malformed Ridibooks category response")
     return payload["data"]
 
@@ -72,6 +77,13 @@ def data(payload):
 class RidiAdapter:
     source = "ridi"
     label = "Ridibooks"
+    request_errors = (browser_requests.exceptions.RequestException,)
+
+    @staticmethod
+    def create_session():
+        # The public API rejects standard requests' TLS/HTTP fingerprint.
+        # Start a fresh anonymous browser-compatible session; no saved cookies.
+        return browser_requests.Session(impersonate="chrome", trust_env=False)
 
     def __init__(self):
         self._totals = {}
@@ -92,6 +104,8 @@ class RidiAdapter:
         return [{"key": category, "tier": "webnovel", "category": category, "start_page": 1} for category in CATEGORIES]
 
     def _page(self, client, category, page, period=None):
+        if (page - 1) * PAGE_SIZE >= 6000:
+            raise ValueError("Ridibooks public category API requires offset below 6000; later catalog records remain uncollected")
         params = {"category_id": category, "tab": "bestsellers" if period else "books", "platform": "web"}
         if period:
             params["period"] = period

@@ -65,7 +65,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install metadata dependencies
-        run: python -m pip install requests beautifulsoup4 tiktoken
+        run: python -m pip install requests beautifulsoup4 tiktoken "curl_cffi>=0.14.0,<0.15"
       - name: Check continuation checkpoint
         id: guard
         run: python scripts/metadata_workflow.py guard --source "$METADATA_SOURCE" --output-dir ".cache/metadata-build/$METADATA_SOURCE"

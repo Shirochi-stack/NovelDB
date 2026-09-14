@@ -10,7 +10,7 @@ Collectors retrieve public titles, authors, synopses, cover URLs, genres/tags, c
 
 Naver covers Challenge, Best and Series Edition on `novel.naver.com`. Series storefront links can be outbound purchase destinations, but that separate storefront is not crawled.
 
-Install `requests` and `beautifulsoup4`, or the existing project requirements. All four entrypoints use the same CLI:
+Install the project requirements (`requests`, `beautifulsoup4`, and `curl_cffi` for Ridibooks). All four entrypoints use the same CLI:
 
 ```powershell
 python scripts/scrape_naver.py --mode sample --output-dir .cache/naver-sample --state-dir .cache/naver-state
@@ -241,7 +241,9 @@ The mapping follows the official frontend's serial renderer: canonical `bookId`,
 
 The source key is `ridi`, including in `metadata_site.bat` and `metadata_pipeline.py`. `Update Ridibooks Metadata` schedules weekly catalogs on Thursday at 08:00 UTC and daily rankings at 19:00 UTC. It uses the common resume, continuation, translation, validation and packaging stages; translation inherits the configurable 16,384-token default. The site enables Ridibooks only after a validated manifest is published.
 
-**Live access remains blocked on this development host:** anonymous HTTP requests to the website and public API returned Cloudflare HTTP 403. The browser can display the public catalog, but that does not establish unattended scraper access. The adapter reports failed partitions and preserves checkpoints instead of publishing an empty successful catalog. Its API mapping is verified against the official frontend definitions and offline schema fixtures; a successful live API collection and full backfill are still unverified. No Ridibooks production data was fabricated or published.
+**Live access verified with the browser-compatible transport:** standard Python Requests received Cloudflare HTTP 403, whereas a fresh anonymous `curl_cffi` Chrome-compatible connection returned JSON successfully. Ridibooks now supplies this session through the common HTTP client, preserving URL/redirect allowlists, request/runtime budgets, pacing, bounded retries, and sanitized logs. No browser profile, account login, or saved cookies are needed. The workflow installs the same transport dependency.
+
+A live staged run collected 480 unique novels and 480 synopses, then built the catalog and all 128 synopsis shards. Further probes checked the first two pages of all four genres and deep pages. **The API separately requires offsets below 6,000.** Fantasy reports 15,309 works, so this collector cannot claim a complete fantasy catalog from its main category: it records a coverage error at page 101 rather than treating the first 6,000 as the entire source. This is an explicit API validation response, independent of the resolved HTTP 403 issue. Staged validation does not publish data or run paid translation.
 
 ```powershell
 python scripts/metadata_pipeline.py run --source ridi --mode sample --output-dir .cache/ridi-sample --state-dir .cache/ridi-state

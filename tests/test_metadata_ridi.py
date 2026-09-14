@@ -6,6 +6,9 @@ import pytest
 
 from scripts.metadata_common import FetchError
 from scripts.scrape_ridi import API, CATEGORIES, RidiAdapter, normalize
+from scripts import metadata_common as common
+from scripts.scrape_ridi import browser_requests
+import requests
 
 
 def item(ident=123):
@@ -86,3 +89,69 @@ def test_restriction_and_malformed_pages_do_not_report_empty_success():
     API + "?token=secret", API + "?adults_only=1", "https://user@api.ridibooks.com/v2/category/books", API.replace("https:", "http:")])
 def test_allowlist_excludes_accounts_readers_and_unexpected_parameters(url):
     assert not RidiAdapter.is_allowed_url(url)
+
+
+def test_browser_transport_preserves_bounded_retries_and_pacing(monkeypatch):
+    now, starts, config = [0.0], [], {}
+    class Session:
+        headers = {}
+        trust_env = True
+        closed = False
+        def get(self, url, **kwargs):
+            assert not self.trust_env and kwargs["allow_redirects"] is False
+            starts.append(now[0])
+            if len(starts) == 1:
+                raise browser_requests.exceptions.RequestException("network failure")
+            response = requests.Response()
+            response.url = url
+            response.status_code = 429 if len(starts) == 2 else 200
+            response.headers["Retry-After"] = "3"
+            response._content = b'{"data":{"totalCount":0}}'
+            response._content_consumed = True
+            return response
+        def close(self):
+            self.closed = True
+    session = Session()
+    def factory(**kwargs):
+        config.update(kwargs)
+        return session
+    monkeypatch.setattr(browser_requests, "Session", factory)
+    client = common.AnonymousClient(RidiAdapter(), max_requests=3, clock=lambda: now[0],
+                                   sleep=lambda seconds: now.__setitem__(0, now[0] + seconds))
+    assert client.get_json(API)["data"]["totalCount"] == 0
+    assert config == {"impersonate": "chrome", "trust_env": False}
+    assert "User-Agent" not in session.headers  # Retain curl's matching browser header.
+    assert starts == [0, 1, 4] and client.requests == 3
+    with pytest.raises(common.BudgetExceeded):
+        client.get_json(API)
+    client.close()
+    assert session.closed
+
+
+def test_browser_transport_does_not_follow_account_redirect(monkeypatch):
+    class Session:
+        headers = {}
+        trust_env = False
+        def get(self, url, **kwargs):
+            response = requests.Response()
+            response.url = url
+            response.status_code = 302
+            response.headers["Location"] = "https://ridibooks.com/account/login"
+            response._content = b""
+            response._content_consumed = True
+            return response
+        def close(self):
+            pass
+    monkeypatch.setattr(browser_requests, "Session", lambda **kwargs: Session())
+    client = common.AnonymousClient(RidiAdapter(), max_requests=2)
+    with pytest.raises(FetchError, match="allowlist"):
+        client.get_json(API)
+    assert client.requests == 1
+    client.close()
+
+
+def test_deep_catalog_limit_stays_incomplete_without_retrying_invalid_offset():
+    adapter, client = RidiAdapter(), Client()
+    result = adapter.fetch_page(client, {"category": "1750"}, 101)
+    assert not result.complete and "offset below 6000" in result.error
+    assert not client.calls
