@@ -11,7 +11,6 @@ permissions:
 
 concurrency:
   group: data-write-lock
-  queue: max
   cancel-in-progress: false
 
 jobs:

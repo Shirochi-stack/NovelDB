@@ -33,7 +33,6 @@ permissions:
 # The caller must not claim the same lock while awaiting this reusable job.
 concurrency:
   group: data-write-lock
-  queue: max
   cancel-in-progress: false
 
 jobs:

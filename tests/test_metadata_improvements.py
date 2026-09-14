@@ -161,4 +161,11 @@ def test_all_translation_workflows_have_luna_and_openai_secret():
     for path in (root / ".github" / "workflows").glob("*.yml"):
         content = path.read_text(encoding="utf-8")
         if "group: data-write-lock" in content:
-            assert "queue: max" in content
+            assert "cancel-in-progress: false" in content
+            assert "queue:" not in content
+            # Reject unsupported concurrency keys rather than suppressing lint errors.
+            import re
+            block = re.search(r"(?m)^concurrency:\n((?:[ ]+[^\n]*\n)+)", content)
+            assert block, path.name
+            keys = {line.strip().split(":", 1)[0] for line in block[1].splitlines() if line.strip()}
+            assert keys <= {"group", "cancel-in-progress"}, (path.name, keys)
