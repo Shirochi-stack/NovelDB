@@ -149,7 +149,7 @@ def test_interrupted_detail_is_checkpointed_and_retried(tmp_path):
             raise m.BudgetExceeded("Request budget reached")
     report = m.run_source(Interrupted(), args(tmp_path), client=Client())
     assert "budget" in report["coverage"]["stop_reason"]
-    assert m.load_state("naver", tmp_path / "state")["progress"]["pending_details"] == ["1"]
+    assert m.load_state("naver", tmp_path / "state")["progress"]["pending_details"] == ["1", "2"]
     m.run_source(Adapter(), args(tmp_path, "--resume"), client=Client())
     assert m.load_state("naver", tmp_path / "state")["records"]["1"]["synopsis"]
 

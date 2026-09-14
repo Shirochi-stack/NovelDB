@@ -69,7 +69,8 @@ test('build trigger runs after successful pushes, including no-change reruns, ne
     assert.ok(commit >= 0 && trigger > commit && cleanup > trigger);
     const block = shared.slice(trigger, cleanup);
     assert.match(block, /uses: actions\/github-script@v7/);
-    assert.doesNotMatch(block, /if:|continue-on-error:|git diff/);
+    assert.match(block, /if: steps.guard.outputs.allowed/);
+    assert.doesNotMatch(block, /continue-on-error:|git diff/);
     assert.match(shared.slice(commit, trigger), /git push\s+fi/);
 });
 

@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=12">
+    <link rel="stylesheet" href="style.css?v=13">
 </head>
 
 <body>
@@ -44,7 +44,7 @@
                         <option value="munpia" disabled>Munpia</option>
                     </select>
                 </div>
-                <div class="control-group">
+                <div class="control-group sort-control">
                     <label>Sort by</label>
                     <select id="sortSelect">
                         <option value="daily">Daily Rank</option>
@@ -64,6 +64,15 @@
                         <option value="metric:downloads">Downloads</option>
                         <option value="updated">Last Updated</option>
                         <option value="title">Title</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Audience</label>
+                    <select id="audienceSelect">
+                        <option value="all">All</option>
+                        <option value="general">General</option>
+                        <option value="adult">Adult Only (19+)</option>
+                        <option value="r15">Teen Only (R15+)</option>
                     </select>
                 </div>
                 <div class="control-group">
@@ -90,16 +99,10 @@
                         <option value="complete">Complete</option>
                     </select>
                 </div>
-                <div class="control-group">
-                    <label>Audience</label>
-                    <select id="audienceSelect">
-                        <option value="all">All</option>
-                        <option value="general">General</option>
-                        <option value="adult">Adult Only (19+)</option>
-                        <option value="r15">Teen Only (R15+)</option>
-                    </select>
-                </div>
+
             </div>
+
+            <label class="description-toggle"><input type="checkbox" id="loadDescriptions" checked> Load descriptions</label>
 
             <!-- Tag Filters -->
             <div class="tag-section">
@@ -153,7 +156,7 @@
     </main>
 
     <script src="metadata-core.js?v=1"></script>
-    <script src="app.js?v=45"></script>
+    <script src="app.js?v=24"></script>
 </body>
 
 </html>

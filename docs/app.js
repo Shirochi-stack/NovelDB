@@ -5662,7 +5662,7 @@
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
     let BATCH = 30;
     let currentPage = 1;
-    let pendingImageTimers = [];
+    let pendingImageTimers = new Set();
     const BATCH_OPTIONS = new Set(["30", "60", "120", "250"]);
 
     // === DOM refs ===
@@ -6141,8 +6141,10 @@
 
     // === Render Cards ===
 
-    function renderCard(n) {
-        const card = document.createElement("div");
+    function renderCard(n, card = document.createElement("div")) {
+        const previousImage = card.querySelector("img.card-cover");
+        const savedSynopsis = n.synopsis || card._synopsis;
+        card._synopsis = savedSynopsis;
         card.className = "novel-card";
         const novelSource = n.source || currentSource;
         card.dataset.source = novelSource;
@@ -6197,9 +6199,10 @@
             : isR19 ? `<span class="badge-r19">19</span>`
             : "";
 
-        const synopsisHTML = n.synopsis ? `
-                <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(n.synopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</div>` : "";
-        if (!n.synopsis) card.dataset.needsSynopsis = "true";
+        const synopsisHTML = descriptionsEnabled && savedSynopsis ? `
+                <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</div>` : "";
+        if (!savedSynopsis) card.dataset.needsSynopsis = "true";
+        else delete card.dataset.needsSynopsis;
         const statsHTML = n.metadataV1
             ? metadata.metricEntries(n).map((metric) => `<span class="stat" title="${escHtml(metric.label)}">${escHtml(metric.label)}: ${fmt(metric.value)}${metric.scale ? `/${metric.scale}` : ""}</span>`).join("")
             : `<span class="stat">👁 ${fmt(n.views)}</span><span class="stat">❤ ${fmt(n.likes)}</span><span class="stat">📄 ${fmt(n.chapters)}</span>`;
@@ -6220,6 +6223,11 @@
                 </div>${n.updated ? `<div class="card-updated">⏳ Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML}
             </div>
         `;
+
+        const nextImage = card.querySelector("img.card-cover");
+        if (previousImage && nextImage && previousImage.dataset.src === nextImage.dataset.src) {
+            nextImage.replaceWith(previousImage);
+        }
 
         // Helper: filter, jump to card's page, scroll to it
         function filterAndFocusCard(novelId, novelSource) {
@@ -6370,12 +6378,6 @@
     if (document.fonts) document.fonts.ready.then(scheduleCardTitleFit);
 
     function render(fade = false) {
-        // Cancel pending staggered image loads from previous page
-        for (const id of pendingImageTimers) clearTimeout(id);
-        pendingImageTimers = [];
-        // Abort in-flight image downloads by clearing src
-        resultsEl.querySelectorAll("img.card-cover").forEach(img => { img.src = ""; });
-
         function doRender() {
             const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
             if (currentPage > totalPages) currentPage = totalPages;
@@ -6385,17 +6387,39 @@
 
             resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}${catalogStatusSuffix()}`;
 
-            resultsEl.innerHTML = "";
+            const existing = new Map(Array.from(resultsEl.querySelectorAll(".novel-card"),
+                card => [`${card.dataset.source}:${card.dataset.novelId}`, card]));
+            const context = JSON.stringify([sortSelect.value, [...andTags], [...orTags], focusedCard, descriptionsEnabled]);
+            const wanted = new Set();
             for (let i = start; i < end; i++) {
-                resultsEl.appendChild(renderCard(filtered[i]));
+                const novel = filtered[i];
+                const key = `${novel.source || currentSource}:${novel.id}`;
+                let card = existing.get(key);
+                const signature = JSON.stringify({ ...novel, synopsis: undefined }) + context;
+                if (!card || card._renderSignature !== signature) {
+                    card = renderCard(novel, card);
+                    card._renderSignature = signature;
+                } else if (descriptionsEnabled && novel.synopsis && novel.synopsis !== card._synopsis) {
+                    updateCardSynopsis(card, novel.synopsis);
+                }
+                wanted.add(card);
+                const position = resultsEl.children[i - start];
+                if (position !== card) resultsEl.insertBefore(card, position || null);
             }
+            for (const child of Array.from(resultsEl.children)) if (!wanted.has(child)) child.remove();
             observeMissingSynopses();
 
             // Stagger image loading: load one visible desktop row at a time.
-            const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]");
+            const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]:not([src])");
             imgs.forEach((img, idx) => {
-                const tid = setTimeout(() => { img.src = img.dataset.src; }, Math.floor(idx / 5) * 100);
-                pendingImageTimers.push(tid);
+                if (img.dataset.loadScheduled) return;
+                img.dataset.loadScheduled = "true";
+                const tid = setTimeout(() => {
+                    pendingImageTimers.delete(tid);
+                    delete img.dataset.loadScheduled;
+                    if (img.isConnected && !img.getAttribute("src")) img.src = img.dataset.src;
+                }, Math.floor(idx / 5) * 100);
+                pendingImageTimers.add(tid);
             });
 
             scheduleCardTitleFit();
@@ -6411,6 +6435,9 @@
                 if (pi) pi.max = totalPages;
 
                 const numsEl = bar.querySelector(".page-numbers");
+                const paginationSignature = JSON.stringify([currentPage, pages]);
+                if (numsEl.dataset.signature === paginationSignature) continue;
+                numsEl.dataset.signature = paginationSignature;
                 numsEl.innerHTML = "";
                 for (const p of pages) {
                     if (p === "...") {
@@ -6434,19 +6461,9 @@
                 }
             }
 
-            if (fade) {
-                // Fade back in after DOM rebuild
-                requestAnimationFrame(() => resultsEl.classList.remove("fading"));
-            }
         }
-
-        if (fade && resultsEl.children.length > 0) {
-            resultsEl.classList.add("fading");
-            // Wait for fade-out transition, then rebuild and fade in
-            setTimeout(doRender, 150);
-        } else {
-            doRender();
-        }
+        // Incremental updates preserve existing cards; no grid-wide fade or delayed rebuild.
+        doRender();
     }
 
     function buildPageRange(current, total) {
@@ -6736,8 +6753,15 @@
                 option.value = value;
                 sortSelect.appendChild(option);
             }
-            option.textContent = `${SOURCES[source].label}: ${board.label}${board.stale ? " (last known)" : ""}`;
-            option.title = board.observed_at || "";
+            const label = String(board.label || key)
+                .replace(/^Naver Best League\s*·\s*/i, "")
+                .replace(/^Joara\s*·\s*All stores and genres\s*·\s*/i, "")
+                .replace(/^Munpia\s*·?\s*/i, "")
+                .replace(/Modern Fantasy/g, "Modern Fant.")
+                .replace(/Weekly/g, "Wk").replace(/Daily/g, "Day")
+                .replace(/\s*·\s*/g, " / ");
+            option.textContent = `${source === "naver" ? "Naver" : SOURCES[source].label}: ${label}${board.stale ? " *" : ""}`;
+            option.title = `${board.label} — ${board.observed_at || "Unknown observation time"}${board.stale ? " (last known)" : ""}`;
         }
     }
 
@@ -6766,6 +6790,23 @@
         }
         return cfg.manifestPromise;
     }
+    const descriptionToggle = document.getElementById("loadDescriptions");
+    let descriptionsEnabled = true;
+    try { descriptionsEnabled = localStorage.getItem("noveldb.loadDescriptions") !== "false"; } catch (_) {}
+    descriptionToggle.checked = descriptionsEnabled;
+    document.body.classList.toggle("descriptions-disabled", !descriptionsEnabled);
+    let descriptionController = new AbortController();
+    descriptionToggle.addEventListener("change", () => {
+        descriptionsEnabled = descriptionToggle.checked;
+        try { localStorage.setItem("noveldb.loadDescriptions", String(descriptionsEnabled)); } catch (_) {}
+        document.body.classList.toggle("descriptions-disabled", !descriptionsEnabled);
+        descriptionController.abort();
+        descriptionController = new AbortController();
+        if (descriptionObserver) descriptionObserver.disconnect();
+        for (const entry of descriptionLoadQueue.splice(0)) entry.resolve({});
+        descriptionShardPromises.clear();
+        render();
+    });
     const descriptionShardCache = new Map();
     const descriptionShardPromises = new Map();
     const descriptionLoadQueue = [];
@@ -6845,7 +6886,8 @@
 
     function updateCardSynopsis(card, synopsis) {
         const body = card.querySelector(".card-body");
-        if (!body || !synopsis) return;
+        if (!descriptionsEnabled || !body || !synopsis) return;
+        card._synopsis = synopsis;
         const isMetadata = SOURCES[card.dataset.source]?.format === "metadata-v1";
         synopsis = normalizeSynopsis(synopsis, card.dataset.source);
         if (!synopsis) return;
@@ -6880,7 +6922,7 @@
     }
 
     function drainDescriptionLoadQueue() {
-        while (activeDescriptionLoads < DESCRIPTION_LOAD_CONCURRENCY && descriptionLoadQueue.length) {
+        while (descriptionsEnabled && activeDescriptionLoads < DESCRIPTION_LOAD_CONCURRENCY && descriptionLoadQueue.length) {
             const entry = descriptionLoadQueue.shift();
             activeDescriptionLoads++;
             Promise.resolve()
@@ -6902,6 +6944,8 @@
     }
 
     function loadDescriptionShard(sourceName, novelId) {
+        if (!descriptionsEnabled) return Promise.resolve({});
+        const signal = descriptionController.signal;
         const cfg = SOURCES[sourceName];
         if (!cfg || !cfg.descriptionShardCount || !cfg.descriptionShardPrefix) {
             return Promise.resolve({});
@@ -6916,27 +6960,29 @@
         if (descriptionShardPromises.has(key)) return descriptionShardPromises.get(key);
 
         const url = `${cfg.descriptionShardPrefix}${String(shard).padStart(3, "0")}.json.gz`;
-        const promise = scheduleDescriptionLoad(() => fetchGzChunkWithRetry(url))
+        const promise = scheduleDescriptionLoad(() => signal.aborted ? {} : fetchGzChunkWithRetry(url, 2, signal))
             .then((descriptions) => {
+                if (signal.aborted || !descriptionsEnabled) return {};
                 const safeDescriptions = descriptions && typeof descriptions === "object" ? descriptions : {};
                 cacheDescriptionShard(key, safeDescriptions);
                 return safeDescriptions;
             })
             .catch((err) => {
-                console.warn(`Failed to load synopsis shard ${url}:`, err);
+                if (err?.name !== "AbortError") console.warn(`Failed to load synopsis shard ${url}:`, err);
                 return {};
             })
-            .finally(() => descriptionShardPromises.delete(key));
+            .finally(() => { if (descriptionShardPromises.get(key) === promise) descriptionShardPromises.delete(key); });
         descriptionShardPromises.set(key, promise);
         return promise;
     }
 
     function requestCardSynopsis(card) {
-        if (!card.isConnected || card.dataset.needsSynopsis !== "true") return;
+        if (!descriptionsEnabled || !card.isConnected || card.dataset.needsSynopsis !== "true") return;
         const sourceName = card.dataset.source;
         const novelId = card.dataset.novelId;
+        const signal = descriptionController.signal;
         loadDescriptionShard(sourceName, novelId).then((descriptions) => {
-            if (!card.isConnected || card.dataset.source !== sourceName || card.dataset.novelId !== novelId) return;
+            if (!descriptionsEnabled || signal.aborted || !card.isConnected || card.dataset.source !== sourceName || card.dataset.novelId !== novelId) return;
             const synopsis = descriptions[String(novelId)];
             if (synopsis) updateCardSynopsis(card, synopsis);
         });
@@ -6954,6 +7000,7 @@
 
     function observeMissingSynopses() {
         if (descriptionObserver) descriptionObserver.disconnect();
+        if (!descriptionsEnabled) return;
         const cards = resultsEl.querySelectorAll('.novel-card[data-needs-synopsis="true"]');
         if (descriptionObserver) {
             cards.forEach((card) => descriptionObserver.observe(card));
@@ -7038,7 +7085,7 @@
                     for (const novel of novels) {
                         const id = String(novel.id);
                         if (translations[id]) novel.titleEn = translations[id];
-                        if (descriptions[id]) novel.synopsis = normalizeSynopsis(descriptions[id], sourceName);
+                        if (descriptionsEnabled && descriptions[id]) novel.synopsis = normalizeSynopsis(descriptions[id], sourceName);
                     }
                     results[index] = novels;
                     if (onChunkLoaded) onChunkLoaded(novels, loaded, chunkCount);
@@ -7084,8 +7131,7 @@
         sourceSelect.value = source;
         if (descriptionObserver) descriptionObserver.disconnect();
         for (const timer of pendingImageTimers) clearTimeout(timer);
-        pendingImageTimers = [];
-        resultsEl.querySelectorAll("img.card-cover").forEach((img) => { img.src = ""; });
+        pendingImageTimers.clear();
         allNovels = [];
         filtered = [];
         allTagGroups = [];
@@ -7106,7 +7152,6 @@
         catalogRequestedPage = keepState ? currentPage : null;
 
         const sourceRecords = new Map();
-        let rendered = false;
         function addRecords(name, incoming) {
             let records = sourceRecords.get(name);
             if (!records) { records = new Map(); sourceRecords.set(name, records); }
@@ -7117,14 +7162,19 @@
                     synopsis: novel.synopsis || old.synopsis } : novel);
             }
         }
+        let publishTimer = null;
+        function schedulePublish() {
+            if (!isCurrent() || publishTimer !== null) return;
+            publishTimer = setTimeout(() => { publishTimer = null; publish(); }, 100);
+        }
         function publish() {
+            if (publishTimer !== null) { clearTimeout(publishTimer); publishTimer = null; }
             if (!isCurrent()) return;
             allNovels = [];
             // Registry order stays deterministic regardless of network completion order.
             for (const name of selectedSources) {
                 for (const novel of sourceRecords.get(name)?.values() || []) allNovels.push(novel);
             }
-            rendered = allNovels.length > 0;
             buildTags(allNovels);
             applyFilters({ resetPage: false, fade: false });
         }
@@ -7132,7 +7182,7 @@
             const novels = parseNovels(data.novels || data, name, cfg);
             for (const novel of novels) {
                 if (data.translations?.[novel.id]) novel.titleEn = String(data.translations[novel.id]);
-                if (data.descriptions?.[novel.id]) novel.synopsis = normalizeSynopsis(data.descriptions[novel.id], name);
+                if (descriptionsEnabled && data.descriptions?.[novel.id]) novel.synopsis = normalizeSynopsis(data.descriptions[novel.id], name);
             }
             return novels;
         }
@@ -7144,17 +7194,28 @@
                     if (source !== "all") catalogWarnings.add(`${SOURCES[name].label} metadata has not been published`);
                     return;
                 }
-                if (cfg.coverage?.complete === false) catalogWarnings.add(`${cfg.label}: partial catalog coverage`);
+                const coverage = cfg.coverage || {};
+                const catalog = coverage.catalog;
+                let notice = "";
+                if (catalog) {
+                    if (!catalog.started && !catalog.has_complete_baseline) notice = "Rankings collected; catalog pending";
+                    else if (catalog.errors?.length) notice = "Some catalog pages unavailable";
+                    else if (!catalog.discovery_complete) notice = "Catalog collection in progress";
+                    else if (coverage.enrichment?.pending) notice = "Details pending";
+                } else if (!coverage.has_complete_baseline && coverage.mode === "rankings") {
+                    notice = "Rankings collected; catalog pending";
+                } else if (coverage.complete === false) notice = "Catalog collection in progress";
+                if (notice) catalogWarnings.add(`${cfg.label}: ${notice}`);
                 // Small top bundles remain the first visible results for existing sources.
-                if (cfg.topUrl) {
+                if (descriptionsEnabled && cfg.topUrl) {
                     try {
-                        const data = await fetchGzChunk(cfg.topUrl, signal);
+                        const data = await fetchGzChunk(cfg.topUrl, AbortSignal.any([signal, descriptionController.signal]));
                         if (!isCurrent()) return;
                         const top = applyEmbedded(data, name, cfg);
                         addRecords(name, top);
-                        if (top.length) publish();
+                        if (top.length) schedulePublish();
                     } catch (error) {
-                        if (error?.name === "AbortError") throw error;
+                        if (signal.aborted) throw error;
                         // A top bundle is optional; catalog chunks remain authoritative.
                     }
                 }
@@ -7165,8 +7226,7 @@
                         if (!isCurrent()) return;
                         addRecords(name, chunk);
                         catalogLoading.set(name, `${cfg.label} ${loaded}/${total}`);
-                        if (!rendered && chunk.length) publish();
-                        else resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found${catalogStatusSuffix()}`;
+                        if (chunk.length) schedulePublish();
                     }, signal);
                 } else {
                     novels = parseNovels(await fetchWithProgress(cfg.dataUrl, signal), name, cfg);
@@ -7181,7 +7241,7 @@
                 console.warn(`${name} metadata source failed:`, error);
                 catalogWarnings.add(`${SOURCES[name].label} unavailable`);
             } finally {
-                if (isCurrent()) { catalogLoading.delete(name); publish(); }
+                if (isCurrent()) { catalogLoading.delete(name); schedulePublish(); }
             }
         }
 

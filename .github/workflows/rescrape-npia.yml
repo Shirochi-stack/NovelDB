@@ -11,6 +11,7 @@ permissions:
 
 concurrency:
   group: data-write-lock
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -21,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

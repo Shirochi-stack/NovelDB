@@ -9,7 +9,7 @@ on:
       model:
         description: 'OpenAI-compatible model to use'
         required: false
-        default: 'deepseek-v4-pro'
+        default: 'gpt-5.6-luna'
         type: string
       api_base_url:
         description: 'OpenAI-compatible base URL (blank = auto route)'
@@ -17,7 +17,7 @@ on:
         default: ''
         type: string
       api_key:
-        description: 'API key (blank = DEEPSEEK_API_KEY secret; Grok fallback still supported)'
+        description: 'API key (blank = OPENAI_API_KEY secret; provider overrides supported)'
         required: false
         default: ''
         type: string
@@ -47,6 +47,7 @@ permissions:
 
 concurrency:
   group: data-write-lock
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -57,6 +58,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -81,12 +84,13 @@ jobs:
         env:
           TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || '' }}
           TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || '' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '8192' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'deepseek-v4-pro' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/titles_untranslated.txt --lang korean --type titles --model ${{ github.event.inputs.model || 'gpt-5.6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated Novelpia titles
         run: python scripts/merge_translated_npia_titles.py
@@ -99,12 +103,13 @@ jobs:
         env:
           TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || '' }}
           TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || '' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '8192' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'deepseek-v4-pro' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/descriptions_untranslated.txt --lang korean --type descriptions --model ${{ github.event.inputs.model || 'gpt-5.6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated Novelpia descriptions
         run: python scripts/merge_translated_npia_descriptions.py

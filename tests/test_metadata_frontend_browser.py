@@ -30,7 +30,9 @@ def row(source, ident=7, known=False, completed=False):
 
 
 class FixtureSite:
-    def __init__(self, *, missing=(), broken=(), delay_naver=False, many_novelpia=False):
+    def __init__(self, *, missing=(), broken=(), delay_naver=False, many_novelpia=False, covers=False, coverage=None):
+        self.coverage = coverage
+        self.covers = covers
         self.missing = set(missing)
         self.broken = set(broken)
         self.delay_naver = delay_naver
@@ -41,6 +43,9 @@ class FixtureSite:
         url = urlsplit(route.request.url)
         path = url.path
         self.requests.append(route.request.url)
+        if url.hostname == "covers.test":
+            await route.fulfill(status=200, body='<svg xmlns="http://www.w3.org/2000/svg" width="100" height="150"><rect width="100" height="150" fill="purple"/></svg>', content_type="image/svg+xml")
+            return
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
@@ -65,7 +70,7 @@ class FixtureSite:
                         "chunks": 1, "totalEntries": 3, "descriptionShardCount": 128,
                         "descriptionShardPrefix": f"{source}_descriptions_shard_", "topUrl": None,
                         "boards": {"native": {"label": "Native board", "observed_at": "2026-09-13T00:00:00Z", "stale": False}},
-                        "coverage": {"complete": True}}
+                        "coverage": self.coverage or {"complete": True}}
             await route.fulfill(json=manifest)
             return
         if "_descriptions_shard_" in name or name.startswith("descriptions_shard_"):
@@ -91,6 +96,9 @@ class FixtureSite:
         else:
             await route.fulfill(status=404, body="Unknown fixture")
             return
+        if self.covers and isinstance(payload, dict) and "novels" in payload:
+            for entry in payload["novels"]:
+                entry[3] = f"https://covers.test/{source}/{entry[0]}.svg"
         await route.fulfill(body=gzip.compress(json.dumps(payload, ensure_ascii=False).encode()), content_type="application/gzip")
 
 
@@ -186,5 +194,97 @@ def test_metadata_frontend_browser_missing_manifest_failure_and_cancellation():
             assert "Partial results" in await page.locator("#resultCount").inner_text()
             assert "Munpia unavailable" in await page.locator("#resultCount").inner_text()
             assert not errors
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_progressive_updates_reuse_cards_and_loaded_cover_nodes():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = FixtureSite(delay_naver=True, covers=True)
+            await page.route("**/*", site.route)
+            await page.goto("http://metadata.test/")
+            await page.wait_for_selector('.novel-card[data-source="novelpia"] img.loaded')
+            await page.evaluate("""() => {
+                window.savedCard = document.querySelector('.novel-card[data-source="novelpia"]');
+                window.savedImage = savedCard.querySelector('img.card-cover');
+                window.imageSources = [];
+                window.coverObserver = new MutationObserver(events => events.forEach(e => imageSources.push(e.target.getAttribute('src'))));
+                coverObserver.observe(savedImage, {attributes: true, attributeFilter: ['src']});
+            }""")
+            await wait_loaded(page)
+            assert await page.evaluate("savedCard === document.querySelector('.novel-card[data-source=novelpia]')")
+            assert await page.evaluate("savedImage === savedCard.querySelector('img.card-cover')")
+            assert await page.evaluate("imageSources.every(value => !!value)")
+            assert await page.locator('#sortSelect').evaluate("el => el.getBoundingClientRect().width") <= 250
+            assert await page.locator('#sortSelect').evaluate("el => el.closest('.control-group').nextElementSibling.querySelector('select').id") == 'audienceSelect'
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_description_preference_prevents_requests_and_persists():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = FixtureSite()
+            await page.route("**/*", site.route)
+            await page.add_init_script("localStorage.setItem('noveldb.loadDescriptions', 'false')")
+            await page.goto("http://metadata.test/")
+            await wait_loaded(page)
+            assert not await page.locator('#loadDescriptions').is_checked()
+            assert not any('_top.json.gz' in url or 'descriptions_shard_' in url for url in site.requests)
+            assert await page.locator('.card-synopsis:visible').count() == 0
+            await page.check('#loadDescriptions')
+            await page.wait_for_selector('.card-synopsis')
+            assert any('descriptions_shard_' in url for url in site.requests)
+            await page.uncheck('#loadDescriptions')
+            assert await page.evaluate("localStorage.getItem('noveldb.loadDescriptions')") == 'false'
+            site.requests.clear()
+            await page.reload()
+            await wait_loaded(page)
+            assert not await page.locator('#loadDescriptions').is_checked()
+            assert not any('_top.json.gz' in url or 'descriptions_shard_' in url for url in site.requests)
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_disabling_descriptions_ignores_delayed_shard_responses():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = FixtureSite(delay_naver=True)
+            await page.route("**/*", site.route)
+            await page.goto("http://metadata.test/#src=naver")
+            await page.wait_for_selector('.novel-card')
+            await page.uncheck('#loadDescriptions')
+            await page.wait_for_timeout(600)
+            assert await page.locator('.card-synopsis').count() == 0
+            await page.check('#loadDescriptions')
+            await page.wait_for_selector('.card-synopsis')
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_specific_coverage_messages_do_not_equate_rankings_with_catalogs():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            for coverage, message in [
+                ({"catalog": {"has_complete_baseline": False}, "rankings": {"complete": True}}, "Rankings collected; catalog pending"),
+                ({"catalog": {"started": True, "discovery_complete": False}}, "Catalog collection in progress"),
+                ({"catalog": {"started": True, "discovery_complete": True}, "enrichment": {"pending": 12}}, "Details pending"),
+                ({"catalog": {"started": True, "errors": [{"partition": "latest", "error": "reset"}]}}, "Some catalog pages unavailable"),
+            ]:
+                page = await browser.new_page()
+                site = FixtureSite(coverage=coverage)
+                await page.route("**/*", site.route)
+                await page.goto("http://metadata.test/#src=naver")
+                await wait_loaded(page)
+                assert message in await page.locator('#resultCount').inner_text()
+                await page.close()
             await browser.close()
     asyncio.run(scenario())

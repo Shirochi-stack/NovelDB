@@ -33,7 +33,7 @@ _enc = tiktoken.get_encoding("cl100k_base")
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "deepseek-v4-pro"
+DEFAULT_MODEL = "gpt-5.6-luna"
 
 # API output cap and derived chunk size.
 DEFAULT_OUTPUT_TOKEN_LIMIT = 8_192
@@ -351,8 +351,7 @@ def resolve_api_key(api_key_env=None, model=None):
             return key
 
     print(
-        "Error: no API key set. Use TRANSLATION_API_KEY, DEEPSEEK_API_KEY, "
-        "OPENAI_API_KEY, GROK_API_KEY, XAI_API_KEY, or --api-key-env."
+        f"Error: no API key for {model}. Set " + " or ".join(model_key_order(model)) + "."
     )
     sys.exit(1)
 
@@ -419,7 +418,12 @@ def call_api(prompt, api_key, model, api_url, content_type="titles",
         ],
         "temperature": 0.3,
     }
-    if output_token_limit:
+    if model.lower().startswith("gpt-5.6-luna"):
+        payload.pop("temperature", None)
+        payload["reasoning_effort"] = "none"
+        if output_token_limit:
+            payload["max_completion_tokens"] = output_token_limit
+    elif output_token_limit:
         payload["max_tokens"] = output_token_limit
 
     # (connect_timeout=30s, read_timeout=900s)

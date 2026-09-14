@@ -10,6 +10,22 @@ on:
         required: true
         type: string
 
+      workers:
+        type: number
+        default: 4
+      auto_continue:
+        type: boolean
+        default: true
+      expected_scan:
+        type: string
+        default: ''
+      expected_revision:
+        type: string
+        default: ''
+      model:
+        type: string
+        default: gpt-5.6-luna
+
 permissions:
   contents: write
   pages: write
@@ -17,6 +33,7 @@ permissions:
 # The caller must not claim the same lock while awaiting this reusable job.
 concurrency:
   group: data-write-lock
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -24,6 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
+      PYTHONUNBUFFERED: '1'
+      METADATA_WORKERS: ${{ inputs.workers }}
+      AUTO_CONTINUE: ${{ inputs.auto_continue }}
+      EXPECTED_SCAN: ${{ inputs.expected_scan }}
+      EXPECTED_REVISION: ${{ inputs.expected_revision }}
+      MODEL: ${{ inputs.model }}
       METADATA_SOURCE: ${{ inputs.source }}
       METADATA_OPERATION: ${{ inputs.operation }}
       TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
@@ -32,12 +55,18 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install metadata dependencies
         run: python -m pip install requests beautifulsoup4 tiktoken
+      - name: Check continuation checkpoint
+        id: guard
+        run: python scripts/metadata_workflow.py guard --source "$METADATA_SOURCE" --output-dir ".cache/metadata-build/$METADATA_SOURCE"
       - name: Collect or rebuild source metadata
+        if: steps.guard.outputs.allowed == 'true'
         timeout-minutes: 330
         shell: bash
         run: |
@@ -55,11 +84,12 @@ jobs:
             python scripts/metadata_pipeline.py prepare --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
             python scripts/metadata_pipeline.py build --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
           elif [ "$METADATA_OPERATION" = resume ] || [ "$METADATA_OPERATION" = catalog ]; then
-            python scripts/metadata_pipeline.py run --source "$METADATA_SOURCE" --mode catalog --resume --output-dir "$stage" --state-dir "$state" --max-runtime 18000
+            python scripts/metadata_pipeline.py run --source "$METADATA_SOURCE" --mode catalog --resume --output-dir "$stage" --state-dir "$state" --max-runtime 18000 --workers "$METADATA_WORKERS"
           else
-            python scripts/metadata_pipeline.py run --source "$METADATA_SOURCE" --mode "$METADATA_OPERATION" --output-dir "$stage" --state-dir "$state" --max-runtime 18000
+            python scripts/metadata_pipeline.py run --source "$METADATA_SOURCE" --mode "$METADATA_OPERATION" --output-dir "$stage" --state-dir "$state" --max-runtime 18000 --workers "$METADATA_WORKERS"
           fi
       - name: Validate and promote source artifacts
+        if: steps.guard.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -70,6 +100,7 @@ jobs:
             python scripts/metadata_pipeline.py promote --source "$METADATA_SOURCE" --output-dir "$stage" --target-dir docs/data --allow-partial
           fi
       - name: Commit original metadata or translated metadata independently
+        if: steps.guard.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -89,6 +120,7 @@ jobs:
       # Bot pushes do not start a branch-based Pages build. Request one explicitly
       # after the successful push, including on no-change reruns after a build failure.
       - name: Request GitHub Pages build
+        if: steps.guard.outputs.allowed == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -124,6 +156,19 @@ jobs:
             git commit --only -m "Preserve $METADATA_SOURCE metadata progress after failure" -- "$state_file"
             git push
           fi
+      - name: Summarize collection and continuation
+        if: always()
+        env:
+          METADATA_SUCCESS: ${{ job.status == 'success' && steps.guard.outputs.allowed == 'true' }}
+        run: python scripts/metadata_workflow.py summary --source "$METADATA_SOURCE" --output-dir ".cache/metadata-build/$METADATA_SOURCE"
+      - name: Upload continuation decision
+        if: always() && inputs.operation != 'translate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-continuation-${{ github.run_id }}
+          path: .cache/metadata-build/${{ inputs.source }}/continuation.json
+          include-hidden-files: true
+          retention-days: 14
       - name: Preserve source progress and coverage report
         if: always()
         uses: actions/upload-artifact@v4

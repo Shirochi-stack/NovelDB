@@ -183,8 +183,14 @@ def test_translation_subprocess_is_explicit_and_skips_completed_files(tmp_path, 
 
 def test_import_does_not_load_translator_or_scraper():
     import sys
-    assert "scripts.translate_with_grok" not in sys.modules
-    assert "translate_with_grok" not in sys.modules
+    import subprocess
+    # Inspect a fresh interpreter, independent of which other tests import adapters.
+    subprocess.run([sys.executable, "-B", "-c",
+                    "import sys; import scripts.metadata_pipeline; "
+                    "assert 'scripts.translate_with_grok' not in sys.modules; "
+                    "assert 'translate_with_grok' not in sys.modules; "
+                    "assert not any(n.startswith('scripts.scrape_') for n in sys.modules)"],
+                   cwd=Path(__file__).resolve().parents[1], check=True, capture_output=True)
 
 
 @pytest.mark.parametrize("left,right", [("a\nb", r"a\nb"), ("a|||b", "a｜｜｜b"),

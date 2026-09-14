@@ -1,8 +1,8 @@
 # Naver, Munpia and Joara metadata integration
 
-Implemented and locally validated on **2026-09-13**. These sources have anonymous collectors, durable history, translation preparation and merging, packaging, browser support and scheduled workflow definitions. New sources remain unavailable in the selector until their manifests exist. **No new-source catalog was published during implementation.**
+Initially implemented on **2026-09-13**, with collection, workflow and website fixes validated on **2026-09-14**. These sources have anonymous collectors, durable history, translation preparation and merging, packaging, browser support and scheduled workflow definitions. New sources remain unavailable in the selector until their manifests exist. **No new-source catalog was published during implementation.**
 
-All 457 existing files in `docs/data` remained byte-for-byte unchanged. Verification used small anonymous samples and mocked translation. No account login, saved profile, authenticated launcher, chapter downloader, translation API, workflow dispatch or publishing operation was run.
+The initial implementation preserved all 457 then-existing files in `docs/data`. The September 14 validation separately preserved all **879 files across `docs/data` and `metadata/state`** byte-for-byte. Verification used small anonymous samples and mocked translation. No account login, saved profile, authenticated launcher, chapter downloader, translation API, workflow dispatch or publishing operation was run.
 
 ## Scope and commands
 
@@ -52,7 +52,7 @@ python scripts/metadata_pipeline.py build --source naver --output-dir .cache/met
 python scripts/metadata_pipeline.py promote --source naver --output-dir .cache/metadata-build/naver --target-dir docs/data
 ```
 
-`translate` explicitly calls the existing Korean translator and forwards provider/model settings without changing its defaults. `run --translate` opts in; otherwise `run` collects, prepares and builds only. `run --dry-run` stops before all downstream writes. Incomplete catalogs need explicit `--allow-partial` promotion; scheduled jobs make that choice so validated partial originals are usable while discovery continues. Shared-tag promotion separately requires `--include-tags`.
+`translate` explicitly calls the existing Korean translator and uses `gpt-5.6-luna` by default and forwards explicit provider/model overrides. `run --translate` opts in; otherwise `run` collects, prepares and builds only. `run --dry-run` stops before all downstream writes. Incomplete catalogs need explicit `--allow-partial` promotion; scheduled jobs make that choice so validated partial originals are usable while discovery continues. Shared-tag promotion separately requires `--include-tags`.
 
 [metadata_site.bat](../metadata_site.bat) accepts a source and `catalog`, `rankings`, `resume`, `prepare`, `translate`, `merge`, `build` or `promote`, using `.cache/metadata-build/<source>` and `metadata/state`. Use the Python CLI for custom limits/paths. [rebuild_site.bat](../rebuild_site.bat) retains the original build steps and additionally builds sources whose durable state exists. Local builds do not trigger scraping.
 
@@ -164,6 +164,62 @@ node --test tests/test_metadata_pages.cjs
 
 The Pages trigger has five additional offline tests that execute its workflow script with mocked GitHub responses, checking request order, configuration/branch guards, failure handling and permission propagation. No live build request was sent while testing this fix.
 
-Full-catalog completeness, deep-page limits, sustained crawl rates, every ranking window and all restricted/publication tiers remain untested. Moving catalogs overlap and totals change; sample counts are observations, not platform totals. Naver league-promotion continuity and Joara client-asset changes need ongoing verification. Separate local processes must not write the same source state concurrently; scheduled jobs use the shared lock. These limitations remain visible in coverage and outcomes; they do not establish deletion or cross-platform matching.
+Full-catalog completeness, sustained production crawl rates, every ranking window and all restricted/publication tiers remain untested. Selected Joara deep-page limits were reproduced on September 14 as documented below. Moving catalogs overlap and totals change; sample counts are observations, not platform totals. Naver league-promotion continuity and Joara client-asset changes need ongoing verification. Separate local processes must not write the same source state concurrently; scheduled jobs use the shared lock. These limitations remain visible in coverage and outcomes; they do not establish deletion or cross-platform matching.
 
 See the [complete pipeline reference](metadata-pipeline.md) for all legacy scripts and source schemas, or return to the [README](../README.md).
+
+
+## September 14: throughput, coverage and operational fixes
+
+The local Naver snapshot of 1,420 records came from a **rankings** operation, not a catalog sweep; its saved state had no catalog partitions. Munpia's 21,316-record catalog run reached its five-hour budget after 536 pages and 21,304 details. Joara's earlier catalog encountered pagination errors; a subsequent successful ranking refresh did not prove catalog completeness.
+
+Collection now discovers listings before detail enrichment. A persistent detail executor refills workers as each future finishes; it no longer waits for each batch of four or recompresses the complete state after every batch. Pending IDs use an ordered dictionary for efficient membership/removal. Defaults remain four workers, a shared 0.5-second minimum between request starts per host, and four bounded attempts respecting `Retry-After`. More workers cannot exceed that host pacing floor. Discovery is sequential within each pagination chain. Full enrichment can still require several five-hour runs.
+
+Checkpoints are atomic compressed metadata state, written after 60 seconds or 500 changed records and forced at phase boundaries/budget stops/finalization. State adds scan IDs, checkpoint revisions, continuation claims and separate catalog/discovery, enrichment and ranking coverage. Existing state loads without a destructive migration; older partition cursors reconstruct catalog coverage when available. A daily ranking refresh cannot erase catalog errors or invalidate its continuation checkpoint. Restrictions and explicit unavailability preserve known metadata; absence never establishes deletion.
+
+Live logs identify source, operation, worker/pacing settings, partition/page, rows/new IDs/cumulative records, available upstream totals, request rate, remaining time, retries, detail outcomes, checkpoint duration, stop reason and continuation status. Detail progress appears at least every ten seconds while workers are active. Workflows run Python unbuffered and write a readable job summary; diagnostic logs exclude account/application keys and response bodies.
+
+### Joara boundary evidence
+
+Anonymous latest-book requests for the all-genre Free/Noblesse windows reset at requested page 101: the API returned page 1, offset 0, total 0 and an empty list. Category 22 (romance fantasy) and category 9 (parody) were also checked: page 1 correctly returned only the requested genre, but page 101 reset for both. Those two verified Free latest-book category windows supplement discovery; they do **not** establish access to the entire catalog. The six original store/latest/finished partitions remain in place. No guessed API endpoints or account routes were added.
+
+Previously failing Free finished page 621 and Noblesse finished page 75 returned valid metadata during bounded review. Moving totals, short nonempty pages and duplicate rows are therefore handled without treating usable listings as a failed whole page. Repeated whole pages, reset pagination, malformed envelopes and unexplained empty pages still stop that partition with explicit requested/returned pagination diagnostics. Other partitions and known detail enrichment can continue; the limitation remains visible and prevents automatic infinite continuation.
+
+### Workflow and translation controls
+
+| Operation | Behavior |
+| --- | --- |
+| `catalog` | Resume an unfinished catalog scan; after a completed pass, start a fresh scan from the head; discover first, enrich details, then refresh native boards |
+| `resume` | Explicit continuation using the same durable scan behavior |
+| `rankings` | Refresh native boards and missing metadata for ranked records; retain independent catalog coverage |
+| `build` | Prepare and package saved metadata without scraping |
+
+Manual source workflows expose `workers` (default 4, maximum 16) and `auto_continue` (default true). Leave `expected_scan` and `expected_revision` blank for manual runs; automatic continuations populate them. The shared job checks/claims that checkpoint under `data-write-lock` before collecting, rejecting stale or duplicate continuations.
+
+A successful original-metadata update publishes independently, then triggers the translation workflow. After that translation attempt—even if translation fails or its key is missing—the coordinator dispatches an eligible resumed catalog. Eligibility requires a budget stop, advancing durable progress and no collection failures/coverage limitations. Cancellation, completion or no progress stop automatic dispatch. To pause a chain, cancel its active translation/continuation run and any already queued resume; to work manually, launch with `auto_continue=false`. After resolving a failure, manually choose `resume`. No PAT is needed: continuation uses `GITHUB_TOKEN` with `actions: write` in the coordinator.
+
+All data-lock workflows use `queue: max`, and check out the current branch head after acquiring the lock. The lock is claimed once by the reusable job, never by a caller waiting on it. This protects metadata/state commits and retains queued work instead of replacing older pending updates. Metadata publication still requests the existing Pages build explicitly. Translation success is not required for original metadata publication.
+
+All six platforms' translator defaults and scheduled/manual fallback models are **`gpt-5.6-luna`**. Set repository secret **`OPENAI_API_KEY`** in Settings → Secrets and variables → Actions. Recognized GPT models use OpenAI credentials; a DeepSeek key is never substituted. A configured `TRANSLATION_API_KEY` or explicit provider/model/base-URL override retains its existing precedence. Luna uses Chat Completions with `reasoning_effort=none` and `max_completion_tokens`, omitting sampling temperature. Missing credentials produce a provider-specific error. Existing valid English remains active while its original is unchanged; this change does not bulk retranslate historical English.
+
+### Website loading and packaging
+
+Cards are reconciled by `(source, ID)` as progressive catalog updates are coalesced. Unchanged cards, image nodes and loaded synopses survive; changing fields update their card without clearing cover URLs. Native board identifiers and complete labels remain in manifests/tooltips, while compact option labels and a bounded Sort control leave room for Audience beside it.
+
+**Load descriptions** is enabled by default and saved as `noveldb.loadDescriptions` in local storage. Disabled mode hides descriptions, disconnects lazy observation, cancels queued/in-flight synopsis work, ignores late responses, and skips description-bearing top bundles in favor of catalog chunks. Re-enabling fetches missing visible synopses. This is a browser preference independent of URL filters. Existing source data formats remain compatible.
+
+Coverage messages distinguish ranking-only initialization, active catalog collection, missing detail enrichment and unavailable catalog pages. Failed browser chunks are reported separately. Catalogs still use source-specific `.json.gz` chunks, top bundles and **128 gzip synopsis shards**; positional metadata-v1 rows are unchanged.
+
+### September 14 validation
+
+| Source | Catalog pages | Unique staged records | Successful details | HTTP requests |
+| --- | ---: | ---: | ---: | ---: |
+| Naver | 3: one per tier | 60 | 2 | 8 |
+| Munpia | 1 | 40 | 2 | 3 |
+| Joara | 3: one per store | 59 | 0: listing metadata sufficient | 5 |
+
+Each source was capped at ten requests, one page per tier and two details. All samples passed extraction, mocked translation, merging, gzip packaging and manifest validation; each produced 139 validated artifacts including 128 synopsis shards. Staging evidence is in ignored `.cache/metadata-fixes-validation/validation.json`. Hashes confirmed all 879 production catalog/corpus/state files unchanged. Separate bounded public-asset/category probes established the Joara evidence above.
+
+Offline regression tests cover discovery-before-details, continuous worker refilling, bounded checkpoint frequency, resume across ranking refreshes, failed-board/history preservation, no-progress stopping, duplicate/stale dispatch, Luna credential/payload routing, and Joara reset/short/duplicate responses. Intercepted browser fixtures cover all six sources, failed chunks, switching during loading, native ranks, persistent description suppression, late-response cancellation and card/image node identity. No full backfill, account login, paid translation, production workflow dispatch or publication was performed.
+
+Workflow syntax and expression checks used `actionlint` 1.7.12, suppressing only its outdated rejection of the documented `concurrency.queue` property; the remaining checks passed. `queue: max` is supported by [GitHub's current workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency). Workflow dispatch/publication remains untested by design during local validation.

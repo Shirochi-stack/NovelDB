@@ -232,9 +232,9 @@ The website helps users choose a source listing. It does not verify a listing's 
 
 ## 4. Complete `scripts/` inventory
 
-There are **42 Python scripts/modules** in `scripts/`: the 37 original scripts inventoried below and five new metadata modules. `__pycache__` is generated. **Stdlib** means Python's standard library; **import writes** means top-level file work occurs on import. Legacy table paths are relative to `docs/data/` unless stated otherwise. Existing collectors/launchers were inspected rather than executed.
+There are **43 Python scripts/modules and one Node workflow helper** in `scripts/`: the 37 original scripts inventoried below and six metadata Python modules plus `metadata_continuation.cjs`. `__pycache__` is generated. **Stdlib** means Python's standard library; **import writes** means top-level file work occurs on import. Legacy table paths are relative to `docs/data/` unless stated otherwise. Existing collectors/launchers were inspected rather than executed.
 
-### New anonymous metadata modules — 5
+### Anonymous metadata and workflow modules — 7
 
 | Module | Inputs/dependencies | Outputs and side effects |
 | --- | --- | --- |
@@ -242,6 +242,8 @@ There are **42 Python scripts/modules** in `scripts/`: the 37 original scripts i
 | [scrape_naver.py](../scripts/scrape_naver.py) | Exposed tier/genre HTML, public details and scoped rankings; BeautifulSoup and common runner | Naver metadata-v1 observations, history and native boards; anonymous only |
 | [scrape_munpia.py](../scripts/scrape_munpia.py) | Public catalog/detail/ranking APIs; common runner | Munpia metadata-v1 observations, publication units and full native ranking snapshots; no chapter endpoints |
 | [scrape_joara.py](../scripts/scrape_joara.py) | Current public client configuration, V2 catalogs/Best and V1 details; BeautifulSoup and common runner | Joara metadata-v1 observations and boards; fresh public device configuration, no account state |
+| [metadata_workflow.py](../scripts/metadata_workflow.py) | Source state, staged run report, workflow environment; common metadata module and stdlib | Claims continuation checkpoints and writes job summaries/continuation decisions; no network |
+| [metadata_continuation.cjs](../scripts/metadata_continuation.cjs) | Validated collection decision and injected GitHub client; Node stdlib | Validates source/scan/revision and dispatches eligible resume on the default branch after translation; import-safe |
 | [metadata_pipeline.py](../scripts/metadata_pipeline.py) | Source state, corpora, existing shared tags, generic builders and Korean translator | Prepare/translate/merge/build/promote/run; source-local corpora and history, staged chunks/128 shards/top/manifests; paid translation and promotion explicit |
 
 All three entrypoints require `--output-dir`; sample defaults cap twenty requests. Their dry runs make no requests or writes. Full command/field/state contracts and test evidence are in the [integration guide](metadata-source-expansion.md). `extract_titles.py` now registers all six sources; new sources delegate to common state-aware preparation. The original unique-set merger remains Novelpia-specific.
@@ -296,9 +298,9 @@ The Novelpia ranking updaters patch existing catalog rows rather than append eve
 | [merge_translated_sfacg_descriptions.py](../scripts/merge_translated_sfacg_descriptions.py) | SFACG synopsis master and pending patch; stdlib | Rewrites master and remaining-pending file, checks English validity; **import writes** | SFACG synopsis merge |
 | [merge_translated_tags.py](../scripts/merge_translated_tags.py) | Shared dictionary and optional patch path; stdlib | Rewrites `tags_en.txt` and gzip; `--recompress-only` skips patch merge | Shared tag persistence for both languages |
 
-The translator routes by explicit base URL/model and environment configuration to an OpenAI-compatible chat-completions API. Repository defaults are model `deepseek-v4-pro`, 67 workers, five-second stagger, 8,192 output-token cap, and input soft chunk size `output_token_limit / compression_factor` with factor 2.0. Complete rows are never split. It accepts numeric IDs, skips valid existing English, checkpoints successful rows as each chunk finishes, and accepts partial results. Each chunk receives a single API attempt; failures remain pending rather than being retried automatically. The model name is a repository setting, not an independently verified provider-availability claim.
+The translator routes by explicit base URL/model and environment configuration to an OpenAI-compatible chat-completions API. Repository defaults are model `gpt-5.6-luna`, 67 workers, five-second stagger, 8,192 output-token cap, and input soft chunk size `output_token_limit / compression_factor` with factor 2.0. Complete rows are never split. It accepts numeric IDs, skips valid existing English, checkpoints successful rows as each chunk finishes, and accepts partial results. Each chunk receives a single API attempt; failures remain pending rather than being retried automatically. Model/provider overrides are supported; Luna uses OpenAI credentials and compatible completion parameters.
 
-Existing English is usually retained by source ID even if original text changes; there is no shared translation revision/freshness tracking. Importing `translate_with_grok.py` also initializes `tiktoken`'s encoder. Do not discover these scripts' behavior by importing the modules: twelve extractor/merger modules above perform filesystem writes at import time, and some can exit if files are missing.
+Legacy source mergers usually retain existing English by source ID even if original text changes. The three new sources instead bind English to the exact original and reject stale patches through normalized state. Importing `translate_with_grok.py` also initializes `tiktoken`'s encoder. Do not discover these scripts' behavior by importing the modules: twelve extractor/merger modules above perform filesystem writes at import time, and some can exit if files are missing.
 
 ### Browser packaging — 5 scripts
 
@@ -413,3 +415,16 @@ The shared new-source job explicitly requests a branch-based GitHub Pages build 
 New integration is implemented and tested with staged anonymous samples; production catalogs and translation corpora remain unchanged. No full crawl or workflow dispatch occurred.
 
 See [the Naver Web Novel, Munpia and Joara integration guide](metadata-source-expansion.md) for commands, metadata-v1 fields, state/translation semantics, sample evidence and full-crawl limitations. Return to the [project README](../README.md) for desktop application documentation.
+
+
+## September 14 operational update
+
+The new collectors now discover searchable listings before enriching details with continuously refilled workers. Defaults remain four workers and at least 0.5 seconds between request starts per host. Atomic gzip state saves are periodic (60 seconds or 500 changed records) plus phase boundaries and shutdown; per-page and ten-second detail logs expose throughput, pending work, retries and budgets. Coverage separately records catalog discovery, detail enrichment and native rankings. Ranking success cannot imply a complete catalog. Source manifests carry these additive fields without changing the sixteen metadata-v1 array positions.
+
+Source workflows expose operation, workers and automatic continuation. Progressing catalog runs stopped by their five-hour budget publish validated originals, attempt translation, then queue another resume even if translation fails. Scan/revision claims reject duplicates and stale work; failures, coverage limitations, cancellation and no progress stop the chain. All `data-write-lock` users retain queued runs with `queue: max` and check out the current branch head under the lock. See the [integration guide's workflow controls](metadata-source-expansion.md#workflow-and-translation-controls).
+
+Translation for all six sources now defaults to `gpt-5.6-luna`, using repository secret `OPENAI_API_KEY`; explicit overrides remain supported and valid existing English is retained. Luna requests use OpenAI completion parameters and do not fall back to other providers' keys. Shared-tag and stale-original protections are unchanged.
+
+The browser reconciles existing cards and cover nodes during progressive updates, shortens native ranking options and keeps Audience beside the bounded Sort control. Its persistent **Load descriptions** preference suppresses synopsis requests and description-bearing top bundles when disabled. Gzip catalog chunks, title corpora, top bundles and 128 synopsis shards per new source remain the packaging format.
+
+Bounded September 14 samples collected 60 Naver, 40 Munpia and 59 Joara records in 8/3/5 requests, then passed extraction, mocked translation, merging and package validation in staging. All 879 production files across `docs/data` and `metadata/state` remained byte-for-byte unchanged. No production workflow or paid translation was run. Joara's verified page-101 reset remains a documented upstream coverage limitation; two verified genre windows supplement discovery without claiming full-catalog access. Detailed evidence and tests are in the [integration guide](metadata-source-expansion.md#september-14-validation).

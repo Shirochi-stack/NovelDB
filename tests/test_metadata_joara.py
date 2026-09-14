@@ -46,7 +46,7 @@ def test_bootstrap_reads_current_asset_config_once_and_never_adds_account_token(
     adapter = JoaraAdapter()
     partitions = adapter.partitions(client)
     result = adapter.fetch_page(client, PARTITION, 1)
-    assert result.complete and len(partitions) == 6
+    assert result.complete and len(partitions) == 8
     assert {p["tier"] for p in partitions} == {"series", "nobless", "premium"}
     assert len(client.calls) == 3
     params = client.calls[-1][1]
@@ -112,8 +112,6 @@ def test_listing_intro_at_observed_character_limit_needs_detail_enrichment():
     lambda p: p.update(page=2),
     lambda p: p.update(offset=0),
     lambda p: p.update(data={"list": []}),
-    lambda p: p["data"].update(list=p["data"]["list"][:1]),
-    lambda p: p["data"]["list"].__setitem__(1, copy.deepcopy(p["data"]["list"][0])),
 ])
 def test_malformed_or_partial_catalog_does_not_report_terminal_success(change):
     payload = fixture("catalog.json")
@@ -197,7 +195,7 @@ def test_concurrent_bootstrap_uses_one_fresh_public_configuration():
     adapter = JoaraAdapter()
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: adapter.partitions(client), range(4)))
-    assert all(len(partitions) == 6 for partitions in results)
+    assert all(len(partitions) == 8 for partitions in results)
     assert len(client.calls) == 2
 
 
@@ -258,3 +256,32 @@ def test_budget_propagates_from_catalog_detail_and_rankings():
         JoaraAdapter().detail(client, {"id": "412770"})
     with pytest.raises(BudgetExceeded):
         next(JoaraAdapter().rankings(client))
+
+
+def test_moving_short_and_duplicate_catalog_rows_remain_usable():
+    for duplicate in (False, True):
+        payload = fixture("catalog.json")
+        if duplicate:
+            payload["data"]["list"][1] = copy.deepcopy(payload["data"]["list"][0])
+        else:
+            payload["data"]["list"] = payload["data"]["list"][:1]
+        result = JoaraAdapter().fetch_page(FakeClient(payload), PARTITION, 1)
+        assert result.complete and len(result.records) == 1 and result.next_page == 2
+        assert result.observed_total == payload["total_cnt"]
+
+
+def test_page_101_reset_reports_requested_and_returned_boundaries():
+    payload = {"status": 1, "page": 1, "offset": 0, "total_cnt": 0, "data": {"list": []}}
+    result = JoaraAdapter().fetch_page(FakeClient(payload), PARTITION, 101)
+    assert not result.complete and result.next_page is None
+    assert "requested=101" in result.error and "returned=1" in result.error and "total=0" in result.error
+
+
+def test_verified_supplemental_categories_are_passed_to_catalog():
+    client = FakeClient()
+    adapter = JoaraAdapter()
+    supplemental = [p for p in adapter.partitions(client) if p.get("category")]
+    assert {p["category"] for p in supplemental} == {"22", "9"}
+    for partition in supplemental:
+        adapter.fetch_page(client, partition, 1)
+        assert client.calls[-1][1]["category"] == partition["category"]

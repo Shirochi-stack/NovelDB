@@ -1,4 +1,5 @@
 name: Translate New Metadata Sources
+run-name: Translate ${{ inputs.source || github.event.workflow_run.name }} — ${{ inputs.model || 'gpt-5.6-luna' }}
 on:
   workflow_run:
     workflows: [Update Naver Metadata, Update Joara Metadata, Update Munpia Metadata]
@@ -9,14 +10,80 @@ on:
         required: true
         type: choice
         options: [naver, joara, munpia]
+      model:
+        description: Translation model (OPENAI_API_KEY for Luna)
+        type: string
+        default: gpt-5.6-luna
 permissions:
   contents: write
   pages: write
+  actions: write
 jobs:
+  context:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+       github.event.workflow_run.repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      source: ${{ steps.decision.outputs.source }}
+      decision: ${{ steps.decision.outputs.decision }}
+    env:
+      METADATA_SOURCE: ${{ inputs.source || (github.event.workflow_run.name == 'Update Naver Metadata' && 'naver') || (github.event.workflow_run.name == 'Update Joara Metadata' && 'joara') || 'munpia' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Download originating collection decision
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: metadata-continuation-${{ github.event.workflow_run.id }}
+          path: .cache/continuation
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Read validated continuation decision
+        id: decision
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { validDecision } = require('./scripts/metadata_continuation.cjs');
+            const source = process.env.METADATA_SOURCE;
+            let decision = {};
+            try { decision = JSON.parse(fs.readFileSync('.cache/continuation/continuation.json', 'utf8')); }
+            catch (_) { core.info('No continuation checkpoint; translation can still run.'); }
+            core.setOutput('source', source);
+            core.setOutput('decision', JSON.stringify(validDecision(decision, source) ? decision : { eligible: false }));
   translate:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    needs: context
     uses: ./.github/workflows/metadata-source-job.yml
     with:
-      source: ${{ inputs.source || (github.event.workflow_run.name == 'Update Naver Metadata' && 'naver') || (github.event.workflow_run.name == 'Update Joara Metadata' && 'joara') || 'munpia' }}
+      source: ${{ needs.context.outputs.source }}
       operation: translate
+      model: ${{ inputs.model || 'gpt-5.6-luna' }}
     secrets: inherit
+  continue-catalog:
+    needs: [context, translate]
+    if: >-
+      always() && !cancelled() && needs.context.result == 'success' &&
+      github.event_name == 'workflow_run' &&
+      fromJSON(needs.context.outputs.decision).eligible == true
+    runs-on: ubuntu-latest
+    env:
+      METADATA_SOURCE: ${{ needs.context.outputs.source }}
+      CONTINUATION_DECISION: ${{ needs.context.outputs.decision }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Continue catalog after translation attempt
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { dispatchContinuation } = require('./scripts/metadata_continuation.cjs');
+            const dispatched = await dispatchContinuation({ github, context,
+              source: process.env.METADATA_SOURCE, decision: JSON.parse(process.env.CONTINUATION_DECISION) });
+            core.info(dispatched ? 'Catalog continuation queued; checkpoint is checked again under the data lock.' : 'No eligible continuation.');

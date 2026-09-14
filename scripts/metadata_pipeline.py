@@ -299,7 +299,7 @@ def merge(source, output_dir, state_dir, shared_tags=None):
 
 
 def run_python(script, args, **kwargs):
-    subprocess.run([sys.executable, str(ROOT / "scripts" / script), *map(str, args)],
+    subprocess.run([sys.executable, "-u", str(ROOT / "scripts" / script), *map(str, args)],
                    check=True, cwd=ROOT, **kwargs)
 
 

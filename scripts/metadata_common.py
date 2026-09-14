@@ -5,7 +5,8 @@ This module never imports a desktop downloader, credentials, or browser profile.
 """
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -19,6 +20,7 @@ import re
 import tempfile
 import threading
 import time
+from uuid import uuid4
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 import requests
@@ -67,6 +69,11 @@ class CatalogPage:
     next_page: int | None
     complete: bool = True
     error: str | None = None
+    observed_total: int | None = None
+
+
+def log_progress(source, message):
+    print(f"[{utc_now()}] [{source}] {message}", flush=True)
 
 
 @dataclass
@@ -319,6 +326,7 @@ class AnonymousClient:
                     entry["status"] = "network_error"
                     if attempt + 1 >= self.retries:
                         raise FetchError("Metadata request failed after bounded attempts") from None
+                    log_progress(self.adapter.source, f"Retry {attempt+1}/{self.retries}: {urlsplit(url).path}; network error")
                     self._pause(min(30, 2 ** attempt))
                     break
                 entry["status"] = response.status_code
@@ -343,6 +351,7 @@ class AnonymousClient:
                             delay = max(delay, (parsedate_to_datetime(retry_after) - datetime.now(timezone.utc)).total_seconds())
                         except (TypeError, ValueError, OverflowError):
                             pass
+                    log_progress(self.adapter.source, f"Retry {attempt+1}/{self.retries}: {urlsplit(url).path}; HTTP {status}; wait {delay:.1f}s")
                     self._pause(max(0, delay))
                     break
                 if response.status_code >= 400:
@@ -409,76 +418,130 @@ def run_source(adapter, args, *, client=None):
     previous_coverage = state["coverage"]
     previous_baseline = previous_coverage.get("has_complete_baseline", False)
     progress = state["progress"]
-    pending = list(dict.fromkeys(progress.get("pending_details", [])))
+    pending = dict.fromkeys(progress.get("pending_details", []))
+    started = time.monotonic()
+    old_catalog = previous_coverage.get("catalog", {})
+    if not old_catalog and progress.get("partitions"):
+        old_catalog = {"started": True, "discovery_complete": all(c.get("complete") for c in progress["partitions"].values()),
+                       "errors": [{"partition": k, "error": c["error"]} for k, c in progress["partitions"].items() if c.get("error")]}
     owned_client = client is None
     client = client or AnonymousClient(adapter, max_requests=args.max_requests, max_runtime=args.max_runtime,
                                        delay=args.delay, retries=args.retries)
     coverage = {"mode": args.mode, "started_at": utc_now(), "complete": False,
                 "has_complete_baseline": previous_baseline, "status": "running", "errors": [],
-                "pages": 0, "details": 0, "successful_details": 0, "successful_boards": 0}
+                "pages": 0, "details": 0, "successful_details": 0, "successful_boards": 0,
+                "catalog": dict(old_catalog), "rankings": dict(previous_coverage.get("rankings", {}))}
     state["coverage"] = coverage
     observed, detail_count, detail_attempted = set(), 0, set()
     had_budget = False
 
-    def checkpoint():
-        progress["pending_details"] = list(dict.fromkeys(pending))
+    last_save, last_detail_log, changes = time.monotonic(), time.monotonic(), 0
+    initial_revision = progress.get("revision", 0)
+    progress.setdefault("scan_id", uuid4().hex)
+
+    def log(message):
+        elapsed = max(0.001, time.monotonic() - started)
+        log_progress(adapter.source, message + f" | {client.requests} requests ({client.requests/elapsed:.2f}/s), "
+                     f"{max(0, args.max_runtime-elapsed):.0f}s remaining")
+
+    def checkpoint(force=False):
+        nonlocal last_save, changes
+        if not force and changes < 500 and time.monotonic() - last_save < 60:
+            return
+        progress["pending_details"] = list(pending)
         coverage["requests"] = client.requests
+        before = time.monotonic()
         save_state(state, state_dir)
+        last_save, changes = time.monotonic(), 0
+        log(f"Checkpoint: {len(state['records']):,} records, {len(pending):,} details pending; "
+            f"saved in {last_save-before:.2f}s; revision {progress.get('revision', 0)}")
+
+    def advanced(count=1):
+        nonlocal changes
+        changes += count
+        if args.mode != "rankings":
+            progress["revision"] = progress.get("revision", 0) + 1
 
     def fetch_details():
-        nonlocal detail_count
-        while pending and (args.max_details is None or detail_count < args.max_details):
-            slots = args.workers if args.max_details is None else min(args.workers, args.max_details - detail_count)
-            batch = [ident for ident in pending if ident not in detail_attempted][:slots]
-            if not batch:
-                break
-            def fetch(ident):
-                try:
-                    return adapter.detail(client, dict(state["records"][ident]))
-                except BudgetExceeded as exc:
-                    return exc
-                except Exception as exc:
-                    return MetadataResult("failed", reason=type(exc).__name__ + ": metadata detail failed")
-            with ThreadPoolExecutor(max_workers=slots) as pool:
-                results = list(pool.map(fetch, batch))
-            budget_error = None
-            for ident, result in zip(batch, results):
-                if isinstance(result, BudgetExceeded):
-                    budget_error = result
-                    continue
-                detail_count += 1
-                detail_attempted.add(ident)
-                coverage["details"] += 1
-                if (not isinstance(result, MetadataResult)
-                        or result.status not in {"success", "restricted", "unavailable", "failed"}
-                        or (result.record is not None and not isinstance(result.record, dict))
-                        or (result.status == "success" and result.record is None)):
-                    result = MetadataResult("failed", reason="Malformed metadata detail result")
-                if result.record is not None:
-                    if valid_id(result.record.get("id")) != ident:
-                        result = MetadataResult("failed", reason="Detail identity mismatch")
-                    elif result.status in {"success", "restricted"}:
-                        record = merge_record(state, result.record, detail=result.status == "success")
-                if result.status == "success":
-                    record["detail_listing_fingerprint"] = record.get("listing_fingerprint")
-                    coverage["successful_details"] += 1
-                if result.status != "success":
-                    record_outcome(state["records"][ident], result)
-                if result.status != "failed":
-                    pending.remove(ident)
-            checkpoint()
-            if budget_error:
-                raise budget_error
+        nonlocal detail_count, last_detail_log
+        progress["phase"] = "details"
+        detail_started = time.monotonic()
+        detail_start_count = coverage["details"]
+        last_detail_log = detail_started
+        log(f"Details: {len(pending):,} pending; {args.workers} workers")
+        checkpoint(force=True)
+        ranking_ids = {str(item["id"]) for board in state["boards"].values() for item in board["records"]}
+        queue = deque(ident for ident in pending if ident not in detail_attempted
+                      and (args.mode != "rankings" or ident in ranking_ids))
+        budget_error = None
+        def fetch(ident):
+            try:
+                return adapter.detail(client, dict(state["records"][ident]))
+            except BudgetExceeded as exc:
+                return exc
+            except Exception as exc:
+                return MetadataResult("failed", reason=type(exc).__name__ + ": metadata detail failed")
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            active = {}
+            while queue or active:
+                while queue and len(active) < args.workers and not budget_error and (
+                        args.max_details is None or detail_count + len(active) < args.max_details):
+                    ident = queue.popleft()
+                    active[pool.submit(fetch, ident)] = ident
+                if not active:
+                    break
+                done, _ = wait(active, timeout=10, return_when=FIRST_COMPLETED)
+                for future in done:
+                    ident = active.pop(future)
+                    result = future.result()
+                    if isinstance(result, BudgetExceeded):
+                        budget_error = result
+                        continue
+                    detail_count += 1
+                    detail_attempted.add(ident)
+                    coverage["details"] += 1
+                    if (not isinstance(result, MetadataResult)
+                            or result.status not in {"success", "restricted", "unavailable", "failed"}
+                            or (result.record is not None and not isinstance(result.record, dict))
+                            or (result.status == "success" and result.record is None)):
+                        result = MetadataResult("failed", reason="Malformed metadata detail result")
+                    if result.record is not None:
+                        if valid_id(result.record.get("id")) != ident:
+                            result = MetadataResult("failed", reason="Detail identity mismatch")
+                        elif result.status in {"success", "restricted"}:
+                            record = merge_record(state, result.record, detail=result.status == "success")
+                    if result.status == "success":
+                        record["detail_listing_fingerprint"] = record.get("listing_fingerprint")
+                        coverage["successful_details"] += 1
+                    else:
+                        record_outcome(state["records"][ident], result)
+                        log(f"Detail {ident}: {result.status}; {result.reason}")
+                    if result.status != "failed":
+                        pending.pop(ident, None)
+                        advanced()
+                if time.monotonic() - last_detail_log >= 10:
+                    log(f"Details: {coverage['details']:,} attempted, {coverage['successful_details']:,} successful, "
+                        f"{len(pending):,} pending, {len(active)} in flight; "
+                        f"{(coverage['details']-detail_start_count)*60/max(.001, time.monotonic()-detail_started):.1f} details/min")
+                    last_detail_log = time.monotonic()
+                checkpoint()
+        checkpoint(force=True)
+        if budget_error:
+            raise budget_error
 
+    log(f"Start {args.mode}; resume={args.resume}; workers={args.workers}; host delay={args.delay}s; "
+        f"request limit={args.max_requests or 'none'}; scan={progress['scan_id']}")
     try:
-        if args.resume:
-            fetch_details()
         if args.mode != "rankings":
             if not args.resume or progress.get("pass_complete"):
                 progress["partitions"] = {}
                 progress["pass_started_at"] = utc_now()
+                progress["scan_id"] = uuid4().hex
                 progress.pop("ranking_pass", None)
             progress["pass_complete"] = False
+            progress["phase"] = "discovery"
+            coverage["catalog"]["started"] = True
+            checkpoint(force=True)
             partitions = adapter.partitions(client)
             if not partitions:
                 raise ValueError("No anonymous catalog partitions were discovered")
@@ -507,6 +570,7 @@ def run_source(adapter, args, *, client=None):
                     if not result.complete or result.error:
                         cursor["error"] = result.error or "Incomplete catalog response"
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
+                        log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
                         break
                     ids = [valid_id(item.get("id")) for item in result.records]
@@ -516,14 +580,17 @@ def run_source(adapter, args, *, client=None):
                     if any(ident is None for ident in ids) or (ids and (signature in page_signatures or repeated_across_resume)):
                         cursor["error"] = "Invalid IDs or repeated catalog page"
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
+                        log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
                         break
                     if not ids and result.next_page is not None:
                         cursor["error"] = "Unexplained empty catalog page"
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
+                        log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
                         break
                     page_signatures.add(signature)
+                    before_count = len(state["records"])
                     for item, ident in zip(result.records, ids):
                         fingerprint = listing_fingerprint(item)
                         old = state["records"].get(ident, {})
@@ -539,10 +606,10 @@ def run_source(adapter, args, *, client=None):
                         if enriched:
                             record["detail_listing_fingerprint"] = fingerprint
                             if ident in pending:
-                                pending.remove(ident)
+                                pending.pop(ident, None)
                         observed.add(ident)
                         if refresh and not item.get("_detail_complete") and ident not in pending:
-                            pending.append(ident)
+                            pending[ident] = None
                     cursor.pop("error", None)
                     if overlap and page < overlap_for:
                         cursor["overlap_checked_for"] = overlap_for
@@ -555,15 +622,27 @@ def run_source(adapter, args, *, client=None):
                         cursor["next_page"] = result.next_page
                     cursor["last_page"] = page
                     cursor["last_page_signature"] = signature
+                    advanced(len(ids))
+                    log(f"Catalog {key} page {page}: {len(ids)} rows, "
+                        f"{len(state['records'])-before_count} new, {len(state['records']):,} total; "
+                        f"upstream total={result.observed_total}; next={result.next_page}; "
+                        f"{coverage['pages']*60/max(.001, time.monotonic()-started):.1f} pages/min")
                     checkpoint()
-                    fetch_details()
                     if cursor.get("complete") or cursor.get("error"):
                         break
                     page = cursor["next_page"]
             discovery_complete = all(cursors.get(p["key"], {}).get("complete") for p in partitions)
             coverage["discovery_complete"] = discovery_complete
-            fetch_details()
-        if args.mode in ("catalog", "rankings"):
+            coverage["catalog"].update(discovery_complete=discovery_complete,
+                errors=[e for e in coverage["errors"] if "partition" in e])
+            checkpoint(force=True)
+            # Samples enrich their bounded discovery. Catalogs finish discovery first.
+            discovery_settled = all(cursors.get(p["key"], {}).get("complete") or cursors.get(p["key"], {}).get("error") for p in partitions)
+            if args.mode == "sample" or discovery_settled:
+                fetch_details()
+        if args.mode in ("catalog", "rankings") and (args.mode == "rankings" or discovery_settled):
+            progress["phase"] = "rankings"
+            log("Rankings: refreshing native boards")
             ranking_pass = progress.get("ranking_pass", {})
             continuing = (args.resume and ranking_pass.get("mode") == args.mode
                           and not ranking_pass.get("complete", False))
@@ -596,7 +675,9 @@ def run_source(adapter, args, *, client=None):
                             # Windowed ranking counts never become lifetime catalog metrics.
                             seed = {k: v for k, v in item.items() if k in ("id", "title", "author", "cover", "canonical_url", "tier")}
                             merge_record(state, seed)
-                            pending.append(ident)
+                            pending[ident] = None
+                advanced(len(result.records))
+                log(f"Ranking {result.key}: {len(result.records)} records; success={result.success}")
                 checkpoint()
             fetch_details()
             coverage["rankings_complete"] = bool(successful_keys) and not any(b.get("stale") for b in state["boards"].values())
@@ -604,6 +685,7 @@ def run_source(adapter, args, *, client=None):
     except BudgetExceeded as exc:
         had_budget = True
         coverage["stop_reason"] = str(exc)
+        log(f"Budget stop: {exc}")
     except Exception as exc:
         # Avoid persisting network exception URLs containing public bootstrap keys.
         coverage["errors"].append({"error": type(exc).__name__ + ": collection could not finish"})
@@ -614,11 +696,36 @@ def run_source(adapter, args, *, client=None):
         coverage["has_complete_baseline"] = bool(previous_baseline or (coverage["complete"] and args.mode == "catalog"))
         if args.mode == "catalog":
             progress["pass_complete"] = coverage["complete"]
+        if args.mode != "rankings":
+            cursors = progress.get("partitions", {})
+            coverage["catalog"].update(
+                discovery_complete=bool(cursors) and all(c.get("complete") for c in cursors.values()),
+                errors=[{"partition": k, "error": c["error"]} for k, c in cursors.items() if c.get("error")])
+        coverage["catalog"]["has_complete_baseline"] = bool(
+            old_catalog.get("has_complete_baseline") or previous_baseline or
+            (args.mode == "catalog" and coverage["catalog"].get("discovery_complete")))
+        coverage["enrichment"] = {"pending": len(pending), "complete": not pending,
+                                  "failed": sum(state["records"][i].get("history", {}).get("latest_outcome") == "failed" for i in pending)}
+        coverage["rankings"] = {"complete": bool(state["boards"]) and not any(b.get("stale") for b in state["boards"].values()),
+                                "boards": len(state["boards"])}
         coverage["status"] = "complete" if coverage["complete"] else "partial"
+        coverage["continuation"] = {
+            "eligible": bool(args.mode == "catalog" and had_budget and not coverage["errors"]
+                             and not coverage["catalog"].get("errors") and not coverage["enrichment"]["failed"]
+                             and progress.get("revision", 0) > initial_revision),
+            "scan_id": progress["scan_id"], "revision": progress.get("revision", 0),
+            "phase": progress.get("phase"), "workers": args.workers}
+
+        if args.mode == "catalog":
+            progress["catalog_continuation"] = dict(coverage["continuation"])
         coverage["observed_records"] = len(observed)
-        coverage["metadata_updated"] = bool(observed or coverage["successful_details"] or coverage["successful_boards"])
+        coverage["metadata_updated"] = bool(observed or coverage["successful_details"] or coverage["successful_boards"]
+                                            or (args.mode != "rankings" and progress.get("revision", 0) > initial_revision))
         coverage["finished_at"] = utc_now()
-        checkpoint()
+        checkpoint(force=True)
+        log(f"Finished: {len(state['records']):,} records; {coverage['status']}; "
+            f"discovery complete={coverage['catalog'].get('discovery_complete', False)}; "
+            f"details pending={len(pending):,}; continuation={coverage['continuation']['eligible']}")
         rows = export_rows(state)
         atomic_json(output_dir / (adapter.source + "_novels.json"), rows)
         report = {"source": adapter.source, "format": FORMAT, "records": len(rows), "coverage": coverage,

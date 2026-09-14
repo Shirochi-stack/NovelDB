@@ -140,12 +140,12 @@ def _listing_response(payload, page):
         raise ValueError("Joara catalog response has no data.list")
     actual_page, total, size = (_integer(payload.get(key)) for key in ("page", "total_cnt", "offset"))
     if actual_page != page or total is None or size is None or size < 1:
-        raise ValueError("Invalid Joara pagination metadata")
+        raise ValueError(f"Pagination reset/invalid: requested={page}, returned={actual_page}, "
+                         f"rows={len(data['list'])}, total={total}, size={size}")
     rows = data["list"]
     if len(rows) > size or (not rows and (page - 1) * size < total):
         raise ValueError("Joara pagination does not match returned rows")
-    if len(rows) < size and page * size < total:
-        raise ValueError("Joara returned an incomplete catalog page")
+    # Public totals move independently of page rows; a nonempty short page is not EOF.
     return rows, total, size
 
 
@@ -268,26 +268,33 @@ class JoaraAdapter:
 
     def partitions(self, client):
         self._bootstrap(client)
-        return [{"key": f"{store}:{catalog}", "tier": store, "start_page": 1,
-                 "store": store, "catalog": catalog, "page_size": 20}
-                for store in STORES for catalog in CATALOG_PATHS]
+        partitions = [{"key": f"{store}:{catalog}", "tier": store, "start_page": 1,
+                       "store": store, "catalog": catalog, "page_size": 20}
+                      for store in STORES for catalog in CATALOG_PATHS]
+        # Anonymous category responses verified on 2026-09-14. These supplement
+        # the all-genre window; they do not evade or remove its 100-page limit.
+        supplemental = [{"key": f"series:latest:category:{code}", "tier": "series", "start_page": 1,
+                         "store": "series", "catalog": "latest", "page_size": 20, "category": code}
+                        for code in ("22", "9")]  # Romance fantasy and parody.
+        return partitions[:1] + supplemental + partitions[1:]
 
     def fetch_page(self, client, partition, page):
+        payload = None
         try:
             payload = self._get(client, CATALOG_PATHS[partition["catalog"]], {
-                "category": "0", "store": partition["store"], "orderby": "redate",
+                "category": partition.get("category", "0"), "store": partition["store"], "orderby": "redate",
                 "page": page, "offset": partition.get("page_size", 20),
             })
             rows, total, size = _listing_response(payload, page)
             records = [normalize_listing(row, partition["tier"]) for row in rows]
-            if len({record["id"] for record in records}) != len(records):
-                raise ValueError("Repeated Joara ID within a catalog page")
-            return CatalogPage(records=records, next_page=page + 1 if page * size < total else None)
+            records = list({record["id"]: record for record in records}.values())
+            return CatalogPage(records=records, next_page=page + 1 if page * size < total else None,
+                               observed_total=total)
         except BudgetExceeded:
             raise
         except (FetchError, ValueError, TypeError, KeyError) as error:
             return CatalogPage(records=[], next_page=None, complete=False,
-                               error=f"Joara catalog fetch or parse failed ({type(error).__name__})")
+                               error=f"Joara {partition.get('key', partition['store'] + ':' + partition['catalog'])} requested page {page}: {type(error).__name__}: {error}")
 
     def detail(self, client, record):
         if not _id(record.get("id")):

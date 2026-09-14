@@ -1013,3 +1013,12 @@ a.card-cover-wrap {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--border-hover);
 }
+
+/* Keep native ranking labels from determining the entire controls row width. */
+.control-group { min-width: 0; max-width: 100%; }
+.control-group select { min-width: 0; max-width: 100%; }
+.sort-control { width: 250px; }
+.sort-control select { width: 100%; text-overflow: ellipsis; }
+.description-toggle { display: inline-flex; align-items: center; gap: .5rem; margin-top: 1rem; color: var(--text-muted); cursor: pointer; }
+.descriptions-disabled .card-synopsis { display: none; }
+@media (max-width: 600px) { .sort-control { width: 100%; } }

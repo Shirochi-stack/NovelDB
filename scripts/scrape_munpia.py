@@ -192,7 +192,8 @@ class MunpiaAdapter:
             })
         if not records and result["hasNext"]:
             raise ValueError("Empty Munpia catalog page still advertises another page")
-        return CatalogPage(records=records, next_page=page + 1 if result["hasNext"] else None)
+        return CatalogPage(records=records, next_page=page + 1 if result["hasNext"] else None,
+                           observed_total=result.get("total"))
 
     def detail(self, client, record):
         novel_id = numeric_id(record.get("id"))
