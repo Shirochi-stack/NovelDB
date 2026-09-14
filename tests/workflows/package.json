@@ -1,0 +1,10 @@
+{
+  "name": "metadata-workflow-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test inputs.test.mjs" },
+  "devDependencies": {
+    "@actions/expressions": "0.3.61",
+    "yaml": "2.8.2"
+  }
+}

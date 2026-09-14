@@ -33,7 +33,8 @@ jobs:
     with:
       source: naver
       operation: ${{ github.event_name == 'schedule' && github.event.schedule == '0 16 * * *' && 'rankings' || inputs.operation || 'catalog' }}
-      workers: ${{ inputs.workers || 4 }}
+      # Dispatch numbers can arrive as strings; workflow_call validates the actual type.
+      workers: ${{ fromJSON(format('{0}', inputs.workers || 4)) }}
       auto_continue: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_continue }}
       expected_scan: ${{ inputs.expected_scan || '' }}
       expected_revision: ${{ inputs.expected_revision || '' }}
