@@ -58,3 +58,70 @@ for (const source of ['naver', 'munpia', 'joara']) {
         });
     }
 }
+
+const tokenLimitCases = [
+    { name: 'manual default', event: 'workflow_dispatch', input: '16384', variable: '', expected: '16384' },
+    { name: 'manual override', event: 'workflow_dispatch', input: '32768', variable: '24576', expected: '32768' },
+    { name: 'manual default overrides repository variable', event: 'workflow_dispatch', input: '16384', variable: '24576', expected: '16384' },
+    { name: 'manual blank uses repository variable', event: 'workflow_dispatch', input: '', variable: '24576', expected: '24576' },
+    { name: 'manual blank uses fallback', event: 'workflow_dispatch', input: '', variable: '', expected: '16384' },
+    { name: 'automated uses repository variable', event: 'workflow_run', variable: '24576', expected: '24576' },
+    { name: 'automated uses fallback', event: 'workflow_run', variable: '', expected: '16384' },
+];
+
+function tokenLimitContext(scenario) {
+    const inputs = scenario.input === undefined ? {} : { output_token_limit: scenario.input };
+    return {
+        github: { event_name: scenario.event, event: scenario.event === 'workflow_dispatch' ? { inputs } : {} },
+        inputs,
+        vars: { TRANSLATION_OUTPUT_TOKEN_LIMIT: scenario.variable },
+    };
+}
+
+for (const name of ['translate-kakao', 'translate-novelpia-top', 'translate-sfacg', 'translate-tags']) {
+    const definition = workflow(name);
+    const translationSteps = Object.values(definition.jobs).flatMap(job => job.steps || [])
+        .filter(step => step.run?.includes('scripts/translate_with_grok.py'));
+    test(`${name}: exposes a 16k manual output token limit`, () => {
+        assert.equal(definition.on.workflow_dispatch.inputs.output_token_limit.type, 'string');
+        assert.equal(definition.on.workflow_dispatch.inputs.output_token_limit.default, '16384');
+        assert.ok(translationSteps.length > 0, 'must inspect at least one translation step');
+    });
+    for (const scenario of tokenLimitCases) {
+        test(`${name}: output token limit ${scenario.name}`, () => {
+            for (const step of translationSteps) {
+                assert.equal(evaluate(step.env?.TRANSLATION_OUTPUT_TOKEN_LIMIT, tokenLimitContext(scenario)),
+                    scenario.expected, step.name);
+            }
+        });
+    }
+}
+
+const translationCaller = workflow('translate-new-metadata');
+const translationJob = workflow('metadata-source-job');
+test('new metadata translation exposes a 16k string input accepted by its reusable workflow', () => {
+    const manualInput = translationCaller.on.workflow_dispatch.inputs.output_token_limit;
+    const reusableInput = translationJob.on.workflow_call.inputs.output_token_limit;
+    assert.equal(manualInput.type, 'string');
+    assert.equal(manualInput.default, '16384');
+    assert.equal(reusableInput.type, 'string');
+    assert.equal(reusableInput.default, '');
+});
+for (const scenario of tokenLimitCases) {
+    test(`new metadata translation: output token limit ${scenario.name}`, () => {
+        const context = tokenLimitContext(scenario);
+        const value = evaluate(translationCaller.jobs.translate.with.output_token_limit, context);
+        assert.equal(typeof value, translationJob.on.workflow_call.inputs.output_token_limit.type);
+        assert.equal(value, scenario.expected);
+        assert.equal(evaluate(translationJob.jobs.metadata.env.TRANSLATION_OUTPUT_TOKEN_LIMIT,
+            { inputs: { output_token_limit: value }, vars: context.vars }), scenario.expected);
+    });
+}
+for (const variable of ['', '24576']) {
+    test(`reusable metadata job resolves output token limit for callers that omit it, variable=${JSON.stringify(variable)}`, () => {
+        assert.equal(evaluate(translationJob.jobs.metadata.env.TRANSLATION_OUTPUT_TOKEN_LIMIT, {
+            inputs: { output_token_limit: translationJob.on.workflow_call.inputs.output_token_limit.default },
+            vars: { TRANSLATION_OUTPUT_TOKEN_LIMIT: variable },
+        }), variable || '16384');
+    });
+}

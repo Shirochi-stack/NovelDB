@@ -25,6 +25,10 @@ on:
       model:
         type: string
         default: gpt-5.6-luna
+      output_token_limit:
+        description: 'Max output tokens per translation request (blank = repository variable or 16384)'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -46,6 +50,7 @@ jobs:
       EXPECTED_SCAN: ${{ inputs.expected_scan }}
       EXPECTED_REVISION: ${{ inputs.expected_revision }}
       MODEL: ${{ inputs.model }}
+      TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
       METADATA_SOURCE: ${{ inputs.source }}
       METADATA_OPERATION: ${{ inputs.operation }}
       TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}

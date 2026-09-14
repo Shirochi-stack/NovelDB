@@ -5674,6 +5674,7 @@
     const excludeTagContainer = $("#excludeTagContainer");
     const resultsEl = $("#results");
     const resultCount = $("#resultCount");
+    const catalogDiagnostics = $("#catalogDiagnostics");
     const paginationBars = [$("#paginationTop"), $("#paginationBottom")];
     const tagModeAnd = $("#tagModeAnd");
     const tagModeOr = $("#tagModeOr");
@@ -6188,8 +6189,8 @@
         const badgeHTML = completeBadge + rankBadge;
 
         const isFocused = focusedCard && focusedCard.id === n.id && focusedCard.source === (n.source || currentSource);
-        const sortedTags = [...n.tags].sort((a, b) => ((tagSetHasMatch(andTags, b) || tagSetHasMatch(orTags, b)) ? 1 : 0) - ((tagSetHasMatch(andTags, a) || tagSetHasMatch(orTags, a)) ? 1 : 0));
-        const tagsHTML = sortedTags
+        // Filtering highlights tags without changing their position on the card.
+        const tagsHTML = n.tags
             .map((t) => `<span class="card-tag${isFocused && tagsMatch(focusedCard.tag, t) ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
@@ -6204,7 +6205,11 @@
         if (!savedSynopsis) card.dataset.needsSynopsis = "true";
         else delete card.dataset.needsSynopsis;
         const statsHTML = n.metadataV1
-            ? metadata.metricEntries(n).map((metric) => `<span class="stat" title="${escHtml(metric.label)}">${escHtml(metric.label)}: ${fmt(metric.value)}${metric.scale ? `/${metric.scale}` : ""}</span>`).join("")
+            ? metadata.metricEntries(n).map((metric) => {
+                const icon = { views: "👁", likes: "❤", episodes: "📄", favorites: "❤", recommendations: "👍", rating: "⭐", downloads: "📥" }[metric.key];
+                const value = `${fmt(metric.value)}${metric.scale ? `/${metric.scale}` : ""}`;
+                return `<span class="stat" title="${escHtml(metric.label)}" aria-label="${escHtml(metric.label)}: ${escHtml(value)}"><span aria-hidden="true">${icon}</span> ${value}</span>`;
+            }).join("")
             : `<span class="stat">👁 ${fmt(n.views)}</span><span class="stat">❤ ${fmt(n.likes)}</span><span class="stat">📄 ${fmt(n.chapters)}</span>`;
 
         card.innerHTML = `
@@ -6724,6 +6729,53 @@
     let catalogRequestedPage = null;
     let catalogLoading = new Map();
     let catalogWarnings = new Set();
+    let catalogDiagnosticRecords = new Map();
+
+    function catalogPartitionLabel(source, partition) {
+        if (source !== "joara") return partition || "Catalog";
+        const [store, catalog, category, code] = String(partition || "").split(":");
+        const storeLabel = { series: "Free publication", nobless: "Noblesse", premium: "Premium" }[store];
+        if (!storeLabel) return partition || "Catalog";
+        const catalogLabel = { latest: "Latest", finished: "Completed" }[catalog] || catalog;
+        const genre = category === "category"
+            ? `${{ "22": "Romance fantasy", "9": "Parody" }[code] || "Genre"} (category ${code})` : "";
+        return [storeLabel, catalogLabel, genre].filter(Boolean).join(" · ");
+    }
+
+    function renderCatalogDiagnostics() {
+        const list = catalogDiagnostics.querySelector("ul");
+        list.replaceChildren();
+        for (const [source, { label, errors, skippedRows }] of catalogDiagnosticRecords) {
+            for (const [records, skipped] of [[errors, false], [skippedRows, true]]) {
+                for (const record of records) {
+                    const error = String(record.error || "No reason reported");
+                    const partition = String(record.partition || "");
+                    const page = record.page ?? error.match(/requested page (\d+)/i)?.[1];
+                    const location = [label, catalogPartitionLabel(source, partition),
+                        page != null ? `page ${page}` : "Page not reported",
+                        skipped && record.row != null ? `row ${record.row}` : "",
+                        skipped && record.id != null ? `novel ${record.id}` : ""].filter(Boolean).join(" — ");
+                    const latestLimit = !skipped && source === "joara"
+                        && /^(series|nobless|premium):latest(?::category:\d+)?$/.test(partition)
+                        && Number(page) === 101
+                        && error.includes("requested=101, returned=1, rows=0, total=0, size=0");
+                    const explanation = skipped
+                        ? "This invalid row was omitted; the other rows were collected and the scan continued. Omitted listings are checked again on a fresh catalog scan."
+                        : latestLimit
+                            ? "Joara's public latest catalog exposes the first 100 pages. Page 101 resets to an empty page 1, so this scan cannot continue beyond page 100."
+                            : `This catalog scan stopped${page != null ? ` at page ${page}` : ""}; the failed page and later pages were not collected in this scan.`;
+                    const item = document.createElement("li");
+                    const detail = document.createElement("p");
+                    detail.textContent = `${location}. ${explanation}`;
+                    const reason = document.createElement("p");
+                    reason.textContent = `${partition ? `[${partition}] ` : ""}${error}`;
+                    item.append(detail, reason);
+                    list.appendChild(item);
+                }
+            }
+        }
+        catalogDiagnostics.hidden = !list.children.length;
+    }
 
     function catalogStatusSuffix() {
         const loading = [...catalogLoading.values()];
@@ -7137,6 +7189,9 @@
         allTagGroups = [];
         top80Tags.clear();
         catalogWarnings = new Set();
+        catalogDiagnosticRecords = new Map();
+        catalogDiagnostics.open = false;
+        renderCatalogDiagnostics();
         const selectedSources = source === "all" ? Object.keys(SOURCES) : [source];
         catalogLoading = new Map(selectedSources.map((name) => [name, SOURCES[name].label]));
         resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : escHtml(SOURCES[source].label)} database...</div>`;
@@ -7198,8 +7253,17 @@
                 const catalog = coverage.catalog;
                 let notice = "";
                 if (catalog) {
+                    const errors = Array.isArray(catalog.errors) ? catalog.errors : [];
+                    const skippedRows = Array.isArray(catalog.skipped_rows) ? catalog.skipped_rows : [];
+                    if (errors.length || skippedRows.length) {
+                        catalogDiagnosticRecords.set(name, { label: cfg.label, errors, skippedRows });
+                        renderCatalogDiagnostics();
+                    }
                     if (!catalog.started && !catalog.has_complete_baseline) notice = "Rankings collected; catalog pending";
-                    else if (catalog.errors?.length) notice = "Some catalog pages unavailable";
+                    else if (errors.length || skippedRows.length) notice = [
+                        errors.length ? `${errors.length} catalog scan${errors.length === 1 ? "" : "s"} stopped` : "",
+                        skippedRows.length ? `${skippedRows.length} invalid catalog row${skippedRows.length === 1 ? "" : "s"} skipped` : "",
+                    ].filter(Boolean).join("; ");
                     else if (!catalog.discovery_complete) notice = "Catalog collection in progress";
                     else if (coverage.enrichment?.pending) notice = "Details pending";
                 } else if (!coverage.has_complete_baseline && coverage.mode === "rankings") {

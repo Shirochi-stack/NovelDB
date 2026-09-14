@@ -277,6 +277,36 @@ def test_page_101_reset_reports_requested_and_returned_boundaries():
     assert "requested=101" in result.error and "returned=1" in result.error and "total=0" in result.error
 
 
+@pytest.mark.parametrize("title", ["", "  "])
+def test_blank_title_omits_only_that_row_and_keeps_pagination(title):
+    payload = fixture("catalog.json")
+    payload["data"]["list"][1]["subject"] = title
+    skipped_id = str(payload["data"]["list"][1]["book_code"])
+    result = JoaraAdapter().fetch_page(FakeClient(payload), PARTITION, 1)
+    assert result.complete and result.next_page == 2 and not result.error
+    assert len(result.records) == 1
+    assert result.skipped_rows == [{"row": 2, "id": skipped_id,
+                                    "error": "Title unavailable in public catalog"}]
+
+
+@pytest.mark.parametrize("changes", [{"book_code": None}, {"subject": None}, {"subject": 123}])
+def test_malformed_catalog_identity_or_schema_still_stops_page(changes):
+    payload = fixture("catalog.json")
+    payload["data"]["list"][1].update(changes)
+    result = JoaraAdapter().fetch_page(FakeClient(payload), PARTITION, 1)
+    assert not result.complete and not result.records and result.next_page is None
+    assert "row 2" in result.error
+
+
+def test_entirely_titleless_catalog_page_does_not_hide_response_failure():
+    payload = fixture("catalog.json")
+    for row in payload["data"]["list"]:
+        row["subject"] = ""
+    result = JoaraAdapter().fetch_page(FakeClient(payload), PARTITION, 1)
+    assert not result.complete and result.next_page is None
+    assert "No usable titled rows" in result.error
+
+
 def test_verified_supplemental_categories_are_passed_to_catalog():
     client = FakeClient()
     adapter = JoaraAdapter()

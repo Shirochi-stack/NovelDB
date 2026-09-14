@@ -14,6 +14,10 @@ on:
         description: Translation model (OPENAI_API_KEY for Luna)
         type: string
         default: gpt-5.6-luna
+      output_token_limit:
+        description: 'Max output tokens per request (positive integer; blank = repository variable or 16384)'
+        type: string
+        default: '16384'
 permissions:
   contents: write
   pages: write
@@ -64,6 +68,7 @@ jobs:
       source: ${{ needs.context.outputs.source }}
       operation: translate
       model: ${{ inputs.model || 'gpt-5.6-luna' }}
+      output_token_limit: ${{ inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
     secrets: inherit
   continue-catalog:
     needs: [context, translate]

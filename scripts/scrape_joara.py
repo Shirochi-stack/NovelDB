@@ -286,10 +286,25 @@ class JoaraAdapter:
                 "page": page, "offset": partition.get("page_size", 20),
             })
             rows, total, size = _listing_response(payload, page)
-            records = [normalize_listing(row, partition["tier"]) for row in rows]
+            records, skipped_rows = [], []
+            for position, row in enumerate(rows, start=1):
+                # A few public listings have a real book ID but a blank title.
+                # Preserve every usable row and scan later pages; report these
+                # omissions so they cannot establish a complete catalog baseline.
+                if (isinstance(row, dict) and _id(row.get("book_code"))
+                        and isinstance(row.get("subject"), str) and not _text(row["subject"])):
+                    skipped_rows.append({"row": position, "id": _id(row["book_code"]),
+                                         "error": "Title unavailable in public catalog"})
+                    continue
+                try:
+                    records.append(normalize_listing(row, partition["tier"]))
+                except (ValueError, TypeError, KeyError) as error:
+                    raise ValueError(f"row {position}: {error}") from error
+            if skipped_rows and not records:
+                raise ValueError("No usable titled rows in catalog page")
             records = list({record["id"]: record for record in records}.values())
             return CatalogPage(records=records, next_page=page + 1 if page * size < total else None,
-                               observed_total=total)
+                               observed_total=total, skipped_rows=skipped_rows)
         except BudgetExceeded:
             raise
         except (FetchError, ValueError, TypeError, KeyError) as error:

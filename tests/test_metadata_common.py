@@ -41,6 +41,44 @@ class Client:
     log = []
 
 
+def test_skipped_catalog_rows_preserve_later_pages_and_partial_coverage(tmp_path):
+    seen = []
+    class MissingTitle(Adapter):
+        def fetch_page(self, client, partition, page):
+            seen.append(page)
+            result = super().fetch_page(client, partition, page)
+            if page == 1:
+                result.skipped_rows = [{"row": 2, "id": "99", "error": "Title unavailable in public catalog"}]
+            return result
+    report = m.run_source(MissingTitle(), args(tmp_path, "--mode", "catalog"), client=Client())
+    assert seen == [1, 2, 3] and report["records"] == 3
+    catalog = report["coverage"]["catalog"]
+    assert not catalog["errors"]
+    assert catalog["skipped_rows"] == [{"partition": "best", "page": 1, "row": 2, "id": "99",
+                                        "error": "Title unavailable in public catalog"}]
+    assert not catalog["discovery_complete"] and not catalog["has_complete_baseline"]
+    assert not report["coverage"]["complete"] and not report["coverage"]["has_complete_baseline"]
+    assert report["coverage"]["successful_details"] == 3
+    refreshed = m.run_source(Adapter(), args(tmp_path, "--mode", "rankings"), client=Client())
+    assert refreshed["coverage"]["catalog"] == catalog
+    retried = m.run_source(Adapter(), args(tmp_path, "--mode", "catalog"), client=Client())
+    assert retried["coverage"]["complete"]
+    assert retried["coverage"]["catalog"]["skipped_rows"] == []
+
+
+def test_catalog_failure_reports_actual_overlap_page(tmp_path):
+    state = m.empty_state("naver")
+    state["progress"]["partitions"] = {"best": {"next_page": 3, "complete": False}}
+    m.save_state(state, tmp_path / "state")
+    class BrokenOverlap(Adapter):
+        def fetch_page(self, client, partition, page):
+            assert page == 2
+            return m.CatalogPage([], None, False, "Malformed payload")
+    report = m.run_source(BrokenOverlap(), args(tmp_path, "--mode", "catalog", "--resume"), client=Client())
+    assert report["coverage"]["catalog"]["errors"] == [
+        {"partition": "best", "page": 2, "error": "Malformed payload"}]
+
+
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch, tmp_path):
     def unexpected(*args, **kwargs):

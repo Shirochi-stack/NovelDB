@@ -70,6 +70,19 @@ class CatalogPage:
     complete: bool = True
     error: str | None = None
     observed_total: int | None = None
+    skipped_rows: list = field(default_factory=list)
+
+
+def catalog_coverage(cursors):
+    """Keep recoverable row omissions distinct from failures that stop a scan."""
+    skipped = [{"partition": key, **row} for key, cursor in cursors.items()
+               for row in cursor.get("skipped_rows", [])]
+    return {
+        "discovery_complete": bool(cursors) and not skipped and all(c.get("complete") for c in cursors.values()),
+        "errors": [{"partition": key, "page": cursor.get("error_page", cursor.get("next_page")),
+                    "error": cursor["error"]} for key, cursor in cursors.items() if cursor.get("error")],
+        "skipped_rows": skipped,
+    }
 
 
 def log_progress(source, message):
@@ -422,8 +435,7 @@ def run_source(adapter, args, *, client=None):
     started = time.monotonic()
     old_catalog = previous_coverage.get("catalog", {})
     if not old_catalog and progress.get("partitions"):
-        old_catalog = {"started": True, "discovery_complete": all(c.get("complete") for c in progress["partitions"].values()),
-                       "errors": [{"partition": k, "error": c["error"]} for k, c in progress["partitions"].items() if c.get("error")]}
+        old_catalog = {"started": True, **catalog_coverage(progress["partitions"])}
     owned_client = client is None
     client = client or AnonymousClient(adapter, max_requests=args.max_requests, max_runtime=args.max_runtime,
                                        delay=args.delay, retries=args.retries)
@@ -569,6 +581,7 @@ def run_source(adapter, args, *, client=None):
                     tier_pages[tier] = tier_pages.get(tier, 0) + 1
                     if not result.complete or result.error:
                         cursor["error"] = result.error or "Incomplete catalog response"
+                        cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
@@ -579,12 +592,14 @@ def run_source(adapter, args, *, client=None):
                                               and signature == cursor.get("last_page_signature"))
                     if any(ident is None for ident in ids) or (ids and (signature in page_signatures or repeated_across_resume)):
                         cursor["error"] = "Invalid IDs or repeated catalog page"
+                        cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
                         break
                     if not ids and result.next_page is not None:
                         cursor["error"] = "Unexplained empty catalog page"
+                        cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
@@ -611,12 +626,23 @@ def run_source(adapter, args, *, client=None):
                         if refresh and not item.get("_detail_complete") and ident not in pending:
                             pending[ident] = None
                     cursor.pop("error", None)
+                    cursor.pop("error_page", None)
+                    skipped_rows = [row for row in cursor.get("skipped_rows", []) if row["page"] != page]
+                    skipped_rows.extend({**row, "page": page} for row in result.skipped_rows)
+                    if skipped_rows:
+                        cursor["skipped_rows"] = skipped_rows
+                    else:
+                        cursor.pop("skipped_rows", None)
+                    for row in result.skipped_rows:
+                        log(f"Catalog {key} page {page}, row {row['row']}, ID {row.get('id', 'unknown')}: "
+                            f"skipped ({row['error']}); continuing with valid rows")
                     if overlap and page < overlap_for:
                         cursor["overlap_checked_for"] = overlap_for
                     if result.next_page is None:
                         cursor["complete"] = True
                     elif not isinstance(result.next_page, int) or result.next_page <= page:
                         cursor["error"] = "Non-advancing catalog pagination"
+                        cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                     else:
                         cursor["next_page"] = result.next_page
@@ -631,10 +657,10 @@ def run_source(adapter, args, *, client=None):
                     if cursor.get("complete") or cursor.get("error"):
                         break
                     page = cursor["next_page"]
-            discovery_complete = all(cursors.get(p["key"], {}).get("complete") for p in partitions)
+            discovery_complete = (all(cursors.get(p["key"], {}).get("complete") for p in partitions)
+                                  and not any(c.get("skipped_rows") for c in cursors.values()))
             coverage["discovery_complete"] = discovery_complete
-            coverage["catalog"].update(discovery_complete=discovery_complete,
-                errors=[e for e in coverage["errors"] if "partition" in e])
+            coverage["catalog"].update(catalog_coverage(cursors))
             checkpoint(force=True)
             # Samples enrich their bounded discovery. Catalogs finish discovery first.
             discovery_settled = all(cursors.get(p["key"], {}).get("complete") or cursors.get(p["key"], {}).get("error") for p in partitions)
@@ -698,9 +724,7 @@ def run_source(adapter, args, *, client=None):
             progress["pass_complete"] = coverage["complete"]
         if args.mode != "rankings":
             cursors = progress.get("partitions", {})
-            coverage["catalog"].update(
-                discovery_complete=bool(cursors) and all(c.get("complete") for c in cursors.values()),
-                errors=[{"partition": k, "error": c["error"]} for k, c in cursors.items() if c.get("error")])
+            coverage["catalog"].update(catalog_coverage(cursors))
         coverage["catalog"]["has_complete_baseline"] = bool(
             old_catalog.get("has_complete_baseline") or previous_baseline or
             (args.mode == "catalog" and coverage["catalog"].get("discovery_complete")))

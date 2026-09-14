@@ -13,7 +13,7 @@ Environment:
     TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL; leave blank
                                to infer from model/key name
     TRANSLATION_OUTPUT_TOKEN_LIMIT - API completion token limit
-                                     (default: 8192)
+                                     (default: 16384)
     TRANSLATION_COMPRESSION_FACTOR - chunk divisor for output token limit
                                      (default: 2.0)
     MODEL                    - override model name (optional)
@@ -36,7 +36,7 @@ DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "gpt-5.6-luna"
 
 # API output cap and derived chunk size.
-DEFAULT_OUTPUT_TOKEN_LIMIT = 8_192
+DEFAULT_OUTPUT_TOKEN_LIMIT = 16_384
 DEFAULT_COMPRESSION_FACTOR = 2.0
 
 # Concurrency
@@ -515,11 +515,11 @@ def main():
     api_key = resolve_api_key(args.api_key_env, model)
     api_base_url = resolve_api_base_url(model, args.api_base_url)
     api_url = normalize_chat_completions_url(api_base_url)
-    output_token_limit = (
-        args.output_token_limit
-        or env_int("TRANSLATION_OUTPUT_TOKEN_LIMIT")
-        or DEFAULT_OUTPUT_TOKEN_LIMIT
-    )
+    output_token_limit = args.output_token_limit
+    if output_token_limit is None:
+        output_token_limit = env_int("TRANSLATION_OUTPUT_TOKEN_LIMIT")
+    if output_token_limit is None:
+        output_token_limit = DEFAULT_OUTPUT_TOKEN_LIMIT
     compression_factor = (
         args.compression_factor
         or env_float("TRANSLATION_COMPRESSION_FACTOR")

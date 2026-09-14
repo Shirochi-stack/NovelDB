@@ -32,9 +32,9 @@ on:
         default: '5'
         type: string
       output_token_limit:
-        description: 'Output token limit'
+        description: 'Max output tokens per request (positive integer; blank = repository variable or 16384)'
         required: false
-        default: '8192'
+        default: '16384'
         type: string
       compression_factor:
         description: 'Compression factor'
@@ -83,7 +83,7 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
-          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || '8192' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
         run: python scripts/translate_with_grok.py docs/data/tags_untranslated.txt --lang korean --type tags --model ${{ github.event.inputs.model || 'gpt-5.6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
