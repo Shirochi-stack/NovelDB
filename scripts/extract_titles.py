@@ -42,7 +42,7 @@ SOURCES = {
 
 # New adapters use normalized state so title changes invalidate stale English.
 # Existing source commands keep their original paths and behavior.
-NEW_METADATA_SOURCES = ("naver", "joara", "munpia", "ridi")
+NEW_METADATA_SOURCES = ("naver", "joara", "munpia", "ridi", "naverseries")
 for _source in NEW_METADATA_SOURCES:
     SOURCES[_source] = {
         "data": os.path.join("docs", "data", f"{_source}_novels.json"),

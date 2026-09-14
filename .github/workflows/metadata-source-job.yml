@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          case "$METADATA_SOURCE" in naver|joara|munpia|ridi) ;; *) exit 2 ;; esac
+          case "$METADATA_SOURCE" in naver|joara|munpia|ridi|naverseries) ;; *) exit 2 ;; esac
           case "$METADATA_OPERATION" in catalog|rankings|resume|build|translate) ;; *) exit 2 ;; esac
           stage=".cache/metadata-build/$METADATA_SOURCE"
           state="metadata/state"
@@ -145,7 +145,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          case "$METADATA_SOURCE" in naver|joara|munpia|ridi) ;; *) exit 2 ;; esac
+          case "$METADATA_SOURCE" in naver|joara|munpia|ridi|naverseries) ;; *) exit 2 ;; esac
           state_file="metadata/state/$METADATA_SOURCE.json.gz"
           if [ ! -f "$state_file" ]; then exit 0; fi
           python -c "import sys; sys.path.insert(0, 'scripts'); from metadata_common import load_state; load_state(sys.argv[1], 'metadata/state')" "$METADATA_SOURCE"

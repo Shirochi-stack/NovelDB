@@ -15,6 +15,13 @@ FIXTURES = Path(__file__).parent / "fixtures" / "metadata" / "joara"
 PARTITION = {"tier": "series", "store": "series", "catalog": "latest", "page_size": 2}
 
 
+def test_adult_verification_response_marks_age_without_fabricating_synopsis():
+    result = parse_detail({"status": 0, "message": "본 작품은 성인 콘텐츠가 포함되어 있습니다. 인증을 위해 로그인 후 이용하시기 바랍니다."},
+                          {"id": "976754", "title": "Known title"})
+    assert result.status == "restricted" and result.record["age"] == 19
+    assert result.record["title"] == "Known title" and "synopsis" not in result.record
+
+
 def test_latest_cursor_response_has_no_page_field_and_keeps_api_page_one():
     payload = fixture("catalog.json")
     payload.pop("page", None)

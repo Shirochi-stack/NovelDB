@@ -57,7 +57,7 @@ echo.
 echo Building available anonymous metadata source artifacts...
 echo   New sources are staged and validated before promotion.
 echo   Existing partial catalogs retain their coverage reports during this rebuild.
-for %%S in (naver joara munpia ridi) do (
+for %%S in (naver joara munpia ridi naverseries) do (
     if exist "metadata\state\%%S.json.gz" (
         python scripts/metadata_pipeline.py build --source %%S --output-dir ".cache/metadata-build/%%S" --state-dir metadata/state
         if errorlevel 1 goto :error

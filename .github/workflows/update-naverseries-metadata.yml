@@ -1,0 +1,40 @@
+name: Update Naver Series Metadata
+run-name: Naver Series metadata — ${{ inputs.operation || 'catalog' }}
+on:
+  schedule:
+    - cron: '0 8 * * 5'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        default: catalog
+        options: [catalog, build, resume]
+      workers:
+        description: Concurrent detail workers (1–16; host pacing remains 0.5s)
+        type: number
+        default: 4
+      auto_continue:
+        description: Continue budget-limited catalog collection automatically
+        type: boolean
+        default: true
+      expected_scan:
+        description: Internal continuation scan (leave blank for manual collection)
+        type: string
+      expected_revision:
+        description: Internal continuation checkpoint (leave blank for manual collection)
+        type: string
+permissions:
+  contents: write
+  pages: write
+jobs:
+  update:
+    uses: ./.github/workflows/metadata-source-job.yml
+    with:
+      source: naverseries
+      operation: ${{ inputs.operation || 'catalog' }}
+      # Dispatch numbers can arrive as strings; workflow_call validates the actual type.
+      workers: ${{ fromJSON(format('{0}', inputs.workers || 4)) }}
+      auto_continue: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_continue }}
+      expected_scan: ${{ inputs.expected_scan || '' }}
+      expected_revision: ${{ inputs.expected_revision || '' }}
+    secrets: inherit

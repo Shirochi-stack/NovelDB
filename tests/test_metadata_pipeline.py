@@ -12,7 +12,7 @@ from scripts import metadata_pipeline as pipeline
 
 def record(source="naver", ident="129"):
     urls = {"naver": "https://novel.naver.com/best/list?novelId=",
-            "joara": "https://www.joara.com/book/", "munpia": "https://www.munpia.com/novel/detail/", "ridi": "https://ridibooks.com/books/"}
+            "joara": "https://www.joara.com/book/", "munpia": "https://www.munpia.com/novel/detail/", "ridi": "https://ridibooks.com/books/", "naverseries": "https://series.naver.com/novel/detail.series?productNo="}
     return {"id": ident, "title": "제목|||원문", "author": "작가", "cover": "",
             "tags": ["판타지"], "genres": ["판타지"], "synopsis": "첫 줄\n둘째|||줄",
             "views": None, "likes": 0, "episodes": None, "complete": None,

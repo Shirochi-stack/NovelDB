@@ -41,6 +41,16 @@ class Client:
     log = []
 
 
+def test_catalog_without_native_rankings_can_complete(tmp_path):
+    class NoRankings(Adapter):
+        supports_rankings = False
+        def rankings(self, client, *, skip_keys=()):
+            pytest.fail("Unsupported rankings must not be collected")
+    result = m.run_source(NoRankings(), args(tmp_path, "--mode", "catalog"), client=Client())
+    assert result["coverage"]["complete"]
+    assert result["coverage"]["rankings"] == {"available": False, "complete": True, "boards": 0}
+
+
 def test_cursor_resume_migrates_numbered_checkpoint_and_preserves_records(tmp_path):
     state = m.empty_state("naver")
     state["records"]["99"] = {"id": "99", "title": "Saved", "translations": {"title": {"english": "Saved translation"}}}

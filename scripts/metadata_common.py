@@ -27,7 +27,7 @@ import requests
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_LABELS = {"naver": "Naver Web Novel", "munpia": "Munpia", "joara": "Joara", "ridi": "Ridibooks"}
+SOURCE_LABELS = {"naver": "Naver Web Novel", "munpia": "Munpia", "joara": "Joara", "ridi": "Ridibooks", "naverseries": "Naver Series"}
 FORMAT = "metadata-v1"
 FIELDS = ("id", "title", "author", "cover", "tags", "views", "likes", "episodes",
           "complete", "updated", "age", "canonical_url", "tier", "purchase_url",
@@ -638,6 +638,10 @@ def run_source(adapter, args, *, client=None):
                             # A truncated catalog preview cannot replace a last good
                             # synopsis while its full detail request is still pending.
                             observation = {k: v for k, v in item.items() if k != "synopsis"}
+                            if "synopsis_is_preview" in old:
+                                observation["synopsis_is_preview"] = old["synopsis_is_preview"]
+                                observation["metrics"] = {**item.get("metrics", {}),
+                                                          "synopsis_is_preview": old["synopsis_is_preview"]}
                         record = merge_record(state, observation, detail=enriched)
                         record["listing_fingerprint"] = fingerprint
                         if enriched:
@@ -690,7 +694,9 @@ def run_source(adapter, args, *, client=None):
             discovery_settled = all(cursors.get(p["key"], {}).get("complete") or cursors.get(p["key"], {}).get("error") for p in partitions)
             if args.mode == "sample" or discovery_settled:
                 fetch_details()
-        if args.mode in ("catalog", "rankings") and (args.mode == "rankings" or discovery_settled):
+        if not getattr(adapter, "supports_rankings", True):
+            coverage["rankings_complete"] = True
+        elif args.mode in ("catalog", "rankings") and (args.mode == "rankings" or discovery_settled):
             progress["phase"] = "rankings"
             log("Rankings: refreshing native boards")
             ranking_pass = progress.get("ranking_pass", {})
@@ -759,7 +765,8 @@ def run_source(adapter, args, *, client=None):
             (args.mode == "catalog" and coverage["catalog"].get("discovery_complete")))
         coverage["enrichment"] = {"pending": len(pending), "complete": not pending,
                                   "failed": sum(state["records"][i].get("history", {}).get("latest_outcome") == "failed" for i in pending)}
-        coverage["rankings"] = {"complete": bool(state["boards"]) and not any(b.get("stale") for b in state["boards"].values()),
+        coverage["rankings"] = {"available": getattr(adapter, "supports_rankings", True),
+                                "complete": not getattr(adapter, "supports_rankings", True) or bool(state["boards"]) and not any(b.get("stale") for b in state["boards"].values()),
                                 "boards": len(state["boards"])}
         coverage["status"] = "complete" if coverage["complete"] else "partial"
         coverage["continuation"] = {

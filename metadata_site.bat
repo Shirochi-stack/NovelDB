@@ -5,7 +5,7 @@ if "%~1"=="" goto :usage
 if "%~2"=="" goto :usage
 set "METADATA_SOURCE=%~1"
 set "METADATA_COMMAND=%~2"
-if /i not "%METADATA_SOURCE%"=="naver" if /i not "%METADATA_SOURCE%"=="joara" if /i not "%METADATA_SOURCE%"=="munpia" if /i not "%METADATA_SOURCE%"=="ridi" goto :usage
+if /i not "%METADATA_SOURCE%"=="naver" if /i not "%METADATA_SOURCE%"=="joara" if /i not "%METADATA_SOURCE%"=="munpia" if /i not "%METADATA_SOURCE%"=="ridi" if /i not "%METADATA_SOURCE%"=="naverseries" goto :usage
 set "METADATA_OUTPUT=.cache\metadata-build\%METADATA_SOURCE%"
 set "METADATA_STATE=metadata\state"
 if /i "%METADATA_COMMAND%"=="catalog" goto :collect
@@ -31,7 +31,7 @@ python scripts/metadata_pipeline.py "%METADATA_COMMAND%" --source "%METADATA_SOU
 exit /b %ERRORLEVEL%
 
 :usage
-echo Usage: metadata_site.bat naver^|joara^|munpia^|ridi catalog^|rankings^|resume^|prepare^|translate^|merge^|build^|promote
+echo Usage: metadata_site.bat naver^|joara^|munpia^|ridi^|naverseries catalog^|rankings^|resume^|prepare^|translate^|merge^|build^|promote
 echo Collection uses anonymous metadata only; translate explicitly invokes the configured translation API.
 echo Output is staged under .cache\metadata-build. Promotion validates source artifacts before copying them.
 echo For explicit preview directories or inspected partial promotion, use scripts/metadata_pipeline.py directly.

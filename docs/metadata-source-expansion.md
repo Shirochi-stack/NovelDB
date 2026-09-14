@@ -248,3 +248,19 @@ A live staged run collected 480 unique novels and 480 synopses, then built the c
 ```powershell
 python scripts/metadata_pipeline.py run --source ridi --mode sample --output-dir .cache/ridi-sample --state-dir .cache/ridi-state
 ```
+
+
+## R19 support and Naver Series (September 14)
+
+- **Ridibooks:** already collects explicit R19 flags and public synopses anonymously. A 240-record genre sample contained 106 R19 works with synopses.
+- **Naver Series (`naverseries`):** newly added as a separate source, preserving its independent product ID namespace. Collects eight public novel genre lists, including explicit `.n19` badges, titles, authors, ratings, volume/episode counts, and synopsis previews. A staged 50-record sample contained 38 R19 works; eight first-page genre probes returned 200 records, including 49 R19 listings. Full adult details redirected to Naver login/age verification; public previews remain available and are labelled “Synopsis preview” on the site. Tested non-adult details returned full synopses and an explicit age rating. No reader or account routes are fetched.
+- **Joara:** a known R19 detail request explicitly required login and verification. The parser now classifies that response as restricted and records age 19 for already-known works instead of reporting a generic parse failure. Anonymous adult-catalog discovery remains unimplemented.
+- **Munpia:** anonymous `adultOnly=true` requests returned HTTP 400 even with complete catalog parameters. `adultMode=true` with `adultOnly=false` returned the default public policy/catalog. Adult-specific discovery remains unverified and is not enabled.
+
+Series uses the common prepare/translate/build/promote stages, compressed synopsis shards, and the existing Audience → Adult Only (19+) filter. `Update Naver Series Metadata` collects weekly on Friday at 08:00 UTC and offers manual catalog/build/resume. The shared translation workflow accepts `naverseries`. No native Series ranking board was verified, so catalog sorting is not presented as a ranking. Sources that explicitly lack ranking support can complete catalog collection without fabricated ranking data.
+
+```powershell
+python scripts/metadata_pipeline.py run --source naverseries --mode sample --output-dir .cache/naverseries-sample --state-dir .cache/naverseries-state
+```
+
+Live validation used staging only; no production catalog or translation API was changed.

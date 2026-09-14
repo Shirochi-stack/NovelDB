@@ -33,7 +33,7 @@ A fork of that enhances the user experience and output quality. This version add
 
 ## 🌐 NovelDB Metadata Website
 
-This repository also contains **NovelDB**, a static search website in `docs/`. Its metadata pipeline supports Novelpia, Kakao Page, SFACG, Naver Web Novel, Munpia, Joara, and Ridibooks. Users search and filter listings, read synopses, and follow links to the original platforms. New sources become selectable when their validated catalogs are published.
+This repository also contains **NovelDB**, a static search website in `docs/`. Its metadata pipeline supports Novelpia, Kakao Page, SFACG, Naver Web Novel, Munpia, Joara, Ridibooks, and Naver Series. Users search and filter listings, read synopses, and follow links to the original platforms. New sources become selectable when their validated catalogs are published.
 
 Ridibooks uses a fresh browser-compatible HTTP session for its public API. Live checks collected 480 novels with synopses and verified all four webnovel genres. Its category API limits offsets to below 6,000, so larger catalogs remain explicitly partial. Joara latest-list scans now use persistent continuation cursors, verified past the old page-101 failure. Resume migrates old checkpoints while preserving saved novels and translations.
 
@@ -42,11 +42,13 @@ Ridibooks uses a fresh browser-compatible HTTP session for its public API. Live 
 
 For a bounded staged sample, run `python scripts/metadata_pipeline.py run --source naver --mode sample --output-dir .cache/naver-sample --state-dir .cache/naver-state` (also supports `munpia`, `joara`, and `ridi`). Add `--dry-run` for zero requests and zero writes. Collection and local builds do not publish; translation and promotion are explicit operations. Implementation verification used anonymous samples and mocked translation, with existing production data unchanged.
 
-**Translation setup:** add `OPENAI_API_KEY` under GitHub **Settings → Secrets and variables → Actions → New repository secret**. All seven sources now default to `gpt-5.6-luna`; existing English is retained and only missing/changed originals enter the queue. Explicit provider/model overrides remain supported.
+**Translation setup:** add `OPENAI_API_KEY` under GitHub **Settings → Secrets and variables → Actions → New repository secret**. All eight sources now default to `gpt-5.6-luna`; existing English is retained and only missing/changed originals enter the queue. Explicit provider/model overrides remain supported.
 
 For Naver, Munpia, Joara, and Ridibooks, choose **catalog** to collect/resume discovery and details, **rankings** for native boards, **build** to repackage saved state, or **resume** to continue saved collection. Catalog runs discover listings before detail enrichment, use four continuously refilled detail workers by default, and save every 60 seconds or 500 changed records plus phase boundaries. A five-hour budget is a resumable limit, not a claim of full coverage. With **auto_continue** enabled (default), a progressing budget-limited catalog is queued again after the translation attempt; failures, coverage limitations, cancellation, and no progress stop the chain. See the integration guide for recovery and coverage meanings.
 
 The website preserves cards and covers while chunks arrive. **Load Synopsis** defaults on and persists across refreshes; turn it off to skip synopsis shards and description-bearing top bundles. Naver, Munpia, Joara, and Ridibooks still use `.json.gz` catalog chunks, gzip corpora/top bundles, and 128 compressed synopsis shards per source.
+
+Naver Series (`naverseries`) is a separate source with public R19 listing metadata. Full adult details require verification; available catalog text is labelled as a synopsis preview. See the integration guide for tested R19 support and limitations.
 
 The website metadata pipeline is separate from the desktop novel downloader described below.
 

@@ -150,6 +150,11 @@ def _listing_response(payload, page):
 
 
 def parse_detail(payload, previous):
+    if isinstance(payload, dict) and payload.get("status") == 0:
+        message = str(payload.get("message") or "")
+        if "성인 콘텐츠" in message and "로그인" in message:
+            return MetadataResult(status="restricted", record={**previous, "age": 19},
+                                  reason="Joara requires login and age verification for adult metadata")
     if not isinstance(payload, dict) or payload.get("status") != 1:
         return MetadataResult(status="failed", reason="Joara rejected the metadata request")
     book = payload.get("book")

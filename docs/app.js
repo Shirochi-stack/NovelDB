@@ -6150,6 +6150,7 @@
         const novelSource = n.source || currentSource;
         card.dataset.source = novelSource;
         card.dataset.novelId = String(n.id);
+        card.dataset.synopsisPreview = String(!!n.metrics?.synopsis_is_preview);
         const cfg = SOURCES[novelSource] || SOURCES.novelpia;
         const cardLink = n.canonicalUrl || `${cfg.linkPrefix}${n.id}`;
 
@@ -6201,7 +6202,7 @@
             : "";
 
         const synopsisHTML = descriptionsEnabled && savedSynopsis ? `
-                <div class="card-synopsis"><span class="synopsis-label">Synopsis:</span> ${escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</div>` : "";
+                <div class="card-synopsis"><span class="synopsis-label">${n.metrics?.synopsis_is_preview ? "Synopsis preview:" : "Synopsis:"}</span> ${escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</div>` : "";
         if (!savedSynopsis) card.dataset.needsSynopsis = "true";
         else delete card.dataset.needsSynopsis;
         const statsHTML = n.metadataV1
@@ -6726,6 +6727,10 @@
             label: "Ridibooks", format: "metadata-v1", manifestUrl: "data/ridi_chunk_manifest.json",
             linkHosts: ["ridibooks.com"],
         },
+        naverseries: {
+            label: "Naver Series", format: "metadata-v1", manifestUrl: "data/naverseries_chunk_manifest.json",
+            linkHosts: ["series.naver.com"],
+        },
     };
 
     let currentSource = "novelpia";
@@ -6953,7 +6958,7 @@
             synopsisEl.className = "card-synopsis";
             body.appendChild(synopsisEl);
         }
-        synopsisEl.innerHTML = `<span class="synopsis-label">Synopsis:</span> ${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}`;
+        synopsisEl.innerHTML = `<span class="synopsis-label">${card.dataset.synopsisPreview === "true" ? "Synopsis preview:" : "Synopsis:"}</span> ${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}`;
         delete card.dataset.needsSynopsis;
     }
 
