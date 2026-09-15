@@ -100,7 +100,8 @@ def test_skipped_catalog_rows_preserve_later_pages_and_partial_coverage(tmp_path
                 result.skipped_rows = [{"row": 2, "id": "99", "error": "Title unavailable in public catalog"}]
             return result
     report = m.run_source(MissingTitle(), args(tmp_path, "--mode", "catalog"), client=Client())
-    assert seen == [1, 2, 3] and report["records"] == 3
+    # Numbered catalogs may prefetch up to workers-1 pages past the end.
+    assert {1, 2, 3}.issubset(seen) and max(seen) <= 6 and report["records"] == 3
     catalog = report["coverage"]["catalog"]
     assert not catalog["errors"]
     assert catalog["skipped_rows"] == [{"partition": "best", "page": 1, "row": 2, "id": "99",

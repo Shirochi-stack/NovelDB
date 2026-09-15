@@ -133,7 +133,7 @@ def test_promote_changes_only_source_and_explicit_shared_tags(built, tmp_path):
         (target / name).write_bytes(b"existing source data")
     (target / "tags_en.txt").write_text("existing|||Original\n", encoding="utf-8")
     (output / "joara_novels.json").write_bytes(b"foreign staged data")
-    (output / "tags_en.txt").write_text("existing|||Changed\nnew|||New\n", encoding="utf-8")
+    pipeline.write_tags(output, {"existing": "Changed", "new": "New"})
     old = {path.name: path.read_bytes() for path in target.iterdir()}
     pipeline.promote("naver", output, target)
     assert all((target / name).read_bytes() == raw for name, raw in old.items())

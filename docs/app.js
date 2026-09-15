@@ -5992,9 +5992,7 @@
     }
 
     // Handle browser back/forward — restore from URL hash
-    window.addEventListener("hashchange", () => {
-        restoreFromHash();
-    });
+    window.addEventListener("hashchange", restoreFromHash);
 
     // === Rank helper: picks the right rank field based on audience ===
     // all     → all/plus ranks
@@ -6138,6 +6136,7 @@
         displayCount = BATCH;
         if (resetPage) { currentPage = 1; catalogRequestedPage = null; }
         render(fade);
+        if (options.saveState !== false) saveState();
     }
 
     // === Render Cards ===
@@ -7340,7 +7339,6 @@
         }
     }
     // === State persistence via URL hash ===
-    let _lastHash = window.location.hash;
     function saveState() {
         const state = {};
         if (activeAuthorFilter) state.author = activeAuthorFilter;
@@ -7361,9 +7359,8 @@
             ? "#" + Object.entries(state).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")
             : "";
         const newHash = hash || window.location.pathname + window.location.search;
-        if (_lastHash !== hash) {
+        if (window.location.hash !== hash) {
             history.pushState(null, "", newHash);
-            _lastHash = hash;
         }
     }
 
@@ -7429,12 +7426,11 @@
             }
         }
 
-        _lastHash = window.location.hash;
         updateActiveTagsSummary();
         const source = params.src && SOURCES[params.src] ? params.src : "all";
         sourceSelect.value = source;
         if (source !== currentSource) loadSource(source, true);
-        else _origApplyFilters({ resetPage: false });
+        else applyFilters({ resetPage: false, saveState: false });
     }
 
     function restoreState() {
@@ -7465,13 +7461,6 @@
     const savedParams = restoreState();
     const initialSource = sourceSelect.value;
     const hasRestoredState = savedParams && Object.keys(savedParams).length > 0;
-
-    // Wrap original applyFilters to auto-save state
-    const _origApplyFilters = applyFilters;
-    applyFilters = function(options) {
-        _origApplyFilters(options);
-        saveState();
-    };
 
     // Source change listener
     sourceSelect.addEventListener("change", () => {

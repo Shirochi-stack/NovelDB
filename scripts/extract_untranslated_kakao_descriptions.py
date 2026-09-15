@@ -5,9 +5,14 @@ Creates: docs/data/kakao_descriptions_untranslated.txt
 
 import gzip, os, re, sys
 
+try:
+    from .kakao_descriptions import open_text as open_descriptions
+except ImportError:
+    from kakao_descriptions import open_text as open_descriptions
+
 sys.stdout.reconfigure(encoding="utf-8")
 
-SRC = os.path.join("docs", "data", "kakao_descriptions.txt")
+SRC = os.path.join("docs", "data", "kakao_descriptions.txt.gz")
 OUT = os.path.join("docs", "data", "kakao_descriptions_untranslated.txt")
 
 
@@ -23,15 +28,6 @@ def has_cjk(text):
     )
 
 
-if not os.path.exists(SRC) and os.path.exists(SRC + ".gz"):
-    print(f"Decompressing {SRC}.gz -> {SRC}")
-    with gzip.open(SRC + ".gz", "rb") as gz_in:
-        with open(SRC, "wb") as f_out:
-            f_out.write(gz_in.read())
-
-if not os.path.exists(SRC):
-    print(f"Error: {SRC} not found.")
-    sys.exit(1)
 
 
 def is_mostly_english(text):
@@ -57,7 +53,7 @@ def is_trivial(text):
 
 lines = []
 fixed_count = 0
-with open(SRC, "r", encoding="utf-8") as f:
+with open_descriptions(SRC, "r", encoding="utf-8") as f:
     for line in f:
         stripped = line.rstrip("\r\n")
         if not stripped:
@@ -82,7 +78,7 @@ with open(SRC, "r", encoding="utf-8") as f:
         lines.append(stripped)
 
 if fixed_count:
-    with open(SRC, "w", encoding="utf-8") as f:
+    with open_descriptions(SRC, "w", encoding="utf-8") as f:
         for line in lines:
             f.write(line + "\n")
     print(f"Fixed {fixed_count} rows with || delimiter")
@@ -90,7 +86,7 @@ if fixed_count:
 count = 0
 skipped_english = 0
 skipped_junk = 0
-with open(SRC, "r", encoding="utf-8") as f, open(OUT, "w", encoding="utf-8") as out:
+with open_descriptions(SRC, "r", encoding="utf-8") as f, open(OUT, "w", encoding="utf-8") as out:
     for line in f:
         stripped = line.rstrip("\r\n")
         if not stripped:

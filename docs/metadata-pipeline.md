@@ -433,3 +433,10 @@ Bounded September 14 samples collected 60 Naver, 40 Munpia and 59 Joara records 
 ### Ridibooks and Joara cursor update
 
 Ridibooks (`ridi`) is the fourth metadata-v1 source and seventh platform. Its four webnovel genres, native weekly/monthly bestseller boards, workflows, translation, and artifact format use the common pipeline. Ridibooks uses `curl_cffi` browser-compatible connections to resolve standard Requests HTTP 403 failures. Live collection and packaging passed; the API still limits each category to offsets below 6,000, reported as partial coverage for larger catalogs. See [source scope and access status](metadata-source-expansion.md#ridibooks-integration-september-14). Joara latest lists now persist opaque continuation cursors; Resume migrates old numbered checkpoints while retaining records and translations.
+
+
+### Reliable catalog collection and recovery
+
+See [publishing and recovery](metadata-recovery.md) for parallel catalog workers,
+pre-publication backups, automatic checkpoint recovery, gzip-native Kakao
+descriptions, and shared Korean tag translation.

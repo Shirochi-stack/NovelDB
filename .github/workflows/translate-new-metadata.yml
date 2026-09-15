@@ -10,6 +10,9 @@ on:
         required: true
         type: choice
         options: [naver, joara, munpia, ridi, naverseries]
+      recovery_run_id:
+        description: Optional failed run checkpoint to recover
+        type: string
       model:
         description: Translation model (OPENAI_API_KEY for Luna)
         type: string
@@ -67,6 +70,7 @@ jobs:
     with:
       source: ${{ needs.context.outputs.source }}
       operation: translate
+      recovery_run_id: ${{ inputs.recovery_run_id || '' }}
       model: ${{ inputs.model || 'gpt-5.6-luna' }}
       output_token_limit: ${{ inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
     secrets: inherit

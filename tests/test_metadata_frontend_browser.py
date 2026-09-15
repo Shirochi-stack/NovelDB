@@ -12,6 +12,66 @@ DOCS = Path(__file__).resolve().parents[1] / "docs"
 SOURCES = ("novelpia", "kakao", "sfacg", "naver", "joara", "munpia", "ridi", "naverseries")
 
 
+def test_sort_changes_update_url_refresh_and_browser_history():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route('**/*', FixtureSite(delay_naver=True).route)
+            await page.goto('http://metadata.test/#sort=updated&src=novelpia')
+            await wait_loaded(page)
+            assert await page.locator('#sortSelect').input_value() == 'updated'
+            await page.locator('#sortSelect').select_option('daily')
+            assert 'sort=' not in page.url and 'src=novelpia' in page.url
+            await page.reload()
+            await wait_loaded(page)
+            assert await page.locator('#sortSelect').input_value() == 'daily'
+            await page.locator('#sortSelect').select_option('weekly')
+            assert 'sort=weekly' in page.url
+            await page.go_back()
+            await page.wait_for_function('document.querySelector("#sortSelect").value === "daily"')
+            await page.go_forward()
+            await page.wait_for_function('document.querySelector("#sortSelect").value === "weekly"')
+            await page.locator('#sourceSelect').select_option('naver')
+            await page.locator('#sortSelect').select_option('updated')
+            await wait_loaded(page)
+            assert 'sort=updated' in page.url
+            await page.locator('#sortSelect').select_option('daily')
+            assert 'sort=updated' not in page.url
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_joara_and_ridi_use_shared_tags_in_cards_and_filters(monkeypatch):
+    original_row = row
+    def tagged_row(source, ident=7, known=False, completed=False):
+        result = original_row(source, ident, known, completed)
+        if source in ('joara', 'ridi'):
+            result[4] = ['검증전용태그']
+        return result
+    monkeypatch.setitem(globals(), 'row', tagged_row)
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            fixture = FixtureSite()
+            async def route(request):
+                if urlsplit(request.request.url).path.endswith('/tags_en.txt.gz'):
+                    await request.fulfill(body=gzip.compress('검증전용태그|||Shared translated tag\n'.encode()), content_type='application/gzip')
+                else:
+                    await fixture.route(request)
+            await page.route('**/*', route)
+            for source in ('joara', 'ridi'):
+                await page.goto(f'http://metadata.test/#src={source}')
+                await wait_loaded(page)
+                chip = page.locator('.card-tag', has_text='Shared translated tag').first
+                await chip.click()
+                assert 'Shared translated tag' in await page.locator('#activeTagsSummary').inner_text()
+                assert await page.locator('.novel-card').count() > 0
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def row(source, ident=7, known=False, completed=False):
     if source == "novelpia":
         return [ident, "Novelpia original", "Author", "", [], 100, 8, 3, 0, "2026-01-01", 1, 0, 1, 1, 0, 0, 0, 1, 1, 1]

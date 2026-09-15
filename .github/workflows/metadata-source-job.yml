@@ -16,6 +16,9 @@ on:
       auto_continue:
         type: boolean
         default: true
+      recovery_run_id:
+        type: string
+        default: ''
       expected_scan:
         type: string
         default: ''
@@ -33,6 +36,7 @@ on:
 permissions:
   contents: write
   pages: write
+  actions: read
 
 # The caller must not claim the same lock while awaiting this reusable job.
 concurrency:
@@ -47,6 +51,8 @@ jobs:
       PYTHONUNBUFFERED: '1'
       METADATA_WORKERS: ${{ inputs.workers }}
       AUTO_CONTINUE: ${{ inputs.auto_continue }}
+      GH_TOKEN: ${{ github.token }}
+      RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
       EXPECTED_SCAN: ${{ inputs.expected_scan }}
       EXPECTED_REVISION: ${{ inputs.expected_revision }}
       MODEL: ${{ inputs.model }}
@@ -61,11 +67,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install metadata dependencies
         run: python -m pip install requests beautifulsoup4 tiktoken "curl_cffi>=0.14.0,<0.15"
+      - name: Restore unpublished source progress
+        if: inputs.operation != 'rankings'
+        run: python scripts/metadata_recovery.py restore --source "$METADATA_SOURCE"
       - name: Check continuation checkpoint
         id: guard
         run: python scripts/metadata_workflow.py guard --source "$METADATA_SOURCE" --output-dir ".cache/metadata-build/$METADATA_SOURCE"
@@ -103,8 +113,22 @@ jobs:
           else
             python scripts/metadata_pipeline.py promote --source "$METADATA_SOURCE" --output-dir "$stage" --target-dir docs/data --allow-partial
           fi
+      - name: Snapshot source recovery inputs
+        if: always() && steps.guard.outputs.allowed == 'true'
+        run: python scripts/metadata_recovery.py snapshot --source "$METADATA_SOURCE"
+      - name: Back up source before publication
+        id: backup
+        if: always() && steps.guard.outputs.allowed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-${{ inputs.source }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/recovery/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
       - name: Commit original metadata or translated metadata independently
-        if: steps.guard.outputs.allowed == 'true'
+        id: publish
+        if: success() && steps.guard.outputs.allowed == 'true' && steps.backup.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -117,10 +141,7 @@ jobs:
               git add -- docs/data/tags_extra.json.gz
             fi
           fi
-          if ! git diff --cached --quiet; then
-            git commit -m "Update $METADATA_SOURCE metadata ($METADATA_OPERATION)"
-            git push
-          fi
+          python scripts/publish_metadata.py --message "Update $METADATA_SOURCE metadata ($METADATA_OPERATION)"
       # Bot pushes do not start a branch-based Pages build. Request one explicitly
       # after the successful push, including on no-change reruns after a build failure.
       - name: Request GitHub Pages build
@@ -140,26 +161,11 @@ jobs:
             const { data: build } = await github.request('POST /repos/{owner}/{repo}/pages/builds', context.repo);
             core.info(`GitHub Pages build requested for ${site.source.branch}${site.source.path}: ${build.status}`);
             core.setOutput('status', build.status);
-      - name: Preserve durable source progress after a failed run
-        if: failure()
-        shell: bash
+      - name: Report durability
+        if: always()
         run: |
-          set -euo pipefail
-          case "$METADATA_SOURCE" in naver|joara|munpia|ridi|naverseries) ;; *) exit 2 ;; esac
-          state_file="metadata/state/$METADATA_SOURCE.json.gz"
-          if [ ! -f "$state_file" ]; then exit 0; fi
-          python -c "import sys; sys.path.insert(0, 'scripts'); from metadata_common import load_state; load_state(sys.argv[1], 'metadata/state')" "$METADATA_SOURCE"
-          stage=".cache/metadata-build/$METADATA_SOURCE"
-          if [ "$METADATA_OPERATION" = translate ] && [ -d "$stage" ]; then
-            python scripts/metadata_pipeline.py merge --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir metadata/state
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -- "$state_file"
-          if ! git diff --cached --quiet -- "$state_file"; then
-            git commit --only -m "Preserve $METADATA_SOURCE metadata progress after failure" -- "$state_file"
-            git push
-          fi
+          echo "Recovery backup: ${{ steps.backup.outcome }}; publication: ${{ steps.publish.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Recovery artifacts: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
       - name: Summarize collection and continuation
         if: always()
         env:
@@ -172,14 +178,14 @@ jobs:
           name: metadata-continuation-${{ github.run_id }}
           path: .cache/metadata-build/${{ inputs.source }}/continuation.json
           include-hidden-files: true
-          retention-days: 14
+          retention-days: 30
       - name: Preserve source progress and coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: metadata-${{ inputs.source }}-${{ github.run_id }}
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 30
           include-hidden-files: true
           path: |
             metadata/state/${{ inputs.source }}.json.gz

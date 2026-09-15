@@ -24,3 +24,6 @@ tmp_facebook_apk/
 tmp_sfacg_apk/
 
 *.epub
+
+# Kakao descriptions are stored and processed as gzip.
+docs/data/kakao_descriptions.txt

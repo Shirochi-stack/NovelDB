@@ -1,99 +1,40 @@
-"""Extract untranslated Novelpia tags.
+"""Extract untranslated tags from every Korean catalog into one shared queue."""
+import argparse
+import json
+from pathlib import Path
 
-Reads all unique tags from docs/data/novels.json, checks which ones are
-already translated in docs/data/tags_en.txt or the legacy app.js TAG_MAP,
-and outputs untranslated tags
-to docs/data/tags_untranslated.txt in the ID|||ORIGINAL||| format.
+try:
+    from .metadata_pipeline import known_tags, clean_field
+    from .tag_helpers import pending_tags, legacy_tags
+except ImportError:
+    from metadata_pipeline import known_tags, clean_field
+    from tag_helpers import pending_tags, legacy_tags
 
-Uses a sequential numeric ID as tag identifier.
-"""
-import re, json, sys, os
-
-sys.stdout.reconfigure(encoding="utf-8")
-
-NOVELS_PATH = os.path.join("docs", "data", "novels.json")
-APP_JS_PATH = os.path.join("docs", "app.js")
-TAGS_FILE   = os.path.join("docs", "data", "tags_en.txt")
-OUT_PATH    = os.path.join("docs", "data", "tags_untranslated.txt")
+# Kept for consumers importing the legacy helper.
+load_tag_map_from_js = legacy_tags
+SOURCES = ('novelpia', 'kakao', 'naver', 'joara', 'munpia', 'ridi', 'naverseries')
 
 
-def load_tag_map_from_js(path):
-    """Parse existing TAG_MAP entries from app.js."""
-    text = open(path, encoding="utf-8").read()
-    m = re.search(r'const TAG_MAP = \{(.+?)\};', text, re.DOTALL)
-    if not m:
-        print("Warning: TAG_MAP not found in app.js")
-        return {}
-    pairs = re.findall(r'"([^"]+)":\s*"([^"]+)"', m.group(1))
-    return dict(pairs)
+def extract(data_dir):
+    data_dir = Path(data_dir)
+    records = []
+    for source in SOURCES:
+        path = data_dir / ('novels.json' if source == 'novelpia' else f'{source}_novels.json')
+        if not path.exists():
+            continue
+        rows = json.loads(path.read_text(encoding='utf-8'))
+        records.extend({'tags': row[4]} for row in rows if len(row) > 4 and isinstance(row[4], list))
+    known = known_tags(data_dir, data_dir / 'tags_en.txt')
+    for tag, english in legacy_tags(data_dir.parent / 'app.js').items():
+        known.setdefault(tag, english)
+    tags = pending_tags(records, known)
+    output = data_dir / 'tags_untranslated.txt'
+    output.write_text(''.join(f'{i}|||{clean_field(tag)}|||\n' for i, tag in enumerate(tags)), encoding='utf-8')
+    print(f'Extracted {len(tags)} untranslated tags across Korean catalogs')
+    return tags
 
 
-def load_tag_map_from_file(path):
-    """Load translated tags from tags_en.txt (tag|||translation format)."""
-    if not os.path.exists(path):
-        return {}
-    result = {}
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            stripped = line.rstrip("\r\n")
-            if not stripped or "|||" not in stripped:
-                continue
-            parts = stripped.split("|||")
-            tag = parts[0].strip()
-            translation = parts[1].strip() if len(parts) >= 2 else ""
-            if tag and translation:
-                result[tag] = translation
-    return result
-
-
-def main():
-    if not os.path.exists(NOVELS_PATH):
-        print(f"Error: {NOVELS_PATH} not found"); sys.exit(1)
-
-    # Collect all unique tags from novels.json
-    novels = json.load(open(NOVELS_PATH, encoding="utf-8"))
-    tag_counts = {}
-    for n in novels:
-        tags = n[4] if len(n) > 4 else []
-        for t in tags:
-            tag_counts[t] = tag_counts.get(t, 0) + 1
-
-    print(f"Total unique tags in novels.json: {len(tag_counts)}")
-
-    # Load already-translated tags from the persistent file and legacy bundled map.
-    translated = {}
-    if os.path.exists(APP_JS_PATH):
-        translated.update(load_tag_map_from_js(APP_JS_PATH))
-    if os.path.exists(TAGS_FILE):
-        translated.update(load_tag_map_from_file(TAGS_FILE))
-    print(f"Already translated: {len(translated)}")
-
-    # Find untranslated tags, sorted by frequency (most common first)
-    # Filter out junk: pure numbers, single characters, empty/whitespace
-    def is_valid_tag(tag):
-        if not tag or not tag.strip():
-            return False
-        if tag.isdigit():
-            return False
-        if len(tag) == 1 and not tag.isalpha():
-            return False
-        return True
-
-    untranslated = {t: c for t, c in tag_counts.items()
-                    if t not in translated and is_valid_tag(t)}
-    sorted_tags = sorted(untranslated.items(), key=lambda x: -x[1])
-
-    # Write in ID|||ORIGINAL||| format (ID = sequential number)
-    with open(OUT_PATH, "w", encoding="utf-8") as f:
-        for i, (tag, count) in enumerate(sorted_tags):
-            f.write(f"{i}|||{tag}|||\n")
-
-    print(f"Extracted {len(sorted_tags)} untranslated tags to {OUT_PATH}")
-    if sorted_tags:
-        print(f"  Top 10 by frequency:")
-        for tag, count in sorted_tags[:10]:
-            print(f"    {tag} ({count} novels)")
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data-dir', default='docs/data')
+    extract(parser.parse_args().data_dir)

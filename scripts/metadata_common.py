@@ -562,43 +562,26 @@ def run_source(adapter, args, *, client=None):
             if not partitions:
                 raise ValueError("No anonymous catalog partitions were discovered")
             cursors = progress.setdefault("partitions", {})
-            tier_pages = {}
-            for partition in partitions:
-                key, tier = partition["key"], partition["tier"]
-                cursor = cursors.setdefault(key, {"next_page": partition["start_page"], "complete": False})
-                cursor_mode = partition.get("pagination")
-                if cursor_mode and cursor.get("pagination") != cursor_mode:
-                    # Numbered-page checkpoints cannot identify an opaque API cursor.
-                    # Restart only this partition, retaining known novels/translations.
-                    cursor.clear()
-                    cursor.update(next_page=partition["start_page"], complete=False,
-                                  pagination=cursor_mode, cursor_point="")
-                if cursor.get("complete"):
-                    continue
-                # Revisit one page once per cursor. Persisting that overlap prevents
-                # a one-page/request-bounded resume from getting stuck forever.
-                overlap_for = cursor["next_page"]
-                overlap = not cursor_mode and args.resume and cursor.get("overlap_checked_for") != overlap_for
-                page = max(partition["start_page"], overlap_for - (1 if overlap else 0))
-                page_signatures = set()
-                while args.max_pages is None or tier_pages.get(tier, 0) < args.max_pages:
-                    try:
-                        if cursor_mode:
-                            partition["cursor_point"] = cursor.get("cursor_point", "")
-                        result = adapter.fetch_page(client, partition, page)
-                    except BudgetExceeded:
-                        raise
-                    except Exception as exc:
-                        result = CatalogPage([], None, False, type(exc).__name__ + ": catalog request failed")
+            try:
+                from .metadata_pages import catalog_pages
+            except ImportError:
+                from metadata_pages import catalog_pages
+            from contextlib import closing
+            with closing(catalog_pages(adapter, client, partitions, cursors, args, log)) as pages:
+                for job, page, result in pages:
+                    partition, cursor = job["partition"], job["cursor"]
+                    key, tier = partition["key"], partition["tier"]
+                    cursor_mode = partition.get("pagination")
+                    overlap, overlap_for = job["overlap"], job["overlap_for"]
+                    page_signatures = job["signatures"]
                     coverage["pages"] += 1
-                    tier_pages[tier] = tier_pages.get(tier, 0) + 1
                     if not result.complete or result.error:
                         cursor["error"] = result.error or "Incomplete catalog response"
                         cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
-                        break
+                        continue
                     if cursor_mode and result.next_page is not None and (
                             not isinstance(result.next_cursor, str) or not result.next_cursor
                             or result.next_cursor == cursor.get("cursor_point")):
@@ -607,7 +590,7 @@ def run_source(adapter, args, *, client=None):
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
-                        break
+                        continue
                     ids = [valid_id(item.get("id")) for item in result.records]
                     signature = hashlib.sha256(json.dumps(sorted(set(ids), key=str)).encode()).hexdigest()
                     repeated_across_resume = (page != cursor.get("last_page")
@@ -618,14 +601,14 @@ def run_source(adapter, args, *, client=None):
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
-                        break
+                        continue
                     if not ids and result.next_page is not None:
                         cursor["error"] = "Unexplained empty catalog page"
                         cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
-                        break
+                        continue
                     page_signatures.add(signature)
                     before_count = len(state["records"])
                     for item, ident in zip(result.records, ids):
@@ -682,9 +665,6 @@ def run_source(adapter, args, *, client=None):
                         f"upstream total={result.observed_total}; next={result.next_page}; "
                         f"{coverage['pages']*60/max(.001, time.monotonic()-started):.1f} pages/min")
                     checkpoint()
-                    if cursor.get("complete") or cursor.get("error"):
-                        break
-                    page = cursor["next_page"]
             discovery_complete = (all(cursors.get(p["key"], {}).get("complete") for p in partitions)
                                   and not any(c.get("skipped_rows") for c in cursors.values()))
             coverage["discovery_complete"] = discovery_complete

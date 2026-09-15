@@ -1,4 +1,4 @@
-name: Translate Novelpia Tags
+name: Translate Korean Catalog Tags
 
 on:
   workflow_run:
@@ -44,6 +44,7 @@ on:
 
 permissions:
   contents: write
+  pages: write
 
 concurrency:
   group: data-write-lock
@@ -59,6 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -93,16 +95,34 @@ jobs:
       - name: Re-chunk Novelpia data
         run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
 
-      - name: Check for changes
-        id: changes
-        run: |
-          git diff --quiet docs/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+      - name: Snapshot recovery inputs
+        if: always()
+        run: python scripts/metadata_recovery.py snapshot --source tags
+
+      - name: Back up before publication
+        id: backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-tags-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/recovery/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Commit and push
-        if: steps.changes.outputs.changed == 'true'
+        id: publish
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/tags_en.txt docs/data/tags_en.txt.gz docs/data/novelpia_chunk_*.json.gz docs/data/novelpia_chunk_manifest.json
-          git commit -m "🏷️ Translate Npia tags ($(date -u +%Y-%m-%d))"
-          git push
+          git add -A -- 'docs/data/tags*' 'docs/data/novelpia_chunk*'
+          python scripts/publish_metadata.py --message "Translate Korean catalog tags"
+      - name: Refresh GitHub Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST "repos/${{ github.repository }}/pages/builds"
+      - name: Report durability
+        if: always()
+        run: |
+          echo "Recovery backup: ${{ steps.backup.outcome }}; publication: ${{ steps.publish.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Recovery artifacts: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"

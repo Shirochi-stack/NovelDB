@@ -65,13 +65,15 @@ test('a rejected Pages build fails the action instead of reporting publication s
 test('build trigger runs after successful pushes, including no-change reruns, never in failure cleanup', () => {
     const commit = shared.indexOf('- name: Commit original metadata or translated metadata independently');
     const trigger = shared.indexOf('- name: Request GitHub Pages build');
-    const cleanup = shared.indexOf('- name: Preserve durable source progress after a failed run');
-    assert.ok(commit >= 0 && trigger > commit && cleanup > trigger);
+    const cleanup = shared.indexOf('- name: Report durability');
+    const backup = shared.indexOf('- name: Back up source before publication');
+    assert.ok(backup >= 0 && commit > backup && trigger > commit && cleanup > trigger);
     const block = shared.slice(trigger, cleanup);
     assert.match(block, /uses: actions\/github-script@v7/);
     assert.match(block, /if: steps.guard.outputs.allowed/);
     assert.doesNotMatch(block, /continue-on-error:|git diff/);
-    assert.match(shared.slice(commit, trigger), /git push\s+fi/);
+    assert.match(shared.slice(commit, trigger), /python scripts\/publish_metadata.py/);
+    assert.match(shared.slice(commit, trigger), /steps.backup.outcome == 'success'/);
 });
 
 test('all metadata and translation callers grant the reusable workflow Pages write permission', () => {

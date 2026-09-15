@@ -9,11 +9,15 @@ Format: novel_id|||korean_synopsis|||english_translation
 """
 
 import gzip, json, os, re, sys
+try:
+    from .kakao_descriptions import open_text as open_descriptions, read_rows
+except ImportError:
+    from kakao_descriptions import open_text as open_descriptions, read_rows
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 DATA = os.path.join("docs", "data", "kakao_novels.json")
-OUTPUT = os.path.join("docs", "data", "kakao_descriptions.txt")
+OUTPUT = os.path.join("docs", "data", "kakao_descriptions.txt.gz")
 DESCRIPTION_INDEX = 20
 
 
@@ -30,35 +34,8 @@ def has_cjk(text):
 
 
 def load_existing_rows():
-    rows = {}
-    source = None
-    if os.path.exists(OUTPUT):
-        source = OUTPUT
-        opener = open
-        mode = "r"
-    elif os.path.exists(OUTPUT + ".gz"):
-        source = OUTPUT + ".gz"
-        opener = gzip.open
-        mode = "rt"
-    else:
-        return rows
-
-    with opener(source, mode, encoding="utf-8") as f:
-        for line in f:
-            line = line.rstrip("\r\n")
-            if not line:
-                continue
-            parts = line.split("|||")
-            nid = parts[0].strip()
-            if not nid:
-                continue
-            raw = parts[1] if len(parts) >= 2 else ""
-            en = parts[2].strip() if len(parts) >= 3 else ""
-            if en and has_cjk(en):
-                en = ""
-            rows[nid] = (raw, en)
-
-    print(f"  Loaded {len(rows)} existing description rows from {source}")
+    rows = read_rows(OUTPUT)
+    print(f"  Loaded {len(rows)} existing description rows")
     return rows
 
 
@@ -108,15 +85,14 @@ def main():
             untranslated.append(row)
         count += 1
 
-    with open(OUTPUT, "w", encoding="utf-8") as f:
+    ids = {str(entry[0]) for entry in novels if entry}
+    for nid, (raw, en) in existing.items():
+        if nid not in ids:
+            (translated if en else untranslated).append(f"{nid}|||{raw}|||{en}\n")
+    with open_descriptions(OUTPUT, "w") as f:
         f.writelines(translated)
         f.writelines(untranslated)
-
-    gz_path = OUTPUT + ".gz"
-    with open(OUTPUT, "rb") as f_in:
-        raw_bytes = f_in.read()
-    with open(gz_path, "wb") as f_out:
-        f_out.write(gzip.compress(raw_bytes, compresslevel=6, mtime=0))
+    gz_path = OUTPUT
 
     size_kb = os.path.getsize(OUTPUT) / 1024
     print(f"  Wrote {count} descriptions to {OUTPUT} ({size_kb:.0f} KB)")

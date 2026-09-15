@@ -10,13 +10,16 @@ on:
         default: catalog
         options: [catalog, build, resume]
       workers:
-        description: Concurrent detail workers (1–16; host pacing remains 0.5s)
+        description: Concurrent catalog and detail workers (1–16; host pacing remains 0.5s)
         type: number
         default: 4
       auto_continue:
         description: Continue budget-limited catalog collection automatically
         type: boolean
         default: true
+      recovery_run_id:
+        description: Optional run ID to recover (blank checks failed runs automatically)
+        type: string
       expected_scan:
         description: Internal continuation scan (leave blank for manual collection)
         type: string
@@ -26,6 +29,7 @@ on:
 permissions:
   contents: write
   pages: write
+  actions: read
 jobs:
   update:
     uses: ./.github/workflows/metadata-source-job.yml
@@ -35,6 +39,7 @@ jobs:
       # Dispatch numbers can arrive as strings; workflow_call validates the actual type.
       workers: ${{ fromJSON(format('{0}', inputs.workers || 4)) }}
       auto_continue: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_continue }}
+      recovery_run_id: ${{ inputs.recovery_run_id || '' }}
       expected_scan: ${{ inputs.expected_scan || '' }}
       expected_revision: ${{ inputs.expected_revision || '' }}
     secrets: inherit

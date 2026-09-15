@@ -6,9 +6,14 @@ remaining untranslated rows back to the same patch file.
 
 import os, sys
 
+try:
+    from .kakao_descriptions import open_text as open_descriptions
+except ImportError:
+    from kakao_descriptions import open_text as open_descriptions
+
 sys.stdout.reconfigure(encoding="utf-8")
 
-MAIN = os.path.join("docs", "data", "kakao_descriptions.txt")
+MAIN = os.path.join("docs", "data", "kakao_descriptions.txt.gz")
 PATCH = os.path.join("docs", "data", "kakao_descriptions_untranslated.txt")
 OUT = PATCH
 
@@ -25,9 +30,6 @@ def has_cjk(text):
     )
 
 
-if not os.path.exists(MAIN):
-    print(f"Error: {MAIN} not found.")
-    sys.exit(1)
 if not os.path.exists(PATCH):
     print(f"Error: {PATCH} not found.")
     sys.exit(1)
@@ -62,33 +64,34 @@ if skipped:
 entries = {}
 merged = 0
 cleaned = 0
-for line in open(MAIN, "r", encoding="utf-8"):
-    stripped = line.rstrip("\r\n")
-    if not stripped:
-        continue
-    parts = stripped.split("|||")
-    nid = parts[0].strip()
-    if not nid or not nid.isdigit() or len(parts) < 3:
-        cleaned += 1
-        continue
+with open_descriptions(MAIN, "r", encoding="utf-8") as handle:
+    for line in handle:
+        stripped = line.rstrip("\r\n")
+        if not stripped:
+            continue
+        parts = stripped.split("|||")
+        nid = parts[0].strip()
+        if not nid or not nid.isdigit() or len(parts) < 3:
+            cleaned += 1
+            continue
 
-    korean = parts[1] if len(parts) >= 2 else ""
-    en = parts[2].strip() if len(parts) >= 3 else ""
-    if en and has_cjk(en):
-        en = ""
-    if not korean.strip() and not en:
-        cleaned += 1
-        continue
+        korean = parts[1] if len(parts) >= 2 else ""
+        en = parts[2].strip() if len(parts) >= 3 else ""
+        if en and has_cjk(en):
+            en = ""
+        if not korean.strip() and not en:
+            cleaned += 1
+            continue
 
-    if not en and nid in new_translations:
-        en = new_translations[nid]
-        merged += 1
+        if not en and nid in new_translations:
+            en = new_translations[nid]
+            merged += 1
 
-    if nid in entries:
-        if en and not entries[nid][1]:
+        if nid in entries:
+            if en and not entries[nid][1]:
+                entries[nid] = (korean, en)
+        else:
             entries[nid] = (korean, en)
-    else:
-        entries[nid] = (korean, en)
 
 translated = []
 untranslated = []
@@ -99,7 +102,7 @@ for nid, (korean, en) in entries.items():
     else:
         untranslated.append(row)
 
-with open(MAIN, "w", encoding="utf-8") as f:
+with open_descriptions(MAIN, "w", encoding="utf-8") as f:
     f.writelines(translated)
     f.writelines(untranslated)
 

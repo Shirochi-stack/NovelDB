@@ -22,7 +22,12 @@ BFF_SEARCH_URL = 'https://bff-page.kakao.com/api/gateway/api/v1/search/series'
 BFF_GENRE_URL = 'https://bff-page.kakao.com/api/gateway/view/v1/landing/genre'
 BFF_PRODUCT_LIST_URL = 'https://bff-page.kakao.com/api/gateway/api/v2/content/product/list'
 KAKAO_NOVELS_PATH = os.path.join("docs", "data", "kakao_novels.json")
-KAKAO_DESCRIPTIONS_PATH = os.path.join("docs", "data", "kakao_descriptions.txt")
+try:
+    from .kakao_descriptions import open_text as open_descriptions, read_rows
+except ImportError:
+    from kakao_descriptions import open_text as open_descriptions, read_rows
+
+KAKAO_DESCRIPTIONS_PATH = os.path.join("docs", "data", "kakao_descriptions.txt.gz")
 KAKAO_CATEGORY_UID = 11
 KAKAO_GENRE_SCREEN_UID = 84
 
@@ -134,32 +139,9 @@ def has_cjk(text):
 def load_existing_descriptions(path=KAKAO_DESCRIPTIONS_PATH):
     """Load existing raw descriptions and English translations."""
     rows = {}
-    source = None
-    if os.path.exists(path):
-        source = path
-        opener = open
-        mode = "r"
-    elif os.path.exists(path + ".gz"):
-        source = path + ".gz"
-        opener = gzip.open
-        mode = "rt"
-    else:
-        return rows
-
-    with opener(source, mode, encoding="utf-8") as f:
-        for line in f:
-            line = line.rstrip("\r\n")
-            if not line:
-                continue
-            parts = line.split("|||")
-            nid = parts[0].strip()
-            if not nid:
-                continue
-            raw = parts[1] if len(parts) >= 2 else ""
-            en = parts[2].strip() if len(parts) >= 3 else ""
-            if en and has_cjk(en):
-                en = ""
-            rows[nid] = (raw.replace("\\n", "\n"), en)
+    source = path
+    for nid, (raw, en) in read_rows(path).items():
+        rows[nid] = (raw.replace("\\n", "\n"), en)
     if rows:
         print(f"Loaded {len(rows)} existing descriptions from {source}")
     return rows
@@ -571,7 +553,7 @@ def save_descriptions(all_novels, existing, path=KAKAO_DESCRIPTIONS_PATH):
         if not nid:
             continue
 
-        desc = normalize_description(n.get("description", ""))
+        desc = normalize_description(n.get("description", "")) or existing.get(nid, ("", ""))[0]
         en = existing.get(nid, ("", ""))[1]
         if not desc and not en:
             continue
@@ -583,15 +565,15 @@ def save_descriptions(all_novels, existing, path=KAKAO_DESCRIPTIONS_PATH):
         else:
             untranslated.append(row)
 
-    with open(path, "w", encoding="utf-8") as f:
+    # Retain descriptions absent from a partial upstream catalog.
+    written = {str(n.get("id", "")) for n in all_novels.values()}
+    for nid, (raw, en) in existing.items():
+        if nid not in written:
+            flat = raw.replace("\n", "\\n")
+            (translated if en else untranslated).append(f"{nid}|||{flat}|||{en}\n")
+    with open_descriptions(path, "w") as f:
         f.writelines(translated)
         f.writelines(untranslated)
-
-    gz_path = path + ".gz"
-    with open(path, "rb") as f_in:
-        raw = f_in.read()
-    with open(gz_path, "wb") as f_out:
-        f_out.write(gzip.compress(raw, compresslevel=6, mtime=0))
 
     print(f"Saved {len(translated) + len(untranslated):,} descriptions to {path}")
     print(f"  Translated: {len(translated):,}, Untranslated: {len(untranslated):,}")

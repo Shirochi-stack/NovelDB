@@ -85,17 +85,17 @@ def read_corpus(path):
 
 def read_tags(path):
     path = Path(path)
-    if not path.exists() and path.with_name(path.name + ".gz").exists():
-        path = path.with_name(path.name + ".gz")
-    if not path.exists():
-        return {}
-    opener = gzip.open if path.suffix == ".gz" else open
     result = {}
-    with opener(path, "rt", encoding="utf-8") as handle:
-        for line in handle:
-            parts = line.rstrip("\r\n").split("|||", 1)
-            if len(parts) == 2 and parts[0] and parts[1].strip():
-                result[parts[0]] = parts[1].strip()
+    candidates = (path,) if path.suffix == '.gz' else (path, path.with_name(path.name + '.gz'))
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        opener = gzip.open if candidate.suffix == '.gz' else open
+        with opener(candidate, "rt", encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.rstrip("\r\n").split("|||", 1)
+                if len(parts) == 2 and parts[0] and parts[1].strip():
+                    result.setdefault(parts[0], parts[1].strip())
     return result
 
 
@@ -106,7 +106,7 @@ def read_extra_tags(path):
     data = read_gzip_json(path)
     if not isinstance(data, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in data.items()):
         raise ValueError("Extra tag translations must be a JSON string map")
-    return data
+    return {tag: english for tag, english in data.items() if english.strip()}
 
 
 def known_tags(output_dir, shared_tags=None):
@@ -117,6 +117,12 @@ def known_tags(output_dir, shared_tags=None):
                          (Path(output_dir) / "tags_extra.json.gz", read_extra_tags)):
         for tag, english in reader(path).items():
             tags.setdefault(tag, english)
+    try:
+        from .tag_helpers import legacy_tags
+    except ImportError:
+        from tag_helpers import legacy_tags
+    for tag, english in legacy_tags(shared_path.parent.parent / "app.js").items():
+        tags.setdefault(tag, english)
     return tags
 
 
@@ -237,13 +243,11 @@ def prepare(source, output_dir, state_dir, shared_tags=None, fields=None):
         known = known_tags(output_dir, shared_tags)
         for tag, english in state.get("tag_translations", {}).items():
             known.setdefault(tag, english)
-        counts = {}
-        for _, record in ordered_records(state):
-            for tag in set(record.get("tags") or []):
-                tag = str(tag)
-                if tag and tag not in known:
-                    counts[tag] = counts.get(tag, 0) + 1
-        pending_tags = sorted(counts, key=lambda tag: (-counts[tag], tag))
+        try:
+            from .tag_helpers import pending_tags as find_pending_tags
+        except ImportError:
+            from tag_helpers import pending_tags as find_pending_tags
+        pending_tags = find_pending_tags(state["records"].values(), known)
         common().atomic_text(output_dir / f"{source}_tags_untranslated.txt", "".join(
             f"{i}|||{clean_field(tag)}|||\n" for i, tag in enumerate(pending_tags)
         ))
