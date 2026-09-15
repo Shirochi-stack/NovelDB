@@ -356,12 +356,28 @@ def build(source, output_dir, state_dir):
     state = state_for(source, state_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = common().export_rows(state)
+    publication_state = state
+    if source == "naver":
+        # Keep discovery-only records durable, but don't publish empty cards.
+        ready = {nid: record for nid, record in state["records"].items()
+                 if str(active_translation(record, "synopsis") or record.get("synopsis") or "").strip()}
+        rows = [row for row in rows if str(row[0]) in ready]
+        publication_state = {**state, "records": ready}
     if not rows:
-        raise ValueError("Refusing to build an empty catalog")
+        raise ValueError("Refusing to build an empty catalog; Naver records need a synopsis before publication")
     for field in FIELDS:
         for record in state["records"].values():
             expire_translation(record, field)
-        write_field_corpus(state, field, output_dir, write_pending=False)
+        write_field_corpus(publication_state, field, output_dir, write_pending=False)
+    if source == "naver":
+        coverage = state.setdefault("coverage", {})
+        withheld = len(state["records"]) - len(rows)
+        coverage["publication"] = {"discovered": len(state["records"]), "published": len(rows),
+                                   "awaiting_synopsis": withheld}
+        pending = len(state.get("progress", {}).get("pending_details", []))
+        coverage.setdefault("enrichment", {}).update(pending=pending, complete=not pending)
+        if withheld or pending:
+            coverage.update(complete=False, status="partial")
     common().save_state(state, Path(state_dir))
     catalog = output_dir / f"{source}_novels.json"
     tags = known_tags(output_dir)
@@ -461,11 +477,14 @@ def validate_artifacts(source, output_dir):
             or manifest.get("descriptionShardPrefix") != f"{source}_descriptions_shard_"):
         raise ValueError("Invalid synopsis shard manifest")
     known_ids = set(ids)
+    synopsis_ids = set()
     for index, name in enumerate(expected_shards):
         descriptions = read_gzip_json(output_dir / name)
         if not isinstance(descriptions, dict) or not set(descriptions).issubset(known_ids):
             raise ValueError("A synopsis shard contains unknown source IDs")
         for nid in descriptions:
+            if isinstance(descriptions[nid], str) and descriptions[nid].strip():
+                synopsis_ids.add(nid)
             if nid.isdigit():
                 shard = int(nid) % SHARDS
             else:
@@ -475,6 +494,8 @@ def validate_artifacts(source, output_dir):
                 shard %= SHARDS
             if shard != index:
                 raise ValueError("A synopsis is stored in the wrong shard")
+    if source == "naver" and known_ids - synopsis_ids:
+        raise ValueError("Naver publication contains records without a synopsis")
     top_name = f"{source}_top.json.gz"
     if manifest.get("topUrl") != top_name:
         raise ValueError("Invalid top artifact path")

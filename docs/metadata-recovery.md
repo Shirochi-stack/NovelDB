@@ -6,6 +6,17 @@ Joara cursor feeds run concurrently with one request per feed. Host-wide pacing
 remains 0.5 seconds between request starts, so eight workers does not imply eight
 requests per half-second. Logs show requests in flight and processed pages/minute.
 
+Catalog runs drain recovered/pending details first, prioritizing records without
+synopses. New catalog pages are enriched as they arrive instead of waiting for
+the entire discovery pass. Catalog prefetch and detail requests share one worker
+limit. Interrupted detail work remains in the checkpoint for the next resume.
+
+Naver records are published only when a nonempty synopsis is available. All
+discovered records remain in state, including restricted or genuinely empty
+upstream descriptions; no synopsis is invented. The manifest reports discovered,
+published, and awaiting-synopsis counts, which the site explains in its results
+notice. Adding a synopsis makes a saved record eligible at the next build.
+
 ## Publishing failures
 
 The metadata, Kakao, and shared Korean tag workflows upload
@@ -59,7 +70,8 @@ The new-source translator uses the same tag discovery and additive merge rules.
 ## Recovery performed September 15, 2026
 
 - Naver run `34857217647`: 188,585 saved records; recovered 186,968 missing records.
-  The rebuilt catalog has 188,585 entries in ten chunks.
+  Initial recovery rebuilt all entries. Publication now includes only the subset
+  with synopses; the full 188,585 records remain in the durable checkpoint.
 - Munpia run `34777105215`: 423 saved records; recovered three missing records.
   The rebuilt catalog has 21,340 entries in two chunks.
 - Both builds passed source, ID, chunk, synopsis-shard, and top-bundle validation.

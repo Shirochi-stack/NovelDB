@@ -1,9 +1,10 @@
 """Bounded catalog prefetch; consumers alone mutate durable checkpoints."""
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from contextlib import nullcontext
 
 
-def catalog_pages(adapter, client, partitions, cursors, args, log):
+def catalog_pages(adapter, client, partitions, cursors, args, log, request_slots=None):
     # Imported lazily to keep direct-script and package entrypoints equivalent.
     try:
         from .metadata_common import BudgetExceeded, CatalogPage
@@ -28,7 +29,8 @@ def catalog_pages(adapter, client, partitions, cursors, args, log):
 
     def fetch(partition, page):
         try:
-            return adapter.fetch_page(client, partition, page)
+            with request_slots if request_slots is not None else nullcontext():
+                return adapter.fetch_page(client, partition, page)
         except BudgetExceeded as error:
             return error
         except Exception as error:

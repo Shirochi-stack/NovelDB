@@ -269,3 +269,35 @@ def test_ridi_translation_merge_and_artifact_joins(tmp_path):
     top = pipeline.read_gzip_json(output / "ridi_top.json.gz")
     assert top["translations"]["129"] == "Translated Ridibooks title"
     assert top["novels"][0][11] == "https://ridibooks.com/books/129"
+
+
+def test_naver_waits_for_synopses_without_removing_recovered_records(tmp_path):
+    missing = record(ident="130")
+    missing["synopsis"] = None
+    state_dir = save(tmp_path, records={"129": record(), "130": missing})
+    state = common.load_state("naver", state_dir)
+    state["progress"]["pending_details"] = ["130"]
+    common.save_state(state, state_dir)
+    output = tmp_path / "published"
+    pipeline.prepare("naver", output, state_dir)
+    manifest = pipeline.build("naver", output, state_dir)
+    pipeline.validate_artifacts("naver", output)
+    rows = json.loads((output / "naver_novels.json").read_text(encoding="utf-8"))
+    assert [row[0] for row in rows] == ["129"]
+    assert manifest["coverage"]["publication"] == {"discovered": 2, "published": 1, "awaiting_synopsis": 1}
+    assert manifest["coverage"]["enrichment"]["pending"] == 1
+    state = common.load_state("naver", state_dir)
+    assert set(state["records"]) == {"129", "130"} and state["progress"]["pending_details"] == ["130"]
+    state["records"]["130"]["synopsis"] = "Recovered synopsis"
+    state["progress"]["pending_details"] = []
+    common.save_state(state, state_dir)
+    manifest = pipeline.build("naver", output, state_dir)
+    pipeline.validate_artifacts("naver", output)
+    assert manifest["totalEntries"] == 2 and manifest["coverage"]["publication"]["awaiting_synopsis"] == 0
+
+
+def test_naver_validator_rejects_missing_synopsis(built):
+    output, _ = built
+    pipeline.gzip_json(output / "naver_descriptions_shard_001.json.gz", {})
+    with pytest.raises(ValueError, match="without a synopsis"):
+        pipeline.validate_artifacts("naver", output)

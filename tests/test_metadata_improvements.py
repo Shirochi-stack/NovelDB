@@ -17,13 +17,14 @@ def isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(m.requests.Session, "request", lambda *a, **k: pytest.fail("Unexpected network"))
 
 
-def test_discovery_finishes_before_details_and_workers_refill(tmp_path):
+def test_details_start_before_discovery_finishes_and_workers_refill(tmp_path):
     third_started = threading.Event()
     events = []
     class Continuous(Adapter):
         def fetch_page(self, client, partition, page):
             events.append(f"page:{page}")
-            return super().fetch_page(client, partition, page)
+            return m.CatalogPage([{"id": str(i), "title": "Title"} for i in range((page-1)*3+1, page*3+1)],
+                                 page + 1 if page < 3 else None)
         def detail(self, client, record):
             events.append(f"detail:{record['id']}")
             if record["id"] == "1":
@@ -32,8 +33,8 @@ def test_discovery_finishes_before_details_and_workers_refill(tmp_path):
                 third_started.set()
             return super().detail(client, record)
     report = m.run_source(Continuous(), args(tmp_path, "--mode", "catalog", "--workers", "2"), client=Client())
-    assert events[:3] == ["page:1", "page:2", "page:3"]
-    assert third_started.is_set() and report["coverage"]["successful_details"] == 3
+    assert events.index("detail:1") < events.index("page:3")
+    assert third_started.is_set() and report["coverage"]["successful_details"] == 9
     assert report["coverage"]["complete"]
 
 
@@ -53,8 +54,34 @@ def test_checkpoint_count_is_bounded_for_large_detail_queue(tmp_path, monkeypatc
     assert saves[-1] == 0
 
 
+def test_recovered_details_run_before_any_catalog_discovery(tmp_path):
+    saved = m.empty_state("naver")
+    saved["records"] = {str(i): {"id": str(i), "title": "Saved title"} for i in (1, 2, 3)}
+    saved["progress"] = {"scan_id": "recovered", "revision": 5, "pending_details": ["3", "1", "2"],
+                         "partitions": {"best": {"next_page": 20, "complete": False}}}
+    m.save_state(saved, tmp_path / "state")
+    attempted = []
+    class Backfill(Adapter):
+        def partitions(self, client):
+            pytest.fail("Must finish recovered details before discovering more pages")
+        def detail(self, client, record):
+            attempted.append(record["id"])
+            if record["id"] == "3":
+                raise m.BudgetExceeded("Runtime budget reached")
+            return super().detail(client, record)
+    report = m.run_source(Backfill(), args(tmp_path, "--mode", "catalog", "--resume", "--workers", "1"), client=Client())
+    restored = m.load_state("naver", tmp_path / "state")
+    assert attempted == ["1", "2", "3"]
+    assert restored["records"]["1"]["synopsis"]
+    assert restored["progress"]["pending_details"] == ["3"]
+    assert restored["progress"]["partitions"]["best"]["next_page"] == 20
+    assert report["coverage"]["pages"] == 0 and report["coverage"]["continuation"]["eligible"]
+
+
 def test_budget_resume_preserves_catalog_status_across_rank_refresh(tmp_path):
     class Interrupted(Adapter):
+        def fetch_page(self, client, partition, page):
+            return m.CatalogPage([{"id": str(i), "title": "Title"} for i in (1, 2, 3)], None)
         def detail(self, client, record):
             raise m.BudgetExceeded("Runtime budget reached")
     first = m.run_source(Interrupted(), args(tmp_path, "--mode", "catalog"), client=Client())
@@ -91,6 +118,8 @@ def test_no_progress_budget_does_not_continue(tmp_path):
 
 def test_restriction_outcomes_are_saved_progress_on_detail_only_resume(tmp_path):
     class Interrupted(Adapter):
+        def fetch_page(self, client, partition, page):
+            return m.CatalogPage([{"id": str(i), "title": "Title"} for i in (1, 2, 3)], None)
         def detail(self, client, record):
             raise m.BudgetExceeded("Runtime budget reached")
     m.run_source(Interrupted(), args(tmp_path, "--mode", "catalog"), client=Client())

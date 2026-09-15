@@ -7277,6 +7277,9 @@
                 } else if (!coverage.has_complete_baseline && coverage.mode === "rankings") {
                     notice = "Rankings collected; catalog pending";
                 } else if (coverage.complete === false) notice = "Catalog collection in progress";
+                if (coverage.publication?.awaiting_synopsis) {
+                    notice = `${Number(coverage.publication.awaiting_synopsis).toLocaleString()} novels awaiting synopsis`;
+                }
                 if (notice) catalogWarnings.add(`${cfg.label}: ${notice}`);
                 // Small top bundles remain the first visible results for existing sources.
                 if (descriptionsEnabled && cfg.topUrl) {

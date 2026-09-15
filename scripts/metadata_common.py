@@ -478,21 +478,27 @@ def run_source(adapter, args, *, client=None):
         if args.mode != "rankings":
             progress["revision"] = progress.get("revision", 0) + 1
 
-    def fetch_details():
+    request_slots = threading.BoundedSemaphore(args.workers)
+
+    def fetch_details(force_checkpoint=True):
         nonlocal detail_count, last_detail_log
+        if not pending or (args.max_details is not None and detail_count >= args.max_details):
+            return
         progress["phase"] = "details"
         detail_started = time.monotonic()
         detail_start_count = coverage["details"]
         last_detail_log = detail_started
         log(f"Details: {len(pending):,} pending; {args.workers} workers")
-        checkpoint(force=True)
+        checkpoint(force=force_checkpoint)
         ranking_ids = {str(item["id"]) for board in state["boards"].values() for item in board["records"]}
-        queue = deque(ident for ident in pending if ident not in detail_attempted
-                      and (args.mode != "rankings" or ident in ranking_ids))
+        queue = deque(sorted((ident for ident in pending if ident not in detail_attempted
+                      and (args.mode != "rankings" or ident in ranking_ids)),
+                      key=lambda ident: (bool(state["records"][ident].get("synopsis")), int(ident))))
         budget_error = None
         def fetch(ident):
             try:
-                return adapter.detail(client, dict(state["records"][ident]))
+                with request_slots:
+                    return adapter.detail(client, dict(state["records"][ident]))
             except BudgetExceeded as exc:
                 return exc
             except Exception as exc:
@@ -541,7 +547,7 @@ def run_source(adapter, args, *, client=None):
                         f"{(coverage['details']-detail_start_count)*60/max(.001, time.monotonic()-detail_started):.1f} details/min")
                     last_detail_log = time.monotonic()
                 checkpoint()
-        checkpoint(force=True)
+        checkpoint(force=force_checkpoint)
         if budget_error:
             raise budget_error
 
@@ -558,6 +564,11 @@ def run_source(adapter, args, *, client=None):
             progress["phase"] = "discovery"
             coverage["catalog"]["started"] = True
             checkpoint(force=True)
+            # Resume enrichment before spending another run discovering listings.
+            # The pending queue is durable even when a recovered scan differs.
+            if args.mode == "catalog":
+                fetch_details()
+            progress["phase"] = "discovery"
             partitions = adapter.partitions(client)
             if not partitions:
                 raise ValueError("No anonymous catalog partitions were discovered")
@@ -567,7 +578,7 @@ def run_source(adapter, args, *, client=None):
             except ImportError:
                 from metadata_pages import catalog_pages
             from contextlib import closing
-            with closing(catalog_pages(adapter, client, partitions, cursors, args, log)) as pages:
+            with closing(catalog_pages(adapter, client, partitions, cursors, args, log, request_slots)) as pages:
                 for job, page, result in pages:
                     partition, cursor = job["partition"], job["cursor"]
                     key, tier = partition["key"], partition["tier"]
@@ -632,7 +643,7 @@ def run_source(adapter, args, *, client=None):
                             if ident in pending:
                                 pending.pop(ident, None)
                         observed.add(ident)
-                        if refresh and not item.get("_detail_complete") and ident not in pending:
+                        if refresh and not item.get("_detail_complete") and ident not in pending and ident not in detail_attempted:
                             pending[ident] = None
                     cursor.pop("error", None)
                     cursor.pop("error_page", None)
@@ -665,12 +676,15 @@ def run_source(adapter, args, *, client=None):
                         f"upstream total={result.observed_total}; next={result.next_page}; "
                         f"{coverage['pages']*60/max(.001, time.monotonic()-started):.1f} pages/min")
                     checkpoint()
+                    if args.mode == "catalog":
+                        fetch_details(force_checkpoint=False)
+                        progress["phase"] = "discovery"
             discovery_complete = (all(cursors.get(p["key"], {}).get("complete") for p in partitions)
                                   and not any(c.get("skipped_rows") for c in cursors.values()))
             coverage["discovery_complete"] = discovery_complete
             coverage["catalog"].update(catalog_coverage(cursors))
             checkpoint(force=True)
-            # Samples enrich their bounded discovery. Catalogs finish discovery first.
+            # Samples enrich their bounded discovery; catalogs enrich each page.
             discovery_settled = all(cursors.get(p["key"], {}).get("complete") or cursors.get(p["key"], {}).get("error") for p in partitions)
             if args.mode == "sample" or discovery_settled:
                 fetch_details()
