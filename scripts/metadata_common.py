@@ -72,6 +72,7 @@ class CatalogPage:
     observed_total: int | None = None
     skipped_rows: list = field(default_factory=list)
     next_cursor: str | None = None
+    scanned_items: int = 0
 
 
 def catalog_coverage(cursors):
@@ -79,7 +80,7 @@ def catalog_coverage(cursors):
     skipped = [{"partition": key, **row} for key, cursor in cursors.items()
                for row in cursor.get("skipped_rows", [])]
     return {
-        "discovery_complete": bool(cursors) and not skipped and all(c.get("complete") for c in cursors.values()),
+        "discovery_complete": bool(cursors) and not skipped and all(c.get("complete") and c.get("coverage_complete", True) for c in cursors.values()),
         "errors": [{"partition": key, "page": cursor.get("error_page", cursor.get("next_page")),
                     "error": cursor["error"]} for key, cursor in cursors.items() if cursor.get("error")],
         "skipped_rows": skipped,
@@ -322,7 +323,7 @@ class AnonymousClient:
             raise BudgetExceeded("Runtime budget reached during retry delay")
         self.sleep(seconds)
 
-    def get(self, url, params=None):
+    def get(self, url, params=None, *, json_body=None):
         self._allowed(url)
         original_url, original_params = url, params
         for attempt in range(self.retries):
@@ -336,9 +337,13 @@ class AnonymousClient:
                     raise FetchError("Invalid metadata request parameters") from None
                 self._allowed(request_url)
                 entry = self._start(url, params)
+                entry["method"] = "POST" if json_body is not None else "GET"
                 remaining = max(0.1, min(30, self.deadline - self.clock()))
                 try:
-                    response = self._session().get(url, params=params, timeout=remaining, allow_redirects=False)
+                    if json_body is None:
+                        response = self._session().get(url, params=params, timeout=remaining, allow_redirects=False)
+                    else:
+                        response = self._session().post(url, json=json_body, timeout=remaining, allow_redirects=False)
                 except self.request_errors:
                     entry["status"] = "network_error"
                     if attempt + 1 >= self.retries:
@@ -348,6 +353,9 @@ class AnonymousClient:
                     break
                 entry["status"] = response.status_code
                 if response.status_code in (301, 302, 303, 307, 308):
+                    if json_body is not None:
+                        response.close()
+                        raise FetchError("Metadata POST redirects are not allowed")
                     url = urljoin(response.url, response.headers.get("Location", ""))
                     params = None
                     response.close()
@@ -386,8 +394,8 @@ class AnonymousClient:
         finally:
             response.close()
 
-    def get_json(self, url, params=None):
-        response = self.get(url, params)
+    def get_json(self, url, params=None, *, json_body=None):
+        response = self.get(url, params) if json_body is None else self.get(url, params, json_body=json_body)
         try:
             return response.json()
         except ValueError:
@@ -569,9 +577,14 @@ def run_source(adapter, args, *, client=None):
             if args.mode == "catalog":
                 fetch_details()
             progress["phase"] = "discovery"
+            if hasattr(adapter, "restore_catalog"):
+                adapter.restore_catalog(state)
             partitions = adapter.partitions(client)
             if not partitions:
                 raise ValueError("No anonymous catalog partitions were discovered")
+            if hasattr(adapter, "prepare_catalog"):
+                adapter.prepare_catalog(state, partitions)
+                checkpoint(force=True)
             cursors = progress.setdefault("partitions", {})
             try:
                 from .metadata_pages import catalog_pages
@@ -606,14 +619,14 @@ def run_source(adapter, args, *, client=None):
                     signature = hashlib.sha256(json.dumps(sorted(set(ids), key=str)).encode()).hexdigest()
                     repeated_across_resume = (page != cursor.get("last_page")
                                               and signature == cursor.get("last_page_signature"))
-                    if any(ident is None for ident in ids) or (ids and (signature in page_signatures or repeated_across_resume)):
+                    if any(ident is None for ident in ids) or (ids and result.scanned_items <= 0 and (signature in page_signatures or repeated_across_resume)):
                         cursor["error"] = "Invalid IDs or repeated catalog page"
                         cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
                         log(f"Catalog {key} page {page}: {cursor['error']}")
                         checkpoint()
                         continue
-                    if not ids and result.next_page is not None:
+                    if not ids and result.next_page is not None and result.scanned_items <= 0:
                         cursor["error"] = "Unexplained empty catalog page"
                         cursor["error_page"] = page
                         coverage["errors"].append({"partition": key, "page": page, "error": cursor["error"]})
@@ -670,7 +683,7 @@ def run_source(adapter, args, *, client=None):
                             cursor["cursor_point"] = result.next_cursor
                     cursor["last_page"] = page
                     cursor["last_page_signature"] = signature
-                    advanced(len(ids))
+                    advanced(max(len(ids), int(result.scanned_items > 0)))
                     log(f"Catalog {key} page {page}: {len(ids)} rows, "
                         f"{len(state['records'])-before_count} new, {len(state['records']):,} total; "
                         f"upstream total={result.observed_total}; next={result.next_page}; "
@@ -679,7 +692,9 @@ def run_source(adapter, args, *, client=None):
                     if args.mode == "catalog":
                         fetch_details(force_checkpoint=False)
                         progress["phase"] = "discovery"
-            discovery_complete = (all(cursors.get(p["key"], {}).get("complete") for p in partitions)
+            if hasattr(adapter, "finalize_catalog"):
+                adapter.finalize_catalog(state)
+            discovery_complete = (all(cursors.get(p["key"], {}).get("complete") and cursors[p["key"]].get("coverage_complete", True) for p in partitions)
                                   and not any(c.get("skipped_rows") for c in cursors.values()))
             coverage["discovery_complete"] = discovery_complete
             coverage["catalog"].update(catalog_coverage(cursors))

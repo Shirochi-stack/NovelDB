@@ -1,6 +1,6 @@
 """Ridibooks public webnovel catalogs and native weekly/monthly bestseller lists.
 
-Uses the same category API as /category/books/{id}; no episode/reader requests,
+Uses public category listings plus sitemap IDs and batched book metadata; no episode/reader requests,
 account cookies, or challenge bypasses. HTTP restrictions remain resumable errors.
 """
 import math
@@ -12,13 +12,16 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests as browser_requests
 
 try:
+    from . import ridi_sitemap as sitemap
     from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult, run_cli
 except ImportError:
+    import ridi_sitemap as sitemap
     from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult, run_cli
 
 API = "https://api.ridibooks.com/v2/category/books"
 CATEGORIES = {"1650": "Romance", "6050": "Romance fantasy", "1750": "Fantasy", "4150": "BL"}
 PAGE_SIZE = 60
+
 
 
 def number(value):
@@ -65,6 +68,8 @@ def normalize(item, tier):
             "updated": None, "canonical_url": url, "purchase_url": url, "tier": tier,
             "metrics": {"rating": rating, "rating_count": rating_count},
             "publisher": obj(book.get("publisher")).get("name"),
+            "ridi_categories": sorted({str(value) for c in book.get("categories", []) if isinstance(c, dict)
+                                       for value in (c.get("categoryId", c.get("id")), c.get("parentId")) if value}),
             "_detail_complete": isinstance(intro, str)}
 
 
@@ -74,7 +79,10 @@ def data(payload):
     return payload["data"]
 
 
-class RidiAdapter:
+class RidiAdapter(sitemap.SitemapCatalog):
+    categories = CATEGORIES
+    _normalize = staticmethod(normalize)
+    _data = staticmethod(data)
     source = "ridi"
     label = "Ridibooks"
     request_errors = (browser_requests.exceptions.RequestException,)
@@ -93,19 +101,20 @@ class RidiAdapter:
     def is_allowed_url(url):
         try:
             p = urlsplit(url)
-            if p.scheme != "https" or p.hostname != "api.ridibooks.com" or p.username is not None or p.port not in (None, 443):
+            if p.scheme != "https" or p.hostname not in {"api.ridibooks.com", "ridibooks.com"} or p.username is not None or p.port not in (None, 443):
                 return False
         except ValueError:
             return False
+        if p.hostname == "ridibooks.com":
+            return not p.query and (url == sitemap.INDEX or bool(sitemap.BOOK_MAP.fullmatch(url)))
+        if p.path == "/graphql":
+            return not p.query
         return p.path in {"/v2/category/books", "/v2/category/books/total-count"} and set(parse_qs(p.query, keep_blank_values=True)) <= {
             "category_id", "tab", "limit", "offset", "platform", "order_by", "period"}
 
-    def partitions(self, client):
-        return [{"key": category, "tier": "webnovel", "category": category, "start_page": 1} for category in CATEGORIES]
-
-    def _page(self, client, category, page, period=None):
+    def _page(self, client, category, page, period=None, order="recent"):
         if (page - 1) * PAGE_SIZE >= 6000:
-            raise ValueError("Ridibooks public category API requires offset below 6000; later catalog records remain uncollected")
+            raise ValueError("Ridibooks API rejects offsets >= 6000 for this category/sort; other catalog partitions continue, coverage remains partial")
         params = {"category_id": category, "tab": "bestsellers" if period else "books", "platform": "web"}
         if period:
             params["period"] = period
@@ -118,22 +127,27 @@ class RidiAdapter:
         total = self._totals[key]
         params.update(limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
         if not period:
-            params["order_by"] = "recent"
+            params["order_by"] = order
         rows = data(client.get_json(API, params=params)).get("items")
         if not isinstance(rows, list) or len(rows) != min(PAGE_SIZE, max(0, total - params["offset"])):
             raise ValueError("Ridibooks catalog row count disagrees with its total")
         records = [normalize(row, "webnovel") for row in rows]
         if len({r["id"] for r in records}) != len(records):
             raise ValueError("Ridibooks repeated a work within a catalog page")
-        return CatalogPage(records, page + 1 if page * PAGE_SIZE < total else None, observed_total=total)
+        return CatalogPage(records, page + 1 if page * PAGE_SIZE < min(total, 6000) else None, observed_total=total)
 
     def fetch_page(self, client, partition, page):
         try:
-            return self._page(client, partition["category"], page)
+            if "sitemap" in partition:
+                return self._sitemap_page(client, partition, page)
+            result = self._page(client, partition["category"], page, order=partition.get("order", "recent"))
+            for record in result.records:
+                record["ridi_seen_scan"] = getattr(self, "_scan_id", "")
+            return result
         except BudgetExceeded:
             raise
         except (FetchError, ValueError, TypeError, KeyError) as error:
-            return CatalogPage([], None, False, f"Ridibooks {partition['category']} page {page}: {error}")
+            return CatalogPage([], None, False, f"Ridibooks {partition.get('category', partition.get('key', 'sitemap'))} page {page}: {error}")
 
     def detail(self, client, record):
         # The category API carries introduction.description itself, not the

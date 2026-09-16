@@ -50,6 +50,9 @@ def summary(source, report):
              f"Details pending: {coverage.get('enrichment', {}).get('pending', 'unknown')}",
              f"Stop: {coverage.get('stop_reason', coverage.get('status', 'see build output'))}",
              f"Automatic continuation eligible: {coverage.get('continuation', {}).get('eligible', False)}", ""]
+    for category, counts in catalog.get("verification", {}).items():
+        lines.append(f"Category {category}: {counts['observed']:,} unique works observed / "
+                     f"{counts['expected']:,} reported by source")
     for error in coverage.get("errors", []):
         lines.append("- " + json.dumps(error, ensure_ascii=False))
     return "\n\n".join(lines) + "\n"

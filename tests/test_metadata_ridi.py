@@ -53,7 +53,7 @@ def test_sparse_values_remain_unknown():
 
 def test_catalog_offsets_and_four_genres():
     a, c = RidiAdapter(), Client()
-    partitions = a.partitions(c)
+    partitions = a.partitions(None)
     assert {p["category"] for p in partitions} == set(CATEGORIES)
     first = a.fetch_page(c, partitions[0], 1)
     second = a.fetch_page(c, partitions[0], 2)
@@ -153,5 +153,5 @@ def test_browser_transport_does_not_follow_account_redirect(monkeypatch):
 def test_deep_catalog_limit_stays_incomplete_without_retrying_invalid_offset():
     adapter, client = RidiAdapter(), Client()
     result = adapter.fetch_page(client, {"category": "1750"}, 101)
-    assert not result.complete and "offset below 6000" in result.error
+    assert not result.complete and "rejects offsets >= 6000" in result.error
     assert not client.calls
