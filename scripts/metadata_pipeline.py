@@ -358,20 +358,20 @@ def build(source, output_dir, state_dir):
     rows = common().export_rows(state)
     publication_state = state
     if source == "naver":
-        # Keep discovery-only records durable, but don't publish empty cards.
+        # Publish discovery records too; the browser hides them only while synopses are enabled.
         ready = {nid: record for nid, record in state["records"].items()
                  if str(active_translation(record, "synopsis") or record.get("synopsis") or "").strip()}
-        rows = [row for row in rows if str(row[0]) in ready]
-        publication_state = {**state, "records": ready}
+        for row in rows:
+            row[14] = {**row[14], "synopsis_available": str(row[0]) in ready}
     if not rows:
-        raise ValueError("Refusing to build an empty catalog; Naver records need a synopsis before publication")
+        raise ValueError("Refusing to build an empty catalog")
     for field in FIELDS:
         for record in state["records"].values():
             expire_translation(record, field)
         write_field_corpus(publication_state, field, output_dir, write_pending=False)
     if source == "naver":
         coverage = state.setdefault("coverage", {})
-        withheld = len(state["records"]) - len(rows)
+        withheld = len(state["records"]) - len(ready)
         coverage["publication"] = {"discovered": len(state["records"]), "published": len(rows),
                                    "awaiting_synopsis": withheld}
         pending = len(state.get("progress", {}).get("pending_details", []))
@@ -494,8 +494,10 @@ def validate_artifacts(source, output_dir):
                 shard %= SHARDS
             if shard != index:
                 raise ValueError("A synopsis is stored in the wrong shard")
-    if source == "naver" and known_ids - synopsis_ids:
-        raise ValueError("Naver publication contains records without a synopsis")
+    if source == "naver":
+        for row in rows:
+            if row[14].get("synopsis_available") is not (str(row[0]) in synopsis_ids):
+                raise ValueError("Naver synopsis availability disagrees with shards: record without a synopsis or incorrect flag")
     top_name = f"{source}_top.json.gz"
     if manifest.get("topUrl") != top_name:
         raise ValueError("Invalid top artifact path")

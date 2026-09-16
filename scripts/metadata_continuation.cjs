@@ -1,4 +1,11 @@
-// Dispatch only a progressing catalog checkpoint after the translation attempt.
+// Resolve the stable workflow path; run names are user-visible dynamic labels.
+function resolveSource(input, run) {
+    const sources = ['naver', 'munpia', 'joara', 'ridi', 'naverseries'];
+    if (input && sources.includes(input)) return input;
+    const match = /^\.github\/workflows\/update-(naver|munpia|joara|ridi|naverseries)-metadata\.yml$/.exec(run?.path || '');
+    if (!input && match) return match[1];
+    throw new Error('Cannot identify metadata source from the originating workflow path');
+}
 function validDecision(decision, source) {
     return ['naver', 'munpia', 'joara', 'ridi', 'naverseries'].includes(source)
         && decision?.source === source && decision.eligible === true
@@ -22,4 +29,4 @@ async function dispatchContinuation({ github, context, decision, source, cancell
     return true;
 }
 
-module.exports = { validDecision, dispatchContinuation };
+module.exports = { resolveSource, validDecision, dispatchContinuation };

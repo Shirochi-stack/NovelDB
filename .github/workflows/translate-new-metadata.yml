@@ -37,7 +37,7 @@ jobs:
       source: ${{ steps.decision.outputs.source }}
       decision: ${{ steps.decision.outputs.decision }}
     env:
-      METADATA_SOURCE: ${{ inputs.source || (github.event.workflow_run.name == 'Update Naver Metadata' && 'naver') || (github.event.workflow_run.name == 'Update Joara Metadata' && 'joara') || (github.event.workflow_run.name == 'Update Ridibooks Metadata' && 'ridi') || (github.event.workflow_run.name == 'Update Naver Series Metadata' && 'naverseries') || 'munpia' }}
+      METADATA_SOURCE: ${{ inputs.source || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,8 +57,8 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const { validDecision } = require('./scripts/metadata_continuation.cjs');
-            const source = process.env.METADATA_SOURCE;
+            const { resolveSource, validDecision } = require('./scripts/metadata_continuation.cjs');
+            const source = resolveSource(process.env.METADATA_SOURCE, context.payload.workflow_run);
             let decision = {};
             try { decision = JSON.parse(fs.readFileSync('.cache/continuation/continuation.json', 'utf8')); }
             catch (_) { core.info('No continuation checkpoint; translation can still run.'); }
@@ -66,6 +66,8 @@ jobs:
             core.setOutput('decision', JSON.stringify(validDecision(decision, source) ? decision : { eligible: false }));
   translate:
     needs: context
+    # Finish resumable collection passes first. Terminal partial catalogs still translate.
+    if: needs.context.outputs.decision == '' || fromJSON(needs.context.outputs.decision).eligible != true
     uses: ./.github/workflows/metadata-source-job.yml
     with:
       source: ${{ needs.context.outputs.source }}
@@ -75,7 +77,7 @@ jobs:
       output_token_limit: ${{ inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
     secrets: inherit
   continue-catalog:
-    needs: [context, translate]
+    needs: context
     if: >-
       always() && !cancelled() && needs.context.result == 'success' &&
       github.event_name == 'workflow_run' &&
@@ -88,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - name: Continue catalog after translation attempt
+      - name: Continue catalog from published checkpoint
         uses: actions/github-script@v7
         with:
           script: |

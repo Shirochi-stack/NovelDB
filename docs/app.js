@@ -6035,6 +6035,7 @@
         const order = orderSelect.value;
 
         filtered = allNovels.filter((n) => {
+            if (descriptionsEnabled && n.source === "naver" && n.metrics?.synopsis_available === false) return false;
             if (activeAuthorFilter && n.author !== activeAuthorFilter) return false;
 
             // Search filter
@@ -6865,7 +6866,7 @@
         if (descriptionObserver) descriptionObserver.disconnect();
         for (const entry of descriptionLoadQueue.splice(0)) entry.resolve({});
         descriptionShardPromises.clear();
-        render();
+        applyFilters();
     });
     const descriptionShardCache = new Map();
     const descriptionShardPromises = new Map();

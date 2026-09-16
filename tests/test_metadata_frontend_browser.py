@@ -564,3 +564,33 @@ def test_clicked_card_tags_keep_source_order_across_all_platforms(monkeypatch):
                 assert await tags.all_text_contents() == before, source
             await browser.close()
     asyncio.run(scenario())
+
+
+def test_naver_missing_synopses_visible_only_when_loading_disabled(monkeypatch):
+    original_row = row
+    def marked_row(source, ident=7, known=False, completed=False):
+        result = original_row(source, ident, known, completed)
+        if source == 'naver':
+            result[14]['synopsis_available'] = ident != 7
+        return result
+    monkeypatch.setitem(globals(), 'row', marked_row)
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = FixtureSite(delay_naver=True)
+            await page.route('**/*', site.route)
+            await page.goto('http://metadata.test/#src=naver')
+            await wait_loaded(page)
+            missing = page.locator('.novel-card[data-source="naver"][data-novel-id="7"]')
+            assert await missing.count() == 0
+            await page.uncheck('#loadDescriptions')
+            await missing.wait_for()
+            await page.reload()
+            await wait_loaded(page)
+            await missing.wait_for()
+            await page.check('#loadDescriptions')
+            assert await missing.count() == 0
+            assert await page.locator('.novel-card').count() > 0
+            await browser.close()
+    asyncio.run(scenario())

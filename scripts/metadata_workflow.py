@@ -72,6 +72,12 @@ def main():
     else:
         path = args.output_dir / f"{args.source}_run_report.json"
         report = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        if not report:
+            state = load_state(args.source, Path(args.state_dir))
+            coverage = {**state.get("coverage", {}), "mode": "build/translate", "continuation": {"eligible": False}}
+            for key in ("pages", "requests", "details", "successful_details"):
+                coverage[key] = 0
+            report = {"source": args.source, "records": len(state["records"]), "coverage": coverage}
         text = summary(args.source, report)
         print(text, flush=True)
         if os.getenv("GITHUB_STEP_SUMMARY"):

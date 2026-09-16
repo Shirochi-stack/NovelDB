@@ -11,11 +11,11 @@ synopses. New catalog pages are enriched as they arrive instead of waiting for
 the entire discovery pass. Catalog prefetch and detail requests share one worker
 limit. Interrupted detail work remains in the checkpoint for the next resume.
 
-Naver records are published only when a nonempty synopsis is available. All
-discovered records remain in state, including restricted or genuinely empty
-upstream descriptions; no synopsis is invented. The manifest reports discovered,
-published, and awaiting-synopsis counts, which the site explains in its results
-notice. Adding a synopsis makes a saved record eligible at the next build.
+Naver publishes the full saved catalog with a synopsis-availability flag. With
+Load synopsis enabled, cards awaiting descriptions are hidden. Turning it off
+immediately reveals those records, without downloading description shards.
+The manifest reports discovered, published, and awaiting-synopsis counts.
+Scraping still backfills missing descriptions; no synopsis is invented.
 
 ## Publishing failures
 

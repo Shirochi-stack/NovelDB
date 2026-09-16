@@ -125,3 +125,12 @@ for (const variable of ['', '24576']) {
         }), variable || '16384');
     });
 }
+
+test('resumable catalog passes continue before translation; terminal partial runs still translate', () => {
+    const jobs = workflow('translate-new-metadata').jobs;
+    assert.equal(jobs['continue-catalog'].needs, 'context');
+    for (const eligible of [true, false]) {
+        const needs = { context: { outputs: { decision: JSON.stringify({ eligible }) } } };
+        assert.equal(evaluate('${{ ' + jobs.translate.if + ' }}', { needs }), !eligible);
+    }
+});

@@ -105,7 +105,7 @@ def test_build_schema_manifest_shards_and_top(built):
     assert len(row) == 16
     assert row[0] == "129" and row[5] is None and row[6] == 0
     assert row[7] is None and row[8] is None and row[10] is None
-    assert row[14] == {"favorites": 12} and row[15] == {"best": 1}
+    assert row[14] == {"favorites": 12, "synopsis_available": True} and row[15] == {"best": 1}
     assert manifest["format"] == "metadata-v1"
     assert manifest["descriptionShardCount"] == 128
     assert len([name for name in files if "descriptions_shard_" in name and name.endswith(".gz")]) == 128
@@ -283,8 +283,9 @@ def test_naver_waits_for_synopses_without_removing_recovered_records(tmp_path):
     manifest = pipeline.build("naver", output, state_dir)
     pipeline.validate_artifacts("naver", output)
     rows = json.loads((output / "naver_novels.json").read_text(encoding="utf-8"))
-    assert [row[0] for row in rows] == ["129"]
-    assert manifest["coverage"]["publication"] == {"discovered": 2, "published": 1, "awaiting_synopsis": 1}
+    assert [row[0] for row in rows] == ["129", "130"]
+    assert [row[14]["synopsis_available"] for row in rows] == [True, False]
+    assert manifest["coverage"]["publication"] == {"discovered": 2, "published": 2, "awaiting_synopsis": 1}
     assert manifest["coverage"]["enrichment"]["pending"] == 1
     state = common.load_state("naver", state_dir)
     assert set(state["records"]) == {"129", "130"} and state["progress"]["pending_details"] == ["130"]

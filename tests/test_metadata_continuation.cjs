@@ -24,3 +24,12 @@ test('rejects cancellation, failed metadata, another branch, bad source and malf
         assert.equal(await dispatchContinuation({ github, context: { ...context, payload: { ...context.payload, workflow_run: run } }, decision, source: 'naver' }), false);
     }
 });
+const { resolveSource } = require('../scripts/metadata_continuation.cjs');
+test('routes dynamic run names by stable workflow path with no Munpia fallback', () => {
+    for (const source of ['naver', 'joara', 'munpia', 'ridi', 'naverseries']) {
+        assert.equal(resolveSource('', { name: 'Dynamic title — catalog', path: `.github/workflows/update-${source}-metadata.yml` }), source);
+        assert.equal(resolveSource(source), source);
+    }
+    assert.throws(() => resolveSource('', { name: 'Ridibooks metadata — catalog' }));
+    assert.throws(() => resolveSource('wrong', {}));
+});
