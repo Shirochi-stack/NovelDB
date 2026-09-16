@@ -13,6 +13,15 @@ on:
       workers:
         type: number
         default: 4
+      translation_workers:
+        type: number
+        default: 67
+      translation_delay:
+        type: number
+        default: 5
+      translation_compression_factor:
+        type: number
+        default: 2.0
       auto_continue:
         type: boolean
         default: true
@@ -40,7 +49,7 @@ permissions:
 
 # The caller must not claim the same lock while awaiting this reusable job.
 concurrency:
-  group: data-write-lock
+  group: ${{ format('metadata-{0}', inputs.source) }}
   cancel-in-progress: false
 
 jobs:
@@ -50,6 +59,9 @@ jobs:
     env:
       PYTHONUNBUFFERED: '1'
       METADATA_WORKERS: ${{ inputs.workers }}
+      TRANSLATION_WORKERS: ${{ inputs.translation_workers }}
+      TRANSLATION_DELAY: ${{ inputs.translation_delay }}
+      TRANSLATION_COMPRESSION_FACTOR: ${{ inputs.translation_compression_factor }}
       AUTO_CONTINUE: ${{ inputs.auto_continue }}
       GH_TOKEN: ${{ github.token }}
       RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
@@ -91,7 +103,7 @@ jobs:
           state="metadata/state"
           if [ "$METADATA_OPERATION" = translate ]; then
             python scripts/metadata_pipeline.py prepare --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
-            python scripts/metadata_pipeline.py translate --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
+            python scripts/metadata_pipeline.py translate --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state" --workers "$TRANSLATION_WORKERS" --delay "$TRANSLATION_DELAY" --compression-factor "$TRANSLATION_COMPRESSION_FACTOR"
             python scripts/metadata_pipeline.py merge --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
             python scripts/metadata_pipeline.py build --source "$METADATA_SOURCE" --output-dir "$stage" --state-dir "$state"
           elif [ "$METADATA_OPERATION" = build ]; then
@@ -134,7 +146,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -- "metadata/state/$METADATA_SOURCE.json.gz" "docs/data/${METADATA_SOURCE}_*"
+          git add -- "metadata/state/$METADATA_SOURCE.json.gz" "metadata/state/$METADATA_SOURCE.translations.json.gz" "docs/data/${METADATA_SOURCE}_*"
           if [ "$METADATA_OPERATION" = translate ]; then
             git add -- docs/data/tags_en.txt docs/data/tags_en.txt.gz
             if [ -f docs/data/tags_extra.json.gz ]; then
@@ -189,5 +201,6 @@ jobs:
           include-hidden-files: true
           path: |
             metadata/state/${{ inputs.source }}.json.gz
+            metadata/state/${{ inputs.source }}.translations.json.gz
             .cache/metadata-build/${{ inputs.source }}/${{ inputs.source }}_run_report.json
             .cache/metadata-build/${{ inputs.source }}/${{ inputs.source }}_*untranslated.txt

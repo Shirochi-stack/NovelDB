@@ -546,13 +546,28 @@ def promote(source, output_dir, target_dir, include_tags=False, allow_partial=Fa
         for tag, english in known_tags(output_dir, output_dir / "tags_en.txt").items():
             tags.setdefault(tag, english)
         write_tags(target_dir, tags)
-    for name in files:
+    # These files are build/recovery inputs, not website assets. Publishing the
+    # plain synopsis corpus duplicates its .gz representation and can exceed
+    # GitHub's per-blob limit after translation. Pending patches belong only in
+    # the recovery artifact and normalized state.
+    local_only = {
+        f"{source}_descriptions.txt",
+        f"{source}_titles_untranslated.txt",
+        f"{source}_descriptions_untranslated.txt",
+        f"{source}_tags_untranslated.txt",
+    }
+    for name in local_only:
+        target = target_dir / name
+        if target.exists():
+            target.unlink()
+    published = [name for name in files if name not in local_only]
+    for name in published:
         origin, target = output_dir / name, target_dir / name
         if origin.resolve().parent != output_dir or target.resolve().parent != target_dir:
             raise ValueError("Promotion path escapes its source or target directory")
         if origin != target:
             atomic_bytes(target, origin.read_bytes())
-    return files
+    return published
 
 
 def main(argv=None):

@@ -149,7 +149,8 @@ def empty_state(source):
 
 
 def load_state(source, state_dir):
-    path = Path(state_dir) / (source + ".json.gz")
+    state_dir = Path(state_dir)
+    path = state_dir / (source + ".json.gz")
     if not path.exists():
         return empty_state(source)
     state = json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
@@ -157,6 +158,19 @@ def load_state(source, state_dir):
         raise ValueError("State version or source mismatch")
     if not isinstance(state.get("records"), dict) or not isinstance(state.get("boards"), dict):
         raise ValueError("Malformed metadata state")
+    translations_path = state_dir / (source + ".translations.json.gz")
+    if translations_path.exists():
+        payload = json.loads(gzip.decompress(translations_path.read_bytes()).decode("utf-8"))
+        if (payload.get("version") != 1 or payload.get("source") != source
+                or not isinstance(payload.get("translations"), dict)):
+            raise ValueError("Translation state version, source, or format mismatch")
+        # Once a sidecar exists it is authoritative. This also makes interrupted
+        # migrations fail closed instead of reviving stale inline translations.
+        for record in state["records"].values():
+            record.pop("translations", None)
+        for ident, translations in payload["translations"].items():
+            if ident in state["records"] and isinstance(translations, dict):
+                state["records"][ident]["translations"] = translations
     state.setdefault("progress", {})
     state.setdefault("coverage", {})
     return state
@@ -166,8 +180,21 @@ def save_state(state, state_dir):
     source = state["source"]
     if source not in SOURCE_LABELS:
         raise ValueError("Unknown metadata source")
-    content = json.dumps(state, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    atomic_bytes(Path(state_dir) / (source + ".json.gz"), gzip.compress(content, mtime=0))
+    state_dir = Path(state_dir)
+    translations = {}
+    records = {}
+    for ident, record in state.get("records", {}).items():
+        if record.get("translations"):
+            translations[ident] = record["translations"]
+        records[ident] = {key: value for key, value in record.items() if key != "translations"}
+    base = {**state, "records": records}
+    sidecar = {"version": 1, "source": source, "translations": translations}
+    sidecar_content = json.dumps(sidecar, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    content = json.dumps(base, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    # Write the sidecar first. If a process stops between the two replacements,
+    # load_state still validates translations against the originals in the base.
+    atomic_bytes(state_dir / (source + ".translations.json.gz"), gzip.compress(sidecar_content, mtime=0))
+    atomic_bytes(state_dir / (source + ".json.gz"), gzip.compress(content, mtime=0))
 
 
 def valid_id(value):

@@ -31,6 +31,19 @@ def test_recovery_preserves_translations_and_different_scan_cursor():
     assert repeated['added_records'] == 0 and again == merged
 
 
+def test_state_translations_roundtrip_through_sidecar(tmp_path):
+    saved = state()
+    common.save_state(saved, tmp_path)
+    base_path = tmp_path / 'naver.json.gz'
+    translations_path = tmp_path / 'naver.translations.json.gz'
+    assert base_path.exists() and translations_path.exists()
+    base = json.loads(gzip.decompress(base_path.read_bytes()))
+    sidecar = json.loads(gzip.decompress(translations_path.read_bytes()))
+    assert 'translations' not in base['records']['1']
+    assert sidecar['translations']['1']['title']['english'] == 'Existing'
+    assert common.load_state('naver', tmp_path) == saved
+
+
 def test_recovery_newer_same_scan_and_completed_scan():
     current, newer = state(), state(revision=9)
     assert recovery.recover_state(current, newer)[1]['restored_cursor']
@@ -149,6 +162,14 @@ def test_oversized_data_rejected_before_commit(repositories, monkeypatch):
     assert git(local, 'rev-parse', 'HEAD') == head
 
 
+def test_oversized_renamed_blob_is_rejected(repositories, monkeypatch):
+    local, _, _ = repositories
+    git(local, 'mv', 'docs/data/naver_novels.json', 'docs/data/naver_renamed.json')
+    monkeypatch.setattr(publishing, 'MAX_BLOB', 5)
+    with pytest.raises(ValueError, match='compress'):
+        publishing.validate_index()
+
+
 def test_push_race_refetches_and_preserves_remote_change(repositories, monkeypatch):
     local, other, remote = repositories
     update(local, 'docs/data/naver_novels.json', 'scraped')
@@ -182,3 +203,5 @@ def test_snapshot_roundtrip_and_partial_translation_recovery(repositories, monke
     restored = recovery.unpack(output, 'naver', 'owner/repo', 'main')
     assert restored['records']['1']['translations']['title']['english'] == 'Recovered title'
     assert (output / 'manifest.json').exists()
+    manifest = json.loads((output / 'manifest.json').read_text())
+    assert 'metadata/state/naver.translations.json.gz' in manifest['files']

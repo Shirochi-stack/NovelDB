@@ -107,6 +107,24 @@ test('new metadata translation exposes a 16k string input accepted by its reusab
     assert.equal(reusableInput.type, 'string');
     assert.equal(reusableInput.default, '');
 });
+test('new metadata translation exposes typed parallelism and chunk controls', () => {
+    const manual = translationCaller.on.workflow_dispatch.inputs;
+    const reusable = translationJob.on.workflow_call.inputs;
+    const bindings = translationCaller.jobs.translate.with;
+    const context = { inputs: { workers: 12, delay: 1.5, compression_factor: 3 } };
+    for (const [manualName, reusableName, expected] of [
+        ['workers', 'translation_workers', 12],
+        ['delay', 'translation_delay', 1.5],
+        ['compression_factor', 'translation_compression_factor', 3],
+    ]) {
+        assert.equal(manual[manualName].type, 'number');
+        assert.equal(reusable[reusableName].type, 'number');
+        const value = evaluate(bindings[reusableName], context);
+        assert.equal(typeof value, reusable[reusableName].type);
+        assert.equal(value, expected);
+    }
+    assert.equal(evaluate(translationJob.concurrency.group, { inputs: { source: 'joara' } }), 'metadata-joara');
+});
 for (const scenario of tokenLimitCases) {
     test(`new metadata translation: output token limit ${scenario.name}`, () => {
         const context = tokenLimitContext(scenario);

@@ -50,7 +50,7 @@ def tags_at(ref):
 
 
 def validate_index():
-    paths = git('diff', '--cached', '--name-only', '--diff-filter=ACM', '-z').stdout.decode().split('\0')
+    paths = git('diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z').stdout.decode().split('\0')
     paths = list(filter(None, paths))
     sizes = git('cat-file', '--batch-check=%(objectsize)',
                 input=''.join(f':{p}\n' for p in paths).encode()).stdout.decode().splitlines()

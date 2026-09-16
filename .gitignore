@@ -27,3 +27,15 @@ tmp_sfacg_apk/
 
 # Kakao descriptions are stored and processed as gzip.
 docs/data/kakao_descriptions.txt
+
+# New metadata sources publish gzip/shards; plaintext and pending corpora stay in recovery artifacts.
+docs/data/naver_descriptions.txt
+docs/data/joara_descriptions.txt
+docs/data/munpia_descriptions.txt
+docs/data/ridi_descriptions.txt
+docs/data/naverseries_descriptions.txt
+docs/data/naver_*_untranslated.txt
+docs/data/joara_*_untranslated.txt
+docs/data/munpia_*_untranslated.txt
+docs/data/ridi_*_untranslated.txt
+docs/data/naverseries_*_untranslated.txt

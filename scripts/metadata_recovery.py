@@ -88,9 +88,10 @@ def snapshot(source, output):
     output.mkdir(parents=True, exist_ok=True)
     files = list(Path('docs/data').glob(f'{source}_*')) if source != 'tags' else []
     files += list(Path('docs/data').glob('tags*'))
-    state_path = Path('metadata/state') / f'{source}.json.gz'
-    if state_path.exists():
-        files.append(state_path)
+    state_dir = Path('metadata/state')
+    for state_path in (state_dir / f'{source}.json.gz', state_dir / f'{source}.translations.json.gz'):
+        if state_path.exists():
+            files.append(state_path)
     stage = Path('.cache/metadata-build') / source
     files += list(stage.glob('*'))
     files = sorted({p for p in files if p.is_file()})
@@ -134,7 +135,7 @@ def unpack(directory, source, repo, branch):
     candidates = list(directory.rglob(f'{source}.json.gz'))
     if len(candidates) != 1:
         raise ValueError('Recovery artifact must contain exactly one source checkpoint')
-    state = json.loads(gzip.decompress(candidates[0].read_bytes()))
+    state = load_state(source, candidates[0].parent)
     validate_state(state, source)
     stage = directory / '.cache' / 'metadata-build' / source
     if stage.exists() and state['records']:

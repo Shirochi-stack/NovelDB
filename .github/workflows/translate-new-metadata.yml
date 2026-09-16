@@ -21,6 +21,18 @@ on:
         description: 'Max output tokens per request (positive integer; blank = repository variable or 16384)'
         type: string
         default: '16384'
+      workers:
+        description: 'Parallel translation API calls'
+        type: number
+        default: 67
+      delay:
+        description: 'Seconds between starting translation API calls'
+        type: number
+        default: 5
+      compression_factor:
+        description: 'Chunk divisor (16384 / 2.0 = about 8192 input tokens per request)'
+        type: number
+        default: 2.0
 permissions:
   contents: write
   pages: write
@@ -75,6 +87,9 @@ jobs:
       recovery_run_id: ${{ inputs.recovery_run_id || '' }}
       model: ${{ inputs.model || 'gpt-5.6-luna' }}
       output_token_limit: ${{ inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
+      translation_workers: ${{ fromJSON(format('{0}', inputs.workers || 67)) }}
+      translation_delay: ${{ fromJSON(format('{0}', inputs.delay || 5)) }}
+      translation_compression_factor: ${{ fromJSON(format('{0}', inputs.compression_factor || 2.0)) }}
     secrets: inherit
   continue-catalog:
     needs: context

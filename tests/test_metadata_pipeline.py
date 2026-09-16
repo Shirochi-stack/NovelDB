@@ -143,6 +143,24 @@ def test_promote_changes_only_source_and_explicit_shared_tags(built, tmp_path):
     assert pipeline.read_tags(target / "tags_en.txt") == {"existing": "Original", "new": "New"}
 
 
+def test_promote_publishes_gzip_not_plaintext_or_pending_corpora(built, tmp_path):
+    output, _ = built
+    target = tmp_path / "public"
+    target.mkdir()
+    local_only = (
+        "naver_descriptions.txt",
+        "naver_titles_untranslated.txt",
+        "naver_descriptions_untranslated.txt",
+        "naver_tags_untranslated.txt",
+    )
+    for name in local_only:
+        (target / name).write_text("stale", encoding="utf-8")
+    published = pipeline.promote("naver", output, target)
+    assert "naver_descriptions.txt.gz" in published
+    assert (target / "naver_descriptions.txt.gz").is_file()
+    assert all(name not in published and not (target / name).exists() for name in local_only)
+
+
 def test_promote_rejects_unsafe_manifest_before_writes(built, tmp_path):
     output, _ = built
     path = output / "naver_chunk_manifest.json"
