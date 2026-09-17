@@ -6247,6 +6247,19 @@ async ({ novelId, kind }) => {
   };
 
   discoverPages(document, location.href);
+  // Current NewToki builds do not always render pagination anchors. Probe the
+  // epage query used by the site so older/newer rows are still discovered.
+  const requestedUrl = new URL(location.href);
+  requestedUrl.hash = '';
+  requestedUrl.searchParams.delete('epage');
+  for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+    const target = new URL(requestedUrl.href);
+    target.searchParams.set('epage', String(pageNumber));
+    if (!visited.has(target.href) && !queued.has(target.href)) {
+      queued.add(target.href);
+      queue.push(target.href);
+    }
+  }
   let fetchedPages = 0;
   while (queue.length && fetchedPages < 20) {
     const pageUrl = queue.shift();
@@ -6430,14 +6443,18 @@ async ({ novelId, kind }) => {
             return None
 
         initial_chapters = result.get('chapters') or []
-        if self._ntk_browser_index_looks_partial(initial_chapters):
-            expanded_chapters = self._ntk_collect_all_browser_chapters(index_url)
-            if len(expanded_chapters) > len(initial_chapters):
-                self.log(
-                    f"[NewToki] Expanded chapter index from "
-                    f"{len(initial_chapters)} to {len(expanded_chapters)} chapters."
-                )
-                result['chapters'] = expanded_chapters
+        # Always inspect pagination. A list beginning at episode 1 can still
+        # be truncated, and current NewToki pages sometimes omit their pager.
+        expanded_chapters = self._ntk_collect_all_browser_chapters(index_url)
+        if (
+            isinstance(expanded_chapters, list)
+            and len(expanded_chapters) > len(initial_chapters)
+        ):
+            self.log(
+                f"[NewToki] Expanded chapter index from "
+                f"{len(initial_chapters)} to {len(expanded_chapters)} chapters."
+            )
+            result['chapters'] = expanded_chapters
 
         chapters = []
         seen = set()

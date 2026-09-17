@@ -19,6 +19,8 @@ import sys
 import re
 import html
 import json
+import hashlib
+import base64
 import time
 import threading
 import queue
@@ -315,6 +317,22 @@ class ExternalNovelDialog(tk.Toplevel):
         )
         self._chk_generate_on_stop.pack(side="left", padx=(0, 10))
 
+        self._var_use_cache = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            btn_frame, text="Use Cache", variable=self._var_use_cache,
+        ).pack(side="left", padx=(0, 5))
+        self._var_cache_images = tk.BooleanVar(value=False)
+        self._chk_cache_images = ttk.Checkbutton(
+            btn_frame, text="Cache Images", variable=self._var_cache_images,
+        )
+        self._chk_cache_images.pack(side="left", padx=(0, 10))
+        self._var_use_cache.trace_add(
+            "write",
+            lambda *_: self._chk_cache_images.configure(
+                state="normal" if self._var_use_cache.get() else "disabled"
+            ),
+        )
+
         self._btn_browser = ttk.Button(btn_frame, text="Enter Browser",
                                         command=self._on_enter_browser)
         self._btn_browser.pack(side="left", padx=(0, 5), ipady=3)
@@ -511,6 +529,114 @@ class ExternalNovelDialog(tk.Toplevel):
             time.sleep(min(0.1, deadline - time.time()))
         return self._downloading
 
+    @staticmethod
+    def _external_cache_chapter_key(chapter, fallback_index=0):
+        """Return a stable cache key for a chapter across index refreshes."""
+        for field in ('episodeId', 'id', 'itemId', 'productId', 'url'):
+            value = chapter.get(field) if isinstance(chapter, dict) else None
+            if value not in (None, ''):
+                return f'{field}:{value}'
+        return f'index:{fallback_index}'
+
+    def _external_cache_path(self):
+        """Return the per-book external cache file without exposing the URL."""
+        book_url = (self._book_data or {}).get('bookUrl') or self._url_var.get()
+        digest = hashlib.sha256(str(book_url).encode('utf-8')).hexdigest()[:24]
+        cache_dir = os.path.join(_get_base_dir(), '.cache', 'external')
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, f'{digest}.json')
+
+    def _load_external_cache(self):
+        if not self._var_use_cache.get():
+            return {}, None
+        try:
+            path = self._external_cache_path()
+            if not os.path.exists(path):
+                return {}, path
+            with open(path, 'r', encoding='utf-8') as cache_file:
+                payload = json.load(cache_file)
+            entries = payload.get('chapters', {})
+            if not isinstance(entries, dict):
+                raise ValueError('invalid chapter cache')
+            self._log(f"Cache loaded ({len(entries)} external chapters cached).")
+            return entries, path
+        except Exception as exc:
+            self._log(f"⚠ External cache could not be loaded: {exc}")
+            return {}, None
+
+    @staticmethod
+    def _external_cache_result(result, cache_images):
+        """Make a JSON-safe result, retaining downloaded image bytes on request."""
+        cached = json.loads(json.dumps(result))
+        if not cache_images:
+            for image in cached.get('images') or []:
+                if isinstance(image, dict):
+                    image.pop('data', None)
+            cached.pop('_coverData', None)
+        return cached
+
+    def _save_external_cache(self, entries, path):
+        if not path or not self._var_use_cache.get():
+            return
+        payload = {
+            'version': 1,
+            'bookUrl': (self._book_data or {}).get('bookUrl', ''),
+            'chapters': entries,
+        }
+        temporary = f'{path}.tmp'
+        try:
+            with open(temporary, 'w', encoding='utf-8') as cache_file:
+                json.dump(payload, cache_file, ensure_ascii=False)
+            os.replace(temporary, path)
+        except Exception as exc:
+            self._log(f"⚠ External cache could not be saved: {exc}")
+            try:
+                if os.path.exists(temporary):
+                    os.remove(temporary)
+            except OSError:
+                pass
+
+    def _cache_external_result_images(self, result):
+        """Attach downloaded image bytes so cached chapters are self-contained."""
+        if not isinstance(result, dict) or not self._var_cache_images.get():
+            return result
+        images = result.get('images') or []
+        for image_index, image in enumerate(images, 1):
+            if not isinstance(image, dict) or image.get('data'):
+                continue
+            image_url = html.unescape(image.get('url') or '').strip()
+            if not image_url:
+                continue
+            raw = None
+            if (self._book_data or {}).get('_ntk_novel') and self._scraper:
+                fetch_ntk_binary = getattr(
+                    self._scraper, 'fetch_ntk_binary', None
+                )
+                if fetch_ntk_binary:
+                    raw = fetch_ntk_binary(
+                        image_url,
+                        result.get('chapterUrl')
+                        or (self._book_data or {}).get('bookUrl', ''),
+                    )
+            if not raw:
+                raw = self._download_image_python(
+                    image_url,
+                    f"Cached image {image_index}/{len(images)}",
+                    request_cookies=(
+                        image.get('_cookies') or result.get('_imageCookies')
+                    ),
+                    log_success=False,
+                    log_failure=True,
+                )
+            if raw:
+                extension = self._image_ext_from_bytes(raw)
+                mime = 'image/jpeg' if extension == 'jpg' else f'image/{extension}'
+                image['data'] = (
+                    f'data:{mime};base64,'
+                    + base64.b64encode(raw).decode('ascii')
+                )
+        return result
+
     def _do_download(self, chapters, start, end, interval, num_threads=1,
                       skip_paid=False, retry_passes=5, interval_max=None):
         """Run chapter downloads on the worker thread.
@@ -597,6 +723,41 @@ class ExternalNovelDialog(tk.Toplevel):
                 selected = chapters[start:end]
             total = len(selected)
             results = [None] * total
+            use_cache_variable = getattr(self, '_var_use_cache', None)
+            image_cache_variable = getattr(self, '_var_cache_images', None)
+            use_cache = bool(
+                use_cache_variable and use_cache_variable.get()
+            )
+            cache_images = bool(
+                use_cache and image_cache_variable
+                and image_cache_variable.get()
+            )
+            if use_cache:
+                cache_entries, cache_path = (
+                    ExternalNovelDialog._load_external_cache(self)
+                )
+            else:
+                cache_entries, cache_path = {}, None
+            cache_hits = 0
+            if use_cache:
+                for selected_index, chapter in enumerate(selected):
+                    cache_key = ExternalNovelDialog._external_cache_chapter_key(
+                        chapter, start + selected_index
+                    )
+                    cached = cache_entries.get(cache_key)
+                    if isinstance(cached, dict):
+                        if cache_images:
+                            ExternalNovelDialog._cache_external_result_images(
+                                self, cached
+                            )
+                            cache_entries[cache_key] = cached
+                        results[selected_index] = cached
+                        cache_hits += 1
+                if cache_hits:
+                    self._log(
+                        f"Cache hits: {cache_hits}; "
+                        f"{total - cache_hits} chapter(s) need network download."
+                    )
             is_qidian = bool(
                 self._book_data and self._book_data.get('_qidian')
             )
@@ -814,6 +975,21 @@ class ExternalNovelDialog(tk.Toplevel):
                             )
                         data.setdefault('_chapter_number', source_number)
                     results[idx] = data
+                    if isinstance(data, dict) and use_cache:
+                        if cache_images:
+                            ExternalNovelDialog._cache_external_result_images(
+                                self, data
+                            )
+                        cache_key = (
+                            ExternalNovelDialog._external_cache_chapter_key(
+                                selected[idx], start + idx
+                            )
+                        )
+                        cache_entries[cache_key] = (
+                            ExternalNovelDialog._external_cache_result(
+                                data, cache_images
+                            )
+                        )
 
                 if log_on_success:
                     # A failed or locked earlier chapter has no success
@@ -854,6 +1030,11 @@ class ExternalNovelDialog(tk.Toplevel):
                         self._download_cancelled = True
                         self._log("Download stopped by user.")
                         break
+
+            if use_cache:
+                ExternalNovelDialog._save_external_cache(
+                    self, cache_entries, cache_path
+                )
 
             # Novelpia intentionally does not retry failed chapters.
             failed_indices = [
@@ -3278,6 +3459,11 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_generate_on_stop.set(
                 cfg.get("ext_generate_on_stop", False)
             )
+            self._var_use_cache.set(cfg.get("ext_use_cache", True))
+            self._var_cache_images.set(cfg.get("ext_cache_images", False))
+            self._chk_cache_images.configure(
+                state="normal" if self._var_use_cache.get() else "disabled"
+            )
             self._var_regular_browser.set(
                 cfg.get("ext_regular_browser", False)
             )
@@ -3345,6 +3531,8 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_to"] = self._var_to.get()
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
         cfg["ext_generate_on_stop"] = self._var_generate_on_stop.get()
+        cfg["ext_use_cache"] = self._var_use_cache.get()
+        cfg["ext_cache_images"] = self._var_cache_images.get()
         cfg["ext_regular_browser"] = self._var_regular_browser.get()
         cfg["ext_ntk_novelpia_cover"] = (
             self._var_ntk_novelpia_cover.get()
