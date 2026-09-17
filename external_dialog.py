@@ -2131,7 +2131,12 @@ class ExternalNovelDialog(tk.Toplevel):
             with zipfile.ZipFile(filepath, "w") as zf:
                 cover_url = data.get('coverUrl', '')
                 if cover_url:
-                    cover_raw = fetch_image(cover_url, "Cover", log_failure=True)
+                    cover_raw = fetch_image(
+                        cover_url,
+                        "Cover",
+                        img_data_url=data.get('_coverData'),
+                        log_failure=True,
+                    )
                     if cover_raw:
                         cover_ext = self._image_ext_from_bytes(cover_raw)
                         if compress_cover:
@@ -2473,12 +2478,19 @@ img { display: block; max-width: 100%; max-height: 100%;
             # (EpubGenerator looks for images named 'cover.*')
             cover_added = False
             if cover_url:
-                cover_bytes = None
+                cover_bytes = self._decode_image_data_url(
+                    data.get('_coverData')
+                )
+                if cover_bytes:
+                    self._log(
+                        f"  📷 Cover: using startup cache "
+                        f"({len(cover_bytes)} bytes)"
+                    )
                 if data.get('_ntk_novel') and self._scraper:
                     fetch_ntk_binary = getattr(
                         self._scraper, 'fetch_ntk_binary', None
                     )
-                    if fetch_ntk_binary:
+                    if fetch_ntk_binary and not cover_bytes:
                         cover_bytes = fetch_ntk_binary(
                             cover_url,
                             data.get('bookUrl') or '',
@@ -3272,6 +3284,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             cover_bytes = fetch_pdf_asset(
                 cover_url,
                 'PDF cover',
+                data_url=data.get('_coverData'),
                 referer=data.get('bookUrl') or '',
             )
             if cover_bytes:

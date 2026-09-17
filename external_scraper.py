@@ -7813,6 +7813,23 @@ async ({ url }) => {
         )
         if data.get('coverUrl'):
             self.log(f"[NewToki] Cover URL: {data.get('coverUrl')}")
+            cover_bytes = self.fetch_ntk_binary(
+                data['coverUrl'], url
+            )
+            if cover_bytes:
+                data['_coverData'] = (
+                    'data:application/octet-stream;base64,'
+                    + base64.b64encode(cover_bytes).decode('ascii')
+                )
+                self.log(
+                    f"[NewToki] Cover cached before chapter download "
+                    f"({len(cover_bytes)} bytes)."
+                )
+            else:
+                self.log(
+                    "[NewToki] Cover could not be cached at startup; "
+                    "output generation will retry it."
+                )
         else:
             self.log("[NewToki] Cover URL not found on index page.")
 
