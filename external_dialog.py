@@ -90,6 +90,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._active_generate_on_stop = False
         self._start_time = None
         self._msg_queue = queue.Queue()
+        self._log_link_counter = 0
         self._paste_batch_text = ''      # persisted between dialog opens
         self._paste_batch_dialog = None
 
@@ -456,9 +457,49 @@ class ExternalNovelDialog(tk.Toplevel):
 
     def _append_log(self, text):
         self._console.configure(state="normal")
-        self._console.insert("end", text + "\n")
+        saved_prefix = "✅ Saved: "
+        if text.startswith(saved_prefix):
+            self._console.insert("end", saved_prefix)
+            file_path = text[len(saved_prefix):].strip()
+            tag = f"saved_path_{self._log_link_counter}"
+            self._log_link_counter += 1
+            self._console.insert("end", file_path, (tag,))
+            self._console.tag_configure(
+                tag, foreground="#0563c1", underline=True
+            )
+            self._console.tag_bind(
+                tag,
+                "<Button-1>",
+                lambda _event, path=file_path: self._open_saved_file(path),
+            )
+            self._console.tag_bind(
+                tag, "<Enter>",
+                lambda _event: self._console.configure(cursor="hand2"),
+            )
+            self._console.tag_bind(
+                tag, "<Leave>",
+                lambda _event: self._console.configure(cursor=""),
+            )
+            self._console.insert("end", "\n")
+        else:
+            self._console.insert("end", text + "\n")
         self._console.see("end")
         self._console.configure(state="disabled")
+
+    def _open_saved_file(self, file_path):
+        """Open a generated output file using the system default application."""
+        path = os.path.abspath(os.path.expanduser(file_path))
+        try:
+            if not os.path.isfile(path):
+                raise FileNotFoundError(path)
+            if sys.platform == 'win32':
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', path])
+            else:
+                subprocess.Popen(['xdg-open', path])
+        except Exception as exc:
+            self._append_log(f"❌ Could not open saved file: {exc}")
 
     # ------------------------------------------------------------------
     # Persistent worker thread (all Playwright calls run here)
