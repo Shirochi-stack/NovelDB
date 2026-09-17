@@ -71,12 +71,12 @@ class ExternalNovelDialog(tk.Toplevel):
         # Size window
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
-        w = int(screen_w * 0.70)
+        w = int(screen_w * 0.67)
         h = int(screen_h * 0.60)
         x = (screen_w - w) // 2
         y = (screen_h - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
-        self.minsize(int(screen_w * 0.50), int(screen_h * 0.40))
+        self.minsize(int(screen_w * 0.35), int(screen_h * 0.40))
 
         self._parent_gui = parent      # Access compression settings from main GUI
         self._retry_variable = retry_variable
