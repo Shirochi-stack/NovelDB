@@ -24,6 +24,7 @@ import base64
 import time
 import threading
 import queue
+import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import tkinter as tk
@@ -70,12 +71,12 @@ class ExternalNovelDialog(tk.Toplevel):
         # Size window
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
-        w = int(screen_w * 0.50)
+        w = int(screen_w * 0.70)
         h = int(screen_h * 0.60)
         x = (screen_w - w) // 2
         y = (screen_h - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
-        self.minsize(int(screen_w * 0.35), int(screen_h * 0.40))
+        self.minsize(int(screen_w * 0.50), int(screen_h * 0.40))
 
         self._parent_gui = parent      # Access compression settings from main GUI
         self._retry_variable = retry_variable
@@ -332,6 +333,11 @@ class ExternalNovelDialog(tk.Toplevel):
                 state="normal" if self._var_use_cache.get() else "disabled"
             ),
         )
+        ttk.Button(
+            btn_frame,
+            text="Open Cache Folder",
+            command=self._open_external_cache_folder,
+        ).pack(side="left", padx=(0, 10), ipady=3)
 
         self._btn_browser = ttk.Button(btn_frame, text="Enter Browser",
                                         command=self._on_enter_browser)
@@ -545,6 +551,21 @@ class ExternalNovelDialog(tk.Toplevel):
         cache_dir = os.path.join(_get_base_dir(), '.cache', 'external')
         os.makedirs(cache_dir, exist_ok=True)
         return os.path.join(cache_dir, f'{digest}.json')
+
+    def _open_external_cache_folder(self):
+        """Open the external downloader cache directory in the file explorer."""
+        cache_dir = os.path.join(_get_base_dir(), '.cache', 'external')
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            if sys.platform == 'win32':
+                os.startfile(cache_dir)  # type: ignore[attr-defined]
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', cache_dir])
+            else:
+                subprocess.Popen(['xdg-open', cache_dir])
+            self._log(f"Opened cache folder: {cache_dir}")
+        except Exception as exc:
+            self._log(f"Failed to open cache folder ({cache_dir}): {exc}")
 
     def _load_external_cache(self):
         if not self._var_use_cache.get():
