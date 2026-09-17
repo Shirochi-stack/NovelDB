@@ -621,6 +621,45 @@ def test_ntk_real_headless_browser_fetches_wildcard_cors_cover_without_cookies()
         browser.close()
 
 
+def test_ntk_cover_falls_back_to_numbered_cdn_mirror(monkeypatch):
+    cover_bytes = b"\xff\xd8\xff\xe0" + (b"mirror-cover-fixture" * 8)
+    requested_hosts = []
+
+    class Response:
+        headers = {"content-type": "image/jpeg"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return cover_bytes
+
+    def fake_urlopen(request, timeout):
+        requested_hosts.append(request.host)
+        assert timeout == 8
+        if request.host != "aws-cdn1.site":
+            raise OSError("unavailable mirror")
+        return Response()
+
+    scraper, messages = make_scraper()
+    scraper._page = object()
+    scraper._ntk_browser_fallback = True
+    scraper._book_url = "https://newtoki1.org/novel/58565"
+    monkeypatch.setattr(scraper, "_ntk_fetch_binary_browser", lambda _url: None)
+    monkeypatch.setattr("external_scraper.urllib.request.urlopen", fake_urlopen)
+
+    result = scraper.fetch_ntk_binary(
+        "https://aws-cdn9.site/board_uploads/cover.jpg"
+    )
+
+    assert result == cover_bytes
+    assert requested_hosts == ["aws-cdn1.site"]
+    assert any("Recovered asset through aws-cdn1.site" in line for line in messages)
+
+
 def test_sbxh_real_headless_browser_collects_all_paginated_chapters():
     def index_html(first, last, next_page=None):
         rows = "".join(

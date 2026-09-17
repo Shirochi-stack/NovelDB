@@ -7722,7 +7722,66 @@ async ({ url }) => {
         if not url:
             return None
         if self._ntk_browser_fallback and self._page:
-            return self._ntk_fetch_binary_browser(url)
+            browser_data = self._ntk_fetch_binary_browser(url)
+            if browser_data:
+                return browser_data
+
+            # NewToki's numbered Cloudflare CDN hosts mirror board uploads.
+            # A particular edge (commonly aws-cdn9.site) can reset every
+            # connection from an otherwise valid Korean route. Try sibling
+            # hosts before giving up on the cover.
+            parsed = urllib.parse.urlsplit(url)
+            mirror_match = re.fullmatch(
+                r'aws-cdn(\d+)\.site', parsed.hostname or '', re.I
+            )
+            if mirror_match and parsed.path:
+                headers = {
+                    'User-Agent': (
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/120.0.0.0 Safari/537.36'
+                    ),
+                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                    'Referer': referer or self._book_url or '',
+                }
+                original_number = int(mirror_match.group(1))
+                mirror_numbers = [
+                    number for number in range(1, 16)
+                    if number != original_number
+                ]
+                for number in mirror_numbers:
+                    mirror_host = f'aws-cdn{number}.site'
+                    mirror_url = urllib.parse.urlunsplit((
+                        parsed.scheme,
+                        mirror_host,
+                        parsed.path,
+                        parsed.query,
+                        '',
+                    ))
+                    try:
+                        request = urllib.request.Request(
+                            mirror_url, headers=headers
+                        )
+                        with urllib.request.urlopen(
+                            request, timeout=8
+                        ) as response:
+                            raw = response.read()
+                            content_type = response.headers.get(
+                                'content-type', ''
+                            )
+                        if len(raw) > 100 and (
+                            content_type.startswith('image/')
+                            or raw[:4] == b'\x89PNG'
+                            or raw[:3] == b'\xff\xd8\xff'
+                            or raw[:4] in (b'RIFF', b'GIF8')
+                        ):
+                            self.log(
+                                f"  [NewToki] Recovered asset through "
+                                f"{mirror_host}."
+                            )
+                            return raw
+                    except Exception:
+                        continue
         if state and state.get('session'):
             headers = dict(state.get('doc_headers') or {})
             headers.update({
@@ -7812,6 +7871,17 @@ async ({ url }) => {
             data.get('coverUrl', '')
         )
         if data.get('coverUrl'):
+            parsed_cover = urllib.parse.urlsplit(data['coverUrl'])
+            if re.fullmatch(
+                r'aws-cdn\d+\.site', parsed_cover.hostname or '', re.I
+            ):
+                data['coverUrl'] = urllib.parse.urlunsplit((
+                    parsed_cover.scheme,
+                    'aws-cdn1.site',
+                    parsed_cover.path,
+                    parsed_cover.query,
+                    parsed_cover.fragment,
+                ))
             self.log(f"[NewToki] Cover URL: {data.get('coverUrl')}")
             cover_bytes = self.fetch_ntk_binary(
                 data['coverUrl'], url
