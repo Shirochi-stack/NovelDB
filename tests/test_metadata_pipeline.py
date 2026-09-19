@@ -315,6 +315,19 @@ def test_naver_waits_for_synopses_without_removing_recovered_records(tmp_path):
     assert manifest["totalEntries"] == 2 and manifest["coverage"]["publication"]["awaiting_synopsis"] == 0
 
 
+def test_naver_na_placeholder_is_not_marked_as_an_available_synopsis(tmp_path):
+    placeholder = record()
+    placeholder["synopsis"] = "N/A"
+    state_dir = save(tmp_path, records={"129": placeholder})
+    output = tmp_path / "published"
+    pipeline.prepare("naver", output, state_dir)
+    manifest = pipeline.build("naver", output, state_dir)
+    pipeline.validate_artifacts("naver", output)
+    row = json.loads((output / "naver_novels.json").read_text(encoding="utf-8"))[0]
+    assert row[14]["synopsis_available"] is False
+    assert manifest["coverage"]["publication"]["awaiting_synopsis"] == 1
+
+
 def test_naver_validator_rejects_missing_synopsis(built):
     output, _ = built
     pipeline.gzip_json(output / "naver_descriptions_shard_001.json.gz", {})

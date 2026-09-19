@@ -155,6 +155,12 @@ def parse_detail(payload, previous):
         if "성인 콘텐츠" in message and "로그인" in message:
             return MetadataResult(status="restricted", record={**previous, "age": 19},
                                   reason="Joara requires login and age verification for adult metadata")
+        # Joara returns HTTP 200 with error 9001 when a historical catalog ID
+        # no longer has a public work-detail record. This is terminal, not a
+        # transient parse failure; retrying it prevents resumed runs completing.
+        if payload.get("error_code") == 9001:
+            return MetadataResult(status="unavailable",
+                                  reason="Joara metadata is no longer publicly available")
     if not isinstance(payload, dict) or payload.get("status") != 1:
         return MetadataResult(status="failed", reason="Joara rejected the metadata request")
     book = payload.get("book")

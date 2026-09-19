@@ -22,6 +22,14 @@ def test_adult_verification_response_marks_age_without_fabricating_synopsis():
     assert result.record["title"] == "Known title" and "synopsis" not in result.record
 
 
+def test_missing_historical_detail_is_terminally_unavailable():
+    result = parse_detail({"status": 0, "error_code": 9001,
+                           "message": "해당 챕터는 존재하지 않습니다."},
+                          {"id": "1866", "title": "Historical title"})
+    assert result.status == "unavailable"
+    assert result.record is None
+
+
 def test_latest_cursor_response_has_no_page_field_and_keeps_api_page_one():
     payload = fixture("catalog.json")
     payload.pop("page", None)

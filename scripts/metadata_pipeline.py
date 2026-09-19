@@ -187,6 +187,18 @@ def active_translation(record, field):
     return ""
 
 
+def publishable_synopsis(record):
+    """Return the synopsis that the shard builder will actually publish."""
+    original = str(record.get("synopsis") or "")
+    # write_field_corpus omits records with a genuinely empty original even if
+    # a stale sidecar somehow contains an English value for that empty string.
+    if not clean_field(original):
+        return ""
+    synopsis = str(active_translation(record, "synopsis") or original).strip()
+    # chunk_descriptions deliberately treats this placeholder as missing.
+    return "" if synopsis == "N/A" else synopsis
+
+
 def expire_translation(record, field):
     translations = record.setdefault("translations", {})
     old = translations.get(field)
@@ -344,7 +356,7 @@ def top_payload(state, rows):
         english = active_translation(record, "title")
         if english:
             translations[nid] = english
-        synopsis = active_translation(record, "synopsis") or record.get("synopsis")
+        synopsis = publishable_synopsis(record)
         if synopsis:
             descriptions[nid] = synopsis
     return {"novels": selected, "translations": translations, "descriptions": descriptions}
@@ -360,7 +372,7 @@ def build(source, output_dir, state_dir):
     if source == "naver":
         # Publish discovery records too; the browser hides them only while synopses are enabled.
         ready = {nid: record for nid, record in state["records"].items()
-                 if str(active_translation(record, "synopsis") or record.get("synopsis") or "").strip()}
+                 if publishable_synopsis(record)}
         for row in rows:
             row[14] = {**row[14], "synopsis_available": str(row[0]) in ready}
     if not rows:
