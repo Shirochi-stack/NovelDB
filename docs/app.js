@@ -5616,8 +5616,11 @@
     }
 
     function tagMatchKey(tag) {
-        const cacheKey = String(tag || "");
-        if (TAG_KEY_CACHE.has(cacheKey)) return TAG_KEY_CACHE.get(cacheKey);
+        // Hot path: ~5M calls while the catalog loads. One Map probe, not two,
+        // and no String() round-trip for the (overwhelmingly common) string tag.
+        const cacheKey = typeof tag === "string" ? tag : String(tag || "");
+        const cached = TAG_KEY_CACHE.get(cacheKey);
+        if (cached !== undefined) return cached;
         const raw = normalizeTagText(cacheKey);
         const group = baseTagGroup(tag);
         const key = group || `label:${normalizeTagText(tl(tag)) || raw}`;
@@ -5721,15 +5724,18 @@
     function tagCountDelta(groups, novel, delta) {
         const tags = novel.tags;
         if (!tags || !tags.length) return;
+        // Runs once per record per load, so a Set here would mean ~1M
+        // short-lived allocations. Records carry a handful of tags, where a
+        // linear scan of an array beats hashing and leaves nothing to collect.
         let seen = null;
         for (const rawTag of tags) {
-            const tag = String(rawTag || "").trim();
+            const tag = typeof rawTag === "string" ? rawTag.trim() : String(rawTag || "").trim();
             if (!tag) continue;
             const key = tagMatchKey(tag);
             if (tags.length > 1) {
-                if (!seen) seen = new Set();
-                if (seen.has(key)) continue;
-                seen.add(key);
+                if (!seen) seen = [];
+                else if (seen.indexOf(key) !== -1) continue;
+                seen.push(key);
             }
             let group = groups.get(key);
             if (!group) {
