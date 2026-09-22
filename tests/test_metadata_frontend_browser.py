@@ -636,5 +636,17 @@ def test_tag_selection_stays_in_sync_between_cards_cloud_and_summary(monkeypatch
             await page.wait_for_function("!document.querySelector('.card-tag.active')")
             assert await summary.inner_text() == ''
             assert await page.locator('.novel-card').count() == 3
+            # A tag chosen from the cloud looks pressed on every card that has it,
+            # so clicking it on a card visibly toggles it off instead of surprising.
+            await cloud_chip.click()
+            await page.wait_for_function("document.querySelectorAll('.card-tag.active[data-tag=\"Harem\"]').length === 3")
+            await card_tag.click()
+            await page.wait_for_function("!document.querySelector('.card-tag.active')")
+            assert await summary.inner_text() == ''
+            # OR selections are distinguished on cards as they are in the cloud.
+            await page.click('#tagModeOr')
+            await cloud_chip.click()
+            await page.wait_for_function("document.querySelectorAll('.card-tag.active-or[data-tag=\"Harem\"]').length === 3")
+            assert await cloud_chip.evaluate("el => el.classList.contains('active-or')")
             await browser.close()
     asyncio.run(scenario())

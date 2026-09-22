@@ -548,6 +548,12 @@ a.card-cover-wrap {
     border-color: var(--accent-hover);
 }
 
+.card-tag.active-or {
+    background: rgba(245, 158, 11, 0.85);
+    color: #fff;
+    border-color: rgba(251, 191, 36, 0.7);
+}
+
 .card-stats {
     display: flex;
     flex-wrap: wrap;

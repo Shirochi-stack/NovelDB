@@ -5919,6 +5919,17 @@
         refreshTagSearchResults();
     }
 
+    // Filtering a million records takes a noticeable moment, so a tag click
+    // first lets the browser paint the pressed chip and then filters.
+    let deferredFilter = 0;
+    function deferApplyFilters(callback) {
+        cancelAnimationFrame(deferredFilter);
+        deferredFilter = requestAnimationFrame(() => {
+            deferredFilter = 0;
+            setTimeout(() => { applyFilters(); if (callback) callback(); }, 0);
+        });
+    }
+
     function toggleTag(tag, chip) {
         // If tag is already in either set, remove it
         const andMatch = findMatchingSelectedTag(andTags, tag);
@@ -5941,7 +5952,7 @@
         }
         syncSelectedTagChips();
         updateActiveTagsSummary();
-        applyFilters();
+        deferApplyFilters();
     }
 
     function toggleExcludeTag(tag, chip) {
@@ -5955,7 +5966,7 @@
         }
         syncSelectedTagChips();
         updateActiveTagsSummary();
-        applyFilters();
+        deferApplyFilters();
     }
 
     function updateActiveTagsSummary() {
@@ -5975,7 +5986,7 @@
                     if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("active");
                 });
                 updateActiveTagsSummary();
-                applyFilters();
+                deferApplyFilters();
             });
             includeSummary.appendChild(chip);
         }
@@ -5990,7 +6001,7 @@
                     if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("active-or");
                 });
                 updateActiveTagsSummary();
-                applyFilters();
+                deferApplyFilters();
             });
             includeSummary.appendChild(chip);
         }
@@ -6008,7 +6019,7 @@
                     if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("excluded");
                 });
                 updateActiveTagsSummary();
-                applyFilters();
+                deferApplyFilters();
             });
             excludeSummary.appendChild(chip);
         }
@@ -6029,7 +6040,6 @@
             if (tagsMatch(c.dataset.tag, tag)) c.classList.add("active");
         });
         updateActiveTagsSummary();
-        applyFilters();
     }
 
     // Handle browser back/forward — restore from URL hash
@@ -6064,6 +6074,25 @@
             if (tagMatchKey(tag) === key) return true;
         }
         return false;
+    }
+
+    // Testing membership in the group's set of raw spellings is cheaper than
+    // normalising every tag of every record to its key. Spellings with stray
+    // surrounding whitespace fall back to the key check.
+    function tagKeyMatcher(key) {
+        const group = allTagGroups.find((candidate) => candidate.key === key);
+        if (!group) return (novelTags) => hasTagKey(novelTags, key);
+        const spellings = new Set(group.originals.keys());
+        return (novelTags) => {
+            if (!novelTags) return false;
+            for (const tag of novelTags) if (spellings.has(tag)) return true;
+            for (const tag of novelTags) {
+                if (typeof tag === "string" && tag.length
+                        && (tag.charCodeAt(0) <= 32 || tag.charCodeAt(tag.length - 1) <= 32)
+                        && tagMatchKey(tag) === key) return true;
+            }
+            return false;
+        };
     }
 
     // A case-insensitive regular expression avoids lower-casing three strings
@@ -6111,9 +6140,9 @@
         } else {
             const hideNaverWithoutSynopsis = descriptionsEnabled;
             const matcher = searchQuery ? buildSearchMatcher(searchQuery) : null;
-            const andKeys = andTags.size ? [...andTags].map(tagMatchKey) : null;
-            const orKeys = orTags.size ? [...orTags].map(tagMatchKey) : null;
-            const excludeKeys = excludeTags.size ? [...excludeTags].map(tagMatchKey) : null;
+            const andKeys = andTags.size ? [...andTags].map((tag) => tagKeyMatcher(tagMatchKey(tag))) : null;
+            const orKeys = orTags.size ? [...orTags].map((tag) => tagKeyMatcher(tagMatchKey(tag))) : null;
+            const excludeKeys = excludeTags.size ? [...excludeTags].map((tag) => tagKeyMatcher(tagMatchKey(tag))) : null;
             const statusActive = status === "complete" || status === "ongoing";
             const audienceActive = audience === "adult" || audience === "r15" || audience === "general";
             const unfiltered = !hideNaverWithoutSynopsis && !activeAuthorFilter && !matcher && !statusActive && !audienceActive
@@ -6126,16 +6155,16 @@
                 if (audienceActive && !metadata.matchesAudience(n, audience)) return false;
                 if (andKeys) {
                     // All AND tags must match
-                    for (const key of andKeys) if (!hasTagKey(n.tags, key)) return false;
+                    for (const matches of andKeys) if (!matches(n.tags)) return false;
                 }
                 if (orKeys) {
                     // At least one OR tag must match
                     let match = false;
-                    for (const key of orKeys) if (hasTagKey(n.tags, key)) { match = true; break; }
+                    for (const matches of orKeys) if (matches(n.tags)) { match = true; break; }
                     if (!match) return false;
                 }
                 if (excludeKeys) {
-                    for (const key of excludeKeys) if (hasTagKey(n.tags, key)) return false;
+                    for (const matches of excludeKeys) if (matches(n.tags)) return false;
                 }
                 return true;
             });
@@ -6197,10 +6226,11 @@
         const completeBadge = n.complete ? `<span class="card-badge badge-complete">Complete</span>` : "";
         const badgeHTML = completeBadge + rankBadge;
 
-        const isFocused = focusedCard && focusedCard.id === n.id && focusedCard.source === (n.source || currentSource);
-        // Filtering highlights tags without changing their position on the card.
+        // Selected tags are highlighted on every card (AND purple, OR amber)
+        // without changing their position, so a card's tag looks pressed
+        // exactly when the cloud chip or summary row shows it selected.
         const tagsHTML = n.tags
-            .map((t) => `<span class="card-tag${isFocused && tagsMatch(focusedCard.tag, t) ? ' active' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
+            .map((t) => `<span class="card-tag${tagSetHasMatch(andTags, t) ? ' active' : tagSetHasMatch(orTags, t) ? ' active-or' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
             .join("");
 
         const isR15 = metadata.matchesAudience(n, "r15");
@@ -6277,22 +6307,26 @@
                     orTags.clear();
                     focusedCard = null;
                     preTagScrollY = null;
+                    tagEl.classList.remove("active", "active-or");
                     tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
                         c.classList.remove("active");
                         c.classList.remove("active-or");
                     });
-                    applyFilters();
-                    if (savedScroll != null) {
-                        requestAnimationFrame(() => window.scrollTo({ top: savedScroll, behavior: "instant" }));
-                    }
+                    updateActiveTagsSummary();
+                    deferApplyFilters(() => {
+                        if (savedScroll != null) {
+                            requestAnimationFrame(() => window.scrollTo({ top: savedScroll, behavior: "instant" }));
+                        }
+                    });
                 } else {
                     // Save scroll position before applying filter
                     if (totalActive === 0) {
                         preTagScrollY = window.scrollY;
                     }
                     focusedCard = { id: novelId, source: novelSource, tag: clickedTag };
+                    tagEl.classList.add("active");
                     addIncludeTag(clickedTag);
-                    filterAndFocusCard(novelId, novelSource);
+                    deferApplyFilters(() => filterAndFocusCard(novelId, novelSource));
                 }
             });
         });
