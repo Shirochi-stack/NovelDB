@@ -67,6 +67,24 @@ def _empty_message(node):
     ))
 
 
+# Naver answers a deleted or withdrawn work with HTTP 200 and an otherwise
+# empty #container holding only `alert("삭제된 게시물입니다."); history.back();`.
+# Matched against script text only, and only as an alert() argument, so the
+# maintenance banner (gRosAlertMessage) is never mistaken for a takedown.
+_REMOVED_ALERT = re.compile(
+    r"""alert\(\s*['"][^'"]*(?:삭제|존재하지\s*않|없는)[^'"]*(?:게시물|작품|페이지)""",
+    re.S,
+)
+
+
+def _removed_work(soup):
+    """True when the page is Naver's soft-404 for a taken-down work."""
+    for script in soup.find_all("script"):
+        if _REMOVED_ALERT.search(script.string or script.get_text() or ""):
+            return True
+    return False
+
+
 def _completion(node):
     # Never search a synopsis, site navigation or recommended work for "완결".
     return 1 if node.select_one(".bullet_comp, .bullet_comp_ex") else None
@@ -141,6 +159,11 @@ def parse_detail(html, previous, response_url):
     if info is None or not _text(info.select_one("h2.title")):
         if re.search(r"성인.{0,15}인증|로그인.{0,15}필요", _text(soup.select_one("#content"))):
             return MetadataResult(status="restricted", reason="Naver requires verification for this metadata")
+        # Terminal: the catalog saw this ID before the work was taken down.
+        # Retrying it forever keeps a resumed run from ever completing.
+        if _removed_work(soup):
+            return MetadataResult(status="unavailable",
+                                  reason="Naver work is no longer publicly available")
         return MetadataResult(status="failed", reason="Naver detail markup was not found")
     record = dict(previous)
     record.pop("_detail_complete", None)

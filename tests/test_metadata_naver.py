@@ -99,6 +99,26 @@ def test_verification_page_is_restricted_and_does_not_replace_existing_metadata(
     assert result.status == "restricted" and result.record is None
 
 
+def test_deleted_work_is_terminal_not_a_retryable_failure():
+    # Naver answers a taken-down work with HTTP 200 and an empty container
+    # holding only this alert. Scoring it "failed" kept resumed runs retrying
+    # it forever, so a pass could never complete.
+    page = ('<div id="container">'
+            '<script type="text/javascript">alert("삭제된 게시물입니다."); history.back();</script>'
+            '</div>')
+    result = parse_detail(page, {"id": "1161705", "title": "Known title"}, CANONICAL)
+    assert result.status == "unavailable" and result.record is None
+
+
+def test_maintenance_banner_is_not_mistaken_for_a_deletion():
+    # gRosAlertMessage ships on every page, including healthy ones; a planned
+    # outage must stay retryable.
+    page = ('<script>var gRosAlertMessage = \'정기점검중 입니다.\';</script>'
+            '<div id="container"></div>')
+    result = parse_detail(page, {"id": "1161705", "title": "Known title"}, CANONICAL)
+    assert result.status == "failed"
+
+
 def test_outbound_purchase_link_is_recorded_without_fetching_it():
     html = fixture("detail.html").replace('<div class="link_group">', '<div class="link_group"><a href="https://series.naver.com/novel/detail.series?productNo=123">구매</a>')
     client = FakeClient(lambda url, params: html)
