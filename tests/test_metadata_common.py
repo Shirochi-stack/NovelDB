@@ -501,3 +501,77 @@ def test_concurrent_requests_cannot_exceed_shared_request_budget(monkeypatch):
 ])
 def test_source_date_retains_raw_value_without_inferred_timezone(raw, precision, zone):
     assert m.source_date(raw) == {"raw": raw, "precision": precision, "timezone": zone}
+
+
+def test_untitled_listings_are_settled_by_detail_and_stop_blocking_completeness(tmp_path):
+    class Resolving(Adapter):
+        resolves_skipped_rows = True
+        def fetch_page(self, client, partition, page):
+            result = super().fetch_page(client, partition, page)
+            if page == 1:
+                result.skipped_rows = [{"row": 2, "id": "99", "error": "Title unavailable in public catalog"},
+                                       {"row": 3, "id": "98", "error": "Title unavailable in public catalog"}]
+                result.untitled = [{"id": "99", "tier": "best"}, {"id": "98", "tier": "best"}]
+            return result
+        def detail(self, client, record):
+            if record["id"] == "99":
+                return m.MetadataResult("unavailable", reason="Title is not publicly available")
+            if record["id"] == "98":
+                return m.MetadataResult("success", {"id": "98", "title": "Recovered title", "synopsis": "x"})
+            return super().detail(client, record)
+    report = m.run_source(Resolving(), args(tmp_path, "--mode", "catalog"), client=Client())
+    catalog = report["coverage"]["catalog"]
+    assert catalog["skipped_rows"] == [] and catalog["unavailable_rows"] == 1
+    assert catalog["discovery_complete"] and report["coverage"]["complete"]
+    saved = m.load_state("naver", tmp_path / "state")
+    assert saved["records"]["99"]["history"]["explicit_unavailability"]["reason"] == "Title is not publicly available"
+    assert "title" not in saved["records"]["99"] and saved["records"]["98"]["title"] == "Recovered title"
+    assert report["records"] == 4  # three titled pages plus the recovered listing; 99 is never exported
+    assert saved["progress"]["pending_details"] == []
+
+
+def test_previously_skipped_listings_are_settled_on_resume_without_rescanning(tmp_path):
+    state = m.empty_state("naver")
+    state["progress"]["partitions"] = {"best": {"next_page": 4, "complete": True, "skipped_rows": [
+        {"row": 2, "id": "77", "error": "Title unavailable in public catalog", "page": 1}]}}
+    state["coverage"] = {"catalog": {"started": True, **m.catalog_coverage(state["progress"]["partitions"])}}
+    m.save_state(state, tmp_path / "state")
+    assert state["coverage"]["catalog"]["skipped_rows"]
+    asked = []
+    class Resolving(Adapter):
+        resolves_skipped_rows = True
+        def fetch_page(self, client, partition, page):
+            pytest.fail("Completed partitions are not rescanned on resume")
+        def detail(self, client, record):
+            asked.append(record["id"])
+            return m.MetadataResult("unavailable", reason="Title is not publicly available")
+    report = m.run_source(Resolving(), args(tmp_path, "--mode", "catalog", "--resume"), client=Client())
+    assert asked.count("77") == 1  # the fixture's ranking seed "1" is asked as well
+    assert report["coverage"]["catalog"]["skipped_rows"] == []
+    assert report["coverage"]["catalog"]["discovery_complete"]
+    # A listing confirmed unavailable within the last thirty days is not asked again.
+    settled = m.load_state("naver", tmp_path / "state")
+    settled["progress"]["pass_complete"] = False
+    settled["progress"]["partitions"]["best"]["skipped_rows"] = [
+        {"row": 2, "id": "77", "error": "Title unavailable in public catalog", "page": 1}]
+    m.save_state(settled, tmp_path / "state")
+    asked.clear()
+    report = m.run_source(Resolving(), args(tmp_path, "--mode", "catalog", "--resume"), client=Client())
+    assert "77" not in asked
+    assert report["coverage"]["catalog"]["skipped_rows"] == [] and report["coverage"]["catalog"]["unavailable_rows"] == 1
+
+
+def test_adapters_without_detail_resolution_keep_reporting_skipped_rows(tmp_path):
+    class Skipping(Adapter):
+        def fetch_page(self, client, partition, page):
+            result = super().fetch_page(client, partition, page)
+            if page == 1:
+                result.skipped_rows = [{"row": 2, "id": "99", "error": "Title unavailable in public catalog"}]
+                result.untitled = [{"id": "99", "tier": "best"}]
+            return result
+        def detail(self, client, record):
+            assert record["id"] != "99"
+            return super().detail(client, record)
+    report = m.run_source(Skipping(), args(tmp_path, "--mode", "catalog"), client=Client())
+    assert len(report["coverage"]["catalog"]["skipped_rows"]) == 1
+    assert not report["coverage"]["catalog"]["discovery_complete"]

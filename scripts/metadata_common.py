@@ -73,17 +73,44 @@ class CatalogPage:
     skipped_rows: list = field(default_factory=list)
     next_cursor: str | None = None
     scanned_items: int = 0
+    # Minimal records (an ID, its tier and destination) for listings the page
+    # could not use, so the work's own detail record can settle them.
+    untitled: list = field(default_factory=list)
 
 
-def catalog_coverage(cursors):
+def unavailability_observed_at(record):
+    try:
+        stamp = record["history"]["explicit_unavailability"]["observed_at"]
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def listing_resolved(record):
+    """A skipped listing is settled once its detail record supplied a title or
+    an explicit, dated unavailability; either way no further scan can add it."""
+    if not isinstance(record, dict):
+        return False
+    return bool(record.get("title")) or unavailability_observed_at(record) is not None
+
+
+def catalog_coverage(cursors, records=None):
     """Keep recoverable row omissions distinct from failures that stop a scan."""
-    skipped = [{"partition": key, **row} for key, cursor in cursors.items()
-               for row in cursor.get("skipped_rows", [])]
+    records = records or {}
+    skipped, unavailable = [], 0
+    for key, cursor in cursors.items():
+        for row in cursor.get("skipped_rows", []):
+            record = records.get(str(row.get("id") or ""))
+            if listing_resolved(record):
+                unavailable += not record.get("title")
+                continue
+            skipped.append({"partition": key, **row})
     return {
         "discovery_complete": bool(cursors) and not skipped and all(c.get("complete") and c.get("coverage_complete", True) for c in cursors.values()),
         "errors": [{"partition": key, "page": cursor.get("error_page", cursor.get("next_page")),
                     "error": cursor["error"]} for key, cursor in cursors.items() if cursor.get("error")],
         "skipped_rows": skipped,
+        "unavailable_rows": unavailable,
     }
 
 
@@ -474,7 +501,7 @@ def run_source(adapter, args, *, client=None):
     started = time.monotonic()
     old_catalog = previous_coverage.get("catalog", {})
     if not old_catalog and progress.get("partitions"):
-        old_catalog = {"started": True, **catalog_coverage(progress["partitions"])}
+        old_catalog = {"started": True, **catalog_coverage(progress["partitions"], state["records"])}
     owned_client = client is None
     client = client or AnonymousClient(adapter, max_requests=args.max_requests, max_runtime=args.max_runtime,
                                        delay=args.delay, retries=args.retries)
@@ -514,6 +541,24 @@ def run_source(adapter, args, *, client=None):
             progress["revision"] = progress.get("revision", 0) + 1
 
     request_slots = threading.BoundedSemaphore(args.workers)
+
+    def queue_untitled(item):
+        """Ask the detail endpoint about a listing the catalog page could not use.
+        Titled or recently confirmed-unavailable works are left alone."""
+        ident = valid_id(item.get("id"))
+        if not ident or ident in detail_attempted:
+            return
+        record = state["records"].get(ident)
+        if record is not None:
+            if record.get("title"):
+                return
+            observed = unavailability_observed_at(record)
+            if observed is not None and (datetime.now(timezone.utc) - observed).total_seconds() < 30 * 86400:
+                return
+        merge_record(state, {key: value for key, value in item.items() if not key.startswith("_")})
+        if ident not in pending:
+            pending[ident] = None
+            advanced()
 
     def fetch_details(force_checkpoint=True):
         nonlocal detail_count, last_detail_log
@@ -613,6 +658,13 @@ def run_source(adapter, args, *, client=None):
                 adapter.prepare_catalog(state, partitions)
                 checkpoint(force=True)
             cursors = progress.setdefault("partitions", {})
+            if getattr(adapter, "resolves_skipped_rows", False):
+                # Listings omitted by earlier scans are settled by their detail
+                # record without waiting for their catalog page to be seen again.
+                tiers = {partition["key"]: partition["tier"] for partition in partitions}
+                for key, cursor in cursors.items():
+                    for row in cursor.get("skipped_rows", []):
+                        queue_untitled({"id": row.get("id"), "tier": tiers.get(key)})
             try:
                 from .metadata_pages import catalog_pages
             except ImportError:
@@ -685,6 +737,9 @@ def run_source(adapter, args, *, client=None):
                         observed.add(ident)
                         if refresh and not item.get("_detail_complete") and ident not in pending and ident not in detail_attempted:
                             pending[ident] = None
+                    if getattr(adapter, "resolves_skipped_rows", False):
+                        for item in result.untitled:
+                            queue_untitled(item)
                     cursor.pop("error", None)
                     cursor.pop("error_page", None)
                     skipped_rows = [row for row in cursor.get("skipped_rows", []) if row["page"] != page]
@@ -722,9 +777,9 @@ def run_source(adapter, args, *, client=None):
             if hasattr(adapter, "finalize_catalog"):
                 adapter.finalize_catalog(state)
             discovery_complete = (all(cursors.get(p["key"], {}).get("complete") and cursors[p["key"]].get("coverage_complete", True) for p in partitions)
-                                  and not any(c.get("skipped_rows") for c in cursors.values()))
+                                  and not catalog_coverage(cursors, state["records"])["skipped_rows"])
             coverage["discovery_complete"] = discovery_complete
-            coverage["catalog"].update(catalog_coverage(cursors))
+            coverage["catalog"].update(catalog_coverage(cursors, state["records"]))
             checkpoint(force=True)
             # Samples enrich their bounded discovery; catalogs enrich each page.
             discovery_settled = all(cursors.get(p["key"], {}).get("complete") or cursors.get(p["key"], {}).get("error") for p in partitions)
@@ -795,7 +850,7 @@ def run_source(adapter, args, *, client=None):
             progress["pass_complete"] = coverage["complete"]
         if args.mode != "rankings":
             cursors = progress.get("partitions", {})
-            coverage["catalog"].update(catalog_coverage(cursors))
+            coverage["catalog"].update(catalog_coverage(cursors, state["records"]))
         coverage["catalog"]["has_complete_baseline"] = bool(
             old_catalog.get("has_complete_baseline") or previous_baseline or
             (args.mode == "catalog" and coverage["catalog"].get("discovery_complete")))

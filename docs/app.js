@@ -6076,9 +6076,20 @@
             || expression.test(n.author) || String(n.id) === query;
     }
 
+    // Every tag control (cloud chips, the summary row and the highlighted tag
+    // on a card) reflects the same selection regardless of which one changed it.
+    function syncTagSelectionUi() {
+        if (focusedCard && !tagSetHasMatch(andTags, focusedCard.tag) && !tagSetHasMatch(orTags, focusedCard.tag)) {
+            focusedCard = null;
+        }
+        syncSelectedTagChips();
+        updateActiveTagsSummary();
+    }
+
     function applyFilters(options = {}) {
         const resetPage = options.resetPage !== false;
         const fade = options.fade !== false;
+        syncTagSelectionUi();
         ensureSorted();
         const query = searchInput.value.trim().toLowerCase();
         const searchQuery = activeAuthorFilter ? "" : query;
@@ -6776,7 +6787,7 @@
                         && Number(page) === 101
                         && error.includes("requested=101, returned=1, rows=0, total=0, size=0");
                     const explanation = skipped
-                        ? "This invalid row was omitted; the other rows were collected and the scan continued. Omitted listings are checked again on a fresh catalog scan."
+                        ? "This invalid row was omitted; the other rows were collected and the scan continued. Omitted listings are checked against the work's own detail record on the next catalog run."
                         : latestLimit
                             ? "This older scan used numbered pages. Joara requires cursor pagination beyond this point. Resume with the updated scraper to rebuild the latest-list cursor and collect the missing pages."
                             : `This catalog scan stopped${page != null ? ` at page ${page}` : ""}; the failed page and later pages were not collected in this scan.`;

@@ -168,7 +168,10 @@ def parse_detail(payload, previous):
         return MetadataResult(status="failed", reason="Joara detail identity was missing or mismatched")
     title = _text(book.get("subject"))
     if not title:
-        return MetadataResult(status="failed", reason="Joara detail title was missing")
+        # A few works exist with a blank title in both the public list and the
+        # detail record. Nothing can display them, and retrying never changes
+        # that, so this is a dated unavailability rather than a failure.
+        return MetadataResult(status="unavailable", reason="Joara title is not publicly available")
     record = dict(previous)
     record.update(title=title, canonical_url=f"{BASE}/book/{previous['id']}")
     author = _text(book.get("writer_name"))
@@ -221,6 +224,8 @@ def parse_detail(payload, previous):
 class JoaraAdapter:
     source = "joara"
     label = "Joara"
+    # Blank-title listings are settled through their work-detail record.
+    resolves_skipped_rows = True
 
     def __init__(self):
         self._public_params = None
@@ -294,6 +299,18 @@ class JoaraAdapter:
                 partition["pagination"] = "joara-cursor-v1"
         return partitions
 
+    def _confirm_cursor_end(self, client, partition, params, rows, reason):
+        """One more request must return no IDs beyond the batch that looked like the end."""
+        confirm = self._get(client, CATALOG_PATHS[partition["catalog"]], params)
+        confirm_rows = None
+        if isinstance(confirm, dict) and confirm.get("status") == 1 and isinstance(confirm.get("data"), dict):
+            confirm_rows = confirm["data"].get("list")
+        if not isinstance(confirm_rows, list):
+            raise ValueError("Joara rejected the cursor end-of-list check")
+        known = {_id(row.get("book_code")) for row in rows if isinstance(row, dict)}
+        if any(not isinstance(row, dict) or _id(row.get("book_code")) not in known for row in confirm_rows):
+            raise ValueError(f"Joara cursor response has unexplained row count ({reason})")
+
     def fetch_page(self, client, partition, page):
         try:
             cursor_mode = partition.get("pagination") == "joara-cursor-v1"
@@ -314,19 +331,46 @@ class JoaraAdapter:
                         or total is None or size != params["offset"]):
                     raise ValueError("Malformed Joara cursor response")
                 rows = data["list"]
-                if len(rows) != min(size, max(0, total - (page - 1) * size)):
-                    raise ValueError("Joara cursor response has unexplained row count")
+                if len(rows) > size:
+                    raise ValueError("Joara cursor response has unexplained row count (more rows than its page size)")
+                next_cursor = payload.get("cursor_point")
+                tail = len(rows) < size
+                if tail:
+                    # `total_cnt` moves while a cursor scan runs (works enter behind
+                    # the cursor and hidden works are counted but never listed), so
+                    # the final batch is short of what the total implies. A short
+                    # batch is the end of the list only near the reported total,
+                    # and only when the cursor after it yields nothing new; the
+                    # public feed answers that check with an empty list or by
+                    # repeating the same tail rows with the same cursor.
+                    consumed = (page - 1) * size + len(rows)
+                    if consumed < total * 0.9:
+                        raise ValueError("Joara cursor response has unexplained row count "
+                                         f"(ended at {consumed} of {total})")
+                    if rows and isinstance(next_cursor, str) and next_cursor:
+                        self._confirm_cursor_end(client, partition, {**params, "cursor_point": next_cursor}, rows,
+                                                 f"short batch at {consumed} of {total} was not the end")
+                    elif not rows and consumed < total:
+                        # An empty batch before the reported total is the end only
+                        # if asking again with the same cursor is empty as well.
+                        self._confirm_cursor_end(client, partition, params, rows,
+                                                 f"empty batch at {consumed} of {total} was not the end")
+                    next_cursor = None
             else:
                 rows, total, size = _listing_response(payload, page)
-            records, skipped_rows = [], []
+            records, skipped_rows, untitled = [], [], []
             for position, row in enumerate(rows, start=1):
                 # A few public listings have a real book ID but a blank title.
                 # Preserve every usable row and scan later pages; report these
-                # omissions so they cannot establish a complete catalog baseline.
+                # omissions so they cannot establish a complete catalog baseline
+                # until the work's own detail record settles them.
                 if (isinstance(row, dict) and _id(row.get("book_code"))
                         and isinstance(row.get("subject"), str) and not _text(row["subject"])):
-                    skipped_rows.append({"row": position, "id": _id(row["book_code"]),
+                    novel_id = _id(row["book_code"])
+                    skipped_rows.append({"row": position, "id": novel_id,
                                          "error": "Title unavailable in public catalog"})
+                    untitled.append({"id": novel_id, "tier": partition["tier"],
+                                     "canonical_url": f"{BASE}/book/{novel_id}"})
                     continue
                 try:
                     records.append(normalize_listing(row, partition["tier"]))
@@ -335,9 +379,15 @@ class JoaraAdapter:
             if skipped_rows and not records:
                 raise ValueError("No usable titled rows in catalog page")
             records = list({record["id"]: record for record in records}.values())
-            return CatalogPage(records=records, next_page=page + 1 if page * size < total else None,
-                               observed_total=total, skipped_rows=skipped_rows,
-                               next_cursor=payload.get("cursor_point") if cursor_mode else None)
+            if cursor_mode:
+                # A full batch keeps going even past the reported total; only a
+                # confirmed short batch ends a cursor feed.
+                next_page = None if tail else page + 1
+            else:
+                next_page = page + 1 if page * size < total else None
+            return CatalogPage(records=records, next_page=next_page, observed_total=total,
+                               skipped_rows=skipped_rows, untitled=list({item["id"]: item for item in untitled}.values()),
+                               next_cursor=next_cursor if cursor_mode else None)
         except BudgetExceeded:
             raise
         except (FetchError, ValueError, TypeError, KeyError) as error:

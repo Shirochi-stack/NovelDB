@@ -477,7 +477,7 @@ def test_catalog_diagnostics_distinguish_skipped_rows_and_escape_reported_text()
             assert "This catalog scan stopped at page 14" in items[0]
             assert "Noblesse · Completed — page 75 — row 4 — novel 8123" in items[1]
             assert "other rows were collected and the scan continued" in items[1]
-            assert "Omitted listings are checked again on a fresh catalog scan." in items[1]
+            assert "Omitted listings are checked against the work's own detail record on the next catalog run." in items[1]
             assert "later pages were not collected" not in items[1]
             assert unsafe in items[2]
             assert await details.locator('img').count() == 0
@@ -592,5 +592,49 @@ def test_naver_missing_synopses_visible_only_when_loading_disabled(monkeypatch):
             await page.check('#loadDescriptions')
             assert await missing.count() == 0
             assert await page.locator('.novel-card').count() > 0
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_tag_selection_stays_in_sync_between_cards_cloud_and_summary(monkeypatch):
+    original_row = row
+    def tagged_row(*args, **kwargs):
+        result = original_row(*args, **kwargs)
+        result[4] = ['Fantasy', 'Harem']
+        return result
+    monkeypatch.setitem(globals(), 'row', tagged_row)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route('**/*', FixtureSite().route)
+            await page.goto('http://metadata.test/#src=naver')
+            await wait_loaded(page)
+            card_tag = page.locator('.novel-card[data-novel-id="8"] .card-tag[data-tag="Harem"]')
+            cloud_chip = page.locator('#tagContainer .tag-chip[data-tag="Harem"]')
+            summary = page.locator('#activeTagsSummary')
+            await card_tag.click()
+            await page.wait_for_function("document.querySelector('#activeTagsSummary').textContent.includes('Harem')")
+            assert await cloud_chip.evaluate("el => el.classList.contains('active')")
+            # Clearing from the card clears the summary row and the cloud chip.
+            await card_tag.click()
+            await page.wait_for_function("!document.querySelector('.card-tag.active')")
+            assert await summary.inner_text() == ''
+            assert not await cloud_chip.evaluate("el => el.classList.contains('active')")
+            # Clearing from the summary row clears the card highlight.
+            await card_tag.click()
+            await page.wait_for_function("document.querySelector('.card-tag.active')")
+            await summary.locator('.summary-chip').click()
+            await page.wait_for_function("!document.querySelector('.card-tag.active')")
+            assert await summary.inner_text() == ''
+            # Clearing from the tag cloud does the same.
+            await card_tag.click()
+            await page.wait_for_function("document.querySelector('.card-tag.active')")
+            await page.click('#tagToggle span')
+            await cloud_chip.click()
+            await page.wait_for_function("!document.querySelector('.card-tag.active')")
+            assert await summary.inner_text() == ''
+            assert await page.locator('.novel-card').count() == 3
             await browser.close()
     asyncio.run(scenario())

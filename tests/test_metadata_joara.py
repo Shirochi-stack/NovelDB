@@ -352,3 +352,83 @@ def test_verified_supplemental_categories_are_passed_to_catalog():
     for partition in supplemental:
         adapter.fetch_page(client, partition, 1)
         assert client.calls[-1][1]["category"] == partition["category"]
+
+
+def cursor_page(rows, cursor, total=10000):
+    payload = fixture("catalog.json")
+    payload.pop("page", None)
+    payload.update(total_cnt=total, cursor_point=cursor)
+    payload["data"]["list"] = rows
+    return payload
+
+
+def test_cursor_short_tail_completes_when_the_next_cursor_repeats_the_same_rows():
+    tail_rows = fixture("catalog.json")["data"]["list"][:1]
+    def response(url, params):
+        return cursor_page(tail_rows, "tail-cursor")
+    client = FakeClient(response)
+    result = JoaraAdapter().fetch_page(client, {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "prev"}, 5000)
+    assert result.complete and result.next_page is None and result.next_cursor is None and not result.error
+    assert [r["id"] for r in result.records] == [str(tail_rows[0]["book_code"])]
+    cursors = [params["cursor_point"] for url, params in client.calls if url.endswith("/latest_book")]
+    assert cursors == ["prev", "tail-cursor"]
+
+
+def test_cursor_short_tail_completes_when_the_next_cursor_is_empty():
+    tail_rows = fixture("catalog.json")["data"]["list"][:1]
+    def response(url, params):
+        return cursor_page(tail_rows, "tail-cursor") if params["cursor_point"] == "prev" else cursor_page([], "")
+    result = JoaraAdapter().fetch_page(FakeClient(response), {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "prev"}, 5000)
+    assert result.complete and result.next_page is None and len(result.records) == 1
+
+
+def test_cursor_short_batch_followed_by_new_rows_is_not_an_end():
+    rows = fixture("catalog.json")["data"]["list"]
+    def response(url, params):
+        return cursor_page(rows[:1], "tail-cursor") if params["cursor_point"] == "prev" else cursor_page(rows[1:], "later")
+    result = JoaraAdapter().fetch_page(FakeClient(response), {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "prev"}, 5000)
+    assert not result.complete and "row count" in result.error and result.records == []
+
+
+def test_cursor_empty_batch_at_reported_total_ends_without_a_check():
+    client = FakeClient(cursor_page([], "ignored"))
+    result = JoaraAdapter().fetch_page(client, {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "prev"}, 5001)
+    assert result.complete and result.next_page is None and result.records == []
+    assert len([1 for url, _ in client.calls if url.endswith("/latest_book")]) == 1
+
+
+def test_cursor_empty_batch_before_reported_total_needs_an_empty_answer_again():
+    answers = iter([cursor_page([], ""), cursor_page([], "")])
+    client = FakeClient(lambda url, params: next(answers))
+    result = JoaraAdapter().fetch_page(client, {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "prev"}, 4700)
+    assert result.complete and result.next_page is None
+    calls = [params["cursor_point"] for url, params in client.calls if url.endswith("/latest_book")]
+    assert calls == ["prev", "prev"]
+    rows = fixture("catalog.json")["data"]["list"]
+    answers = iter([cursor_page([], ""), cursor_page(rows, "later")])
+    result = JoaraAdapter().fetch_page(FakeClient(lambda url, params: next(answers)),
+                                       {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "prev"}, 4700)
+    assert not result.complete and "empty batch" in result.error
+
+
+def test_cursor_full_batch_past_the_reported_total_keeps_scanning():
+    result = JoaraAdapter().fetch_page(FakeClient(cursor_page(fixture("catalog.json")["data"]["list"], "more", total=10)),
+                                       {**PARTITION, "pagination": "joara-cursor-v1", "cursor_point": "prev"}, 6)
+    assert result.complete and result.next_page == 7 and result.next_cursor == "more"
+
+
+def test_blank_detail_title_is_explicitly_unavailable_not_a_retryable_failure():
+    payload = fixture("detail.json")
+    payload["book"]["subject"] = "  "
+    result = parse_detail(payload, {"id": "412770"})
+    assert result.status == "unavailable" and result.record is None
+    assert "title" in result.reason
+
+
+def test_blank_title_listing_yields_an_untitled_placeholder_for_detail_lookup():
+    payload = fixture("catalog.json")
+    payload["data"]["list"][1]["subject"] = ""
+    skipped_id = str(payload["data"]["list"][1]["book_code"])
+    result = JoaraAdapter().fetch_page(FakeClient(payload), PARTITION, 1)
+    assert result.untitled == [{"id": skipped_id, "tier": "series", "canonical_url": f"https://www.joara.com/book/{skipped_id}"}]
+    assert JoaraAdapter.resolves_skipped_rows
