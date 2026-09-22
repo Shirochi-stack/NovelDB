@@ -642,6 +642,14 @@ def extract_chapter_content_and_images(
                     ch_num = f"[{chapter_num}] " if chapter_num is not None else ""
                     lbl = f"{ch_num}Image #{_img_counter[0]}{ch_tag}"
 
+                    # Dead references (Word/HWP paste leftovers, blank srcs) can
+                    # never succeed, so drop them without marking the chapter as
+                    # retryable \u2014 otherwise its images are re-processed forever.
+                    skip_reason = DownloaderCore.unfetchable_image_reason(url)
+                    if skip_reason:
+                        logger(f"  \u26a0 {lbl}: skipped, {skip_reason}")
+                        return ""
+
                     if save_image_urls_only:
                         remote_tag = DownloaderCore.remote_image_html(
                             url,

@@ -245,6 +245,34 @@ class DownloaderCore:
             return None
         return value
 
+    # Schemes that can never be fetched over the network. Authors who paste
+    # from MS Word / HWP leave behind <img src="file:///C:/.../clip_image001.png">
+    # placeholders; those are dead references on Novelpia too, so retrying them
+    # next run can only produce the same result.
+    UNFETCHABLE_IMAGE_SCHEMES = (
+        "file", "data", "about", "blob", "javascript", "cid", "res", "chrome",
+    )
+
+    @classmethod
+    def unfetchable_image_reason(cls, value):
+        """Return a short reason when `value` is a permanently unusable <img>
+        src (local path, embedded/blank reference), else None.
+
+        Callers use this to drop the tag without counting a retryable failure.
+        """
+        if value is None:
+            return "empty image URL"
+        raw = html.unescape(str(value)).strip().strip("\"'").replace("\\/", "/")
+        if not raw:
+            return "empty image URL"
+        scheme = urlparse(raw).scheme.lower()
+        if scheme in cls.UNFETCHABLE_IMAGE_SCHEMES:
+            return f"non-web image source ({scheme}:)"
+        # Windows drive path pasted verbatim, e.g. C:\Users\...\clip_image001.png
+        if re.match(r"^[A-Za-z]:[\\/]", raw):
+            return "local file path"
+        return None
+
     @staticmethod
     def normalize_chapter_image_url(value):
         """Return a usable absolute HTTP(S) URL for a chapter image.
