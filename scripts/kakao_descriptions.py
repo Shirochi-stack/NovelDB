@@ -51,7 +51,7 @@ def open_text(path=DEFAULT, mode='r', encoding='utf-8'):
     try:
         with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as raw:
             temporary = Path(raw.name)
-            with gzip.GzipFile(fileobj=raw, mode='wb', filename='', mtime=0, compresslevel=6) as compressed:
+            with gzip.GzipFile(fileobj=raw, mode='wb', filename='', mtime=0, compresslevel=9) as compressed:
                 with io.TextIOWrapper(compressed, encoding=encoding, newline='\n') as handle:
                     yield handle
         os.replace(temporary, path)

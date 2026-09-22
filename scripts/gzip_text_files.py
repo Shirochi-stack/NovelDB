@@ -16,7 +16,7 @@ def gzip_file(path):
     out_path = path + ".gz"
     tmp_path = out_path + ".tmp"
     with open(tmp_path, "wb") as dst:
-        dst.write(gzip.compress(raw, compresslevel=6, mtime=0))
+        dst.write(gzip.compress(raw, compresslevel=9, mtime=0))
     os.replace(tmp_path, out_path)
     print(f"  Wrote {out_path} ({os.path.getsize(out_path) / 1024:.1f} KB)")
 

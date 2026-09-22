@@ -135,7 +135,7 @@ def write_tags(output_dir, tags):
     if ordinary:
         text = "".join(f"{tag}|||{english}\n" for tag, english in ordinary.items())
         common().atomic_text(Path(output_dir) / "tags_en.txt", text)
-        atomic_bytes(Path(output_dir) / "tags_en.txt.gz", gzip.compress(text.encode("utf-8"), compresslevel=6, mtime=0))
+        atomic_bytes(Path(output_dir) / "tags_en.txt.gz", gzip.compress(text.encode("utf-8"), compresslevel=9, mtime=0))
     if extra or (Path(output_dir) / "tags_extra.json.gz").exists():
         gzip_json(Path(output_dir) / "tags_extra.json.gz", extra)
 
@@ -159,7 +159,7 @@ def atomic_bytes(path, data):
 
 def gzip_json(path, data):
     raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    atomic_bytes(path, gzip.compress(raw, compresslevel=6, mtime=0))
+    atomic_bytes(path, gzip.compress(raw, compresslevel=9, mtime=0))
 
 
 def state_for(source, state_dir):

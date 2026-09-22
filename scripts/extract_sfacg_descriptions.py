@@ -129,7 +129,7 @@ def main():
     gz_path = OUTPUT + ".gz"
     with open(OUTPUT, "rb") as f_in:
         raw = f_in.read()
-    gz = gzip.compress(raw, compresslevel=6)
+    gz = gzip.compress(raw, compresslevel=9, mtime=0)
     with open(gz_path, "wb") as f_out:
         f_out.write(gz)
     print(f"  Gzipped: {len(raw)/1024:.0f} KB -> {len(gz)/1024:.0f} KB ({gz_path})")

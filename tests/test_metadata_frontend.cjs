@@ -75,3 +75,103 @@ test('canonical destinations and manifests reject unrelated or executable URLs',
     assert.throws(() => core.manifestConfig({...manifest, files: ['../novelpia_chunk_0.json.gz']}, 'naver'));
     assert.throws(() => core.manifestConfig({...manifest, descriptionShardPrefix: 'joara_descriptions_shard_'}, 'naver'));
 });
+
+function legacyCompare(sortBy, order, audience) {
+    // The comparator the site used before sortRecords existed.
+    const rank = (novel) => core.rankValue(novel, sortBy, audience);
+    return (a, b) => {
+        if (sortBy.startsWith('rank:')) {
+            return core.compareNullable(core.nativeRank(a, sortBy), core.nativeRank(b, sortBy), order === 'asc' ? 'desc' : 'asc')
+                || core.compareNullable(a.views, b.views, 'desc');
+        }
+        if (sortBy.startsWith('metric:')) {
+            const metric = sortBy.slice(7);
+            return core.compareNullable(core.nullableNumber(a.metrics?.[metric]), core.nullableNumber(b.metrics?.[metric]), order);
+        }
+        if (['daily', 'weekly', 'monthly', 'sfacg_popularity', 'sfacg_jp'].includes(sortBy)) {
+            const ra = rank(a) || 9999;
+            const rb = rank(b) || 9999;
+            if (ra !== rb) return order === 'asc' ? rb - ra : ra - rb;
+            const preferred = sortBy.startsWith('sfacg_') ? 'sfacg' : 'novelpia';
+            if (a.source === preferred && b.source !== preferred) return -1;
+            if (b.source === preferred && a.source !== preferred) return 1;
+            return core.compareNullable(a.views, b.views, 'desc');
+        }
+        const field = sortBy === 'title' || sortBy === 'updated' ? sortBy : ['likes', 'chapters'].includes(sortBy) ? sortBy : 'views';
+        return core.compareNullable(a[field], b[field], order, field === 'title' || field === 'updated');
+    };
+}
+
+function syntheticRecords() {
+    const records = [];
+    let seed = 7;
+    const rand = () => { seed = (seed * 48271) % 2147483647; return seed / 2147483647; };
+    const pick = (values) => values[Math.floor(rand() * values.length)];
+    const sources = ['novelpia', 'sfacg', 'naver', 'joara', 'kakao'];
+    for (let index = 0; index < 2000; index++) {
+        const source = pick(sources);
+        records.push({
+            id: String(index), source, title: pick(['Alpha', 'beta', '가나다', '魔王', 'Zeta', 'alpha']) + (index % 13),
+            views: pick([null, 0, 5, 5, 100, 250000]), likes: pick([null, 0, 3, 9]), chapters: pick([null, 1, 40]),
+            updated: pick([null, '', '2001-03-23T23:27:36', '2026-09-20 10:00:00', '2026-09-20T16:19:06', '2026-05-20T00:01:05+09:00']),
+            dailyRank: pick([0, 0, 1, 2, 3, 50]), weeklyRank: pick([0, 4, 7]), monthlyRank: pick([0, 9]),
+            dailyRankAdult: pick([0, 1, 8]), dailyRankTeen: pick([0, 2, 6]), weeklyRankTeen: pick([0, 3]),
+            popularityRank: pick([0, 1, 12]), jpRank: pick([0, 5]),
+            metrics: pick([{}, { favorites: 3 }, { favorites: 3 }, { favorites: null }, { rating: 9.5 }]),
+            rankings: pick([{}, { best_fantasy: 1 }, { best_fantasy: 4 }, { other: 2 }]),
+        });
+    }
+    return records;
+}
+
+test('sortRecords matches the legacy comparator order for every sort, including ties and unknown values', () => {
+    const records = syntheticRecords();
+    const configs = [];
+    for (const sortBy of ['daily', 'weekly', 'monthly', 'sfacg_popularity', 'sfacg_jp', 'views', 'likes', 'chapters', 'title', 'updated',
+        'metric:favorites', 'metric:rating', 'rank:naver:best_fantasy', 'rank:joara:other', 'unknown']) {
+        for (const order of ['desc', 'asc']) configs.push({ sortBy, order, audience: 'all' });
+    }
+    configs.push({ sortBy: 'daily', order: 'desc', audience: 'adult' }, { sortBy: 'weekly', order: 'asc', audience: 'general' });
+    for (const options of configs) {
+        const expected = records.slice().sort(legacyCompare(options.sortBy, options.order, options.audience));
+        const actual = core.sortRecords(records.slice(), options);
+        assert.deepEqual(actual.map((novel) => novel.id), expected.map((novel) => novel.id), JSON.stringify(options));
+        const compare = core.recordComparator(options);
+        for (let index = 1; index < actual.length; index++) {
+            assert.ok(compare(actual[index - 1], actual[index]) <= 0, `comparator disagrees for ${JSON.stringify(options)}`);
+        }
+        const existing = actual.filter((_, index) => index % 3);
+        const batch = core.sortRecords(actual.filter((_, index) => index % 3 === 0), options);
+        const merged = core.mergeSortedRecords(existing, batch, compare);
+        assert.equal(merged.length, actual.length);
+        for (let index = 1; index < merged.length; index++) {
+            assert.ok(compare(merged[index - 1], merged[index]) <= 0, `merge breaks order for ${JSON.stringify(options)}`);
+        }
+    }
+});
+
+test('rankValue follows the audience selection for Novelpia boards and stays board-specific elsewhere', () => {
+    const novel = { source: 'novelpia', dailyRank: 3, dailyRankAdult: 8, dailyRankTeen: 2, weeklyRank: 4, popularityRank: 9, rankings: { best: 1 } };
+    assert.equal(core.rankValue(novel, 'daily', 'all'), 3);
+    assert.equal(core.rankValue(novel, 'daily', 'r15'), 3);
+    assert.equal(core.rankValue(novel, 'daily', 'adult'), 8);
+    assert.equal(core.rankValue(novel, 'daily', 'general'), 2);
+    assert.equal(core.rankValue(novel, 'weekly', 'general'), undefined);
+    assert.equal(core.rankValue(novel, 'sfacg_popularity', 'all'), 9);
+    assert.equal(core.rankValue(novel, 'rank:novelpia:best', 'all'), 1);
+    assert.equal(core.rankValue(novel, 'rank:naver:best', 'all'), null);
+    assert.equal(core.rankValue(novel, 'nonsense', 'all'), 0);
+});
+
+test('safeHttpUrl accepts plain URLs without the parser and still rejects unsafe destinations', () => {
+    assert.equal(core.safeHttpUrl('https://novel.naver.com/best/list?novelId=7', ['novel.naver.com']), 'https://novel.naver.com/best/list?novelId=7');
+    assert.equal(core.safeHttpUrl('https://images.novelpia.com/imagebox/cover/a.jpg'), 'https://images.novelpia.com/imagebox/cover/a.jpg');
+    assert.equal(core.safeHttpUrl('https://Novel.naver.com:443/x', ['novel.naver.com']), 'https://novel.naver.com/x');
+    for (const unsafe of ['javascript:alert(1)', 'https://novel.naver.com@evil.test/x', 'https://novel.naver.com.evil.test/x',
+        'https://user:pw@novel.naver.com/x', 'https://evil.test/novel.naver.com/', 'data:text/html,x']) {
+        assert.equal(core.safeHttpUrl(unsafe, ['novel.naver.com']), '', unsafe);
+    }
+    assert.equal(core.safeHttpUrl(' https://novel.naver.com/x', ['novel.naver.com']), 'https://novel.naver.com/x');
+    assert.equal(core.safeHttpUrl('https://user:pw@images.test/x'), '');
+    assert.equal(core.safeHttpUrl('ftp://images.test/x'), '');
+});

@@ -224,7 +224,7 @@ def main():
             # Legacy: plain array format
             raw = json.dumps(chunk, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
-        gz = gzip.compress(raw, compresslevel=6, mtime=0)
+        gz = gzip.compress(raw, compresslevel=9, mtime=0)
 
         filename = f"{prefix}_{i}.json.gz"
         filepath = os.path.normpath(os.path.join(output_dir, filename))

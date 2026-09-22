@@ -124,7 +124,7 @@ def remove_stale_shards(output_dir, prefix):
 
 def write_gzip_json(path, descriptions):
     raw = json.dumps(descriptions, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    compressed = gzip.compress(raw, compresslevel=6, mtime=0)
+    compressed = gzip.compress(raw, compresslevel=9, mtime=0)
     tmp_path = path + ".tmp"
     with open(tmp_path, "wb") as handle:
         handle.write(compressed)

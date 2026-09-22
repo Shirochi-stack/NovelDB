@@ -105,8 +105,8 @@ def publish(branch, message, attempts=5, backoff=2):
                     target[tag] = english
                 raw = ''.join(f'{tag}|||{en}\n' for tag, en in ordinary.items()).encode()
                 data = {'docs/data/tags_en.txt': raw,
-                        'docs/data/tags_en.txt.gz': gzip.compress(raw, compresslevel=6, mtime=0),
-                        'docs/data/tags_extra.json.gz': gzip.compress(json.dumps(extra, ensure_ascii=False).encode(), compresslevel=6, mtime=0)}
+                        'docs/data/tags_en.txt.gz': gzip.compress(raw, compresslevel=9, mtime=0),
+                        'docs/data/tags_extra.json.gz': gzip.compress(json.dumps(extra, ensure_ascii=False).encode(), compresslevel=9, mtime=0)}
                 for path, content in data.items():
                     sha = git('hash-object', '-w', '--stdin', input=content).stdout.decode().strip()
                     git('update-index', '--add', '--cacheinfo', '100644', sha, path, env=env)

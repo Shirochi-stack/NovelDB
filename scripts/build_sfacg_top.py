@@ -123,7 +123,7 @@ def main():
 
     # Write as gzipped JSON
     raw = json.dumps(output, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    gz = gzip.compress(raw, compresslevel=6)
+    gz = gzip.compress(raw, compresslevel=9, mtime=0)
     with open(output_path, "wb") as f:
         f.write(gz)
 
