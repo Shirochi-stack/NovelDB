@@ -157,7 +157,7 @@ def test_continuation_report_requires_success_and_enabled_flag():
 
 
 def test_luna_payload_and_provider_keys(monkeypatch):
-    assert translator.DEFAULT_MODEL == "gpt-5.6-luna"
+    assert translator.DEFAULT_MODEL == "gpt-6-luna"
     for key in translator.model_key_order(translator.DEFAULT_MODEL):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "wrong-provider")
@@ -173,11 +173,15 @@ def test_luna_payload_and_provider_keys(monkeypatch):
         sent.append((url, kwargs["json"]))
         return Response()
     monkeypatch.setattr(translator.requests, "post", post)
-    for model in (translator.DEFAULT_MODEL, "deepseek-v4-pro"):
+    # The older Luna name is included deliberately: the payload branch used to
+    # match one exact model, so an upgrade silently reverted to the wrong
+    # completion parameters. Every Luna revision must keep this shape.
+    for model in (translator.DEFAULT_MODEL, "gpt-5.6-luna", "deepseek-v4-pro"):
         translator.call_api("title", "fixture", model, "https://example.test/chat/completions", output_token_limit=8192)
-    luna, override = sent[0][1], sent[1][1]
-    assert luna["reasoning_effort"] == "none" and luna["max_completion_tokens"] == 8192
-    assert "max_tokens" not in luna and "temperature" not in luna
+    luna, previous_luna, override = sent[0][1], sent[1][1], sent[2][1]
+    for payload in (luna, previous_luna):
+        assert payload["reasoning_effort"] == "none" and payload["max_completion_tokens"] == 8192
+        assert "max_tokens" not in payload and "temperature" not in payload
     assert override["max_tokens"] == 8192 and override["temperature"] == 0.3
 
 
@@ -185,7 +189,7 @@ def test_all_translation_workflows_have_luna_and_openai_secret():
     root = Path(__file__).resolve().parents[1]
     for name in ("translate-novelpia-top", "translate-kakao", "translate-sfacg", "translate-tags", "metadata-source-job"):
         content = (root / ".github" / "workflows" / f"{name}.yml").read_text(encoding="utf-8")
-        assert "gpt-5.6-luna" in content and "secrets.OPENAI_API_KEY" in content
+        assert "gpt-6-luna" in content and "secrets.OPENAI_API_KEY" in content
         assert "deepseek-v4-pro" not in content
     for path in (root / ".github" / "workflows").glob("*.yml"):
         content = path.read_text(encoding="utf-8")

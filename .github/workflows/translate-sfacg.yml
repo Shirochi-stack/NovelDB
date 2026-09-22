@@ -9,7 +9,7 @@ on:
       model:
         description: 'OpenAI-compatible model to use'
         required: false
-        default: 'gpt-5.6-luna'
+        default: 'gpt-6-luna'
         type: string
       api_base_url:
         description: 'OpenAI-compatible base URL (blank = auto route)'
@@ -89,7 +89,7 @@ jobs:
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model || 'gpt-5.6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model || 'gpt-6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated SFACG titles
         run: python scripts/merge_translated_sfacg_titles.py
@@ -111,7 +111,7 @@ jobs:
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model || 'gpt-5.6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model || 'gpt-6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated SFACG descriptions
         run: python scripts/merge_translated_sfacg_descriptions.py
@@ -136,7 +136,7 @@ jobs:
           TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
           TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
           TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
-        run: python scripts/translate_with_grok.py docs/data/sfacg_tags_untranslated.txt --lang chinese --type tags --model ${{ github.event.inputs.model || 'gpt-5.6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+        run: python scripts/translate_with_grok.py docs/data/sfacg_tags_untranslated.txt --lang chinese --type tags --model ${{ github.event.inputs.model || 'gpt-6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
 
       - name: Merge translated SFACG tags
         run: python scripts/merge_translated_tags.py docs/data/sfacg_tags_untranslated.txt

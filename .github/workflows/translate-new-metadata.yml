@@ -1,5 +1,5 @@
 name: Translate New Metadata Sources
-run-name: Translate ${{ inputs.source || github.event.workflow_run.name }} — ${{ inputs.model || 'gpt-5.6-luna' }}
+run-name: Translate ${{ inputs.source || github.event.workflow_run.name }} — ${{ inputs.model || 'gpt-6-luna' }}
 on:
   workflow_run:
     workflows: [Update Naver Metadata, Update Joara Metadata, Update Munpia Metadata, Update Ridibooks Metadata, Update Naver Series Metadata]
@@ -16,7 +16,7 @@ on:
       model:
         description: Translation model (OPENAI_API_KEY for Luna)
         type: string
-        default: gpt-5.6-luna
+        default: gpt-6-luna
       output_token_limit:
         description: 'Max output tokens per request (positive integer; blank = repository variable or 16384)'
         type: string
@@ -85,7 +85,7 @@ jobs:
       source: ${{ needs.context.outputs.source }}
       operation: translate
       recovery_run_id: ${{ inputs.recovery_run_id || '' }}
-      model: ${{ inputs.model || 'gpt-5.6-luna' }}
+      model: ${{ inputs.model || 'gpt-6-luna' }}
       output_token_limit: ${{ inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
       translation_workers: ${{ fromJSON(format('{0}', inputs.workers || 67)) }}
       translation_delay: ${{ fromJSON(format('{0}', inputs.delay || 5)) }}

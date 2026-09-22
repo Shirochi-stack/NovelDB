@@ -33,7 +33,7 @@ _enc = tiktoken.get_encoding("cl100k_base")
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_MODEL = "gpt-6-luna"
 
 # API output cap and derived chunk size.
 DEFAULT_OUTPUT_TOKEN_LIMIT = 16_384
@@ -401,6 +401,16 @@ def derive_chunk_token_limit(output_token_limit, compression_factor):
     return max(1, int(output_token_limit / compression_factor))
 
 
+def uses_luna_parameters(model):
+    """True for Luna models, which take OpenAI completion parameters.
+
+    Matched on the family rather than one exact version: this used to test
+    for a single model name, so every upgrade silently dropped the handling
+    below and sent `temperature`/`max_tokens` the model does not accept.
+    """
+    return "luna" in (model or "").lower()
+
+
 def call_api(prompt, api_key, model, api_url, content_type="titles",
              lang="korean", output_token_limit=None):
     """Single API call with proper timeout. No retries — accept what we get."""
@@ -418,7 +428,7 @@ def call_api(prompt, api_key, model, api_url, content_type="titles",
         ],
         "temperature": 0.3,
     }
-    if model.lower().startswith("gpt-5.6-luna"):
+    if uses_luna_parameters(model):
         payload.pop("temperature", None)
         payload["reasoning_effort"] = "none"
         if output_token_limit:

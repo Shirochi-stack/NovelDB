@@ -49,7 +49,7 @@ def translation_run(translator, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("model,token_field", [
-    ("gpt-5.6-luna", "max_completion_tokens"),
+    ("gpt-6-luna", "max_completion_tokens"),
     ("deepseek-chat", "max_tokens"),
 ])
 @pytest.mark.parametrize("environment,cli,expected", [
@@ -87,7 +87,7 @@ def test_main_sends_resolved_output_limit_to_api(
 @pytest.mark.parametrize("setting", ["environment", "cli"])
 def test_nonpositive_output_limit_fails_before_api_call(translation_run, monkeypatch, capsys, limit, setting):
     run, post, input_file = translation_run
-    arguments = ["--model", "gpt-5.6-luna"]
+    arguments = ["--model", "gpt-6-luna"]
     if setting == "environment":
         monkeypatch.setenv("TRANSLATION_OUTPUT_TOKEN_LIMIT", limit)
     else:
@@ -108,7 +108,7 @@ def test_invalid_environment_output_limit_fails_before_api_call(translation_run,
     monkeypatch.setenv("TRANSLATION_OUTPUT_TOKEN_LIMIT", "many")
 
     with pytest.raises(SystemExit) as error:
-        run("--model", "gpt-5.6-luna")
+        run("--model", "gpt-6-luna")
 
     assert error.value.code != 0
     post.assert_not_called()
