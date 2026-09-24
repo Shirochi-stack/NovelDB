@@ -244,12 +244,13 @@ class ExternalScraper:
         self._joara_request_lock = threading.Lock()
         self._joara_next_request_at = 0.0
         self._naver_cookies = None
+        # Publisher logo banners detected for the current Naver book. Many
+        # works upload a fresh copy of the logo for every episode, so logos
+        # are recognised by appearance, not only by URL.
         self._naver_end_images = set()
-        # Publisher logos are sometimes uploaded again for a few episodes
-        # under a new path with the same file name; those copies are matched
-        # by name and then by appearance.
-        self._naver_end_image_signatures = {}
-        self._naver_image_verdicts = {}
+        self._naver_logo_signatures = []
+        self._naver_logo_names = set()
+        self._naver_image_signatures = {}
         self._naver_image_lock = threading.Lock()
         # Set by a native scraper when retrying is pointless (for example a
         # site-wide human check that was not completed). The dialog stops
@@ -15524,63 +15525,24 @@ async ({ url }) => {
         parsed = urllib.parse.urlparse(url or '')
         return f'{(parsed.hostname or "").lower()}{parsed.path}'
 
-    @classmethod
-    def _naver_last_image_key(cls, blocks):
-        """Key of the image that closes an episode, or '' if text does."""
-        if blocks and blocks[-1][0] == 'img':
-            return cls._naver_image_key(blocks[-1][1])
-        return ''
-
-    def _naver_detect_end_images(self, chapters, referer):
-        """Find publisher logo cards to drop from every episode.
-
-        Series Edition works close each episode with the publisher's logo
-        banner (e.g. Barobook, EPYRUS, 대원씨아이): the same uploaded image
-        as the episode's final block. Only an image that is the very last
-        block of at least two sampled episodes is treated as a logo, so
-        illustrations -- including the cover card that often sits just
-        before the logo -- are kept.
-        """
-        if len(chapters) < 2:
-            return set()
-        picks = sorted({0, len(chapters) // 2, len(chapters) - 1})
-        counts = {}
-        for index in picks:
-            if self._stop_requested:
-                return set()
-            try:
-                blocks, _needs_login = self._naver_episode_blocks(
-                    chapters[index]['url'], referer
-                )
-            except Exception:
-                continue
-            key = self._naver_last_image_key(blocks)
-            if key:
-                counts[key] = counts.get(key, 0) + 1
-        found = {key for key, seen in counts.items() if seen >= 2}
-        self._naver_end_image_signatures = {}
-        self._naver_image_verdicts = {key: True for key in found}
-        for key in found:
-            signature = self._naver_image_signature(f'https://{key}', referer)
-            if signature:
-                self._naver_end_image_signatures[key] = signature
-        if found:
-            names = ', '.join(
-                urllib.parse.unquote(key.rsplit('/', 1)[-1])
-                for key in sorted(found)
-            )
-            self.log(
-                f'[Naver] Removing publisher logo image(s) found at the end '
-                f'of every episode, wherever they appear: {names}'
-            )
-        return found
+    @staticmethod
+    def _naver_trailing_images(blocks):
+        """Images after the episode's last line of text."""
+        trailing = []
+        for kind, value in reversed(blocks or []):
+            if kind != 'img':
+                break
+            trailing.append(value)
+        return trailing[::-1]
 
     @staticmethod
     def _naver_image_name(key):
         return urllib.parse.unquote(key.rsplit('/', 1)[-1]).casefold()
 
-    def _naver_image_signature(self, url, referer=''):
-        """Return ``(aspect, 32x8 grayscale pixels)`` for an image, or None."""
+    _NAVER_LOGO_MIN_ASPECT = 3.5
+
+    def _naver_fetch_signature(self, url, referer=''):
+        """Return ``(aspect, 64x8 grayscale pixels)`` for an image, or None."""
         try:
             from io import BytesIO
             from PIL import Image
@@ -15598,60 +15560,133 @@ async ({ url }) => {
                 session.close()
             with Image.open(BytesIO(raw)) as image:
                 width, height = image.size
-                pixels = list(image.convert('L').resize((32, 8)).getdata())
+                pixels = list(image.convert('L').resize((64, 8)).getdata())
             return (width / height if height else 0.0, pixels)
         except Exception:
             return None
 
+    def _naver_image_signature(self, url, referer=''):
+        key = self._naver_image_key(url)
+        with self._naver_image_lock:
+            if key in self._naver_image_signatures:
+                return self._naver_image_signatures[key]
+        signature = self._naver_fetch_signature(url, referer)
+        with self._naver_image_lock:
+            self._naver_image_signatures[key] = signature
+        return signature
+
+    @classmethod
+    def _naver_is_banner(cls, signature):
+        return bool(signature) and signature[0] >= cls._NAVER_LOGO_MIN_ASPECT
+
     @staticmethod
     def _naver_signatures_match(first, second):
+        """Same image: same shape and the same marks on a white banner."""
         aspect_a, pixels_a = first
         aspect_b, pixels_b = second
         if not aspect_a or abs(aspect_a - aspect_b) > aspect_a * 0.08:
             return False
-        difference = sum(
+        marked = [
             abs(a - b) for a, b in zip(pixels_a, pixels_b)
-        ) / max(1, len(pixels_a))
-        return difference < 12
-
-    def _naver_is_end_image(self, url):
-        key = self._naver_image_key(url)
-        with self._naver_image_lock:
-            verdict = self._naver_image_verdicts.get(key)
-        if verdict is not None:
-            return verdict
-        name = self._naver_image_name(key)
-        logos = [
-            signature
-            for logo_key, signature in self._naver_end_image_signatures.items()
-            if self._naver_image_name(logo_key) == name
+            if a < 235 or b < 235
         ]
-        verdict = False
-        if logos:
-            # Same file name as a detected logo but a different upload:
-            # only a copy that also looks the same is removed.
-            signature = self._naver_image_signature(
-                url, (self._book_data or {}).get('bookUrl') or ''
+        if not marked:
+            return True
+        return sum(marked) / len(marked) < 30
+
+    def _naver_detect_end_images(self, chapters, referer):
+        """Find publisher logo banners to drop from every episode.
+
+        Series Edition works close each episode with the publisher's logo
+        banner (Barobook, Munpia, EPYRUS, 대원씨아이, ...), often a fresh
+        upload per episode. A banner-shaped image (much wider than tall)
+        that closes at least two sampled episodes with the same appearance
+        is a logo. Covers and illustrations are never banner-shaped, so
+        they are always kept.
+        """
+        self._naver_logo_signatures = []
+        self._naver_logo_names = set()
+        if len(chapters) < 2:
+            return set()
+        count = len(chapters)
+        picks = sorted({
+            0, count // 4, count // 2, (3 * count) // 4, count - 1,
+        })
+        banners = []  # (sample index, url, signature)
+        for sample, index in enumerate(picks):
+            if self._stop_requested:
+                return set()
+            try:
+                blocks, _needs_login = self._naver_episode_blocks(
+                    chapters[index]['url'], referer
+                )
+            except Exception:
+                continue
+            for url in self._naver_trailing_images(blocks):
+                signature = self._naver_image_signature(url, referer)
+                if self._naver_is_banner(signature):
+                    banners.append((sample, url, signature))
+
+        found = set()
+        for _sample, url, signature in banners:
+            samples = {
+                other_sample
+                for other_sample, _other, other_signature in banners
+                if self._naver_signatures_match(signature, other_signature)
+            }
+            if len(samples) >= 2:
+                key = self._naver_image_key(url)
+                found.add(key)
+                self._naver_logo_names.add(self._naver_image_name(key))
+                if not any(
+                    self._naver_signatures_match(signature, known)
+                    for known in self._naver_logo_signatures
+                ):
+                    self._naver_logo_signatures.append(signature)
+        if found:
+            names = ', '.join(sorted(self._naver_logo_names))
+            self.log(
+                f'[Naver] Removing the publisher logo from every episode, '
+                f'wherever it appears: {names}'
             )
-            verdict = bool(signature) and any(
-                self._naver_signatures_match(signature, logo)
-                for logo in logos
-            )
-        with self._naver_image_lock:
-            self._naver_image_verdicts[key] = verdict
-        return verdict
+        return found
+
+    def _naver_is_end_image(self, url, trailing=False):
+        key = self._naver_image_key(url)
+        if key in self._naver_end_images:
+            return True
+        if not trailing and (
+            self._naver_image_name(key) not in self._naver_logo_names
+        ):
+            # Only images named like a logo or closing the episode are ever
+            # downloaded for comparison.
+            return False
+        signature = self._naver_image_signature(
+            url, (self._book_data or {}).get('bookUrl') or ''
+        )
+        return self._naver_is_banner(signature) and any(
+            self._naver_signatures_match(signature, logo)
+            for logo in self._naver_logo_signatures
+        )
 
     def _naver_drop_end_images(self, blocks):
         """Remove every copy of a detected publisher logo from an episode."""
-        if not self._naver_end_images:
-            return list(blocks or [])
+        blocks = list(blocks or [])
+        if not self._naver_logo_signatures and not self._naver_end_images:
+            return blocks
+        last_text = max(
+            (index for index, (kind, _value) in enumerate(blocks)
+             if kind != 'img'),
+            default=-1,
+        )
         kept = [
-            (kind, value) for kind, value in (blocks or [])
-            if kind != 'img' or not self._naver_is_end_image(value)
+            (kind, value) for index, (kind, value) in enumerate(blocks)
+            if kind != 'img'
+            or not self._naver_is_end_image(value, index > last_text)
         ]
         # An episode that is nothing but the logo keeps it rather than
         # becoming an empty chapter that the dialog would retry.
-        return kept or list(blocks or [])
+        return kept or blocks
 
     def _naver_parse_chapter(self, chapter_url, chapter_name):
         book_url = (self._book_data or {}).get('bookUrl') or ''

@@ -500,49 +500,6 @@ def test_naver_series_without_web_edition_explains_drm(tmp_path, monkeypatch):
     assert any('DRM' in message for message in messages)
 
 
-def test_naver_publisher_logo_is_detected_and_removed_everywhere(
-    tmp_path, monkeypatch,
-):
-    scraper, messages = make_scraper(tmp_path, monkeypatch)
-    logo = 'https://novel-phinf.pstatic.net/2014/barobook+image.jpg?type=w500'
-    cover = 'https://novel-phinf.pstatic.net/2014/cover.jpg?type=w500'
-    avatar = 'https://novel-phinf.pstatic.net/2014/someone.jpg?type=w80_2'
-    # Modelled on novelId 231619: the cover card sits just before the
-    # Barobook logo, and chat avatars repeat in every episode.
-    episodes = {
-        'e1': [('img', avatar), ('text', 'One'), ('img', cover),
-               ('img', logo)],
-        'e2': [('text', 'Two'), ('img', cover), ('text', 'More'),
-               ('img', logo.replace('w500', 'w80'))],
-        'e3': [('img', avatar), ('text', 'Three'), ('img', cover)],
-    }
-    monkeypatch.setattr(
-        scraper, '_naver_episode_blocks',
-        lambda url, referer='': (episodes[url], False),
-    )
-    chapters = [{'url': 'e1'}, {'url': 'e2'}, {'url': 'e3'}]
-
-    found = scraper._naver_detect_end_images(chapters, 'list')
-
-    # Only the image that closes two of three samples; the cover card
-    # before it and the avatars are kept.
-    assert found == {'novel-phinf.pstatic.net/2014/barobook+image.jpg'}
-    assert any('barobook+image.jpg' in message for message in messages)
-
-    scraper._naver_end_images = found
-    scraper._book_data = {'bookUrl': 'list'}
-    result = scraper._naver_parse_chapter('e1', 'Ep 1')
-    assert [image['url'] for image in result['images']] == [avatar, cover]
-    assert 'barobook' not in result['contentHtml']
-
-    # The logo is removed wherever it appears, not only at the end.
-    episodes['e4'] = [('text', 'Start'), ('img', cover), ('img', logo),
-                      ('text', 'Body'), ('img', logo)]
-    result = scraper._naver_parse_chapter('e4', 'Ep 4')
-    assert [image['url'] for image in result['images']] == [cover]
-    assert result['contentText'] == 'Start\nBody'
-
-
 def test_naver_single_episode_keeps_every_image(tmp_path, monkeypatch):
     scraper, _messages = make_scraper(tmp_path, monkeypatch)
     monkeypatch.setattr(
@@ -663,62 +620,134 @@ def test_joara_captcha_flag_values(tmp_path, monkeypatch):
     )
 
 
-def test_naver_reuploaded_logo_copy_is_matched_by_name_and_look(
-    tmp_path, monkeypatch,
-):
-    scraper, _messages = make_scraper(tmp_path, monkeypatch)
-    logo = 'https://novel-phinf.pstatic.net/20130115_84/a/barobook+image.jpg'
-    copy = 'https://novel-phinf.pstatic.net/20130116_125/b/barobook+image.jpg'
-    other = 'https://novel-phinf.pstatic.net/20130117_1/c/barobook+image.jpg'
-    art = 'https://novel-phinf.pstatic.net/2013/d/1.jpg'
-    banner = (10.8, [255] * 200 + [30] * 56)
-    signatures = {
-        f'https://{logo[8:]}': banner,
-        copy: banner,
-        other: (0.7, [90] * 256),
-    }
+# 64x8 grayscale signatures: a white banner with a mark at the right edge
+# (publisher logo), the same logo re-encoded, a different banner, and
+# portrait art.
+LOGO_SIG = (10.8, ([255] * 56 + [40] * 8) * 8)
+LOGO_COPY_SIG = (10.9, ([253] * 56 + [46] * 8) * 8)
+OTHER_BANNER_SIG = (10.8, ([40] * 8 + [255] * 56) * 8)
+ART_SIG = (0.72, [90] * 512)
+
+
+def naver_logo_scraper(tmp_path, monkeypatch, episodes, signatures):
+    scraper, messages = make_scraper(tmp_path, monkeypatch)
     fetched = []
 
-    def signature(url, referer=''):
+    def fetch_signature(url, referer=''):
         fetched.append(url)
         return signatures.get(url)
 
-    monkeypatch.setattr(scraper, '_naver_image_signature', signature)
-    episodes = {
-        'e1': [('text', 'One'), ('img', logo)],
-        'e2': [('text', 'Two'), ('img', logo)],
-    }
+    monkeypatch.setattr(scraper, '_naver_fetch_signature', fetch_signature)
     monkeypatch.setattr(
         scraper, '_naver_episode_blocks',
         lambda url, referer='': (episodes[url], False),
     )
+    scraper._book_data = {'bookUrl': 'list'}
+    return scraper, messages, fetched
+
+
+def test_naver_logo_uploaded_per_episode_is_found_by_appearance(
+    tmp_path, monkeypatch,
+):
+    # Modelled on novelId 1 (프린세스 아이린): every episode ends with the
+    # cover card and a separately uploaded copy of barobook+image.jpg.
+    logos = [
+        f'https://novel-phinf.pstatic.net/2013011{n}/barobook+image.jpg'
+        for n in range(4)
+    ]
+    cover = 'https://novel-phinf.pstatic.net/2013/princess+cover.jpg'
+    avatar = 'https://novel-phinf.pstatic.net/2013/someone.jpg'
+    episodes = {
+        f'e{n}': [('img', avatar), ('text', f'Text {n}'), ('img', cover),
+                  ('img', logos[n])]
+        for n in range(4)
+    }
+    signatures = {logos[0]: LOGO_SIG, logos[1]: LOGO_COPY_SIG,
+                  logos[2]: LOGO_SIG, logos[3]: LOGO_COPY_SIG,
+                  cover: ART_SIG, avatar: ART_SIG}
+    scraper, messages, fetched = naver_logo_scraper(
+        tmp_path, monkeypatch, episodes, signatures,
+    )
+
+    scraper._naver_end_images = scraper._naver_detect_end_images(
+        [{'url': f'e{n}'} for n in range(4)], 'list'
+    )
+
+    assert scraper._naver_logo_names == {'barobook+image.jpg'}
+    assert any('barobook+image.jpg' in message for message in messages)
+    # The cover before the logo is portrait art, never a logo; the
+    # mid-text avatar is never even downloaded.
+    for n in range(4):
+        result = scraper._naver_parse_chapter(f'e{n}', f'Ep {n}')
+        assert [image['url'] for image in result['images']] == [
+            avatar, cover,
+        ]
+    assert avatar not in fetched
+
+
+def test_naver_logo_is_removed_wherever_it_appears(tmp_path, monkeypatch):
+    logo = 'https://novel-phinf.pstatic.net/2014/barobook+image.jpg?type=w'
+    mid_copy = 'https://novel-phinf.pstatic.net/2015/barobook+image.jpg'
+    lookalike = 'https://novel-phinf.pstatic.net/2016/barobook+image.jpg'
+    divider = 'https://novel-phinf.pstatic.net/2014/divider.jpg'
+    episodes = {
+        'e1': [('text', 'One'), ('img', logo)],
+        'e2': [('text', 'Two'), ('img', logo)],
+    }
+    signatures = {logo: LOGO_SIG, mid_copy: LOGO_COPY_SIG,
+                  lookalike: OTHER_BANNER_SIG, divider: OTHER_BANNER_SIG}
+    scraper, _messages, fetched = naver_logo_scraper(
+        tmp_path, monkeypatch, episodes, signatures,
+    )
     scraper._naver_end_images = scraper._naver_detect_end_images(
         [{'url': 'e1'}, {'url': 'e2'}], 'list'
     )
-    scraper._book_data = {'bookUrl': 'list'}
 
     kept = scraper._naver_drop_end_images([
-        ('img', art), ('text', 'Body'), ('img', copy), ('img', other),
+        ('text', 'Start'), ('img', mid_copy), ('img', divider),
+        ('text', 'Body'), ('img', lookalike), ('img', logo),
     ])
 
-    # The re-uploaded copy that looks the same goes; a same-named image
-    # that looks different, and unrelated art, stay without a download.
-    assert kept == [('img', art), ('text', 'Body'), ('img', other)]
-    assert art not in fetched
+    # A mid-text copy with the logo's name is matched by appearance; a
+    # same-named image that looks different stays, and the mid-text
+    # divider (not named like the logo) is never downloaded.
+    assert kept == [
+        ('text', 'Start'), ('img', divider), ('text', 'Body'),
+        ('img', lookalike),
+    ]
+    assert divider not in fetched
+
+
+def test_naver_repeated_cover_is_not_a_logo(tmp_path, monkeypatch):
+    cover = 'https://novel-phinf.pstatic.net/2020/cover.jpg'
+    episodes = {f'e{n}': [('text', f'T{n}'), ('img', cover)] for n in range(3)}
+    scraper, _messages, _fetched = naver_logo_scraper(
+        tmp_path, monkeypatch, episodes, {cover: ART_SIG},
+    )
+    assert scraper._naver_detect_end_images(
+        [{'url': f'e{n}'} for n in range(3)], 'list'
+    ) == set()
+    assert scraper._naver_drop_end_images(episodes['e0']) == episodes['e0']
 
 
 def test_naver_episode_of_only_the_logo_is_kept(tmp_path, monkeypatch):
-    scraper, _messages = make_scraper(tmp_path, monkeypatch)
     logo = 'https://novel-phinf.pstatic.net/2014/cp-logo.jpg'
-    scraper._naver_end_images = {'novel-phinf.pstatic.net/2014/cp-logo.jpg'}
-    scraper._naver_image_verdicts = {
-        'novel-phinf.pstatic.net/2014/cp-logo.jpg': True,
-    }
+    episodes = {'e1': [('text', 'A'), ('img', logo)],
+                'e2': [('text', 'B'), ('img', logo)]}
+    scraper, _messages, _fetched = naver_logo_scraper(
+        tmp_path, monkeypatch, episodes, {logo: LOGO_SIG},
+    )
+    scraper._naver_end_images = scraper._naver_detect_end_images(
+        [{'url': 'e1'}, {'url': 'e2'}], 'list'
+    )
     assert scraper._naver_drop_end_images([('img', logo)]) == [('img', logo)]
 
 
 def test_naver_parse_book_runs_logo_detection(tmp_path, monkeypatch):
-    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    logo = 'https://novel-phinf.pstatic.net/2022/cp-logo.jpg?type=w500'
+    scraper, _messages, _fetched = naver_logo_scraper(
+        tmp_path, monkeypatch, {}, {logo: LOGO_SIG},
+    )
     pages = {
         'https://novel.naver.com/best/list?novelId=7':
             naver_list_page([3, 2, 1], 3),
@@ -730,13 +759,9 @@ def test_naver_parse_book_runs_logo_detection(tmp_path, monkeypatch):
         scraper, '_naver_fetch',
         lambda session, url, referer='': FakeResponse(pages[url], url),
     )
-    logo = 'https://novel-phinf.pstatic.net/2022/cp-logo.jpg?type=w500'
     monkeypatch.setattr(
         scraper, '_naver_episode_blocks',
         lambda url, referer='': ([('text', url), ('img', logo)], False),
-    )
-    monkeypatch.setattr(
-        scraper, '_naver_image_signature', lambda url, referer='': None
     )
 
     data = scraper.parse_book('https://novel.naver.com/best/list?novelId=7')
