@@ -16,14 +16,14 @@ if !ERRORLEVEL! NEQ 0 (
     echo Playwright browser install failed. Cannot build the full executable.
     set FULL_RESULT=!ERRORLEVEL!
 ) else (
-pyinstaller NovelpiaDownloader.spec --clean
+python -m PyInstaller NovelpiaDownloader.spec --clean
 set FULL_RESULT=!ERRORLEVEL!
 )
 
 echo.
 echo [2/2] Building !APP_NAME_LITE! (No Playwright)...
 echo.
-pyinstaller NovelpiaDownloader_Lite.spec --clean
+python -m PyInstaller NovelpiaDownloader_Lite.spec --clean
 set LITE_RESULT=!ERRORLEVEL!
 
 echo.
