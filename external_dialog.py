@@ -553,6 +553,9 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
+                        and not self._scraper.is_joara(url)
+                        and not self._scraper.is_naver_series(url)
+                        and not self._scraper.is_naver_novel(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -745,12 +748,19 @@ class ExternalNovelDialog(tk.Toplevel):
             is_1qxs = bool(
                 self._book_data and self._book_data.get("_1qxs")
             )
+            is_joara = bool(
+                self._book_data and self._book_data.get("_joara")
+            )
+            is_naver_novel = bool(
+                self._book_data and self._book_data.get("_naver_novel")
+            )
             if (self._scraper and not self._scraper._context
                     and not is_ntk and not is_yeduji and not is_novelpia
                     and not is_munpia
                     and not is_ridibooks
                     and not is_global_novelpia
                     and not is_69shuba and not is_1qxs
+                    and not is_joara and not is_naver_novel
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
@@ -920,6 +930,8 @@ class ExternalNovelDialog(tk.Toplevel):
                     or is_global_novelpia
                     or is_novelpia
                     or is_munpia
+                    or is_joara
+                    or is_naver_novel
                 )
                 if not log_on_success:
                     for i in batch_indices:
@@ -1590,6 +1602,9 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
+                        and not self._scraper.is_joara(url)
+                        and not self._scraper.is_naver_series(url)
+                        and not self._scraper.is_naver_novel(url)
                         and not self._scraper.is_novelpia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
@@ -1859,6 +1874,9 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
+                        and not self._scraper.is_joara(url)
+                        and not self._scraper.is_naver_series(url)
+                        and not self._scraper.is_naver_novel(url)
                         and not self._scraper.is_novelpia(url)
                         and not self._scraper._context):
                     self._scraper.start()

@@ -234,6 +234,14 @@ class ExternalScraper:
         self._1qxs_request_lock = threading.Lock()
         self._1qxs_next_request_at = 0.0
         self._1qxs_cooldown_until = 0.0
+        self._joara_http = None
+        self._joara_params = None
+        self._joara_token = ''
+        self._joara_key = None
+        self._joara_captcha = False
+        self._joara_request_lock = threading.Lock()
+        self._joara_next_request_at = 0.0
+        self._naver_cookies = None
 
     def _install_bridge_bindings(self, page):
         """Expose Python-backed helpers used by the JS bridge stubs."""
@@ -4101,6 +4109,8 @@ class ExternalScraper:
             or self._book_data.get('_novelpia')
             or self._book_data.get('_69shuba')
             or self._book_data.get('_1qxs')
+            or self._book_data.get('_joara')
+            or self._book_data.get('_naver_novel')
         ):
             return
 
@@ -7993,64 +8003,7 @@ async ({ url }) => {
         Novelpia may add TKEY during login; using the older snapshot causes
         the API refresh to reject an otherwise valid browser session.
         """
-        profile_dir = self._get_user_data_dir()
-        cookies_db = os.path.join(
-            profile_dir, 'Default', 'Network', 'Cookies'
-        )
-        if not os.path.exists(cookies_db):
-            return []
-        key = self._ntk_chrome_master_key(profile_dir)
-        now_chrome = int((time.time() + 11644473600) * 1000000)
-        temp_path = None
-        try:
-            fd, temp_path = tempfile.mkstemp(
-                prefix='global_novelpia_cookies_', suffix='.db'
-            )
-            os.close(fd)
-            shutil.copy2(cookies_db, temp_path)
-            connection = sqlite3.connect(temp_path)
-            try:
-                rows = connection.execute(
-                    """
-                    SELECT host_key, name, value, encrypted_value,
-                           expires_utc, path, is_secure
-                    FROM cookies
-                    WHERE host_key = 'novelpia.com'
-                       OR host_key = '.novelpia.com'
-                       OR host_key LIKE '%.novelpia.com'
-                    """
-                ).fetchall()
-            finally:
-                connection.close()
-
-            records = []
-            for (
-                domain, name, value, encrypted_value,
-                expires_utc, path, is_secure,
-            ) in rows:
-                if expires_utc and expires_utc < now_chrome:
-                    continue
-                cookie_value = value or self._ntk_decrypt_chrome_cookie(
-                    domain, encrypted_value, key
-                )
-                if not name or not cookie_value:
-                    continue
-                records.append({
-                    'name': name,
-                    'value': cookie_value,
-                    'domain': domain,
-                    'path': path or '/',
-                    'secure': bool(is_secure),
-                })
-            return records
-        except Exception:
-            return []
-        finally:
-            if temp_path:
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
+        return self._profile_cookie_records('novelpia.com')
 
     def _global_novelpia_sync_browser_cookies(self, session):
         """Copy the dedicated External Downloader profile into requests."""
@@ -14277,6 +14230,1102 @@ async ({ url }) => {
         }
 
     # ------------------------------------------------------------------
+    # Shared helpers for the Joara / Naver HTTP scrapers
+    # ------------------------------------------------------------------
+    _KR_UA = (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/140.0.0.0 Safari/537.36'
+    )
+    _READER_BLOCK_TAGS = frozenset((
+        'p', 'div', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'table', 'tr', 'section', 'article', 'center', 'pre',
+    ))
+
+    @classmethod
+    def _reader_html_blocks(cls, fragment, base_url=''):
+        """Split reader HTML into ordered ``('text'|'img', value)`` blocks.
+
+        Raw newlines inside text nodes are line breaks, as on Naver and
+        Joara readers whose paragraphs are ``white-space: pre-line``.
+        """
+        from bs4 import BeautifulSoup
+        from bs4.element import Comment, NavigableString
+
+        soup = BeautifulSoup(fragment or '', 'html.parser')
+        for node in soup(['script', 'style', 'noscript', 'button']):
+            node.decompose()
+        blocks = []
+        line = []
+
+        def flush():
+            text = ''.join(line).replace('\xa0', ' ')
+            text = re.sub(r'[ \t\r\f\v]+', ' ', text).strip()
+            line.clear()
+            if text:
+                blocks.append(('text', text))
+
+        def walk(node):
+            for child in node.children:
+                if isinstance(child, Comment):
+                    continue
+                if isinstance(child, NavigableString):
+                    parts = str(child).split('\n')
+                    for index, part in enumerate(parts):
+                        if index:
+                            flush()
+                        line.append(part)
+                    continue
+                name = (child.name or '').lower()
+                if name == 'br':
+                    flush()
+                elif name == 'img':
+                    src = (
+                        child.get('data-src')
+                        or child.get('data-original')
+                        or child.get('src')
+                        or ''
+                    ).strip()
+                    url = urllib.parse.urljoin(base_url, src) if src else ''
+                    if url.startswith(('http://', 'https://')):
+                        flush()
+                        blocks.append(('img', url))
+                elif name in cls._READER_BLOCK_TAGS:
+                    flush()
+                    walk(child)
+                    flush()
+                else:
+                    walk(child)
+
+        walk(soup)
+        flush()
+        return blocks
+
+    @staticmethod
+    def _reader_plain_blocks(text):
+        blocks = []
+        for raw_line in (text or '').replace('\r\n', '\n').split('\n'):
+            value = raw_line.replace('\xa0', ' ').strip()
+            if value:
+                blocks.append(('text', value))
+        return blocks
+
+    @classmethod
+    def _reader_chapter_result(cls, blocks, chapter_name, css_class,
+                               source_name=None):
+        """Build the chapter dict consumed by the EPUB/TXT pipeline."""
+        blocks = list(blocks or [])
+        if (
+            blocks
+            and blocks[0][0] == 'text'
+            and cls._normalize_title_for_match(blocks[0][1])
+            == cls._normalize_title_for_match(chapter_name)
+        ):
+            blocks.pop(0)
+        texts = []
+        html_parts = []
+        images = []
+        seen_images = set()
+        for kind, value in blocks:
+            if kind == 'img':
+                html_parts.append(
+                    f'<p class="img"><img src="{html.escape(value, quote=True)}"'
+                    ' alt=""/></p>'
+                )
+                if value not in seen_images:
+                    seen_images.add(value)
+                    path = urllib.parse.urlparse(value).path or ''
+                    name = path.rsplit('/', 1)[-1] or (
+                        f'img_{len(images) + 1}.jpg'
+                    )
+                    images.append({'url': value, 'name': name})
+            else:
+                texts.append(value)
+                html_parts.append(f'<p>{html.escape(value)}</p>')
+        return {
+            'chapterName': chapter_name or 'Chapter',
+            'sourceChapterName': source_name or chapter_name or 'Chapter',
+            'contentText': '\n'.join(texts),
+            'contentHtml': (
+                f'<div class="{css_class}">\n'
+                + '\n'.join(html_parts)
+                + '\n</div>'
+            ),
+            'contentCss': (
+                f'.{css_class} p {{ margin: 0 0 0.75em; line-height: 1.8; }}\n'
+                f'.{css_class} img {{ max-width: 100%; height: auto; }}'
+            ),
+            'images': images,
+        }
+
+    def _profile_cookie_records(self, domain):
+        """Read unexpired cookies for ``domain`` from the Enter Browser profile.
+
+        Enter Browser may run installed Chrome directly, so its cookie
+        database can be newer than ``nd_storage_state.json``.
+        """
+        domain = (domain or '').lstrip('.').lower()
+        profile_dir = self._get_user_data_dir()
+        cookies_db = os.path.join(
+            profile_dir, 'Default', 'Network', 'Cookies'
+        )
+        if not domain or not os.path.exists(cookies_db):
+            return []
+        key = self._ntk_chrome_master_key(profile_dir)
+        now_chrome = int((time.time() + 11644473600) * 1000000)
+        temp_path = None
+        try:
+            fd, temp_path = tempfile.mkstemp(
+                prefix='profile_cookies_', suffix='.db'
+            )
+            os.close(fd)
+            shutil.copy2(cookies_db, temp_path)
+            connection = sqlite3.connect(temp_path)
+            try:
+                rows = connection.execute(
+                    """
+                    SELECT host_key, name, value, encrypted_value,
+                           expires_utc, path, is_secure
+                    FROM cookies
+                    WHERE host_key = ? OR host_key = ? OR host_key LIKE ?
+                    """,
+                    (domain, '.' + domain, '%.' + domain),
+                ).fetchall()
+            finally:
+                connection.close()
+
+            records = []
+            for (
+                host_key, name, value, encrypted_value,
+                expires_utc, path, is_secure,
+            ) in rows:
+                if expires_utc and expires_utc < now_chrome:
+                    continue
+                cookie_value = value or self._ntk_decrypt_chrome_cookie(
+                    host_key, encrypted_value, key
+                )
+                if not name or not cookie_value:
+                    continue
+                records.append({
+                    'name': name,
+                    'value': cookie_value,
+                    'domain': host_key,
+                    'path': path or '/',
+                    'secure': bool(is_secure),
+                })
+            return records
+        except Exception:
+            return []
+        finally:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    def _load_saved_site_cookies(self, jar, url, domain):
+        """Copy saved Enter Browser cookies for a site into a cookie jar."""
+        records = list(self._storage_cookies_for_url(url))
+        # Profile cookies are newer, so they overwrite the snapshot values.
+        records.extend(self._profile_cookie_records(domain))
+        for cookie in records:
+            name = cookie.get('name')
+            value = cookie.get('value')
+            if not name or value is None:
+                continue
+            try:
+                jar.set(
+                    name,
+                    value,
+                    domain=cookie.get('domain') or domain,
+                    path=cookie.get('path') or '/',
+                )
+            except Exception:
+                pass
+        return len(records)
+
+    # ------------------------------------------------------------------
+    # Joara native scraper (public mobile-web API)
+    # ------------------------------------------------------------------
+    _JOARA_ORIGIN = 'https://www.joara.com'
+    _JOARA_API = 'https://api.joara.com'
+    # Public production config from Joara's web bundle. It is re-read from
+    # the live bundle when possible and these values are only a fallback.
+    _JOARA_DEFAULT_PARAMS = {
+        'api_key': 'mw_8ba234e7801ba288554ca07ae44c7',
+        'ver': '3.2.0',
+        'device': 'mw',
+        'devicetoken': 'mw',
+    }
+    _JOARA_MIN_REQUEST_INTERVAL = 1.0
+
+    @staticmethod
+    def is_joara(url):
+        """Return True for Joara book and viewer URLs."""
+        return bool(ExternalScraper._joara_book_code(url))
+
+    @staticmethod
+    def _joara_book_code(url):
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return ''
+        host = (parsed.hostname or '').lower()
+        if host not in ('joara.com', 'www.joara.com', 'm.joara.com'):
+            return ''
+        match = re.match(r'^/book/(\d+)/?$', parsed.path or '')
+        if match:
+            return match.group(1)
+        query = urllib.parse.parse_qs(parsed.query or '')
+        for key in ('bookCode', 'book_code'):
+            value = (query.get(key) or [''])[0].strip()
+            if re.fullmatch(r'[1-9]\d*', value):
+                return value
+        return ''
+
+    def _joara_session(self):
+        session = self._joara_http
+        if session is not None:
+            return session
+        import requests
+
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': self._KR_UA,
+            'Accept': 'application/json',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.7',
+            'Origin': self._JOARA_ORIGIN,
+            'Referer': self._JOARA_ORIGIN + '/',
+        })
+        self._joara_http = session
+        return session
+
+    def _joara_public_params(self):
+        params = self._joara_params
+        if params:
+            return params
+        params = dict(self._JOARA_DEFAULT_PARAMS)
+        session = self._joara_session()
+        try:
+            home = session.get(self._JOARA_ORIGIN + '/', timeout=20).text
+            bundles = re.findall(
+                r'src="(/static/js/main\.[A-Za-z0-9]+\.chunk\.js)"', home
+            )
+            if bundles:
+                bundle = session.get(
+                    self._JOARA_ORIGIN + bundles[-1], timeout=30
+                ).text
+                match = re.search(
+                    r'["\']https://api\.joara\.com["\']\s*,\s*apiKey\s*:',
+                    bundle,
+                )
+                if match:
+                    config = bundle[match.start():match.start() + 600]
+                    for key, name in (
+                        ('api_key', 'apiKey'), ('ver', 'version'),
+                        ('device', 'device'), ('devicetoken', 'devicetoken'),
+                    ):
+                        value = re.search(
+                            rf'\b{name}\s*:\s*["\']([^"\']+)["\']', config
+                        )
+                        if value:
+                            params[key] = value.group(1)
+        except Exception as exc:
+            self.log(f'[Joara] Using built-in API config ({exc}).')
+        # The chapter key from chapter_valid.joa is bound to this device ID,
+        # so it must stay the same for the whole session.
+        params['deviceuid'] = uuid.uuid4().hex
+        self._joara_params = params
+        return params
+
+    @staticmethod
+    def _joara_token_from_signed_info(raw):
+        try:
+            wrapper = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            return ''
+        if not isinstance(wrapper, dict):
+            return ''
+        data = wrapper.get('data', wrapper)
+        expire = wrapper.get('expire') or 0
+        try:
+            if expire and float(expire) < time.time() * 1000:
+                return ''
+        except (TypeError, ValueError):
+            pass
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                return ''
+        token = data.get('token') if isinstance(data, dict) else ''
+        return str(token).strip() if token else ''
+
+    def _joara_leveldb_signed_info(self):
+        """Best-effort read of ``signedInfo`` from Chrome's localStorage.
+
+        Only uncompressed LevelDB records are visible here; the Playwright
+        storage snapshot is the primary source.
+        """
+        folder = os.path.join(
+            self._get_user_data_dir(), 'Default', 'Local Storage', 'leveldb'
+        )
+        values = []
+        try:
+            names = [
+                name for name in os.listdir(folder)
+                if name.endswith(('.log', '.ldb'))
+            ]
+            names.sort(key=lambda name: os.path.getmtime(
+                os.path.join(folder, name)
+            ))
+        except Exception:
+            return values
+        marker = re.compile(
+            rb'_https://(?:www\.|m\.)?joara\.com\x00\x01signedInfo'
+        )
+        decoder = json.JSONDecoder()
+        for name in names:
+            try:
+                with open(os.path.join(folder, name), 'rb') as handle:
+                    raw = handle.read()
+            except Exception:
+                continue
+            for match in marker.finditer(raw):
+                tail = raw[match.end():match.end() + 16384]
+                for prefix, encoding in (
+                    (b'\x01{', 'latin-1'),
+                    (b'\x00{\x00', 'utf-16-le'),
+                ):
+                    index = tail.find(prefix)
+                    if index < 0 or index > 16:
+                        continue
+                    text = tail[index + 1:].decode(encoding, 'ignore')
+                    try:
+                        value, _end = decoder.raw_decode(text)
+                    except Exception:
+                        continue
+                    values.append(value)
+                    break
+        return values
+
+    def _joara_saved_token(self):
+        """Return the Joara login token saved by Enter Browser, if any."""
+        candidates = []
+        try:
+            with open(
+                self._get_storage_state_path(), 'r', encoding='utf-8'
+            ) as handle:
+                state = json.load(handle)
+            for origin in state.get('origins') or []:
+                host = (urllib.parse.urlparse(
+                    origin.get('origin') or ''
+                ).hostname or '').lower()
+                if host != 'joara.com' and not host.endswith('.joara.com'):
+                    continue
+                for item in origin.get('localStorage') or []:
+                    if item.get('name') == 'signedInfo':
+                        candidates.append(item.get('value') or '')
+        except Exception:
+            pass
+        candidates.extend(reversed(self._joara_leveldb_signed_info()))
+        for raw in candidates:
+            token = self._joara_token_from_signed_info(raw)
+            if token:
+                return token
+        return ''
+
+    def _joara_wait_for_request_slot(self):
+        while True:
+            if self._stop_requested:
+                raise RuntimeError('download stopped')
+            with self._joara_request_lock:
+                now = time.monotonic()
+                if now >= self._joara_next_request_at:
+                    self._joara_next_request_at = (
+                        now + self._JOARA_MIN_REQUEST_INTERVAL
+                    )
+                    return
+                delay = min(0.2, self._joara_next_request_at - now)
+            time.sleep(delay)
+
+    def _joara_api_get(self, path, params=None, use_token=True, paced=False):
+        query = dict(self._joara_public_params())
+        token = self._joara_token if use_token else ''
+        if token:
+            query['token'] = token
+        query.update(params or {})
+        if paced:
+            self._joara_wait_for_request_slot()
+        response = self._joara_session().get(
+            self._JOARA_API + path, params=query, timeout=30
+        )
+        if response.status_code >= 500:
+            raise RuntimeError(f'Joara returned HTTP {response.status_code}')
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f'Joara returned non-JSON (HTTP {response.status_code})'
+            ) from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError('Joara returned an unexpected response')
+        return payload
+
+    def _joara_chapter_key(self, refresh=False):
+        if self._joara_key and not refresh:
+            return self._joara_key
+        payload = self._joara_api_get('/v1/book/chapter_valid.joa')
+        data = payload.get('data')
+        if (
+            payload.get('status') != 1
+            or not isinstance(data, list)
+            or len(data) < 2
+        ):
+            raise RuntimeError('Joara did not return a chapter key')
+        self._joara_key = (str(data[0]), str(data[1]))
+        return self._joara_key
+
+    @staticmethod
+    def _joara_decrypt(content, key_pair):
+        """Decrypt Joara chapter text (CryptoJS AES-CBC, UTF-8 key/IV)."""
+        from cryptography.hazmat.primitives import padding
+        from cryptography.hazmat.primitives.ciphers import (
+            Cipher, algorithms, modes,
+        )
+
+        key, iv = key_pair
+        raw = base64.b64decode(content)
+        decryptor = Cipher(
+            algorithms.AES(key.encode('utf-8')),
+            modes.CBC(iv.encode('utf-8')),
+        ).decryptor()
+        padded = decryptor.update(raw) + decryptor.finalize()
+        unpadder = padding.PKCS7(128).unpadder()
+        plain = unpadder.update(padded) + unpadder.finalize()
+        return plain.decode('utf-8')
+
+    @staticmethod
+    def _joara_is_true(value):
+        return str(value or '').strip().upper() in ('TRUE', 'Y', '1')
+
+    @staticmethod
+    def _joara_is_login_error(payload):
+        message = str((payload or {}).get('message') or '')
+        return (
+            (payload or {}).get('error_code') in (9200,)
+            or '로그인' in message
+        )
+
+    def _joara_parse_book(self, url):
+        self._stop_requested = False
+        self._joara_captcha = False
+        book_code = self._joara_book_code(url)
+        if not book_code:
+            self.log('[Joara] ERROR: Could not find a book code in the URL.')
+            return None
+
+        self._joara_token = self._joara_saved_token()
+        if self._joara_token:
+            self.log(
+                '[Joara] Using the login saved by Enter Browser for '
+                'purchased and adult chapters.'
+            )
+        self.log(f'[Joara] Fetching book {book_code} via the Joara API...')
+        try:
+            payload = self._joara_api_get(
+                '/v1/book/detail.joa',
+                {'book_code': book_code, 'promotion_code': ''},
+            )
+            if (
+                payload.get('status') != 1
+                and self._joara_token
+                and self._joara_is_login_error(payload)
+            ):
+                self.log(
+                    '[Joara] The saved login was rejected; continuing '
+                    'without it (free chapters only).'
+                )
+                self._joara_token = ''
+                payload = self._joara_api_get(
+                    '/v1/book/detail.joa',
+                    {'book_code': book_code, 'promotion_code': ''},
+                )
+        except Exception as exc:
+            self.log(f'ERROR: [Joara] Book request failed: {exc}')
+            return None
+
+        if payload.get('status') != 1:
+            message = payload.get('message') or 'unknown error'
+            self.log(f'ERROR: [Joara] {message}')
+            if self._joara_is_login_error(payload):
+                self.log(
+                    '[Joara] This work needs a logged-in (and possibly '
+                    'age-verified) account. Use Enter Browser, log in to '
+                    'joara.com, close the browser, then fetch again.'
+                )
+            return None
+
+        book = payload.get('book') or {}
+        rows = book.get('chapter') or []
+        if str(book.get('book_code') or '') != book_code or not rows:
+            self.log('ERROR: [Joara] The book has no readable chapter list.')
+            return None
+
+        is_paid_store = (
+            self._joara_is_true(book.get('is_premium'))
+            or self._joara_is_true(book.get('is_nobless'))
+            or self._joara_is_true(book.get('is_finish'))
+        )
+        chapters = []
+        for row in sorted(
+            (row for row in rows if isinstance(row, dict) and row.get('cid')),
+            key=lambda row: int(row.get('sortno') or 0),
+        ):
+            sortno = int(row.get('sortno') or 0)
+            title = html.unescape(str(row.get('sub_subject') or '')).strip()
+            name = title or f'{sortno}화'
+            is_paid = is_paid_store and not self._joara_is_true(
+                row.get('is_free')
+            )
+            accessible = not is_paid or self._joara_is_true(row.get('is_buy'))
+            cid = str(row['cid'])
+            chapters.append({
+                'url': (
+                    f'{self._JOARA_ORIGIN}/viewer?'
+                    + urllib.parse.urlencode({
+                        'cid': cid, 'bookCode': book_code, 'sortno': sortno,
+                    })
+                ),
+                'name': name,
+                'fullName': name,
+                'isVIP': is_paid,
+                'isPaid': is_paid,
+                'isAccessible': accessible,
+                '_cid': cid,
+                '_sortno': sortno,
+            })
+
+        title = html.unescape(str(book.get('subject') or '')).strip()
+        author = html.unescape(str(book.get('writer_name') or '')).strip()
+        intro = html.unescape(str(book.get('intro') or '')).replace(
+            '\r\n', '\n'
+        ).strip()
+        keywords = book.get('keyword') or []
+        if isinstance(keywords, str):
+            keywords = re.split(r'[,#\s]+', keywords)
+        tags = [
+            str(item).lstrip('#').strip()
+            for item in keywords if str(item).strip()
+        ]
+        category = str(
+            book.get('category_ko_name') or book.get('category_name') or ''
+        ).strip()
+        book_url = f'{self._JOARA_ORIGIN}/book/{book_code}'
+        data = {
+            'bookname': title or f'Joara Book {book_code}',
+            'author': author or 'Unknown',
+            'coverUrl': str(book.get('book_img') or ''),
+            'description': intro,
+            'introduction': intro,
+            'introductionHTML': ''.join(
+                f'<p>{html.escape(line)}</p>'
+                for line in intro.split('\n') if line.strip()
+            ),
+            'tags': list(dict.fromkeys(tags)),
+            'category': [category] if category else [],
+            'status': (
+                '완결' if self._joara_is_true(book.get('chk_finish'))
+                else '연재'
+            ),
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'ko',
+            '_joara': True,
+            '_joara_book_code': book_code,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        locked = sum(1 for ch in chapters if not ch['isAccessible'])
+        self.log(
+            f"[Joara] Book: {data['bookname']} by {data['author']} - "
+            f'{len(chapters)} chapters'
+            + (f' ({locked} paid chapter(s) not owned)' if locked else '')
+        )
+        return data
+
+    def _joara_parse_chapter(self, chapter_url, chapter_name, cid=None):
+        if self._joara_captcha:
+            return None
+        if not cid:
+            query = urllib.parse.parse_qs(
+                urllib.parse.urlparse(chapter_url or '').query
+            )
+            cid = (query.get('cid') or [''])[0]
+        if not cid:
+            self.log(f'  [Joara] Missing chapter id: {chapter_name}')
+            return None
+
+        try:
+            key_pair = self._joara_chapter_key()
+            payload = self._joara_api_get(
+                '/v1/book/chapter.joa', {'cid': cid}, paced=True
+            )
+        except Exception as exc:
+            self.log(f'  [Joara] Chapter request failed: {chapter_name}: {exc}')
+            return None
+
+        redis = payload.get('redis_data') or {}
+        if (
+            str(payload.get('is_captcha') or '').upper() == 'Y'
+            or (isinstance(redis, dict) and redis.get('is_captcha'))
+        ):
+            self._joara_captcha = True
+            self.log(
+                '[Joara] Joara is asking for a captcha after too many '
+                'requests. Open joara.com with Enter Browser, complete the '
+                'check, then retry with a longer interval.'
+            )
+            return None
+
+        if payload.get('status') != 1 or not payload.get('chapter'):
+            if self._joara_is_login_error(payload):
+                return {'_locked': True, 'chapterName': chapter_name}
+            message = payload.get('message') or 'unknown error'
+            self.log(f'  [Joara] {chapter_name}: {message}')
+            return None
+
+        chapter = payload['chapter']
+        content = chapter.get('content') or ''
+        try:
+            text = self._joara_decrypt(content, key_pair)
+        except Exception:
+            # The key expires and is bound to the device ID; refresh once.
+            try:
+                text = self._joara_decrypt(
+                    content, self._joara_chapter_key(refresh=True)
+                )
+            except Exception as exc:
+                self.log(
+                    f'  [Joara] Could not decrypt {chapter_name}: {exc}'
+                )
+                return None
+
+        if re.search(r'<\s*/?\s*(?:p|br|img|div|span)\b', text, re.I):
+            blocks = self._reader_html_blocks(text, self._JOARA_ORIGIN + '/')
+        else:
+            blocks = self._reader_plain_blocks(text)
+        note = str(chapter.get('episode') or '').replace('\r\n', '\n').strip()
+        if note:
+            blocks.append(('text', '* * *'))
+            blocks.extend(self._reader_plain_blocks(note))
+        if not blocks:
+            self.log(f'  [Joara] Empty chapter: {chapter_name}')
+            return None
+        return self._reader_chapter_result(
+            blocks, chapter_name, 'joara-content'
+        )
+
+    # ------------------------------------------------------------------
+    # Naver Web Novel / Naver Series native scraper
+    # ------------------------------------------------------------------
+    _NAVER_NOVEL_ORIGIN = 'https://novel.naver.com'
+    _NAVER_SERIES_ORIGIN = 'https://series.naver.com'
+
+    @staticmethod
+    def _naver_novel_parts(url):
+        """Return ``(tier, novel_id, volume_no)`` for Naver Web Novel URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return None
+        host = (parsed.hostname or '').lower()
+        if host not in ('novel.naver.com', 'm.novel.naver.com'):
+            return None
+        match = re.match(
+            r'^/(webnovel|best|challenge)/(list|detail)/?$',
+            parsed.path or '',
+        )
+        if not match:
+            return None
+        query = urllib.parse.parse_qs(parsed.query or '')
+        novel_id = (query.get('novelId') or [''])[0].strip()
+        if not re.fullmatch(r'[1-9]\d*', novel_id):
+            return None
+        volume_no = (query.get('volumeNo') or [''])[0].strip()
+        return match.group(1), novel_id, volume_no
+
+    @staticmethod
+    def is_naver_novel(url):
+        """Return True for Naver Web Novel (novel.naver.com) work URLs."""
+        return ExternalScraper._naver_novel_parts(url) is not None
+
+    @staticmethod
+    def is_naver_series(url):
+        """Return True for Naver Series novel product URLs."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        host = (parsed.hostname or '').lower()
+        if host not in ('series.naver.com', 'm.series.naver.com'):
+            return False
+        if not re.match(
+            r'^/novel/detail\.(?:series|nhn)/?$', parsed.path or ''
+        ):
+            return False
+        query = urllib.parse.parse_qs(parsed.query or '')
+        return any(
+            re.fullmatch(r'[1-9]\d*', (query.get(key) or [''])[0])
+            for key in ('productNo', 'originalProductId')
+        )
+
+    def _naver_new_session(self):
+        import requests
+
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': self._KR_UA,
+            'Accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                '*/*;q=0.8'
+            ),
+            'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.7',
+        })
+        if self._naver_cookies is not None:
+            session.cookies.update(self._naver_cookies)
+        return session
+
+    def _naver_fetch(self, session, url, referer=''):
+        headers = {'Referer': referer} if referer else None
+        last_error = None
+        for attempt in range(3):
+            if self._stop_requested:
+                raise RuntimeError('download stopped')
+            try:
+                response = session.get(url, headers=headers, timeout=30)
+                if response.status_code in (429, 500, 502, 503, 504):
+                    last_error = RuntimeError(
+                        f'HTTP {response.status_code}'
+                    )
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                return response
+            except Exception as exc:
+                last_error = exc
+                time.sleep(1.0 * (attempt + 1))
+        raise RuntimeError(f'Naver request failed: {last_error}')
+
+    @staticmethod
+    def _naver_needs_login(response):
+        host = (urllib.parse.urlparse(response.url or '').hostname or '')
+        return host.lower().startswith('nid.naver.com')
+
+    def _naver_list_rows(self, soup, tier, novel_id):
+        rows = []
+        pattern = re.compile(
+            rf'/{tier}/detail\?novelId={novel_id}&(?:amp;)?volumeNo=(\d+)'
+        )
+        for link in soup.select('li.volumeComment a.list_item[href]'):
+            match = pattern.search(link.get('href') or '')
+            if not match:
+                continue
+            subject = link.select_one('.subj')
+            if subject is not None:
+                for bullet in subject.select('.bullet_wrap'):
+                    bullet.decompose()
+                name = subject.get_text(' ', strip=True)
+            else:
+                name = ''
+            date = link.select_one('.date')
+            rows.append({
+                'volumeNo': int(match.group(1)),
+                'name': re.sub(r'\s+', ' ', name).strip(),
+                'date': date.get_text(strip=True) if date else '',
+            })
+        return rows
+
+    def _naver_parse_book(self, url, series_url=''):
+        from bs4 import BeautifulSoup
+
+        self._stop_requested = False
+        parts = self._naver_novel_parts(url)
+        if not parts:
+            self.log('[Naver] ERROR: Could not parse the Web Novel URL.')
+            return None
+        tier, novel_id, _volume = parts
+        list_url = (
+            f'{self._NAVER_NOVEL_ORIGIN}/{tier}/list?novelId={novel_id}'
+        )
+
+        import requests
+
+        jar = requests.cookies.RequestsCookieJar()
+        if self._load_saved_site_cookies(
+            jar, self._NAVER_NOVEL_ORIGIN + '/', 'naver.com'
+        ):
+            self.log('[Naver] Using cookies saved by Enter Browser.')
+        self._naver_cookies = jar
+        session = self._naver_new_session()
+        self.log(f'[Naver] Fetching {tier} novel {novel_id}...')
+        try:
+            response = self._naver_fetch(session, list_url)
+        except Exception as exc:
+            self.log(f'ERROR: [Naver] Book request failed: {exc}')
+            return None
+        if self._naver_needs_login(response):
+            self.log(
+                'ERROR: [Naver] This work needs a logged-in, age-verified '
+                'Naver account. Use Enter Browser, log in to Naver, close '
+                'the browser, then fetch again.'
+            )
+            return None
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        info = soup.select_one('.section_area_info')
+        if info is None or info.select_one('h2.title') is None:
+            content = soup.select_one('#content')
+            message = content.get_text(' ', strip=True)[:120] if content else ''
+            self.log(
+                'ERROR: [Naver] Work page not found or not public'
+                + (f': {message}' if message else '.')
+            )
+            return None
+
+        title = info.select_one('h2.title').get_text(' ', strip=True)
+        authors = [
+            link.get_text(strip=True)
+            for link in info.select('a[href*="target=author"]')
+            if link.get_text(strip=True)
+        ]
+        genre = info.select_one('.info_top .info_group .item')
+        summary = info.select_one('p.summary')
+        synopsis = ''
+        if summary is not None:
+            for element in summary.select('a, button'):
+                element.decompose()
+            synopsis = re.sub(
+                r'\n{3,}',
+                '\n\n',
+                re.sub(r'\r\n?', '\n', summary.get_text('\n', strip=True)),
+            )
+        cover = self._ntk_meta_content(response.text, ('og:image',))
+        image = info.select_one('.thumbnail img[src]')
+        if image is not None:
+            cover = urllib.parse.urljoin(list_url, image['src'])
+        tags = [
+            link.get_text(strip=True).lstrip('#').strip()
+            for link in soup.select('.end_tag_area .tag_collection a.tag')
+            if link.get_text(strip=True)
+        ]
+        total = 0
+        for heading in soup.select('.cont_sub .component_head h3.title'):
+            match = re.search(
+                r'작품\s*회차\s*\(([\d,]+)\)', heading.get_text(' ', strip=True)
+            )
+            if match:
+                total = int(match.group(1).replace(',', ''))
+                break
+
+        rows = self._naver_list_rows(soup, tier, novel_id)
+        per_page = len(rows)
+        page_count = 1
+        if per_page and total > per_page:
+            page_count = (total + per_page - 1) // per_page
+        if page_count > 1:
+            self.log(
+                f'[Naver] Reading {page_count} episode list pages '
+                f'({total} episodes)...'
+            )
+            from concurrent.futures import ThreadPoolExecutor
+
+            def fetch_page(page):
+                if self._stop_requested:
+                    return []
+                page_session = self._naver_new_session()
+                try:
+                    page_response = self._naver_fetch(
+                        page_session,
+                        f'{list_url}&page={page}',
+                        referer=list_url,
+                    )
+                    return self._naver_list_rows(
+                        BeautifulSoup(page_response.text, 'html.parser'),
+                        tier,
+                        novel_id,
+                    )
+                finally:
+                    page_session.close()
+
+            try:
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    for page_rows in executor.map(
+                        fetch_page, range(2, page_count + 1)
+                    ):
+                        rows.extend(page_rows)
+            except Exception as exc:
+                self.log(f'ERROR: [Naver] Episode list failed: {exc}')
+                return None
+        session.close()
+
+        by_volume = {}
+        for row in rows:
+            by_volume.setdefault(row['volumeNo'], row)
+        if not by_volume:
+            self.log('ERROR: [Naver] No readable episodes were listed.')
+            return None
+        if total and len(by_volume) != total:
+            self.log(
+                f'[Naver] Warning: the page reports {total} episodes but '
+                f'{len(by_volume)} were listed.'
+            )
+
+        chapters = []
+        for volume_no in sorted(by_volume):
+            row = by_volume[volume_no]
+            name = row['name'] or f'{volume_no}화'
+            chapters.append({
+                'url': (
+                    f'{self._NAVER_NOVEL_ORIGIN}/{tier}/detail?'
+                    f'novelId={novel_id}&volumeNo={volume_no}'
+                ),
+                'name': name,
+                'fullName': name,
+                'isVIP': False,
+                'isPaid': False,
+                'isAccessible': True,
+                '_volumeNo': volume_no,
+            })
+
+        completed = info.select_one('.bullet_comp, .bullet_comp_ex')
+        data = {
+            'bookname': title,
+            'author': authors[0] if authors else 'Unknown',
+            'coverUrl': cover or '',
+            'description': synopsis,
+            'introduction': synopsis,
+            'introductionHTML': ''.join(
+                f'<p>{html.escape(line)}</p>'
+                for line in synopsis.split('\n') if line.strip()
+            ),
+            'tags': list(dict.fromkeys(tags)),
+            'category': (
+                [genre.get_text(strip=True)]
+                if genre is not None and genre.get_text(strip=True)
+                else []
+            ),
+            'status': '완결' if completed is not None else '연재',
+            'bookUrl': list_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'ko',
+            '_naver_novel': True,
+            '_naver_tier': tier,
+            '_naver_novel_id': novel_id,
+        }
+        if series_url:
+            data['_naver_series_url'] = series_url
+        self._book_data = data
+        self._book_url = list_url
+        self.log(
+            f"[Naver] Book: {data['bookname']} by {data['author']} - "
+            f'{len(chapters)} episodes'
+        )
+        return data
+
+    def _naver_parse_chapter(self, chapter_url, chapter_name):
+        from bs4 import BeautifulSoup
+
+        book_url = (self._book_data or {}).get('bookUrl') or ''
+        session = self._naver_new_session()
+        try:
+            response = self._naver_fetch(
+                session, chapter_url, referer=book_url
+            )
+        except Exception as exc:
+            self.log(f'  [Naver] Chapter request failed: {chapter_name}: {exc}')
+            return None
+        finally:
+            session.close()
+        if self._naver_needs_login(response):
+            return {'_locked': True, 'chapterName': chapter_name}
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        content = soup.select_one('.detail_view_content')
+        if content is None:
+            self.log(f'  [Naver] Episode is not readable: {chapter_name}')
+            return None
+        blocks = self._reader_html_blocks(str(content), chapter_url)
+        if not blocks:
+            self.log(f'  [Naver] Empty episode: {chapter_name}')
+            return None
+        return self._reader_chapter_result(
+            blocks, chapter_name, 'naver-novel-content'
+        )
+
+    def _naver_series_parse_book(self, url):
+        """Resolve a Naver Series product to its Naver Web Novel edition.
+
+        Series novels are read in Naver's DRM app (``series-pc://``); there
+        is no web reader to download from. Many Series works are also
+        serialized on novel.naver.com, which the product page links to.
+        """
+        self._stop_requested = False
+        session = self._naver_new_session()
+        self._load_saved_site_cookies(
+            session.cookies, self._NAVER_SERIES_ORIGIN + '/', 'naver.com'
+        )
+        self.log('[Naver Series] Fetching the Series product page...')
+        try:
+            response = self._naver_fetch(session, url)
+        except Exception as exc:
+            self.log(f'ERROR: [Naver Series] Product request failed: {exc}')
+            return None
+        finally:
+            session.close()
+        if self._naver_needs_login(response):
+            self.log(
+                'ERROR: [Naver Series] This product needs a logged-in, '
+                'age-verified Naver account. Use Enter Browser, log in to '
+                'Naver, close the browser, then fetch again.'
+            )
+            return None
+
+        page = response.text
+        series_total = re.search(r'totalCount=(\d+)', page)
+        web_url = ''
+        for href in re.findall(
+            r'href="((?:https?:)?//novel\.naver\.com/'
+            r'(?:webnovel|best|challenge)/list\?novelId=\d+)"',
+            page,
+        ):
+            web_url = 'https:' + href if href.startswith('//') else href
+            web_url = re.sub(r'^http://', 'https://', web_url)
+            break
+        if not web_url:
+            self.log(
+                'ERROR: [Naver Series] Series novels can only be read in '
+                "Naver's DRM-protected Series app, and this product has no "
+                'Naver Web Novel edition to download from.'
+            )
+            return None
+
+        self.log(
+            '[Naver Series] Series episodes are app-only (DRM). Downloading '
+            f'the free Naver Web Novel edition instead: {web_url}'
+        )
+        data = self._naver_parse_book(web_url, series_url=response.url or url)
+        if data and series_total:
+            self.log(
+                f'[Naver Series] The Series edition lists '
+                f'{series_total.group(1)} episode(s); '
+                f"{data['chapterCount']} are readable on Naver Web Novel."
+            )
+        return data
+
+    # ------------------------------------------------------------------
     # 69shuba.tw native scraper
     # ------------------------------------------------------------------
     @staticmethod
@@ -14920,6 +15969,20 @@ async ({ url }) => {
         if self.is_munpia(url):
             self.log("[Munpia] Detected Munpia URL, using native scraper.")
             return self._munpia_parse_book(url)
+        if self.is_joara(url):
+            self.log("[Joara] Detected Joara URL, using native API scraper.")
+            return self._joara_parse_book(url)
+        if self.is_naver_series(url):
+            self.log(
+                "[Naver Series] Detected Naver Series URL, using native "
+                "scraper."
+            )
+            return self._naver_series_parse_book(url)
+        if self.is_naver_novel(url):
+            self.log(
+                "[Naver] Detected Naver Web Novel URL, using native scraper."
+            )
+            return self._naver_parse_book(url)
 
         if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
             self.log(
@@ -15113,6 +16176,20 @@ async ({ url }) => {
             if chapter_info.get('isAccessible') is False:
                 return {'_locked': True, 'chapterName': name}
             result = self._munpia_parse_chapter(url, name, page=page)
+            self._sleep_interval(interval, interval_max)
+            return result
+        if self._book_data and self._book_data.get('_joara'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            result = self._joara_parse_chapter(
+                url, name, cid=chapter_info.get('_cid')
+            )
+            self._sleep_interval(interval, interval_max)
+            return result
+        if self._book_data and self._book_data.get('_naver_novel'):
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            result = self._naver_parse_chapter(url, name)
             self._sleep_interval(interval, interval_max)
             return result
         if self._book_data and self._book_data.get('_qidian'):
@@ -15328,6 +16405,53 @@ async ({ url }) => {
                 interval_max=interval_max,
                 success_callback=success_callback,
             )
+        # Joara counts requests per IP and answers bursts with a captcha,
+        # so chapters are fetched one at a time.
+        if self._book_data and self._book_data.get('_joara'):
+            results = []
+            for index, chapter in enumerate(batch_info):
+                if self._stop_requested or self._joara_captcha:
+                    results.append(None)
+                    continue
+                result = self._joara_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName', '') or chapter.get('name', ''),
+                    cid=chapter.get('_cid'),
+                )
+                results.append(result)
+                report_success(index, result)
+                if index < len(batch_info) - 1:
+                    self._sleep_interval(interval, interval_max)
+            return results
+        # Naver Web Novel episodes are static pages; the dialog sizes the
+        # batch from the user's thread setting.
+        if self._book_data and self._book_data.get('_naver_novel'):
+            from concurrent.futures import ThreadPoolExecutor
+
+            launch_delays = [0.0]
+            for _index in range(1, len(batch_info)):
+                launch_delays.append(
+                    launch_delays[-1]
+                    + self._random_interval_delay(interval, interval_max)
+                )
+
+            def fetch_naver(item):
+                offset, chapter = item
+                if launch_delays[offset] > 0:
+                    time.sleep(launch_delays[offset])
+                if self._stop_requested:
+                    return None
+                result = self._naver_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName', '') or chapter.get('name', ''),
+                )
+                report_success(offset, result)
+                return result
+
+            with ThreadPoolExecutor(
+                max_workers=max(1, len(batch_info))
+            ) as executor:
+                return list(executor.map(fetch_naver, enumerate(batch_info)))
         # Qidian: render one chapter per browser page, up to the UI thread
         # count that the dialog used to size this batch.
         if self._book_data and self._book_data.get('_qidian'):

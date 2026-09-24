@@ -70,6 +70,9 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 | Kakao Page | page.kakao.com |
 | Global Novelpia | global.novelpia.com |
 | Ridi webnovels | ridibooks.com |
+| Joara | joara.com |
+| Naver Web Novel | novel.naver.com |
+| Naver Series (via its Web Novel edition) | series.naver.com |
 | SFACG | book.sfacg.com |
 | Hameln | syosetu.org |
 | …and 90+ more | See [novel-downloader](https://github.com/404-novel-project/novel-downloader) |
@@ -83,6 +86,8 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 4. Click **Download**.
 
 The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
+
+Joara, Naver Web Novel, and Naver Series use direct HTTP scrapers instead of the browser. Joara downloads free chapters without an account. After logging in to joara.com through **Enter Browser**, it can also download purchased and adult chapters. Naver Web Novel episodes are free; adult works need a logged-in Naver account. Naver Series novels can only be read in Naver's DRM-protected app, so a Series URL is resolved to the work's Naver Web Novel edition when the product page links one. Episodes that exist only on Series are not downloadable.
 
 The External Downloader chooses a fresh random chapter delay between **Min**
 and **Max**. Setting both to the same value produces a fixed delay. Existing

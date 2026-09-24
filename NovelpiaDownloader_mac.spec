@@ -130,6 +130,8 @@ a = Analysis(
         'requests.utils',
         'bs4',
         'bs4.element',
+        'cryptography.hazmat.primitives.ciphers',  # Joara chapter AES
+        'cryptography.hazmat.primitives.padding',
         'curl_cffi',
         'curl_cffi.requests',
     ],
