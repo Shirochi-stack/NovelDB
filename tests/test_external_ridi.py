@@ -466,6 +466,21 @@ def test_ridi_result_preserves_clean_html_and_registers_images():
     assert result['chapterUrl'].endswith('/1001/view')
 
 
+def test_ridi_series_title_is_not_used_as_every_chapter_name():
+    scraper, _messages = make_scraper()
+    scraper._book_data = {'bookname': '오리진 1st'}
+    payload = {'title': '오리진 1st', 'content': '<p>1화</p>'}
+
+    result = scraper._ridi_build_chapter_result(
+        payload,
+        '오리진 1st 2화',
+        'https://ridibooks.com/books/102001743/view',
+    )
+
+    assert result['chapterName'] == '오리진 1st 2화'
+    assert result['sourceChapterName'] == '오리진 1st 2화'
+
+
 def test_ridi_redirected_unpurchased_chapter_is_locked_without_retry():
     class Page:
         url = 'https://ridibooks.com/books/1001'

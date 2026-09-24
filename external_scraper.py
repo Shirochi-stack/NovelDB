@@ -238,10 +238,17 @@ class ExternalScraper:
         self._joara_params = None
         self._joara_token = ''
         self._joara_key = None
-        self._joara_captcha = False
+        self._joara_key_born = 0.0
+        self._joara_run = 0
+        self._joara_last_request_at = 0.0
         self._joara_request_lock = threading.Lock()
         self._joara_next_request_at = 0.0
         self._naver_cookies = None
+        self._naver_end_images = set()
+        # Set by a native scraper when retrying is pointless (for example a
+        # site-wide human check that was not completed). The dialog stops
+        # the download instead of retrying every remaining chapter.
+        self.abort_reason = ''
 
     def _install_bridge_bindings(self, page):
         """Expose Python-backed helpers used by the JS bridge stubs."""
@@ -3658,6 +3665,11 @@ class ExternalScraper:
         ):
             return
         if 'TypeError: Failed to fetch' in text:
+            return
+        # The site's own trackers (Google Analytics, DoubleClick, TikTok,
+        # Facebook frames, ...) being blocked by the site's own CSP. Ridi
+        # prints several of these per page; none affect scraping.
+        if 'content security policy' in lowered:
             return
         if 'whoas.xyz/collect' in text:
             return
@@ -10689,9 +10701,15 @@ async ({ url }) => {
               // Work on a clone: the contributed extension cleaned the live
               // node because its worker tab was disposable; our tab is reused.
               const content = source.cloneNode(true);
+              // The viewer's top-bar headings show the series title only.
+              // The document title names the episode ("오리진 1st 1화 - 리디")
+              // and is server-rendered, so it is ready before the content.
+              const pageTitle = (document.title || '').replace(
+                /\s*[-|]\s*리디(?:북스)?\s*$/, ''
+              ).trim();
               let title = (
-                document.querySelector('h2.wv-1xn0gxv')?.textContent || ''
-              ).trim() || fallbackTitle;
+                pageTitle && pageTitle.length < 200 ? pageTitle : ''
+              ) || fallbackTitle;
               const imageUrls = [];
               for (const image of content.querySelectorAll('img[src]')) {
                 const original = image.getAttribute('src');
@@ -10852,6 +10870,16 @@ async ({ url }) => {
                 ),
             })
         display_name = payload.get('title') or chapter_name
+        book_title = (self._book_data or {}).get('bookname') or ''
+        if (
+            chapter_name
+            and book_title
+            and self._normalize_title_for_match(display_name)
+            == self._normalize_title_for_match(book_title)
+        ):
+            # A series title is never a usable episode title; keep the
+            # catalog's episode name instead of repeating it every chapter.
+            display_name = chapter_name
         return {
             'chapterName': display_name,
             'sourceChapterName': chapter_name,
@@ -14457,7 +14485,19 @@ async ({ url }) => {
         'device': 'mw',
         'devicetoken': 'mw',
     }
-    _JOARA_MIN_REQUEST_INTERVAL = 1.0
+    # Only chapter.joa requests count toward Joara's J-Defender. Its run
+    # counter (redis_data.call_20_30_cnt) grows while requests are at most
+    # ~30 s apart and resets after a longer gap; about 28 quick requests in
+    # a row trigger a reCAPTCHA. Measured live on 2026-09-24.
+    _JOARA_MIN_REQUEST_INTERVAL = 5.0
+    _JOARA_RUN_LIMIT = 15
+    _JOARA_COOLDOWN = 35.0
+    # A chapter_valid key expires ~30 s after the call that created it, and a
+    # chapter served after that is encrypted with a throwaway key that can
+    # never be decrypted. Keys older than this are replaced before use.
+    _JOARA_KEY_MAX_AGE = 20.0
+    _JOARA_KEY_TTL = 31.5
+    _JOARA_DECRYPT_RETRIES = 2
 
     @staticmethod
     def is_joara(url):
@@ -14635,6 +14675,16 @@ async ({ url }) => {
                 return token
         return ''
 
+    def _joara_sleep(self, seconds):
+        deadline = time.monotonic() + max(0.0, seconds)
+        while True:
+            if self._stop_requested:
+                raise RuntimeError('download stopped')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(0.2, remaining))
+
     def _joara_wait_for_request_slot(self):
         while True:
             if self._stop_requested:
@@ -14649,14 +14699,43 @@ async ({ url }) => {
                 delay = min(0.2, self._joara_next_request_at - now)
             time.sleep(delay)
 
-    def _joara_api_get(self, path, params=None, use_token=True, paced=False):
+    def _joara_note_chapter_request(self, chapter):
+        """Track Joara's run counter and schedule a cool-down when needed."""
+        redis = (chapter or {}).get('redis_data')
+        run = None
+        if isinstance(redis, dict):
+            try:
+                run = int(redis.get('call_20_30_cnt'))
+            except (TypeError, ValueError):
+                run = None
+        now = time.monotonic()
+        if run is None:
+            # Mirror the server rule when the counter is missing.
+            if now - self._joara_last_request_at > 30.0:
+                self._joara_run = 1
+            else:
+                self._joara_run += 1
+        else:
+            self._joara_run = run
+        self._joara_last_request_at = now
+        if self._joara_run >= self._JOARA_RUN_LIMIT:
+            with self._joara_request_lock:
+                self._joara_next_request_at = max(
+                    self._joara_next_request_at, now + self._JOARA_COOLDOWN
+                )
+            self._joara_run = 0
+            self.log(
+                f'  [Joara] Pausing {self._JOARA_COOLDOWN:.0f}s after '
+                f'{self._JOARA_RUN_LIMIT} chapters in a row to stay under '
+                "Joara's reading-speed check."
+            )
+
+    def _joara_api_get(self, path, params=None, use_token=True):
         query = dict(self._joara_public_params())
         token = self._joara_token if use_token else ''
         if token:
             query['token'] = token
         query.update(params or {})
-        if paced:
-            self._joara_wait_for_request_slot()
         response = self._joara_session().get(
             self._JOARA_API + path, params=query, timeout=30
         )
@@ -14672,9 +14751,7 @@ async ({ url }) => {
             raise RuntimeError('Joara returned an unexpected response')
         return payload
 
-    def _joara_chapter_key(self, refresh=False):
-        if self._joara_key and not refresh:
-            return self._joara_key
+    def _joara_fetch_key(self):
         payload = self._joara_api_get('/v1/book/chapter_valid.joa')
         data = payload.get('data')
         if (
@@ -14683,8 +14760,56 @@ async ({ url }) => {
             or len(data) < 2
         ):
             raise RuntimeError('Joara did not return a chapter key')
-        self._joara_key = (str(data[0]), str(data[1]))
-        return self._joara_key
+        return (str(data[0]), str(data[1]))
+
+    def _joara_chapter_key(self, force=False):
+        """Return a key that stays live for the next chapter request.
+
+        chapter_valid returns the live key unchanged until it expires and
+        does not report its age, so the age is tracked from the call that
+        first returned it. A stale key is waited out, not reused.
+        """
+        now = time.monotonic()
+        if (
+            not force
+            and self._joara_key
+            and now - self._joara_key_born <= self._JOARA_KEY_MAX_AGE
+        ):
+            return self._joara_key
+        sent = time.monotonic()
+        key = self._joara_fetch_key()
+        if key == self._joara_key:
+            self._joara_sleep(
+                self._joara_key_born + self._JOARA_KEY_TTL - time.monotonic()
+            )
+            sent = time.monotonic()
+            key = self._joara_fetch_key()
+        self._joara_key = key
+        self._joara_key_born = sent
+        return key
+
+    def _joara_request_human_check(self):
+        """Let the user clear Joara's reCAPTCHA in a visible browser.
+
+        The check is completed by the user; the scraper only opens the page
+        and waits for the window to close.
+        """
+        try:
+            self.open_visible_browser(self._JOARA_ORIGIN + '/defender')
+        except Exception as exc:
+            self.log(f'[Joara] Could not open the browser: {exc}')
+            return False
+        if self._stop_requested:
+            return False
+        token = self._joara_saved_token()
+        if token:
+            self._joara_token = token
+        self._joara_run = 0
+        with self._joara_request_lock:
+            self._joara_next_request_at = (
+                time.monotonic() + self._JOARA_MIN_REQUEST_INTERVAL
+            )
+        return True
 
     @staticmethod
     def _joara_decrypt(content, key_pair):
@@ -14717,9 +14842,24 @@ async ({ url }) => {
             or '로그인' in message
         )
 
+    @staticmethod
+    def _joara_chapter_name(sortno, title):
+        """Name an episode the way Joara lists it: "N화".
+
+        ``sub_subject`` is either the episode's own title or a section
+        heading shared by a run of episodes ("prologue", "만남", ...), so it
+        is kept as a suffix rather than used as the whole name.
+        """
+        label = f'{sortno}화' if sortno > 0 else ''
+        if not title:
+            return label or 'Chapter'
+        if not label or re.search(r'\d+\s*(?:화|회|장|편)', title):
+            # Already numbered, e.g. "1866, 해병대가 세계 열강을 떨게 했다 183화".
+            return title
+        return f'{label} - {title}'
+
     def _joara_parse_book(self, url):
         self._stop_requested = False
-        self._joara_captcha = False
         book_code = self._joara_book_code(url)
         if not book_code:
             self.log('[Joara] ERROR: Could not find a book code in the URL.')
@@ -14784,7 +14924,7 @@ async ({ url }) => {
         ):
             sortno = int(row.get('sortno') or 0)
             title = html.unescape(str(row.get('sub_subject') or '')).strip()
-            name = title or f'{sortno}화'
+            name = self._joara_chapter_name(sortno, title)
             is_paid = is_paid_store and not self._joara_is_true(
                 row.get('is_free')
             )
@@ -14853,10 +14993,16 @@ async ({ url }) => {
             f'{len(chapters)} chapters'
             + (f' ({locked} paid chapter(s) not owned)' if locked else '')
         )
+        self.log(
+            f'[Joara] Chapters are fetched at most one every '
+            f'{self._JOARA_MIN_REQUEST_INTERVAL:.0f}s, with a '
+            f'{self._JOARA_COOLDOWN:.0f}s pause every '
+            f"{self._JOARA_RUN_LIMIT}, to avoid Joara's reCAPTCHA check."
+        )
         return data
 
     def _joara_parse_chapter(self, chapter_url, chapter_name, cid=None):
-        if self._joara_captcha:
+        if self.abort_reason:
             return None
         if not cid:
             query = urllib.parse.parse_qs(
@@ -14867,50 +15013,82 @@ async ({ url }) => {
             self.log(f'  [Joara] Missing chapter id: {chapter_name}')
             return None
 
-        try:
-            key_pair = self._joara_chapter_key()
-            payload = self._joara_api_get(
-                '/v1/book/chapter.joa', {'cid': cid}, paced=True
-            )
-        except Exception as exc:
-            self.log(f'  [Joara] Chapter request failed: {chapter_name}: {exc}')
-            return None
-
-        redis = payload.get('redis_data') or {}
-        if (
-            str(payload.get('is_captcha') or '').upper() == 'Y'
-            or (isinstance(redis, dict) and redis.get('is_captcha'))
-        ):
-            self._joara_captcha = True
-            self.log(
-                '[Joara] Joara is asking for a captcha after too many '
-                'requests. Open joara.com with Enter Browser, complete the '
-                'check, then retry with a longer interval.'
-            )
-            return None
-
-        if payload.get('status') != 1 or not payload.get('chapter'):
-            if self._joara_is_login_error(payload):
-                return {'_locked': True, 'chapterName': chapter_name}
-            message = payload.get('message') or 'unknown error'
-            self.log(f'  [Joara] {chapter_name}: {message}')
-            return None
-
-        chapter = payload['chapter']
-        content = chapter.get('content') or ''
-        try:
-            text = self._joara_decrypt(content, key_pair)
-        except Exception:
-            # The key expires and is bound to the device ID; refresh once.
+        text = None
+        chapter = {}
+        decrypt_failures = 0
+        human_checked = False
+        while text is None:
             try:
-                text = self._joara_decrypt(
-                    content, self._joara_chapter_key(refresh=True)
+                self._joara_wait_for_request_slot()
+                # Check the key age after the pacing wait, right before the
+                # chapter request that it has to decrypt.
+                key_pair = self._joara_chapter_key(force=decrypt_failures > 0)
+                payload = self._joara_api_get(
+                    '/v1/book/chapter.joa', {'cid': cid}
                 )
             except Exception as exc:
-                self.log(
-                    f'  [Joara] Could not decrypt {chapter_name}: {exc}'
-                )
+                if not self._stop_requested:
+                    self.log(
+                        f'  [Joara] Chapter request failed: {chapter_name}: '
+                        f'{exc}'
+                    )
                 return None
+
+            chapter = payload.get('chapter')
+            chapter = chapter if isinstance(chapter, dict) else {}
+            self._joara_note_chapter_request(chapter)
+            redis = chapter.get('redis_data')
+            if (
+                str(payload.get('is_captcha') or '').upper() == 'Y'
+                or (isinstance(redis, dict) and redis.get('is_captcha'))
+            ):
+                if human_checked:
+                    self.abort_reason = (
+                        "[Joara] Joara's reCAPTCHA check is still active. "
+                        'Open joara.com/defender with Enter Browser, complete '
+                        'it, then download the remaining chapters again.'
+                    )
+                    return None
+                self.log(
+                    "[Joara] Joara's J-Defender is asking for a reCAPTCHA "
+                    'check. A browser window is opening on joara.com/defender: '
+                    'tick the checkbox, then close the window to continue.'
+                )
+                human_checked = True
+                if not self._joara_request_human_check():
+                    self.abort_reason = (
+                        "[Joara] Download stopped: Joara's reCAPTCHA check was "
+                        'not completed.'
+                    )
+                    return None
+                continue
+
+            if payload.get('status') != 1 or not chapter:
+                if self._joara_is_login_error(payload):
+                    return {'_locked': True, 'chapterName': chapter_name}
+                message = payload.get('message') or 'unknown error'
+                self.log(f'  [Joara] {chapter_name}: {message}')
+                return None
+
+            try:
+                text = self._joara_decrypt(
+                    chapter.get('content') or '', key_pair
+                )
+            except Exception as exc:
+                # The content was encrypted with a key that expired before
+                # the server handled the request. Re-decrypting it can never
+                # work; fetch a new key and request the chapter again, as
+                # Joara's own viewer does.
+                decrypt_failures += 1
+                if decrypt_failures > self._JOARA_DECRYPT_RETRIES:
+                    self.log(
+                        f'  [Joara] Could not decrypt {chapter_name}: {exc}'
+                    )
+                    return None
+                try:
+                    self._joara_sleep(1.5)
+                except RuntimeError:
+                    return None
 
         if re.search(r'<\s*/?\s*(?:p|br|img|div|span)\b', text, re.I):
             blocks = self._reader_html_blocks(text, self._JOARA_ORIGIN + '/')
@@ -15199,6 +15377,9 @@ async ({ url }) => {
                 '_volumeNo': volume_no,
             })
 
+        self._naver_end_images = self._naver_detect_end_images(
+            chapters, list_url
+        )
         completed = info.select_one('.bullet_comp, .bullet_comp_ex')
         data = {
             'bookname': title,
@@ -15224,6 +15405,7 @@ async ({ url }) => {
             '_naver_novel': True,
             '_naver_tier': tier,
             '_naver_novel_id': novel_id,
+            '_naver_end_images': sorted(self._naver_end_images),
         }
         if series_url:
             data['_naver_series_url'] = series_url
@@ -15235,29 +15417,99 @@ async ({ url }) => {
         )
         return data
 
-    def _naver_parse_chapter(self, chapter_url, chapter_name):
+    def _naver_episode_blocks(self, chapter_url, referer=''):
+        """Fetch one episode; return ``(blocks, needs_login)``."""
         from bs4 import BeautifulSoup
 
-        book_url = (self._book_data or {}).get('bookUrl') or ''
         session = self._naver_new_session()
         try:
-            response = self._naver_fetch(
-                session, chapter_url, referer=book_url
+            response = self._naver_fetch(session, chapter_url, referer=referer)
+        finally:
+            session.close()
+        if self._naver_needs_login(response):
+            return None, True
+        soup = BeautifulSoup(response.text, 'html.parser')
+        content = soup.select_one('.detail_view_content')
+        if content is None:
+            return None, False
+        return self._reader_html_blocks(str(content), chapter_url), False
+
+    @staticmethod
+    def _naver_image_key(url):
+        # The same upload is served with different ``?type=`` resize hints.
+        parsed = urllib.parse.urlparse(url or '')
+        return f'{(parsed.hostname or "").lower()}{parsed.path}'
+
+    @classmethod
+    def _naver_trailing_image_keys(cls, blocks):
+        keys = []
+        for kind, value in reversed(blocks or []):
+            if kind != 'img':
+                break
+            keys.append(cls._naver_image_key(value))
+        return keys
+
+    def _naver_detect_end_images(self, chapters, referer):
+        """Find publisher end-cards to drop from every episode.
+
+        Series Edition works close each episode with the publisher's logo
+        banner (e.g. Barobook, EPYRUS, 대원씨아이): the same uploaded image
+        after the last line of text. Only an image that ends at least two
+        sampled episodes is treated as an end-card, so one-off
+        illustrations are always kept.
+        """
+        if len(chapters) < 2:
+            return set()
+        picks = sorted({0, len(chapters) // 2, len(chapters) - 1})
+        counts = {}
+        for index in picks:
+            if self._stop_requested:
+                return set()
+            try:
+                blocks, _needs_login = self._naver_episode_blocks(
+                    chapters[index]['url'], referer
+                )
+            except Exception:
+                continue
+            for key in set(self._naver_trailing_image_keys(blocks)):
+                counts[key] = counts.get(key, 0) + 1
+        found = {key for key, seen in counts.items() if seen >= 2}
+        if found:
+            names = ', '.join(
+                urllib.parse.unquote(key.rsplit('/', 1)[-1])
+                for key in sorted(found)
+            )
+            self.log(
+                f'[Naver] Removing {len(found)} end-of-episode publisher '
+                f'image(s) repeated across episodes: {names}'
+            )
+        return found
+
+    def _naver_strip_end_images(self, blocks):
+        blocks = list(blocks or [])
+        while (
+            blocks
+            and blocks[-1][0] == 'img'
+            and self._naver_image_key(blocks[-1][1]) in self._naver_end_images
+        ):
+            blocks.pop()
+        return blocks
+
+    def _naver_parse_chapter(self, chapter_url, chapter_name):
+        book_url = (self._book_data or {}).get('bookUrl') or ''
+        try:
+            blocks, needs_login = self._naver_episode_blocks(
+                chapter_url, referer=book_url
             )
         except Exception as exc:
             self.log(f'  [Naver] Chapter request failed: {chapter_name}: {exc}')
             return None
-        finally:
-            session.close()
-        if self._naver_needs_login(response):
+        if needs_login:
             return {'_locked': True, 'chapterName': chapter_name}
-
-        soup = BeautifulSoup(response.text, 'html.parser')
-        content = soup.select_one('.detail_view_content')
-        if content is None:
+        if blocks is None:
             self.log(f'  [Naver] Episode is not readable: {chapter_name}')
             return None
-        blocks = self._reader_html_blocks(str(content), chapter_url)
+        blocks = self._naver_strip_end_images(blocks)
         if not blocks:
             self.log(f'  [Naver] Empty episode: {chapter_name}')
             return None
@@ -15926,6 +16178,7 @@ async ({ url }) => {
 
         Returns the parsed book dict or None on error.
         """
+        self.abort_reason = ''
         if self.is_1qxs(url):
             self.log(
                 '[1qxs] Detected 1qxs URL, using the direct HTTP scraper.'
@@ -16410,7 +16663,7 @@ async ({ url }) => {
         if self._book_data and self._book_data.get('_joara'):
             results = []
             for index, chapter in enumerate(batch_info):
-                if self._stop_requested or self._joara_captcha:
+                if self._stop_requested or self.abort_reason:
                     results.append(None)
                     continue
                 result = self._joara_parse_chapter(

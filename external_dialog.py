@@ -995,10 +995,13 @@ class ExternalNovelDialog(tk.Toplevel):
 
                 for j, data in enumerate(batch_results):
                     idx = batch_indices[j]
-                    if data is None and self._downloading and not is_novelpia:
+                    abort_reason = getattr(self._scraper, 'abort_reason', '')
+                    if (data is None and self._downloading and not is_novelpia
+                            and not abort_reason):
                         chapter = selected[idx]
                         for retry_attempt in range(1, retry_passes + 1):
-                            if not self._downloading:
+                            if (not self._downloading or getattr(
+                                    self._scraper, 'abort_reason', '')):
                                 break
                             self._log(
                                 f"  [{idx + 1}/{total}] Failed to fetch, "
@@ -1026,7 +1029,9 @@ class ExternalNovelDialog(tk.Toplevel):
                                         "Retry succeeded."
                                     )
                                 break
-                        if data is None and self._downloading:
+                        if (data is None and self._downloading
+                                and not getattr(
+                                    self._scraper, 'abort_reason', '')):
                             self._log(
                                 f"  [{idx + 1}/{total}] Failed after "
                                 f"{retry_passes} retries."
@@ -1073,6 +1078,14 @@ class ExternalNovelDialog(tk.Toplevel):
 
                 completed += (batch_end - batch_start)
                 self._msg_queue.put(("progress", (completed, total)))
+
+                # The scraper asked to stop because retrying cannot help.
+                abort_reason = getattr(self._scraper, 'abort_reason', '')
+                if abort_reason and self._downloading:
+                    self._downloading = False
+                    self._download_cancelled = True
+                    self._log(f"❌ {abort_reason}")
+                    break
 
                 if not self._downloading:
                     self._download_cancelled = True
