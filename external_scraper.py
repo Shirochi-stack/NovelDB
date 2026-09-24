@@ -14831,6 +14831,7 @@ async ({ url }) => {
             ctx = pw.chromium.launch_persistent_context(
                 self._get_user_data_dir(),
                 headless=True,
+                channel='chrome',
                 args=['--no-sandbox'],
                 ignore_https_errors=True,
             )
