@@ -14833,7 +14833,11 @@ async ({ url }) => {
                 self._get_user_data_dir(),
                 headless=False,
                 channel='chrome',
-                args=['--no-sandbox'],
+                args=[
+                    '--no-sandbox',
+                    '--start-minimized',
+                    '--window-position=-32000,-32000',
+                ],
                 ignore_https_errors=True,
             )
             try:
