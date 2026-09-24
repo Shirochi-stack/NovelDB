@@ -14831,7 +14831,7 @@ async ({ url }) => {
             pw = sync_playwright().start()
             ctx = pw.chromium.launch_persistent_context(
                 self._get_user_data_dir(),
-                headless=True,
+                headless=False,
                 channel='chrome',
                 args=['--no-sandbox'],
                 ignore_https_errors=True,
@@ -14840,24 +14840,37 @@ async ({ url }) => {
                 page = ctx.new_page()
                 page.goto(
                     self._JOARA_ORIGIN + '/defender',
-                    wait_until='domcontentloaded',
-                    timeout=15000,
+                    wait_until='networkidle',
+                    timeout=20000,
                 )
-                # Click any visible captcha / confirm / verify button.
+                # The captcha button may be on the page directly or inside
+                # a reCAPTCHA iframe.  Try the main frame first.
+                clicked = False
                 for selector in (
                     'button:visible',
                     'input[type="submit"]:visible',
                     'input[type="button"]:visible',
                     'a.btn:visible',
-                    '#recaptcha-anchor',
                 ):
                     btn = page.query_selector(selector)
                     if btn:
                         btn.click()
+                        clicked = True
                         break
-                page.wait_for_timeout(2000)
-                solved = True
-                self.log('[Joara] Captcha solved.')
+                if not clicked:
+                    # Look inside iframes (reCAPTCHA).
+                    for frame in page.frames:
+                        anchor = frame.query_selector('#recaptcha-anchor')
+                        if anchor:
+                            anchor.click()
+                            clicked = True
+                            break
+                if clicked:
+                    page.wait_for_timeout(3000)
+                    solved = True
+                    self.log('[Joara] Captcha clicked.')
+                else:
+                    self.log('[Joara] No captcha button found on /defender.')
             finally:
                 ctx.close()
         except Exception as exc:
@@ -15128,24 +15141,33 @@ async ({ url }) => {
                     and self._joara_is_true(redis.get('is_captcha'))
                 )
             ):
-                if human_checked:
+                if not human_checked:
+                    self.log(
+                        "[Joara] Joara's J-Defender triggered a captcha "
+                        'check. Attempting to solve it automatically...'
+                    )
+                    human_checked = 0
+                human_checked += 1
+                if human_checked > 3:
                     self.abort_reason = (
                         "[Joara] Joara's reCAPTCHA check is still active. "
                         'Open joara.com/defender with Enter Browser, complete '
                         'it, then download the remaining chapters again.'
                     )
                     return None
-                self.log(
-                    "[Joara] Joara's J-Defender triggered a captcha check. "
-                    'Attempting to solve it automatically...'
-                )
-                human_checked = True
-                if not self._joara_request_human_check():
-                    self.abort_reason = (
-                        "[Joara] Download stopped: Joara's reCAPTCHA check was "
-                        'not completed.'
+                if human_checked == 1:
+                    if not self._joara_request_human_check():
+                        self.abort_reason = (
+                            "[Joara] Download stopped: Joara's reCAPTCHA "
+                            'check was not completed.'
+                        )
+                        return None
+                else:
+                    self.log(
+                        f'[Joara] Captcha still active, retrying '
+                        f'({human_checked}/3)...'
                     )
-                    return None
+                    time.sleep(3)
                 continue
 
             if payload.get('status') != 1 or not chapter:
