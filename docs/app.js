@@ -7559,7 +7559,7 @@
                 } else if (!coverage.has_complete_baseline && coverage.mode === "rankings") {
                     notice = "Rankings collected; catalog pending";
                 } else if (coverage.complete === false) notice = "Catalog collection in progress";
-                if (coverage.publication?.awaiting_synopsis) {
+                if (coverage.publication?.awaiting_synopsis && !coverage.enrichment?.complete) {
                     notice = `${Number(coverage.publication.awaiting_synopsis).toLocaleString()} novels awaiting synopsis`;
                 }
                 if (notice) warn(`${cfg.label}: ${notice}`);
