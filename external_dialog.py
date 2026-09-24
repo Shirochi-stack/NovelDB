@@ -1080,10 +1080,11 @@ class ExternalNovelDialog(tk.Toplevel):
                 self._msg_queue.put(("progress", (completed, total)))
 
                 # The scraper asked to stop because retrying cannot help.
+                # Unlike a user stop, the chapters already downloaded still
+                # produce output and a batch continues with its next URL; the
+                # remaining chapters are reported as failed.
                 abort_reason = getattr(self._scraper, 'abort_reason', '')
                 if abort_reason and self._downloading:
-                    self._downloading = False
-                    self._download_cancelled = True
                     self._log(f"❌ {abort_reason}")
                     break
 

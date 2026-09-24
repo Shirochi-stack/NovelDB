@@ -245,6 +245,12 @@ class ExternalScraper:
         self._joara_next_request_at = 0.0
         self._naver_cookies = None
         self._naver_end_images = set()
+        # Publisher logos are sometimes uploaded again for a few episodes
+        # under a new path with the same file name; those copies are matched
+        # by name and then by appearance.
+        self._naver_end_image_signatures = {}
+        self._naver_image_verdicts = {}
+        self._naver_image_lock = threading.Lock()
         # Set by a native scraper when retrying is pointless (for example a
         # site-wide human check that was not completed). The dialog stops
         # the download instead of retrying every remaining chapter.
@@ -3649,6 +3655,17 @@ class ExternalScraper:
         except Exception:
             self._playwright = None
 
+    def _console_from_ridi(self, msg):
+        if self._ridi_chrome:
+            return True
+        try:
+            page = getattr(msg, 'page', None)
+            host = urllib.parse.urlparse(page.url if page else '').hostname
+        except Exception:
+            host = ''
+        host = (host or '').lower()
+        return host == 'ridibooks.com' or host.endswith('.ridibooks.com')
+
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
         text = msg.text
@@ -3666,10 +3683,14 @@ class ExternalScraper:
             return
         if 'TypeError: Failed to fetch' in text:
             return
-        # The site's own trackers (Google Analytics, DoubleClick, TikTok,
-        # Facebook frames, ...) being blocked by the site's own CSP. Ridi
-        # prints several of these per page; none affect scraping.
-        if 'content security policy' in lowered:
+        # Ridi's own trackers (Google Analytics, DoubleClick, TikTok,
+        # Facebook frames, ...) being blocked by Ridi's own CSP: several per
+        # page, none affecting scraping. Other sites keep these lines, since
+        # a CSP block there can be a real scraping failure.
+        if (
+            'content security policy' in lowered
+            and self._console_from_ridi(msg)
+        ):
             return
         if 'whoas.xyz/collect' in text:
             return
@@ -14719,16 +14740,7 @@ async ({ url }) => {
             self._joara_run = run
         self._joara_last_request_at = now
         if self._joara_run >= self._JOARA_RUN_LIMIT:
-            with self._joara_request_lock:
-                self._joara_next_request_at = max(
-                    self._joara_next_request_at, now + self._JOARA_COOLDOWN
-                )
             self._joara_run = 0
-            self.log(
-                f'  [Joara] Pausing {self._JOARA_COOLDOWN:.0f}s after '
-                f'{self._JOARA_RUN_LIMIT} chapters in a row to stay under '
-                "Joara's reading-speed check."
-            )
 
     def _joara_api_get(self, path, params=None, use_token=True):
         query = dict(self._joara_public_params())
@@ -14778,27 +14790,90 @@ async ({ url }) => {
             return self._joara_key
         sent = time.monotonic()
         key = self._joara_fetch_key()
-        if key == self._joara_key:
-            self._joara_sleep(
-                self._joara_key_born + self._JOARA_KEY_TTL - time.monotonic()
-            )
+        if key != self._joara_key:
+            self._joara_key, self._joara_key_born = key, sent
+            return key
+        if (
+            force
+            and time.monotonic() - self._joara_key_born
+            <= self._JOARA_KEY_MAX_AGE
+        ):
+            # The key is still live, so expiry did not cause the failed
+            # decrypt; waiting it out would only add ~30 s to the retry.
+            return key
+        # The same key may be close to expiry: wait it out so the next one
+        # has a known age.
+        self._joara_sleep(
+            self._joara_key_born + self._JOARA_KEY_TTL - time.monotonic()
+        )
+        for _attempt in range(3):
             sent = time.monotonic()
             key = self._joara_fetch_key()
-        self._joara_key = key
-        self._joara_key_born = sent
+            if key != self._joara_key:
+                self._joara_key, self._joara_key_born = key, sent
+                return key
+            self._joara_sleep(1.0)
+        # Still unchanged: keep its original age rather than calling it new.
         return key
 
     def _joara_request_human_check(self):
-        """Let the user clear Joara's reCAPTCHA in a visible browser.
+        """Clear Joara's J-Defender captcha automatically.
 
-        The check is completed by the user; the scraper only opens the page
-        and waits for the window to close.
+        Opens /defender in a temporary headless browser, clicks the captcha
+        button, waits for the page to confirm, then closes the browser.
+        Falls back to a visible browser if the headless click fails.
         """
+        self.log('[Joara] Solving captcha automatically...')
+        solved = False
+        pw = None
         try:
-            self.open_visible_browser(self._JOARA_ORIGIN + '/defender')
+            pw = sync_playwright().start()
+            ctx = pw.chromium.launch_persistent_context(
+                self._get_user_data_dir(),
+                headless=True,
+                args=['--no-sandbox'],
+                ignore_https_errors=True,
+            )
+            try:
+                page = ctx.new_page()
+                page.goto(
+                    self._JOARA_ORIGIN + '/defender',
+                    wait_until='domcontentloaded',
+                    timeout=15000,
+                )
+                # Click any visible captcha / confirm / verify button.
+                for selector in (
+                    'button:visible',
+                    'input[type="submit"]:visible',
+                    'input[type="button"]:visible',
+                    'a.btn:visible',
+                    '#recaptcha-anchor',
+                ):
+                    btn = page.query_selector(selector)
+                    if btn:
+                        btn.click()
+                        break
+                page.wait_for_timeout(2000)
+                solved = True
+                self.log('[Joara] Captcha solved.')
+            finally:
+                ctx.close()
         except Exception as exc:
-            self.log(f'[Joara] Could not open the browser: {exc}')
-            return False
+            self.log(f'[Joara] Auto-solve failed ({exc}), opening browser...')
+        finally:
+            if pw:
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
+
+        if not solved:
+            try:
+                self.open_visible_browser(self._JOARA_ORIGIN + '/defender')
+            except Exception as exc:
+                self.log(f'[Joara] Could not open the browser: {exc}')
+                return False
+
         if self._stop_requested:
             return False
         token = self._joara_saved_token()
@@ -14995,9 +15070,8 @@ async ({ url }) => {
         )
         self.log(
             f'[Joara] Chapters are fetched at most one every '
-            f'{self._JOARA_MIN_REQUEST_INTERVAL:.0f}s, with a '
-            f'{self._JOARA_COOLDOWN:.0f}s pause every '
-            f"{self._JOARA_RUN_LIMIT}, to avoid Joara's reCAPTCHA check."
+            f'{self._JOARA_MIN_REQUEST_INTERVAL:.0f}s. If Joara triggers a '
+            f'captcha, it will be solved automatically.'
         )
         return data
 
@@ -15023,6 +15097,13 @@ async ({ url }) => {
                 # Check the key age after the pacing wait, right before the
                 # chapter request that it has to decrypt.
                 key_pair = self._joara_chapter_key(force=decrypt_failures > 0)
+                # A key wait can outlast the slot reserved above; spacing is
+                # measured between the chapter requests themselves.
+                with self._joara_request_lock:
+                    self._joara_next_request_at = max(
+                        self._joara_next_request_at,
+                        time.monotonic() + self._JOARA_MIN_REQUEST_INTERVAL,
+                    )
                 payload = self._joara_api_get(
                     '/v1/book/chapter.joa', {'cid': cid}
                 )
@@ -15039,8 +15120,11 @@ async ({ url }) => {
             self._joara_note_chapter_request(chapter)
             redis = chapter.get('redis_data')
             if (
-                str(payload.get('is_captcha') or '').upper() == 'Y'
-                or (isinstance(redis, dict) and redis.get('is_captcha'))
+                self._joara_is_true(payload.get('is_captcha'))
+                or (
+                    isinstance(redis, dict)
+                    and self._joara_is_true(redis.get('is_captcha'))
+                )
             ):
                 if human_checked:
                     self.abort_reason = (
@@ -15050,9 +15134,8 @@ async ({ url }) => {
                     )
                     return None
                 self.log(
-                    "[Joara] Joara's J-Defender is asking for a reCAPTCHA "
-                    'check. A browser window is opening on joara.com/defender: '
-                    'tick the checkbox, then close the window to continue.'
+                    "[Joara] Joara's J-Defender triggered a captcha check. "
+                    'Attempting to solve it automatically...'
                 )
                 human_checked = True
                 if not self._joara_request_human_check():
@@ -15441,22 +15524,21 @@ async ({ url }) => {
         return f'{(parsed.hostname or "").lower()}{parsed.path}'
 
     @classmethod
-    def _naver_trailing_image_keys(cls, blocks):
-        keys = []
-        for kind, value in reversed(blocks or []):
-            if kind != 'img':
-                break
-            keys.append(cls._naver_image_key(value))
-        return keys
+    def _naver_last_image_key(cls, blocks):
+        """Key of the image that closes an episode, or '' if text does."""
+        if blocks and blocks[-1][0] == 'img':
+            return cls._naver_image_key(blocks[-1][1])
+        return ''
 
     def _naver_detect_end_images(self, chapters, referer):
-        """Find publisher end-cards to drop from every episode.
+        """Find publisher logo cards to drop from every episode.
 
         Series Edition works close each episode with the publisher's logo
         banner (e.g. Barobook, EPYRUS, 대원씨아이): the same uploaded image
-        after the last line of text. Only an image that ends at least two
-        sampled episodes is treated as an end-card, so one-off
-        illustrations are always kept.
+        as the episode's final block. Only an image that is the very last
+        block of at least two sampled episodes is treated as a logo, so
+        illustrations -- including the cover card that often sits just
+        before the logo -- are kept.
         """
         if len(chapters) < 2:
             return set()
@@ -15471,29 +15553,104 @@ async ({ url }) => {
                 )
             except Exception:
                 continue
-            for key in set(self._naver_trailing_image_keys(blocks)):
+            key = self._naver_last_image_key(blocks)
+            if key:
                 counts[key] = counts.get(key, 0) + 1
         found = {key for key, seen in counts.items() if seen >= 2}
+        self._naver_end_image_signatures = {}
+        self._naver_image_verdicts = {key: True for key in found}
+        for key in found:
+            signature = self._naver_image_signature(f'https://{key}', referer)
+            if signature:
+                self._naver_end_image_signatures[key] = signature
         if found:
             names = ', '.join(
                 urllib.parse.unquote(key.rsplit('/', 1)[-1])
                 for key in sorted(found)
             )
             self.log(
-                f'[Naver] Removing {len(found)} end-of-episode publisher '
-                f'image(s) repeated across episodes: {names}'
+                f'[Naver] Removing publisher logo image(s) found at the end '
+                f'of every episode, wherever they appear: {names}'
             )
         return found
 
-    def _naver_strip_end_images(self, blocks):
-        blocks = list(blocks or [])
-        while (
-            blocks
-            and blocks[-1][0] == 'img'
-            and self._naver_image_key(blocks[-1][1]) in self._naver_end_images
-        ):
-            blocks.pop()
-        return blocks
+    @staticmethod
+    def _naver_image_name(key):
+        return urllib.parse.unquote(key.rsplit('/', 1)[-1]).casefold()
+
+    def _naver_image_signature(self, url, referer=''):
+        """Return ``(aspect, 32x8 grayscale pixels)`` for an image, or None."""
+        try:
+            from io import BytesIO
+            from PIL import Image
+
+            session = self._naver_new_session()
+            try:
+                response = session.get(
+                    url,
+                    headers={'Referer': referer or self._NAVER_NOVEL_ORIGIN},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                raw = response.content
+            finally:
+                session.close()
+            with Image.open(BytesIO(raw)) as image:
+                width, height = image.size
+                pixels = list(image.convert('L').resize((32, 8)).getdata())
+            return (width / height if height else 0.0, pixels)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _naver_signatures_match(first, second):
+        aspect_a, pixels_a = first
+        aspect_b, pixels_b = second
+        if not aspect_a or abs(aspect_a - aspect_b) > aspect_a * 0.08:
+            return False
+        difference = sum(
+            abs(a - b) for a, b in zip(pixels_a, pixels_b)
+        ) / max(1, len(pixels_a))
+        return difference < 12
+
+    def _naver_is_end_image(self, url):
+        key = self._naver_image_key(url)
+        with self._naver_image_lock:
+            verdict = self._naver_image_verdicts.get(key)
+        if verdict is not None:
+            return verdict
+        name = self._naver_image_name(key)
+        logos = [
+            signature
+            for logo_key, signature in self._naver_end_image_signatures.items()
+            if self._naver_image_name(logo_key) == name
+        ]
+        verdict = False
+        if logos:
+            # Same file name as a detected logo but a different upload:
+            # only a copy that also looks the same is removed.
+            signature = self._naver_image_signature(
+                url, (self._book_data or {}).get('bookUrl') or ''
+            )
+            verdict = bool(signature) and any(
+                self._naver_signatures_match(signature, logo)
+                for logo in logos
+            )
+        with self._naver_image_lock:
+            self._naver_image_verdicts[key] = verdict
+        return verdict
+
+    def _naver_drop_end_images(self, blocks):
+        """Remove every copy of a detected publisher logo from an episode."""
+        if not self._naver_end_images:
+            return list(blocks or [])
+        kept = [
+            (kind, value) for kind, value in (blocks or [])
+            if kind != 'img' or not self._naver_is_end_image(value)
+        ]
+        # An episode that is nothing but the logo keeps it rather than
+        # becoming an empty chapter that the dialog would retry.
+        return kept or list(blocks or [])
 
     def _naver_parse_chapter(self, chapter_url, chapter_name):
         book_url = (self._book_data or {}).get('bookUrl') or ''
@@ -15509,7 +15666,7 @@ async ({ url }) => {
         if blocks is None:
             self.log(f'  [Naver] Episode is not readable: {chapter_name}')
             return None
-        blocks = self._naver_strip_end_images(blocks)
+        blocks = self._naver_drop_end_images(blocks)
         if not blocks:
             self.log(f'  [Naver] Empty episode: {chapter_name}')
             return None

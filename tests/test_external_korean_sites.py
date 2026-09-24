@@ -361,7 +361,8 @@ def test_dialog_stops_instead_of_retrying_after_scraper_abort():
 
     assert batches == [['Chapter 1', 'Chapter 2', 'Chapter 3', 'Chapter 4']]
     scraper.parse_chapter.assert_not_called()
-    assert dialog._download_cancelled is True
+    # Not a user stop: finished chapters still produce output.
+    assert dialog._download_cancelled is False
     assert '❌ [Joara] check not completed.' in logs
     assert not any('Failed to fetch' in line for line in logs)
 
@@ -499,16 +500,21 @@ def test_naver_series_without_web_edition_explains_drm(tmp_path, monkeypatch):
     assert any('DRM' in message for message in messages)
 
 
-def test_naver_end_cards_are_detected_from_repeated_trailing_images(
+def test_naver_publisher_logo_is_detected_and_removed_everywhere(
     tmp_path, monkeypatch,
 ):
     scraper, messages = make_scraper(tmp_path, monkeypatch)
-    logo = 'https://novel-phinf.pstatic.net/2022/cp-logo.jpg?type=w500_2g'
+    logo = 'https://novel-phinf.pstatic.net/2014/barobook+image.jpg?type=w500'
+    cover = 'https://novel-phinf.pstatic.net/2014/cover.jpg?type=w500'
+    avatar = 'https://novel-phinf.pstatic.net/2014/someone.jpg?type=w80_2'
+    # Modelled on novelId 231619: the cover card sits just before the
+    # Barobook logo, and chat avatars repeat in every episode.
     episodes = {
-        'e1': [('text', 'One'), ('img', 'https://img/story1.jpg'),
+        'e1': [('img', avatar), ('text', 'One'), ('img', cover),
                ('img', logo)],
-        'e2': [('text', 'Two'), ('img', logo.replace('w500_2g', 'w80'))],
-        'e3': [('text', 'Three'), ('img', 'https://img/story3.jpg')],
+        'e2': [('text', 'Two'), ('img', cover), ('text', 'More'),
+               ('img', logo.replace('w500', 'w80'))],
+        'e3': [('img', avatar), ('text', 'Three'), ('img', cover)],
     }
     monkeypatch.setattr(
         scraper, '_naver_episode_blocks',
@@ -518,22 +524,23 @@ def test_naver_end_cards_are_detected_from_repeated_trailing_images(
 
     found = scraper._naver_detect_end_images(chapters, 'list')
 
-    # The logo ends two of three samples; one-off endings are kept.
-    assert found == {'novel-phinf.pstatic.net/2022/cp-logo.jpg'}
-    assert any('cp-logo.jpg' in message for message in messages)
+    # Only the image that closes two of three samples; the cover card
+    # before it and the avatars are kept.
+    assert found == {'novel-phinf.pstatic.net/2014/barobook+image.jpg'}
+    assert any('barobook+image.jpg' in message for message in messages)
 
     scraper._naver_end_images = found
     scraper._book_data = {'bookUrl': 'list'}
     result = scraper._naver_parse_chapter('e1', 'Ep 1')
-    assert [image['url'] for image in result['images']] == [
-        'https://img/story1.jpg',
-    ]
-    assert 'cp-logo' not in result['contentHtml']
+    assert [image['url'] for image in result['images']] == [avatar, cover]
+    assert 'barobook' not in result['contentHtml']
 
-    # A logo that is not at the end of the episode is not removed.
-    episodes['e4'] = [('img', logo), ('text', 'Body')]
+    # The logo is removed wherever it appears, not only at the end.
+    episodes['e4'] = [('text', 'Start'), ('img', cover), ('img', logo),
+                      ('text', 'Body'), ('img', logo)]
     result = scraper._naver_parse_chapter('e4', 'Ep 4')
-    assert [image['url'] for image in result['images']] == [logo]
+    assert [image['url'] for image in result['images']] == [cover]
+    assert result['contentText'] == 'Start\nBody'
 
 
 def test_naver_single_episode_keeps_every_image(tmp_path, monkeypatch):
@@ -559,8 +566,183 @@ def test_console_drops_content_security_policy_noise(tmp_path, monkeypatch):
         "Framing 'https://www.facebook.com/' violates the following "
         'report-only Content Security Policy directive: "frame-src".',
     ):
-        scraper._on_console(SimpleNamespace(text=text, type='error'))
+        ridi_page = SimpleNamespace(url='https://ridibooks.com/books/1/view')
+        scraper._on_console(
+            SimpleNamespace(text=text, type='error', page=ridi_page)
+        )
     assert messages == []
 
     scraper._on_console(SimpleNamespace(text='Real failure', type='error'))
     assert messages == ['[JS] Real failure']
+
+    # On other sites a CSP block can be a real scraping failure.
+    kakao_page = SimpleNamespace(url='https://page.kakao.com/content/1')
+    blocked = (
+        "Connecting to 'https://bff-page.kakao.com/x' violates the "
+        'following Content Security Policy directive.'
+    )
+    scraper._on_console(
+        SimpleNamespace(text=blocked, type='error', page=kakao_page)
+    )
+    assert messages[-1] == f'[JS] {blocked}'
+
+
+
+def test_joara_spacing_is_measured_from_the_chapter_request(
+    tmp_path, monkeypatch,
+):
+    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    monkeypatch.setattr(scraper, '_JOARA_MIN_REQUEST_INTERVAL', 5.0)
+    clock = [100.0]
+    monkeypatch.setattr('external_scraper.time.monotonic', lambda: clock[0])
+
+    def slow_key(force=False):
+        clock[0] += 11.0  # a stale key being waited out
+        return KEY_A
+
+    sent = []
+
+    def api_get(path, params=None, use_token=True):
+        sent.append(clock[0])
+        return {'status': 1, 'chapter': {
+            'content': joara_encrypt('Body', *KEY_A),
+        }}
+
+    monkeypatch.setattr(scraper, '_joara_chapter_key', slow_key)
+    monkeypatch.setattr(scraper, '_joara_api_get', api_get)
+
+    scraper._joara_parse_chapter('', 'Ch', cid='c')
+
+    assert sent == [111.0]
+    assert scraper._joara_next_request_at == 116.0
+
+
+def test_joara_retry_with_a_live_key_does_not_wait(tmp_path, monkeypatch):
+    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    monkeypatch.setattr('external_scraper.time.monotonic', lambda: 1000.0)
+    slept = []
+    monkeypatch.setattr(scraper, '_joara_sleep', slept.append)
+    scraper._joara_key = KEY_A
+    scraper._joara_key_born = 1000.0 - 5.0
+    monkeypatch.setattr(scraper, '_joara_api_get', FakeJoara([KEY_A], {}))
+
+    assert scraper._joara_chapter_key(force=True) == KEY_A
+    assert slept == []
+    assert scraper._joara_key_born == 995.0
+
+
+def test_joara_unchanged_key_after_wait_keeps_its_age(tmp_path, monkeypatch):
+    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    clock = [1000.0]
+    monkeypatch.setattr('external_scraper.time.monotonic', lambda: clock[0])
+    monkeypatch.setattr(
+        scraper, '_joara_sleep',
+        lambda seconds: clock.__setitem__(0, clock[0] + max(0, seconds)),
+    )
+    scraper._joara_key = KEY_A
+    scraper._joara_key_born = 975.0
+    monkeypatch.setattr(scraper, '_joara_api_get', FakeJoara([KEY_A], {}))
+
+    assert scraper._joara_chapter_key() == KEY_A
+    assert scraper._joara_key_born == 975.0
+
+
+def test_joara_captcha_flag_values(tmp_path, monkeypatch):
+    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    api = FakeJoara([KEY_A], {'a': joara_chapter(
+        'Body', KEY_A, redis_data={'is_captcha': '0', 'call_20_30_cnt': 1},
+    )})
+    monkeypatch.setattr(scraper, '_joara_api_get', api)
+    monkeypatch.setattr(
+        scraper, '_joara_request_human_check',
+        lambda: (_ for _ in ()).throw(AssertionError('not a captcha')),
+    )
+
+    assert scraper._joara_parse_chapter('', 'A', cid='a')['contentText'] == (
+        'Body'
+    )
+
+
+def test_naver_reuploaded_logo_copy_is_matched_by_name_and_look(
+    tmp_path, monkeypatch,
+):
+    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    logo = 'https://novel-phinf.pstatic.net/20130115_84/a/barobook+image.jpg'
+    copy = 'https://novel-phinf.pstatic.net/20130116_125/b/barobook+image.jpg'
+    other = 'https://novel-phinf.pstatic.net/20130117_1/c/barobook+image.jpg'
+    art = 'https://novel-phinf.pstatic.net/2013/d/1.jpg'
+    banner = (10.8, [255] * 200 + [30] * 56)
+    signatures = {
+        f'https://{logo[8:]}': banner,
+        copy: banner,
+        other: (0.7, [90] * 256),
+    }
+    fetched = []
+
+    def signature(url, referer=''):
+        fetched.append(url)
+        return signatures.get(url)
+
+    monkeypatch.setattr(scraper, '_naver_image_signature', signature)
+    episodes = {
+        'e1': [('text', 'One'), ('img', logo)],
+        'e2': [('text', 'Two'), ('img', logo)],
+    }
+    monkeypatch.setattr(
+        scraper, '_naver_episode_blocks',
+        lambda url, referer='': (episodes[url], False),
+    )
+    scraper._naver_end_images = scraper._naver_detect_end_images(
+        [{'url': 'e1'}, {'url': 'e2'}], 'list'
+    )
+    scraper._book_data = {'bookUrl': 'list'}
+
+    kept = scraper._naver_drop_end_images([
+        ('img', art), ('text', 'Body'), ('img', copy), ('img', other),
+    ])
+
+    # The re-uploaded copy that looks the same goes; a same-named image
+    # that looks different, and unrelated art, stay without a download.
+    assert kept == [('img', art), ('text', 'Body'), ('img', other)]
+    assert art not in fetched
+
+
+def test_naver_episode_of_only_the_logo_is_kept(tmp_path, monkeypatch):
+    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    logo = 'https://novel-phinf.pstatic.net/2014/cp-logo.jpg'
+    scraper._naver_end_images = {'novel-phinf.pstatic.net/2014/cp-logo.jpg'}
+    scraper._naver_image_verdicts = {
+        'novel-phinf.pstatic.net/2014/cp-logo.jpg': True,
+    }
+    assert scraper._naver_drop_end_images([('img', logo)]) == [('img', logo)]
+
+
+def test_naver_parse_book_runs_logo_detection(tmp_path, monkeypatch):
+    scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    pages = {
+        'https://novel.naver.com/best/list?novelId=7':
+            naver_list_page([3, 2, 1], 3),
+    }
+    monkeypatch.setattr(
+        scraper, '_load_saved_site_cookies', lambda *args: 0
+    )
+    monkeypatch.setattr(
+        scraper, '_naver_fetch',
+        lambda session, url, referer='': FakeResponse(pages[url], url),
+    )
+    logo = 'https://novel-phinf.pstatic.net/2022/cp-logo.jpg?type=w500'
+    monkeypatch.setattr(
+        scraper, '_naver_episode_blocks',
+        lambda url, referer='': ([('text', url), ('img', logo)], False),
+    )
+    monkeypatch.setattr(
+        scraper, '_naver_image_signature', lambda url, referer='': None
+    )
+
+    data = scraper.parse_book('https://novel.naver.com/best/list?novelId=7')
+
+    assert data['_naver_end_images'] == [
+        'novel-phinf.pstatic.net/2022/cp-logo.jpg',
+    ]
+    result = scraper._naver_parse_chapter(data['chapters'][1]['url'], 'Ep 2')
+    assert result['images'] == []
