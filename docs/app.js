@@ -6144,17 +6144,15 @@
         if (reuse) {
             filtered = lastFilter.result;
         } else {
-            const hideNaverWithoutSynopsis = descriptionsEnabled;
             const matcher = searchQuery ? buildSearchMatcher(searchQuery) : null;
             const andKeys = andTags.size ? [...andTags].map((tag) => tagKeyMatcher(tagMatchKey(tag))) : null;
             const orKeys = orTags.size ? [...orTags].map((tag) => tagKeyMatcher(tagMatchKey(tag))) : null;
             const excludeKeys = excludeTags.size ? [...excludeTags].map((tag) => tagKeyMatcher(tagMatchKey(tag))) : null;
             const statusActive = status === "complete" || status === "ongoing";
             const audienceActive = audience === "adult" || audience === "r15" || audience === "general";
-            const unfiltered = !hideNaverWithoutSynopsis && !activeAuthorFilter && !matcher && !statusActive && !audienceActive
+            const unfiltered = !activeAuthorFilter && !matcher && !statusActive && !audienceActive
                 && !andKeys && !orKeys && !excludeKeys;
             filtered = unfiltered && base === allNovels ? allNovels : base.filter((n) => {
-                if (hideNaverWithoutSynopsis && n.source === "naver" && n.metrics?.synopsis_available === false) return false;
                 if (activeAuthorFilter && n.author !== activeAuthorFilter) return false;
                 if (matcher && !matcher(n)) return false;
                 if (statusActive && !metadata.matchesStatus(n, status)) return false;
