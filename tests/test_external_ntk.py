@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 
 import pytest
@@ -718,4 +719,63 @@ def test_sbxh_real_headless_browser_collects_all_paginated_chapters():
             "Expanded chapter index from 62 to 130" in line
             for line in messages
         )
+        browser.close()
+
+
+def test_sbxh_probes_page_query_when_pager_is_missing():
+    def index_html(first, last):
+        rows = "".join(
+            (
+                f'<li data-ep="{number}"><a '
+                f'href="/novel/58410/{100000 + number}">'
+                f'<span class="ne-title">Episode {number}</span>'
+                '</a></li>'
+            )
+            for number in range(first, last - 1, -1)
+        )
+        return (
+            '<html><head><meta property="og:title" '
+            'content="Pagerless SBXH Novel"></head><body>'
+            '<div class="novel-detail"><h1>Pagerless SBXH Novel</h1></div>'
+            f'<ul class="novel-eps">{rows}</ul></body></html>'
+        )
+
+    pages = {
+        "1": index_html(130, 69),
+        "2": index_html(68, 7),
+        "3": index_html(6, 1),
+    }
+    requested_urls = []
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+
+        def handle(route):
+            url = route.request.url
+            requested_urls.append(url)
+            match = re.search(r"[?&]page=(\d+)", url)
+            number = match.group(1) if match else "1"
+            body = pages.get(number, index_html(130, 69))
+            route.fulfill(status=200, content_type="text/html", body=body)
+
+        page.route("https://sbxh9.com/**", handle)
+        page.goto("https://sbxh9.com/novel/58410")
+
+        scraper, messages = make_scraper()
+        scraper._page = page
+        book = scraper._ntk_parse_index_browser(
+            "https://sbxh9.com/novel/58410"
+        )
+
+        assert book["chapterCount"] == 130
+        assert [chapter["number"] for chapter in book["chapters"]] == list(
+            range(1, 131)
+        )
+        assert book["chapters"][0]["name"] == "Episode 1"
+        assert not any("epage=" in url for url in requested_urls)
+        # Blind probing stops after two pages that add nothing new.
+        probed = [url for url in requested_urls if "page=" in url]
+        assert len(probed) <= 5
         browser.close()

@@ -6149,10 +6149,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return []
         novel_id = self._ntk_novel_id_from_url(index_url)
         kind = self._ntk_content_kind_from_url(index_url)
+        # NewToki pages its episode list with ?epage=N; sbxh uses ?page=N.
+        host = (urllib.parse.urlparse(index_url or '').netloc or '').lower()
+        page_param = 'page' if re.search(r'(?:^|\.)sbxh\d+\.', host) else 'epage'
         try:
             return self._page.evaluate(
                 r"""
-async ({ novelId, kind }) => {
+async ({ novelId, kind, pageParam }) => {
   const basePath = `/${kind}/${novelId}`;
   const chapterPrefix = `${basePath}/`;
   const chapters = new Map();
@@ -6291,26 +6294,34 @@ async ({ novelId, kind }) => {
   };
 
   discoverPages(document, location.href);
-  // Current NewToki builds do not always render pagination anchors. Probe the
-  // epage query used by the site so older/newer rows are still discovered.
+  // Current NewToki/sbxh builds do not always render pagination anchors.
+  // Probe the site's page query (epage on NewToki, page on sbxh) so
+  // older/newer rows are still discovered.
   const requestedUrl = new URL(location.href);
   requestedUrl.hash = '';
-  requestedUrl.searchParams.delete('epage');
+  requestedUrl.searchParams.delete(pageParam);
+  const probes = new Set();
   for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
     const target = new URL(requestedUrl.href);
-    target.searchParams.set('epage', String(pageNumber));
+    target.searchParams.set(pageParam, String(pageNumber));
+    probes.add(target.href);
     if (!visited.has(target.href) && !queued.has(target.href)) {
       queued.add(target.href);
       queue.push(target.href);
     }
   }
   let fetchedPages = 0;
+  let emptyProbes = 0;
   while (queue.length && fetchedPages < 20) {
     const pageUrl = queue.shift();
     queued.delete(pageUrl);
     if (visited.has(pageUrl)) continue;
+    // Stop blind probing once consecutive probed pages add nothing; the
+    // site has run out of pages. Discovered pager links are still followed.
+    if (probes.has(pageUrl) && emptyProbes >= 2) continue;
     visited.add(pageUrl);
     fetchedPages += 1;
+    const sizeBefore = chapters.size;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
@@ -6334,13 +6345,16 @@ async ({ novelId, kind }) => {
       // Keep the already collected rows if one optional index page fails.
     } finally {
       clearTimeout(timer);
+      if (probes.has(pageUrl)) {
+        emptyProbes = chapters.size > sizeBefore ? 0 : emptyProbes + 1;
+      }
     }
   }
 
   return Array.from(chapters.values());
 }
                 """,
-                {'novelId': novel_id, 'kind': kind},
+                {'novelId': novel_id, 'kind': kind, 'pageParam': page_param},
             ) or []
         except Exception as e:
             self.log(f"[NewToki] Extended chapter index scan failed: {e}")
