@@ -6205,6 +6205,91 @@ async ({ novelId, kind, pageParam }) => {
 
   collect(document, location.href);
 
+  // sbxh only renders the newest 100 rows and loads older ones through a
+  // cursor API behind its "이전 회차 더 보기" button. The DOM keeps at most
+  // 300 rows, so read the API directly. The cursor is `${number}:${id}` of
+  // the oldest row seen so far, matching the site's own client.
+  const notes = [];
+  window.__ntkIndexNotes = notes;
+  const oldestRow = () => {
+    let oldest = null;
+    for (const item of chapters.values()) {
+      const number = Number.parseInt(item.displayNumber, 10);
+      if (!Number.isFinite(number) || number <= 0) continue;
+      if (!oldest || number < oldest.number
+          || (number === oldest.number
+              && BigInt(item.episodeId) < BigInt(oldest.id))) {
+        oldest = { number, id: item.episodeId };
+      }
+    }
+    return oldest;
+  };
+  let cursorRow = oldestRow();
+  if (cursorRow && cursorRow.number > 1) {
+    let cursor = `${cursorRow.number}:${cursorRow.id}`;
+    const seenCursors = new Set();
+    let windows = 0;
+    while (cursor && !seenCursors.has(cursor) && windows < 500) {
+      seenCursors.add(cursor);
+      windows += 1;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      let data = null;
+      try {
+        const query = new URLSearchParams({ direction: 'older', cursor });
+        const response = await fetch(
+          `/api/${kind}/${encodeURIComponent(novelId)}/episodes/window?${query}`,
+          {
+            headers: { Accept: 'application/json' },
+            credentials: 'include',
+            cache: 'no-store',
+            signal: controller.signal,
+          },
+        );
+        const body = await response.text();
+        try { data = JSON.parse(body); } catch (_) { data = null; }
+        if (!response.ok || !data || data.ok !== true
+            || !Array.isArray(data.items)) {
+          notes.push(
+            `Episode window API stopped at cursor ${cursor} `
+            + `(HTTP ${response.status}).`
+          );
+          break;
+        }
+      } catch (error) {
+        notes.push(`Episode window API failed at cursor ${cursor}: ${error}`);
+        break;
+      } finally {
+        clearTimeout(timer);
+      }
+      for (const item of data.items) {
+        const episodeId = String(item && item.id || '');
+        if (!/^\d+$/.test(episodeId)) continue;
+        chapters.set(episodeId, {
+          url: new URL(`${chapterPrefix}${episodeId}`, location.origin).href,
+          episodeId,
+          displayNumber: Number.isInteger(item.number)
+            ? String(item.number) : '',
+          name: String(item.title || item.episodeLabel || '').trim(),
+        });
+      }
+      const nextRow = oldestRow();
+      if (!data.hasOlder || !data.items.length || !nextRow
+          || nextRow.number <= 1) {
+        break;
+      }
+      cursor = typeof data.olderCursor === 'string' && data.olderCursor
+        ? data.olderCursor
+        : `${nextRow.number}:${nextRow.id}`;
+    }
+    if (windows) {
+      notes.push(
+        `Episode window API: ${windows} request(s), `
+        + `${chapters.size} episode(s) collected.`
+      );
+    }
+  }
+
   // Some sbxh indexes virtualize the long episode list. Walk every relevant
   // scroll container while retaining rows that disappear from the live DOM.
   const initialNumbers = Array.from(chapters.values())
@@ -6359,6 +6444,13 @@ async ({ novelId, kind, pageParam }) => {
         except Exception as e:
             self.log(f"[NewToki] Extended chapter index scan failed: {e}")
             return []
+        finally:
+            try:
+                notes = self._page.evaluate('window.__ntkIndexNotes || []')
+            except Exception:
+                notes = []
+            for note in notes or []:
+                self.log(f"[NewToki] {note}")
 
     def _ntk_parse_index_browser(self, index_url):
         """Extract metadata and chapters from NewToki's rendered headless DOM."""

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+import urllib.parse
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -778,4 +779,78 @@ def test_sbxh_probes_page_query_when_pager_is_missing():
         # Blind probing stops after two pages that add nothing new.
         probed = [url for url in requested_urls if "page=" in url]
         assert len(probed) <= 5
+        browser.close()
+
+
+def test_sbxh_walks_older_episode_cursor_api():
+    def row(number):
+        return (
+            f'<li data-ep="{number}" data-episode-ref="e{number}">'
+            f'<a class="novel-ep-link" href="/novel/63758/{8700000 + number}">'
+            f'<span class="ne-num">{number}화</span>'
+            f'<span class="ne-title-wrap"><span class="ne-title">'
+            f'Episode {number}</span></span></a></li>'
+        )
+
+    index = (
+        '<html><head><meta property="og:title" content="Cursor SBXH Novel">'
+        '</head><body><div class="novel-detail"><h1>Cursor SBXH Novel</h1>'
+        '</div><ul class="novel-eps">'
+        + "".join(row(n) for n in range(400, 300, -1))
+        + '</ul><button type="button">이전 회차 더 보기</button></body></html>'
+    )
+
+    def window(cursor):
+        oldest = int(cursor.split(":")[0])
+        numbers = list(range(oldest - 1, max(oldest - 101, 0), -1))
+        items = [
+            {
+                "id": str(8700000 + n), "number": n, "title": f"Episode {n}",
+                "episodeLabel": f"{n}화",
+            }
+            for n in numbers
+        ]
+        has_older = numbers[-1] > 1
+        return {
+            "ok": True, "items": items, "hasOlder": has_older,
+            "hasNewer": True,
+            "olderCursor": (
+                f"{numbers[-1]}:{8700000 + numbers[-1]}" if has_older else None
+            ),
+            "newerCursor": None,
+        }
+
+    api_cursors = []
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_context().new_page()
+
+        def handle(route):
+            url = urllib.parse.urlsplit(route.request.url)
+            if url.path == "/api/novel/63758/episodes/window":
+                query = urllib.parse.parse_qs(url.query)
+                assert query["direction"] == ["older"]
+                api_cursors.append(query["cursor"][0])
+                route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps(window(query["cursor"][0])),
+                )
+            else:
+                route.fulfill(status=200, content_type="text/html", body=index)
+
+        page.route("https://sbxh9.com/**", handle)
+        page.goto("https://sbxh9.com/novel/63758")
+
+        scraper, messages = make_scraper()
+        scraper._page = page
+        book = scraper._ntk_parse_index_browser("https://sbxh9.com/novel/63758")
+
+        assert api_cursors == ["301:8700301", "201:8700201", "101:8700101"]
+        assert book["chapterCount"] == 400
+        assert [c["number"] for c in book["chapters"]] == list(range(1, 401))
+        assert book["chapters"][0]["name"] == "Episode 1"
+        assert book["chapters"][0]["url"] == "https://sbxh9.com/novel/63758/8700001"
+        assert book["chapters"][-1]["name"] == "Episode 400"
+        assert any("Expanded chapter index from 100 to 400" in m for m in messages)
         browser.close()
