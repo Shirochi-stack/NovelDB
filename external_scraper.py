@@ -6194,10 +6194,17 @@ async ({ novelId, kind, pageParam }) => {
       );
       const chapterName = text(titleElement) || text(link) || text(row) || '';
       if (/(?:1\s*화부터\s*보기|최신화부터)/.test(chapterName)) continue;
+      // Not every NewToki build renders data-ep; fall back to the "301화"
+      // number label so cursor paging and ordering still work.
+      const numberLabel = text(
+        link.querySelector('.ne-num, .ep-num, [class*="num"]')
+      );
+      const labelMatch = numberLabel.match(/(\d+)/);
       chapters.set(remainder, {
         url: target.href,
         episodeId: remainder,
-        displayNumber: row && row.getAttribute('data-ep') || '',
+        displayNumber: (row && row.getAttribute('data-ep'))
+          || (labelMatch ? labelMatch[1] : ''),
         name: chapterName,
       });
     }
@@ -6224,9 +6231,19 @@ async ({ novelId, kind, pageParam }) => {
     }
     return oldest;
   };
-  let cursorRow = oldestRow();
-  if (cursorRow && cursorRow.number > 1) {
-    let cursor = `${cursorRow.number}:${cursorRow.id}`;
+  // The server-rendered page data carries the list's own olderCursor
+  // (e.g. "301:8702759"); it does not depend on how rows are marked up.
+  let pageCursor = '';
+  for (const script of document.querySelectorAll('script')) {
+    const source = script.textContent || '';
+    const match = source.match(
+      /\\?"hasOlder\\?"\s*:\s*true\s*,[^{}]*?\\?"olderCursor\\?"\s*:\s*\\?"(\d+:\d+)\\?"/
+    );
+    if (match) { pageCursor = match[1]; break; }
+  }
+  const cursorRow = oldestRow();
+  if (pageCursor || (cursorRow && cursorRow.number > 1)) {
+    let cursor = pageCursor || `${cursorRow.number}:${cursorRow.id}`;
     const seenCursors = new Set();
     let windows = 0;
     while (cursor && !seenCursors.has(cursor) && windows < 500) {
@@ -6288,6 +6305,12 @@ async ({ novelId, kind, pageParam }) => {
         + `${chapters.size} episode(s) collected.`
       );
     }
+  } else if (chapters.size) {
+    notes.push(
+      `Episode window API skipped: no older cursor found `
+      + `(${chapters.size} row(s), oldest number `
+      + `${cursorRow ? cursorRow.number : 'unknown'}).`
+    );
   }
 
   // Some sbxh indexes virtualize the long episode list. Walk every relevant

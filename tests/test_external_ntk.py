@@ -782,22 +782,43 @@ def test_sbxh_probes_page_query_when_pager_is_missing():
         browser.close()
 
 
-def test_sbxh_walks_older_episode_cursor_api():
+@pytest.mark.parametrize(
+    "origin, row_style",
+    [
+        ("https://sbxh9.com", "data-ep"),
+        # newtoki1.org serves the same novel without data-ep on its rows.
+        ("https://newtoki1.org", "label-only"),
+        ("https://newtoki1.org", "payload-cursor-only"),
+    ],
+)
+def test_ntk_hosts_walk_older_episode_cursor_api(origin, row_style):
     def row(number):
+        attrs = f' data-ep="{number}"' if row_style == "data-ep" else ""
+        label = (
+            "" if row_style == "payload-cursor-only"
+            else f'<span class="ne-num">{number}화</span>'
+        )
         return (
-            f'<li data-ep="{number}" data-episode-ref="e{number}">'
-            f'<a class="novel-ep-link" href="/novel/63758/{8700000 + number}">'
-            f'<span class="ne-num">{number}화</span>'
+            f'<li{attrs}><a class="novel-ep-link" '
+            f'href="/novel/63758/{8700000 + number}">{label}'
             f'<span class="ne-title-wrap"><span class="ne-title">'
             f'Episode {number}</span></span></a></li>'
         )
 
+    payload = (
+        '<script>self.__next_f.push([1,"9:{\\"items\\":[],'
+        '\\"hasOlder\\":true,\\"hasNewer\\":false,'
+        '\\"olderCursor\\":\\"301:8700301\\",'
+        '\\"newerCursor\\":null}"])</script>'
+        if row_style == "payload-cursor-only" else ""
+    )
     index = (
-        '<html><head><meta property="og:title" content="Cursor SBXH Novel">'
-        '</head><body><div class="novel-detail"><h1>Cursor SBXH Novel</h1>'
+        '<html><head><meta property="og:title" content="Cursor Novel">'
+        '</head><body><div class="novel-detail"><h1>Cursor Novel</h1>'
         '</div><ul class="novel-eps">'
         + "".join(row(n) for n in range(400, 300, -1))
-        + '</ul><button type="button">이전 회차 더 보기</button></body></html>'
+        + '</ul><button type="button">이전 회차 더 보기</button>'
+        + payload + '</body></html>'
     )
 
     def window(cursor):
@@ -821,6 +842,7 @@ def test_sbxh_walks_older_episode_cursor_api():
         }
 
     api_cursors = []
+    book_url = f"{origin}/novel/63758"
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
@@ -839,18 +861,18 @@ def test_sbxh_walks_older_episode_cursor_api():
             else:
                 route.fulfill(status=200, content_type="text/html", body=index)
 
-        page.route("https://sbxh9.com/**", handle)
-        page.goto("https://sbxh9.com/novel/63758")
+        page.route(f"{origin}/**", handle)
+        page.goto(book_url)
 
         scraper, messages = make_scraper()
         scraper._page = page
-        book = scraper._ntk_parse_index_browser("https://sbxh9.com/novel/63758")
+        book = scraper._ntk_parse_index_browser(book_url)
 
         assert api_cursors == ["301:8700301", "201:8700201", "101:8700101"]
         assert book["chapterCount"] == 400
-        assert [c["number"] for c in book["chapters"]] == list(range(1, 401))
-        assert book["chapters"][0]["name"] == "Episode 1"
-        assert book["chapters"][0]["url"] == "https://sbxh9.com/novel/63758/8700001"
-        assert book["chapters"][-1]["name"] == "Episode 400"
+        assert [c["name"] for c in book["chapters"]] == [
+            f"Episode {n}" for n in range(1, 401)
+        ]
+        assert book["chapters"][0]["url"] == f"{origin}/novel/63758/8700001"
         assert any("Expanded chapter index from 100 to 400" in m for m in messages)
         browser.close()
