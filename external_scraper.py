@@ -16524,7 +16524,7 @@ async ({ url }) => {
 
 
     # ------------------------------------------------------------------
-    # Xiyuwx
+    # Xiyuwx and its YY Wenxuan mirror
     # ------------------------------------------------------------------
     @staticmethod
     def _xiyuwx_book_id(url):
@@ -16532,14 +16532,22 @@ async ({ url }) => {
             parsed = urllib.parse.urlparse(url or '')
         except (TypeError, ValueError):
             return ''
-        if (parsed.hostname or '').lower() not in {'xiyuwx.com', 'www.xiyuwx.com'}:
+        if (parsed.hostname or '').lower() not in {
+            'xiyuwx.com', 'www.xiyuwx.com',
+            'yywenxuan.com', 'www.yywenxuan.com',
+        }:
             return ''
-        match = re.match(r'^/book/([1-9]\d*)(?:/|$)', parsed.path, re.I)
+        match = re.match(r'^/(?:book/)?([1-9]\d*)(?:/|$)', parsed.path, re.I)
         return match.group(1) if match else ''
 
     @staticmethod
     def is_xiyuwx(url):
         return bool(ExternalScraper._xiyuwx_book_id(url))
+
+    @staticmethod
+    def _xiyuwx_site_name(url):
+        host = (urllib.parse.urlparse(url or '').hostname or '').lower()
+        return 'YY Wenxuan' if host.endswith('yywenxuan.com') else 'Xiyuwx'
 
     def _xiyuwx_fetch(self, url):
         import requests
@@ -16548,9 +16556,10 @@ async ({ url }) => {
             'User-Agent': self._YEDUJI_UA,
             'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9',
-            'Referer': self._book_url or 'http://www.xiyuwx.com/',
+            'Referer': self._book_url or urllib.parse.urljoin(url, '/'),
         })
-        self._load_saved_site_cookies(session.cookies, url, 'xiyuwx.com')
+        domain = (urllib.parse.urlparse(url).hostname or '').removeprefix('www.')
+        self._load_saved_site_cookies(session.cookies, url, domain)
         response = session.get(url, timeout=30)
         response.raise_for_status()
         return response.content, response.url
@@ -16559,9 +16568,22 @@ async ({ url }) => {
     def _xiyuwx_soup(page):
         from bs4 import BeautifulSoup
         if isinstance(page, bytes):
-            # BeautifulSoup honors the page's declared charset (often GBK on
-            # Chinese novel sites) before falling back to detection.
-            return BeautifulSoup(page, 'html.parser')
+            # Some chapters contain invalid bytes despite declaring UTF-8.
+            # Auto-detection then guesses KOI8-R and destroys all Chinese text.
+            declaration = re.search(
+                rb'charset\s*=\s*["\']?([a-zA-Z0-9_-]+)', page[:4096], re.I
+            )
+            if declaration:
+                encoding = declaration.group(1).decode('ascii')
+                try:
+                    page = page.decode(encoding, errors='replace')
+                except LookupError:
+                    page = page.decode('utf-8', errors='replace')
+            else:
+                try:
+                    page = page.decode('utf-8-sig')
+                except UnicodeDecodeError:
+                    page = page.decode('gb18030', errors='replace')
         return BeautifulSoup(page, 'html.parser')
 
     @staticmethod
@@ -16570,7 +16592,10 @@ async ({ url }) => {
 
     @staticmethod
     def _xiyuwx_chapter_links(soup, base_url, book_id):
-        prefix = f'/book/{book_id}/'
+        book_path = urllib.parse.urlparse(base_url).path
+        prefix = re.match(r'^/(?:book/)?' + re.escape(book_id) + r'/', book_path)
+        prefix = prefix.group(0) if prefix else f'/{book_id}/'
+        base = urllib.parse.urlparse(base_url)
         selectors = (
             '#list a[href]', '#chapterlist a[href]', '.chapterlist a[href]',
             '.chapter-list a[href]', '.chapter_list a[href]',
@@ -16579,7 +16604,24 @@ async ({ url }) => {
         )
         links = []
         catalog_found = False
+        # This template puts a reversed "latest chapters" preview before the
+        # full catalog. Read links after the 正文 heading to preserve reading
+        # order and avoid duplicate entries.
+        headings = soup.select('#list dt')
+        body_heading = next(
+            (node for node in reversed(headings)
+             if '正文' in ExternalScraper._xiyuwx_text(node)), None
+        )
+        if body_heading:
+            for sibling in body_heading.next_siblings:
+                if getattr(sibling, 'name', None) == 'dt':
+                    break
+                if getattr(sibling, 'name', None) == 'a' and sibling.get('href'):
+                    links.append(sibling)
+            catalog_found = bool(links)
         for selector in selectors:
+            if links:
+                break
             links = soup.select(selector)
             if links:
                 catalog_found = True
@@ -16592,12 +16634,20 @@ async ({ url }) => {
             href = urllib.parse.urljoin(base_url, link.get('href', ''))
             parsed = urllib.parse.urlparse(href)
             path = parsed.path
-            if (parsed.hostname or '').lower() not in {'xiyuwx.com', 'www.xiyuwx.com'}:
+            if (parsed.hostname or '').lower() not in {
+                'xiyuwx.com', 'www.xiyuwx.com',
+                'yywenxuan.com', 'www.yywenxuan.com',
+            }:
                 continue
             if not path.startswith(prefix) or path.rstrip('/') == prefix.rstrip('/'):
                 continue
             if not re.search(r'\.(?:html?|shtml)$', path, re.I):
                 continue
+            # The accessible mirror's HTML hard-codes Xiyuwx links. Fetch
+            # each chapter from the same host that served the book page.
+            href = urllib.parse.urlunparse(parsed._replace(
+                scheme=base.scheme, netloc=base.netloc
+            ))
             if not name or href in seen:
                 continue
             # A book page can contain navigation links in the same container.
@@ -16609,8 +16659,15 @@ async ({ url }) => {
             if re.fullmatch(r'上一章|下一章|返回目录|章节目录|全部章节|目录', name):
                 continue
             seen.add(href)
-            marker = ' '.join((name, ' '.join(link.get('class') or [])))
-            paid = bool(re.search(r'付费|订阅|收费|\bVIP\b|🔒', marker, re.I))
+            row = link.find_parent(['dd', 'li', 'tr'])
+            marker = ' '.join((
+                ' '.join(link.get('class') or []),
+                ' '.join(row.get('class') or []) if row else '',
+                link.get('data-vip') or '', link.get('data-paid') or '',
+            ))
+            # Titles such as “（求订阅）” are ordinary, freely readable
+            # chapters on this mirror. Only explicit lock markup is paid.
+            paid = bool(re.search(r'\bvip\b|locked|paywall|付费|收费|🔒', marker, re.I))
             chapters.append({
                 'url': href, 'name': name, 'fullName': name,
                 'isVIP': paid, 'isPaid': paid, 'isAccessible': not paid,
@@ -16644,26 +16701,43 @@ async ({ url }) => {
             info = self._xiyuwx_text(soup.select_one('#info, .book-info, .bookinfo'))
             match = re.search(r'作者\s*[:：]\s*([^\s|]+)', info)
             author = match.group(1) if match else ''
-        intro = self._xiyuwx_text(soup.select_one(
+        intro_node = soup.select_one(
             '#intro, .intro, .book-intro, .bookintro, .description'
-        ))
+        )
+        tags = [self._xiyuwx_text(node) for node in
+                intro_node.select('a[href*="/tag/"]')] if intro_node else []
+        intro = self._xiyuwx_text(intro_node)
+        if tags:
+            tail = ''.join(str(part) for part in list(
+                intro_node.select('a[href*="/tag/"]')[-1].next_siblings
+            ))
+            intro = self._xiyuwx_text(self._xiyuwx_soup(tail))
+            intro = intro.lstrip('、,，:： ')
         cover = soup.select_one(
             '#fmimg img, .book-cover img, .bookimg img, .cover img'
         )
         cover_url = urllib.parse.urljoin(page_url, cover.get('src', '')) if cover else ''
+        category_meta = soup.select_one('meta[property="og:novel:category"]')
+        category = (category_meta.get('content') or '').strip() if category_meta else ''
         return {
             'bookname': title, 'author': author or 'Unknown',
             'coverUrl': cover_url, 'description': intro,
             'introduction': intro,
             'introductionHTML': f'<p>{html.escape(intro)}</p>' if intro else '',
-            'tags': [], 'category': [], 'bookUrl': book_url,
+            'tags': tags, 'category': [category] if category else [],
+            'bookUrl': book_url,
             'chapterCount': len(chapters), 'chapters': chapters,
             'language': 'zh', '_xiyuwx': True,
         }
 
     def _xiyuwx_parse_book(self, url):
         book_id = self._xiyuwx_book_id(url)
-        book_url = f'http://www.xiyuwx.com/book/{book_id}/'
+        site = self._xiyuwx_site_name(url)
+        parsed = urllib.parse.urlparse(url)
+        book_prefix = 'book/' if parsed.path.startswith('/book/') else ''
+        book_url = urllib.parse.urlunparse(parsed._replace(
+            path=f'/{book_prefix}{book_id}/', params='', query='', fragment=''
+        ))
         self._stop_requested = False
         verification_blocked = False
         candidates = list(dict.fromkeys((url, book_url)))
@@ -16673,15 +16747,15 @@ async ({ url }) => {
                 data = self._xiyuwx_book_from_page(page, final_url, book_url, book_id)
                 if data:
                     self._book_data, self._book_url = data, book_url
-                    self.log(f'[Xiyuwx] Book: {data["bookname"]} by {data["author"]} - {len(data["chapters"])} chapters')
+                    self.log(f'[{site}] Book: {data["bookname"]} by {data["author"]} - {len(data["chapters"])} chapters')
                     return data
             except Exception as exc:
-                self.log(f'[Xiyuwx] Book request failed: {exc}')
+                self.log(f'[{site}] Book request failed: {exc}')
         if not self._page:
             try:
                 self.start()
             except Exception as exc:
-                self.log(f'[Xiyuwx] Browser could not start: {exc}')
+                self.log(f'[{site}] Browser could not start: {exc}')
         for target in candidates:
             if not self._page:
                 break
@@ -16695,17 +16769,17 @@ async ({ url }) => {
                 )
                 if data:
                     self._book_data, self._book_url = data, book_url
-                    self.log(f'[Xiyuwx] Book: {data["bookname"]} by {data["author"]} - {len(data["chapters"])} chapters')
+                    self.log(f'[{site}] Book: {data["bookname"]} by {data["author"]} - {len(data["chapters"])} chapters')
                     return data
             except Exception as exc:
-                self.log(f'[Xiyuwx] Browser book request failed: {exc}')
+                self.log(f'[{site}] Browser book request failed: {exc}')
         if verification_blocked:
-            self.log('[Xiyuwx] The site is showing a security verification page; the novel could not be read.')
+            self.log(f'[{site}] The site is showing a security verification page; the novel could not be read.')
         else:
-            self.log('[Xiyuwx] Book title or chapter catalog was not found.')
+            self.log(f'[{site}] Book title or chapter catalog was not found.')
         return None
 
-    def _xiyuwx_chapter_from_page(self, page, chapter_name):
+    def _xiyuwx_chapter_from_page(self, page, chapter_name, page_url=''):
         soup = self._xiyuwx_soup(page)
         content = soup.select_one(
             '#content, #chaptercontent, #chapterContent, .chapter-content, '
@@ -16713,49 +16787,132 @@ async ({ url }) => {
         )
         if not content:
             return None
-        for node in content.select(
-            'script, style, noscript, .ads, .advertisement, .read-ads, '
-            '.chapter-ad, .bottom-ad, .ad'
-        ):
-            node.decompose()
-        for br in content.select('br'):
-            br.replace_with('\n')
-        raw = content.get_text('\n', strip=True)
-        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        shuffled = content.select_one('#chapter')
+        shuffle_script = next(
+            (node.get_text() for node in soup.select('script')
+             if '_ii_rr(' in node.get_text()), ''
+        )
+        if shuffled and shuffle_script:
+            encoded = re.search(r"_ii_rr\s*\(\s*['\"]([^'\"]+)", shuffle_script)
+            if not encoded:
+                return None
+            try:
+                positions = [int(value) for value in
+                             base64.b64decode(encoded.group(1)).decode('ascii').split(',')]
+            except (ValueError, UnicodeError):
+                return None
+            raw = re.sub(r'\[.*?作者.*?提示.*?\]', '',
+                         shuffled.decode_contents(), count=1, flags=re.S)
+            pieces = re.split(r'<br\s*/?>\s*<br\s*/?>', raw, flags=re.I)
+            indexes = [position - positions[0] for position in positions[1:]]
+            if len(indexes) != len(pieces) or sorted(indexes) != list(range(len(pieces))):
+                return None
+            lines = [self._xiyuwx_text(self._xiyuwx_soup(pieces[index]))
+                     for index in indexes]
+            lines = [re.sub(r'\s+', ' ', line.replace('\xa0', ' ')).strip()
+                     for line in lines if line.strip()]
+        else:
+            for node in content.select(
+                'script, style, noscript, .ads, .advertisement, .read-ads, '
+                '.chapter-ad, .bottom-ad, .ad'
+            ):
+                node.decompose()
+            for br in content.select('br'):
+                br.replace_with('\n')
+            raw = content.get_text('\n', strip=True)
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        if len(lines) > 1 and re.match(r'^(?:书\s*)?第\s*\d+章', lines[0]):
+            lines.pop(0)
         if not lines:
             return None
-        text = '\n'.join(lines)
+        next_page = ''
+        if page_url:
+            current = urllib.parse.urlparse(page_url)
+            stem = re.sub(r'(?:_\d+)?\.html$', '', current.path, flags=re.I)
+            for link in soup.select('a[href]'):
+                if self._xiyuwx_text(link) != '下一页':
+                    continue
+                candidate = urllib.parse.urljoin(page_url, link.get('href', ''))
+                parsed = urllib.parse.urlparse(candidate)
+                if (parsed.hostname == current.hostname and
+                        re.fullmatch(re.escape(stem) + r'_\d+\.html', parsed.path, re.I)):
+                    next_page = candidate
+                    break
         return {
             'chapterName': chapter_name, 'sourceChapterName': chapter_name,
-            'contentText': text,
+            'contentText': '\n'.join(lines),
             'contentHtml': '\n'.join(f'<p>{html.escape(line)}</p>' for line in lines),
-            'images': [],
+            'images': [], '_nextPage': next_page,
         }
 
-    def _xiyuwx_parse_chapter(self, chapter_url, chapter_name):
-        try:
-            page, _ = self._xiyuwx_fetch(chapter_url)
-        except Exception as exc:
-            self.log(f'  [Xiyuwx] Chapter request failed: {chapter_name}: {exc}')
-            return None
-        return self._xiyuwx_chapter_from_page(page, chapter_name)
+    def _xiyuwx_parse_chapter(self, chapter_url, chapter_name,
+                              interval=0, interval_max=None):
+        site = self._xiyuwx_site_name(chapter_url)
+        pages = []
+        seen = set()
+        current_url = chapter_url
+        for page_index in range(30):
+            if self._stop_requested or current_url in seen:
+                return None
+            if page_index:
+                self._sleep_interval(interval, interval_max)
+            seen.add(current_url)
+            try:
+                page, final_url = self._xiyuwx_fetch(current_url)
+            except Exception as exc:
+                self.log(f'  [{site}] Chapter request failed: {chapter_name}: {exc}')
+                return None
+            result = self._xiyuwx_chapter_from_page(page, chapter_name, final_url)
+            if not result:
+                return None
+            pages.append(result)
+            current_url = result.pop('_nextPage', '')
+            if not current_url:
+                first = pages[0]
+                first['contentText'] = '\n'.join(p['contentText'] for p in pages)
+                first['contentHtml'] = '\n'.join(p['contentHtml'] for p in pages)
+                return first
+        self.log(f'  [{site}] Chapter has too many pages: {chapter_name}')
+        return None
 
-    def _xiyuwx_browser_chapter(self, chapter_url, chapter_name):
+    def _xiyuwx_browser_chapter(self, chapter_url, chapter_name,
+                                interval=0, interval_max=None):
+        site = self._xiyuwx_site_name(chapter_url)
         if not self._page:
             try:
                 self.start()
             except Exception as exc:
-                self.log(f'  [Xiyuwx] Browser could not start: {exc}')
+                self.log(f'  [{site}] Browser could not start: {exc}')
                 return None
-        try:
-            self._page.goto(chapter_url, wait_until='domcontentloaded',
-                            timeout=30000)
-            return self._xiyuwx_chapter_from_page(
-                self._page.content(), chapter_name
-            )
-        except Exception as exc:
-            self.log(f'  [Xiyuwx] Browser chapter failed: {exc}')
-            return None
+        pages = []
+        seen = set()
+        current_url = chapter_url
+        for page_index in range(30):
+            if self._stop_requested or current_url in seen:
+                return None
+            if page_index:
+                self._sleep_interval(interval, interval_max)
+            seen.add(current_url)
+            try:
+                self._page.goto(current_url, wait_until='domcontentloaded',
+                                timeout=30000)
+                result = self._xiyuwx_chapter_from_page(
+                    self._page.content(), chapter_name, self._page.url
+                )
+            except Exception as exc:
+                self.log(f'  [{site}] Browser chapter failed: {exc}')
+                return None
+            if not result:
+                return None
+            pages.append(result)
+            current_url = result.pop('_nextPage', '')
+            if not current_url:
+                first = pages[0]
+                first['contentText'] = '\n'.join(p['contentText'] for p in pages)
+                first['contentHtml'] = '\n'.join(p['contentHtml'] for p in pages)
+                return first
+        self.log(f'  [{site}] Chapter has too many pages: {chapter_name}')
+        return None
 
     # ------------------------------------------------------------------
     # Faloo (desktop and mobile book URLs)
@@ -17099,7 +17256,8 @@ async ({ url }) => {
         """
         self.abort_reason = ''
         if self.is_xiyuwx(url):
-            self.log('[Xiyuwx] Detected Xiyuwx book URL, using native scraper.')
+            site = self._xiyuwx_site_name(url)
+            self.log(f'[{site}] Detected book URL, using native scraper.')
             return self._xiyuwx_parse_book(url)
         if self.is_faloo(url):
             self.log('[Faloo] Detected Faloo book URL, using native scraper.')
@@ -17267,10 +17425,12 @@ async ({ url }) => {
 
         if self._book_data and self._book_data.get('_xiyuwx'):
             name = chapter_info.get('fullName') or chapter_info.get('name', '')
-            result = self._xiyuwx_parse_chapter(chapter_info.get('url', ''), name)
+            result = self._xiyuwx_parse_chapter(
+                chapter_info.get('url', ''), name, interval, interval_max
+            )
             if result is None and not self._stop_requested:
                 result = self._xiyuwx_browser_chapter(
-                    chapter_info.get('url', ''), name
+                    chapter_info.get('url', ''), name, interval, interval_max
                 )
             self._sleep_interval(interval, interval_max)
             return result
@@ -17508,6 +17668,7 @@ async ({ url }) => {
                 result = self._xiyuwx_parse_chapter(
                     chapter.get('url', ''),
                     chapter.get('fullName') or chapter.get('name', ''),
+                    interval, interval_max,
                 )
                 report_success(index, result)
                 return result
@@ -17521,7 +17682,7 @@ async ({ url }) => {
                     chapter = batch_info[index]
                     name = chapter.get('fullName') or chapter.get('name', '')
                     result = self._xiyuwx_browser_chapter(
-                        chapter.get('url', ''), name
+                        chapter.get('url', ''), name, interval, interval_max
                     )
                     results[index] = result
                     report_success(index, result)
