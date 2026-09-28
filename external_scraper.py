@@ -16524,6 +16524,240 @@ async ({ url }) => {
 
 
     # ------------------------------------------------------------------
+    # Xiyuwx
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _xiyuwx_book_id(url):
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except (TypeError, ValueError):
+            return ''
+        if (parsed.hostname or '').lower() not in {'xiyuwx.com', 'www.xiyuwx.com'}:
+            return ''
+        match = re.match(r'^/book/([1-9]\d*)(?:/|$)', parsed.path, re.I)
+        return match.group(1) if match else ''
+
+    @staticmethod
+    def is_xiyuwx(url):
+        return bool(ExternalScraper._xiyuwx_book_id(url))
+
+    def _xiyuwx_fetch(self, url):
+        import requests
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': self._YEDUJI_UA,
+            'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Referer': self._book_url or 'http://www.xiyuwx.com/',
+        })
+        self._load_saved_site_cookies(session.cookies, url, 'xiyuwx.com')
+        response = session.get(url, timeout=30)
+        response.raise_for_status()
+        return response.content, response.url
+
+    @staticmethod
+    def _xiyuwx_soup(page):
+        from bs4 import BeautifulSoup
+        if isinstance(page, bytes):
+            # BeautifulSoup honors the page's declared charset (often GBK on
+            # Chinese novel sites) before falling back to detection.
+            return BeautifulSoup(page, 'html.parser')
+        return BeautifulSoup(page, 'html.parser')
+
+    @staticmethod
+    def _xiyuwx_text(node):
+        return node.get_text(' ', strip=True) if node else ''
+
+    @staticmethod
+    def _xiyuwx_chapter_links(soup, base_url, book_id):
+        prefix = f'/book/{book_id}/'
+        selectors = (
+            '#list a[href]', '#chapterlist a[href]', '.chapterlist a[href]',
+            '.chapter-list a[href]', '.chapter_list a[href]',
+            '.listmain a[href]', '.list-chapter a[href]',
+            '.catalog a[href]', '.directory a[href]', 'dl dd a[href]',
+        )
+        links = []
+        catalog_found = False
+        for selector in selectors:
+            links = soup.select(selector)
+            if links:
+                catalog_found = True
+                break
+        if not links:
+            links = soup.select('a[href]')
+        chapters, seen = [], set()
+        for link in links:
+            name = ExternalScraper._xiyuwx_text(link)
+            href = urllib.parse.urljoin(base_url, link.get('href', ''))
+            parsed = urllib.parse.urlparse(href)
+            path = parsed.path
+            if (parsed.hostname or '').lower() not in {'xiyuwx.com', 'www.xiyuwx.com'}:
+                continue
+            if not path.startswith(prefix) or path.rstrip('/') == prefix.rstrip('/'):
+                continue
+            if not re.search(r'\.(?:html?|shtml)$', path, re.I):
+                continue
+            if not name or href in seen:
+                continue
+            # A book page can contain navigation links in the same container.
+            # The URL must be a chapter page, and the label must be chapter-like.
+            if not catalog_found and not re.search(
+                r'第.{1,12}[章节回卷]|序章|楔子|前言|后记|番外|正文', name
+            ):
+                continue
+            if re.fullmatch(r'上一章|下一章|返回目录|章节目录|全部章节|目录', name):
+                continue
+            seen.add(href)
+            marker = ' '.join((name, ' '.join(link.get('class') or [])))
+            paid = bool(re.search(r'付费|订阅|收费|\bVIP\b|🔒', marker, re.I))
+            chapters.append({
+                'url': href, 'name': name, 'fullName': name,
+                'isVIP': paid, 'isPaid': paid, 'isAccessible': not paid,
+            })
+        return chapters
+
+    def _xiyuwx_book_from_page(self, page, page_url, book_url, book_id):
+        soup = self._xiyuwx_soup(page)
+        if re.search(r'Just a moment|Checking your browser', soup.title.get_text(' ', strip=True) if soup.title else '', re.I):
+            return None
+        title_node = soup.select_one(
+            '#info h1, .book-info h1, .bookinfo h1, .info h1, h1'
+        )
+        title = self._xiyuwx_text(title_node)
+        if not title:
+            meta = soup.select_one('meta[property="og:novel:book_name"], meta[property="og:title"]')
+            title = (meta.get('content') or '').strip() if meta else ''
+        chapters = self._xiyuwx_chapter_links(soup, page_url, book_id)
+        if not title or not chapters:
+            return None
+        author_node = soup.select_one(
+            '#info .author, .book-info .author, .bookinfo .author, '
+            '.info .author, a[href*="/author/"]'
+        )
+        author = self._xiyuwx_text(author_node)
+        author = re.sub(r'^作者\s*[:：]?\s*', '', author).strip()
+        if not author:
+            meta = soup.select_one('meta[property="og:novel:author"], meta[name="author"]')
+            author = (meta.get('content') or '').strip() if meta else ''
+        if not author:
+            info = self._xiyuwx_text(soup.select_one('#info, .book-info, .bookinfo'))
+            match = re.search(r'作者\s*[:：]\s*([^\s|]+)', info)
+            author = match.group(1) if match else ''
+        intro = self._xiyuwx_text(soup.select_one(
+            '#intro, .intro, .book-intro, .bookintro, .description'
+        ))
+        cover = soup.select_one(
+            '#fmimg img, .book-cover img, .bookimg img, .cover img'
+        )
+        cover_url = urllib.parse.urljoin(page_url, cover.get('src', '')) if cover else ''
+        return {
+            'bookname': title, 'author': author or 'Unknown',
+            'coverUrl': cover_url, 'description': intro,
+            'introduction': intro,
+            'introductionHTML': f'<p>{html.escape(intro)}</p>' if intro else '',
+            'tags': [], 'category': [], 'bookUrl': book_url,
+            'chapterCount': len(chapters), 'chapters': chapters,
+            'language': 'zh', '_xiyuwx': True,
+        }
+
+    def _xiyuwx_parse_book(self, url):
+        book_id = self._xiyuwx_book_id(url)
+        book_url = f'http://www.xiyuwx.com/book/{book_id}/'
+        self._stop_requested = False
+        verification_blocked = False
+        candidates = list(dict.fromkeys((url, book_url)))
+        for target in candidates:
+            try:
+                page, final_url = self._xiyuwx_fetch(target)
+                data = self._xiyuwx_book_from_page(page, final_url, book_url, book_id)
+                if data:
+                    self._book_data, self._book_url = data, book_url
+                    self.log(f'[Xiyuwx] Book: {data["bookname"]} by {data["author"]} - {len(data["chapters"])} chapters')
+                    return data
+            except Exception as exc:
+                self.log(f'[Xiyuwx] Book request failed: {exc}')
+        if not self._page:
+            try:
+                self.start()
+            except Exception as exc:
+                self.log(f'[Xiyuwx] Browser could not start: {exc}')
+        for target in candidates:
+            if not self._page:
+                break
+            try:
+                self._page.goto(target, wait_until='domcontentloaded', timeout=30000)
+                if (self._page.title() or '').lower().startswith('just a moment'):
+                    verification_blocked = True
+                    break
+                data = self._xiyuwx_book_from_page(
+                    self._page.content(), self._page.url, book_url, book_id
+                )
+                if data:
+                    self._book_data, self._book_url = data, book_url
+                    self.log(f'[Xiyuwx] Book: {data["bookname"]} by {data["author"]} - {len(data["chapters"])} chapters')
+                    return data
+            except Exception as exc:
+                self.log(f'[Xiyuwx] Browser book request failed: {exc}')
+        if verification_blocked:
+            self.log('[Xiyuwx] The site is showing a security verification page; the novel could not be read.')
+        else:
+            self.log('[Xiyuwx] Book title or chapter catalog was not found.')
+        return None
+
+    def _xiyuwx_chapter_from_page(self, page, chapter_name):
+        soup = self._xiyuwx_soup(page)
+        content = soup.select_one(
+            '#content, #chaptercontent, #chapterContent, .chapter-content, '
+            '.chapterContent, .read-content, .readContent, .content'
+        )
+        if not content:
+            return None
+        for node in content.select(
+            'script, style, noscript, .ads, .advertisement, .read-ads, '
+            '.chapter-ad, .bottom-ad, .ad'
+        ):
+            node.decompose()
+        for br in content.select('br'):
+            br.replace_with('\n')
+        raw = content.get_text('\n', strip=True)
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        if not lines:
+            return None
+        text = '\n'.join(lines)
+        return {
+            'chapterName': chapter_name, 'sourceChapterName': chapter_name,
+            'contentText': text,
+            'contentHtml': '\n'.join(f'<p>{html.escape(line)}</p>' for line in lines),
+            'images': [],
+        }
+
+    def _xiyuwx_parse_chapter(self, chapter_url, chapter_name):
+        try:
+            page, _ = self._xiyuwx_fetch(chapter_url)
+        except Exception as exc:
+            self.log(f'  [Xiyuwx] Chapter request failed: {chapter_name}: {exc}')
+            return None
+        return self._xiyuwx_chapter_from_page(page, chapter_name)
+
+    def _xiyuwx_browser_chapter(self, chapter_url, chapter_name):
+        if not self._page:
+            try:
+                self.start()
+            except Exception as exc:
+                self.log(f'  [Xiyuwx] Browser could not start: {exc}')
+                return None
+        try:
+            self._page.goto(chapter_url, wait_until='domcontentloaded',
+                            timeout=30000)
+            return self._xiyuwx_chapter_from_page(
+                self._page.content(), chapter_name
+            )
+        except Exception as exc:
+            self.log(f'  [Xiyuwx] Browser chapter failed: {exc}')
+            return None
+
+    # ------------------------------------------------------------------
     # Faloo (desktop and mobile book URLs)
     # ------------------------------------------------------------------
     @staticmethod
@@ -16864,6 +17098,9 @@ async ({ url }) => {
         Returns the parsed book dict or None on error.
         """
         self.abort_reason = ''
+        if self.is_xiyuwx(url):
+            self.log('[Xiyuwx] Detected Xiyuwx book URL, using native scraper.')
+            return self._xiyuwx_parse_book(url)
         if self.is_faloo(url):
             self.log('[Faloo] Detected Faloo book URL, using native scraper.')
             return self._faloo_parse_book(url)
@@ -17027,6 +17264,16 @@ async ({ url }) => {
         """
         if self._stop_requested:
             return None
+
+        if self._book_data and self._book_data.get('_xiyuwx'):
+            name = chapter_info.get('fullName') or chapter_info.get('name', '')
+            result = self._xiyuwx_parse_chapter(chapter_info.get('url', ''), name)
+            if result is None and not self._stop_requested:
+                result = self._xiyuwx_browser_chapter(
+                    chapter_info.get('url', ''), name
+                )
+            self._sleep_interval(interval, interval_max)
+            return result
 
         if self._book_data and self._book_data.get('_faloo'):
             name = chapter_info.get('fullName') or chapter_info.get('name', '')
@@ -17241,6 +17488,44 @@ async ({ url }) => {
                 success_callback(index, result)
             except Exception:
                 pass
+
+        if self._book_data and self._book_data.get('_xiyuwx'):
+            from concurrent.futures import ThreadPoolExecutor
+
+            launch_delays = [0.0]
+            for _ in range(1, len(batch_info)):
+                launch_delays.append(
+                    launch_delays[-1]
+                    + self._random_interval_delay(interval, interval_max)
+                )
+
+            def fetch_xiyuwx(item):
+                index, chapter = item
+                if launch_delays[index]:
+                    time.sleep(launch_delays[index])
+                if self._stop_requested:
+                    return None
+                result = self._xiyuwx_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName') or chapter.get('name', ''),
+                )
+                report_success(index, result)
+                return result
+
+            with ThreadPoolExecutor(max_workers=max(1, len(batch_info))) as pool:
+                results = list(pool.map(fetch_xiyuwx, enumerate(batch_info)))
+            if not self._stop_requested:
+                for index, result in enumerate(results):
+                    if result is not None:
+                        continue
+                    chapter = batch_info[index]
+                    name = chapter.get('fullName') or chapter.get('name', '')
+                    result = self._xiyuwx_browser_chapter(
+                        chapter.get('url', ''), name
+                    )
+                    results[index] = result
+                    report_success(index, result)
+            return results
 
         if self._book_data and self._book_data.get('_faloo'):
             from concurrent.futures import ThreadPoolExecutor

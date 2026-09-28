@@ -555,6 +555,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_faloo(url)
+                        and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
@@ -753,6 +754,9 @@ class ExternalNovelDialog(tk.Toplevel):
             is_faloo = bool(
                 self._book_data and self._book_data.get("_faloo")
             )
+            is_xiyuwx = bool(
+                self._book_data and self._book_data.get("_xiyuwx")
+            )
             is_1qxs = bool(
                 self._book_data and self._book_data.get("_1qxs")
             )
@@ -768,6 +772,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     and not is_ridibooks
                     and not is_global_novelpia
                     and not is_69shuba and not is_1qxs and not is_faloo
+                    and not is_xiyuwx
                     and not is_joara and not is_naver_novel
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
@@ -1626,6 +1631,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_faloo(url)
+                        and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
@@ -1899,6 +1905,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_faloo(url)
+                        and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
