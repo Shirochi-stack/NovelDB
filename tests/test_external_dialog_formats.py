@@ -21,6 +21,27 @@ class Setting:
         self.value = value
 
 
+def test_message_poll_yields_to_gui_when_log_queue_is_busy():
+    messages = queue.Queue()
+    for index in range(250):
+        messages.put(('log', str(index)))
+    rendered = []
+    scheduled = []
+    dialog = SimpleNamespace(
+        _msg_queue=messages,
+        _append_log=rendered.append,
+        _poll_queue=lambda: None,
+        winfo_exists=lambda: True,
+        after=lambda delay, callback: scheduled.append(delay),
+    )
+
+    ExternalNovelDialog._poll_queue(dialog)
+
+    assert 0 < len(rendered) <= 100
+    assert messages.qsize() > 0
+    assert scheduled == [10]
+
+
 def make_dialog(formats, *, long_image_layout=False, has_long_images=False):
     selected = set(formats)
     calls = []

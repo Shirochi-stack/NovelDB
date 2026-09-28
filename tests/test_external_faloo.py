@@ -1,5 +1,8 @@
 import threading
+import queue
+from types import SimpleNamespace
 
+from external_dialog import ExternalNovelDialog
 from external_scraper import ExternalScraper
 
 
@@ -179,6 +182,10 @@ def test_faloo_batch_recovers_missing_http_chapters_in_browser(monkeypatch):
         '正文 0', '正文 1', '正文 2',
     ]
     assert completed == [0, 1, 2]
+    assert len(scraper._context.pages) == 3
+    scraper.parse_chapter_batch(chapters, interval=0)
+    assert len(scraper._context.pages) == 3
+    scraper.close_faloo_pages()
     assert all(page.closed for page in scraper._context.pages)
 
 
@@ -201,3 +208,54 @@ def test_faloo_batch_uses_parallel_workers_and_preserves_order(monkeypatch):
     )
     assert [item['chapterName'] for item in result] == ['0', '1', '2']
     assert sorted(completed) == [0, 1, 2]
+
+
+def test_faloo_download_does_not_start_browser_for_metadata(monkeypatch):
+    started = []
+
+    class Scraper:
+        _normalize_interval_range = staticmethod(
+            ExternalScraper._normalize_interval_range
+        )
+
+        def __init__(self, logger):
+            self._context = None
+
+        def __getattr__(self, name):
+            if name.startswith('is_'):
+                return lambda url: False
+            raise AttributeError(name)
+
+        def is_faloo(self, url):
+            return True
+
+        def start(self):
+            started.append(True)
+
+        def parse_book(self, url):
+            return {'_faloo': True, 'chapterCount': 0, 'chapters': []}
+
+    class Setting:
+        def get(self):
+            return False
+
+    monkeypatch.setattr('external_dialog.ExternalScraper', Scraper)
+    dialog = SimpleNamespace(
+        _scraper=None, _book_data=None, _downloading=True,
+        _download_cancelled=False, _active_generate_on_stop=False,
+        _var_from_enabled=Setting(), _var_to_enabled=Setting(),
+        _msg_queue=queue.Queue(), _chapter_results=[],
+        _apply_scraper_options=lambda: None,
+        _format_interval_range=lambda low, high: f'{low}-{high}',
+        _do_download=lambda *args, **kwargs: None,
+        _log=lambda message: None,
+    )
+    ExternalNovelDialog._do_fetch_and_download(
+        dialog, 'https://b.faloo.com/1543561.html',
+        1.0, 4, False, interval_max=2.0,
+    )
+    assert started == []
+    assert dialog._book_data['_faloo'] is True
+    assert [kind for kind, _ in list(dialog._msg_queue.queue)] == [
+        'book_parsed', 'finished',
+    ]

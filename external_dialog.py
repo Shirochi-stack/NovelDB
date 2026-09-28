@@ -431,9 +431,12 @@ class ExternalNovelDialog(tk.Toplevel):
 
     def _poll_queue(self):
         """Drain the message queue and update the UI."""
+        deadline = time.perf_counter() + 0.01
+        handled = 0
         try:
-            while True:
+            while handled < 100 and time.perf_counter() < deadline:
                 kind, data = self._msg_queue.get_nowait()
+                handled += 1
                 if kind == "log":
                     self._append_log(data)
                 elif kind == "book_parsed":
@@ -453,7 +456,8 @@ class ExternalNovelDialog(tk.Toplevel):
         except queue.Empty:
             pass
         if self.winfo_exists():
-            self.after(100, self._poll_queue)
+            self.after(10 if handled == 100 or time.perf_counter() >= deadline
+                       else 100, self._poll_queue)
 
     def _append_log(self, text):
         self._console.configure(state="normal")
@@ -550,6 +554,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
+                        and not self._scraper.is_faloo(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
@@ -745,6 +750,9 @@ class ExternalNovelDialog(tk.Toplevel):
             is_69shuba = bool(
                 self._book_data and self._book_data.get("_69shuba")
             )
+            is_faloo = bool(
+                self._book_data and self._book_data.get("_faloo")
+            )
             is_1qxs = bool(
                 self._book_data and self._book_data.get("_1qxs")
             )
@@ -759,7 +767,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     and not is_munpia
                     and not is_ridibooks
                     and not is_global_novelpia
-                    and not is_69shuba and not is_1qxs
+                    and not is_69shuba and not is_1qxs and not is_faloo
                     and not is_joara and not is_naver_novel
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
@@ -1223,6 +1231,10 @@ class ExternalNovelDialog(tk.Toplevel):
             self._chapter_results = results
         except Exception as e:
             self._log(f"\u274c Download error: {e}")
+        finally:
+            if (self._scraper and self._book_data
+                    and self._book_data.get('_faloo')):
+                self._scraper.close_faloo_pages()
 
     def _do_open_browser(self, start_url=None, regular_browser=False):
         """Open a visible browser on the worker thread for manual login."""
@@ -1613,6 +1625,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
+                        and not self._scraper.is_faloo(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)
@@ -1885,6 +1898,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_qidian(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
+                        and not self._scraper.is_faloo(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
                         and not self._scraper.is_munpia(url)

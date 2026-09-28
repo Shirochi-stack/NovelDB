@@ -207,6 +207,7 @@ class ExternalScraper:
         self._global_novelpia_ad_profile = None
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
+        self._faloo_pages = []    # Reused Faloo reader pages
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
         self._ntk_api_state = None
@@ -4060,6 +4061,7 @@ class ExternalScraper:
             except Exception:
                 pass
         self._worker_pages = []
+        self.close_faloo_pages()
         try:
             if self._page:
                 self._page.close()
@@ -16807,48 +16809,54 @@ async ({ url }) => {
             except Exception as exc:
                 self.log(f'  [Faloo] Browser could not start: {exc}')
                 return [None] * len(chapters)
-        pages = [None] * len(chapters)
+        while len(self._faloo_pages) < len(chapters):
+            self._faloo_pages.append(self._context.new_page())
+        pages = self._faloo_pages[:len(chapters)]
         results = [None] * len(chapters)
-        try:
-            # Starting each navigation at response commit lets their page
-            # loads continue together while Playwright stays on one thread.
-            for index, chapter in enumerate(chapters):
-                if self._stop_requested:
-                    break
+        loaded = [False] * len(chapters)
+        # Starting each navigation at response commit lets their page
+        # loads continue together while Playwright stays on one thread.
+        for index, chapter in enumerate(chapters):
+            if self._stop_requested:
+                break
+            try:
+                pages[index].goto(
+                    chapter.get('url', ''), wait_until='commit', timeout=30000
+                )
+                loaded[index] = True
+            except Exception as exc:
+                self.log(f'  [Faloo] Browser chapter failed: {exc}')
+        for index, page in enumerate(pages):
+            if self._stop_requested:
+                break
+            if not loaded[index]:
+                continue
+            try:
                 try:
-                    page = self._context.new_page()
-                    pages[index] = page
-                    page.goto(chapter.get('url', ''), wait_until='commit',
-                              timeout=30000)
-                except Exception as exc:
-                    self.log(f'  [Faloo] Browser chapter failed: {exc}')
-            for index, page in enumerate(pages):
-                if page is None or self._stop_requested:
-                    continue
-                try:
-                    try:
-                        page.wait_for_selector(
-                            '.noveContent, #novelContent, .novelContent, '
-                            '#chapterContent, .chapter-content',
-                            timeout=8000,
-                        )
-                    except PlaywrightTimeoutError:
-                        pass
-                    chapter = chapters[index]
-                    name = chapter.get('fullName') or chapter.get('name', '')
-                    results[index] = self._faloo_chapter_from_page(
-                        page.content(), name
+                    page.wait_for_selector(
+                        '.noveContent, #novelContent, .novelContent, '
+                        '#chapterContent, .chapter-content',
+                        timeout=8000,
                     )
-                except Exception as exc:
-                    self.log(f'  [Faloo] Browser chapter failed: {exc}')
-        finally:
-            for page in pages:
-                if page is not None:
-                    try:
-                        page.close()
-                    except Exception:
-                        pass
+                except PlaywrightTimeoutError:
+                    pass
+                chapter = chapters[index]
+                name = chapter.get('fullName') or chapter.get('name', '')
+                results[index] = self._faloo_chapter_from_page(
+                    page.content(), name
+                )
+            except Exception as exc:
+                self.log(f'  [Faloo] Browser chapter failed: {exc}')
         return results
+
+    def close_faloo_pages(self):
+        """Release reader pages after the current Faloo download."""
+        for page in self._faloo_pages:
+            try:
+                page.close()
+            except Exception:
+                pass
+        self._faloo_pages = []
 
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
