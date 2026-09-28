@@ -16521,12 +16521,344 @@ async ({ url }) => {
         return result
 
 
+    # ------------------------------------------------------------------
+    # Faloo (desktop and mobile book URLs)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _faloo_book_id(url):
+        """Accept Faloo's book, catalog and chapter links on either host."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except (TypeError, ValueError):
+            return ''
+        if (parsed.hostname or '').lower() not in {
+            'b.faloo.com', 'wap.faloo.com', 'www.faloo.com',
+        }:
+            return ''
+        path = parsed.path or ''
+        for pattern in (r'^/(\d+)(?:[_./]|$)',
+                        r'^/(?:book|novel|catalog|directory)/?(\d+)(?:[/._]|$)'):
+            match = re.match(pattern, path, re.I)
+            if match:
+                return match.group(1)
+        query = urllib.parse.parse_qs(parsed.query)
+        for key in ('id', 'bookid', 'book_id', 'novelid'):
+            value = (query.get(key) or [''])[0]
+            if re.fullmatch(r'[1-9]\d*', value):
+                return value
+        return ''
+
+    @staticmethod
+    def is_faloo(url):
+        return bool(ExternalScraper._faloo_book_id(url))
+
+    def _faloo_fetch(self, url):
+        import requests
+        session = requests.Session()  # A session per call is safe in the batch pool.
+        session.headers.update({
+            'User-Agent': self._YEDUJI_UA,
+            'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Referer': 'https://b.faloo.com/',
+        })
+        self._load_saved_site_cookies(session.cookies, url, 'faloo.com')
+        response = session.get(url, timeout=30)
+        response.raise_for_status()
+        return response.content, response.url
+
+    @staticmethod
+    def _faloo_decode_html(page):
+        """Faloo desktop pages use GBK; mobile pages may use UTF-8."""
+        if isinstance(page, str):
+            return page
+        try:
+            return page.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return page.decode('gb18030', errors='replace')
+
+    @staticmethod
+    def _faloo_soups(page):
+        """Try explicit decoding and the parser's original byte detection."""
+        from bs4 import BeautifulSoup
+        yield BeautifulSoup(ExternalScraper._faloo_decode_html(page), 'html.parser')
+        if isinstance(page, bytes):
+            yield BeautifulSoup(page, 'html.parser')
+
+    @staticmethod
+    def _faloo_fix_text(value):
+        """Repair GBK text already misread as Latin-1 or Windows-1252."""
+        if not value or re.search(r'[\u3400-\u9fff]', value):
+            return value
+        for encoding in ('latin-1', 'cp1252'):
+            try:
+                repaired = value.encode(encoding).decode('gb18030')
+            except (UnicodeError, ValueError):
+                continue
+            if re.search(r'[\u3400-\u9fff]', repaired):
+                return repaired
+        return value
+
+    @staticmethod
+    def _faloo_text(node):
+        value = node.get_text(' ', strip=True) if node else ''
+        return ExternalScraper._faloo_fix_text(value)
+
+    @staticmethod
+    def _faloo_chapter_links(soup, base_url, book_id):
+        """Read the site's catalog container, retaining its displayed order."""
+        selectors = (
+            'div.C-Fo-Zuo div.DivTable a[href]',  # desktop catalog
+            '.DivTable a[href]', '.chapter-list a[href]',
+            '.chapterList a[href]', '#chapter-list a[href]',
+            '#chapterList a[href]', '.catalog a[href]',
+            '.directory a[href]', '.book-list a[href]',
+        )
+        for selector in selectors:
+            links = soup.select(selector)
+            if links:
+                break
+        else:
+            links = []
+        chapters, seen = [], set()
+        for link in links:
+            href = urllib.parse.urljoin(base_url, link.get('href', ''))
+            parsed = urllib.parse.urlparse(href)
+            if (parsed.hostname or '').lower() not in {
+                'b.faloo.com', 'wap.faloo.com', 'www.faloo.com',
+            } or not re.search(r'\.(?:html|aspx)$', parsed.path, re.I):
+                continue
+            # Exclude the work page and catalog navigation.
+            if re.fullmatch(rf'/{re.escape(book_id)}\.html', parsed.path, re.I):
+                continue
+            name = ExternalScraper._faloo_text(link)
+            if not name or href in seen:
+                continue
+            seen.add(href)
+            row = link.find_parent(['li', 'dd', 'tr']) or link.parent
+            marker = ' '.join((
+                link.get('class') and ' '.join(link.get('class')) or '',
+                row.get('class') and ' '.join(row.get('class')) or '',
+                ExternalScraper._faloo_text(row),
+            ))
+            paid = bool(re.search(r'\bvip\b|付费|订阅|收费|已锁|🔒', marker, re.I))
+            chapters.append({
+                'url': href, 'name': name, 'fullName': name,
+                'isVIP': paid, 'isPaid': paid, 'isAccessible': not paid,
+            })
+        return chapters
+
+    def _faloo_book_from_page(self, page, final_url, book_id, canonical):
+        for soup in self._faloo_soups(page):
+            data = self._faloo_book_from_soup(
+                soup, final_url, book_id, canonical
+            )
+            if data:
+                return data
+        return None
+
+    def _faloo_book_from_soup(self, soup, final_url, book_id, canonical):
+        title = self._faloo_text(soup.select_one('h1#novelName'))
+        if not title:
+            title = self._faloo_text(soup.select_one('h1'))
+        chapters = self._faloo_chapter_links(soup, final_url, book_id)
+        if not title or not chapters:
+            return None
+        author = self._faloo_text(soup.select_one('a.rentouOne, .author a, .author'))
+        if not author:
+            image = soup.select_one('img.rentouOne')
+            if image:
+                author = self._faloo_fix_text(
+                    (image.get('alt') or image.get('title') or '').strip()
+                )
+                if not author:
+                    author = self._faloo_text(image.parent)
+                    author = re.sub(r'^作者\s*[:：]?\s*', '', author)
+        if not author:
+            meta_author = soup.select_one('meta[name="author"]')
+            author = self._faloo_fix_text(
+                (meta_author.get('content') or '').strip()
+            ) if meta_author else ''
+        introduction = self._faloo_text(soup.select_one(
+            'div.T-L-T-C-Box1, .book-intro, .bookIntro, .intro'
+        ))
+        cover = soup.select_one('img.imgcss, .book-cover img, .cover img')
+        cover_url = urllib.parse.urljoin(final_url, cover.get('src', '')) if cover else ''
+        data = {
+            'bookname': title, 'author': author or 'Unknown',
+            'coverUrl': cover_url, 'description': introduction,
+            'introduction': introduction,
+            'introductionHTML': f'<p>{html.escape(introduction)}</p>' if introduction else '',
+            'tags': [self._faloo_text(tag) for tag in soup.select('div.T-R-T-B2-Box1 a')],
+            'category': [], 'bookUrl': canonical,
+            'chapterCount': len(chapters), 'chapters': chapters,
+            'language': 'zh', '_faloo': True,
+        }
+        return data
+
+    def _faloo_parse_book(self, url):
+        book_id = self._faloo_book_id(url)
+        canonical = f'https://b.faloo.com/{book_id}.html'
+        self._stop_requested = False
+        candidates = [canonical]
+        if url != canonical:
+            candidates.append(url)
+
+        for target in candidates:
+            try:
+                page, final_url = self._faloo_fetch(target)
+                data = self._faloo_book_from_page(
+                    page, final_url, book_id, canonical
+                )
+                if data:
+                    self._book_data, self._book_url = data, canonical
+                    self.log(
+                        f'[Faloo] Book: {data["bookname"]} by '
+                        f'{data["author"]} - {len(data["chapters"])} chapters'
+                    )
+                    return data
+            except Exception as exc:
+                self.log(f'[Faloo] Book request failed: {exc}')
+
+        # The HTTP response can lack the catalog while the site's browser
+        # version renders it. Reuse the existing External Downloader page.
+        if not self._page:
+            try:
+                self.start()
+            except Exception as exc:
+                self.log(f'[Faloo] Browser could not start: {exc}')
+        for target in candidates:
+            if not self._page:
+                break
+            try:
+                self._page.goto(target, wait_until='domcontentloaded', timeout=30000)
+                data = self._faloo_book_from_page(
+                    self._page.content(), self._page.url, book_id, canonical
+                )
+                if not data:
+                    try:
+                        self._page.wait_for_selector(
+                            'div.C-Fo-Zuo div.DivTable a, .chapter-list a, '
+                            '.chapterList a, .catalog a', timeout=10000
+                        )
+                    except PlaywrightTimeoutError:
+                        pass
+                    data = self._faloo_book_from_page(
+                        self._page.content(), self._page.url, book_id, canonical
+                    )
+                if data:
+                    self._book_data, self._book_url = data, canonical
+                    self.log(
+                        f'[Faloo] Book: {data["bookname"]} by '
+                        f'{data["author"]} - {len(data["chapters"])} chapters'
+                    )
+                    return data
+            except Exception as exc:
+                self.log(f'[Faloo] Browser book request failed: {exc}')
+        self.log('[Faloo] Book title or chapter catalog was not found.')
+        return None
+
+    def _faloo_parse_chapter(self, chapter_url, chapter_name):
+        try:
+            page, _ = self._faloo_fetch(chapter_url)
+        except Exception as exc:
+            self.log(f'  [Faloo] Chapter request failed: {chapter_name}: {exc}')
+            return None
+        return self._faloo_chapter_from_page(page, chapter_name)
+
+    def _faloo_chapter_from_page(self, page, chapter_name):
+        soup = content = None
+        for candidate in self._faloo_soups(page):
+            candidate_content = candidate.select_one(
+                '.noveContent, #novelContent, .novelContent, '
+                '#chapterContent, .chapter-content'
+            )
+            soup = candidate
+            if candidate_content:
+                content = candidate_content
+                break
+        if not content:
+            if re.search(r'订阅|充值|购买本章|开通VIP', soup.get_text(' ', strip=True)):
+                return {'_locked': True, 'chapterName': chapter_name}
+            return None
+        # Faloo also serves some VIP chapters as images. Never present a
+        # teaser, payment message or image placeholder as full chapter text.
+        if content.select_one('.con_img'):
+            return {'_locked': True, 'chapterName': chapter_name}
+        for node in content.select('script, style, noscript, .ads, .advertisement'):
+            node.decompose()
+        text = self._faloo_fix_text(content.get_text('\n', strip=True))
+        if not text or re.search(r'^(?:订阅|充值|购买本章|开通VIP)', text):
+            return {'_locked': True, 'chapterName': chapter_name}
+        paragraphs = [line.strip() for line in text.splitlines() if line.strip()]
+        return {
+            'chapterName': chapter_name, 'sourceChapterName': chapter_name,
+            'contentText': '\n'.join(paragraphs),
+            'contentHtml': '\n'.join(f'<p>{html.escape(line)}</p>' for line in paragraphs),
+            'images': [],
+        }
+
+    def _faloo_parse_chapters_browser(self, chapters):
+        """Render missing chapters in browser tabs on Playwright's thread."""
+        if not chapters:
+            return []
+        if not self._context:
+            try:
+                self.start()
+            except Exception as exc:
+                self.log(f'  [Faloo] Browser could not start: {exc}')
+                return [None] * len(chapters)
+        pages = [None] * len(chapters)
+        results = [None] * len(chapters)
+        try:
+            # Starting each navigation at response commit lets their page
+            # loads continue together while Playwright stays on one thread.
+            for index, chapter in enumerate(chapters):
+                if self._stop_requested:
+                    break
+                try:
+                    page = self._context.new_page()
+                    pages[index] = page
+                    page.goto(chapter.get('url', ''), wait_until='commit',
+                              timeout=30000)
+                except Exception as exc:
+                    self.log(f'  [Faloo] Browser chapter failed: {exc}')
+            for index, page in enumerate(pages):
+                if page is None or self._stop_requested:
+                    continue
+                try:
+                    try:
+                        page.wait_for_selector(
+                            '.noveContent, #novelContent, .novelContent, '
+                            '#chapterContent, .chapter-content',
+                            timeout=8000,
+                        )
+                    except PlaywrightTimeoutError:
+                        pass
+                    chapter = chapters[index]
+                    name = chapter.get('fullName') or chapter.get('name', '')
+                    results[index] = self._faloo_chapter_from_page(
+                        page.content(), name
+                    )
+                except Exception as exc:
+                    self.log(f'  [Faloo] Browser chapter failed: {exc}')
+        finally:
+            for page in pages:
+                if page is not None:
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+        return results
+
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
 
         Returns the parsed book dict or None on error.
         """
         self.abort_reason = ''
+        if self.is_faloo(url):
+            self.log('[Faloo] Detected Faloo book URL, using native scraper.')
+            return self._faloo_parse_book(url)
         if self.is_1qxs(url):
             self.log(
                 '[1qxs] Detected 1qxs URL, using the direct HTTP scraper.'
@@ -16687,6 +17019,14 @@ async ({ url }) => {
         """
         if self._stop_requested:
             return None
+
+        if self._book_data and self._book_data.get('_faloo'):
+            name = chapter_info.get('fullName') or chapter_info.get('name', '')
+            result = self._faloo_parse_chapter(chapter_info.get('url', ''), name)
+            if result is None:
+                result = self._faloo_parse_chapters_browser([chapter_info])[0]
+            self._sleep_interval(interval, interval_max)
+            return result
 
         if self._book_data and self._book_data.get('_1qxs'):
             url = chapter_info.get('url', '')
@@ -16893,6 +17233,42 @@ async ({ url }) => {
                 success_callback(index, result)
             except Exception:
                 pass
+
+        if self._book_data and self._book_data.get('_faloo'):
+            from concurrent.futures import ThreadPoolExecutor
+
+            launch_delays = [0.0]
+            for _ in range(1, len(batch_info)):
+                launch_delays.append(
+                    launch_delays[-1]
+                    + self._random_interval_delay(interval, interval_max)
+                )
+
+            def fetch_faloo(item):
+                index, chapter = item
+                if launch_delays[index]:
+                    time.sleep(launch_delays[index])
+                if self._stop_requested:
+                    return None
+                result = self._faloo_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName') or chapter.get('name', ''),
+                )
+                report_success(index, result)
+                return result
+
+            # The dialog sizes a batch from the user's thread setting.
+            with ThreadPoolExecutor(max_workers=max(1, len(batch_info))) as pool:
+                results = list(pool.map(fetch_faloo, enumerate(batch_info)))
+            missing = [i for i, result in enumerate(results) if result is None]
+            if missing and not self._stop_requested:
+                recovered = self._faloo_parse_chapters_browser(
+                    [batch_info[i] for i in missing]
+                )
+                for index, result in zip(missing, recovered):
+                    results[index] = result
+                    report_success(index, result)
+            return results
 
         if self._book_data and self._book_data.get('_1qxs'):
             from concurrent.futures import ThreadPoolExecutor
