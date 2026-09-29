@@ -905,6 +905,108 @@ def test_ridi_refusal_of_owned_volume_is_reported_as_app_only():
     assert page.calls == [['6121000538', '6121000539', '6121000540']]
 
 
+def test_ridi_owned_volume_uses_pc_viewer_after_library_confirms_purchase(
+    monkeypatch,
+):
+    from ridi_app_proxy import RidiAppProxy
+    calls = []
+    class Context:
+        def cookies(self, urls):
+            return [{'name': 'ridi-at'}]
+        def new_page(self):
+            raise AssertionError('The mocked proxy should own this operation')
+    def extract(self, context, book_id, title, url):
+        calls.append((book_id, title, url))
+        return {'chapterName': title, 'contentHtml': '<p>owned text</p>'}
+    monkeypatch.setattr(RidiAppProxy, 'extract', extract)
+    scraper = ExternalScraper(logger=lambda message: None)
+    scraper._context = Context()
+    _ridi_book(scraper)
+    page = _OwnedPage(['6121000538'])
+    owned = scraper._ridi_refused_result('Vol 1', page, '6121000538')
+    unowned = scraper._ridi_refused_result('Vol 2', page, '6121000539')
+    assert owned['contentHtml'] == '<p>owned text</p>'
+    assert unowned['_lockReason'] == 'purchase'
+    assert calls == [('6121000538', 'Vol 1',
+                      'https://view.ridibooks.com/books/6121000538')]
+
+
+def test_ridi_reader_selects_new_spine_on_two_page_chapter_boundary():
+    from ridi_app_proxy import RidiAppProxy
+    frames = [
+        {'spine': 10, 'html': '<p>Previous chapter</p>'},
+        {'spine': 11, 'html': '<p>New chapter</p>'},
+    ]
+    assert RidiAppProxy._select_front_section(frames) == frames[1]
+
+
+def test_ridi_pc_handoff_opens_executable_without_windows_uri_handler(
+    monkeypatch,
+):
+    import os
+    import ridi_app_proxy
+    calls = []
+    proxy = ridi_app_proxy.RidiAppProxy(lambda message: None)
+    proxy.executable = r'C:\Program Files\RIDI\Ridibooks\Ridibooks.exe'
+    monkeypatch.setattr(proxy, '_sso', lambda context: 'short-lived-ticket')
+    monkeypatch.setattr(proxy, '_wait', lambda *args, **kwargs: True)
+    monkeypatch.setattr(proxy, '_wait_for_viewer', lambda snapshot: True)
+    monkeypatch.setattr(ridi_app_proxy.subprocess, 'Popen',
+                        lambda args, **kwargs: calls.append(args))
+    monkeypatch.setattr(os, 'startfile',
+                        lambda link: (_ for _ in ()).throw(
+                            AssertionError('Windows URI handler was used')))
+    proxy._open_owned_book(object(), '6121000538', 'Owned volume')
+    assert len(calls) == 1
+    assert calls[0][0] == proxy.executable
+    assert calls[0][1].startswith('ridi://download?sso_otp=')
+    assert '6121000538' in calls[0][1]
+
+
+def test_ridi_reader_reports_invalid_local_cache_from_new_log_lines(
+    monkeypatch,
+):
+    import io
+    import ridi_app_proxy
+    reader_log = b'previous error\nInvalid or unsupported zip format. No END header found\n'
+    monkeypatch.setattr(ridi_app_proxy, 'open',
+                        lambda *args, **kwargs: io.BytesIO(reader_log),
+                        raising=False)
+    assert not ridi_app_proxy.RidiAppProxy._reader_cache_error(
+        ('reader.log', len(reader_log)))
+    assert ridi_app_proxy.RidiAppProxy._reader_cache_error(
+        ('reader.log', len(b'previous error\n')))
+
+
+def test_ridi_volume_sections_populate_epub_navigation():
+    import xml.etree.ElementTree as ET
+    from epub_generator import EpubGenerator
+
+    epub = EpubGenerator(
+        {'title': 'Owned volume', 'author': 'Author'}, 'unused.epub', ''
+    )
+    epub.add_chapter(
+        'Owned volume',
+        '<div id="ridi-section-1">Prologue</div>'
+        '<div id="ridi-section-2">Chapter one</div>',
+        show_title=False,
+        toc_sections=[
+            {'title': 'Prologue', 'id': 'ridi-section-1'},
+            {'title': 'Chapter one', 'id': 'ridi-section-2'},
+        ],
+    )
+    ncx = ET.fromstring(epub._create_toc_ncx())
+    ns = {'n': 'http://www.daisy.org/z3986/2005/ncx/'}
+    points = ncx.findall('.//n:navPoint', ns)
+    assert [point.find('n:navLabel/n:text', ns).text for point in points] == [
+        'Prologue', 'Chapter one'
+    ]
+    assert [point.find('n:content', ns).get('src') for point in points] == [
+        'Text/chapter0001.xhtml#ridi-section-1',
+        'Text/chapter0001.xhtml#ridi-section-2',
+    ]
+
+
 def test_ridi_refusal_without_ownership_answer_stays_generic():
     logs = []
     scraper = _ridi_with_cookies(['ridi-at'], logs)

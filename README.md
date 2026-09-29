@@ -103,12 +103,16 @@ to the API credential before chapter 1, while users without saved login cookies
 continue anonymously without an account request. The slower Global API uses a
 90-second request timeout.
 
-Ridi support covers serialized webnovels, not volume ebooks. Free episodes and
-episodes purchased or rented by the logged-in account can be downloaded; other
-premium episodes are reported as locked. Ridi runs in the saved installed-Chrome
-profile so its product page, book API, and Cloudflare session share one browser
-identity. If Ridi requests verification, open the URL with **Enter Browser**,
-complete it, close that window, and retry.
+Ridi support covers serialized webnovels and owned volume ebooks. Free episodes
+and episodes purchased or rented by the logged-in account can be downloaded;
+other premium episodes are reported as locked. For a volume that Ridi refuses in
+its web viewer, the downloader passes the saved Chrome login to the official
+RIDI Windows PC viewer and reads its rendered sections into the EPUB. Install
+the RIDI PC viewer first. Close an already running PC viewer before retrying so
+the downloader can start it with local reader access. Ridi runs in the saved
+installed-Chrome profile so its product page, book API, and Cloudflare session
+share one browser identity. If Ridi requests verification, open the URL with
+**Enter Browser**, complete it, close that window, and retry.
 
 ### Updating Rules
 

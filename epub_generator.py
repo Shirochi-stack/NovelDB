@@ -31,7 +31,8 @@ class EpubGenerator:
         self._notice_index = 1
 
     def add_chapter(self, title, html_content, is_notice: bool = False,
-                    show_title: bool = True, chapter_number=None):
+                    show_title: bool = True, chapter_number=None,
+                    toc_sections=None):
         """Add a chapter to the book.
 
         Normal chapters are named chapter0001.xhtml, chapter0002.xhtml, ...
@@ -56,6 +57,7 @@ class EpubGenerator:
             "content": html_content,
             "filename": filename,
             "show_title": show_title,
+            "toc_sections": toc_sections or [],
         })
 
     def add_image(self, filename, data):
@@ -80,13 +82,22 @@ class EpubGenerator:
     def _create_toc_ncx(self):
         # Generates the Navigation Control file for the Table of Contents
         nav_points = ""
-        for idx, chap in enumerate(self.chapters):
+        entries = []
+        for chap in self.chapters:
+            sections = chap.get('toc_sections') or []
+            if sections:
+                entries.extend(
+                    (section['title'], chap['filename'] + '#' + section['id'])
+                    for section in sections
+                )
+            else:
+                entries.append((chap['title'], chap['filename']))
+        for idx, (title, href) in enumerate(entries):
             play_order = idx + 1
-            href = chap["filename"]
             nav_points += f"""
     <navPoint id="navPoint-{play_order}" playOrder="{play_order}">
-        <navLabel><text>{html.escape(chap['title'])}</text></navLabel>
-        <content src="Text/{href}"/>
+        <navLabel><text>{html.escape(title)}</text></navLabel>
+        <content src="Text/{html.escape(href, quote=True)}"/>
     </navPoint>"""
         
         return f"""<?xml version="1.0" encoding="UTF-8"?>

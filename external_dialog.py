@@ -2923,10 +2923,14 @@ img { display: block; max-width: 100%; max-height: 100%;
                 show_chapter_title = not is_kakao
                 if use_long_image_layout and ch_data.get('images'):
                     show_chapter_title = False
+                toc_sections = ch_data.get('tocSections') or []
+                if toc_sections:
+                    show_chapter_title = False
                 epub.add_chapter(
                     ch_name, content_html, show_title=show_chapter_title,
                     is_notice=is_notice,
                     chapter_number=None if is_notice else chapter_number,
+                    toc_sections=toc_sections,
                 )
 
             if is_kakao and self._var_kakao_dedupe_images.get():

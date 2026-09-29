@@ -190,6 +190,8 @@ class ExternalScraper:
         self._novelpia_cdp_port = None
         self._ridi_chrome = False
         self._ridi_cdp_port = None
+        self._ridi_app_proxy = None
+        self._ridi_app_lock = threading.Lock()
         self._global_novelpia_session = None
         self._global_novelpia_login_at = ''
         self._global_novelpia_refresh_attempted = False
@@ -11588,10 +11590,29 @@ async (ids) => {
                 )
                 reason = 'purchase'
             elif owned is not None:
+                if sys.platform == 'win32' and hasattr(self._context, 'new_page'):
+                    try:
+                        from ridi_app_proxy import RidiAppProxy
+                        with self._ridi_app_lock:
+                            if self._ridi_app_proxy is None:
+                                self._ridi_app_proxy = RidiAppProxy(
+                                    self.log, lambda: self._stop_requested
+                                )
+                            result = self._ridi_app_proxy.extract(
+                                self._context, str(book_id), chapter_name,
+                                f'https://view.ridibooks.com/books/{book_id}',
+                            )
+                        if result and result.get('contentHtml'):
+                            self.log(f'  [Ridi] Saved owned PC viewer volume: '
+                                     f'{chapter_name}')
+                            return result
+                    except Exception as exc:
+                        self.log(f'  [Ridi] PC viewer could not read '
+                                 f'{chapter_name}: {exc}')
                 self.log(
                     f'  [Ridi] You own {chapter_name}, but Ridi will not open '
                     'it in its web viewer ("웹 뷰어에서 지원하지 않는 작품입니다"). '
-                    'Ridi serves this ebook only in the RIDI app/PC viewer.'
+                    'The RIDI PC viewer could not provide this volume.'
                 )
                 reason = 'app_only'
             else:
