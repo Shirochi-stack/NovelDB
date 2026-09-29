@@ -81,36 +81,49 @@ class EpubGenerator:
 
     def _create_toc_ncx(self):
         # Generates the Navigation Control file for the Table of Contents
-        nav_points = ""
+        nav_points = []
         entries = []
         for chap in self.chapters:
             sections = chap.get('toc_sections') or []
             if sections:
-                entries.extend(
-                    (section['title'], chap['filename'] + '#' + section['id'])
-                    for section in sections
-                )
+                entries.extend((section, chap['filename'])
+                               for section in sections)
             else:
-                entries.append((chap['title'], chap['filename']))
-        for idx, (title, href) in enumerate(entries):
-            play_order = idx + 1
-            nav_points += f"""
-    <navPoint id="navPoint-{play_order}" playOrder="{play_order}">
-        <navLabel><text>{html.escape(title)}</text></navLabel>
-        <content src="Text/{html.escape(href, quote=True)}"/>
+                entries.append(({'title': chap['title']}, chap['filename']))
+
+        play_order = 0
+        toc_depth = 1
+
+        def render(section, filename, depth=1):
+            nonlocal play_order, toc_depth
+            play_order += 1
+            toc_depth = max(toc_depth, depth)
+            point_id = play_order
+            href = filename + ('#' + section['id'] if section.get('id') else '')
+            children = ''.join(
+                render(child, filename, depth + 1)
+                for child in section.get('children') or []
+            )
+            return f"""
+    <navPoint id="navPoint-{point_id}" playOrder="{point_id}">
+        <navLabel><text>{html.escape(section['title'])}</text></navLabel>
+        <content src="Text/{html.escape(href, quote=True)}"/>{children}
     </navPoint>"""
-        
+
+        for section, filename in entries:
+            nav_points.append(render(section, filename))
+
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
 <head>
     <meta name="dtb:uid" content="urn:uuid:{self.book_uuid}"/>
-    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:depth" content="{toc_depth}"/>
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
 </head>
 <docTitle><text>{html.escape(self.meta['title'])}</text></docTitle>
-<navMap>{nav_points}</navMap>
+<navMap>{''.join(nav_points)}</navMap>
 </ncx>"""
 
     def _create_content_opf(self):

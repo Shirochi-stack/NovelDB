@@ -233,23 +233,40 @@ class RidiAppProxy:
                    '  [Ridi] Waiting for the RIDI library to open...')
         self.log('  [Ridi] RIDI library opened; locating the owned volume...')
         title_js = json.dumps(title, ensure_ascii=False)
+        book_id_js = json.dumps(str(book_id))
         def click_book():
             return self._evaluate('Books', """(() => {
               const title = %s;
+              const bookId = %s;
               const matches = [...document.querySelectorAll('*')].filter(e =>
                 e.textContent?.trim() === title &&
                 ![...e.children].some(c => c.textContent?.trim() === title));
               if (!matches.length) return false;
+              let cover = '';
+              for (let node = matches[0], depth = 0;
+                   node && depth < 7; node = node.parentElement, depth++) {
+                const image = [...node.querySelectorAll('img')].find(img =>
+                  (img.currentSrc || img.src || '').includes(
+                    '/cover/' + bookId + '/'));
+                if (image) {
+                  cover = image.currentSrc || image.src;
+                  break;
+                }
+              }
               matches[0].click();
-              return true;
-            })()""" % title_js)
+              return {cover};
+            })()""" % (title_js, book_id_js))
         snapshot = self._reader_log_snapshot()
-        self._wait(click_book, 120,
+        selected = self._wait(click_book, 120,
                    'Owned volume did not appear in the RIDI PC library.',
                    '  [Ridi] Waiting for the owned volume to appear in '
                    'the RIDI library...')
         self.log('  [Ridi] Found the owned volume; opening the reader...')
         self._wait_for_viewer(snapshot)
+        cover = selected.get('cover', '') if isinstance(selected, dict) else ''
+        return cover.split('#', 1)[0] or (
+            f'https://img.ridicdn.net/cover/{book_id}/large'
+        )
 
     def _toc_rows(self):
         return self._evaluate('TocModal', """(() => {
@@ -273,7 +290,9 @@ class RidiAppProxy:
             const page = doc?.querySelector('ridi-page-container[data-front]');
             const content = doc?.querySelector('ridi-column-container');
             if (!page || !content) continue;
-            sections.push({spine: Number(page.getAttribute('data-spine-index')),
+            const index = page.getAttribute('data-spine-index');
+            if (!/^\\d+$/.test(index || '')) continue;
+            sections.push({spine: Number(index),
                            html: content.innerHTML, text: content.innerText});
           }
           return sections;
@@ -334,10 +353,134 @@ class RidiAppProxy:
         })()""" % json.dumps(urls)
         return direct + (self._evaluate('Viewer', js) or [])
 
+    def _reader_page(self):
+        value = self._evaluate('Viewer', """(() =>
+          document.querySelector('input[type="range"]')?.value
+        )()""")
+        return int(value) if str(value).isdecimal() else -1
+
+    def _send_viewer_key(self, key, virtual_code):
+        tab = self._tab('Viewer')
+        if not tab:
+            raise RidiAppError('RIDI viewer closed while reading front matter.')
+        import websocket
+        ws = websocket.create_connection(
+            tab['webSocketDebuggerUrl'], timeout=12, suppress_origin=True
+        )
+        try:
+            for kind in ('keyDown', 'keyUp'):
+                ws.send(json.dumps({
+                    'id': 2, 'method': 'Input.dispatchKeyEvent',
+                    'params': {
+                        'type': kind, 'key': key, 'code': key,
+                        'windowsVirtualKeyCode': virtual_code,
+                        'nativeVirtualKeyCode': virtual_code,
+                    },
+                }))
+                while json.loads(ws.recv()).get('id') != 2:
+                    continue
+        finally:
+            ws.close()
+
+    def _front_matter(self, first_chapter_page):
+        """Read the source cover and pages omitted from the reader's TOC menu."""
+        focused = self._evaluate('Viewer', """(() => {
+          const slider = document.querySelector('input[type="range"]');
+          if (!slider) return false;
+          slider.focus(); return true;
+        })()""")
+        if not focused:
+            raise RidiAppError('RIDI viewer page control was not found.')
+        self._send_viewer_key('Home', 36)
+        self._wait(lambda: self._reader_page() == 0, 10,
+                   'RIDI viewer did not return to the first page.')
+        pages = []
+        images = {}
+        cover_data = ''
+        seen = set()
+        turns = 0
+        while self._reader_page() < first_chapter_page - 1:
+            if self.stop_requested():
+                raise RidiAppError('Download cancelled.')
+            frames = self._wait(self._front_sections, 10,
+                                'RIDI front matter did not render.')
+            for frame in sorted(frames, key=lambda item: item['spine']):
+                spine = frame['spine']
+                if spine in seen:
+                    continue
+                seen.add(spine)
+                content = self._clean_section(frame['html'])
+                soup = BeautifulSoup(content, 'html.parser')
+                cover = soup.select_one('.cover-image img, img[alt="cover"]')
+                if cover and not cover_data:
+                    cover_images = self._images(content)
+                    cover_data = next(
+                        (image.get('data') for image in cover_images
+                         if image.get('url') == cover.get('src')
+                         and image.get('data')), ''
+                    )
+                    cover.decompose()
+                    content = str(soup)
+                if not soup.get_text(strip=True):
+                    continue
+                for image in self._images(content):
+                    if not image.get('data'):
+                        raise RidiAppError(
+                            'RIDI front-matter image could not be read.'
+                        )
+                    images[image['url']] = image['data']
+                pages.append({'spine': spine, 'html': content})
+            old_page = self._reader_page()
+            self._send_viewer_key('ArrowRight', 39)
+            self._wait(lambda: self._reader_page() > old_page, 10,
+                       'RIDI viewer did not advance through front matter.')
+            turns += 1
+            if turns > 80:
+                raise RidiAppError('RIDI front matter is unexpectedly long.')
+        return pages, images, cover_data
+
+    @staticmethod
+    def _part_heading(front_pages):
+        for index, page in enumerate(front_pages, 1):
+            soup = BeautifulSoup(page['html'], 'html.parser')
+            for node in soup.select('.mtitle-h1-subtitle, h1.subtitle'):
+                title = node.get_text(' ', strip=True)
+                if re.search(r'\d+\s*부', title):
+                    return title, f'ridi-front-{index}'
+        return '', ''
+
+    @staticmethod
+    def _link_printed_contents(content, chapter_titles):
+        soup = BeautifulSoup(content, 'html.parser')
+        normalized = {
+            re.sub(r'\s+', '', title): f'#ridi-section-{index}'
+            for index, title in enumerate(chapter_titles, 1)
+        }
+        for paragraph in soup.select('.contents-body p'):
+            label = re.sub(r'\s+', '', paragraph.get_text(' ', strip=True))
+            href = normalized.get(label)
+            if not href:
+                continue
+            link = soup.new_tag('a', href=href)
+            for child in list(paragraph.contents):
+                link.append(child.extract())
+            paragraph.append(link)
+        return str(soup)
+
+    def _open_toc_row(self, index):
+        return self._evaluate('TocModal', """(() => {
+          const group = [...document.querySelectorAll('.simplebar-content')]
+            .find(e => [...e.children].some(c =>
+              /^\\s*\\d+\\s*\\n/.test(c.innerText || '')));
+          const row = group?.children[%d];
+          if (!row) return false;
+          row.click(); return true;
+        })()""" % index)
+
     def extract(self, context, book_id, title, chapter_url):
         self.connect()
         self.log(f'  [Ridi] Opening owned {title} in the RIDI PC viewer...')
-        self._open_owned_book(context, book_id, title)
+        cover_url = self._open_owned_book(context, book_id, title)
         self._wait(lambda: self._evaluate('Viewer', """(() => {
           const b = [...document.querySelectorAll('button')].find(e =>
             e.innerText?.trim() === '더보기');
@@ -355,19 +498,36 @@ class RidiAppProxy:
                    'RIDI table of contents did not open.')
         rows = self._wait(self._toc_rows, 15,
                           'RIDI table of contents is empty.')
+        front_pages = []
+        front_images = {}
+        cover_data = ''
+        if self._open_toc_row(rows[0]['index']):
+            try:
+                self._wait(
+                    lambda: abs(self._reader_page() -
+                                (rows[0]['page'] - 1)) <= 1,
+                    20, 'RIDI did not navigate to the first chapter.'
+                )
+                self._wait(self._front_sections, 10,
+                           'RIDI first chapter did not render.')
+                time.sleep(0.5)
+                front_pages, front_images, cover_data = self._front_matter(
+                    rows[0]['page']
+                )
+                self.log(f'  [Ridi] Read {len(front_pages)} source '
+                         'front-matter page(s).')
+            except RidiAppError as exc:
+                if self.stop_requested():
+                    raise
+                self.log(f'  [Ridi] Front-matter warning: {exc}')
+        else:
+            self.log('  [Ridi] Front-matter warning: first chapter could '
+                     'not be selected before reading the title pages.')
         sections = []
         seen = set()
-        image_data = {}
+        image_data = dict(front_images)
         for row in rows:
-            index = row['index']
-            clicked = self._evaluate('TocModal', """(() => {
-              const group = [...document.querySelectorAll('.simplebar-content')]
-                .find(e => [...e.children].some(c =>
-                  /^\\s*\\d+\\s*\\n/.test(c.innerText || '')));
-              const row = group?.children[%d];
-              if (!row) return false;
-              row.click(); return true;
-            })()""" % index)
+            clicked = self._open_toc_row(row['index'])
             if not clicked:
                 raise RidiAppError('Could not open RIDI section: ' + row['title'])
             target_page = row['page']
@@ -395,7 +555,21 @@ class RidiAppProxy:
             sections.append((row['title'], content))
             self.log(f'  [Ridi] Read section {len(sections)}/{len(rows)}: '
                      + row['title'])
-        body = ''.join(
+        part_title, part_id = self._part_heading(front_pages)
+        chapter_points = [
+            {'title': section_title, 'id': f'ridi-section-{i}'}
+            for i, (section_title, _) in enumerate(sections, 1)
+        ]
+        front_body = ''.join(
+            '<div class="ridi-front-section" id="ridi-front-%d">%s</div>' % (
+                index,
+                self._link_printed_contents(
+                    page['html'], [section_title for section_title, _ in sections]
+                ),
+            )
+            for index, page in enumerate(front_pages, 1)
+        )
+        chapter_body = ''.join(
             '<div class="ridi-volume-section" id="ridi-section-%d">%s%s'
             '</div>' % (
                 i,
@@ -406,6 +580,7 @@ class RidiAppProxy:
             )
             for i, (section_title, content) in enumerate(sections, 1)
         )
+        body = front_body + chapter_body
         image_extensions = {
             'jpeg': 'jpg', 'png': 'png', 'gif': 'gif',
             'webp': 'webp', 'avif': 'avif', 'svg+xml': 'svg',
@@ -425,18 +600,40 @@ class RidiAppProxy:
             'chapterName': title,
             'sourceChapterName': title,
             'chapterUrl': chapter_url,
+            'coverUrl': cover_url,
+            '_coverData': cover_data,
             'contentHtml': '<div class="ridi-content">' + body + '</div>',
-            'contentText': '\n'.join(BeautifulSoup(c, 'html.parser').get_text(
-                '\n', strip=True) for _, c in sections),
-            'tocSections': [
-                {'title': section_title, 'id': f'ridi-section-{i}'}
-                for i, (section_title, _) in enumerate(sections, 1)
-            ],
+            'contentText': '\n'.join(
+                BeautifulSoup(page['html'], 'html.parser').get_text(
+                    '\n', strip=True
+                ) for page in front_pages
+            ) + '\n' + '\n'.join(
+                BeautifulSoup(content, 'html.parser').get_text(
+                    '\n', strip=True
+                ) for _, content in sections
+            ),
+            'tocSections': (
+                [{'title': part_title, 'id': part_id,
+                  'children': chapter_points}]
+                if part_title else chapter_points
+            ),
             'contentCss': (
                 '.ridi-content p { margin: 0 0 .75em; line-height: 1.7; } '
                 '.ridi-content img { max-width: 100%; height: auto; } '
-                '.ridi-volume-section + .ridi-volume-section { '
-                'page-break-before: always; }'
+                '.ridi-front-section, .ridi-volume-section { '
+                'page-break-after: always; } '
+                '.ridi-front-section .mtitle-container, '
+                '.ridi-front-section .title-container { '
+                'min-height: 75vh; display: flex; align-items: center; '
+                'justify-content: center; text-align: center; } '
+                '.ridi-front-section .subtitle, '
+                '.ridi-front-section .mtitle-h1-subtitle { '
+                'font-size: 1.2em; margin-top: 1.5em; } '
+                '.ridi-front-section .contents-header { '
+                'font-size: 1.3em; font-weight: bold; margin-top: 2em; } '
+                '.ridi-front-section .contents-body p { margin: .5em 0; } '
+                '.ridi-front-section .contents-body a { '
+                'color: inherit; text-decoration: none; }'
             ),
             'images': images,
         }

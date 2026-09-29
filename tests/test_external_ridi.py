@@ -1007,6 +1007,68 @@ def test_ridi_volume_sections_populate_epub_navigation():
     ]
 
 
+def test_ridi_front_matter_links_printed_contents_and_groups_navigation():
+    import xml.etree.ElementTree as ET
+    from epub_generator import EpubGenerator
+    from ridi_app_proxy import RidiAppProxy
+
+    front_pages = [{
+        'html': '<h1 class="mtitle-h1-subtitle">1부 | 겨울</h1>',
+    }]
+    title, anchor = RidiAppProxy._part_heading(front_pages)
+    assert (title, anchor) == ('1부 | 겨울', 'ridi-front-1')
+
+    printed = RidiAppProxy._link_printed_contents(
+        '<div class="contents-body"><p>서장<span>序章</span></p>'
+        '<p>1장 | 결빙<span>結氷</span></p></div>',
+        ['서장序章', '1장 | 결빙結氷'],
+    )
+    assert 'href="#ridi-section-1"' in printed
+    assert 'href="#ridi-section-2"' in printed
+    assert '서장<span>序章</span>' in printed
+
+    epub = EpubGenerator({'title': 'Volume', 'author': 'Author'},
+                         'unused.epub', '')
+    epub.add_chapter('Volume', '<div id="ridi-front-1"></div>',
+                     show_title=False, toc_sections=[{
+                         'title': title, 'id': anchor,
+                         'children': [
+                             {'title': '서장序章', 'id': 'ridi-section-1'},
+                             {'title': '1장 | 결빙結氷',
+                              'id': 'ridi-section-2'},
+                         ],
+                     }])
+    ncx = ET.fromstring(epub._create_toc_ncx())
+    ns = {'n': 'http://www.daisy.org/z3986/2005/ncx/'}
+    parent = ncx.find('n:navMap/n:navPoint', ns)
+    assert parent.find('n:navLabel/n:text', ns).text == '1부 | 겨울'
+    assert parent.find('n:content', ns).get('src').endswith(
+        '#ridi-front-1'
+    )
+    assert [child.find('n:navLabel/n:text', ns).text
+            for child in parent.findall('n:navPoint', ns)] == [
+                '서장序章', '1장 | 결빙結氷',
+            ]
+    assert ncx.find('n:head/n:meta[@name="dtb:depth"]', ns).get(
+        'content'
+    ) == '2'
+
+
+def test_ridi_owned_cover_replaces_public_adult_warning_image():
+    from external_dialog import ExternalNovelDialog
+
+    url, data = ExternalNovelDialog._preferred_external_cover(
+        {'_ridibooks': True, 'coverUrl': 'cover_adult.png'},
+        [
+            {'_locked': True},
+            {'coverUrl': 'https://img.ridicdn.net/cover/123/large',
+             '_coverData': 'data:application/octet-stream;base64,Y292ZXI='},
+        ],
+    )
+    assert url == 'https://img.ridicdn.net/cover/123/large'
+    assert ExternalNovelDialog._decode_image_data_url(data) == b'cover'
+
+
 def test_ridi_refusal_without_ownership_answer_stays_generic():
     logs = []
     scraper = _ridi_with_cookies(['ridi-at'], logs)

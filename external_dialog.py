@@ -2248,12 +2248,14 @@ class ExternalNovelDialog(tk.Toplevel):
             self._log("  Long image layout: saving CBZ image archive")
             written = 0
             with zipfile.ZipFile(filepath, "w") as zf:
-                cover_url = data.get('coverUrl', '')
+                cover_url, cover_data = ExternalNovelDialog._preferred_external_cover(
+                    data, self._chapter_results
+                )
                 if cover_url:
                     cover_raw = fetch_image(
                         cover_url,
                         "Cover",
-                        img_data_url=data.get('_coverData'),
+                        img_data_url=cover_data,
                         log_failure=True,
                     )
                     if cover_raw:
@@ -2541,7 +2543,9 @@ img { display: block; max-width: 100%; max-height: 100%;
         kakao_css = self._kakao_extra_css()
         if kakao_css:
             css = f"{css}\n\n/* KakaoPage original viewer CSS */\n{kakao_css}\n"
-        cover_url = data.get('coverUrl', '')
+        cover_url, cover_data = ExternalNovelDialog._preferred_external_cover(
+            data, self._chapter_results
+        )
 
         metadata = {
             'title': data.get('bookname', title),
@@ -2597,9 +2601,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             # (EpubGenerator looks for images named 'cover.*')
             cover_added = False
             if cover_url:
-                cover_bytes = self._decode_image_data_url(
-                    data.get('_coverData')
-                )
+                cover_bytes = self._decode_image_data_url(cover_data)
                 if cover_bytes:
                     self._log(
                         f"  📷 Cover: using startup cache "
@@ -3080,6 +3082,18 @@ img { display: block; max-width: 100%; max-height: 100%;
         return html_str
 
     @staticmethod
+    def _preferred_external_cover(data, chapter_results):
+        cover_url = data.get('coverUrl', '')
+        cover_data = data.get('_coverData')
+        if data.get('_ridibooks'):
+            for result in chapter_results or []:
+                if isinstance(result, dict) and result.get('coverUrl'):
+                    return result['coverUrl'], (
+                        result.get('_coverData') or cover_data
+                    )
+        return cover_url, cover_data
+
+    @staticmethod
     def _decode_image_data_url(data_url):
         """Decode base64 or percent-encoded inline images."""
         if not data_url or ',' not in data_url:
@@ -3402,12 +3416,14 @@ img { display: block; max-width: 100%; max-height: 100%;
             return None
 
         cover_image = None
-        cover_url = data.get('coverUrl', '')
+        cover_url, cover_data = ExternalNovelDialog._preferred_external_cover(
+            data, self._chapter_results
+        )
         if cover_url:
             cover_bytes = fetch_pdf_asset(
                 cover_url,
                 'PDF cover',
-                data_url=data.get('_coverData'),
+                data_url=cover_data,
                 referer=data.get('bookUrl') or '',
             )
             if cover_bytes:
