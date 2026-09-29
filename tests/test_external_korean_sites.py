@@ -258,19 +258,22 @@ def test_joara_stale_key_is_waited_out(tmp_path, monkeypatch):
     assert api.calls == ['key', 'key']
 
 
-def test_joara_run_counter_schedules_cooldown(tmp_path, monkeypatch):
+def test_joara_run_counter_resets_without_cooldown(tmp_path, monkeypatch):
+    # A captcha is solved automatically, so a long run of chapters no longer
+    # pauses the download; the counter just starts over.
     scraper, messages = make_scraper(tmp_path, monkeypatch)
     monkeypatch.setattr('external_scraper.time.monotonic', lambda: 500.0)
 
     scraper._joara_note_chapter_request(
         {'redis_data': {'call_20_30_cnt': 14}}
     )
-    assert scraper._joara_next_request_at < 500.0 + 1
+    assert scraper._joara_run == 14
     scraper._joara_note_chapter_request(
         {'redis_data': {'call_20_30_cnt': 15}}
     )
-    assert scraper._joara_next_request_at == 500.0 + 35.0
-    assert any('Pausing 35s' in message for message in messages)
+    assert scraper._joara_run == 0
+    assert scraper._joara_next_request_at == 0.0
+    assert not any('Pausing' in message for message in messages)
 
 
 def test_joara_captcha_pauses_for_human_check_then_resumes(
@@ -293,11 +296,12 @@ def test_joara_captcha_pauses_for_human_check_then_resumes(
     assert result['contentText'] == 'Body'
     assert checks == ['shown']
     assert scraper.abort_reason == ''
-    assert any('reCAPTCHA' in message for message in messages)
+    assert any('captcha check' in message for message in messages)
 
 
 def test_joara_unsolved_captcha_aborts_the_download(tmp_path, monkeypatch):
     scraper, _messages = make_scraper(tmp_path, monkeypatch)
+    monkeypatch.setattr('external_scraper.time.sleep', lambda _seconds: None)
     scraper._book_data = {'_joara': True}
     captcha = {'status': 1, 'chapter': {
         'content': '', 'redis_data': {'is_captcha': 1},
@@ -316,10 +320,10 @@ def test_joara_unsolved_captcha_aborts_the_download(tmp_path, monkeypatch):
     ], interval=0)
 
     assert results == [None, None]
-    # One human check; the captcha is still there afterwards, so the
-    # remaining chapter is never requested.
+    # One captcha solve, then three retries while the captcha is still
+    # there; the remaining chapter is never requested.
     assert checks == ['shown']
-    assert [call for call in api.calls if call != 'key'] == ['a', 'a']
+    assert [call for call in api.calls if call != 'key'] == ['a'] * 4
     assert 'still active' in scraper.abort_reason
     assert scraper._joara_parse_chapter('', 'B', cid='b') is None
 

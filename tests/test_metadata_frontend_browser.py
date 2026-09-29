@@ -566,7 +566,7 @@ def test_clicked_card_tags_keep_source_order_across_all_platforms(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_naver_missing_synopses_visible_only_when_loading_disabled(monkeypatch):
+def test_naver_novels_without_synopsis_stay_visible(monkeypatch):
     original_row = row
     def marked_row(source, ident=7, known=False, completed=False):
         result = original_row(source, ident, known, completed)
@@ -583,14 +583,15 @@ def test_naver_missing_synopses_visible_only_when_loading_disabled(monkeypatch):
             await page.goto('http://metadata.test/#src=naver')
             await wait_loaded(page)
             missing = page.locator('.novel-card[data-source="naver"][data-novel-id="7"]')
-            assert await missing.count() == 0
+            # Shown whether or not descriptions are loaded.
+            await missing.wait_for()
             await page.uncheck('#loadDescriptions')
             await missing.wait_for()
             await page.reload()
             await wait_loaded(page)
             await missing.wait_for()
             await page.check('#loadDescriptions')
-            assert await missing.count() == 0
+            await missing.wait_for()
             assert await page.locator('.novel-card').count() > 0
             await browser.close()
     asyncio.run(scenario())
