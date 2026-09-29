@@ -17450,6 +17450,10 @@ async ({ url }) => {
             return ''
         path = parsed.path or ''
         for pattern in (r'^/(\d+)(?:[_./]|$)',
+                        # VIP reader: /vip/724903/1658.html
+                        r'^/vip/(\d+)/\d+\.html$',
+                        # Chapter list: /html_724_724903/
+                        r'^/html_\d+_(\d+)(?:/|\.html)?$',
                         r'^/(?:book|novel|catalog|directory)/?(\d+)(?:[/._]|$)'):
             match = re.match(pattern, path, re.I)
             if match:
@@ -17587,6 +17591,20 @@ async ({ url }) => {
         if not title or not chapters:
             return None
         author = self._faloo_text(soup.select_one('a.rentouOne, .author a, .author'))
+        if not author:
+            # Desktop book pages: the author link beside the avatar searches
+            # by author (l_0_1.html?t=2&k=...); the avatar link's title reads
+            # "<author>_飞卢大神作家".
+            box = soup.select_one('#novelName')
+            box = box.parent if box else soup
+            link = box.select_one('a[href*="l_0_1.html?t=2"]')
+            author = self._faloo_text(link)
+            if not author:
+                guru = box.select_one('a[href*="/guru/"][title]')
+                if guru:
+                    author = self._faloo_fix_text(
+                        guru.get('title', '').split('_', 1)[0].strip()
+                    )
         if not author:
             image = soup.select_one('img.rentouOne')
             if image:

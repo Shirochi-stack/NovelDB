@@ -431,3 +431,35 @@ def test_faloo_download_does_not_start_browser_for_metadata(monkeypatch):
     assert [kind for kind, _ in list(dialog._msg_queue.queue)] == [
         'book_parsed', 'finished',
     ]
+
+
+@pytest.mark.parametrize('url', [
+    'https://b.faloo.com/vip/724903/1658.html',   # VIP reader chapter
+    'https://b.faloo.com/html_724_724903/',       # chapter list page
+    'https://b.faloo.com/html_724_724903',
+])
+def test_faloo_recognises_vip_reader_and_chapter_list_urls(url):
+    assert ExternalScraper.is_faloo(url)
+    assert ExternalScraper._faloo_book_id(url) == '724903'
+
+
+def test_faloo_rejects_malformed_vip_and_list_urls():
+    assert not ExternalScraper.is_faloo('https://b.faloo.com/vip/abc/1.html')
+    assert not ExternalScraper.is_faloo('https://b.faloo.com/html_724/')
+
+
+def test_faloo_author_from_desktop_book_header():
+    # Markup of b.faloo.com/724903.html on 2026-09-29.
+    page = (
+        '<div class="T-L-O-Z-Box1"><h1 id="novelName">玄幻：我！天命大反派</h1>'
+        '<a href="//u.faloo.com/guru/x.html" title="天命反派_飞卢大神作家">'
+        '<img class="rentouOne rentouOne2" src="//s.faloo.com/a.png"/></a>'
+        '<a href="//b.faloo.com/l_0_1.html?t=2&amp;k=x" title="天命反派">天命反派</a>'
+        '</div><div class="C-Fo-Zuo"><div class="DivTable">'
+        '<a href="//b.faloo.com/724903_1.html">第一章</a></div></div>'
+    )
+    data = ExternalScraper()._faloo_book_from_page(
+        page, 'https://b.faloo.com/724903.html', '724903',
+        'https://b.faloo.com/724903.html',
+    )
+    assert data['author'] == '天命反派'
