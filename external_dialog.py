@@ -1335,6 +1335,17 @@ class ExternalNovelDialog(tk.Toplevel):
                 "chapters, then close that window. Skip paid selects "
                 "only free chapters."
             )
+        elif start_url and any((
+            ExternalScraper.is_faloo(start_url),
+            ExternalScraper.is_qidian(start_url),
+            ExternalScraper.is_ridibooks(start_url),
+        )):
+            regular_browser = True
+            self._var_regular_browser.set(True)
+            self._append_log(
+                "Enter Browser uses the saved installed-Chrome profile for "
+                "this site. Sign in, then close that window before Download."
+            )
         if regular_browser:
             self._append_log(
                 "Opening regular login browser... Close the browser when "

@@ -33,12 +33,79 @@ def test_ridi_url_detection_is_scoped_to_book_and_viewer_pages():
     assert ExternalScraper.is_ridibooks(
         'https://www.ridibooks.com/books/1234567890/view?from=library'
     )
+    assert ExternalScraper.is_ridibooks(
+        'https://ridibooks.com/library/books/8706175/'
+    )
     assert not ExternalScraper.is_ridibooks(
         'https://ridibooks.com/category/books/100'
     )
     assert not ExternalScraper.is_ridibooks(
         'https://example.com/books/1234567890/view'
     )
+
+
+def test_ridi_library_reader_uses_authenticated_library_url():
+    class Page:
+        def __init__(self):
+            self.visited = []
+
+        def goto(self, url, **_kwargs):
+            self.visited.append(url)
+
+        def evaluate(self, _script):
+            return {'viewer': True, 'title': 'Owned Library Book'}
+
+    scraper, _messages = make_scraper()
+    page = Page()
+    scraper._page = page
+    scraper._context = object()
+    scraper._ridi_chrome = True
+    url = 'https://ridibooks.com/library/books/8706175/'
+
+    book = scraper.parse_book(url)
+
+    assert book['chapterCount'] == 1
+    assert book['chapters'][0]['url'] == url
+    assert page.visited == [url]
+
+
+def test_ridi_library_link_resolves_product_before_catalog_lookup():
+    class Page:
+        def __init__(self):
+            self.visited = []
+
+        def goto(self, url, **_kwargs):
+            self.visited.append(url)
+
+        def evaluate(self, _script):
+            if len(self.visited) == 1:
+                return {
+                    'viewer': False,
+                    'product': 'https://ridibooks.com/books/6121000538',
+                }
+            return {
+                'title': 'Owned Series',
+                'links': ['https://ridibooks.com/books/6121000538/view'],
+                'titleById': {},
+                'seriesId': '',
+            }
+
+    scraper, _messages = make_scraper()
+    page = Page()
+    scraper._page = page
+    scraper._context = object()
+    scraper._ridi_chrome = True
+
+    book = scraper._ridi_parse_book(
+        'https://ridibooks.com/library/books/8706175/'
+    )
+
+    assert book['chapterCount'] == 1
+    assert book['_ridi_book_id'] == '6121000538'
+    assert page.visited == [
+        'https://ridibooks.com/library/books/8706175/',
+        'https://ridibooks.com/books/6121000538',
+    ]
 
 
 def test_ridi_book_converts_discovered_chain_to_external_records():
@@ -139,6 +206,46 @@ def test_ridi_book_api_discovery_runs_outside_product_page_csp():
         'Episode two',
     ]
     assert any('Chained episode links: 2' in message for message in messages)
+
+
+def test_ridi_owned_ebook_volume_chain_is_discovered(monkeypatch):
+    scraper, _messages = make_scraper()
+    first = {
+        'title': 'Example 1권',
+        'series': {'property': {
+            'is_serial': False, 'total_book_count': 3,
+            'next_books': {'6121000539': {}},
+        }},
+    }
+    second = {
+        'title': 'Example 2권',
+        'series': {'property': {'next_books': {'6121000540': {}}}},
+    }
+    third = {
+        'title': 'Example 3권',
+        'series': {'property': {'next_books': {}}},
+    }
+
+    class ApiPage:
+        def close(self):
+            pass
+
+    scraper._context = object()
+    monkeypatch.setattr(scraper, '_ridi_open_api_book',
+                        lambda _id: (ApiPage(), first))
+    monkeypatch.setattr(scraper, '_ridi_api_fetch_book',
+                        lambda _page, book_id: {
+                            '6121000539': second,
+                            '6121000540': third,
+                        }.get(book_id))
+
+    result = scraper._ridi_discover_episode_chain('6121000538')
+
+    assert result['isSerial'] is False
+    assert [scraper._ridi_book_id(url) for url in result['links']] == [
+        '6121000538', '6121000539', '6121000540',
+    ]
+    assert result['titleById']['6121000540'] == 'Example 3권'
 
 
 def test_ridi_api_chain_follows_next_books_and_collects_titles():
@@ -424,7 +531,8 @@ def test_ridi_book_rejects_volume_without_webnovel_episode_links():
     assert scraper._ridi_parse_book(
         'https://ridibooks.com/books/9999'
     ) is None
-    assert any('not downloadable volume ebooks' in message for message in messages)
+    assert any('No webnovel episodes or linked ebook volumes' in message
+               for message in messages)
 
 
 def test_ridi_result_preserves_clean_html_and_registers_images():
@@ -740,3 +848,27 @@ def test_ridi_batch_restarts_when_browser_closes_during_navigation():
     assert starts == ['https://ridibooks.com/books/1001']
     assert any('restarting this batch' in message for message in messages)
     assert not any('LOCKED' in message for message in messages)
+
+
+def _ridi_with_cookies(names, logs):
+    scraper = ExternalScraper(logger=logs.append)
+    scraper._context = type('Context', (), {
+        'cookies': lambda self, urls: [{'name': name} for name in names],
+    })()
+    return scraper
+
+
+def test_ridi_refused_viewer_names_missing_login():
+    logs = []
+    scraper = _ridi_with_cookies(['ridi-ffid', '_ga'], logs)
+    result = scraper._ridi_refused_result('Vol 1')
+    assert result['_locked'] and result['_lockReason'] == 'login'
+    assert 'not signed in' in logs[-1]
+
+
+def test_ridi_refused_viewer_when_signed_in_is_not_called_login():
+    logs = []
+    scraper = _ridi_with_cookies(['ridi-at', 'ridi-rt'], logs)
+    result = scraper._ridi_refused_result('Vol 1')
+    assert result['_lockReason'] == 'unsupported'
+    assert 'not signed in' not in logs[-1]

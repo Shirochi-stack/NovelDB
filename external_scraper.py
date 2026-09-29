@@ -2317,6 +2317,96 @@ class ExternalScraper:
                 time.sleep(0.25)
         return False
 
+    # Qidian keeps its login (ywkey/ywguid) in session cookies, which Chrome
+    # drops when the Enter Browser window closes. Download starts after that.
+    _SESSION_COOKIE_DOMAINS = ('qidian.com', 'yuewen.com')
+
+    @classmethod
+    def _get_session_cookie_path(cls):
+        return os.path.join(cls._get_user_data_dir(), 'nd_session_cookies.json')
+
+    def _cdp_snapshot_session_cookies(self, port):
+        """Save the open login window's session cookies for later downloads.
+
+        Returns the number saved. An empty result keeps the previous file,
+        since a window that never opened Qidian says nothing about its login.
+        """
+        if not port:
+            return 0
+        try:
+            import websocket
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/json/version", timeout=2,
+            ) as r:
+                ws_url = json.loads(r.read().decode("utf-8", "ignore")).get(
+                    "webSocketDebuggerUrl"
+                )
+            if not ws_url:
+                return 0
+            ws = websocket.create_connection(ws_url, timeout=3)
+            try:
+                ws.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
+                reply = {}
+                while reply.get("id") != 1:
+                    reply = json.loads(ws.recv())
+            finally:
+                ws.close()
+        except Exception:
+            return 0
+        cookies = [
+            cookie for cookie in (reply.get("result") or {}).get("cookies", [])
+            if cookie.get("session") and any(
+                (cookie.get("domain") or "").lstrip(".").endswith(domain)
+                for domain in self._SESSION_COOKIE_DOMAINS
+            )
+        ]
+        if not cookies:
+            return 0
+        path = self._get_session_cookie_path()
+        try:
+            with open(path + ".tmp", "w", encoding="utf-8") as handle:
+                json.dump({"saved": time.time(), "cookies": cookies}, handle)
+            os.replace(path + ".tmp", path)
+        except OSError:
+            return 0
+        return len(cookies)
+
+    def _restore_session_cookies(self, domain):
+        """Add saved session cookies for ``domain`` the profile no longer has."""
+        if not self._context:
+            return 0
+        try:
+            with open(self._get_session_cookie_path(), encoding="utf-8") as handle:
+                saved = json.load(handle).get("cookies") or []
+            present = {
+                (cookie.get("name"), cookie.get("domain"))
+                for cookie in self._context.cookies()
+            }
+        except Exception:
+            return 0
+        restored = []
+        for cookie in saved:
+            host = (cookie.get("domain") or "").lstrip(".")
+            if not host.endswith(domain) and not domain.endswith(host):
+                continue
+            if (cookie.get("name"), cookie.get("domain")) in present:
+                continue
+            entry = {
+                "name": cookie["name"], "value": cookie.get("value", ""),
+                "domain": cookie["domain"], "path": cookie.get("path") or "/",
+                "httpOnly": bool(cookie.get("httpOnly")),
+                "secure": bool(cookie.get("secure")),
+            }
+            if cookie.get("sameSite") in ("Strict", "Lax", "None"):
+                entry["sameSite"] = cookie["sameSite"]
+            restored.append(entry)
+        if restored:
+            try:
+                self._context.add_cookies(restored)
+            except Exception:
+                return 0
+        return len(restored)
+
     def _request_cdp_browser_close(self, port):
         """Ask Chrome to close gracefully through the DevTools endpoint."""
         if not port:
@@ -2540,6 +2630,8 @@ class ExternalScraper:
         next_pid_scan = 0
         launch_deadline = time.time() + 15
         reported_profile_wait = False
+        next_cookie_snapshot = 0
+        reported_session_cookies = False
 
         while not self._stop_requested:
             now = time.time()
@@ -2554,6 +2646,15 @@ class ExternalScraper:
             window_pids = self._visible_browser_window_pids(profile_pids)
             if window_pids:
                 saw_window = True
+                if port and now >= next_cookie_snapshot:
+                    next_cookie_snapshot = now + 3
+                    saved = self._cdp_snapshot_session_cookies(port)
+                    if saved and not reported_session_cookies:
+                        reported_session_cookies = True
+                        self.log(
+                            "[Browser] Saving Qidian session login so "
+                            "Download can use it after this window closes."
+                        )
             elif saw_window:
                 self.log(
                     "[Browser] Chrome window closed; waiting for Chrome to "
@@ -3772,7 +3873,7 @@ class ExternalScraper:
 
     @staticmethod
     def is_ridibooks(url):
-        """Return True for Ridi webnovel book and viewer URLs."""
+        """Return True for Ridi product, viewer, and library book URLs."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
@@ -3781,7 +3882,7 @@ class ExternalScraper:
         if host != 'ridibooks.com' and not host.endswith('.ridibooks.com'):
             return False
         return bool(re.match(
-            r'^/books/\d+(?:/view)?/?$',
+            r'^/(?:books/\d+(?:/view)?|library/books/\d+)/?$',
             parsed.path or '',
             re.I,
         ))
@@ -4286,7 +4387,12 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         raise last_error
 
     def _start_qidian_browser(self, start_url):
-        """Launch a headless persistent browser for Qidian downloads."""
+        """Open Qidian in installed Chrome with the saved profile.
+
+        The reader decrypts bought chapters in the page, and in headless
+        Chrome that fails ("章节加载失败"). The off-screen headed Chrome used
+        for Ridi and Faloo decrypts them, so it is tried first.
+        """
         if self._context and self._page:
             try:
                 self._page.evaluate("1")
@@ -4296,6 +4402,35 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         elif self._context or self._browser or self._chrome_process:
             self.cleanup()
 
+        if self._start_ridi_browser(start_url, site='Qidian'):
+            self._prepare_qidian_context()
+            return True
+        if self._chrome_processes_using_profile(self._get_user_data_dir()):
+            # The Enter Browser window is still open; already reported.
+            return False
+        self.log(
+            "[Qidian] Installed Chrome could not start off-screen; using "
+            "headless Chrome. Bought chapters may not decrypt there."
+        )
+        return self._start_qidian_headless(start_url)
+
+    def _prepare_qidian_context(self):
+        """Restore the session login and watch the reader's font setup."""
+        restored = self._restore_session_cookies('qidian.com')
+        restored += self._restore_session_cookies('yuewen.com')
+        if restored:
+            self.log(
+                f"[Qidian] Restored {restored} session login cookie(s) "
+                "saved from Enter Browser."
+            )
+        try:
+            from qidian_font_decoder import QIDIAN_FONTFACE_HOOK_JS
+            self._context.add_init_script(QIDIAN_FONTFACE_HOOK_JS)
+        except Exception as e:
+            self.log(f"[Qidian] Reader font hook unavailable: {e}")
+
+    def _start_qidian_headless(self, start_url):
+        """Launch a headless persistent browser for Qidian downloads."""
         user_data_dir = self._get_user_data_dir()
         self.log("[Qidian] Launching headless browser with saved profile...")
         self.log(f"Browser profile: {user_data_dir}")
@@ -4308,21 +4443,9 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             )
             return False
 
-        try:
-            snapshot_root, qidian_user_data_dir = (
-                self._create_qidian_profile_snapshot(user_data_dir)
-            )
-            self._qidian_profile_snapshot_root = snapshot_root
-            self.log(
-                "[Qidian] Using disposable copy of browser profile for "
-                "download."
-            )
-        except Exception as e:
-            self.log(
-                "ERROR: [Qidian] Could not copy browser profile for "
-                f"background download: {e}"
-            )
-            return False
+        # Chrome's encrypted cookies can be tied to the original profile.
+        # Copying it made a successful Enter Browser login disappear here.
+        qidian_user_data_dir = user_data_dir
 
         qidian_args = [
             '--disable-web-security',
@@ -4372,9 +4495,20 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 self._context.add_init_script(
                     self._qidian_stealth_init_script()
                 )
+                from qidian_font_decoder import QIDIAN_FONTFACE_HOOK_JS
+                self._context.add_init_script(QIDIAN_FONTFACE_HOOK_JS)
             except Exception:
                 pass
-            self._restore_storage_state()
+            # The original profile already contains the persistent cookies.
+            # An older storage backup could overwrite those, so only add the
+            # session login cookies Chrome dropped when Enter Browser closed.
+            restored = self._restore_session_cookies('qidian.com')
+            restored += self._restore_session_cookies('yuewen.com')
+            if restored:
+                self.log(
+                    f"[Qidian] Restored {restored} session login cookie(s) "
+                    "saved from Enter Browser."
+                )
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on("console", self._on_console)
@@ -4489,10 +4623,25 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   const html = document.documentElement?.innerHTML || '';
   const htmlChallenge = /TencentCaptcha|WafCaptcha|__captcha/i.test(html);
   const textChallenge = /VIP|\\u8ba2\\u9605|\\u8d2d\\u4e70|captcha|verify|verification|\\u9a8c\\u8bc1|\\u5b89\\u5168|\\u4eba\\u673a|\\u6ed1\\u5757/i.test(bodyText);
-  return document.querySelectorAll('span.content-text').length >= 3 ||
-    mainText.length > 100 ||
+  // Tabs start at response commit, so <main> can hold the first
+  // paragraphs while the rest of the HTML is still arriving.
+  const parsed = document.readyState !== 'loading';
+  // A bought chapter is decrypted later; the decoder waits for that.
+  let pageData = null;
+  try {
+    pageData = JSON.parse(
+      document.querySelector('#vite-plugin-ssr_pageContext')?.textContent
+      || 'null'
+    )?.pageContext?.pageProps?.pageData || null;
+  } catch (e) {}
+  const info = pageData?.chapterInfo || {};
+  const encrypted = !!document.querySelector('main.r-font-encrypt')
+    || (Number(info.isBuy) > 0 && (Number(info.cES) > 0 || Number(info.fEnS) > 0));
+  return (parsed && encrypted) ||
+    (parsed && (document.querySelectorAll('span.content-text').length >= 3 ||
+    mainText.length > 100)) ||
     htmlChallenge ||
-    textChallenge;
+    (parsed && textChallenge);
 })()
 """
         try:
@@ -4715,6 +4864,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         if not self._qidian_wait_for_chapter(target):
             self.log(f"  [Qidian] Timed out waiting for: {chapter_name}")
             return None
+        if self._qidian_is_encrypted(target):
+            return self._qidian_decode_encrypted(target, chapter_name)
 
         script = r"""
 (chapterName) => {
@@ -4791,6 +4942,27 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   }
   paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
   const contentText = paras.join('\n');
+  // A guest or unpurchased VIP chapter renders a few real paragraphs and
+  // a subscribe prompt. Qidian's own page data says which one this is.
+  let pageData = null;
+  try {
+    pageData = JSON.parse(
+      document.querySelector('#vite-plugin-ssr_pageContext')?.textContent
+      || 'null'
+    )?.pageContext?.pageProps?.pageData || null;
+  } catch (e) {}
+  const info = pageData?.chapterInfo || {};
+  const expected = Number(info.actualWords || info.wordsCount || 0);
+  const unbought = Number(info.vipStatus) === 1 && !Number(info.isBuy)
+    && !Number(info.limitFree);
+  if (unbought || (expected >= 500 && contentText.length < expected * 0.5)) {
+    return {
+      error: 'locked',
+      reason: Number(pageData?.isLogin) ? 'purchase' : 'login',
+      chars: contentText.length,
+      expected,
+    };
+  }
   if (!contentText || contentText.length < 20) {
     if (needsVerification) return {error: 'verification'};
     return {
@@ -4823,8 +4995,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             self.log(f"  [Qidian] Empty result for: {chapter_name}")
             return None
         if data.get('error') == 'locked':
-            self.log(f"  [Qidian] LOCKED or login required: {chapter_name}")
-            return {'_locked': True, 'chapterName': chapter_name}
+            return self._qidian_locked_result(data, chapter_name)
         if data.get('error') == 'verification':
             self.log(
                 f"  [Qidian] Verification required for: {chapter_name}. "
@@ -4843,8 +5014,126 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return None
         return data
 
+    def _qidian_locked_result(self, data, chapter_name):
+        reason = data.get('reason') or ''
+        if reason == 'login':
+            detail = ('preview only; the saved profile is not signed in to '
+                      'Qidian. Sign in with Enter Browser, close it, then retry')
+        elif reason == 'purchase':
+            detail = 'preview only; this account has not bought the chapter'
+        else:
+            detail = 'LOCKED or login required'
+        if data.get('expected'):
+            detail += f" ({data.get('chars', 0)}/{data['expected']} chars)"
+        self.log(f"  [Qidian] {detail}: {chapter_name}")
+        return {'_locked': True, 'chapterName': chapter_name,
+                '_lockReason': reason or 'locked'}
+
+    _QIDIAN_ENCRYPTION_STATE_JS = r"""
+() => {
+  let pageData = null;
+  try {
+    pageData = JSON.parse(
+      document.querySelector('#vite-plugin-ssr_pageContext')?.textContent
+      || 'null'
+    )?.pageContext?.pageProps?.pageData || null;
+  } catch (e) {}
+  const info = pageData?.chapterInfo || {};
+  const main = document.querySelector('main.r-font-encrypt');
+  return {
+    encrypted: !!main
+      || (Number(info.isBuy) > 0 && (Number(info.cES) > 0 || Number(info.fEnS) > 0)),
+    rendered: !!main && main.querySelectorAll('p').length > 0
+      && (main.innerText || '').trim().length > 50
+      && document.fonts.status === 'loaded',
+    failed: /章节加载失败/.test(document.body?.innerText || ''),
+    words: Number(info.actualWords || info.wordsCount) || 0,
+  };
+}
+"""
+
+    def _qidian_encryption_state(self, page):
+        try:
+            return page.evaluate(self._QIDIAN_ENCRYPTION_STATE_JS) or {}
+        except Exception:
+            return {}
+
+    def _qidian_is_encrypted(self, page):
+        return bool(self._qidian_encryption_state(page).get('encrypted'))
+
+    def _qidian_decode_encrypted(self, page, chapter_name, timeout=150):
+        """Read a bought chapter that Qidian renders with cipher fonts."""
+        import qidian_font_decoder
+        if not qidian_font_decoder.available():
+            self.log(
+                "  [Qidian] Bought chapters need numpy and a Chinese reference "
+                f"font to decode; neither was found: {chapter_name}"
+            )
+            return None
+        # Decryption runs in the page and can take about a minute.
+        deadline = time.time() + timeout
+        state = {}
+        while time.time() < deadline and not self._stop_requested:
+            state = self._qidian_encryption_state(page)
+            if state.get('rendered') or state.get('failed'):
+                break
+            try:
+                page.wait_for_timeout(1000)
+            except Exception:
+                time.sleep(1)
+        if state.get('failed'):
+            self.log(
+                f"  [Qidian] The reader could not decrypt {chapter_name} "
+                "(章节加载失败). Retry, or open it once in Enter Browser."
+            )
+            return None
+        if not state.get('rendered'):
+            self.log(f"  [Qidian] Timed out decrypting: {chapter_name}")
+            return None
+        try:
+            # Off-screen paragraphs only swap to real text while visible, and
+            # background tabs throttle the timers the extraction waits on.
+            page.bring_to_front()
+        except Exception:
+            pass
+        try:
+            payload = page.evaluate(qidian_font_decoder.QIDIAN_EXTRACT_JS)
+            lines, stats = qidian_font_decoder.decode_payload(payload or {})
+        except Exception as e:
+            self.log(f"  [Qidian] Could not decode {chapter_name}: {e}")
+            return None
+        text = '\n'.join(lines)
+        words = int(state.get('words') or 0)
+        if not lines or (words >= 500 and len(text) < words * 0.8):
+            self.log(
+                f"  [Qidian] Decoded text is incomplete for {chapter_name} "
+                f"({len(text)}/{words} chars)."
+            )
+            return None
+        unswapped = len((payload or {}).get('unswapped') or [])
+        self.log(
+            f"  [Qidian] Decoded font-encrypted chapter: {len(lines)} "
+            f"paragraphs, {stats['decoded']} glyphs"
+            + (f", {stats['low_confidence']} uncertain"
+               if stats['low_confidence'] else '')
+            + (f", {unswapped} paragraph(s) never changed on screen"
+               if unswapped > len(lines) // 4 else '')
+            + '.'
+        )
+        return {
+            'chapterName': chapter_name,
+            'sourceChapterName': chapter_name,
+            'contentText': text,
+            'contentHtml': '\n'.join(
+                f'<p>{html.escape(line)}</p>' for line in lines
+            ),
+            'images': [],
+        }
+
     def _qidian_extract_loaded_chapter(self, page, chapter_name):
         """Extract one Qidian chapter from a page that already navigated."""
+        if self._qidian_is_encrypted(page):
+            return self._qidian_decode_encrypted(page, chapter_name)
         script = r"""
 (chapterName) => {
   const escapeHtml = (value) => String(value || '')
@@ -4920,6 +5209,27 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   }
   paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
   const contentText = paras.join('\n');
+  // A guest or unpurchased VIP chapter renders a few real paragraphs and
+  // a subscribe prompt. Qidian's own page data says which one this is.
+  let pageData = null;
+  try {
+    pageData = JSON.parse(
+      document.querySelector('#vite-plugin-ssr_pageContext')?.textContent
+      || 'null'
+    )?.pageContext?.pageProps?.pageData || null;
+  } catch (e) {}
+  const info = pageData?.chapterInfo || {};
+  const expected = Number(info.actualWords || info.wordsCount || 0);
+  const unbought = Number(info.vipStatus) === 1 && !Number(info.isBuy)
+    && !Number(info.limitFree);
+  if (unbought || (expected >= 500 && contentText.length < expected * 0.5)) {
+    return {
+      error: 'locked',
+      reason: Number(pageData?.isLogin) ? 'purchase' : 'login',
+      chars: contentText.length,
+      expected,
+    };
+  }
   if (!contentText || contentText.length < 20) {
     if (needsVerification) return {error: 'verification'};
     return {
@@ -4951,8 +5261,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             self.log(f"  [Qidian] Empty result for: {chapter_name}")
             return None
         if data.get('error') == 'locked':
-            self.log(f"  [Qidian] LOCKED or login required: {chapter_name}")
-            return {'_locked': True, 'chapterName': chapter_name}
+            return self._qidian_locked_result(data, chapter_name)
         if data.get('error') == 'verification':
             self.log(
                 f"  [Qidian] Verification required for: {chapter_name}. "
@@ -9874,7 +10183,9 @@ async ({ url }) => {
             path = urllib.parse.urlparse(url or '').path or ''
         except Exception:
             return False
-        return bool(re.search(r'/books/\d+/view(?:/)?$', path, re.I))
+        return bool(re.search(
+            r'(?:^/books/\d+/view|^/library/books/\d+)(?:/)?$', path, re.I
+        ))
 
     @staticmethod
     def _ridi_image_name(image_url, chapter_id, image_index):
@@ -9915,13 +10226,13 @@ async ({ url }) => {
             'browser disconnected',
         ))
 
-    def _ridi_connect_cdp(self, port):
-        """Attach to the installed-Chrome session used for Ridi.
+    def _ridi_connect_cdp(self, port, site='Ridi'):
+        """Attach to the saved installed-Chrome session.
 
         Ridi currently challenges the bundled headless Chromium build.  The
-        contributed extension runs in the user's normal Chrome session, so
-        the native port needs to preserve that browser/fingerprint boundary
-        as well as the profile's Ridi login cookies.
+        contributed extension runs in normal Chrome, so its reader needs
+        that browser and the profile's login cookies. Faloo uses the same
+        session for chapters that need authentication.
         """
         try:
             self._playwright = sync_playwright().start()
@@ -9938,15 +10249,15 @@ async ({ url }) => {
             self._page.on('console', self._on_console)
             self._ridi_chrome = True
             self._ridi_cdp_port = port
-            self.log('[Ridi] Installed-Chrome session ready.')
+            self.log(f'[{site}] Installed-Chrome session ready.')
             return True
         except Exception as e:
-            self.log(f'ERROR: [Ridi] Could not attach to Chrome: {e}')
+            self.log(f'ERROR: [{site}] Could not attach to Chrome: {e}')
             self.cleanup()
             return False
 
-    def _start_ridi_browser(self, start_url):
-        """Run Ridi in installed Chrome with the saved external profile."""
+    def _start_ridi_browser(self, start_url, site='Ridi'):
+        """Run a site in installed Chrome with the saved external profile."""
         if self._context and self._page:
             try:
                 self._page.evaluate('1')
@@ -9960,7 +10271,7 @@ async ({ url }) => {
 
         user_data_dir = self._get_user_data_dir()
         self.log(
-            '[Ridi] Starting headed installed Chrome off-screen with the '
+            f'[{site}] Starting headed installed Chrome off-screen with the '
             'External Downloader profile...'
         )
         self.log(f'Browser profile: {user_data_dir}')
@@ -9978,18 +10289,19 @@ async ({ url }) => {
             for port in ports:
                 if self._wait_for_cdp(port, timeout=2):
                     self.log(
-                        '[Ridi] Reusing the existing External Downloader '
+                        f'[{site}] Reusing the existing External Downloader '
                         'browser session.'
                     )
-                    return self._ridi_connect_cdp(port)
+                    return (self._ridi_connect_cdp(port) if site == 'Ridi'
+                            else self._ridi_connect_cdp(port, site))
 
             pids = ', '.join(str(pid) for pid in locked_pids)
             self.log(
-                '[Ridi] The External Downloader browser profile is already '
+                f'[{site}] The External Downloader browser profile is already '
                 f'open in process(es): {pids}'
             )
             self.log(
-                '[Ridi] Close the Enter Browser window, then click Download '
+                f'[{site}] Close the Enter Browser window, then click Download '
                 'again.'
             )
             return False
@@ -10003,7 +10315,7 @@ async ({ url }) => {
             window_position=(-32000, -32000),
         )
         if not proc or not port:
-            self.log('ERROR: [Ridi] Installed Chrome/Edge was not found.')
+            self.log(f'ERROR: [{site}] Installed Chrome/Edge was not found.')
             return False
 
         self._chrome_process = proc
@@ -10015,12 +10327,13 @@ async ({ url }) => {
                 ready = True
                 break
         if not ready:
-            self.log('ERROR: [Ridi] External browser did not become ready.')
+            self.log(f'ERROR: [{site}] External browser did not become ready.')
             self.cleanup()
             return False
 
         self._park_chrome_windows_for_profile(user_data_dir)
-        return self._ridi_connect_cdp(port)
+        return (self._ridi_connect_cdp(port) if site == 'Ridi'
+                else self._ridi_connect_cdp(port, site))
 
     @staticmethod
     def _ridi_api_title(payload):
@@ -10229,9 +10542,32 @@ async ({ url }) => {
             if first_title:
                 result['titleById'][str(series_id)] = first_title
 
-            # A non-serial book must not be turned into a one-chapter
-            # webnovel merely because the API request itself succeeded.
+            # Volume ebooks have a finite next_books chain too. Keep each
+            # volume as one reader entry when Ridi explicitly links it;
+            # ownership is checked by the viewer when that entry is opened.
             if not result['isSerial']:
+                if total < 2:
+                    return result
+                while len(ordered_ids) < min(total, 100):
+                    next_id = self._ridi_api_next_id(current_data)
+                    if not next_id or next_id in seen:
+                        break
+                    current_data = self._ridi_api_fetch_book(api_page, next_id)
+                    if not current_data:
+                        break
+                    seen.add(next_id)
+                    ordered_ids.append(next_id)
+                    volume_title = self._ridi_api_title(current_data)
+                    if volume_title:
+                        result['titleById'][next_id] = volume_title
+                if len(ordered_ids) > 1:
+                    result['links'] = [
+                        f'https://ridibooks.com/books/{volume_id}/view'
+                        for volume_id in ordered_ids
+                    ]
+                    result['diagnostics'].append(
+                        f'Linked ebook volumes: {len(ordered_ids)}'
+                    )
                 return result
 
             # Most Ridi webnovels use a contiguous episode-ID range. Prove
@@ -10369,7 +10705,12 @@ async ({ url }) => {
             return None
 
         self._stop_requested = False
+        is_library = bool(re.match(
+            r'^/library/books/\d+/?$',
+            urllib.parse.urlparse(url).path or '', re.I,
+        ))
         book_url = f'https://ridibooks.com/books/{book_id}'
+        start_url = url if is_library else book_url
         # The bundled headless browser is currently challenged by Ridi's
         # Cloudflare configuration. Match the contributed Chrome extension's
         # execution environment by retaining the real installed-Chrome
@@ -10378,11 +10719,121 @@ async ({ url }) => {
             not self._ridi_chrome
             or not self._ridi_page_is_usable(self._page)
         ):
-            if not self._start_ridi_browser(book_url):
+            if not self._start_ridi_browser(start_url):
                 return None
         if not self._ridi_page_is_usable(self._page):
             self.log('[Ridi] ERROR: Browser could not be started.')
             return None
+
+        if is_library:
+            try:
+                self._page.goto(url, wait_until='domcontentloaded', timeout=45000)
+                current_url = getattr(self._page, 'url', '') or ''
+                if re.search(r'/(?:account/login|account/verify-adult)',
+                             current_url, re.I):
+                    self.log(
+                        '[Ridi] Library page requires login or age '
+                        'verification in Enter Browser.'
+                    )
+                    return None
+                if self._ridi_signed_in() is False:
+                    self.log(
+                        '[Ridi] Library URLs need a Ridi login, and the '
+                        'External Downloader profile is not signed in. Sign '
+                        'in with Enter Browser, close it, then retry.'
+                    )
+                    return None
+                wait_for_function = getattr(self._page, 'wait_for_function', None)
+                if wait_for_function:
+                    try:
+                        wait_for_function(r"""() =>
+                          !!document.querySelector(
+                            'div.pages, #viewer_contents, [id^="ridi_c"], '
+                            + 'article.chapter'
+                          ) || /\/books\/\d+/.test(
+                            document.querySelector('link[rel="canonical"]')?.href
+                            || ''
+                          ) || !!document.querySelector(
+                            'a[href*="ridibooks.com/books/"], a[href^="/books/"]'
+                          )
+                        """, timeout=15000)
+                    except Exception:
+                        pass
+                library = self._page.evaluate(r"""
+                () => {
+                  const meta = (key) => document.querySelector(
+                    `meta[property="${key}"], meta[name="${key}"]`
+                  )?.getAttribute('content') || '';
+                  const canonical = document.querySelector(
+                    'link[rel="canonical"]'
+                  )?.href || meta('og:url');
+                  const current = location.href;
+                  const productRe =
+                    /^https?:\/\/([^/]+\.)?ridibooks\.com\/books\/(\d+)(?:[/?#]|$)/i;
+                  let product = [current, canonical].find((value) =>
+                    productRe.test(value || '')
+                  ) || '';
+                  // The library SPA has no canonical link; its volume rows
+                  // link to each product ("서점에서 보기"). Volume IDs rise
+                  // with volume order, so the lowest is the series start.
+                  if (!product) {
+                    const ids = [...document.querySelectorAll('a[href]')]
+                      .map((a) => (productRe.exec(a.href) || [])[2])
+                      .filter(Boolean).map(Number);
+                    if (ids.length) {
+                      product = `https://ridibooks.com/books/${Math.min(...ids)}`;
+                    }
+                  }
+                  const text = document.body?.innerText || '';
+                  return {
+                    product,
+                    unavailable: /이용불가/.test(text),
+                    adult: /19세 미만/.test(text),
+                    title: meta('og:title') || document.querySelector('h1')?.innerText
+                      || document.title || '',
+                    viewer: !!document.querySelector(
+                      'div.pages, #viewer_contents, [id^="ridi_c"], article.chapter'
+                    ),
+                  };
+                }
+                """) or {}
+            except Exception as exc:
+                self.log(f'[Ridi] Library page could not load: {exc}')
+                return None
+            if library.get('viewer'):
+                title = library.get('title') or f'Ridi {book_id}'
+                chapter = {
+                    'id': book_id, 'url': url, 'name': title,
+                    'fullName': title, 'isVIP': False, 'isPaid': False,
+                    'isAccessible': True,
+                }
+                data = {
+                    'bookname': title, 'author': '', 'bookUrl': url,
+                    'chapterCount': 1, 'chapters': [chapter], 'language': 'ko',
+                    '_ridibooks': True, '_ridi_book_id': book_id,
+                }
+                self._book_data, self._book_url = data, url
+                self.log(f'[Ridi] Library reader: {title}')
+                return data
+            product = library.get('product') or ''
+            if not product:
+                self.log(
+                    '[Ridi] Library URL opened, but no readable book or '
+                    'product link was found. Check the Ridi login in Enter '
+                    'Browser, then retry.'
+                )
+                return None
+            book_id = self._ridi_book_id(product)
+            book_url = f'https://ridibooks.com/books/{book_id}'
+            self.log(f'[Ridi] Library book resolves to: {book_url}')
+            if library.get('unavailable'):
+                self.log(
+                    '[Ridi] Your library marks this title "이용불가" '
+                    '(unavailable)'
+                    + (' as an adult (19+) title. Complete or renew Ridi '
+                       'adult verification (성인인증) in Enter Browser.'
+                       if library.get('adult') else '.')
+                )
 
         self.log(f'[Ridi] Opening: {book_url}')
         try:
@@ -10415,6 +10866,14 @@ async ({ url }) => {
             if 'ERR_ABORTED' not in str(e):
                 self.log(f'[Ridi] ERROR: Page load failed: {e}')
                 return None
+        current_url = getattr(self._page, 'url', '') or ''
+        if re.search(r'/(?:account/login|account/verify-adult)',
+                     current_url, re.I):
+            self.log(
+                '[Ridi] Product page requires login or age verification '
+                'in Enter Browser.'
+            )
+            return None
 
         # Collect metadata, any rendered episode buttons, and the embedded
         # series root here. API chaining happens afterward in a separate
@@ -10716,9 +11175,8 @@ async ({ url }) => {
                 )
             else:
                 self.log(
-                    '[Ridi] ERROR: No webnovel episodes were found. This '
-                    'scraper supports Ridi webnovels, not downloadable volume '
-                    'ebooks.'
+                    '[Ridi] ERROR: No webnovel episodes or linked ebook '
+                    'volumes were found on this book page.'
                 )
             return None
 
@@ -10766,11 +11224,14 @@ async ({ url }) => {
                 if (content) break;
               }
               const length = (content?.innerText || '').trim().length;
+              const notice = (document.body?.innerText || '').slice(0, 2000);
               return {
                 complete: document.readyState === 'complete',
                 found: !!content,
                 ready: document.readyState === 'complete' && length > 500,
                 length,
+                refused: !content && /작품을 열 수 없습니다|웹 뷰어에서 지원하지 않는/
+                  .test(notice),
               };
             }
             """) or {}
@@ -10784,6 +11245,8 @@ async ({ url }) => {
         stable_count = 0
         while time.monotonic() < deadline and not self._stop_requested:
             state = self._ridi_content_state(page)
+            if state.get('refused'):
+                return False
             length = int(state.get('length') or 0)
             if state.get('ready') and length >= 500:
                 if length == last_length:
@@ -10820,9 +11283,12 @@ async ({ url }) => {
               const text = (document.body?.innerText || '').slice(0, 6000);
               const keywords = ['구매', '대여', '로그인', '결제', '소장', '미리보기'];
               const hits = keywords.filter((keyword) => text.includes(keyword)).length;
+              const refused = /작품을 열 수 없습니다|웹 뷰어에서 지원하지 않는/
+                .test(text);
               return {
-                wall: offViewer || hits >= 2,
+                wall: offViewer || hits >= 2 || refused,
                 offViewer,
+                refused,
                 hits,
                 url: location.href,
               };
@@ -11048,6 +11514,35 @@ async ({ url }) => {
             'chapterUrl': chapter_url,
         }
 
+    def _ridi_signed_in(self):
+        """Return whether the attached profile holds Ridi's login tokens."""
+        try:
+            names = {cookie.get('name') for cookie in self._context.cookies(
+                ['https://ridibooks.com/']
+            )}
+        except Exception:
+            return None
+        return bool(names & {'ridi-at', 'ridi-rt'})
+
+    def _ridi_refused_result(self, chapter_name):
+        """Report the viewer's "cannot open this title" notice once."""
+        if self._ridi_signed_in() is False:
+            self.log(
+                f'  [Ridi] Viewer refused {chapter_name}: the External '
+                'Downloader profile is not signed in to Ridi. Sign in with '
+                'Enter Browser, close that window, then download again.'
+            )
+            reason = 'login'
+        else:
+            self.log(
+                f'  [Ridi] Viewer refused {chapter_name}: Ridi says this '
+                'title cannot be opened in the web viewer for this account '
+                '(not owned, or app-only).'
+            )
+            reason = 'unsupported'
+        return {'_locked': True, 'chapterName': chapter_name,
+                '_lockReason': reason}
+
     def _ridi_finish_loaded_chapter(self, page, chapter_url, chapter_name):
         """Validate, retry, and extract a Ridi page after navigation starts."""
         # Never interpret the last URL cached on a dead Playwright page. A
@@ -11090,6 +11585,8 @@ async ({ url }) => {
             if not self._ridi_page_is_usable(page):
                 return None
             wall = self._ridi_detect_access_wall(page)
+            if wall.get('wall') and wall.get('refused'):
+                return self._ridi_refused_result(chapter_name)
             if wall.get('wall'):
                 self.log(
                     f'  [Ridi] LOCKED or unpurchased: {chapter_name} '
@@ -14620,6 +15117,7 @@ async ({ url }) => {
                     value,
                     domain=cookie.get('domain') or domain,
                     path=cookie.get('path') or '/',
+                    secure=bool(cookie.get('secure')),
                 )
             except Exception:
                 pass
@@ -16788,11 +17286,25 @@ async ({ url }) => {
         if not content:
             return None
         shuffled = content.select_one('#chapter')
+        rendered = content.select_one('#ad')
+        # Reader mode leaves the scrambled source beside the rendered copy.
+        # Reading their parent combines both and can double the chapter.
+        rendered_text = self._xiyuwx_text(rendered) if rendered else ''
         shuffle_script = next(
             (node.get_text() for node in soup.select('script')
              if '_ii_rr(' in node.get_text()), ''
         )
-        if shuffled and shuffle_script:
+        if rendered_text:
+            source = rendered
+            for node in source.select('script, style, noscript, .ads, '
+                                      '.advertisement, .read-ads, .chapter-ad, '
+                                      '.bottom-ad, .ad'):
+                node.decompose()
+            for br in source.select('br'):
+                br.replace_with('\n')
+            raw = source.get_text('\n', strip=True)
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        elif shuffled and shuffle_script:
             encoded = re.search(r"_ii_rr\s*\(\s*['\"]([^'\"]+)", shuffle_script)
             if not encoded:
                 return None
@@ -16811,6 +17323,10 @@ async ({ url }) => {
                      for index in indexes]
             lines = [re.sub(r'\s+', ' ', line.replace('\xa0', ' ')).strip()
                      for line in lines if line.strip()]
+        elif shuffled:
+            # A shuffled source without its ordering map is unusable. Let the
+            # browser fallback render it instead of returning scrambled text.
+            return None
         else:
             for node in content.select(
                 'script, style, noscript, .ads, .advertisement, .read-ads, '
@@ -16955,8 +17471,18 @@ async ({ url }) => {
             'Referer': 'https://b.faloo.com/',
         })
         self._load_saved_site_cookies(session.cookies, url, 'faloo.com')
-        response = session.get(url, timeout=30)
-        response.raise_for_status()
+        for _ in range(3):
+            response = session.get(url, timeout=30)
+            response.raise_for_status()
+            # Under load Faloo answers with a script that sets C3VK and
+            # reloads the page. A browser follows it; do the same here.
+            challenge = re.search(
+                rb'cookie\s*=\s*["\']C3VK=([0-9a-fA-F]+)', response.content[:2000]
+            )
+            if not challenge:
+                break
+            session.cookies.set('C3VK', challenge.group(1).decode(),
+                                domain='b.faloo.com', path='/')
         return response.content, response.url
 
     @staticmethod
@@ -17116,7 +17642,7 @@ async ({ url }) => {
         # version renders it. Reuse the existing External Downloader page.
         if not self._page:
             try:
-                self.start()
+                self._start_ridi_browser(canonical, site='Faloo')
             except Exception as exc:
                 self.log(f'[Faloo] Browser could not start: {exc}')
         for target in candidates:
@@ -17156,9 +17682,30 @@ async ({ url }) => {
         except Exception as exc:
             self.log(f'  [Faloo] Chapter request failed: {chapter_name}: {exc}')
             return None
-        return self._faloo_chapter_from_page(page, chapter_name)
+        return self._faloo_chapter_from_page(
+            page, chapter_name, chapter_url, self._faloo_saved_cookies
+        )
 
-    def _faloo_chapter_from_page(self, page, chapter_name):
+    def _faloo_saved_cookies(self):
+        import requests
+        jar = requests.cookies.RequestsCookieJar()
+        self._load_saved_site_cookies(jar, 'https://b.faloo.com/', 'faloo.com')
+        return {cookie.name: cookie.value for cookie in jar}
+
+    # Faloo's reader replaces a chapter it will not serve with these prompts.
+    # They appear inside .noveContent, so the container alone proves nothing.
+    _FALOO_LOGIN_WALL = re.compile(r'您还没有登录|请登录后')
+    _FALOO_PURCHASE_WALL = re.compile(
+        r'订阅本章|购买本章|余额不足|开通VIP|升级VIP会员|设置自动订阅'
+    )
+
+    def _faloo_chapter_from_page(self, page, chapter_name, chapter_url='',
+                                 cookies=None):
+        """Read one chapter page. ``cookies`` returns the reader's cookies.
+
+        Readable VIP chapters are drawn as images that need the same login
+        as the page, so they are only requested when images are present.
+        """
         soup = content = None
         for candidate in self._faloo_soups(page):
             candidate_content = candidate.select_one(
@@ -17169,19 +17716,92 @@ async ({ url }) => {
             if candidate_content:
                 content = candidate_content
                 break
+
+        def locked(reason):
+            return {'_locked': True, 'chapterName': chapter_name,
+                    '_lockReason': reason}
+
         if not content:
-            if re.search(r'订阅|充值|购买本章|开通VIP', soup.get_text(' ', strip=True)):
-                return {'_locked': True, 'chapterName': chapter_name}
+            page_text = soup.get_text(' ', strip=True)
+            if self._FALOO_LOGIN_WALL.search(page_text):
+                return locked('login')
+            if re.search(r'订阅|充值|购买本章|开通VIP', page_text):
+                return locked('purchase')
             return None
-        # Faloo also serves some VIP chapters as images. Never present a
-        # teaser, payment message or image placeholder as full chapter text.
-        if content.select_one('.con_img'):
-            return {'_locked': True, 'chapterName': chapter_name}
+        image_calls = re.findall(r'image_do3?\(([^)]*)\)', str(content))
         for node in content.select('script, style, noscript, .ads, .advertisement'):
             node.decompose()
+        # Free chapters end with a recharge promotion linking to the pay site.
+        for link in content.select('a[href*="pay.faloo.com"]'):
+            promo = link.find_parent('p')
+            if promo and promo in content.find_all('p'):
+                promo.decompose()
+        wall_text = self._faloo_fix_text(content.get_text(' ', strip=True))
+        # A signed-in reader who has not bought the chapter gets the same
+        # .c_c1 box, reading "您还没有订阅本章节", so only its text says why.
+        if (content.select_one('a[href*="regist/login"]')
+                or self._FALOO_LOGIN_WALL.search(wall_text)):
+            return locked('login')
+
+        base_url = chapter_url or 'https://b.faloo.com/'
+        image_urls = []
+        # VIP text is drawn as images. The server HTML only has loading
+        # placeholders plus image_do3(...) calls; page2020.js builds each
+        # URL from those arguments, which this repeats.
+        for call in image_calls:
+            args = [arg.strip().strip('\'"') for arg in call.split(',')]
+            if len(args) < 11:
+                continue
+            num, o, book, chapter, en, part, key, user, stamp, size, color = args[:11]
+            chapter_type = args[11] if len(args) > 11 else '1'
+            family = args[12] if len(args) > 12 else '0'
+            background = args[13] if len(args) > 13 else '1'
+            host = 'read6' if chapter_type == '0' else 'read'
+            image_urls.append(
+                f'https://{host}.faloo.com/Page4VipImage.aspx?num={num}&o={o}'
+                f'&id={book}&n={chapter}&ct={chapter_type}&en={en}&t={part}'
+                f'&font_size={size}&font_color={color}'
+                f'&FontFamilyType={family}&backgroundtype={background}'
+                f'&u={user}&time={stamp}&k={key}'
+            )
+        # A rendered browser page has already moved the URL into CSS.
+        for part in ([] if image_urls else
+                     content.select('.con_img [style*="Page4VipImage"]')):
+            match = re.search(r'url\(\s*["\']?([^"\')]+Page4VipImage[^"\')]*)',
+                              part.get('style') or '')
+            if match:
+                image_urls.append(urllib.parse.urljoin(
+                    base_url, html.unescape(match.group(1))
+                ))
+        if image_urls:
+            request_cookies = cookies() if callable(cookies) else (cookies or {})
+            chapter_no = re.search(r'_(\d+)\.html', base_url)
+            chapter_no = chapter_no.group(1) if chapter_no else 'chapter'
+            images = [
+                {'url': url, 'name': f'faloo_{chapter_no}_{index:03d}.gif',
+                 '_cookies': request_cookies}
+                for index, url in enumerate(image_urls, start=1)
+            ]
+            return {
+                'chapterName': chapter_name, 'sourceChapterName': chapter_name,
+                'contentText': '',
+                'contentHtml': '\n'.join(
+                    f'<p><img src="{html.escape(image["url"], quote=True)}" '
+                    'alt=""/></p>'
+                    for image in images
+                ),
+                'images': images,
+                'chapterUrl': base_url,
+                '_imageCookies': request_cookies,
+            }
+        # An image slot without an image, or a subscription offer, is what
+        # a signed-in reader sees before buying the chapter.
+        if (content.select_one('.con_img, .c_c3, .c_c4')
+                or self._FALOO_PURCHASE_WALL.search(wall_text)):
+            return locked('purchase')
         text = self._faloo_fix_text(content.get_text('\n', strip=True))
         if not text or re.search(r'^(?:订阅|充值|购买本章|开通VIP)', text):
-            return {'_locked': True, 'chapterName': chapter_name}
+            return locked('purchase')
         paragraphs = [line.strip() for line in text.splitlines() if line.strip()]
         return {
             'chapterName': chapter_name, 'sourceChapterName': chapter_name,
@@ -17190,16 +17810,21 @@ async ({ url }) => {
             'images': [],
         }
 
-    def _faloo_parse_chapters_browser(self, chapters):
+    def _faloo_parse_chapters_browser(self, chapters, interval=0,
+                                      interval_max=None):
         """Render missing chapters in browser tabs on Playwright's thread."""
         if not chapters:
             return []
         if not self._context:
             try:
-                self.start()
+                self._start_ridi_browser(
+                    chapters[0].get('url', 'https://b.faloo.com/'),
+                    site='Faloo',
+                )
             except Exception as exc:
                 self.log(f'  [Faloo] Browser could not start: {exc}')
-                return [None] * len(chapters)
+        if not self._context:
+            return [None] * len(chapters)
         while len(self._faloo_pages) < len(chapters):
             self._faloo_pages.append(self._context.new_page())
         pages = self._faloo_pages[:len(chapters)]
@@ -17210,6 +17835,8 @@ async ({ url }) => {
         for index, chapter in enumerate(chapters):
             if self._stop_requested:
                 break
+            if index:
+                self._sleep_interval(interval, interval_max)
             try:
                 pages[index].goto(
                     chapter.get('url', ''), wait_until='commit', timeout=30000
@@ -17234,14 +17861,30 @@ async ({ url }) => {
                 chapter = chapters[index]
                 name = chapter.get('fullName') or chapter.get('name', '')
                 results[index] = self._faloo_chapter_from_page(
-                    page.content(), name
+                    page.content(), name, chapter.get('url', ''),
+                    lambda: {
+                        cookie['name']: cookie['value']
+                        for cookie in self._context.cookies(
+                            ['https://b.faloo.com/', 'https://read.faloo.com/']
+                        )
+                    },
                 )
             except Exception as exc:
                 self.log(f'  [Faloo] Browser chapter failed: {exc}')
+        if (not getattr(self, '_faloo_login_warned', False)
+                and any(result and result.get('_lockReason') == 'login'
+                        for result in results)):
+            self._faloo_login_warned = True
+            self.log(
+                '  [Faloo] VIP chapters need a signed-in Faloo account in the '
+                'External Downloader profile. Sign in with Enter Browser, '
+                'close that window, then download again.'
+            )
         return results
 
     def close_faloo_pages(self):
         """Release reader pages after the current Faloo download."""
+        self._faloo_login_warned = False
         for page in self._faloo_pages:
             try:
                 page.close()
@@ -17437,9 +18080,14 @@ async ({ url }) => {
 
         if self._book_data and self._book_data.get('_faloo'):
             name = chapter_info.get('fullName') or chapter_info.get('name', '')
-            result = self._faloo_parse_chapter(chapter_info.get('url', ''), name)
-            if result is None:
-                result = self._faloo_parse_chapters_browser([chapter_info])[0]
+            result = None
+            if not (chapter_info.get('isVIP') or chapter_info.get('isPaid')):
+                result = self._faloo_parse_chapter(
+                    chapter_info.get('url', ''), name
+                )
+            if not result or result.get('_locked'):
+                browser_result = self._faloo_parse_chapters_browser([chapter_info])[0]
+                result = browser_result or result
             self._sleep_interval(interval, interval_max)
             return result
 
@@ -17704,6 +18352,10 @@ async ({ url }) => {
                     time.sleep(launch_delays[index])
                 if self._stop_requested:
                     return None
+                if chapter.get('isVIP') or chapter.get('isPaid'):
+                    # A guest preview can look like full text. Read paid
+                    # chapters in the authenticated profile from the start.
+                    return None
                 result = self._faloo_parse_chapter(
                     chapter.get('url', ''),
                     chapter.get('fullName') or chapter.get('name', ''),
@@ -17714,14 +18366,16 @@ async ({ url }) => {
             # The dialog sizes a batch from the user's thread setting.
             with ThreadPoolExecutor(max_workers=max(1, len(batch_info))) as pool:
                 results = list(pool.map(fetch_faloo, enumerate(batch_info)))
-            missing = [i for i, result in enumerate(results) if result is None]
+            missing = [i for i, result in enumerate(results)
+                       if not result or result.get('_locked')]
             if missing and not self._stop_requested:
                 recovered = self._faloo_parse_chapters_browser(
-                    [batch_info[i] for i in missing]
+                    [batch_info[i] for i in missing], interval, interval_max
                 )
                 for index, result in zip(missing, recovered):
-                    results[index] = result
-                    report_success(index, result)
+                    if result:
+                        results[index] = result
+                        report_success(index, result)
             return results
 
         if self._book_data and self._book_data.get('_1qxs'):

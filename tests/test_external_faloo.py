@@ -1,9 +1,52 @@
+import html
 import threading
 import queue
 from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
 
 from external_dialog import ExternalNovelDialog
 from external_scraper import ExternalScraper
+
+
+@pytest.mark.parametrize('url', [
+    'https://b.faloo.com/724903.html',
+    'https://www.qidian.com/book/123456/',
+    'https://ridibooks.com/books/6121000538',
+    'https://ridibooks.com/library/books/8706175/',
+])
+def test_login_sites_open_the_saved_installed_chrome_profile(url):
+    class Setting:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self):
+            return self.value
+
+        def set(self, value):
+            self.value = value
+
+    dialog = SimpleNamespace(
+        _normalised_url=lambda: url,
+        _url_var=Setting(''),
+        _save_ext_config=lambda: None,
+        _var_regular_browser=Setting(False),
+        _append_log=Mock(),
+        _work_queue=queue.Queue(),
+    )
+    for name in (
+        '_btn_download', '_btn_browser', '_btn_sfacg_app',
+        '_chk_regular_browser', '_btn_paste_batch', '_btn_batch_file',
+    ):
+        setattr(dialog, name, Mock())
+
+    ExternalNovelDialog._on_enter_browser(dialog)
+
+    assert dialog._var_regular_browser.get() is True
+    assert dialog._work_queue.get_nowait() == (
+        'browser', {'url': url, 'regular': True},
+    )
 
 
 BOOK_HTML = '''
@@ -136,6 +179,96 @@ def test_faloo_chapter_text_and_locked_preview(monkeypatch):
     assert scraper._faloo_parse_chapter('https://b.faloo.com/1543561_3.html', '第三章')['_locked']
 
 
+# Markup served by b.faloo.com/724903_1658.html to a guest on 2026-09-29.
+FALOO_LOGIN_WALL = (
+    '<script>is_vip=1;</script><div class="noveContent">'
+    '<div class="c_c1">您还没有登录，请登录后在继续阅读本部小说!</div>'
+    '<div class="c_c3"><a href="//u.faloo.com/regist/login.aspx?backUrl=x">'
+    '立即登录</a></div><div class="c_c4"><div class="c_c4_i_l">'
+    '<span>设置自动订阅</span>(免费)系统将第一时间为您订阅最新发布的章节。'
+    '</div></div></div>'
+)
+
+
+def test_faloo_login_wall_is_locked_not_saved_as_text(monkeypatch):
+    scraper = ExternalScraper()
+    monkeypatch.setattr(scraper, '_faloo_fetch', lambda url: (
+        FALOO_LOGIN_WALL.encode('gb18030'), url,
+    ))
+    result = scraper._faloo_parse_chapter(
+        'https://b.faloo.com/724903_1658.html', '1644'
+    )
+    assert result['_locked'] and result['_lockReason'] == 'login'
+    assert 'contentText' not in result
+
+
+def test_faloo_purchase_prompt_for_signed_in_reader_is_locked():
+    page = ('<div class="noveContent"><div class="c_c4">'
+            '<span>设置自动订阅</span></div></div>')
+    result = ExternalScraper()._faloo_chapter_from_page(page, 'VIP')
+    assert result['_locked'] and result['_lockReason'] == 'purchase'
+
+
+def test_faloo_readable_vip_images_keep_reader_cookies():
+    # Signed-in markup of b.faloo.com/724903_1658.html on 2026-09-29.
+    image = ('//read.faloo.com/Page4VipImage.aspx?num=1&amp;o=3&amp;'
+             'id=724903&amp;n=1658&amp;k=BEF5')
+    page = ('<div class="noveContent"><div class="con_img">'
+            '<div id="img_src_cok_1658_1" style=\'background-image: '
+            f'url("{image}"); width: 945px;\'>'
+            '<img src="http://s.faloo.com/adimages/beijing_page.gif"/>'
+            '</div></div></div>')
+    result = ExternalScraper()._faloo_chapter_from_page(
+        page, 'VIP', 'https://b.faloo.com/724903_1658.html',
+        lambda: {'KeenFire': 'abc'},
+    )
+    url = ('https://read.faloo.com/Page4VipImage.aspx?num=1&o=3&'
+           'id=724903&n=1658&k=BEF5')
+    assert not result.get('_locked')
+    assert [image['url'] for image in result['images']] == [url]
+    assert result['_imageCookies'] == {'KeenFire': 'abc'}
+    assert html.escape(url, quote=True) in result['contentHtml']
+
+
+def test_faloo_unbought_chapter_for_signed_in_reader_is_purchase_lock():
+    page = ('<div class="noveContent"><div class="c_c1">'
+            '您还没有订阅本章节(VIP章节)</div><div class="c_c3">'
+            '<a href="//b.faloo.com/buy_724903.html">批量订阅VIP章节</a>'
+            '</div></div>')
+    result = ExternalScraper()._faloo_chapter_from_page(page, '1655')
+    assert result['_locked'] and result['_lockReason'] == 'purchase'
+
+
+def test_faloo_fetch_answers_c3vk_challenge(monkeypatch):
+    import requests
+    challenge = (b'<script>window.open("/724903_1.html", "_self");'
+                 b'window[x].cookie="C3VK=3ba581; path=/; max-age=300;"'
+                 b'</script>')
+    seen = []
+
+    def get(self, url, timeout):
+        seen.append(self.cookies.get('C3VK'))
+        body = challenge if len(seen) == 1 else b'<p>ok</p>'
+        return SimpleNamespace(content=body, url=url,
+                               raise_for_status=lambda: None)
+
+    monkeypatch.setattr(requests.Session, 'get', get)
+    scraper = ExternalScraper()
+    monkeypatch.setattr(scraper, '_load_saved_site_cookies',
+                        lambda *args: 0)
+    assert scraper._faloo_fetch('https://b.faloo.com/724903_1.html')[0] == b'<p>ok</p>'
+    assert seen == [None, '3ba581']
+
+
+def test_faloo_free_chapter_drops_recharge_promotion():
+    page = ('<div class="noveContent"><p>顾长歌！</p><p><b><font>中秋读书！'
+            '</font><a href="http://pay.faloo.com/">立即抢充</a></b>'
+            '(活动时间：9月25日到9月27日)</p></div>')
+    result = ExternalScraper()._faloo_chapter_from_page(page, '1')
+    assert result['contentText'] == '顾长歌！'
+
+
+
 def test_faloo_batch_recovers_missing_http_chapters_in_browser(monkeypatch):
     scraper = ExternalScraper()
     scraper._book_data = {'_faloo': True}
@@ -187,6 +320,45 @@ def test_faloo_batch_recovers_missing_http_chapters_in_browser(monkeypatch):
     assert len(scraper._context.pages) == 3
     scraper.close_faloo_pages()
     assert all(page.closed for page in scraper._context.pages)
+
+
+def test_faloo_retries_http_login_wall_in_saved_browser(monkeypatch):
+    scraper = ExternalScraper()
+    scraper._book_data = {'_faloo': True}
+    chapter = {'url': 'https://b.faloo.com/724903_1658.html',
+               'name': '第1658章'}
+    monkeypatch.setattr(scraper, '_faloo_parse_chapter',
+                        lambda *_args: {'_locked': True,
+                                        'chapterName': '第1658章'})
+    seen = []
+
+    def browser(chapters, *_args):
+        seen.extend(chapters)
+        return [{'chapterName': '第1658章', 'contentText': '已登录正文'}]
+
+    monkeypatch.setattr(scraper, '_faloo_parse_chapters_browser', browser)
+    result = scraper.parse_chapter_batch([chapter], interval=0)[0]
+    assert result['contentText'] == '已登录正文'
+    assert seen == [chapter]
+
+
+def test_faloo_paid_chapter_goes_directly_to_login_browser(monkeypatch):
+    scraper = ExternalScraper()
+    scraper._book_data = {'_faloo': True}
+    chapter = {
+        'url': 'https://b.faloo.com/724903_1658.html',
+        'name': '第1658章', 'isPaid': True, 'isVIP': True,
+    }
+    monkeypatch.setattr(scraper, '_faloo_parse_chapter',
+                        lambda *_args: (_ for _ in ()).throw(AssertionError(
+                            'Paid chapter must use the authenticated browser'
+                        )))
+    monkeypatch.setattr(scraper, '_faloo_parse_chapters_browser',
+                        lambda _chapters, *_args: [
+                            {'chapterName': '第1658章', 'contentText': '已登录正文'}
+                        ])
+    result = scraper.parse_chapter_batch([chapter], interval=0)[0]
+    assert result['contentText'] == '已登录正文'
 
 
 def test_faloo_batch_uses_parallel_workers_and_preserves_order(monkeypatch):

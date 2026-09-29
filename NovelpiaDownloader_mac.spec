@@ -92,6 +92,11 @@ if icon_file:
 for js in ['gm_stubs.js', 'bridge.js', 'rules-lib.js']:
     if os.path.exists(js):
         _datas.append((js, '.'))
+# Qidian bought-chapter decoder: reference glyphs and frequencies
+if os.path.isdir('data/fonts'):
+    _datas.append(('data/fonts', 'data/fonts'))
+if os.path.exists('data/zh_char_frequency.txt'):
+    _datas.append(('data/zh_char_frequency.txt', 'data'))
 # Merge Playwright driver files collected earlier
 _datas.extend(_pw_datas)
 

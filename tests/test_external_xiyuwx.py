@@ -140,3 +140,24 @@ def test_yywenxuan_catalog_and_multipage_reader(monkeypatch):
     result = scraper.parse_chapter(0, book['chapters'][0], interval=0)
     assert result['contentText'].splitlines() == ['丙', '甲', '乙', '戊', '丁']
     assert fetched == [MIRROR_URL, page1, page2]
+
+
+def test_yywenxuan_reader_mode_uses_only_rendered_copy():
+    scraper = ExternalScraper()
+    # The site can leave its shuffled source in the DOM after filling #ad.
+    # A browser snapshot may omit the ordering script at this point.
+    page = '''
+    <div id="content">
+      <div id="chapter" style="display:none">乙<br><br>甲</div>
+      <div id="ad"><p>甲</p><p>乙</p></div>
+    </div>
+    '''
+    result = scraper._xiyuwx_chapter_from_page(page, '第1483章')
+    assert result['contentText'].splitlines() == ['甲', '乙']
+    assert result['contentHtml'].count('<p>') == 2
+
+
+def test_yywenxuan_missing_order_map_fails_closed():
+    scraper = ExternalScraper()
+    page = '<div id="content"><div id="chapter">乙<br><br>甲</div></div>'
+    assert scraper._xiyuwx_chapter_from_page(page, '第1483章') is None
