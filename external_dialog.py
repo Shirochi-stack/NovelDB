@@ -2129,12 +2129,14 @@ class ExternalNovelDialog(tk.Toplevel):
                     chapter_number = ExternalNovelDialog._result_chapter_number(
                         self, i, ch_data
                     )
-                    ch_name = ch_data.get(
-                        'chapterName', f'Chapter {chapter_number}'
-                    )
+                    ch_name = ch_data.get('chapterName')
+                    # Number every heading by its position in the book, so
+                    # titles without their own number stay in order too.
+                    heading = (f"{chapter_number}. {ch_name}" if ch_name
+                               else f"Chapter {chapter_number}")
                     content = ch_data.get('contentText', '')
                     f.write(f"\n{'─' * 40}\n")
-                    f.write(f"{ch_name}\n")
+                    f.write(f"{heading}\n")
                     f.write(f"{'─' * 40}\n\n")
                     f.write(content + "\n")
 

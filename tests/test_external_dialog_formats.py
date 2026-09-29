@@ -825,3 +825,24 @@ def test_failed_fetch_console_stack_is_suppressed():
     ExternalScraper._on_console(scraper, message)
 
     assert logs == []
+
+
+def test_txt_headings_are_numbered_by_book_position(tmp_path):
+    dialog = SimpleNamespace(
+        _chapter_results=[
+            {'chapterName': '第一章 晓梦', 'contentText': '幽深空旷的黑暗',
+             '_chapter_number': 2},
+            {'_locked': True, 'chapterName': 'VIP', '_chapter_number': 3},
+            {'contentText': '无题', '_chapter_number': 4},
+        ],
+        _get_output_dir=lambda: str(tmp_path),
+        _log=lambda _message: None,
+    )
+    dialog._result_chapter_number = (
+        lambda index, data: ExternalNovelDialog._result_chapter_number(
+            dialog, index, data))
+    ExternalNovelDialog._generate_txt(dialog, '剑烛大荒', '爱潜水的乌贼')
+    text = (tmp_path / '剑烛大荒.txt').read_text(encoding='utf-8')
+    assert '─' * 40 + '\n2. 第一章 晓梦\n' + '─' * 40 in text
+    assert '\nChapter 4\n' in text
+    assert 'VIP' not in text

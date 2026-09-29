@@ -161,3 +161,72 @@ def test_qidian_does_not_fall_back_while_enter_browser_is_open(monkeypatch):
     monkeypatch.setattr(scraper, '_start_qidian_headless', lambda _url: (
         _ for _ in ()).throw(AssertionError('headless must not run')))
     assert not scraper._start_qidian_browser('https://www.qidian.com/book/1/')
+
+
+def test_expired_saved_login_is_cleared_so_qidian_can_renew_it(monkeypatch):
+    scraper = ExternalScraper(logger=lambda _message: None)
+    cleared, scripts = [], []
+    scraper._context = SimpleNamespace(
+        clear_cookies=lambda name=None: cleared.append(name),
+        add_init_script=scripts.append,
+    )
+    monkeypatch.setattr(scraper, '_restore_session_cookies', lambda domain: 1)
+    monkeypatch.setattr(scraper, '_qidian_session_live', lambda: False)
+    scraper._prepare_qidian_context()
+    assert cleared == ['ywkey', 'ywguid', 'ywopenid']
+
+    cleared.clear()
+    monkeypatch.setattr(scraper, '_qidian_session_live', lambda: True)
+    scraper._prepare_qidian_context()
+    assert cleared == []
+
+
+def test_chapter_waits_out_qidian_firewall_then_retries(monkeypatch):
+    logs = []
+    scraper = ExternalScraper(logger=logs.append)
+    visits = []
+    page = SimpleNamespace(goto=lambda url, **_kwargs: visits.append(url))
+    scraper._context, scraper._page = object(), page
+    blocked = iter([True, True, False])
+    monkeypatch.setattr(scraper, '_qidian_blocked', lambda _page: next(blocked))
+    monkeypatch.setattr(scraper, '_QIDIAN_MIN_GAP', 0)
+    monkeypatch.setattr(scraper, '_QIDIAN_WAF_COOLDOWNS', (0, 0, 0))
+    monkeypatch.setattr(scraper, '_qidian_wait_for_chapter', lambda _page: True)
+    monkeypatch.setattr(scraper, '_qidian_is_encrypted', lambda _page: True)
+    monkeypatch.setattr(scraper, '_qidian_decode_encrypted',
+                        lambda _page, name: {'chapterName': name, 'contentText': 'ok'})
+    result = scraper._qidian_parse_chapter('https://www.qidian.com/chapter/1/2/', 'ch')
+    assert result['contentText'] == 'ok'
+    assert len(visits) == 3
+    assert sum('firewall' in line for line in logs) == 2
+
+
+def test_chapter_gives_up_after_every_cooldown(monkeypatch):
+    scraper = ExternalScraper(logger=lambda _message: None)
+    scraper._context = object()
+    scraper._page = SimpleNamespace(goto=lambda url, **_kwargs: None)
+    monkeypatch.setattr(scraper, '_qidian_blocked', lambda _page: True)
+    monkeypatch.setattr(scraper, '_QIDIAN_MIN_GAP', 0)
+    monkeypatch.setattr(scraper, '_QIDIAN_WAF_COOLDOWNS', (0, 0))
+    assert scraper._qidian_parse_chapter('https://www.qidian.com/chapter/1/2/', 'ch') is None
+
+
+def test_batch_rereads_blocked_or_unfinished_tabs(monkeypatch):
+    scraper = ExternalScraper(logger=lambda _message: None)
+    pages = [SimpleNamespace(goto=lambda url, **_kwargs: None, name=str(i))
+             for i in range(3)]
+    monkeypatch.setattr(scraper, '_qidian_parallel_pages', lambda count, url: pages)
+    monkeypatch.setattr(scraper, '_QIDIAN_MIN_GAP', 0)
+    monkeypatch.setattr(scraper, '_qidian_chapter_ready', lambda _page: True)
+    monkeypatch.setattr(scraper, '_qidian_blocked', lambda page: page.name == '1')
+    extracted = {'0': {'contentText': 'a'},
+                 '2': {'_locked': True, '_verification_required': True}}
+    monkeypatch.setattr(scraper, '_qidian_extract_loaded_chapter',
+                        lambda page, name: extracted[page.name])
+    reread = []
+    monkeypatch.setattr(scraper, '_qidian_parse_chapter',
+                        lambda url, name: reread.append(url) or {'contentText': url})
+    batch = [{'url': f'u{i}', 'name': f'c{i}'} for i in range(3)]
+    results = scraper._qidian_parse_chapter_batch_parallel(batch)
+    assert reread == ['u1', 'u2']
+    assert [r['contentText'] for r in results] == ['a', 'u1', 'u2']

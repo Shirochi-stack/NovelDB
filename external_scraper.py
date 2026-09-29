@@ -4425,11 +4425,44 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 f"[Qidian] Restored {restored} session login cookie(s) "
                 "saved from Enter Browser."
             )
+            if self._qidian_session_live() is False:
+                # Qidian's pages renew the login from the remember-me `alk`
+                # cookie only when ywkey/ywguid are absent, so expired copies
+                # must go or they block the renewal.
+                for name in ('ywkey', 'ywguid', 'ywopenid'):
+                    try:
+                        self._context.clear_cookies(name=name)
+                    except Exception:
+                        pass
+                self.log(
+                    "[Qidian] The saved login has expired; letting Qidian "
+                    "renew it. If VIP chapters stay locked, sign in again "
+                    "with Enter Browser."
+                )
         try:
             from qidian_font_decoder import QIDIAN_FONTFACE_HOOK_JS
             self._context.add_init_script(QIDIAN_FONTFACE_HOOK_JS)
         except Exception as e:
             self.log(f"[Qidian] Reader font hook unavailable: {e}")
+
+    def _qidian_session_live(self):
+        """True/False from Qidian's own user check; None when it can't tell."""
+        try:
+            csrf = next((c['value'] for c in self._context.cookies(
+                ['https://www.qidian.com/']) if c['name'] == '_csrfToken'), '')
+            response = self._context.request.get(
+                'https://www.qidian.com/ajax/UserInfo/GetUserInfo'
+                f'?_csrfToken={urllib.parse.quote(csrf)}',
+                headers={'Referer': 'https://www.qidian.com/'}, timeout=15000,
+            )
+            data = response.json()
+        except Exception:
+            return None  # e.g. the WAF page instead of JSON
+        if data.get('code') == 0:
+            return bool((data.get('data') or {}).get('isLogin', True))
+        if data.get('code') == 1000:  # "未登录"
+            return False
+        return None
 
     def _start_qidian_headless(self, start_url):
         """Launch a headless persistent browser for Qidian downloads."""
@@ -4639,7 +4672,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   const info = pageData?.chapterInfo || {};
   const encrypted = !!document.querySelector('main.r-font-encrypt')
     || (Number(info.isBuy) > 0 && (Number(info.cES) > 0 || Number(info.fEnS) > 0));
+  // Author notes such as "欢迎收藏" are shorter than any length threshold;
+  // once the page data names the chapter and <main> has its text, it is done.
+  const expected = Number(info.actualWords || info.wordsCount || 0);
+  const complete = !!info.chapterId && mainText.length > 0
+    && (expected === 0 || mainText.length >= Math.min(100, expected * 0.5));
   return (parsed && encrypted) ||
+    (parsed && complete) ||
     (parsed && (document.querySelectorAll('span.content-text').length >= 3 ||
     mainText.length > 100)) ||
     htmlChallenge ||
@@ -4852,6 +4891,50 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         )
         return data
 
+    # Qidian's WAF ("WAF拦截页面 / 您的请求已中断") blocks the whole session
+    # after bursts of chapter loads, so space loads out and, when it trips,
+    # wait it out instead of recording every later chapter as locked.
+    _QIDIAN_MIN_GAP = 2.5
+    _QIDIAN_WAF_COOLDOWNS = (60, 180, 420, 900)
+
+    def _qidian_sleep(self, seconds):
+        deadline = time.time() + seconds
+        while time.time() < deadline and not self._stop_requested:
+            time.sleep(min(0.5, max(0.0, deadline - time.time())))
+        return not self._stop_requested
+
+    def _qidian_pace(self):
+        last = getattr(self, '_qidian_last_load', 0.0)
+        wait = last + self._QIDIAN_MIN_GAP - time.time()
+        if wait > 0:
+            self._qidian_sleep(wait)
+        self._qidian_last_load = time.time()
+
+    def _qidian_blocked(self, page):
+        try:
+            return bool(page.evaluate(
+                "() => /WAF/.test(document.title || '')"
+                " || /您的请求已中断/.test(document.body?.innerText || '')"
+            ))
+        except Exception:
+            return False
+
+    def _qidian_wait_out_block(self, attempt, chapter_name):
+        """Pause after a WAF block. False once every cooldown is used up."""
+        if attempt >= len(self._QIDIAN_WAF_COOLDOWNS):
+            self.log(
+                f"  [Qidian] Still blocked by Qidian's firewall; giving up on "
+                f"{chapter_name}. Wait a while, then download the rest."
+            )
+            return False
+        pause = self._QIDIAN_WAF_COOLDOWNS[attempt]
+        self.log(
+            f"  [Qidian] Qidian's firewall is blocking requests (WAF拦截). "
+            f"Pausing {pause // 60} min before retrying {chapter_name} "
+            f"({attempt + 1}/{len(self._QIDIAN_WAF_COOLDOWNS)})."
+        )
+        return self._qidian_sleep(pause)
+
     def _qidian_parse_chapter(self, chapter_url, chapter_name, page=None):
         """Scrape one rendered Qidian chapter."""
         if not self._context or not self._page:
@@ -4859,16 +4942,24 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 return None
 
         target = page or self._page
-        try:
-            goto_kwargs = {
-                "wait_until": "domcontentloaded",
-                "timeout": 45000,
-            }
-            if self._book_url:
-                goto_kwargs["referer"] = self._book_url
-            target.goto(chapter_url, **goto_kwargs)
-        except Exception as e:
-            self.log(f"  [Qidian] Page load warning: {e}")
+        for attempt in range(len(self._QIDIAN_WAF_COOLDOWNS) + 1):
+            if self._stop_requested:
+                return None
+            self._qidian_pace()
+            try:
+                goto_kwargs = {
+                    "wait_until": "domcontentloaded",
+                    "timeout": 45000,
+                }
+                if self._book_url:
+                    goto_kwargs["referer"] = self._book_url
+                target.goto(chapter_url, **goto_kwargs)
+            except Exception as e:
+                self.log(f"  [Qidian] Page load warning: {e}")
+            if not self._qidian_blocked(target):
+                break
+            if not self._qidian_wait_out_block(attempt, chapter_name):
+                return None
 
         if not self._qidian_wait_for_chapter(target):
             self.log(f"  [Qidian] Timed out waiting for: {chapter_name}")
@@ -5048,14 +5139,22 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     )?.pageContext?.pageProps?.pageData || null;
   } catch (e) {}
   const info = pageData?.chapterInfo || {};
-  const main = document.querySelector('main.r-font-encrypt');
+  const cipherMain = document.querySelector('main.r-font-encrypt');
+  // Only font-scrambled chapters get main.r-font-encrypt. A bought chapter
+  // that is encrypted without the font cipher renders into the ordinary
+  // reader <main>, so either one counts once its paragraphs are drawn.
+  const main = cipherMain || document.querySelector(
+    'main[id^="c-"], div.chapter-wrapper div.print main, main.content'
+  );
+  const body = document.body?.innerText || '';
   return {
-    encrypted: !!main
+    encrypted: !!cipherMain
       || (Number(info.isBuy) > 0 && (Number(info.cES) > 0 || Number(info.fEnS) > 0)),
     rendered: !!main && main.querySelectorAll('p').length > 0
       && (main.innerText || '').trim().length > 50
       && document.fonts.status === 'loaded',
-    failed: /章节加载失败/.test(document.body?.innerText || ''),
+    failed: /章节加载失败/.test(body),
+    blocked: /WAF/.test(document.title || '') || /您的请求已中断/.test(body),
     words: Number(info.actualWords || info.wordsCount) || 0,
   };
 }
@@ -5079,17 +5178,26 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 f"font to decode; neither was found: {chapter_name}"
             )
             return None
+        try:
+            # Chrome throttles background tabs, which can stall the reader's
+            # in-page decryption and the extraction's timers alike.
+            page.bring_to_front()
+        except Exception:
+            pass
         # Decryption runs in the page and can take about a minute.
         deadline = time.time() + timeout
         state = {}
         while time.time() < deadline and not self._stop_requested:
             state = self._qidian_encryption_state(page)
-            if state.get('rendered') or state.get('failed'):
+            if state.get('rendered') or state.get('failed') or state.get('blocked'):
                 break
             try:
                 page.wait_for_timeout(100)
             except Exception:
                 time.sleep(0.1)
+        if state.get('blocked'):
+            self.log(f"  [Qidian] Blocked by Qidian's firewall: {chapter_name}")
+            return None
         if state.get('failed'):
             self.log(
                 f"  [Qidian] The reader could not decrypt {chapter_name} "
@@ -5099,12 +5207,6 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         if not state.get('rendered'):
             self.log(f"  [Qidian] Timed out decrypting: {chapter_name}")
             return None
-        try:
-            # Off-screen paragraphs only swap to real text while visible, and
-            # background tabs throttle the timers the extraction waits on.
-            page.bring_to_front()
-        except Exception:
-            pass
         try:
             payload = page.evaluate(qidian_font_decoder.QIDIAN_EXTRACT_JS)
             lines, stats = qidian_font_decoder.decode_payload(payload or {})
@@ -5302,6 +5404,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 break
             url = ch.get('url', '')
             name = ch.get('fullName', '') or ch.get('name', '')
+            self._qidian_pace()
             try:
                 goto_kwargs = {
                     "wait_until": "commit",
@@ -5331,11 +5434,26 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             _page, name = active_by_index[i]
             self.log(f"  [Qidian] Timed out waiting for: {name}")
 
+        retry = []
         for i, page, name in active:
-            if self._stop_requested or i in pending:
+            if self._stop_requested:
+                continue
+            if i in pending or self._qidian_blocked(page):
+                retry.append(i)
                 continue
             results[i] = self._qidian_extract_loaded_chapter(page, name)
+            result = results[i]
+            if result is None or (result or {}).get('_verification_required'):
+                retry.append(i)
 
+        # Blocked, timed-out or unfinished tabs are read again one at a time;
+        # that path waits out Qidian's firewall instead of giving up.
+        for i in retry:
+            if self._stop_requested:
+                break
+            ch = batch_info[i]
+            name = ch.get('fullName', '') or ch.get('name', '')
+            results[i] = self._qidian_parse_chapter(ch.get('url', ''), name)
         return results
 
     # ------------------------------------------------------------------
