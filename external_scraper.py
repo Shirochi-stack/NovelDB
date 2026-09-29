@@ -17835,6 +17835,13 @@ async (ids) => {
         return data
 
     def _faloo_parse_book(self, url):
+        try:
+            # VIP chapters are read from images; build the reference
+            # glyphs while the catalog loads.
+            import faloo_image_reader
+            faloo_image_reader.warm_up()
+        except Exception:
+            pass
         book_id = self._faloo_book_id(url)
         canonical = f'https://b.faloo.com/{book_id}.html'
         self._stop_requested = False
@@ -17995,6 +18002,11 @@ async (ids) => {
                 ))
         if image_urls:
             request_cookies = cookies() if callable(cookies) else (cookies or {})
+            text_result = self._faloo_read_vip_images(
+                image_urls, request_cookies, base_url, chapter_name
+            )
+            if text_result:
+                return text_result
             chapter_no = re.search(r'_(\d+)\.html', base_url)
             chapter_no = chapter_no.group(1) if chapter_no else 'chapter'
             images = [
@@ -18028,6 +18040,53 @@ async (ids) => {
             'contentText': '\n'.join(paragraphs),
             'contentHtml': '\n'.join(f'<p>{html.escape(line)}</p>' for line in paragraphs),
             'images': [],
+        }
+
+    def _faloo_read_vip_images(self, image_urls, cookies, chapter_url, chapter_name):
+        """Turn a bought VIP chapter's images back into text.
+
+        The server draws the text; it accepts a larger size and black ink,
+        which faloo_image_reader reads reliably. Returns None (keep the
+        images) when the reader is unavailable or unsure of the result.
+        """
+        try:
+            import faloo_image_reader
+        except ImportError:
+            return None
+        if not faloo_image_reader.available():
+            return None
+        import requests
+        parts = []
+        try:
+            for url in image_urls:
+                url = re.sub(r'([?&]font_size=)\d+', r'\g<1>32', url)
+                url = re.sub(r'([?&]font_color=)\w+', r'\g<1>000000', url)
+                response = requests.get(
+                    url, cookies=cookies or {}, timeout=30,
+                    headers={'Referer': chapter_url, 'User-Agent': self._YEDUJI_UA},
+                )
+                response.raise_for_status()
+                parts.append(response.content)
+            paragraphs = faloo_image_reader.read_chapter(parts)
+        except Exception as exc:
+            self.log(f'  [Faloo] Could not read {chapter_name} as text, keeping '
+                     f'the images: {exc}')
+            return None
+        text = '\n'.join(paragraphs)
+        unsure = text.count('�')
+        if not text or unsure > max(3, len(text) // 100):
+            self.log(f'  [Faloo] {chapter_name}: {unsure} unreadable characters; '
+                     'keeping the chapter images instead.')
+            return None
+        self.log(f'  [Faloo] Read {len(image_urls)} VIP image(s) of {chapter_name} '
+                 f'as text: {len(paragraphs)} paragraphs, {len(text)} characters'
+                 + (f', {unsure} unsure' if unsure else '') + '.')
+        return {
+            'chapterName': chapter_name, 'sourceChapterName': chapter_name,
+            'contentText': text,
+            'contentHtml': '\n'.join(f'<p>{html.escape(line)}</p>' for line in paragraphs),
+            'images': [],
+            'chapterUrl': chapter_url,
         }
 
     def _faloo_parse_chapters_browser(self, chapters, interval=0,

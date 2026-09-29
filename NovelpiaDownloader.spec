@@ -96,6 +96,8 @@ a = Analysis(
         # Qidian bought-chapter decoder: reference glyphs and frequencies
         ('data/fonts', 'data/fonts'),
         ('data/zh_char_frequency.txt', 'data'),
+        # Faloo VIP image reader: renders reference glyphs with Windows GDI+
+        ('data/faloo_glyph_atlas.ps1', 'data'),
     ],
     hiddenimports=[
         'dpi_setup',                # Ensure dpi_setup is always bundled,

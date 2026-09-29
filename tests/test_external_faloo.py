@@ -209,7 +209,10 @@ def test_faloo_purchase_prompt_for_signed_in_reader_is_locked():
     assert result['_locked'] and result['_lockReason'] == 'purchase'
 
 
-def test_faloo_readable_vip_images_keep_reader_cookies():
+def test_faloo_readable_vip_images_keep_reader_cookies(monkeypatch):
+    import faloo_image_reader
+    # Without the text reader the chapter keeps its images.
+    monkeypatch.setattr(faloo_image_reader, 'available', lambda: False)
     # Signed-in markup of b.faloo.com/724903_1658.html on 2026-09-29.
     image = ('//read.faloo.com/Page4VipImage.aspx?num=1&amp;o=3&amp;'
              'id=724903&amp;n=1658&amp;k=BEF5')
