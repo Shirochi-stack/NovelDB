@@ -11,10 +11,12 @@ its rendering with a reference font of the same design (Source Han Sans /
 Noto Sans CJK), using character frequency to settle near-identical shapes.
 """
 import base64
+import hashlib
 import io
 import os
 import re
 import sys
+import threading
 
 try:
     import numpy as np
@@ -153,6 +155,7 @@ class _Reference:
     """Rendered reference glyphs for common hanzi (built once per process)."""
 
     _instance = None
+    _lock = threading.Lock()
 
     def __init__(self):
         freq = _load_frequency()
@@ -189,9 +192,10 @@ class _Reference:
 
     @classmethod
     def get(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls()
+            return cls._instance
 
 
 def _parse_unicode_range(text):
@@ -229,6 +233,39 @@ class _CipherFont:
             self._notdef is not None and float(vec @ self._notdef) > 0.99)
 
 
+_FONT_CACHE = {}
+# (font digest, character, mirrored) -> (decoded character, score). The
+# "fixed" cipher font is often the same file across chapters, so later
+# chapters in a download mostly hit this cache.
+_GLYPH_CACHE = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _cipher_font(family, unicode_range, data):
+    digest = hashlib.sha1(data).hexdigest()
+    key = (digest, family, unicode_range)
+    with _CACHE_LOCK:
+        font = _FONT_CACHE.get(key)
+    if font is None:
+        font = _CipherFont(family, unicode_range, data)
+        font.digest = digest
+        with _CACHE_LOCK:
+            if len(_FONT_CACHE) > 64:
+                _FONT_CACHE.clear()
+            _FONT_CACHE[key] = font
+    return font
+
+
+def warm_up():
+    """Build the reference glyphs in the background before chapters arrive."""
+    if not available():
+        return None
+    thread = threading.Thread(target=_Reference.get, name='qidian-ref',
+                              daemon=True)
+    thread.start()
+    return thread
+
+
 class QidianFontDecoder:
     """Map rendered cipher characters of one chapter page to real text."""
 
@@ -240,16 +277,45 @@ class QidianFontDecoder:
             if not encoded or encoded.startswith('ERR'):
                 continue
             try:
-                self.fonts.append(_CipherFont(
+                self.fonts.append(_cipher_font(
                     face.get('family', ''), face.get('range', ''),
                     base64.b64decode(encoded),
                 ))
             except Exception:
                 continue
         self.reference = _Reference.get()
-        self._cache = {}
         self.low_confidence = 0
         self.decoded = 0
+
+    def _resolve(self, keys):
+        """Match every uncached cipher glyph in one matrix product."""
+        pending, vectors = [], []
+        with _CACHE_LOCK:
+            missing = [(cipher, ch, mirrored)
+                       for cipher, ch, mirrored in dict.fromkeys(keys)
+                       if (cipher.digest, ch, mirrored) not in _GLYPH_CACHE]
+        for cipher, ch, mirrored in missing:
+            vec = _vector(cipher.font, ch, mirrored)
+            if vec is None:
+                with _CACHE_LOCK:
+                    _GLYPH_CACHE[(cipher.digest, ch, mirrored)] = ('', 0.0)
+                continue
+            pending.append((cipher.digest, ch, mirrored))
+            vectors.append(vec)
+        if not vectors:
+            return
+        ref = self.reference
+        scores = np.stack(vectors) @ ref.matrix.T
+        count = min(_CANDIDATES, scores.shape[1] - 1)
+        top = np.argpartition(-scores, count, axis=1)[:, :count]
+        top_scores = np.take_along_axis(scores, top, axis=1)
+        pick = np.argmax(top_scores + _PRIOR_WEIGHT * ref.prior[top], axis=1)
+        with _CACHE_LOCK:
+            if len(_GLYPH_CACHE) > 200000:
+                _GLYPH_CACHE.clear()
+            for row, key in enumerate(pending):
+                best = int(top[row, pick[row]])
+                _GLYPH_CACHE[key] = (ref.chars[best], float(scores[row, best]))
 
     def _cipher_for(self, ch, families):
         # Within a family the browser tries the most recently defined face
@@ -261,39 +327,47 @@ class QidianFontDecoder:
                     return cipher
         return None
 
-    def decode_char(self, ch, families, mirrored):
-        cipher = self._cipher_for(ch, families)
-        if cipher is None:
-            return ch
-        key = (cipher.family, ch, mirrored)
-        if key not in self._cache:
-            vec = _vector(cipher.font, ch, mirrored)
-            if vec is None:
-                self._cache[key] = ('', 0.0)
-            else:
-                ref = self.reference
-                scores = ref.matrix @ vec
-                top = np.argpartition(-scores, _CANDIDATES)[:_CANDIDATES]
-                best = max(top, key=lambda i: scores[i] + _PRIOR_WEIGHT * ref.prior[i])
-                self._cache[key] = (ref.chars[best], float(scores[best]))
-        char, score = self._cache[key]
+    def _lookup(self, cipher, ch, mirrored):
+        with _CACHE_LOCK:
+            char, score = _GLYPH_CACHE[(cipher.digest, ch, mirrored)]
         self.decoded += 1
         if score < 0.6:
             self.low_confidence += 1
         return char
 
+    def decode_char(self, ch, families, mirrored):
+        cipher = self._cipher_for(ch, families)
+        if cipher is None:
+            return ch
+        self._resolve([(cipher, ch, mirrored)])
+        return self._lookup(cipher, ch, mirrored)
+
     def decode_paragraphs(self, paragraphs):
-        lines = []
+        # Pass 1 finds each glyph's cipher font; one batched match follows.
+        family_lists = {}
+        plan = []
         for items in paragraphs:
-            line = []
+            row = []
             for item in items:
+                mirrored = bool(item.get('mirrored'))
                 for part in item.get('parts') or []:
-                    families = [name.strip().strip('"\'') for name in
-                                (part.get('fonts') or '').split(',')]
+                    fonts = part.get('fonts') or ''
+                    families = family_lists.get(fonts)
+                    if families is None:
+                        families = [name.strip().strip('"\'')
+                                    for name in fonts.split(',')]
+                        family_lists[fonts] = families
                     for ch in part.get('text') or '':
-                        line.append(self.decode_char(ch, families,
-                                                     bool(item.get('mirrored'))))
-            text = ''.join(line).strip()
+                        row.append((self._cipher_for(ch, families), ch, mirrored))
+            plan.append(row)
+        self._resolve([entry for row in plan for entry in row
+                       if entry[0] is not None])
+        lines = []
+        for row in plan:
+            text = ''.join(
+                ch if cipher is None else self._lookup(cipher, ch, mirrored)
+                for cipher, ch, mirrored in row
+            ).strip()
             if text:
                 lines.append(text)
         return lines
@@ -425,7 +499,8 @@ QIDIAN_EXTRACT_JS = r'''async () => {
           range.setEnd(node, offset + ch.length);
           offset += ch.length;
           const r = range.getBoundingClientRect();
-          if (r.width < 1 || r.height < 1) { dropped += 1; continue; }
+          // Decoys have no box at all; zoomed-out glyphs are only a few px.
+          if (r.width <= 0.01 || r.height <= 0.01) { dropped += 1; continue; }
           atoms.push({x: r.left + r.width / 2, y: r.top, h: r.height, text: ch,
                       fonts: st.fontFamily, mirrored: flip});
         }
@@ -449,7 +524,7 @@ QIDIAN_EXTRACT_JS = r'''async () => {
     const lines = [];
     for (const atom of atoms) {
       const line = lines[lines.length - 1];
-      if (line && Math.abs(atom.y - line.y) < Math.max(4, atom.h / 2)) {
+      if (line && Math.abs(atom.y - line.y) < Math.max(0.5, atom.h / 2)) {
         line.atoms.push(atom);
       } else {
         lines.push({y: atom.y, atoms: [atom]});
@@ -465,47 +540,91 @@ QIDIAN_EXTRACT_JS = r'''async () => {
     }
     return ordered;
   };
-  // The reader keeps a poisoned copy of every paragraph outside the viewport
-  // and swaps in the real text once it is on screen. Paragraphs visible at
-  // load are already real. Every other one is read only after its text has
-  // changed from the load-time copy, which proves the swap happened.
+  // The reader keeps a decoy copy of every paragraph away from the viewport
+  // and swaps in the real text (in about 25 ms) once the paragraph comes
+  // within ~200 px of it. Step through the chapter a screen at a time and
+  // read each paragraph once it is fully on screen and the swaps settled.
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const all = [...main.querySelectorAll('p')];
   const paragraphs = new Array(all.length).fill(null);
   const skipped = new Set();
-  const unswapped = [];
   const view = window.innerHeight;
   const inView = (p) => {
     const r = p.getBoundingClientRect();
-    return r.height >= 1 && r.top >= 0 && r.bottom <= view;
+    return r.height > 0.01 && r.top >= 0 && r.bottom <= view;
   };
   all.forEach((p, i) => {
     // A paragraph may be visibility:hidden while children set it back
     // to visible, so only display/opacity rule a paragraph out.
-    if (concealed(p) || p.getBoundingClientRect().height < 1) skipped.add(i);
+    if (concealed(p) || p.getBoundingClientRect().height <= 0.01) skipped.add(i);
   });
-  const initial = all.map((p) => p.textContent);
-  all.forEach((p, i) => {
-    if (!skipped.has(i) && inView(p)) paragraphs[i] = capture(p);
-  });
-  const swapped = (i) => all[i].textContent !== initial[i];
-  for (let i = 0; i < all.length; i += 1) {
-    if (paragraphs[i] !== null || skipped.has(i)) continue;
-    all[i].scrollIntoView({block: 'center'});
-    let waited = 0;
-    while (!swapped(i) && waited < 4000) {
-      await sleep(150);
-      waited += 150;
+  const onScreenText = () => all.filter(inView).map((p) => p.textContent).join('\u0000');
+  const settle = async () => {
+    // Before the reader's scroll handler runs, the decoy text is stable
+    // too, so the quiet period only counts once something has changed.
+    // A screen whose paragraphs have nothing to swap never changes; give
+    // up waiting for a change after a second.
+    const start = onScreenText();
+    let last = start;
+    let stable = 0;
+    let changed = false;
+    for (let waited = 25; waited <= 2500; waited += 25) {
+      await sleep(25);
+      const now = onScreenText();
+      if (now !== start) changed = true;
+      stable = now === last ? stable + 25 : 0;
+      last = now;
+      if (stable >= 150 && (changed || waited >= 1000)) return;
     }
-    await sleep(150);
-    if (!swapped(i)) unswapped.push(i);
-    all.forEach((p, j) => {
-      if (paragraphs[j] === null && !skipped.has(j)
-          && (swapped(j) || j === i) && inView(p)) {
-        paragraphs[j] = capture(p);
+  };
+  const remaining = () => all.some((p, i) => paragraphs[i] === null && !skipped.has(i));
+  // Fast path: zoom out until the whole chapter fits on one screen. The
+  // reader picks which paragraphs to reveal from layout positions when the
+  // page scrolls, so a 1px scroll after zooming reveals every paragraph at
+  // once. (A resized or emulated viewport alone does not trigger it.)
+  window.scrollTo(0, 0);
+  const fit = (view - 16) / Math.max(1, main.getBoundingClientRect().bottom);
+  if (fit < 1 && fit >= 0.08) {
+    const root = document.documentElement;
+    const previousZoom = root.style.zoom;
+    root.style.zoom = String(fit);
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      window.scrollTo(0, 1);
+      window.scrollTo(0, 0);
+      await settle();
+      all.forEach((p, i) => {
+        if (paragraphs[i] === null && !skipped.has(i) && inView(p)) {
+          paragraphs[i] = capture(p);
+        }
+      });
+    } finally {
+      root.style.zoom = previousZoom;
+      window.scrollTo(0, 0);
+    }
+  }
+  // Otherwise (or for anything the zoom missed) step a screen at a time.
+  const tallest = Math.max(0, ...all.map((p) => p.getBoundingClientRect().height));
+  const step = Math.max(120, view - tallest - 16);
+  const top = main.getBoundingClientRect().top + window.scrollY - 8;
+  // Stop at the end of the text: reaching the page end opens the next chapter.
+  const bottom = Math.max(top, main.getBoundingClientRect().bottom + window.scrollY - view + 8);
+  for (let y = top; remaining(); y = Math.min(bottom, y + step)) {
+    window.scrollTo(0, y);
+    await settle();
+    all.forEach((p, i) => {
+      if (paragraphs[i] === null && !skipped.has(i) && inView(p)) {
+        paragraphs[i] = capture(p);
       }
     });
-    if (paragraphs[i] === null) paragraphs[i] = capture(all[i]);
+    if (y >= bottom) break;
+  }
+  // Only a paragraph taller than the screen is left; read it from its top.
+  for (let i = 0; i < all.length; i += 1) {
+    if (paragraphs[i] !== null || skipped.has(i)) continue;
+    all[i].scrollIntoView({block: 'start'});
+    await settle();
+    paragraphs[i] = capture(all[i]);
   }
   window.scrollTo(0, 0);
   // Faces built in script come after the stylesheet ones, so the browser
@@ -546,7 +665,7 @@ QIDIAN_EXTRACT_JS = r'''async () => {
       fontData[url] = 'ERR ' + e.message;
     }
   }
-  return {scriptedCount: scripted.length, unswapped, skipped: skipped.size,
+  return {scriptedCount: scripted.length, skipped: skipped.size,
           faces: usedFaces, fontData,
           paragraphs: paragraphs.filter((p) => p !== null), dropped,
           url: location.href, title: document.title};

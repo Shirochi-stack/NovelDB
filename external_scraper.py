@@ -4707,6 +4707,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         self._stop_requested = False
         if not self._start_qidian_browser(url):
             return None
+        try:
+            # Bought chapters are decoded against reference glyphs that take
+            # about two seconds to build; do it while the book page loads.
+            import qidian_font_decoder
+            qidian_font_decoder.warm_up()
+        except Exception:
+            pass
 
         self.log(f"[Qidian] Navigating to: {url}")
         try:
@@ -5078,9 +5085,9 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             if state.get('rendered') or state.get('failed'):
                 break
             try:
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(100)
             except Exception:
-                time.sleep(1)
+                time.sleep(0.1)
         if state.get('failed'):
             self.log(
                 f"  [Qidian] The reader could not decrypt {chapter_name} "
@@ -5110,14 +5117,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 f"({len(text)}/{words} chars)."
             )
             return None
-        unswapped = len((payload or {}).get('unswapped') or [])
         self.log(
             f"  [Qidian] Decoded font-encrypted chapter: {len(lines)} "
             f"paragraphs, {stats['decoded']} glyphs"
             + (f", {stats['low_confidence']} uncertain"
                if stats['low_confidence'] else '')
-            + (f", {unswapped} paragraph(s) never changed on screen"
-               if unswapped > len(lines) // 4 else '')
             + '.'
         )
         return {
