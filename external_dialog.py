@@ -2041,6 +2041,13 @@ class ExternalNovelDialog(tk.Toplevel):
             if variable.get()
         ]
 
+    @staticmethod
+    def _numbered_title(chapter_number, chapter_name):
+        """Heading/TOC title numbered by the chapter's position in the book."""
+        if not chapter_name:
+            return f"Chapter {chapter_number}"
+        return f"{chapter_number}. {chapter_name}"
+
     def _result_chapter_number(self, result_index, chapter_data=None):
         """Return the chapter's 1-based position in the unsliced book."""
         if isinstance(chapter_data, dict):
@@ -2129,11 +2136,10 @@ class ExternalNovelDialog(tk.Toplevel):
                     chapter_number = ExternalNovelDialog._result_chapter_number(
                         self, i, ch_data
                     )
-                    ch_name = ch_data.get('chapterName')
                     # Number every heading by its position in the book, so
                     # titles without their own number stay in order too.
-                    heading = (f"{chapter_number}. {ch_name}" if ch_name
-                               else f"Chapter {chapter_number}")
+                    heading = ExternalNovelDialog._numbered_title(
+                        chapter_number, ch_data.get('chapterName'))
                     content = ch_data.get('contentText', '')
                     f.write(f"\n{'─' * 40}\n")
                     f.write(f"{heading}\n")
@@ -2931,7 +2937,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                 if toc_sections:
                     show_chapter_title = False
                 epub.add_chapter(
-                    ch_name, content_html, show_title=show_chapter_title,
+                    ch_name if is_notice else ExternalNovelDialog._numbered_title(
+                        chapter_number, ch_data.get('chapterName')),
+                    content_html, show_title=show_chapter_title,
                     is_notice=is_notice,
                     chapter_number=None if is_notice else chapter_number,
                     toc_sections=toc_sections,
@@ -3524,7 +3532,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             content_html = self._fix_nd_img_tags(content_html, rename_map)
 
             chapters_for_pdf.append({
-                "title": ch_name,
+                "title": (ch_name if ch_data.get('_is_notice')
+                          else ExternalNovelDialog._numbered_title(
+                              chapter_number, ch_data.get('chapterName'))),
                 "html": content_html,
                 "is_notice": bool(ch_data.get('_is_notice')),
             })

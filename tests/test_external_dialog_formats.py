@@ -846,3 +846,28 @@ def test_txt_headings_are_numbered_by_book_position(tmp_path):
     assert '─' * 40 + '\n2. 第一章 晓梦\n' + '─' * 40 in text
     assert '\nChapter 4\n' in text
     assert 'VIP' not in text
+
+
+def test_epub_toc_and_headings_are_numbered_by_book_position(tmp_path):
+    dialog = object.__new__(ExternalNovelDialog)
+    dialog._book_data = {"bookname": "剑烛大荒", "author": "爱潜水的乌贼"}
+    dialog._chapter_results = [
+        {"chapterName": "欢迎收藏", "contentHtml": "<p>a</p>", "_chapter_number": 1},
+        {"chapterName": "第一章 晓梦", "contentHtml": "<p>b</p>", "_chapter_number": 2},
+    ]
+    dialog._parent_gui = SimpleNamespace()
+    dialog._scraper = None
+    dialog._var_long_image_layout = Setting(False)
+    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_ext_image_workers = Setting(1)
+    dialog._get_output_dir = lambda: str(tmp_path)
+    dialog._log = lambda _message: None
+    dialog._generate_txt = lambda *_args: None
+
+    dialog._generate_epub("剑烛大荒", "爱潜水的乌贼")
+
+    with zipfile.ZipFile(tmp_path / "剑烛大荒.epub") as archive:
+        toc = archive.read("OEBPS/toc.ncx").decode("utf-8")
+        chapter = archive.read("OEBPS/Text/chapter0002.xhtml").decode("utf-8")
+    assert "1. 欢迎收藏" in toc and "2. 第一章 晓梦" in toc
+    assert "2. 第一章 晓梦" in chapter
