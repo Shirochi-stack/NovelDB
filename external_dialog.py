@@ -246,6 +246,12 @@ class ExternalNovelDialog(tk.Toplevel):
             settings_frame, text="Skip paid",
             variable=self._var_skip_paid,
         ).pack(side="left", padx=(10, 0))
+        # Prefix chapter titles with their position in the book ("2. ...")
+        self._var_number_chapters = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            settings_frame, text="Number chapters",
+            variable=self._var_number_chapters,
+        ).pack(side="left", padx=(10, 0))
         self._var_ntk_novelpia_cover = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             settings_frame,
@@ -2041,11 +2047,14 @@ class ExternalNovelDialog(tk.Toplevel):
             if variable.get()
         ]
 
-    @staticmethod
-    def _numbered_title(chapter_number, chapter_name):
-        """Heading/TOC title numbered by the chapter's position in the book."""
+    def _numbered_title(self, chapter_number, chapter_name):
+        """Heading/TOC title, numbered by the chapter's position in the book
+        when "Number chapters" is on."""
         if not chapter_name:
             return f"Chapter {chapter_number}"
+        setting = getattr(self, '_var_number_chapters', None)
+        if setting is None or not setting.get():
+            return chapter_name
         return f"{chapter_number}. {chapter_name}"
 
     def _result_chapter_number(self, result_index, chapter_data=None):
@@ -2136,10 +2145,8 @@ class ExternalNovelDialog(tk.Toplevel):
                     chapter_number = ExternalNovelDialog._result_chapter_number(
                         self, i, ch_data
                     )
-                    # Number every heading by its position in the book, so
-                    # titles without their own number stay in order too.
                     heading = ExternalNovelDialog._numbered_title(
-                        chapter_number, ch_data.get('chapterName'))
+                        self, chapter_number, ch_data.get('chapterName'))
                     content = ch_data.get('contentText', '')
                     f.write(f"\n{'─' * 40}\n")
                     f.write(f"{heading}\n")
@@ -2938,7 +2945,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     show_chapter_title = False
                 epub.add_chapter(
                     ch_name if is_notice else ExternalNovelDialog._numbered_title(
-                        chapter_number, ch_data.get('chapterName')),
+                        self, chapter_number, ch_data.get('chapterName')),
                     content_html, show_title=show_chapter_title,
                     is_notice=is_notice,
                     chapter_number=None if is_notice else chapter_number,
@@ -3534,7 +3541,7 @@ img { display: block; max-width: 100%; max-height: 100%;
             chapters_for_pdf.append({
                 "title": (ch_name if ch_data.get('_is_notice')
                           else ExternalNovelDialog._numbered_title(
-                              chapter_number, ch_data.get('chapterName'))),
+                              self, chapter_number, ch_data.get('chapterName'))),
                 "html": content_html,
                 "is_notice": bool(ch_data.get('_is_notice')),
             })
@@ -3641,6 +3648,9 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_from.set(cfg.get("ext_from", 1))
             self._var_to.set(cfg.get("ext_to", 1))
             self._var_skip_paid.set(cfg.get("ext_skip_paid", False))
+            self._var_number_chapters.set(
+                cfg.get("ext_number_chapters", False)
+            )
             self._var_generate_on_stop.set(
                 cfg.get("ext_generate_on_stop", False)
             )
@@ -3715,6 +3725,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_from"] = self._var_from.get()
         cfg["ext_to"] = self._var_to.get()
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
+        cfg["ext_number_chapters"] = self._var_number_chapters.get()
         cfg["ext_generate_on_stop"] = self._var_generate_on_stop.get()
         cfg["ext_use_cache"] = self._var_use_cache.get()
         cfg["ext_cache_images"] = self._var_cache_images.get()

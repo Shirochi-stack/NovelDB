@@ -168,7 +168,8 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
         '_var_format_pdf', '_var_format_cbz', '_var_format',
         '_var_ext_threads', '_var_ext_image_workers', '_var_interval',
         '_var_interval_max', '_var_from_enabled', '_var_to_enabled',
-        '_var_from', '_var_to', '_var_skip_paid', '_var_regular_browser',
+        '_var_from', '_var_to', '_var_skip_paid', '_var_number_chapters',
+        '_var_regular_browser',
         '_var_generate_on_stop',
         '_var_ntk_novelpia_cover', '_var_syosetu_amazon_cover',
         '_var_long_image_layout', '_var_kakao_skip_last_page',
@@ -187,6 +188,7 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
     assert dialog._var_interval.get() == 1.75
     assert dialog._var_interval_max.get() == 1.75
     assert dialog._var_generate_on_stop.get() is False
+    assert dialog._var_number_chapters.get() is False
 
 
 def test_generate_on_stop_toggle_controls_partial_output_generation():
@@ -827,8 +829,10 @@ def test_failed_fetch_console_stack_is_suppressed():
     assert logs == []
 
 
-def test_txt_headings_are_numbered_by_book_position(tmp_path):
+@pytest.mark.parametrize('numbered', [True, False])
+def test_txt_headings_are_numbered_by_book_position(tmp_path, numbered):
     dialog = SimpleNamespace(
+        _var_number_chapters=Setting(numbered),
         _chapter_results=[
             {'chapterName': '第一章 晓梦', 'contentText': '幽深空旷的黑暗',
              '_chapter_number': 2},
@@ -843,13 +847,16 @@ def test_txt_headings_are_numbered_by_book_position(tmp_path):
             dialog, index, data))
     ExternalNovelDialog._generate_txt(dialog, '剑烛大荒', '爱潜水的乌贼')
     text = (tmp_path / '剑烛大荒.txt').read_text(encoding='utf-8')
-    assert '─' * 40 + '\n2. 第一章 晓梦\n' + '─' * 40 in text
+    heading = '2. 第一章 晓梦' if numbered else '第一章 晓梦'
+    assert '─' * 40 + '\n' + heading + '\n' + '─' * 40 in text
     assert '\nChapter 4\n' in text
     assert 'VIP' not in text
 
 
-def test_epub_toc_and_headings_are_numbered_by_book_position(tmp_path):
+@pytest.mark.parametrize('numbered', [True, False])
+def test_epub_toc_and_headings_are_numbered_by_book_position(tmp_path, numbered):
     dialog = object.__new__(ExternalNovelDialog)
+    dialog._var_number_chapters = Setting(numbered)
     dialog._book_data = {"bookname": "剑烛大荒", "author": "爱潜水的乌贼"}
     dialog._chapter_results = [
         {"chapterName": "欢迎收藏", "contentHtml": "<p>a</p>", "_chapter_number": 1},
@@ -869,5 +876,10 @@ def test_epub_toc_and_headings_are_numbered_by_book_position(tmp_path):
     with zipfile.ZipFile(tmp_path / "剑烛大荒.epub") as archive:
         toc = archive.read("OEBPS/toc.ncx").decode("utf-8")
         chapter = archive.read("OEBPS/Text/chapter0002.xhtml").decode("utf-8")
-    assert "1. 欢迎收藏" in toc and "2. 第一章 晓梦" in toc
-    assert "2. 第一章 晓梦" in chapter
+    if numbered:
+        assert "1. 欢迎收藏" in toc and "2. 第一章 晓梦" in toc
+        assert "2. 第一章 晓梦" in chapter
+    else:
+        assert "欢迎收藏" in toc and "第一章 晓梦" in chapter
+        assert "1. 欢迎收藏" not in toc and "2. 第一章 晓梦" not in toc
+        assert "2. 第一章 晓梦" not in chapter
