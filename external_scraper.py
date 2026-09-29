@@ -11528,8 +11528,49 @@ async ({ url }) => {
             return None
         return bool(names & {'ridi-at', 'ridi-rt'})
 
-    def _ridi_refused_result(self, chapter_name):
-        """Report the viewer's "cannot open this title" notice once."""
+    _RIDI_OWNED_JS = r"""
+async (ids) => {
+  // The same lookup the library page makes; only owned b_ids come back.
+  const response = await fetch('https://library-api.ridibooks.com/items', {
+    method: 'POST', credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({b_ids: ids}),
+  });
+  if (!response.ok) return null;
+  const data = await response.json();
+  return (data.items || []).map((item) => String(item.b_id));
+}
+"""
+
+    def _ridi_owned_ids(self, page, book_id):
+        """Volumes of the current book that the signed-in account owns.
+
+        Returns a set, or None when Ridi's library could not be asked.
+        """
+        ids = [str(chapter.get('id')) for chapter in
+               (self._book_data or {}).get('chapters') or []
+               if chapter.get('id')]
+        if book_id and book_id not in ids:
+            ids.append(book_id)
+        key = tuple(ids)
+        cache = getattr(self, '_ridi_owned_cache', None)
+        if cache and cache[0] == key:
+            return cache[1]
+        owned = None
+        try:
+            found = page.evaluate(self._RIDI_OWNED_JS, ids[:500])
+            owned = set(found) if found is not None else None
+        except Exception:
+            owned = None
+        self._ridi_owned_cache = (key, owned)
+        return owned
+
+    def _ridi_refused_result(self, chapter_name, page=None, book_id=''):
+        """Explain the viewer's "cannot open this title" notice.
+
+        Ridi answers HTTP 400 "웹 뷰어에서 지원하지 않는 작품입니다" for owned
+        and unowned volumes alike, so ask the library which one this is.
+        """
         if self._ridi_signed_in() is False:
             self.log(
                 f'  [Ridi] Viewer refused {chapter_name}: the External '
@@ -11538,12 +11579,28 @@ async ({ url }) => {
             )
             reason = 'login'
         else:
-            self.log(
-                f'  [Ridi] Viewer refused {chapter_name}: Ridi says this '
-                'title cannot be opened in the web viewer for this account '
-                '(not owned, or app-only).'
-            )
-            reason = 'unsupported'
+            owned = (self._ridi_owned_ids(page, str(book_id))
+                     if page is not None and book_id else None)
+            if owned is not None and str(book_id) not in owned:
+                self.log(
+                    f'  [Ridi] {chapter_name} is not in this account\'s '
+                    'library. Buy or rent it on Ridi first.'
+                )
+                reason = 'purchase'
+            elif owned is not None:
+                self.log(
+                    f'  [Ridi] You own {chapter_name}, but Ridi will not open '
+                    'it in its web viewer ("웹 뷰어에서 지원하지 않는 작품입니다"). '
+                    'Ridi serves this ebook only in the RIDI app/PC viewer.'
+                )
+                reason = 'app_only'
+            else:
+                self.log(
+                    f'  [Ridi] Signed in, but Ridi will not open '
+                    f'{chapter_name} in its web viewer ("웹 뷰어에서 지원하지 '
+                    '않는 작품입니다"). It is app-only or not in your library.'
+                )
+                reason = 'unsupported'
         return {'_locked': True, 'chapterName': chapter_name,
                 '_lockReason': reason}
 
@@ -11590,7 +11647,9 @@ async ({ url }) => {
                 return None
             wall = self._ridi_detect_access_wall(page)
             if wall.get('wall') and wall.get('refused'):
-                return self._ridi_refused_result(chapter_name)
+                return self._ridi_refused_result(
+                    chapter_name, page, self._ridi_book_id(chapter_url)
+                )
             if wall.get('wall'):
                 self.log(
                     f'  [Ridi] LOCKED or unpurchased: {chapter_name} '

@@ -872,3 +872,42 @@ def test_ridi_refused_viewer_when_signed_in_is_not_called_login():
     result = scraper._ridi_refused_result('Vol 1')
     assert result['_lockReason'] == 'unsupported'
     assert 'not signed in' not in logs[-1]
+
+
+class _OwnedPage:
+    def __init__(self, owned):
+        self.owned = owned
+        self.calls = []
+
+    def evaluate(self, script, ids):
+        self.calls.append(list(ids))
+        return self.owned
+
+
+def _ridi_book(scraper):
+    scraper._book_data = {'chapters': [
+        {'id': '6121000538'}, {'id': '6121000539'}, {'id': '6121000540'},
+    ]}
+
+
+def test_ridi_refusal_of_owned_volume_is_reported_as_app_only():
+    logs = []
+    scraper = _ridi_with_cookies(['ridi-at'], logs)
+    _ridi_book(scraper)
+    page = _OwnedPage(['6121000538'])
+    result = scraper._ridi_refused_result('Vol 1', page, '6121000538')
+    assert result['_lockReason'] == 'app_only'
+    assert 'You own' in logs[-1]
+    # A second refused volume reuses the book's ownership lookup.
+    result = scraper._ridi_refused_result('Vol 2', page, '6121000539')
+    assert result['_lockReason'] == 'purchase'
+    assert 'not in this account' in logs[-1]
+    assert page.calls == [['6121000538', '6121000539', '6121000540']]
+
+
+def test_ridi_refusal_without_ownership_answer_stays_generic():
+    logs = []
+    scraper = _ridi_with_cookies(['ridi-at'], logs)
+    _ridi_book(scraper)
+    result = scraper._ridi_refused_result('Vol 1', _OwnedPage(None), '6121000538')
+    assert result['_lockReason'] == 'unsupported'

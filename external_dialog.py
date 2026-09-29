@@ -1205,10 +1205,17 @@ class ExternalNovelDialog(tk.Toplevel):
                     f"ads not completed: {ad_required}"
                 )
 
-            if locked or ad_required:
+            # Ridi refuses some owned ebooks in its web viewer (app-only);
+            # these are not paywalled, so report them apart.
+            web_only = sum(1 for r in results
+                           if r and r.get('_lockReason') in ('app_only', 'unsupported'))
+            locked -= web_only
+            if locked or ad_required or web_only:
                 incomplete = []
                 if locked:
                     incomplete.append(f"{locked} locked (paid)")
+                if web_only:
+                    incomplete.append(f"{web_only} not available on the web")
                 if ad_required:
                     incomplete.append(
                         f"{ad_required} advertisement(s) not completed"
@@ -1221,6 +1228,13 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._log(
                         "⚠ Locked chapters require a subscription "
                         "or ticket purchase to access."
+                    )
+                if web_only:
+                    self._log(
+                        "⚠ Ridi would not open these volumes in its web "
+                        "viewer even though you are signed in. Ridi serves "
+                        "some ebooks only in the RIDI app or PC viewer; "
+                        "otherwise the volume is not in your library."
                     )
                 if ad_required:
                     self._log(
