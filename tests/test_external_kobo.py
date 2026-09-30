@@ -1,3 +1,6 @@
+import html
+import json
+
 from external_dialog import ExternalNovelDialog
 from external_scraper import ExternalScraper
 from kobo_web_proxy import KoboWebReader
@@ -5,12 +8,15 @@ from kobo_web_proxy import KoboWebReader
 
 BOOK_URL = ('https://www.kobo.com/ww/en/ebook/'
             'nia-liston-the-merciless-maiden-volume-1')
+JP_BOOK_URL = ('https://www.kobo.com/jp/ja/ebook/'
+               'nia-liston-the-merciless-maiden-volume-1')
 READER_URL = 'https://readnow.kobo.com/2f17c5b3-10e2-4cdc-bc77-9e57cabe71cc'
 
 
 def test_kobo_url_recognizes_regional_ebook_pages_only():
     assert ExternalScraper.is_kobo(BOOK_URL)
     assert ExternalScraper.is_kobo('https://www.kobo.com/us/en/ebook/example')
+    assert ExternalScraper.is_kobo(JP_BOOK_URL)
     assert not ExternalScraper.is_kobo('https://www.kobo.com/ww/en/audiobook/example')
     assert not ExternalScraper.is_kobo('https://readnow.kobo.com/abc')
     assert not ExternalScraper.is_kobo('https://evil-kobo.com/ww/en/ebook/example')
@@ -61,6 +67,31 @@ def test_kobo_source_links_are_rewritten_to_epub_anchors():
     assert KoboWebReader._path('https://example.com/chapter1.xhtml') == ''
 
 
+def test_kobo_reader_contents_supports_japanese_controls():
+    selectors = []
+
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def click(self):
+            pass
+
+        def wait_for(self, **kwargs):
+            assert kwargs['state'] == 'visible'
+
+    class Page:
+        def locator(self, selector):
+            selectors.append(selector)
+            return Locator()
+
+    KoboWebReader._open_contents(Page())
+    assert '目次を表示' in selectors[0]
+    assert '目次' in selectors[1]
+
+
 def test_kobo_product_uses_owned_read_now_link(monkeypatch):
     scraper = ExternalScraper(logger=lambda message: None)
     monkeypatch.setattr(scraper, '_start_ridi_browser',
@@ -94,6 +125,62 @@ def test_kobo_product_uses_owned_read_now_link(monkeypatch):
     assert book['_kobo'] and book['chapterCount'] == 1
     assert book['chapters'][0]['url'] == READER_URL
     assert not book['chapters'][0]['isPaid']
+
+
+def test_kobo_jp_product_uses_owned_reader_metadata(monkeypatch):
+    scraper = ExternalScraper(logger=lambda message: None)
+    monkeypatch.setattr(scraper, '_start_ridi_browser',
+                        lambda url, site='Kobo': True)
+    waits = []
+
+    class Locator:
+        first = None
+
+        def __init__(self):
+            self.first = self
+
+        def wait_for(self, **kwargs):
+            waits.append(kwargs)
+
+    class Page:
+        def goto(self, url, **kwargs):
+            assert url == JP_BOOK_URL
+
+        def locator(self, selector):
+            return Locator()
+
+        def evaluate(self, script):
+            return {'title': 'Nia Liston Volume 1',
+                    'author': 'Umikaze Minamino', 'readUrl': '',
+                    'language': 'ja-jp'}
+
+        def content(self):
+            config = {'isInLibrary': True, 'readNowUrl': READER_URL}
+            return ('<h1 hidden>Nia Liston Volume 1</h1>'
+                    '<div data-kobo-gizmo-config="' +
+                    html.escape(json.dumps(config), quote=True) + '"></div>')
+
+    scraper._page = Page()
+    book = scraper._kobo_parse_book(JP_BOOK_URL)
+    assert book['chapters'][0]['url'] == READER_URL
+    assert book['language'] == 'ja'
+    assert waits[0]['state'] == 'attached'
+
+
+def test_kobo_embedded_reader_url_requires_ownership_and_official_host():
+    def product(config):
+        return ('<div data-kobo-gizmo-config="' +
+                html.escape(json.dumps(config), quote=True) + '"></div>')
+
+    assert ExternalScraper._kobo_owned_read_url(product({
+        'isInLibrary': False, 'readNowUrl': READER_URL,
+    })) == ''
+    assert ExternalScraper._kobo_owned_read_url(product({
+        'isInLibrary': True, 'readNowUrl': 'https://evil.example/book',
+    })) == ''
+    assert ExternalScraper._kobo_owned_read_url(product({
+        'isInLibrary': True, 'readNowUrl': READER_URL,
+    })) == READER_URL
 
 
 def test_kobo_unowned_volume_is_marked_locked(monkeypatch):

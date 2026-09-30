@@ -18,6 +18,15 @@ class KoboReaderError(RuntimeError):
 
 
 class KoboWebReader:
+    _CONTENTS_BUTTON = (
+        '[role="button"][aria-label="Open table of contents"], '
+        '[role="button"][aria-label="目次を表示"]'
+    )
+    _CONTENTS_DIALOG = (
+        '[role="dialog"][aria-label="Table of contents"], '
+        '[role="dialog"][aria-label="目次"]'
+    )
+
     _SNAPSHOT_JS = r"""async (known) => {
       const seen = new Set(known);
       const frames = [...document.querySelectorAll('iframe[data-chapterurl]')];
@@ -149,8 +158,8 @@ class KoboWebReader:
 
     @staticmethod
     def _open_contents(page):
-        page.locator('[role="button"][aria-label="Open table of contents"]').first.click()
-        dialog = page.locator('[role="dialog"][aria-label="Table of contents"]')
+        page.locator(KoboWebReader._CONTENTS_BUTTON).first.click()
+        dialog = page.locator(KoboWebReader._CONTENTS_DIALOG)
         dialog.wait_for(state='visible', timeout=12000)
         return dialog
 
@@ -199,7 +208,7 @@ class KoboWebReader:
         try:
             self.log(f'  [Kobo] Opening owned volume in Kobo Web Reader: {title}')
             page.goto(reader_url, wait_until='domcontentloaded', timeout=45000)
-            page.locator('[role="button"][aria-label="Open table of contents"]').first.wait_for(
+            page.locator(self._CONTENTS_BUTTON).first.wait_for(
                 state='visible', timeout=45000)
             toc = self._load_toc(page)
             entries = [

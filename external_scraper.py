@@ -18262,9 +18262,14 @@ async (ids) => {
             return None
         try:
             self._page.goto(url, wait_until='domcontentloaded', timeout=45000)
-            self._page.locator('h1').first.wait_for(state='visible', timeout=30000)
+            # The JP storefront renders a hidden desktop/mobile title before
+            # its visible title. The first h1 still contains the real title.
+            self._page.locator('h1').first.wait_for(state='attached', timeout=30000)
             try:
-                self._page.locator('a[href*="readnow.kobo.com"]').first.wait_for(
+                self._page.locator(
+                    'a[href*="readnow.kobo.com"], '
+                    '[data-kobo-gizmo-config*="readNowUrl"]'
+                ).first.wait_for(
                     state='attached', timeout=8000)
             except Exception:
                 pass
@@ -18296,6 +18301,10 @@ async (ids) => {
                 language: document.documentElement.lang || 'en',
               };
             }""") or {}
+            if not meta.get('readUrl'):
+                meta['readUrl'] = self._kobo_owned_read_url(
+                    self._page.content()
+                )
         except Exception as exc:
             self.log(f'[Kobo] ERROR: Book discovery failed: {exc}')
             return None
@@ -18330,6 +18339,25 @@ async (ids) => {
         self.log(f'[Kobo] Book: {title} by {data["author"] or "?"} - '
                  '1 volume')
         return data
+
+    @staticmethod
+    def _kobo_owned_read_url(product_html):
+        """Read the owned-book action embedded by localized Kobo stores."""
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(product_html or '', 'html.parser')
+        for element in soup.select('[data-kobo-gizmo-config]'):
+            try:
+                config = json.loads(element['data-kobo-gizmo-config'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not isinstance(config, dict) or config.get('isInLibrary') is not True:
+                continue
+            reader_url = config.get('readNowUrl') or ''
+            parsed = urllib.parse.urlparse(reader_url)
+            if parsed.scheme == 'https' and parsed.hostname == 'readnow.kobo.com':
+                return reader_url
+        return ''
 
     def _kobo_parse_chapter(self, chapter_url, chapter_name):
         if not (self._book_data or {}).get('_kobo_read_url'):
