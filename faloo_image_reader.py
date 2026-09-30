@@ -103,6 +103,43 @@ def _rows(matrix):
     return matrix / norms
 
 
+def _integral(a):
+    out = np.zeros((a.shape[0] + 1, a.shape[1] + 1), np.float64)
+    np.cumsum(np.cumsum(a, axis=0), axis=1, out=out[1:, 1:])
+    return out
+
+
+def _box_sums(integral, h, w):
+    return (integral[h:, w:] - integral[:-h, w:]
+            - integral[h:, :-w] + integral[:-h, :-w])
+
+
+class _Area:
+    """An image patch with integral images for fast window statistics."""
+
+    def __init__(self, patch):
+        self.patch = patch
+        self.sum = _integral(patch)
+        self.sq = _integral(patch * patch)
+        self.lit = _integral((patch > 0.2).astype(np.float32))
+
+    def ncc_map(self, y, x, height, width, ref, h, w):
+        """Correlation of the centred, unit-norm template `ref` (h*w) with
+        the mean-centred, normalised window at each position of the crop
+        (y, x, height, width), plus which windows hold any ink."""
+        from numpy.lib.stride_tricks import sliding_window_view
+        crop = self.patch[y:y + height, x:x + width]
+        dots = np.einsum('ijkl,kl->ij', sliding_window_view(crop, (h, w)),
+                         ref.reshape(h, w))
+        rows, cols = slice(y, y + height + 1), slice(x, x + width + 1)
+        s1 = _box_sums(self.sum[rows, cols], h, w)
+        s2 = _box_sums(self.sq[rows, cols], h, w)
+        norm = np.sqrt(np.maximum(s2 - s1 * s1 / (h * w), 0.0))
+        scores = np.where(norm > 1e-6, dots / np.maximum(norm, 1e-6), 0.0)
+        live = _box_sums(self.lit[rows, cols], h, w) > 0.5
+        return scores, live
+
+
 def _coarse(block):
     """Average-pool 2x2 so small misalignments matter less."""
     h, w = block.shape[-2] // _COARSE * _COARSE, block.shape[-1] // _COARSE * _COARSE
@@ -130,11 +167,17 @@ class _Atlas:
         self.punct = np.array([i for i in self.full if chars[i] in punct], np.int64)
         self.punct_boxes = []
         self.punct_ink_h = []
+        self.punct_refs = []
         for gid in self.punct:
             ys, xs = np.nonzero(glyphs[gid, :, PEN:PEN + PITCH] > 50)
-            self.punct_boxes.append((max(0, ys.min() - 2), ys.max() + 3,
-                                     max(0, xs.min() - 2), min(PITCH, xs.max() + 3)))
+            y0, y1 = max(0, ys.min() - 2), ys.max() + 3
+            x0, x1 = max(0, xs.min() - 2), min(PITCH, xs.max() + 3)
+            self.punct_boxes.append((y0, y1, x0, x1))
             self.punct_ink_h.append(ys.max() - ys.min() + 1)
+            self.punct_refs.append(_centred(
+                glyphs[gid, y0:y1, PEN + x0:PEN + x1].astype(np.float32) / 255.0)[0])
+        # Normalised full-size references, filled in as glyphs are compared.
+        self._full_refs = {}
         top = max(freq.values()) if freq else 1
         self.prior = np.array([np.log10(freq.get(ch, 0) + 1) / np.log10(top + 1)
                                for ch in chars], np.float32)
@@ -171,6 +214,15 @@ class _Atlas:
         glyphs = (glyphs * 255).round().astype(np.uint8)
         np.savez_compressed(path, glyphs=glyphs, advances=advances)
         return glyphs, advances
+
+    def full_refs(self, ids):
+        """Mean-centred, unit-norm PITCH-wide windows of glyphs `ids`."""
+        cache = self._full_refs
+        missing = [int(i) for i in ids if int(i) not in cache]
+        if missing:
+            for i, ref in zip(missing, _rows(self.window(missing).reshape(len(missing), -1))):
+                cache[i] = ref
+        return np.stack([cache[int(i)] for i in ids])
 
     def window(self, ids, width=PITCH, x0=0):
         """Reference glyph windows (ink 0..1) starting at the pen."""
@@ -330,8 +382,8 @@ class _LineReader:
         cand = np.argpartition(-scores, take)[:take]
         shifts = [(dx, dy) for dx in range(-_SHIFT, _SHIFT + 1)
                   for dy in range(-_SHIFT, _SHIFT + 1)]
-        refs_full = atlas.window(atlas.full[cand]).reshape(len(cand), -1)
         if damaged:
+            refs_full = atlas.window(atlas.full[cand]).reshape(len(cand), -1)
             corr = np.empty((len(shifts), len(cand)), np.float32)
             for row, (dx, dy) in enumerate(shifts):
                 window = self._window(ink, top + dy, x + dx, PITCH).ravel()
@@ -339,9 +391,13 @@ class _LineReader:
                                  > 0).ravel()
                 corr[row] = _rows(refs_full * keep_px) @ _centred(window * keep_px)[0]
         else:
-            windows = _centred(np.stack([self._window(ink, top + dy, x + dx, PITCH)
-                                         for dx, dy in shifts]))
-            corr = windows @ _rows(refs_full).T      # (shifts, candidates)
+            from numpy.lib.stride_tricks import sliding_window_view
+            patch = self._tall_window(ink, top - _SHIFT, x - _SHIFT, PITCH + 2 * _SHIFT,
+                                      CELL_H + 2 * _SHIFT)
+            # views[dy, dx]; shifts run dx-major.
+            views = sliding_window_view(patch, (CELL_H, PITCH))
+            windows = _rows(views.transpose(1, 0, 2, 3).reshape(len(shifts), -1))
+            corr = windows @ atlas.full_refs(atlas.full[cand]).T  # (shifts, candidates)
         best_shift = corr.argmax(axis=0)
         best_corr = corr.max(axis=0)
         glyph_ids = atlas.full[cand]
@@ -361,14 +417,13 @@ class _LineReader:
             x += PITCH
         if not cells:
             return start
-        best, best_score = start, -1.0
-        for shift in range(-4, 5):
-            blocks = _centred(_coarse(np.stack(
-                [self._window(ink, top, x + shift, PITCH) for x in cells])))
-            score = float((blocks @ self.atlas.full_coarse.T).max(axis=1).mean())
-            if score > best_score:
-                best, best_score = start + shift, score
-        return best
+        shifts = range(-4, 5)
+        blocks = _centred(_coarse(np.stack(
+            [self._window(ink, top, x + shift, PITCH)
+             for shift in shifts for x in cells])))
+        scores = (blocks @ self.atlas.full_coarse.T).max(axis=1)
+        scores = scores.reshape(len(shifts), len(cells)).mean(axis=1)
+        return start + shifts[int(scores.argmax())]
 
     def _punct(self, ink, top, x):
         """Full-width punctuation, which Faloo places up to ~8px away from
@@ -404,29 +459,44 @@ class _LineReader:
         ids = atlas.punct
         best = (None, -1.0)
         ink_h = np.ptp(np.flatnonzero(solid.any(axis=1))) + 1
+        vr = self.punct_rows
+        # Every template's search region is a crop of this one area.
+        area = _Area(self._tall_window(ink, top - vr, x - 12, PITCH + 24,
+                                       CELL_H + 2 * vr))
+        lost_area = None
+        if self.erased is not None:
+            lost_area = self._tall_window(self.erased, top - vr, x - 12,
+                                          PITCH + 24, CELL_H + 2 * vr)
         for k, gid in enumerate(ids):
             y0, y1, x0, x1 = atlas.punct_boxes[k]
             h, w = y1 - y0, x1 - x0
             if atlas.punct_ink_h[k] > ink_h + 6:
                 continue  # needs more ink than the cell has
-            ref = _centred(atlas.glyphs[gid, y0:y1, PEN + x0:PEN + x1]
-                           .astype(np.float32) / 255.0)[0]
-            vr = self.punct_rows
-            region = self._tall_window(ink, top + y0 - vr, x + x0 - 12, w + 24, h + 2 * vr)
-            views = sliding_window_view(region, (h, w)).reshape(-1, h * w)
-            live = views.max(axis=1) > 0.2
-            if not live.any():
-                continue
-            if self.erased is not None:
-                lost = self._tall_window(self.erased, top + y0 - vr, x + x0 - 12,
-                                         w + 24, h + 2 * vr)
+            ref = atlas.punct_refs[k]
+            height, width = h + 2 * vr, w + 24
+            region = area.patch[y0:y0 + height, x0:x0 + width]
+            lost = None
+            if lost_area is not None:
+                lost = lost_area[y0:y0 + height, x0:x0 + width]
+                if not lost.any():
+                    lost = None
+            if lost is None:
+                # Nothing erased here: score every position without copies.
+                score_map, live_map = area.ncc_map(y0, x0, height, width, ref, h, w)
+                live = live_map.ravel()
+                if not live.any():
+                    continue
+                scores = score_map.ravel()[live]
+            else:
+                views = sliding_window_view(region, (h, w)).reshape(-1, h * w)
+                live = views.max(axis=1) > 0.2
+                if not live.any():
+                    continue
                 keep = 1.0 - sliding_window_view(lost, (h, w)).reshape(-1, h * w)[live]
                 refs = ref[None, :] * keep
                 refs = refs - refs.mean(axis=1, keepdims=True)
                 refs /= np.maximum(np.linalg.norm(refs, axis=1, keepdims=True), 1e-6)
                 scores = (_rows(views[live] * keep) * refs).sum(axis=1)
-            else:
-                scores = _rows(views[live]) @ ref
             i = int(scores.argmax())
             if scores[i] <= best[1]:
                 continue
@@ -623,7 +693,12 @@ def _calibrate_phase(ink, atlas, bands, tops, origin, samples=60):
 def read_image(data, cache=None):
     """Lines of one Faloo chapter image as (text, starts_paragraph)."""
     atlas = _Atlas.get()
-    image = Image.open(io.BytesIO(data)) if isinstance(data, (bytes, bytearray)) else data
+    if isinstance(data, (bytes, bytearray)):
+        image = Image.open(io.BytesIO(data))
+    elif isinstance(data, np.ndarray):
+        image = Image.fromarray(data)
+    else:
+        image = data
     ink, erased = _erase_strike_lines(_to_ink(image.convert('RGB')))
     columns = (ink > 0.35).sum(axis=0)
     # Cells never cross the grid, so the grid sits where the least ink
@@ -699,10 +774,63 @@ def lines_to_paragraphs(lines):
     return cleaned
 
 
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _worker_pool():
+    """Worker processes kept for the session; the reader is CPU-bound Python
+    and threads would only take turns on the GIL."""
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            from concurrent.futures import ProcessPoolExecutor
+            _pool = ProcessPoolExecutor(max_workers=_WORKERS)
+        return _pool
+
+
+_WORKERS = max(1, min(6, (os.cpu_count() or 2) - 1))
+_SLICE_LINES = 40
+
+
+def _slices(data):
+    """Split one chapter image into strips of about _SLICE_LINES lines, cut
+    through blank rows, so worker processes share a chapter evenly."""
+    rgb = np.asarray(Image.open(io.BytesIO(data)).convert('RGB'))
+    blank = (_to_ink(Image.fromarray(rgb)) > 0.2).sum(axis=1) == 0
+    step = _SLICE_LINES * 50  # a line is about 50px tall
+    cuts, y = [0], step
+    while y < len(blank) - step // 2:
+        gap = np.flatnonzero(blank[y:y + step // 2])
+        if not len(gap):
+            break
+        cuts.append(y + int(gap[0]))
+        y = cuts[-1] + step
+    cuts.append(len(blank))
+    return [rgb[a:b] for a, b in zip(cuts, cuts[1:]) if b > a]
+
+
+def _read_slice(strip):
+    return read_image(strip)
+
+
 def read_chapter(images):
     """Text paragraphs from a chapter's image parts, in order."""
-    cache = {}
+    images = [bytes(data) for data in images]
     lines = []
+    if _WORKERS > 1:
+        try:
+            # Build or load the glyph cache here first, so workers only
+            # load the saved copy instead of each rendering it.
+            _Atlas.get()
+            strips = [strip for data in images for strip in _slices(data)]
+            if len(strips) > 1:
+                for part in _worker_pool().map(_read_slice, strips):
+                    lines.extend(part)
+                return lines_to_paragraphs(lines)
+        except Exception:
+            lines = []  # no worker processes here; read in this one
+    cache = {}
     for data in images:
         lines.extend(read_image(data, cache))
     return lines_to_paragraphs(lines)
