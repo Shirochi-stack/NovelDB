@@ -26,6 +26,28 @@ def test_ridi_harmless_policy_and_amplitude_console_noise_is_hidden():
     assert messages == ['[JS] Unexpected Ridi renderer failure']
 
 
+def test_ridi_font_cors_noise_is_hidden_without_hiding_api_errors():
+    scraper, messages = make_scraper()
+    scraper._ridi_chrome = True
+
+    class Message:
+        type = 'error'
+
+        def __init__(self, text):
+            self.text = text
+
+    scraper._on_console(Message(
+        "Access to font at 'https://static.ridicdn.net/web-font/pretendard/"
+        "PretendardJPVariable.subset.84.woff2' has been blocked by CORS policy"
+    ))
+    scraper._on_console(Message(
+        "Access to fetch at 'https://library-api.ridibooks.com/items' "
+        "has been blocked by CORS policy"
+    ))
+    assert len(messages) == 1
+    assert 'library-api.ridibooks.com/items' in messages[0]
+
+
 def test_ridi_url_detection_is_scoped_to_book_and_viewer_pages():
     assert ExternalScraper.is_ridibooks(
         'https://ridibooks.com/books/1234567890'
@@ -863,15 +885,15 @@ def test_ridi_refused_viewer_names_missing_login():
     scraper = _ridi_with_cookies(['ridi-ffid', '_ga'], logs)
     result = scraper._ridi_refused_result('Vol 1')
     assert result['_locked'] and result['_lockReason'] == 'login'
-    assert 'not signed in' in logs[-1]
+    assert 'could not confirm this browser session' in logs[-1]
 
 
 def test_ridi_refused_viewer_when_signed_in_is_not_called_login():
     logs = []
     scraper = _ridi_with_cookies(['ridi-at', 'ridi-rt'], logs)
     result = scraper._ridi_refused_result('Vol 1')
-    assert result['_lockReason'] == 'unsupported'
-    assert 'not signed in' not in logs[-1]
+    assert result['_lockReason'] == 'verification'
+    assert 'could not confirm this browser session' not in logs[-1]
 
 
 class _OwnedPage:
@@ -931,6 +953,45 @@ def test_ridi_owned_volume_uses_pc_viewer_after_library_confirms_purchase(
                       'https://view.ridibooks.com/books/6121000538')]
 
 
+def test_ridi_ownership_falls_back_to_library_origin(monkeypatch):
+    from ridi_app_proxy import RidiAppProxy
+    calls = []
+
+    class LibraryPage:
+        def goto(self, url, **kwargs):
+            calls.append(('goto', url))
+
+        def evaluate(self, script, ids):
+            calls.append(('lookup', ids))
+            return ['6121000538']
+
+        def close(self):
+            calls.append(('close',))
+
+    class Context:
+        def cookies(self, urls):
+            return []
+
+        def new_page(self):
+            return LibraryPage()
+
+    def extract(self, context, book_id, title, url):
+        calls.append(('extract', book_id))
+        return {'chapterName': title, 'contentHtml': '<p>owned text</p>'}
+
+    monkeypatch.setattr(RidiAppProxy, 'extract', extract)
+    scraper = ExternalScraper(logger=lambda message: None)
+    scraper._context = Context()
+    _ridi_book(scraper)
+    result = scraper._ridi_refused_result(
+        'Vol 1', _OwnedPage(None), '6121000538')
+
+    assert result['contentHtml'] == '<p>owned text</p>'
+    assert ('goto', 'https://library.ridibooks.com/') in calls
+    assert ('extract', '6121000538') in calls
+    assert ('close',) in calls
+
+
 def test_ridi_reader_selects_new_spine_on_two_page_chapter_boundary():
     from ridi_app_proxy import RidiAppProxy
     frames = [
@@ -961,6 +1022,71 @@ def test_ridi_pc_handoff_opens_executable_without_windows_uri_handler(
     assert calls[0][0] == proxy.executable
     assert calls[0][1].startswith('ridi://download?sso_otp=')
     assert '6121000538' in calls[0][1]
+
+
+def test_ridi_popup_watcher_presses_enter_only_for_detected_dialog(
+    monkeypatch,
+):
+    from ridi_app_proxy import RidiAppProxy
+    logs = []
+    pressed = []
+    proxy = RidiAppProxy(logs.append)
+    monkeypatch.setattr(proxy, '_native_ridi_dialog', lambda: 12345)
+    monkeypatch.setattr(proxy, '_press_enter_on_dialog',
+                        lambda hwnd: pressed.append(hwnd) or True)
+    monkeypatch.setattr(proxy, '_accept_js_dialog', lambda: False)
+
+    class Stop:
+        ended = False
+
+        def is_set(self):
+            return self.ended
+
+        def wait(self, duration):
+            self.ended = True
+
+    proxy._dismiss_viewer_popups(Stop())
+    assert pressed == [12345]
+    assert 'Pressed Enter' in logs[0]
+
+
+def test_ridi_popup_watcher_accepts_reader_js_dialog_only(monkeypatch):
+    import json
+    import sys
+    import types
+    from ridi_app_proxy import RidiAppProxy
+    calls = []
+    proxy = RidiAppProxy(lambda message: None)
+    proxy.port = 49318
+    monkeypatch.setattr(proxy, '_tabs', lambda port: [
+        {'type': 'page', 'url': 'https://example.com/?Viewer',
+         'webSocketDebuggerUrl': 'ws://unrelated'},
+        {'type': 'page',
+         'url': 'file:///C:/Program%20Files/RIDI/Ridibooks/resources/'
+                'app.asar/index.html?Viewer',
+         'webSocketDebuggerUrl': 'ws://ridi'},
+    ])
+
+    class Socket:
+        def send(self, command):
+            calls.append(json.loads(command))
+
+        def recv(self):
+            return json.dumps({'id': 1, 'result': {}})
+
+        def close(self):
+            pass
+
+    def connect(url, **kwargs):
+        calls.append(url)
+        return Socket()
+
+    monkeypatch.setitem(sys.modules, 'websocket', types.SimpleNamespace(
+        create_connection=connect))
+    assert proxy._accept_js_dialog()
+    assert calls[0] == 'ws://ridi'
+    assert calls[1]['method'] == 'Page.handleJavaScriptDialog'
+    assert calls[1]['params'] == {'accept': True}
 
 
 def test_ridi_reader_reports_invalid_local_cache_from_new_log_lines(
@@ -1074,4 +1200,4 @@ def test_ridi_refusal_without_ownership_answer_stays_generic():
     scraper = _ridi_with_cookies(['ridi-at'], logs)
     _ridi_book(scraper)
     result = scraper._ridi_refused_result('Vol 1', _OwnedPage(None), '6121000538')
-    assert result['_lockReason'] == 'unsupported'
+    assert result['_lockReason'] == 'verification'

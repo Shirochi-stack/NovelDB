@@ -21,6 +21,18 @@ class Setting:
         self.value = value
 
 
+def test_external_cache_retries_previous_login_and_purchase_failures():
+    assert not ExternalNovelDialog._external_cacheable({
+        '_locked': True, '_lockReason': 'login'
+    })
+    assert not ExternalNovelDialog._external_cacheable({
+        '_locked': True, '_lockReason': 'purchase'
+    })
+    assert ExternalNovelDialog._external_cacheable({
+        'contentHtml': '<p>Owned volume</p>'
+    })
+
+
 def test_message_poll_yields_to_gui_when_log_queue_is_busy():
     messages = queue.Queue()
     for index in range(250):

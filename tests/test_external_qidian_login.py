@@ -106,8 +106,14 @@ def test_enter_browser_session_login_survives_window_close(monkeypatch, tmp_path
                         staticmethod(lambda: str(tmp_path)))
 
     scraper = ExternalScraper()
-    # Only the Qidian session cookie is kept; persistent ones are on disk.
+    # Session cookies for both supported sites survive closing Enter Browser.
+    assert scraper._cdp_snapshot_session_cookies(9222) == 2
+    cdp_cookies[:] = [cdp_cookies[-1]]
     assert scraper._cdp_snapshot_session_cookies(9222) == 1
+    with open(scraper._get_session_cookie_path(), encoding='utf-8') as saved:
+        assert {cookie['name'] for cookie in json.load(saved)['cookies']} == {
+            'ywkey', 'ridi-at'
+        }
 
     added = []
 
@@ -123,6 +129,10 @@ def test_enter_browser_session_login_survives_window_close(monkeypatch, tmp_path
     assert added == [{'name': 'ywkey', 'value': 'k', 'domain': '.qidian.com',
                       'path': '/', 'httpOnly': True, 'secure': False,
                       'sameSite': 'Lax'}]
+    assert scraper._restore_session_cookies('ridibooks.com') == 1
+    assert added[-1] == {'name': 'ridi-at', 'value': 'r',
+                         'domain': '.ridibooks.com', 'path': '/',
+                         'httpOnly': False, 'secure': False}
     # A cookie the profile already holds is newer and is never replaced.
     Context.cookies = lambda self, *_args: [
         {'name': 'ywkey', 'domain': '.qidian.com'}]

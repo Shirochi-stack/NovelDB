@@ -118,6 +118,9 @@ a = Analysis(
         'cryptography.hazmat.primitives.padding',
         'curl_cffi',
         'curl_cffi.requests',
+        'ridi_app_proxy',            # Loaded only for owned RIDI volumes
+        'psutil',                    # Finds an already running RIDI reader
+        'websocket',                 # Local RIDI reader debugging connection
     ],
     hookspath=[],
     hooksconfig={},

@@ -2319,9 +2319,12 @@ class ExternalScraper:
                 time.sleep(0.25)
         return False
 
-    # Qidian keeps its login (ywkey/ywguid) in session cookies, which Chrome
-    # drops when the Enter Browser window closes. Download starts after that.
-    _SESSION_COOKIE_DOMAINS = ('qidian.com', 'yuewen.com')
+    # Chrome drops site session cookies when the Enter Browser window closes.
+    # Downloads start in a new Chrome process, so preserve RIDI's session
+    # login alongside Qidian's until that process can restore it.
+    _SESSION_COOKIE_DOMAINS = (
+        'qidian.com', 'yuewen.com', 'ridibooks.com',
+    )
 
     @classmethod
     def _get_session_cookie_path(cls):
@@ -2331,7 +2334,7 @@ class ExternalScraper:
         """Save the open login window's session cookies for later downloads.
 
         Returns the number saved. An empty result keeps the previous file,
-        since a window that never opened Qidian says nothing about its login.
+        since a window that never opened these sites says nothing about login.
         """
         if not port:
             return 0
@@ -2364,14 +2367,30 @@ class ExternalScraper:
         ]
         if not cookies:
             return 0
+        saved_count = len(cookies)
         path = self._get_session_cookie_path()
         try:
+            # Enter Browser may visit only one site per run. Keep session
+            # cookies previously saved for the other supported sites.
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    previous = json.load(handle).get("cookies") or []
+            except (OSError, ValueError, AttributeError):
+                previous = []
+            present = {
+                (cookie.get("name"), cookie.get("domain"),
+                 cookie.get("path")) for cookie in cookies
+            }
+            cookies.extend(cookie for cookie in previous
+                           if isinstance(cookie, dict) and
+                           (cookie.get("name"), cookie.get("domain"),
+                            cookie.get("path")) not in present)
             with open(path + ".tmp", "w", encoding="utf-8") as handle:
                 json.dump({"saved": time.time(), "cookies": cookies}, handle)
             os.replace(path + ".tmp", path)
         except OSError:
             return 0
-        return len(cookies)
+        return saved_count
 
     def _restore_session_cookies(self, domain):
         """Add saved session cookies for ``domain`` the profile no longer has."""
@@ -2654,10 +2673,12 @@ class ExternalScraper:
                     if saved and not reported_session_cookies:
                         reported_session_cookies = True
                         self.log(
-                            "[Browser] Saving Qidian session login so "
-                            "Download can use it after this window closes."
+                            "[Browser] Saving site session login so Download "
+                            "can use it after this window closes."
                         )
             elif saw_window:
+                if port:
+                    self._cdp_snapshot_session_cookies(port)
                 self.log(
                     "[Browser] Chrome window closed; waiting for Chrome to "
                     "finish saving the login profile..."
@@ -3794,6 +3815,12 @@ class ExternalScraper:
         # a CSP block there can be a real scraping failure.
         if (
             'content security policy' in lowered
+            and self._console_from_ridi(msg)
+        ):
+            return
+        if (
+            'blocked by cors policy' in lowered
+            and 'static.ridicdn.net/web-font/pretendard/' in lowered
             and self._console_from_ridi(msg)
         ):
             return
@@ -10374,6 +10401,13 @@ async ({ url }) => {
             self._ridi_chrome = True
             self._ridi_cdp_port = port
             self.log(f'[{site}] Installed-Chrome session ready.')
+            if site == 'Ridi':
+                restored = self._restore_session_cookies('ridibooks.com')
+                if restored:
+                    self.log(
+                        f'[Ridi] Restored {restored} session login cookie(s) '
+                        'saved by Enter Browser.'
+                    )
             return True
         except Exception as e:
             self.log(f'ERROR: [{site}] Could not attach to Chrome: {e}')
@@ -11639,14 +11673,16 @@ async ({ url }) => {
         }
 
     def _ridi_signed_in(self):
-        """Return whether the attached profile holds Ridi's login tokens."""
+        """Return a cookie hint; the RIDI library is the authority."""
         try:
-            names = {cookie.get('name') for cookie in self._context.cookies(
-                ['https://ridibooks.com/']
-            )}
+            names = {cookie.get('name') for cookie in self._context.cookies([
+                'https://ridibooks.com/',
+                'https://account.ridibooks.com/',
+                'https://library.ridibooks.com/',
+            ])}
         except Exception:
             return None
-        return bool(names & {'ridi-at', 'ridi-rt'})
+        return bool(names & {'ridi-at', 'ridi-rt', 'ridi-gs-at'})
 
     _RIDI_OWNED_JS = r"""
 async (ids) => {
@@ -11677,12 +11713,38 @@ async (ids) => {
         if cache and cache[0] == key:
             return cache[1]
         owned = None
-        try:
-            found = page.evaluate(self._RIDI_OWNED_JS, ids[:500])
-            owned = set(found) if found is not None else None
-        except Exception:
-            owned = None
-        self._ridi_owned_cache = (key, owned)
+        library_error = None
+        if owned is None and self._context:
+            # The product/viewer origin can be blocked by RIDI's CORS rules.
+            # Ask from the library origin first, which may call library-api.
+            library_page = None
+            try:
+                library_page = self._context.new_page()
+                library_page.goto(
+                    'https://library.ridibooks.com/',
+                    wait_until='domcontentloaded', timeout=30000,
+                )
+                found = library_page.evaluate(self._RIDI_OWNED_JS, ids[:500])
+                owned = set(found) if found is not None else None
+            except Exception as exc:
+                library_error = exc
+            finally:
+                if library_page is not None:
+                    try:
+                        library_page.close()
+                    except Exception:
+                        pass
+        if owned is None:
+            try:
+                found = page.evaluate(self._RIDI_OWNED_JS, ids[:500])
+                owned = set(found) if found is not None else None
+            except Exception:
+                pass
+        if owned is None and library_error:
+            self.log(f'  [Ridi] Library ownership lookup warning: '
+                     f'{library_error}')
+        if owned is not None:
+            self._ridi_owned_cache = (key, owned)
         return owned
 
     def _ridi_refused_result(self, chapter_name, page=None, book_id=''):
@@ -11691,23 +11753,30 @@ async (ids) => {
         Ridi answers HTTP 400 "웹 뷰어에서 지원하지 않는 작품입니다" for owned
         and unowned volumes alike, so ask the library which one this is.
         """
-        if self._ridi_signed_in() is False:
+        owned = (self._ridi_owned_ids(page, str(book_id))
+                 if page is not None and book_id else None)
+        if owned is None and self._ridi_signed_in() is False:
             self.log(
-                f'  [Ridi] Viewer refused {chapter_name}: the External '
-                'Downloader profile is not signed in to Ridi. Sign in with '
-                'Enter Browser, close that window, then download again.'
+                f'  [Ridi] Viewer refused {chapter_name}: the RIDI library '
+                'could not confirm this browser session. Sign in with Enter '
+                'Browser, close that window, then download again.'
             )
             reason = 'login'
+        elif owned is None:
+            self.log(
+                f'  [Ridi] Viewer refused {chapter_name}: the RIDI library '
+                'could not verify access to this volume. Retry; if this '
+                'continues, sign in with Enter Browser and try again.'
+            )
+            reason = 'verification'
         else:
-            owned = (self._ridi_owned_ids(page, str(book_id))
-                     if page is not None and book_id else None)
-            if owned is not None and str(book_id) not in owned:
+            if str(book_id) not in owned:
                 self.log(
                     f'  [Ridi] {chapter_name} is not in this account\'s '
                     'library. Buy or rent it on Ridi first.'
                 )
                 reason = 'purchase'
-            elif owned is not None:
+            else:
                 if sys.platform == 'win32' and hasattr(self._context, 'new_page'):
                     try:
                         from ridi_app_proxy import RidiAppProxy
@@ -11733,13 +11802,6 @@ async (ids) => {
                     'The RIDI PC viewer could not provide this volume.'
                 )
                 reason = 'app_only'
-            else:
-                self.log(
-                    f'  [Ridi] Signed in, but Ridi will not open '
-                    f'{chapter_name} in its web viewer ("웹 뷰어에서 지원하지 '
-                    '않는 작품입니다"). It is app-only or not in your library.'
-                )
-                reason = 'unsupported'
         return {'_locked': True, 'chapterName': chapter_name,
                 '_lockReason': reason}
 

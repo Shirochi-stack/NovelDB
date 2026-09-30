@@ -11,6 +11,8 @@ import os
 import re
 import socket
 import subprocess
+import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -184,6 +186,106 @@ class RidiAppProxy:
                 return (result.get('result') or {}).get('value')
         finally:
             ws.close()
+
+    @staticmethod
+    def _native_ridi_dialog():
+        """Return the foreground standard dialog only when RIDI owns it."""
+        if sys.platform != 'win32':
+            return None
+        try:
+            import ctypes
+            from ctypes import wintypes
+            import psutil
+            user32 = ctypes.windll.user32
+            user32.GetForegroundWindow.restype = wintypes.HWND
+            user32.GetClassNameW.argtypes = [wintypes.HWND,
+                                             wintypes.LPWSTR, ctypes.c_int]
+            user32.GetWindowThreadProcessId.argtypes = [
+                wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+            hwnd = user32.GetForegroundWindow()
+            if not hwnd:
+                return None
+            window_class = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, window_class, len(window_class))
+            if window_class.value != '#32770':
+                return None
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if (psutil.Process(pid.value).name() or '').lower() != 'ridibooks.exe':
+                return None
+            return hwnd
+        except Exception:
+            return None
+
+    @staticmethod
+    def _press_enter_on_dialog(hwnd):
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                            wintypes.WPARAM, wintypes.LPARAM]
+            return bool(user32.PostMessageW(hwnd, 0x100, 0x0D, 0) and
+                        user32.PostMessageW(hwnd, 0x101, 0x0D, 0))
+        except Exception:
+            return False
+
+    def _accept_js_dialog(self):
+        """Accept a RIDI reader JavaScript dialog through its own CDP tab."""
+        if not self.port:
+            return False
+        try:
+            tabs = self._tabs(self.port)
+        except Exception:
+            return False
+        for tab in tabs:
+            url = urllib.parse.unquote(tab.get('url', ''))
+            if (tab.get('type') != 'page' or
+                    '/RIDI/Ridibooks/resources/app.asar/' not in url or
+                    not url.endswith(('?Viewer', '?Books', '?Login'))):
+                continue
+            ws_url = tab.get('webSocketDebuggerUrl')
+            if not ws_url:
+                continue
+            try:
+                import websocket
+                ws = websocket.create_connection(ws_url, timeout=1,
+                                                 suppress_origin=True)
+                try:
+                    ws.send(json.dumps({
+                        'id': 1, 'method': 'Page.handleJavaScriptDialog',
+                        'params': {'accept': True},
+                    }))
+                    while True:
+                        reply = json.loads(ws.recv())
+                        if reply.get('id') == 1:
+                            if not reply.get('error'):
+                                return True
+                            break
+                finally:
+                    ws.close()
+            except Exception:
+                continue
+        return False
+
+    def _dismiss_viewer_popups(self, stop):
+        last_native = None
+        last_press = 0
+        while not stop.is_set():
+            try:
+                hwnd = self._native_ridi_dialog()
+                now = time.monotonic()
+                if hwnd and (hwnd != last_native or now - last_press >= 3):
+                    if self._press_enter_on_dialog(hwnd):
+                        self.log('  [Ridi] Pressed Enter on a RIDI PC viewer popup.')
+                        last_native, last_press = hwnd, now
+                elif not hwnd:
+                    last_native = None
+                if self._accept_js_dialog():
+                    self.log('  [Ridi] Accepted a RIDI PC viewer popup.')
+            except Exception:
+                pass
+            stop.wait(0.8)
 
     def _sso(self, context):
         page = context.new_page()
@@ -478,6 +580,17 @@ class RidiAppProxy:
         })()""" % index)
 
     def extract(self, context, book_id, title, chapter_url):
+        stop = threading.Event()
+        watcher = threading.Thread(target=self._dismiss_viewer_popups,
+                                   args=(stop,), daemon=True)
+        watcher.start()
+        try:
+            return self._extract(context, book_id, title, chapter_url)
+        finally:
+            stop.set()
+            watcher.join(timeout=2)
+
+    def _extract(self, context, book_id, title, chapter_url):
         self.connect()
         self.log(f'  [Ridi] Opening owned {title} in the RIDI PC viewer...')
         cover_url = self._open_owned_book(context, book_id, title)

@@ -652,6 +652,12 @@ class ExternalNovelDialog(tk.Toplevel):
             cached.pop('_coverData', None)
         return cached
 
+    @staticmethod
+    def _external_cacheable(result):
+        # A login, purchase, or app-viewer refusal can change between runs.
+        # Reusing it after the user signs in would prevent any network retry.
+        return isinstance(result, dict) and not result.get('_locked')
+
     def _save_external_cache(self, entries, path):
         if not path or not self._var_use_cache.get():
             return
@@ -830,12 +836,19 @@ class ExternalNovelDialog(tk.Toplevel):
             else:
                 cache_entries, cache_path = {}, None
             cache_hits = 0
+            stale_cache_entries = 0
             if use_cache:
                 for selected_index, chapter in enumerate(selected):
                     cache_key = ExternalNovelDialog._external_cache_chapter_key(
                         chapter, start + selected_index
                     )
                     cached = cache_entries.get(cache_key)
+                    if cached is not None and not (
+                        ExternalNovelDialog._external_cacheable(cached)
+                    ):
+                        cache_entries.pop(cache_key, None)
+                        stale_cache_entries += 1
+                        continue
                     if isinstance(cached, dict):
                         if cache_images:
                             ExternalNovelDialog._cache_external_result_images(
@@ -844,6 +857,11 @@ class ExternalNovelDialog(tk.Toplevel):
                             cache_entries[cache_key] = cached
                         results[selected_index] = cached
                         cache_hits += 1
+                if stale_cache_entries:
+                    self._log(
+                        f"Ignored {stale_cache_entries} cached locked "
+                        "chapter(s); checking access again."
+                    )
                 if cache_hits:
                     self._log(
                         f"Cache hits: {cache_hits}; "
@@ -1074,20 +1092,23 @@ class ExternalNovelDialog(tk.Toplevel):
                         data.setdefault('_chapter_number', source_number)
                     results[idx] = data
                     if isinstance(data, dict) and use_cache:
-                        if cache_images:
-                            ExternalNovelDialog._cache_external_result_images(
-                                self, data
-                            )
                         cache_key = (
                             ExternalNovelDialog._external_cache_chapter_key(
                                 selected[idx], start + idx
                             )
                         )
-                        cache_entries[cache_key] = (
-                            ExternalNovelDialog._external_cache_result(
-                                data, cache_images
+                        if ExternalNovelDialog._external_cacheable(data):
+                            if cache_images:
+                                ExternalNovelDialog._cache_external_result_images(
+                                    self, data
+                                )
+                            cache_entries[cache_key] = (
+                                ExternalNovelDialog._external_cache_result(
+                                    data, cache_images
+                                )
                             )
-                        )
+                        else:
+                            cache_entries.pop(cache_key, None)
 
                 if log_on_success:
                     # A failed or locked earlier chapter has no success
@@ -1215,13 +1236,19 @@ class ExternalNovelDialog(tk.Toplevel):
             # these are not paywalled, so report them apart.
             web_only = sum(1 for r in results
                            if r and r.get('_lockReason') in ('app_only', 'unsupported'))
-            locked -= web_only
-            if locked or ad_required or web_only:
+            login_required = (sum(1 for r in results
+                                  if r and r.get('_lockReason') in
+                                  ('login', 'verification'))
+                              if is_ridibooks else 0)
+            locked -= web_only + login_required
+            if locked or ad_required or web_only or login_required:
                 incomplete = []
                 if locked:
                     incomplete.append(f"{locked} locked (paid)")
                 if web_only:
                     incomplete.append(f"{web_only} not available on the web")
+                if login_required:
+                    incomplete.append(f"{login_required} access not confirmed")
                 if ad_required:
                     incomplete.append(
                         f"{ad_required} advertisement(s) not completed"
@@ -1241,6 +1268,12 @@ class ExternalNovelDialog(tk.Toplevel):
                         "viewer even though you are signed in. Ridi serves "
                         "some ebooks only in the RIDI app or PC viewer; "
                         "otherwise the volume is not in your library."
+                    )
+                if login_required:
+                    self._log(
+                        "⚠ RIDI library access could not be confirmed. "
+                        "Retry; if needed, sign in using Enter Browser and "
+                        "close that window before downloading."
                     )
                 if ad_required:
                     self._log(
