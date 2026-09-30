@@ -119,6 +119,7 @@ a = Analysis(
         'curl_cffi',
         'curl_cffi.requests',
         'ridi_app_proxy',            # Loaded only for owned RIDI volumes
+        'kobo_web_proxy',            # Loaded only for owned Kobo volumes
         'psutil',                    # Finds an already running RIDI reader
         'websocket',                 # Local RIDI reader debugging connection
     ],

@@ -189,6 +189,7 @@ class ExternalScraper:
         self._novelpia_chrome = False
         self._novelpia_cdp_port = None
         self._ridi_chrome = False
+        self._ridi_site = ''
         self._ridi_cdp_port = None
         self._ridi_app_proxy = None
         self._ridi_app_lock = threading.Lock()
@@ -2320,10 +2321,10 @@ class ExternalScraper:
         return False
 
     # Chrome drops site session cookies when the Enter Browser window closes.
-    # Downloads start in a new Chrome process, so preserve RIDI's session
-    # login alongside Qidian's until that process can restore it.
+    # Downloads start in a new Chrome process, so preserve RIDI and Kobo
+    # logins alongside Qidian's until that process can restore them.
     _SESSION_COOKIE_DOMAINS = (
-        'qidian.com', 'yuewen.com', 'ridibooks.com',
+        'qidian.com', 'yuewen.com', 'ridibooks.com', 'kobo.com',
     )
 
     @classmethod
@@ -3782,7 +3783,7 @@ class ExternalScraper:
             self._playwright = None
 
     def _console_from_ridi(self, msg):
-        if self._ridi_chrome:
+        if self._ridi_chrome and getattr(self, '_ridi_site', '') in ('', 'Ridi'):
             return True
         try:
             page = getattr(msg, 'page', None)
@@ -3914,6 +3915,20 @@ class ExternalScraper:
             r'^/(?:books/\d+(?:/view)?|library/books/\d+)/?$',
             parsed.path or '',
             re.I,
+        ))
+
+    @staticmethod
+    def is_kobo(url):
+        """Recognize Kobo ebook product pages, including regional stores."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except Exception:
+            return False
+        if (parsed.hostname or '').lower() not in ('kobo.com', 'www.kobo.com'):
+            return False
+        return bool(re.match(
+            r'^/(?:[a-z]{2}/[a-z]{2}/)?ebook/[^/]+/?$',
+            parsed.path or '', re.I,
         ))
 
     @staticmethod
@@ -4231,6 +4246,7 @@ class ExternalScraper:
         self._novelpia_chrome = False
         self._novelpia_cdp_port = None
         self._ridi_chrome = False
+        self._ridi_site = ''
         self._ridi_cdp_port = None
         try:
             if self._global_novelpia_session:
@@ -10399,13 +10415,15 @@ async ({ url }) => {
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on('console', self._on_console)
             self._ridi_chrome = True
+            self._ridi_site = site
             self._ridi_cdp_port = port
             self.log(f'[{site}] Installed-Chrome session ready.')
-            if site == 'Ridi':
-                restored = self._restore_session_cookies('ridibooks.com')
+            if site in ('Ridi', 'Kobo'):
+                domain = 'ridibooks.com' if site == 'Ridi' else 'kobo.com'
+                restored = self._restore_session_cookies(domain)
                 if restored:
                     self.log(
-                        f'[Ridi] Restored {restored} session login cookie(s) '
+                        f'[{site}] Restored {restored} session login cookie(s) '
                         'saved by Enter Browser.'
                     )
             return True
@@ -10420,6 +10438,12 @@ async ({ url }) => {
             try:
                 self._page.evaluate('1')
                 if self._ridi_chrome:
+                    self._ridi_site = site
+                    if site in ('Ridi', 'Kobo'):
+                        self._restore_session_cookies(
+                            'ridibooks.com' if site == 'Ridi'
+                            else 'kobo.com'
+                        )
                     return True
                 self.cleanup()
             except Exception:
@@ -18233,12 +18257,111 @@ async (ids) => {
                 pass
         self._faloo_pages = []
 
+    def _kobo_parse_book(self, url):
+        if not self._start_ridi_browser(url, site='Kobo'):
+            return None
+        try:
+            self._page.goto(url, wait_until='domcontentloaded', timeout=45000)
+            self._page.locator('h1').first.wait_for(state='visible', timeout=30000)
+            try:
+                self._page.locator('a[href*="readnow.kobo.com"]').first.wait_for(
+                    state='attached', timeout=8000)
+            except Exception:
+                pass
+            meta = self._page.evaluate(r"""() => {
+              const meta = name => document.querySelector(
+                `meta[property="${name}"],meta[name="${name}"]`
+              )?.content || '';
+              const json = [...document.querySelectorAll(
+                'script[type="application/ld+json"]'
+              )].map(s => { try { return JSON.parse(s.textContent); }
+                             catch (_) { return null; } }).flatMap(x =>
+                Array.isArray(x) ? x : [x]).find(x =>
+                x && (x['@type'] === 'Book' || x['@type'] === 'Product')) || {};
+              const author = json.author;
+              const read = [...document.querySelectorAll('a[href]')]
+                .find(a => /^https:\/\/readnow\.kobo\.com\//.test(a.href)
+                  && /read now/i.test(a.innerText || a.textContent || ''));
+              return {
+                title: document.querySelector('h1')?.textContent?.trim() || '',
+                author: (typeof author === 'string' ? author : author?.name)
+                  || document.querySelector('a[href*="/author/"]')?.textContent?.trim()
+                  || meta('book:author') || '',
+                cover: meta('og:image') || json.image ||
+                  [...document.images].find(x => /cover|merciless maiden/i.test(
+                    (x.alt || '') + ' ' + (x.src || '')))?.src || '',
+                description: meta('og:description') || meta('description') || '',
+                publisher: json.publisher?.name || '',
+                readUrl: read?.href || '',
+                language: document.documentElement.lang || 'en',
+              };
+            }""") or {}
+        except Exception as exc:
+            self.log(f'[Kobo] ERROR: Book discovery failed: {exc}')
+            return None
+        title = meta.get('title') or 'Kobo ebook'
+        read_url = meta.get('readUrl') or ''
+        if not read_url:
+            self.log('[Kobo] This account has no Read Now access to this '
+                     'volume. Check that the book is in My Books.')
+        introduction = meta.get('description') or ''
+        data = {
+            'bookname': title,
+            'author': meta.get('author') or '',
+            'coverUrl': meta.get('cover') or '',
+            'description': introduction,
+            'introduction': introduction,
+            'introductionHTML': ('<p>' + html.escape(introduction) + '</p>'
+                                 if introduction else ''),
+            'publisher': meta.get('publisher') or '',
+            'bookUrl': url,
+            'chapterCount': 1,
+            'chapters': [{
+                'name': title, 'fullName': title,
+                'url': read_url or url,
+                'isPaid': not bool(read_url),
+            }],
+            'language': (meta.get('language') or 'en').split('-', 1)[0],
+            '_kobo': True,
+            '_kobo_read_url': read_url,
+        }
+        self._book_data = data
+        self._book_url = url
+        self.log(f'[Kobo] Book: {title} by {data["author"] or "?"} - '
+                 '1 volume')
+        return data
+
+    def _kobo_parse_chapter(self, chapter_url, chapter_name):
+        if not (self._book_data or {}).get('_kobo_read_url'):
+            self.log(f'  [Kobo] {chapter_name} is not available in this '
+                     'account\'s Kobo library.')
+            return {'_locked': True, 'chapterName': chapter_name,
+                    '_lockReason': 'purchase'}
+        if not self._start_ridi_browser(chapter_url, site='Kobo'):
+            return None
+        try:
+            from kobo_web_proxy import KoboWebReader
+            reader = KoboWebReader(self.log, lambda: self._stop_requested)
+            return reader.extract(
+                self._context, chapter_url, chapter_name,
+                (self._book_data or {}).get('coverUrl', ''),
+            )
+        except Exception as exc:
+            if not self._stop_requested:
+                self.log(f'  [Kobo] Reader could not export {chapter_name}: '
+                         f'{exc}')
+            return None
+
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
 
         Returns the parsed book dict or None on error.
         """
         self.abort_reason = ''
+        if self.is_kobo(url):
+            self.log('[Kobo] Detected Kobo ebook URL, using the signed-in '
+                     'Kobo Web Reader.')
+            return self._kobo_parse_book(url)
         if self.is_xiyuwx(url):
             site = self._xiyuwx_site_name(url)
             self.log(f'[{site}] Detected book URL, using native scraper.')
@@ -18406,6 +18529,12 @@ async (ids) => {
         """
         if self._stop_requested:
             return None
+
+        if self._book_data and self._book_data.get('_kobo'):
+            return self._kobo_parse_chapter(
+                chapter_info.get('url', ''),
+                chapter_info.get('fullName') or chapter_info.get('name', ''),
+            )
 
         if self._book_data and self._book_data.get('_xiyuwx'):
             name = chapter_info.get('fullName') or chapter_info.get('name', '')
@@ -18757,6 +18886,18 @@ async (ids) => {
                 batch_info,
                 success_callback=success_callback,
             )
+
+        if self._book_data and self._book_data.get('_kobo'):
+            results = []
+            for index, chapter in enumerate(batch_info):
+                result = (None if self._stop_requested else
+                          self._kobo_parse_chapter(
+                              chapter.get('url', ''),
+                              chapter.get('fullName') or chapter.get('name', ''),
+                          ))
+                results.append(result)
+                report_success(index, result)
+            return results
 
         if self._book_data and self._book_data.get('_ridibooks'):
             options = {

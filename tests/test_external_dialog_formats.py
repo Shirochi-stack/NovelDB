@@ -181,7 +181,7 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
         '_var_ext_threads', '_var_ext_image_workers', '_var_interval',
         '_var_interval_max', '_var_from_enabled', '_var_to_enabled',
         '_var_from', '_var_to', '_var_skip_paid', '_var_number_chapters',
-        '_var_regular_browser',
+        '_var_regular_browser', '_var_blank_paragraph_lines',
         '_var_generate_on_stop',
         '_var_ntk_novelpia_cover', '_var_syosetu_amazon_cover',
         '_var_long_image_layout', '_var_kakao_skip_last_page',
@@ -201,6 +201,14 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
     assert dialog._var_interval_max.get() == 1.75
     assert dialog._var_generate_on_stop.get() is False
     assert dialog._var_number_chapters.get() is False
+    assert dialog._var_blank_paragraph_lines.get() is False
+
+
+def test_blank_paragraph_text_uses_html_boundaries_when_text_is_flat():
+    spaced = ExternalNovelDialog._space_text_paragraphs(
+        'First.Second.', '<p>First.</p><p>Second.</p>'
+    )
+    assert spaced == 'First.\n\nSecond.'
 
 
 def test_generate_on_stop_toggle_controls_partial_output_generation():
@@ -621,6 +629,62 @@ def test_external_epub_uses_separate_notice_filenames(tmp_path):
 
     assert "OEBPS/Text/chapter_notice0001.xhtml" in archive_names
     assert "OEBPS/Text/chapter0025.xhtml" in archive_names
+
+
+def test_blank_paragraph_lines_epub_and_txt_are_opt_in(tmp_path):
+    source = '<p>First sentence.</p><p>Second sentence.</p>'
+    for enabled in (False, True):
+        folder = tmp_path / str(enabled)
+        folder.mkdir()
+        dialog = object.__new__(ExternalNovelDialog)
+        dialog._var_blank_paragraph_lines = Setting(enabled)
+        dialog._var_number_chapters = Setting(False)
+        dialog._book_data = {'bookname': 'Spacing', 'author': 'Author'}
+        dialog._chapter_results = [{
+            'chapterName': 'One', 'contentHtml': source,
+            'contentText': 'First sentence.\nSecond sentence.',
+        }]
+        dialog._parent_gui = SimpleNamespace()
+        dialog._scraper = None
+        dialog._var_long_image_layout = Setting(False)
+        dialog._var_kakao_dedupe_images = Setting(False)
+        dialog._var_ext_image_workers = Setting(1)
+        dialog._get_output_dir = lambda folder=folder: str(folder)
+        dialog._log = lambda _message: None
+        dialog._generate_epub('Spacing', 'Author')
+        dialog._generate_txt('Spacing', 'Author')
+
+        with zipfile.ZipFile(folder / 'Spacing.epub') as archive:
+            chapter = archive.read(
+                'OEBPS/Text/chapter0001.xhtml'
+            ).decode('utf-8')
+        saved_text = (folder / 'Spacing.txt').read_text(encoding='utf-8')
+        assert ('</p><br/>' in chapter) is enabled
+        assert ('First sentence.\n\nSecond sentence.' in saved_text) is enabled
+
+
+def test_blank_paragraph_lines_pdf_uses_explicit_break(monkeypatch, tmp_path):
+    chapters = []
+
+    def capture_pdf(_self, metadata, output_path, source, css, **kwargs):
+        chapters.extend(source)
+
+    monkeypatch.setattr(DownloaderCore, 'generate_pdf', capture_pdf)
+    dialog = object.__new__(ExternalNovelDialog)
+    dialog._var_blank_paragraph_lines = Setting(True)
+    dialog._var_number_chapters = Setting(False)
+    dialog._book_data = {'bookname': 'Spacing', 'author': 'Author'}
+    dialog._chapter_results = [{
+        'chapterName': 'One',
+        'contentHtml': '<p>First.</p><p>Second.</p>',
+    }]
+    dialog._parent_gui = SimpleNamespace()
+    dialog._scraper = None
+    dialog._get_output_dir = lambda: str(tmp_path)
+    dialog._log = lambda _message: None
+    dialog._kakao_extra_css = lambda: ''
+    dialog._generate_pdf('Spacing', 'Author')
+    assert '<p>First.</p><br/><p>Second.</p><br/>' in chapters[0]['html']
 
 
 def test_external_scraper_range_results_retain_source_numbers():

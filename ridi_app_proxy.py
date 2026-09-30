@@ -12,6 +12,7 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -25,6 +26,8 @@ class RidiAppError(RuntimeError):
 
 
 class RidiAppProxy:
+    INSTALLER_URL = 'https://getapp.ridibooks.com/windows'
+
     def __init__(self, log, stop_requested=lambda: False):
         self.log = log
         self.stop_requested = stop_requested
@@ -80,7 +83,7 @@ class RidiAppProxy:
                 'local reader access enabled.'
             )
         if not os.path.isfile(self.executable):
-            raise RidiAppError('Install the official RIDI PC viewer and retry.')
+            self.executable = self._find_executable() or self._install_viewer()
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
@@ -94,6 +97,115 @@ class RidiAppProxy:
         self.port = port
         self._wait(lambda: bool(self._tabs(port)), 30,
                    'RIDI PC viewer did not start with local reader access.')
+
+    def _find_executable(self):
+        local_app_data = os.environ.get('LOCALAPPDATA')
+        roots = (
+            os.environ.get('ProgramFiles'),
+            os.environ.get('ProgramFiles(x86)'),
+            os.path.join(local_app_data, 'Programs')
+            if local_app_data else None,
+        )
+        for root in roots:
+            if not root:
+                continue
+            for parts in (('RIDI', 'Ridibooks', 'Ridibooks.exe'),
+                          ('Ridibooks', 'Ridibooks.exe')):
+                candidate = os.path.join(root, *parts)
+                if os.path.isfile(candidate):
+                    return candidate
+        return None
+
+    def _install_viewer(self):
+        """Install RIDI's signed Windows viewer for the current user."""
+        self.log('  [Ridi] PC viewer is missing; downloading the official '
+                 'RIDI installer...')
+        try:
+            with tempfile.TemporaryDirectory(prefix='npia-ridi-') as folder:
+                installer = os.path.join(folder, 'RIDI-Viewer-Setup.exe')
+                request = urllib.request.Request(
+                    self.INSTALLER_URL,
+                    headers={'User-Agent': 'Mozilla/5.0'},
+                )
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    final = urllib.parse.urlparse(response.geturl())
+                    host = (final.hostname or '').lower()
+                    if (final.scheme != 'https' or
+                            host not in ('getapp.ridibooks.com',
+                                         'viewer-ota.ridicdn.net')):
+                        raise RidiAppError(
+                            'RIDI installer redirected outside its official '
+                            'download servers.'
+                        )
+                    size = 0
+                    with open(installer, 'wb') as target:
+                        next_report = 10 * 1024 * 1024
+                        while True:
+                            if self.stop_requested():
+                                raise RidiAppError('Download cancelled.')
+                            chunk = response.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            size += len(chunk)
+                            if size > 250 * 1024 * 1024:
+                                raise RidiAppError('RIDI installer is too large.')
+                            target.write(chunk)
+                            if size >= next_report:
+                                self.log(
+                                    f'  [Ridi] Downloaded {size // (1024 * 1024)} '
+                                    'MB of the PC viewer installer...'
+                                )
+                                next_report += 10 * 1024 * 1024
+                with open(installer, 'rb') as downloaded:
+                    header = downloaded.read(2)
+                if size < 1024 or header != b'MZ':
+                    raise RidiAppError('RIDI download is not a Windows installer.')
+                env = os.environ.copy()
+                env['NPIA_RIDI_INSTALLER_PATH'] = installer
+                signature = subprocess.run(
+                    ['powershell.exe', '-NoProfile', '-NonInteractive',
+                     '-Command',
+                     '$s=Get-AuthenticodeSignature -LiteralPath '
+                     '$env:NPIA_RIDI_INSTALLER_PATH; '
+                     'Write-Output $s.Status; '
+                     'Write-Output $s.SignerCertificate.Subject'],
+                    env=env, capture_output=True, text=True, timeout=30,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+                )
+                lines = signature.stdout.strip().splitlines()
+                if (signature.returncode != 0 or len(lines) < 2 or
+                        lines[0].strip() != 'Valid' or
+                        'ridi corporation' not in lines[1].lower()):
+                    raise RidiAppError(
+                        'RIDI installer signature could not be verified.'
+                    )
+                self.log('  [Ridi] Official installer verified; installing '
+                         'the PC viewer...')
+                installed = subprocess.run(
+                    [installer, '/S', '/currentuser'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=240,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+                )
+                if installed.returncode != 0:
+                    raise RidiAppError(
+                        f'RIDI installer exited with code '
+                        f'{installed.returncode}.'
+                    )
+        except RidiAppError:
+            raise
+        except (OSError, TimeoutError, subprocess.TimeoutExpired) as exc:
+            raise RidiAppError(
+                f'Automatic RIDI PC viewer installation failed: {exc}'
+            ) from exc
+        executable = self._find_executable()
+        if not executable:
+            raise RidiAppError(
+                'RIDI installer finished, but the PC viewer executable '
+                'was not found.'
+            )
+        self.log('  [Ridi] PC viewer installed; opening the owned volume...')
+        return executable
 
     def _wait(self, check, timeout, message, progress=None):
         end = time.monotonic() + timeout

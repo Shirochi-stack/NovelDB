@@ -305,6 +305,12 @@ class ExternalNovelDialog(tk.Toplevel):
             variable=self._var_syosetu_amazon_cover,
         ).pack(anchor="w")
 
+        self._var_blank_paragraph_lines = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self, text="Blank line after each paragraph",
+            variable=self._var_blank_paragraph_lines,
+        ).pack(anchor="w", padx=15)
+
         # --- Action Buttons ---
         btn_frame = ttk.Frame(self)
         btn_frame.pack(fill="x", padx=10, pady=(5, 2))
@@ -564,6 +570,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_kobo(url)
                         and not self._scraper.is_munpia(url)
                         and not self._scraper.is_joara(url)
                         and not self._scraper.is_naver_series(url)
@@ -656,7 +663,16 @@ class ExternalNovelDialog(tk.Toplevel):
     def _external_cacheable(result):
         # A login, purchase, or app-viewer refusal can change between runs.
         # Reusing it after the user signs in would prevent any network retry.
-        return isinstance(result, dict) and not result.get('_locked')
+        if not isinstance(result, dict) or result.get('_locked'):
+            return False
+        # Kobo's blob image URLs exist only in the reader process. A cache
+        # without their captured bytes cannot recreate the EPUB later.
+        return not any(
+            isinstance(image, dict)
+            and str(image.get('url') or '').startswith('blob:')
+            and not image.get('data')
+            for image in result.get('images') or []
+        )
 
     def _save_external_cache(self, entries, path):
         if not path or not self._var_use_cache.get():
@@ -756,6 +772,9 @@ class ExternalNovelDialog(tk.Toplevel):
             is_ridibooks = bool(
                 self._book_data and self._book_data.get("_ridibooks")
             )
+            is_kobo = bool(
+                self._book_data and self._book_data.get("_kobo")
+            )
             is_global_novelpia = bool(
                 self._book_data
                 and self._book_data.get("_global_novelpia")
@@ -782,6 +801,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     and not is_ntk and not is_yeduji and not is_novelpia
                     and not is_munpia
                     and not is_ridibooks
+                    and not is_kobo
                     and not is_global_novelpia
                     and not is_69shuba and not is_1qxs and not is_faloo
                     and not is_xiyuwx
@@ -843,8 +863,9 @@ class ExternalNovelDialog(tk.Toplevel):
                         chapter, start + selected_index
                     )
                     cached = cache_entries.get(cache_key)
-                    if cached is not None and not (
-                        ExternalNovelDialog._external_cacheable(cached)
+                    if cached is not None and (
+                        not ExternalNovelDialog._external_cacheable(cached)
+                        or (is_kobo and not cache_images)
                     ):
                         cache_entries.pop(cache_key, None)
                         stale_cache_entries += 1
@@ -859,7 +880,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         cache_hits += 1
                 if stale_cache_entries:
                     self._log(
-                        f"Ignored {stale_cache_entries} cached locked "
+                        f"Ignored {stale_cache_entries} stale cached "
                         "chapter(s); checking access again."
                     )
                 if cache_hits:
@@ -964,6 +985,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 log_on_success = (
                     is_ntk
                     or is_ridibooks
+                    or is_kobo
                     or is_global_novelpia
                     or is_novelpia
                     or is_munpia
@@ -1097,7 +1119,8 @@ class ExternalNovelDialog(tk.Toplevel):
                                 selected[idx], start + idx
                             )
                         )
-                        if ExternalNovelDialog._external_cacheable(data):
+                        if (ExternalNovelDialog._external_cacheable(data)
+                                and (not is_kobo or cache_images)):
                             if cache_images:
                                 ExternalNovelDialog._cache_external_result_images(
                                     self, data
@@ -1239,7 +1262,7 @@ class ExternalNovelDialog(tk.Toplevel):
             login_required = (sum(1 for r in results
                                   if r and r.get('_lockReason') in
                                   ('login', 'verification'))
-                              if is_ridibooks else 0)
+                              if is_ridibooks or is_kobo else 0)
             locked -= web_only + login_required
             if locked or ad_required or web_only or login_required:
                 incomplete = []
@@ -1270,8 +1293,9 @@ class ExternalNovelDialog(tk.Toplevel):
                         "otherwise the volume is not in your library."
                     )
                 if login_required:
+                    store = 'RIDI' if is_ridibooks else 'Kobo'
                     self._log(
-                        "⚠ RIDI library access could not be confirmed. "
+                        f"⚠ {store} library access could not be confirmed. "
                         "Retry; if needed, sign in using Enter Browser and "
                         "close that window before downloading."
                     )
@@ -1392,6 +1416,7 @@ class ExternalNovelDialog(tk.Toplevel):
             ExternalScraper.is_faloo(start_url),
             ExternalScraper.is_qidian(start_url),
             ExternalScraper.is_ridibooks(start_url),
+            ExternalScraper.is_kobo(start_url),
         )):
             regular_browser = True
             self._var_regular_browser.set(True)
@@ -1698,6 +1723,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_kobo(url)
                         and not self._scraper.is_munpia(url)
                         and not self._scraper.is_joara(url)
                         and not self._scraper.is_naver_series(url)
@@ -1972,6 +1998,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_novelpia(url)
                         and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_kobo(url)
                         and not self._scraper.is_munpia(url)
                         and not self._scraper.is_joara(url)
                         and not self._scraper.is_naver_series(url)
@@ -2181,6 +2208,10 @@ class ExternalNovelDialog(tk.Toplevel):
                     heading = ExternalNovelDialog._numbered_title(
                         self, chapter_number, ch_data.get('chapterName'))
                     content = ch_data.get('contentText', '')
+                    if ExternalNovelDialog._blank_paragraph_lines_enabled(self):
+                        content = ExternalNovelDialog._space_text_paragraphs(
+                            content, ch_data.get('contentHtml', '')
+                        )
                     f.write(f"\n{'─' * 40}\n")
                     f.write(f"{heading}\n")
                     f.write(f"{'─' * 40}\n\n")
@@ -2189,6 +2220,33 @@ class ExternalNovelDialog(tk.Toplevel):
             self._log(f"\u2705 Saved: {filepath}")
         except Exception as e:
             self._log(f"\u274c TXT generation failed: {e}")
+
+    def _blank_paragraph_lines_enabled(self):
+        setting = getattr(self, '_var_blank_paragraph_lines', None)
+        return bool(setting and setting.get())
+
+    @staticmethod
+    def _space_html_paragraphs(content):
+        """Add an explicit blank rendered line after each HTML paragraph."""
+        return re.sub(r'</p\s*>', '</p><br/>', content or '',
+                      flags=re.IGNORECASE)
+
+    @staticmethod
+    def _space_text_paragraphs(content, content_html=''):
+        """Keep one empty text line between source paragraph lines."""
+        if content_html:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(content_html, 'html.parser')
+            paragraphs = soup.find_all('p')
+            if paragraphs and (not content or
+                               (content or '').count('\n') < len(paragraphs) - 1):
+                for br in soup.find_all('br'):
+                    br.replace_with('\n')
+                for paragraph in paragraphs:
+                    paragraph.insert_after('\n\n')
+                content = soup.get_text().strip()
+        return re.sub(r'(?<!\n)\n(?!\n)', '\n\n',
+                      (content or '').replace('\r\n', '\n'))
 
     def _image_ext_from_bytes(self, raw_data, default='jpg'):
         """Infer a usable image extension from raw bytes."""
@@ -2250,6 +2308,12 @@ class ExternalNovelDialog(tk.Toplevel):
             img_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
                 'Origin': 'https://ridibooks.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
+        elif data.get('_kobo'):
+            img_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://www.kobo.com/',
+                'Origin': 'https://www.kobo.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         elif data.get('_munpia'):
@@ -2626,6 +2690,12 @@ img { display: block; max-width: 100%; max-height: 100%;
                 'Origin': 'https://ridibooks.com',
             })
             self._copy_browser_cookies_to_session(img_session)
+        elif data.get('_kobo'):
+            img_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://www.kobo.com/',
+                'Origin': 'https://www.kobo.com',
+            })
+            self._copy_browser_cookies_to_session(img_session)
         elif data.get('_munpia'):
             img_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
@@ -2725,6 +2795,10 @@ img { display: block; max-width: 100%; max-height: 100%;
                 )
                 is_notice = bool(ch_data.get('_is_notice'))
                 content_html = ch_data.get('contentHtml', '')
+                if ExternalNovelDialog._blank_paragraph_lines_enabled(self):
+                    content_html = ExternalNovelDialog._space_html_paragraphs(
+                        content_html
+                    )
                 img_total = len(ch_data.get('images') or [])
                 if img_total:
                     self._log(
@@ -3135,7 +3209,7 @@ img { display: block; max-width: 100%; max-height: 100%;
     def _preferred_external_cover(data, chapter_results):
         cover_url = data.get('coverUrl', '')
         cover_data = data.get('_coverData')
-        if data.get('_ridibooks'):
+        if data.get('_ridibooks') or data.get('_kobo'):
             for result in chapter_results or []:
                 if isinstance(result, dict) and result.get('coverUrl'):
                     return result['coverUrl'], (
@@ -3423,6 +3497,12 @@ img { display: block; max-width: 100%; max-height: 100%;
                 'Origin': 'https://ridibooks.com',
             })
             self._copy_browser_cookies_to_session(image_session)
+        elif data.get('_kobo'):
+            image_session.headers.update({
+                'Referer': data.get('bookUrl') or 'https://www.kobo.com/',
+                'Origin': 'https://www.kobo.com',
+            })
+            self._copy_browser_cookies_to_session(image_session)
         elif data.get('_munpia'):
             image_session.headers.update({
                 'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
@@ -3499,6 +3579,10 @@ img { display: block; max-width: 100%; max-height: 100%;
                 'chapterName', f'Chapter {chapter_number}'
             )
             content_html = ch_data.get('contentHtml', '')
+            if ExternalNovelDialog._blank_paragraph_lines_enabled(self):
+                content_html = ExternalNovelDialog._space_html_paragraphs(
+                    content_html
+                )
             rename_map = {}
 
             for img_index, img_info in enumerate(ch_data.get('images') or [], 1):
@@ -3687,6 +3771,10 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_generate_on_stop.set(
                 cfg.get("ext_generate_on_stop", False)
             )
+            if hasattr(self, '_var_blank_paragraph_lines'):
+                self._var_blank_paragraph_lines.set(
+                    cfg.get('ext_blank_paragraph_lines', False)
+                )
             self._var_use_cache.set(cfg.get("ext_use_cache", True))
             self._var_cache_images.set(cfg.get("ext_cache_images", False))
             self._chk_cache_images.configure(
@@ -3760,6 +3848,9 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_skip_paid"] = self._var_skip_paid.get()
         cfg["ext_number_chapters"] = self._var_number_chapters.get()
         cfg["ext_generate_on_stop"] = self._var_generate_on_stop.get()
+        cfg['ext_blank_paragraph_lines'] = (
+            self._var_blank_paragraph_lines.get()
+        )
         cfg["ext_use_cache"] = self._var_use_cache.get()
         cfg["ext_cache_images"] = self._var_cache_images.get()
         cfg["ext_regular_browser"] = self._var_regular_browser.get()

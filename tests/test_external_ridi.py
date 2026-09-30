@@ -1024,6 +1024,89 @@ def test_ridi_pc_handoff_opens_executable_without_windows_uri_handler(
     assert '6121000538' in calls[0][1]
 
 
+def test_ridi_missing_viewer_installs_from_signed_official_download(monkeypatch):
+    import io
+    import ridi_app_proxy
+
+    logs = []
+    calls = []
+    proxy = ridi_app_proxy.RidiAppProxy(logs.append)
+    expected = r'C:\Users\Reader\AppData\Local\Programs\Ridibooks\Ridibooks.exe'
+
+    class Download(io.BytesIO):
+        def geturl(self):
+            return 'https://viewer-ota.ridicdn.net/pc_electron/Setup.exe'
+
+    monkeypatch.setattr(
+        ridi_app_proxy.urllib.request, 'urlopen',
+        lambda request, timeout: Download(b'MZ' + b'\0' * 2048),
+    )
+    monkeypatch.setattr(proxy, '_find_executable', lambda: expected)
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if args[0] == 'powershell.exe':
+            return type('Result', (), {
+                'returncode': 0,
+                'stdout': 'Valid\nCN=Ridi Corporation, O=Ridi Corporation\n',
+            })()
+        return type('Result', (), {'returncode': 0})()
+
+    monkeypatch.setattr(ridi_app_proxy.subprocess, 'run', run)
+    assert proxy._install_viewer() == expected
+    assert calls[1][1:] == ['/S', '/currentuser']
+    assert any('installed' in message for message in logs)
+
+
+def test_ridi_connect_installs_missing_viewer_before_launch(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import ridi_app_proxy
+
+    proxy = ridi_app_proxy.RidiAppProxy(lambda message: None)
+    proxy.executable = 'missing-viewer.exe'
+    launched = []
+    installed = 'installed-viewer.exe'
+    monkeypatch.setitem(
+        sys.modules, 'psutil',
+        SimpleNamespace(process_iter=lambda attrs: []),
+    )
+    monkeypatch.setattr(ridi_app_proxy.os.path, 'isfile', lambda path: False)
+    monkeypatch.setattr(proxy, '_find_executable', lambda: None)
+    monkeypatch.setattr(proxy, '_install_viewer', lambda: installed)
+    monkeypatch.setattr(proxy, '_tabs', lambda port: [])
+    monkeypatch.setattr(proxy, '_wait', lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        ridi_app_proxy.subprocess, 'Popen',
+        lambda args, **kwargs: launched.append(args),
+    )
+    proxy.connect()
+    assert proxy.executable == installed
+    assert launched[0][0] == installed
+
+
+def test_ridi_installer_rejects_untrusted_redirect(monkeypatch):
+    import io
+    import pytest
+    import ridi_app_proxy
+
+    class Download(io.BytesIO):
+        def geturl(self):
+            return 'https://other.example/Setup.exe'
+
+    monkeypatch.setattr(
+        ridi_app_proxy.urllib.request, 'urlopen',
+        lambda request, timeout: Download(b'MZ' + b'\0' * 2048),
+    )
+    monkeypatch.setattr(
+        ridi_app_proxy.subprocess, 'run',
+        lambda *args, **kwargs: pytest.fail('Untrusted installer was run'),
+    )
+    proxy = ridi_app_proxy.RidiAppProxy(lambda message: None)
+    with pytest.raises(ridi_app_proxy.RidiAppError, match='official'):
+        proxy._install_viewer()
+
+
 def test_ridi_popup_watcher_presses_enter_only_for_detected_dialog(
     monkeypatch,
 ):
