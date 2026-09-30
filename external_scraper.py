@@ -228,6 +228,7 @@ class ExternalScraper:
         self.ntk_prefer_novelpia_cover = False
         self.novelpia_include_notices = True
         self.syosetu_amazon_cover_fallback = False
+        self.kobo_horizontal_layout = True
         self._kakao_css_cache = {}
         self.kakao_keep_filler = False
         self.kakao_skip_last_page = False
@@ -3919,12 +3920,18 @@ class ExternalScraper:
 
     @staticmethod
     def is_kobo(url):
-        """Recognize Kobo ebook product pages, including regional stores."""
+        """Recognize Kobo and Rakuten Books ebook product pages."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return False
+        if (parsed.hostname or '').lower() == 'books.rakuten.co.jp':
+            return parsed.scheme == 'https' and bool(re.fullmatch(
+                r'/rk/[0-9a-f]{32}/?', parsed.path or '', re.I,
+            ))
         if (parsed.hostname or '').lower() not in ('kobo.com', 'www.kobo.com'):
+            return False
+        if parsed.scheme not in ('http', 'https'):
             return False
         return bool(re.match(
             r'^/(?:[a-z]{2}/[a-z]{2}/)?ebook/[^/]+/?$',
@@ -18340,6 +18347,49 @@ async (ids) => {
                  '1 volume')
         return data
 
+    def _rakuten_kobo_parse_book(self, url):
+        """Use the matching purchased volume in Rakuten Kobo Desktop."""
+        from kobo_desktop_proxy import KoboDesktopReader, KoboDesktopError
+
+        try:
+            reader = KoboDesktopReader(self.log)
+            book = reader.lookup(url)
+        except KoboDesktopError as exc:
+            self.log(f'[Kobo] Rakuten Kobo Desktop is not ready: {exc}')
+            return None
+        if not book:
+            self.log('[Kobo] This Rakuten volume is not in the desktop '
+                     'library. Sign in with Rakuten ID under More Sign-In '
+                     'Options, then sync the owned book.')
+            return None
+        title = book['title'] or 'Rakuten Kobo ebook'
+        data = {
+            'bookname': title,
+            'author': book['author'],
+            'coverUrl': '',
+            'description': '',
+            'introduction': '',
+            'introductionHTML': '',
+            'bookUrl': url,
+            'chapterCount': 1,
+            'chapters': [{
+                'name': title, 'fullName': title, 'url': url,
+                'isPaid': False,
+            }],
+            'language': 'ja',
+            '_kobo': True,
+            '_kobo_desktop': True,
+            '_kobo_read_url': '',
+        }
+        self._book_data = data
+        self._book_url = url
+        self.log(f'[Kobo] Book: {title} by {book["author"] or "?"} - '
+                 '1 volume')
+        if not book['downloaded']:
+            self.log('[Kobo] Open this volume in Rakuten Kobo Desktop once '
+                     'to finish its local download.')
+        return data
+
     @staticmethod
     def _kobo_owned_read_url(product_html):
         """Read the owned-book action embedded by localized Kobo stores."""
@@ -18360,6 +18410,24 @@ async (ids) => {
         return ''
 
     def _kobo_parse_chapter(self, chapter_url, chapter_name):
+        if (self._book_data or {}).get('_kobo_desktop'):
+            try:
+                from kobo_desktop_proxy import KoboDesktopReader
+                book, epub_data = KoboDesktopReader(self.log).export(
+                    (self._book_data or {}).get('bookUrl') or chapter_url,
+                    horizontal_layout=self.kobo_horizontal_layout,
+                )
+                return {
+                    'chapterName': chapter_name,
+                    'sourceChapterName': book['title'],
+                    'chapterUrl': chapter_url,
+                    '_nativeEpubBytes': epub_data,
+                }
+            except Exception as exc:
+                if not self._stop_requested:
+                    self.log(f'  [Kobo] Rakuten Kobo Desktop could not read '
+                             f'{chapter_name}: {exc}')
+                return None
         if not (self._book_data or {}).get('_kobo_read_url'):
             self.log(f'  [Kobo] {chapter_name} is not available in this '
                      'account\'s Kobo library.')
@@ -18387,6 +18455,10 @@ async (ids) => {
         """
         self.abort_reason = ''
         if self.is_kobo(url):
+            if urllib.parse.urlparse(url).hostname == 'books.rakuten.co.jp':
+                self.log('[Kobo] Detected Rakuten Books JP ebook URL; '
+                         'reading the owned local Kobo Desktop volume.')
+                return self._rakuten_kobo_parse_book(url)
             self.log('[Kobo] Detected Kobo ebook URL, using the signed-in '
                      'Kobo Web Reader.')
             return self._kobo_parse_book(url)

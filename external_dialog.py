@@ -25,6 +25,9 @@ import time
 import threading
 import queue
 import subprocess
+import tempfile
+import zipfile
+import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import tkinter as tk
@@ -109,6 +112,9 @@ class ExternalNovelDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._load_ext_config()
         self._var_regular_browser.trace_add(
+            "write", lambda *_: self._save_ext_config()
+        )
+        self._var_kobo_horizontal_layout.trace_add(
             "write", lambda *_: self._save_ext_config()
         )
         self._poll_queue()
@@ -310,6 +316,11 @@ class ExternalNovelDialog(tk.Toplevel):
             self, text="Blank line after each paragraph",
             variable=self._var_blank_paragraph_lines,
         ).pack(anchor="w", padx=15)
+        self._var_kobo_horizontal_layout = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            self, text="Horizontal Japanese text (Rakuten Kobo)",
+            variable=self._var_kobo_horizontal_layout,
+        ).pack(anchor="w", padx=15)
 
         # --- Action Buttons ---
         btn_frame = ttk.Frame(self)
@@ -439,6 +450,9 @@ class ExternalNovelDialog(tk.Toplevel):
         )
         self._scraper.syosetu_amazon_cover_fallback = (
             self._var_syosetu_amazon_cover.get()
+        )
+        self._scraper.kobo_horizontal_layout = (
+            self._var_kobo_horizontal_layout.get()
         )
 
     def _poll_queue(self):
@@ -775,6 +789,9 @@ class ExternalNovelDialog(tk.Toplevel):
             is_kobo = bool(
                 self._book_data and self._book_data.get("_kobo")
             )
+            is_kobo_desktop = bool(
+                self._book_data and self._book_data.get('_kobo_desktop')
+            )
             is_global_novelpia = bool(
                 self._book_data
                 and self._book_data.get("_global_novelpia")
@@ -844,6 +861,7 @@ class ExternalNovelDialog(tk.Toplevel):
             image_cache_variable = getattr(self, '_var_cache_images', None)
             use_cache = bool(
                 use_cache_variable and use_cache_variable.get()
+                and not is_kobo_desktop
             )
             cache_images = bool(
                 use_cache and image_cache_variable
@@ -2158,10 +2176,17 @@ class ExternalNovelDialog(tk.Toplevel):
         long_image_to_cbz = (
             'epub' in formats
             and 'cbz' not in formats
+            and not data.get('_kobo_desktop')
             and self._var_long_image_layout.get()
             and self._has_long_image_chapters()
         )
         for fmt in formats:
+            if (data.get('_kobo_desktop') and fmt != 'epub'
+                    and any(r and r.get('_nativeEpubBytes')
+                            for r in self._chapter_results)):
+                self._log('  [Kobo] Rakuten Kobo Desktop currently exports '
+                          'the source EPUB only; select EPUB for this volume.')
+                continue
             if fmt == "txt":
                 self._generate_txt(title, author)
             elif fmt == "pdf":
@@ -2583,8 +2608,41 @@ p > img {
 }
 """.strip()
 
+    @staticmethod
+    def _write_native_epub(filepath, payload):
+        """Keep the publisher's chapter order, layout, cover, and TOC."""
+        with zipfile.ZipFile(io.BytesIO(payload)) as source:
+            if (source.namelist()[:1] != ['mimetype']
+                    or source.read('mimetype') != b'application/epub+zip'
+                    or source.testzip() is not None):
+                raise ValueError('Rakuten Kobo Desktop EPUB is invalid.')
+        output_dir = os.path.dirname(filepath)
+        os.makedirs(output_dir, exist_ok=True)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode='wb', suffix='.epub', prefix='.kobo-',
+                    dir=output_dir, delete=False) as target:
+                temporary = target.name
+                target.write(payload)
+            os.replace(temporary, filepath)
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.remove(temporary)
+
     def _generate_epub(self, title, author):
         """Generate an EPUB file using the existing epub_generator."""
+        native = [result['_nativeEpubBytes']
+                  for result in self._chapter_results or []
+                  if result and result.get('_nativeEpubBytes')]
+        if native and (self._book_data or {}).get('_kobo_desktop'):
+            if len(native) != 1:
+                raise ValueError('Expected one Rakuten Kobo Desktop volume.')
+            output_dir = self._get_output_dir()
+            filepath = os.path.join(output_dir, f'{title}.epub')
+            self._write_native_epub(filepath, native[0])
+            self._log(f'✅ Saved: {filepath}')
+            return
         try:
             from epub_generator import EpubGenerator
         except ImportError:
@@ -3775,6 +3833,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                 self._var_blank_paragraph_lines.set(
                     cfg.get('ext_blank_paragraph_lines', False)
                 )
+            self._var_kobo_horizontal_layout.set(
+                cfg.get('ext_kobo_horizontal_layout', True)
+            )
             self._var_use_cache.set(cfg.get("ext_use_cache", True))
             self._var_cache_images.set(cfg.get("ext_cache_images", False))
             self._chk_cache_images.configure(
@@ -3850,6 +3911,9 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_generate_on_stop"] = self._var_generate_on_stop.get()
         cfg['ext_blank_paragraph_lines'] = (
             self._var_blank_paragraph_lines.get()
+        )
+        cfg['ext_kobo_horizontal_layout'] = (
+            self._var_kobo_horizontal_layout.get()
         )
         cfg["ext_use_cache"] = self._var_use_cache.get()
         cfg["ext_cache_images"] = self._var_cache_images.get()
