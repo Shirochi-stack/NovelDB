@@ -27,6 +27,7 @@ class RidiAppError(RuntimeError):
 
 class RidiAppProxy:
     INSTALLER_URL = 'https://getapp.ridibooks.com/windows'
+    EXPORT_VERSION = 2
 
     def __init__(self, log, stop_requested=lambda: False):
         self.log = log
@@ -38,16 +39,22 @@ class RidiAppProxy:
             'RIDI', 'Ridibooks', 'Ridibooks.exe',
         )
 
+    @staticmethod
+    def _is_ridi_tab(tab):
+        url = urllib.parse.urlparse(urllib.parse.unquote(tab.get('url', '')))
+        local = (url.scheme == 'file' or
+                 (url.scheme == 'http' and
+                  url.hostname in ('localhost', '127.0.0.1')))
+        return (tab.get('type') == 'page' and local and
+                '/ridibooks/resources/app.asar/' in url.path.lower())
+
     def _tabs(self, port):
         try:
             with urllib.request.urlopen(
                 f'http://127.0.0.1:{port}/json/list', timeout=2
             ) as response:
                 tabs = json.load(response)
-            if any(t.get('type') == 'page' and
-                   '/RIDI/Ridibooks/resources/app.asar/' in
-                   urllib.parse.unquote(t.get('url', '')) for t in tabs):
-                return tabs
+            return [t for t in tabs if self._is_ridi_tab(t)]
         except (OSError, ValueError):
             pass
         return []
@@ -59,23 +66,33 @@ class RidiAppProxy:
         configured = os.environ.get('NPIA_RIDI_APP_DEBUG_PORT', '')
         if configured.isdecimal():
             candidates.append(int(configured))
+        app_running = False
+        executables = {}
         try:
             import psutil
-            app_running = False
-            for proc in psutil.process_iter(['name', 'cmdline']):
+            for proc in psutil.process_iter(['name']):
                 if (proc.info.get('name') or '').lower() != 'ridibooks.exe':
                     continue
                 app_running = True
-                for arg in proc.info.get('cmdline') or []:
+                try:
+                    args = proc.cmdline()
+                    executable = proc.exe()
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
+                for arg in args or []:
                     match = re.fullmatch(r'--remote-debugging-port=(\d+)', arg)
                     if match:
-                        candidates.append(int(match.group(1)))
-        except Exception:
-            app_running = False
+                        port = int(match.group(1))
+                        candidates.append(port)
+                        executables[port] = executable
+        except (ImportError, OSError):
+            pass
         candidates.append(49318)
         for port in dict.fromkeys(candidates):
             if self._tabs(port):
                 self.port = port
+                self.executable = (executables.get(port) or
+                                   self._find_executable() or self.executable)
                 return
         if app_running:
             raise RidiAppError(
@@ -248,8 +265,10 @@ class RidiAppProxy:
         except OSError:
             return False
 
-    def _wait_for_viewer(self, snapshot):
-        end = time.monotonic() + 60
+    def _wait_for_viewer(self, snapshot, reopen=None):
+        # A library click can start a download without opening its reader.
+        # Slow disks/networks need more time, followed by another open click.
+        end = time.monotonic() + 180
         next_report = time.monotonic() + 10
         while time.monotonic() < end:
             if self.stop_requested():
@@ -264,9 +283,15 @@ class RidiAppProxy:
             if time.monotonic() >= next_report:
                 self.log('  [Ridi] Waiting for the RIDI PC viewer to open '
                          'the owned volume...')
+                if reopen:
+                    reopen()
                 next_report = time.monotonic() + 10
             time.sleep(0.35)
-        raise RidiAppError('RIDI PC viewer did not open the owned volume.')
+        raise RidiAppError(
+            'RIDI PC viewer did not open the owned volume after 180 seconds. '
+            'Check its download status or popup; the saved browser login '
+            'and library handoff already succeeded.'
+        )
 
     def _tab(self, suffix):
         return next((t for t in self._tabs(self.port)
@@ -301,7 +326,7 @@ class RidiAppProxy:
 
     @staticmethod
     def _native_ridi_dialog():
-        """Return the foreground standard dialog only when RIDI owns it."""
+        """Find a visible standard dialog owned by RIDI, even in background."""
         if sys.platform != 'win32':
             return None
         try:
@@ -314,18 +339,31 @@ class RidiAppProxy:
                                              wintypes.LPWSTR, ctypes.c_int]
             user32.GetWindowThreadProcessId.argtypes = [
                 wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-            hwnd = user32.GetForegroundWindow()
-            if not hwnd:
-                return None
-            window_class = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(hwnd, window_class, len(window_class))
-            if window_class.value != '#32770':
-                return None
-            pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if (psutil.Process(pid.value).name() or '').lower() != 'ridibooks.exe':
-                return None
-            return hwnd
+            user32.IsWindowVisible.argtypes = [wintypes.HWND]
+            windows = [user32.GetForegroundWindow()]
+            callback_type = ctypes.WINFUNCTYPE(
+                wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+            def collect(hwnd, _):
+                if hwnd not in windows:
+                    windows.append(hwnd)
+                return True
+
+            user32.EnumWindows(callback_type(collect), 0)
+            for hwnd in windows:
+                if not hwnd or not user32.IsWindowVisible(hwnd):
+                    continue
+                window_class = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, window_class, len(window_class))
+                if window_class.value != '#32770':
+                    continue
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                try:
+                    if psutil.Process(pid.value).name().lower() == 'ridibooks.exe':
+                        return hwnd
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
         except Exception:
             return None
 
@@ -352,8 +390,7 @@ class RidiAppProxy:
             return False
         for tab in tabs:
             url = urllib.parse.unquote(tab.get('url', ''))
-            if (tab.get('type') != 'page' or
-                    '/RIDI/Ridibooks/resources/app.asar/' not in url or
+            if (not self._is_ridi_tab(tab) or
                     not url.endswith(('?Viewer', '?Books', '?Login'))):
                 continue
             ws_url = tab.get('webSocketDebuggerUrl')
@@ -383,6 +420,7 @@ class RidiAppProxy:
     def _dismiss_viewer_popups(self, stop):
         last_native = None
         last_press = 0
+        warned = set()
         while not stop.is_set():
             try:
                 hwnd = self._native_ridi_dialog()
@@ -390,7 +428,13 @@ class RidiAppProxy:
                 if hwnd and (hwnd != last_native or now - last_press >= 3):
                     if self._press_enter_on_dialog(hwnd):
                         self.log('  [Ridi] Pressed Enter on a RIDI PC viewer popup.')
-                        last_native, last_press = hwnd, now
+                    elif hwnd not in warned:
+                        self.log('  [Ridi] Windows could not dismiss a RIDI '
+                                 'popup. If RIDI is running as administrator, '
+                                 'close it and restart it normally so the '
+                                 'downloader can control its dialogs.')
+                        warned.add(hwnd)
+                    last_native, last_press = hwnd, now
                 elif not hwnd:
                     last_native = None
                 if self._accept_js_dialog():
@@ -471,14 +515,14 @@ class RidiAppProxy:
               return {cover};
             })()""" % (title_js, book_id_js))
         snapshot = self._reader_log_snapshot()
-        selected = self._wait(click_book, 120,
+        self._wait(click_book, 120,
                    'Owned volume did not appear in the RIDI PC library.',
                    '  [Ridi] Waiting for the owned volume to appear in '
                    'the RIDI library...')
         self.log('  [Ridi] Found the owned volume; opening the reader...')
-        self._wait_for_viewer(snapshot)
-        cover = selected.get('cover', '') if isinstance(selected, dict) else ''
-        return cover.split('#', 1)[0] or (
+        self._wait_for_viewer(snapshot, reopen=click_book)
+        # The library supplies a 165px thumbnail, never the export cover.
+        return (
             f'https://img.ridicdn.net/cover/{book_id}/large'
         )
 
@@ -500,6 +544,8 @@ class RidiAppProxy:
         return self._evaluate('Viewer', """(() => {
           const sections = [];
           for (const frame of document.querySelectorAll('iframe')) {
+            if (!frame.getClientRects().length ||
+                getComputedStyle(frame).display === 'none') continue;
             const doc = frame.contentDocument;
             const page = doc?.querySelector('ridi-page-container[data-front]');
             const content = doc?.querySelector('ridi-column-container');
@@ -507,6 +553,8 @@ class RidiAppProxy:
             const index = page.getAttribute('data-spine-index');
             if (!/^\\d+$/.test(index || '')) continue;
             sections.push({spine: Number(index),
+                           offset: page.style.marginLeft,
+                           ready: Number(doc.body.style.opacity || 1) === 1,
                            html: content.innerHTML, text: content.innerText});
           }
           return sections;
@@ -573,54 +621,68 @@ class RidiAppProxy:
         )()""")
         return int(value) if str(value).isdecimal() else -1
 
-    def _send_viewer_key(self, key, virtual_code):
-        tab = self._tab('Viewer')
-        if not tab:
-            raise RidiAppError('RIDI viewer closed while reading front matter.')
-        import websocket
-        ws = websocket.create_connection(
-            tab['webSocketDebuggerUrl'], timeout=12, suppress_origin=True
-        )
-        try:
-            for kind in ('keyDown', 'keyUp'):
-                ws.send(json.dumps({
-                    'id': 2, 'method': 'Input.dispatchKeyEvent',
-                    'params': {
-                        'type': kind, 'key': key, 'code': key,
-                        'windowsVirtualKeyCode': virtual_code,
-                        'nativeVirtualKeyCode': virtual_code,
-                    },
-                }))
-                while json.loads(ws.recv()).get('id') != 2:
-                    continue
-        finally:
-            ws.close()
+    @staticmethod
+    def _frame_signature(frames):
+        return tuple((frame['spine'], frame.get('offset'), frame['html'])
+                     for frame in frames)
+
+    def _navigate_reader_page(self, target):
+        """Move the page slider and wait for its rendered frames to catch up."""
+        previous_page = self._reader_page()
+        previous = self._frame_signature(self._front_sections())
+        expected = self._evaluate('Viewer', """(() => {
+          const slider = document.querySelector('input[type="range"]');
+          if (!slider) return null;
+          const step = Number(slider.step) || 1;
+          const target = Math.floor(%d / step) * step;
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+            .set.call(slider, String(target));
+          slider.dispatchEvent(new Event('input', {bubbles: true}));
+          slider.dispatchEvent(new Event('change', {bubbles: true}));
+          return target;
+        })()""" % target)
+        if expected is None:
+            raise RidiAppError('RIDI viewer page control was not found.')
+        stable = None
+        stable_since = 0
+
+        def rendered():
+            nonlocal stable, stable_since
+            frames = self._front_sections()
+            signature = self._frame_signature(frames)
+            if (self._reader_page() != expected or not frames or
+                    not all(frame.get('ready', True) for frame in frames) or
+                    (expected != previous_page and signature == previous)):
+                stable = None
+                return None
+            if signature != stable:
+                stable, stable_since = signature, time.monotonic()
+                return None
+            return frames if time.monotonic() - stable_since >= 0.7 else None
+
+        return self._wait(rendered, 20,
+                          f'RIDI page {expected + 1} did not finish rendering.')
 
     def _front_matter(self, first_chapter_page):
         """Read the source cover and pages omitted from the reader's TOC menu."""
-        focused = self._evaluate('Viewer', """(() => {
-          const slider = document.querySelector('input[type="range"]');
-          if (!slider) return false;
-          slider.focus(); return true;
-        })()""")
-        if not focused:
-            raise RidiAppError('RIDI viewer page control was not found.')
-        self._send_viewer_key('Home', 36)
-        self._wait(lambda: self._reader_page() == 0, 10,
-                   'RIDI viewer did not return to the first page.')
+        first_frames = self._navigate_reader_page(first_chapter_page - 1)
+        first_section = self._select_front_section(first_frames)
+        if not first_section:
+            raise RidiAppError('RIDI first chapter did not render.')
+        first_spine = first_section['spine']
         pages = []
         images = {}
         cover_data = ''
         seen = set()
         turns = 0
-        while self._reader_page() < first_chapter_page - 1:
+        target = 0
+        while target < first_chapter_page - 1:
             if self.stop_requested():
                 raise RidiAppError('Download cancelled.')
-            frames = self._wait(self._front_sections, 10,
-                                'RIDI front matter did not render.')
+            frames = self._navigate_reader_page(target)
             for frame in sorted(frames, key=lambda item: item['spine']):
                 spine = frame['spine']
-                if spine in seen:
+                if spine in seen or spine >= first_spine:
                     continue
                 seen.add(spine)
                 content = self._clean_section(frame['html'])
@@ -633,6 +695,8 @@ class RidiAppProxy:
                          if image.get('url') == cover.get('src')
                          and image.get('data')), ''
                     )
+                    if not cover_data:
+                        raise RidiAppError('RIDI source cover could not be read.')
                     cover.decompose()
                     content = str(soup)
                 if not soup.get_text(strip=True):
@@ -644,14 +708,25 @@ class RidiAppProxy:
                         )
                     images[image['url']] = image['data']
                 pages.append({'spine': spine, 'html': content})
-            old_page = self._reader_page()
-            self._send_viewer_key('ArrowRight', 39)
-            self._wait(lambda: self._reader_page() > old_page, 10,
-                       'RIDI viewer did not advance through front matter.')
+            step = self._evaluate('Viewer',
+                "Number(document.querySelector('input[type=range]')?.step) || 1")
+            target = self._reader_page() + max(1, int(step or 1))
             turns += 1
             if turns > 80:
                 raise RidiAppError('RIDI front matter is unexpectedly long.')
         return pages, images, cover_data
+
+    def _read_front_matter(self, first_chapter_page):
+        for attempt in range(2):
+            try:
+                result = self._front_matter(first_chapter_page)
+                self.log(f'  [Ridi] Read {len(result[0])} source '
+                         'front-matter page(s).')
+                return result
+            except RidiAppError as exc:
+                if self.stop_requested() or attempt:
+                    raise
+                self.log(f'  [Ridi] Retrying source opening pages: {exc}')
 
     @staticmethod
     def _part_heading(front_pages):
@@ -723,47 +798,14 @@ class RidiAppProxy:
                    'RIDI table of contents did not open.')
         rows = self._wait(self._toc_rows, 15,
                           'RIDI table of contents is empty.')
-        front_pages = []
-        front_images = {}
-        cover_data = ''
-        if self._open_toc_row(rows[0]['index']):
-            try:
-                self._wait(
-                    lambda: abs(self._reader_page() -
-                                (rows[0]['page'] - 1)) <= 1,
-                    20, 'RIDI did not navigate to the first chapter.'
-                )
-                self._wait(self._front_sections, 10,
-                           'RIDI first chapter did not render.')
-                time.sleep(0.5)
-                front_pages, front_images, cover_data = self._front_matter(
-                    rows[0]['page']
-                )
-                self.log(f'  [Ridi] Read {len(front_pages)} source '
-                         'front-matter page(s).')
-            except RidiAppError as exc:
-                if self.stop_requested():
-                    raise
-                self.log(f'  [Ridi] Front-matter warning: {exc}')
-        else:
-            self.log('  [Ridi] Front-matter warning: first chapter could '
-                     'not be selected before reading the title pages.')
+        front_pages, front_images, cover_data = self._read_front_matter(
+            rows[0]['page']
+        )
         sections = []
         seen = set()
         image_data = dict(front_images)
         for row in rows:
-            clicked = self._open_toc_row(row['index'])
-            if not clicked:
-                raise RidiAppError('Could not open RIDI section: ' + row['title'])
-            target_page = row['page']
-            self._wait(lambda: self._evaluate('Viewer', """(() => {
-              const text = document.body.innerText || '';
-              const match = text.match(/(\\d+)\\s*\\/\\s*(\\d+)/);
-              return match && Math.abs(Number(match[1]) - %d) <= 1;
-            })()""" % target_page), 20,
-                'RIDI did not navigate to ' + row['title'])
-            frames = self._wait(self._front_sections, 10,
-                                'RIDI section did not render: ' + row['title'])
+            frames = self._navigate_reader_page(row['page'] - 1)
             section = self._select_front_section(frames)
             if not section or section['spine'] in seen:
                 raise RidiAppError('RIDI section was repeated or empty: ' +
@@ -822,6 +864,8 @@ class RidiAppProxy:
                 'name': f'ridi-{book_id}-{i:03d}.{extension}',
             })
         return {
+            '_ridiAppExportVersion': self.EXPORT_VERSION,
+            '_ridiAppHasSourceCover': bool(cover_data),
             'chapterName': title,
             'sourceChapterName': title,
             'chapterUrl': chapter_url,

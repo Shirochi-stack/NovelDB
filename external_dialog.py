@@ -679,6 +679,16 @@ class ExternalNovelDialog(tk.Toplevel):
         # Reusing it after the user signs in would prevent any network retry.
         if not isinstance(result, dict) or result.get('_locked'):
             return False
+        # Old RIDI desktop exports could silently omit their opening pages.
+        # Source covers are local reader bytes, unavailable after stripping
+        # image data from a cache entry.
+        if 'ridi-content' in str(result.get('contentHtml') or ''):
+            from ridi_app_proxy import RidiAppProxy
+            if (result.get('_ridiAppExportVersion') !=
+                    RidiAppProxy.EXPORT_VERSION or
+                    (result.get('_ridiAppHasSourceCover') and
+                     not result.get('_coverData'))):
+                return False
         # Kobo's blob image URLs exist only in the reader process. A cache
         # without their captured bytes cannot recreate the EPUB later.
         return not any(

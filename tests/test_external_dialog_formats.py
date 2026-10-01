@@ -338,6 +338,7 @@ def test_external_novelpia_notices_follow_main_download_setting():
         _var_kakao_keep_filler=Setting(False),
         _var_ntk_novelpia_cover=Setting(False),
         _var_syosetu_amazon_cover=Setting(False),
+        _var_kobo_horizontal_layout=Setting(True),
     )
 
     ExternalNovelDialog._apply_scraper_options(dialog)

@@ -1001,6 +1001,144 @@ def test_ridi_reader_selects_new_spine_on_two_page_chapter_boundary():
     assert RidiAppProxy._select_front_section(frames) == frames[1]
 
 
+def test_ridi_recognizes_per_user_install_and_rejects_remote_pages():
+    from ridi_app_proxy import RidiAppProxy
+
+    assert RidiAppProxy._is_ridi_tab({
+        'type': 'page', 'url': 'file:///C:/Users/Reader/AppData/Local/'
+        'Programs/Ridibooks/resources/app.asar/index.html?Viewer',
+    })
+    assert not RidiAppProxy._is_ridi_tab({
+        'type': 'page', 'url': 'https://example.com/Ridibooks/resources/'
+        'app.asar/index.html?Viewer',
+    })
+
+
+def test_ridi_connect_keeps_accessible_process_after_access_denied(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import ridi_app_proxy
+
+    class AccessDenied(Exception):
+        pass
+
+    class Process:
+        info = {'name': 'Ridibooks.exe'}
+
+        def __init__(self, protected=False):
+            self.protected = protected
+
+        def cmdline(self):
+            if self.protected:
+                raise AccessDenied()
+            return ['reader.exe', '--remote-debugging-port=51234']
+
+        def exe(self):
+            return 'per-user-reader.exe'
+
+    monkeypatch.setitem(sys.modules, 'psutil', SimpleNamespace(
+        process_iter=lambda attrs: [Process(), Process(True)],
+        AccessDenied=AccessDenied, NoSuchProcess=ProcessLookupError,
+    ))
+    proxy = ridi_app_proxy.RidiAppProxy(lambda message: None)
+    monkeypatch.setattr(proxy, '_tabs',
+                        lambda port: [{'type': 'page'}] if port == 51234 else [])
+    proxy.connect()
+    assert proxy.port == 51234
+    assert proxy.executable == 'per-user-reader.exe'
+
+
+def test_ridi_navigation_waits_for_render_not_just_slider(monkeypatch):
+    import ridi_app_proxy
+
+    proxy = ridi_app_proxy.RidiAppProxy(lambda message: None)
+    old = [{'spine': 8, 'html': '<p>Story</p>', 'ready': True}]
+    loading = [{'spine': 0, 'html': '<img src="cover">', 'ready': False}]
+    new = [{'spine': 0, 'html': '<img src="cover">', 'ready': True}]
+    frames = iter([old, old, loading, new, new])
+    page = [8]
+    monkeypatch.setattr(proxy, '_front_sections', lambda: next(frames))
+    monkeypatch.setattr(proxy, '_reader_page', lambda: page[0])
+
+    def navigate(*args):
+        page[0] = 0
+        return 0
+
+    monkeypatch.setattr(proxy, '_evaluate', navigate)
+    ticks = iter(range(100))
+    monkeypatch.setattr(ridi_app_proxy.time, 'monotonic', lambda: next(ticks))
+
+    def wait(check, *args):
+        assert check() is None  # Old chapter remains after slider changes.
+        assert check() is None  # New frame is still loading.
+        assert check() is None  # Wait for the new frame to settle.
+        return check()
+
+    monkeypatch.setattr(proxy, '_wait', wait)
+    assert proxy._navigate_reader_page(0) == new
+
+
+def test_ridi_front_matter_failure_is_retried_and_never_silently_omitted(
+    monkeypatch,
+):
+    import pytest
+    from ridi_app_proxy import RidiAppProxy, RidiAppError
+
+    proxy = RidiAppProxy(lambda message: None)
+    attempts = []
+
+    def read(page):
+        attempts.append(page)
+        raise RidiAppError('Opening pages did not render')
+
+    monkeypatch.setattr(proxy, '_front_matter', read)
+    with pytest.raises(RidiAppError, match='Opening pages'):
+        proxy._read_front_matter(9)
+    assert attempts == [9, 9]
+
+
+def test_ridi_front_matter_does_not_accept_unreadable_source_cover(monkeypatch):
+    import pytest
+    from ridi_app_proxy import RidiAppProxy, RidiAppError
+
+    proxy = RidiAppProxy(lambda message: None)
+    monkeypatch.setattr(proxy, '_navigate_reader_page', lambda page: [{
+        'spine': 2 if page else 0,
+        'html': '<p>Story</p>' if page else
+                '<div class="cover-image"><img src="local://cover"></div>',
+    }])
+    monkeypatch.setattr(proxy, '_images', lambda content: [])
+    with pytest.raises(RidiAppError, match='source cover'):
+        proxy._front_matter(3)
+
+
+def test_ridi_wait_for_viewer_reopens_book_during_slow_download(monkeypatch):
+    import ridi_app_proxy
+
+    proxy = ridi_app_proxy.RidiAppProxy(lambda message: None)
+    tabs = iter([None, None, None, {'type': 'page'}])
+    monkeypatch.setattr(proxy, '_tab', lambda suffix: next(tabs))
+    ticks = iter(range(0, 1000, 5))
+    monkeypatch.setattr(ridi_app_proxy.time, 'monotonic', lambda: next(ticks))
+    monkeypatch.setattr(ridi_app_proxy.time, 'sleep', lambda delay: None)
+    reopened = []
+    proxy._wait_for_viewer(None, reopen=lambda: reopened.append(True))
+    assert reopened
+
+
+def test_ridi_cache_rejects_missing_front_matter_and_stripped_cover():
+    from external_dialog import ExternalNovelDialog
+    from ridi_app_proxy import RidiAppProxy
+
+    old = {'contentHtml': '<div class="ridi-content"><p>Story</p></div>'}
+    assert not ExternalNovelDialog._external_cacheable(old)
+    complete = dict(old, _ridiAppExportVersion=RidiAppProxy.EXPORT_VERSION,
+                    _ridiAppHasSourceCover=True, _coverData='data:image/jpeg;base64,YQ==')
+    assert ExternalNovelDialog._external_cacheable(complete)
+    stripped = ExternalNovelDialog._external_cache_result(complete, False)
+    assert not ExternalNovelDialog._external_cacheable(stripped)
+
+
 def test_ridi_pc_handoff_opens_executable_without_windows_uri_handler(
     monkeypatch,
 ):
@@ -1011,7 +1149,8 @@ def test_ridi_pc_handoff_opens_executable_without_windows_uri_handler(
     proxy.executable = r'C:\Program Files\RIDI\Ridibooks\Ridibooks.exe'
     monkeypatch.setattr(proxy, '_sso', lambda context: 'short-lived-ticket')
     monkeypatch.setattr(proxy, '_wait', lambda *args, **kwargs: True)
-    monkeypatch.setattr(proxy, '_wait_for_viewer', lambda snapshot: True)
+    monkeypatch.setattr(proxy, '_wait_for_viewer',
+                        lambda snapshot, reopen=None: True)
     monkeypatch.setattr(ridi_app_proxy.subprocess, 'Popen',
                         lambda args, **kwargs: calls.append(args))
     monkeypatch.setattr(os, 'startfile',
@@ -1131,6 +1270,37 @@ def test_ridi_popup_watcher_presses_enter_only_for_detected_dialog(
     proxy._dismiss_viewer_popups(Stop())
     assert pressed == [12345]
     assert 'Pressed Enter' in logs[0]
+
+
+def test_ridi_popup_detection_includes_background_dialog(monkeypatch):
+    import ctypes
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from ridi_app_proxy import RidiAppProxy
+
+    user32 = SimpleNamespace(
+        GetForegroundWindow=Mock(return_value=100),
+        IsWindowVisible=Mock(return_value=True),
+        EnumWindows=Mock(side_effect=lambda callback, value: callback(200, value)),
+    )
+
+    def window_class(hwnd, buffer, size):
+        buffer.value = '#32770' if hwnd == 200 else 'Chrome_WidgetWin_1'
+
+    def process_id(hwnd, pointer):
+        pointer._obj.value = 1234
+
+    user32.GetClassNameW = Mock(side_effect=window_class)
+    user32.GetWindowThreadProcessId = Mock(side_effect=process_id)
+    monkeypatch.setattr(ctypes, 'windll', SimpleNamespace(user32=user32), raising=False)
+    monkeypatch.setattr(ctypes, 'WINFUNCTYPE', ctypes.CFUNCTYPE, raising=False)
+    monkeypatch.setattr(sys, 'platform', 'win32')
+    monkeypatch.setitem(sys.modules, 'psutil', SimpleNamespace(
+        Process=lambda pid: SimpleNamespace(name=lambda: 'Ridibooks.exe'),
+        AccessDenied=PermissionError, NoSuchProcess=ProcessLookupError,
+    ))
+    assert RidiAppProxy._native_ridi_dialog() == 200
 
 
 def test_ridi_popup_watcher_accepts_reader_js_dialog_only(monkeypatch):
