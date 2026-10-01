@@ -334,6 +334,123 @@ def test_progressive_updates_reuse_cards_and_loaded_cover_nodes():
     asyncio.run(scenario())
 
 
+def test_munpia_covers_no_referrer_retry_and_visible_failure(monkeypatch):
+    original_row = row
+    def covered_row(source, ident=7, known=False, completed=False):
+        result = original_row(source, ident, known, completed)
+        if source == 'munpia':
+            protocol = 'http:' if ident == 7 else ''
+            result[3] = f'{protocol}//cdn1.munpia.com/{ident}.svg'
+        return result
+    monkeypatch.setitem(globals(), 'row', covered_row)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={'width': 1440, 'height': 1200})
+            site = FixtureSite()
+            requests = {7: [], 8: [], 9: []}
+            async def route_cover(route):
+                url = urlsplit(route.request.url)
+                if url.hostname != 'cdn1.munpia.com':
+                    await site.route(route)
+                    return
+                ident = int(url.path.removeprefix('/').removesuffix('.svg'))
+                requests[ident].append(route.request.headers.get('referer'))
+                assert url.scheme == 'https'
+                if ident == 9 or (ident == 8 and len(requests[ident]) == 1):
+                    await route.fulfill(status=503, body='Unavailable')
+                elif ident == 7 and requests[ident][-1]:
+                    await route.fulfill(status=403, body='External referrer rejected')
+                else:
+                    await route.fulfill(body='<svg xmlns="http://www.w3.org/2000/svg" width="100" height="150"><rect width="100" height="150" fill="purple"/></svg>', content_type='image/svg+xml')
+            await page.route('**/*', route_cover)
+            await page.goto('https://metadata.test/#src=munpia')
+            await wait_loaded(page)
+            await page.wait_for_selector('.novel-card[data-novel-id="7"] img.loaded')
+            await page.wait_for_selector('.novel-card[data-novel-id="8"] img.loaded')
+            missing = page.locator('.novel-card[data-novel-id="9"] .no-img')
+            await missing.wait_for()
+            assert requests[7] == [None]
+            assert requests[8] == [None, 'https://metadata.test/']
+            assert len(requests[9]) == 2
+            assert await missing.evaluate('el => getComputedStyle(el).opacity') == '1'
+            assert await missing.evaluate('el => getComputedStyle(el.parentElement).animationName') == 'none'
+            # A failed cover must remain settled when tag highlighting rebuilds a card.
+            await page.locator('.novel-card[data-novel-id="9"] .card-tag').first.click()
+            await page.wait_for_function('!!document.querySelector(".card-tag.active")')
+            await missing.wait_for()
+            assert len(requests[9]) == 2
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_failed_novelpia_default_cover_settles_to_visible_placeholder():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = FixtureSite(covers=True)
+            requests = []
+            async def fail_covers(route):
+                host = urlsplit(route.request.url).hostname
+                if host in ('covers.test', 'images.novelpia.com'):
+                    requests.append(route.request.url)
+                    await route.fulfill(status=404, body='Missing image')
+                else:
+                    await site.route(route)
+            await page.route('**/*', fail_covers)
+            await page.goto('http://metadata.test/#src=novelpia')
+            await wait_loaded(page)
+            missing = page.locator('.card-cover.no-img')
+            await missing.wait_for()
+            assert len(requests) == 3  # primary, one retry, default cover
+            assert await missing.evaluate('el => getComputedStyle(el).opacity') == '1'
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_cover_loading_waits_for_scroll_and_unchanged_titles_skip_refitting():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={'width': 1440, 'height': 900})
+            site = FixtureSite(many_novelpia=True, covers=True)
+            await page.route('**/*', site.route)
+            await page.add_init_script("localStorage.setItem('noveldb.loadDescriptions', 'false')")
+            await page.goto('http://metadata.test/#src=novelpia&batch=60')
+            await wait_loaded(page)
+            await page.wait_for_selector('img.loaded')
+            await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+            assert await page.locator('.novel-card').count() == 60
+            assert 0 < await page.locator('img.card-cover[src]').count() < 60
+            last = page.locator('.novel-card').last.locator('img.card-cover')
+            assert await last.get_attribute('src') is None
+            # Reapplying identical filters should preserve DOM and fitted sizes.
+            work = await page.evaluate('''async () => {
+                let changes = 0;
+                let serializations = 0;
+                const originalStringify = JSON.stringify;
+                JSON.stringify = function(value, ...args) {
+                    if (value && typeof value === 'object' && !Array.isArray(value) && 'title' in value && 'tags' in value) serializations++;
+                    return originalStringify(value, ...args);
+                };
+                const observer = new MutationObserver(events => { changes += events.length; });
+                const titles = [...document.querySelectorAll('.card-title')];
+                titles.forEach(t => observer.observe(t, {attributes:true, attributeFilter:['style','class']}));
+                document.querySelector('#statusSelect').dispatchEvent(new Event('change'));
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                observer.disconnect();
+                JSON.stringify = originalStringify;
+                return {changes, serializations};
+            }''')
+            assert work == {'changes': 0, 'serializations': 0}
+            await last.scroll_into_view_if_needed()
+            await page.wait_for_function('document.querySelector(".novel-card:last-child img")?.classList.contains("loaded")')
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_description_preference_prevents_requests_and_persists():
     async def scenario():
         async with async_playwright() as playwright:

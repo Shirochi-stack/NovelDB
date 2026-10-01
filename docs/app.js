@@ -5665,7 +5665,6 @@
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
     let BATCH = 30;
     let currentPage = 1;
-    let pendingImageTimers = new Set();
     const BATCH_OPTIONS = new Set(["30", "60", "120", "250"]);
 
     // === DOM refs ===
@@ -6183,8 +6182,63 @@
 
     // === Render Cards ===
 
+    function markCoverReady(img) {
+        img.classList.add("loaded");
+        img.parentElement?.classList.add("cover-ready");
+    }
+
+    function showMissingCover(img) {
+        const placeholder = document.createElement("div");
+        placeholder.className = "card-cover no-img";
+        placeholder.textContent = "📖";
+        placeholder.dataset.src = img.dataset.src;
+        img.parentElement?.classList.add("cover-ready");
+        img.replaceWith(placeholder);
+    }
+
+    function attachCoverHandlers(img, fallbackSrc) {
+        img.addEventListener("load", () => markCoverReady(img));
+        img.addEventListener("error", () => {
+            if (!img.isConnected) return;
+            // Most cover CDNs accept requests without an external Referer.
+            // Retry once using the normal policy for hosts that require one,
+            // and for transient network failures. Never loop on a broken URL.
+            if (!img.dataset.retried) {
+                img.dataset.retried = "true";
+                img.referrerPolicy = "strict-origin-when-cross-origin";
+                img.removeAttribute("src");
+                img.src = img.dataset.src;
+            } else if (fallbackSrc && img.getAttribute("src") !== fallbackSrc) {
+                img.referrerPolicy = "no-referrer";
+                img.src = fallbackSrc;
+            } else {
+                showMissingCover(img);
+            }
+        });
+    }
+
+    const coverObserver = typeof IntersectionObserver === "undefined" ? null
+        : new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                const img = entry.target;
+                coverObserver.unobserve(img);
+                if (img.isConnected && !img.getAttribute("src")) img.src = img.dataset.src;
+            }
+        }, { rootMargin: "300px 0px" });
+
+    function observeCovers() {
+        // Reset subscriptions after pagination/filter changes so detached cards
+        // are released and callbacks cannot start obsolete image requests.
+        coverObserver?.disconnect();
+        for (const img of resultsEl.querySelectorAll("img.card-cover[data-src]:not([src])")) {
+            if (coverObserver) coverObserver.observe(img);
+            else img.src = img.dataset.src;
+        }
+    }
+
     function renderCard(n, card = document.createElement("div")) {
-        const previousImage = card.querySelector("img.card-cover");
+        const previousImage = card.querySelector(".card-cover[data-src]");
         const savedSynopsis = n.synopsis || card._synopsis;
         card._synopsis = savedSynopsis;
         card.className = "novel-card";
@@ -6208,7 +6262,7 @@
             : "";
 
         const coverHTML = coverSrc
-            ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" onload="this.classList.add('loaded')" onerror="${fallbackSrc ? `this.onerror=null;this.src='${fallbackSrc}'` : `this.outerHTML='<div class=\\'card-cover no-img\\'>📖</div>'`}">`
+            ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" referrerpolicy="no-referrer">`
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
@@ -6275,7 +6329,9 @@
         const nextImage = card.querySelector("img.card-cover");
         if (previousImage && nextImage && previousImage.dataset.src === nextImage.dataset.src) {
             nextImage.replaceWith(previousImage);
-        }
+            if (previousImage.classList.contains("loaded") || previousImage.classList.contains("no-img")) markCoverReady(previousImage);
+        } else if (nextImage) attachCoverHandlers(nextImage, fallbackSrc);
+        else card.querySelector(".card-cover-wrap").classList.add("cover-ready");
 
         // Helper: filter, jump to card's page, scroll to it
         function filterAndFocusCard(novelId, novelSource) {
@@ -6367,6 +6423,8 @@
     }
 
     const CARD_TITLE_MIN_FONT_SIZE = 8;
+    const titleFitCache = new WeakMap();
+    let titleFontVersion = 0;
 
     function cardTitleOverflows(titleEl) {
         return titleEl.scrollHeight > titleEl.clientHeight + 1
@@ -6376,6 +6434,16 @@
     // Fit every title in lockstep (all writes, then all reads) so a render
     // forces a handful of reflows instead of several per title.
     function fitCardTitles(titles) {
+        // Card nodes survive incremental renders. Only new titles, changed
+        // widths/breakpoints or updated fonts need another layout search.
+        const pending = [];
+        for (const titleEl of titles) {
+            const key = `${titleEl.clientWidth}|${window.innerWidth}|${titleFontVersion}`;
+            if (titleFitCache.get(titleEl) === key) continue;
+            titleFitCache.set(titleEl, key);
+            pending.push(titleEl);
+        }
+        titles = pending;
         // Reset first so a title can grow again after moving to a wider grid.
         for (const titleEl of titles) {
             titleEl.classList.remove("card-title-unclamped");
@@ -6437,7 +6505,11 @@
     } else {
         window.addEventListener("resize", scheduleCardTitleFit);
     }
-    if (document.fonts) document.fonts.ready.then(scheduleCardTitleFit);
+    if (document.fonts) {
+        const fontsChanged = () => { titleFontVersion++; scheduleCardTitleFit(); };
+        document.fonts.ready.then(fontsChanged);
+        document.fonts.addEventListener("loadingdone", fontsChanged);
+    }
 
     function render(fade = false) {
         function doRender() {
@@ -6457,13 +6529,20 @@
                 const novel = filtered[i];
                 const key = `${novel.source || currentSource}:${novel.id}`;
                 let card = existing.get(key);
-                const signature = JSON.stringify({ ...novel, synopsis: undefined }) + context;
+                // Catalog merges replace records; synopsis is filled separately.
+                // Keep signatures on visible cards so unchanged records need no
+                // serialization and browsing doesn't accumulate a catalog cache.
+                const recordSignature = card?._record === novel ? card._recordSignature
+                    : JSON.stringify({ ...novel, synopsis: undefined });
+                const signature = recordSignature + context;
                 if (!card || card._renderSignature !== signature) {
                     card = renderCard(novel, card);
                     card._renderSignature = signature;
                 } else if (descriptionsEnabled && novel.synopsis && novel.synopsis !== card._synopsis) {
                     updateCardSynopsis(card, novel.synopsis);
                 }
+                card._record = novel;
+                card._recordSignature = recordSignature;
                 wanted.add(card);
                 const position = resultsEl.children[i - start];
                 if (position !== card) resultsEl.insertBefore(card, position || null);
@@ -6471,18 +6550,7 @@
             for (const child of Array.from(resultsEl.children)) if (!wanted.has(child)) child.remove();
             observeMissingSynopses();
 
-            // Stagger image loading: load one visible desktop row at a time.
-            const imgs = resultsEl.querySelectorAll("img.card-cover[data-src]:not([src])");
-            imgs.forEach((img, idx) => {
-                if (img.dataset.loadScheduled) return;
-                img.dataset.loadScheduled = "true";
-                const tid = setTimeout(() => {
-                    pendingImageTimers.delete(tid);
-                    delete img.dataset.loadScheduled;
-                    if (img.isConnected && !img.getAttribute("src")) img.src = img.dataset.src;
-                }, Math.floor(idx / 5) * 100);
-                pendingImageTimers.add(tid);
-            });
+            observeCovers();
 
             scheduleCardTitleFit();
 
@@ -7468,11 +7536,7 @@
         sourceSelect.value = source;
         lastCatalogProgressAt = performance.now();
         resetSynopsisRequests();
-        for (const timer of pendingImageTimers) clearTimeout(timer);
-        pendingImageTimers.clear();
-        // Cards may survive this switch when every selected source is retained,
-        // so cancelled cover loads must become schedulable again.
-        for (const img of resultsEl.querySelectorAll("img.card-cover[data-load-scheduled]")) delete img.dataset.loadScheduled;
+        coverObserver?.disconnect();
         selectedSources = source === "all" ? Object.keys(SOURCES) : [source];
         for (const [name, state] of catalogState) {
             if (!state.complete || (!retainAllSources && !selectedSources.includes(name))) catalogState.delete(name);

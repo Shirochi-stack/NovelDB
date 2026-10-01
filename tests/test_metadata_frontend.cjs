@@ -175,3 +175,19 @@ test('safeHttpUrl accepts plain URLs without the parser and still rejects unsafe
     assert.equal(core.safeHttpUrl('https://user:pw@images.test/x'), '');
     assert.equal(core.safeHttpUrl('ftp://images.test/x'), '');
 });
+
+test('covers normalize legacy protocols without corrupting absolute CDN URLs', () => {
+    const prefix = 'https://images.novelpia.com';
+    for (const input of ['http://cdn1.munpia.com/cover.jpg', '//cdn1.munpia.com/cover.jpg',
+        '  https://cdn1.munpia.com/cover.jpg  ', 'HTTPS://cdn1.munpia.com/cover.jpg']) {
+        assert.equal(core.safeCoverUrl(input, prefix), 'https://cdn1.munpia.com/cover.jpg');
+    }
+    assert.equal(core.safeCoverUrl('/cover.jpg', prefix), prefix + '/cover.jpg');
+    assert.equal(core.safeCoverUrl('2026/cover.jpg', 'https://rss.sfacg.com/covers/'), 'https://rss.sfacg.com/covers/2026/cover.jpg');
+    assert.equal(core.safeCoverUrl('/2026/cover.jpg', 'https://rss.sfacg.com/covers/'), 'https://rss.sfacg.com/covers/2026/cover.jpg');
+    for (const unsafe of ['javascript:alert(1)', 'data:image/svg+xml,x', 'https://user:pw@images.test/cover.jpg']) {
+        assert.equal(core.safeCoverUrl(unsafe, prefix), '', unsafe);
+    }
+    const [record] = core.parseRows([row(7, {3: '//cdn1.munpia.com/cover.jpg'})], 'naver', cfg);
+    assert.equal(record.cover, 'https://cdn1.munpia.com/cover.jpg');
+});

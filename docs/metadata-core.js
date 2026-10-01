@@ -44,6 +44,21 @@
         } catch (_) { return ""; }
     }
 
+    function safeCoverUrl(value, prefix = "") {
+        if (typeof value !== "string" || !value) return "";
+        // Published catalogs overwhelmingly contain already-normal HTTPS URLs.
+        if (value.startsWith("https://") && value.charCodeAt(value.length - 1) > 32) return safeHttpUrl(value);
+        let cover = value.trim();
+        if (!cover) return "";
+        if (cover.startsWith("//")) cover = "https:" + cover;
+        else if (prefix && !/^[a-z][a-z\d+.-]*:/i.test(cover)) {
+            cover = prefix + (prefix.endsWith("/") ? cover.replace(/^\//, "") : cover);
+        }
+        // Covers are embedded in an HTTPS page; old HTTP links otherwise get
+        // blocked or inconsistently upgraded by the user's browser.
+        return safeHttpUrl(cover.replace(/^http:/i, "https:"));
+    }
+
     function parseRows(raw, source, cfg) {
         if (!Array.isArray(raw)) throw new Error(`Invalid ${source} catalog array`);
         return raw.map((row) => {
@@ -55,7 +70,7 @@
             const cover = row[3] ? String(row[3]) : "";
             const novel = {
                 id: String(row[0]), source, title: String(row[1] || ""), author: String(row[2] || ""),
-                cover: safeHttpUrl(cover && cfg.coverPrefix && !cover.startsWith("http") ? cfg.coverPrefix + cover : cover),
+                cover: safeCoverUrl(cover, cfg.coverPrefix),
                 tags: tags.filter((tag) => typeof tag === "string"),
                 views: fresh ? nullableNumber(row[5]) : (row[5] || 0),
                 likes: fresh ? nullableNumber(row[6]) : (row[6] || 0),
@@ -323,7 +338,7 @@
         };
     }
 
-    return { nullableNumber, identity, mergeRecords, safeHttpUrl, parseRows, matchesStatus,
+    return { nullableNumber, identity, mergeRecords, safeHttpUrl, safeCoverUrl, parseRows, matchesStatus,
         matchesAudience, compareNullable, nativeRank, rankValue, sortPlan, recordComparator, sortRecords,
         mergeSortedRecords, metricEntries, manifestConfig };
 });

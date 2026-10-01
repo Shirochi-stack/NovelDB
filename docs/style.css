@@ -446,12 +446,18 @@ a.card-cover-wrap {
     opacity: 1;
 }
 
+a.card-cover-wrap.cover-ready {
+    animation: none;
+    background: var(--bg-input);
+}
+
 @keyframes shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
 }
 
 .card-cover.no-img {
+    opacity: 1;
     display: flex;
     align-items: center;
     justify-content: center;
