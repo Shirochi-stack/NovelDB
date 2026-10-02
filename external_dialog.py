@@ -64,11 +64,11 @@ def _format_size(num_bytes):
 
 
 class ExternalNovelDialog(tk.Toplevel):
-    """Tkinter downloader for Novelpia and external novel sites."""
+    """Tkinter downloader for Npia and external novel sites."""
 
     def __init__(self, parent, retry_variable=None):
         super().__init__(parent)
-        self.title("External / Novelpia Novel Download")
+        self.title("External / Npia Novel Download")
         self.transient(parent)
 
         # Size window
@@ -258,42 +258,42 @@ class ExternalNovelDialog(tk.Toplevel):
             settings_frame, text="Number chapters",
             variable=self._var_number_chapters,
         ).pack(side="left", padx=(10, 0))
-        self._var_ntk_novelpia_cover = tk.BooleanVar(value=False)
+        self._var_ntk_npia_cover = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             settings_frame,
             text="Prefer source cover",
-            variable=self._var_ntk_novelpia_cover,
+            variable=self._var_ntk_npia_cover,
         ).pack(side="left", padx=(10, 0))
-        self._var_kakao_skip_last_page = tk.BooleanVar(value=False)
+        self._var_kpage_skip_last_page = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             settings_frame, text="Skip last page",
-            variable=self._var_kakao_skip_last_page,
+            variable=self._var_kpage_skip_last_page,
         ).pack(side="left", padx=(10, 0))
-        self._var_kakao_keep_filler = tk.BooleanVar(value=False)
+        self._var_kpage_keep_filler = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             settings_frame, text="Keep filler",
-            variable=self._var_kakao_keep_filler,
+            variable=self._var_kpage_keep_filler,
         ).pack(side="left", padx=(10, 0))
         dedupe_frame = ttk.Frame(settings_frame)
         dedupe_frame.pack(side="left", padx=(10, 0))
         dedupe_top_frame = ttk.Frame(dedupe_frame)
         dedupe_top_frame.pack(anchor="w")
-        self._var_kakao_dedupe_images = tk.BooleanVar(value=True)
-        self._var_kakao_dedupe_leading_images = tk.IntVar(value=2)
+        self._var_kpage_dedupe_images = tk.BooleanVar(value=True)
+        self._var_kpage_dedupe_leading_images = tk.IntVar(value=2)
         ttk.Checkbutton(
             dedupe_top_frame, text="Dedupe images",
-            variable=self._var_kakao_dedupe_images,
+            variable=self._var_kpage_dedupe_images,
         ).pack(side="left")
-        self._spn_kakao_dedupe_leading = ttk.Spinbox(
+        self._spn_kpage_dedupe_leading = ttk.Spinbox(
             dedupe_top_frame, from_=1, to=10,
-            textvariable=self._var_kakao_dedupe_leading_images, width=3
+            textvariable=self._var_kpage_dedupe_leading_images, width=3
         )
-        self._spn_kakao_dedupe_leading.pack(side="left", padx=(3, 0))
-        self._var_kakao_dedupe_images.trace_add(
+        self._spn_kpage_dedupe_leading.pack(side="left", padx=(3, 0))
+        self._var_kpage_dedupe_images.trace_add(
             "write",
-            lambda *_: self._spn_kakao_dedupe_leading.configure(
+            lambda *_: self._spn_kpage_dedupe_leading.configure(
                 state=(
-                    "normal" if self._var_kakao_dedupe_images.get()
+                    "normal" if self._var_kpage_dedupe_images.get()
                     else "disabled"
                 )
             )
@@ -367,9 +367,9 @@ class ExternalNovelDialog(tk.Toplevel):
                                         command=self._on_enter_browser)
         self._btn_browser.pack(side="left", padx=(0, 5), ipady=3)
 
-        self._btn_sfacg_app = ttk.Button(btn_frame, text="Enter App",
-                                          command=self._on_sfacg_app_login)
-        self._btn_sfacg_app.pack(side="left", padx=(0, 5), ipady=3)
+        self._btn_sfc_app = ttk.Button(btn_frame, text="Enter App",
+                                          command=self._on_sfc_app_login)
+        self._btn_sfc_app.pack(side="left", padx=(0, 5), ipady=3)
 
         self._var_regular_browser = tk.BooleanVar(value=False)
         self._chk_regular_browser = ttk.Checkbutton(
@@ -432,20 +432,20 @@ class ExternalNovelDialog(tk.Toplevel):
         """Copy current dialog options into the scraper instance."""
         if not self._scraper:
             return
-        self._scraper.munpia_interval, self._scraper.munpia_interval_max = (
+        self._scraper.mpia_interval, self._scraper.mpia_interval_max = (
             self._get_interval_range()
         )
-        self._scraper.kakao_skip_last_page = (
-            self._var_kakao_skip_last_page.get()
+        self._scraper.kpage_skip_last_page = (
+            self._var_kpage_skip_last_page.get()
         )
-        self._scraper.kakao_keep_filler = self._var_kakao_keep_filler.get()
-        self._scraper.ntk_prefer_novelpia_cover = (
-            self._var_ntk_novelpia_cover.get()
+        self._scraper.kpage_keep_filler = self._var_kpage_keep_filler.get()
+        self._scraper.ntk_prefer_npia_cover = (
+            self._var_ntk_npia_cover.get()
         )
         include_notices = getattr(
             self._parent_gui, 'var_include_notices', None
         )
-        self._scraper.novelpia_include_notices = (
+        self._scraper.npia_include_notices = (
             include_notices.get() if include_notices else True
         )
         self._scraper.syosetu_amazon_cover_fallback = (
@@ -473,10 +473,10 @@ class ExternalNovelDialog(tk.Toplevel):
                     self._on_download_finished()
                 elif kind == "browser_closed":
                     self._on_browser_closed()
-                elif kind == "sfacg_app_done":
-                    self._on_sfacg_app_done(data)
-                elif kind == "sfacg_android_done":
-                    self._on_sfacg_android_done(data)
+                elif kind == "sfc_app_done":
+                    self._on_sfc_app_done(data)
+                elif kind == "sfc_android_done":
+                    self._on_sfc_android_done(data)
                 elif kind == "error":
                     self._append_log(f"\u274c Error: {data}")
         except queue.Empty:
@@ -563,12 +563,12 @@ class ExternalNovelDialog(tk.Toplevel):
                     )
                 else:
                     self._do_open_browser(payload)
-            elif kind == "sfacg_app_login":
-                self._do_sfacg_app_login(payload)
-            elif kind == "sfacg_android_open":
-                self._do_sfacg_android_open()
-            elif kind == "sfacg_android_import":
-                self._do_sfacg_android_import()
+            elif kind == "sfc_app_login":
+                self._do_sfc_app_login(payload)
+            elif kind == "sfc_android_open":
+                self._do_sfc_android_open()
+            elif kind == "sfc_android_import":
+                self._do_sfc_android_import()
 
     def _do_fetch(self, url):
         """Run parse_book on the worker thread."""
@@ -582,14 +582,14 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_faloo(url)
                         and not self._scraper.is_xiyuwx(url)
-                        and not self._scraper.is_global_novelpia(url)
-                        and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_global_npia(url)
+                        and not self._scraper.is_rbooks(url)
                         and not self._scraper.is_kobo(url)
-                        and not self._scraper.is_munpia(url)
-                        and not self._scraper.is_joara(url)
-                        and not self._scraper.is_naver_series(url)
-                        and not self._scraper.is_naver_novel(url)
-                        and not self._scraper.is_novelpia(url)):
+                        and not self._scraper.is_mpia(url)
+                        and not self._scraper.is_jara(url)
+                        and not self._scraper.is_nweb_series(url)
+                        and not self._scraper.is_nweb_novel(url)
+                        and not self._scraper.is_npia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
 
@@ -679,14 +679,14 @@ class ExternalNovelDialog(tk.Toplevel):
         # Reusing it after the user signs in would prevent any network retry.
         if not isinstance(result, dict) or result.get('_locked'):
             return False
-        # Old RIDI desktop exports could silently omit their opening pages.
+        # Old RBOOKS desktop exports could silently omit their opening pages.
         # Source covers are local reader bytes, unavailable after stripping
         # image data from a cache entry.
-        if 'ridi-content' in str(result.get('contentHtml') or ''):
-            from ridi_app_proxy import RidiAppProxy
-            if (result.get('_ridiAppExportVersion') !=
-                    RidiAppProxy.EXPORT_VERSION or
-                    (result.get('_ridiAppHasSourceCover') and
+        if 'rbooks-content' in str(result.get('contentHtml') or ''):
+            from rbooks_app_proxy import RbooksAppProxy
+            if (result.get('_rbooksAppExportVersion') !=
+                    RbooksAppProxy.EXPORT_VERSION or
+                    (result.get('_rbooksAppHasSourceCover') and
                      not result.get('_coverData'))):
                 return False
         # Kobo's blob image URLs exist only in the reader process. A cache
@@ -787,14 +787,14 @@ class ExternalNovelDialog(tk.Toplevel):
             is_yeduji = bool(
                 self._book_data and self._book_data.get("_yeduji")
             )
-            is_novelpia = bool(
-                self._book_data and self._book_data.get("_novelpia")
+            is_npia = bool(
+                self._book_data and self._book_data.get("_npia")
             )
-            is_munpia = bool(
-                self._book_data and self._book_data.get("_munpia")
+            is_mpia = bool(
+                self._book_data and self._book_data.get("_mpia")
             )
-            is_ridibooks = bool(
-                self._book_data and self._book_data.get("_ridibooks")
+            is_rbooks = bool(
+                self._book_data and self._book_data.get("_rbooks")
             )
             is_kobo = bool(
                 self._book_data and self._book_data.get("_kobo")
@@ -802,9 +802,9 @@ class ExternalNovelDialog(tk.Toplevel):
             is_kobo_desktop = bool(
                 self._book_data and self._book_data.get('_kobo_desktop')
             )
-            is_global_novelpia = bool(
+            is_global_npia = bool(
                 self._book_data
-                and self._book_data.get("_global_novelpia")
+                and self._book_data.get("_global_npia")
             )
             is_69shuba = bool(
                 self._book_data and self._book_data.get("_69shuba")
@@ -818,28 +818,28 @@ class ExternalNovelDialog(tk.Toplevel):
             is_1qxs = bool(
                 self._book_data and self._book_data.get("_1qxs")
             )
-            is_joara = bool(
-                self._book_data and self._book_data.get("_joara")
+            is_jara = bool(
+                self._book_data and self._book_data.get("_jara")
             )
-            is_naver_novel = bool(
-                self._book_data and self._book_data.get("_naver_novel")
+            is_nweb_novel = bool(
+                self._book_data and self._book_data.get("_nweb_novel")
             )
             if (self._scraper and not self._scraper._context
-                    and not is_ntk and not is_yeduji and not is_novelpia
-                    and not is_munpia
-                    and not is_ridibooks
+                    and not is_ntk and not is_yeduji and not is_npia
+                    and not is_mpia
+                    and not is_rbooks
                     and not is_kobo
-                    and not is_global_novelpia
+                    and not is_global_npia
                     and not is_69shuba and not is_1qxs and not is_faloo
                     and not is_xiyuwx
-                    and not is_joara and not is_naver_novel
+                    and not is_jara and not is_nweb_novel
                     and not (self._book_data and self._book_data.get('_qidian'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
-                # originate from the kakao.com domain.  The BFF API
+                # originate from the \u006b\u0061\u006b\u0061\u006f.com domain.  The BFF API
                 # returns 403 Forbidden for requests from about:blank.
                 if (self._scraper._page and self._book_data
-                        and self._book_data.get('_kakaopage')
+                        and self._book_data.get('_kpage')
                         and self._scraper._book_url):
                     try:
                         self._scraper._page.goto(
@@ -852,7 +852,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         pass
             self._apply_scraper_options()
 
-            if is_novelpia:
+            if is_npia:
                 notices = [ch for ch in chapters if ch.get('isNotice')]
                 regular_chapters = [
                     ch for ch in chapters if not ch.get('isNotice')
@@ -919,12 +919,12 @@ class ExternalNovelDialog(tk.Toplevel):
             is_qidian = bool(
                 self._book_data and self._book_data.get('_qidian')
             )
-            batch_size = 1 if is_novelpia else max(1, num_threads)
+            batch_size = 1 if is_npia else max(1, num_threads)
             rate_interval = interval
             rate_interval_max = interval_max
-            if is_novelpia:
+            if is_npia:
                 self._log(
-                    "[Novelpia] Safe mode: one chapter request at a time; "
+                    "[Npia] Safe mode: one chapter request at a time; "
                     "automatic chapter retries are disabled."
                 )
             if is_qidian and self._scraper:
@@ -941,15 +941,15 @@ class ExternalNovelDialog(tk.Toplevel):
             completed = 0
 
             # Pre-filter paid chapters if the user opted to skip them.
-            # For Kakao, skip only rows that the product list marks as not
+            # For Kpage, skip only rows that the product list marks as not
             # accessible to this account. Purchased/rented rows are kept.
-            # Munpia's free-only option excludes purchased paid chapters too.
-            # Explicitly inaccessible Munpia rows never need a viewer request.
-            if skip_paid or is_munpia:
+            # Mpia's free-only option excludes purchased paid chapters too.
+            # Explicitly inaccessible Mpia rows never need a viewer request.
+            if skip_paid or is_mpia:
                 skipped = 0
                 unavailable = 0
                 for i, ch in enumerate(selected):
-                    if is_munpia:
+                    if is_mpia:
                         inaccessible = ch.get('isAccessible') is False
                         should_skip = inaccessible or (
                             skip_paid and bool(
@@ -969,15 +969,15 @@ class ExternalNovelDialog(tk.Toplevel):
                                       '_chapter_number': start + i + 1}
                         skipped += 1
                 if skipped:
-                    if is_munpia:
+                    if is_mpia:
                         if unavailable:
                             self._log(
-                                f"  [Munpia] Skipped {unavailable} chapter(s) "
+                                f"  [Mpia] Skipped {unavailable} chapter(s) "
                                 "unavailable to this account."
                             )
                         if skipped > unavailable:
                             self._log(
-                                f"  [Munpia] Skipped {skipped - unavailable} "
+                                f"  [Mpia] Skipped {skipped - unavailable} "
                                 "paid chapter(s) (free-only)."
                             )
                     else:
@@ -986,7 +986,7 @@ class ExternalNovelDialog(tk.Toplevel):
             last_download_index = (
                 max((i for i, result in enumerate(results) if result is None),
                     default=-1)
-                if is_munpia else total - 1
+                if is_mpia else total - 1
             )
 
             for batch_start in range(0, total, batch_size):
@@ -1012,13 +1012,13 @@ class ExternalNovelDialog(tk.Toplevel):
                 # scrapers keep announcing work before the fetch starts.
                 log_on_success = (
                     is_ntk
-                    or is_ridibooks
+                    or is_rbooks
                     or is_kobo
-                    or is_global_novelpia
-                    or is_novelpia
-                    or is_munpia
-                    or is_joara
-                    or is_naver_novel
+                    or is_global_npia
+                    or is_npia
+                    or is_mpia
+                    or is_jara
+                    or is_nweb_novel
                 )
                 if not log_on_success:
                     for i in batch_indices:
@@ -1083,7 +1083,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 for j, data in enumerate(batch_results):
                     idx = batch_indices[j]
                     abort_reason = getattr(self._scraper, 'abort_reason', '')
-                    if (data is None and self._downloading and not is_novelpia
+                    if (data is None and self._downloading and not is_npia
                             and not abort_reason):
                         chapter = selected[idx]
                         for retry_attempt in range(1, retry_passes + 1):
@@ -1129,13 +1129,13 @@ class ExternalNovelDialog(tk.Toplevel):
                         data.setdefault('_is_notice', is_notice)
                         if is_notice:
                             source_number = chapter_info.get(
-                                '_novelpiaNoticeNumber', idx + 1
+                                '_npiaNoticeNumber', idx + 1
                             )
                         else:
                             source_number = chapter_info.get(
-                                '_novelpiaChapterNumber',
+                                '_npiaChapterNumber',
                                 chapter_info.get(
-                                    '_globalNovelpiaChapterNumber',
+                                    '_globalNpiaChapterNumber',
                                     start + idx + 1,
                                 ),
                             )
@@ -1215,14 +1215,14 @@ class ExternalNovelDialog(tk.Toplevel):
                     self, cache_entries, cache_path
                 )
 
-            # Novelpia intentionally does not retry failed chapters.
+            # Npia intentionally does not retry failed chapters.
             failed_indices = [
                 i for i, r in enumerate(results)
                 if r is None and self._downloading
             ]
-            if failed_indices and is_novelpia:
+            if failed_indices and is_npia:
                 self._log(
-                    f"❌ [Novelpia] {len(failed_indices)} chapter(s) failed. "
+                    f"❌ [Npia] {len(failed_indices)} chapter(s) failed. "
                     "They were not retried."
                 )
 
@@ -1269,7 +1269,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
             failed = sum(1 for r in results if r is None)
 
-            if is_novelpia:
+            if is_npia:
                 status = (
                     "FAILED" if failed
                     else "PARTIAL" if locked or ad_required
@@ -1283,14 +1283,14 @@ class ExternalNovelDialog(tk.Toplevel):
                     f"ads not completed: {ad_required}"
                 )
 
-            # Ridi refuses some owned ebooks in its web viewer (app-only);
+            # Rbooks refuses some owned ebooks in its web viewer (app-only);
             # these are not paywalled, so report them apart.
             web_only = sum(1 for r in results
                            if r and r.get('_lockReason') in ('app_only', 'unsupported'))
             login_required = (sum(1 for r in results
                                   if r and r.get('_lockReason') in
                                   ('login', 'verification'))
-                              if is_ridibooks or is_kobo else 0)
+                              if is_rbooks or is_kobo else 0)
             locked -= web_only + login_required
             if locked or ad_required or web_only or login_required:
                 incomplete = []
@@ -1315,13 +1315,13 @@ class ExternalNovelDialog(tk.Toplevel):
                     )
                 if web_only:
                     self._log(
-                        "⚠ Ridi would not open these volumes in its web "
-                        "viewer even though you are signed in. Ridi serves "
-                        "some ebooks only in the RIDI app or PC viewer; "
+                        "⚠ Rbooks would not open these volumes in its web "
+                        "viewer even though you are signed in. Rbooks serves "
+                        "some ebooks only in the RBOOKS app or PC viewer; "
                         "otherwise the volume is not in your library."
                     )
                 if login_required:
-                    store = 'RIDI' if is_ridibooks else 'Kobo'
+                    store = 'RBOOKS' if is_rbooks else 'Kobo'
                     self._log(
                         f"⚠ {store} library access could not be confirmed. "
                         "Retry; if needed, sign in using Enter Browser and "
@@ -1329,7 +1329,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     )
                 if ad_required:
                     self._log(
-                        "⚠ Ad-gated chapters were skipped because Novelpia "
+                        "⚠ Ad-gated chapters were skipped because Npia "
                         "did not confirm the displayed advertisement."
                     )
             elif failed:
@@ -1364,45 +1364,45 @@ class ExternalNovelDialog(tk.Toplevel):
         finally:
             self._msg_queue.put(("browser_closed", None))
 
-    def _do_sfacg_app_login(self, payload):
-        """Log in to SFACG's app API on the worker thread."""
+    def _do_sfc_app_login(self, payload):
+        """Log in to SFC's app API on the worker thread."""
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
             cookie = payload.get("cookie", "")
             if cookie:
-                ok = self._scraper.save_sfacg_app_cookie(cookie)
+                ok = self._scraper.save_sfc_app_cookie(cookie)
             else:
-                ok = self._scraper.login_sfacg_app(
+                ok = self._scraper.login_sfc_app(
                     payload.get("username", ""),
                     payload.get("password", ""),
                 )
-            self._msg_queue.put(("sfacg_app_done", ok))
+            self._msg_queue.put(("sfc_app_done", ok))
         except Exception as e:
-            self._msg_queue.put(("error", f"SFACG app login error: {e}"))
-            self._msg_queue.put(("sfacg_app_done", False))
+            self._msg_queue.put(("error", f"SFC app login error: {e}"))
+            self._msg_queue.put(("sfc_app_done", False))
 
-    def _do_sfacg_android_open(self):
+    def _do_sfc_android_open(self):
         """Open the configured Android emulator."""
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
             ok = self._scraper.open_android_emulator()
-            self._msg_queue.put(("sfacg_android_done", ok))
+            self._msg_queue.put(("sfc_android_done", ok))
         except Exception as e:
             self._msg_queue.put(("error", f"Android emulator error: {e}"))
-            self._msg_queue.put(("sfacg_android_done", False))
+            self._msg_queue.put(("sfc_android_done", False))
 
-    def _do_sfacg_android_import(self):
-        """Import SFACG app cookie from Android emulator app data."""
+    def _do_sfc_android_import(self):
+        """Import SFC app cookie from Android emulator app data."""
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
-            ok = self._scraper.import_sfacg_app_cookie_from_android()
-            self._msg_queue.put(("sfacg_app_done", ok))
+            ok = self._scraper.import_sfc_app_cookie_from_android()
+            self._msg_queue.put(("sfc_app_done", ok))
         except Exception as e:
             self._msg_queue.put(("error", f"Android import error: {e}"))
-            self._msg_queue.put(("sfacg_app_done", False))
+            self._msg_queue.put(("sfc_app_done", False))
 
     # ------------------------------------------------------------------
     # Enter Browser (manual login)
@@ -1418,24 +1418,24 @@ class ExternalNovelDialog(tk.Toplevel):
 
         self._btn_download.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
-        self._btn_sfacg_app.configure(state="disabled")
+        self._btn_sfc_app.configure(state="disabled")
         self._chk_regular_browser.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
         regular_browser = self._var_regular_browser.get()
-        if start_url and ExternalScraper.is_novelpia(start_url):
+        if start_url and ExternalScraper.is_npia(start_url):
             regular_browser = True
             self._var_regular_browser.set(True)
             self._append_log(
-                "[Novelpia] Enter Browser uses the External Downloader's "
+                "[Npia] Enter Browser uses the External Downloader's "
                 "regular installed-Chrome profile. Log in normally, then "
                 "close that window."
             )
-        elif start_url and ExternalScraper.is_munpia(start_url):
+        elif start_url and ExternalScraper.is_mpia(start_url):
             regular_browser = True
             self._var_regular_browser.set(True)
             self._append_log(
-                "[Munpia] Enter Browser uses the External Downloader's "
+                "[Mpia] Enter Browser uses the External Downloader's "
                 "saved browser profile. Log in to access your purchased "
                 "chapters, then close that window. Skip paid selects "
                 "only free chapters."
@@ -1443,7 +1443,7 @@ class ExternalNovelDialog(tk.Toplevel):
         elif start_url and any((
             ExternalScraper.is_faloo(start_url),
             ExternalScraper.is_qidian(start_url),
-            ExternalScraper.is_ridibooks(start_url),
+            ExternalScraper.is_rbooks(start_url),
             ExternalScraper.is_kobo(start_url),
         )):
             regular_browser = True
@@ -1469,17 +1469,17 @@ class ExternalNovelDialog(tk.Toplevel):
     def _on_browser_closed(self):
         """Re-enable buttons after the visible browser session ends."""
         self._btn_browser.configure(state="normal")
-        self._btn_sfacg_app.configure(state="normal")
+        self._btn_sfc_app.configure(state="normal")
         self._chk_regular_browser.configure(state="normal")
         self._btn_download.configure(state="normal")
         self._btn_paste_batch.configure(state="normal")
         self._btn_batch_file.configure(state="normal")
         self._append_log("Browser session ended.")
 
-    def _on_sfacg_app_login(self):
-        """Prompt for SFACG app credentials or an existing app cookie."""
+    def _on_sfc_app_login(self):
+        """Prompt for SFC app credentials or an existing app cookie."""
         dlg = tk.Toplevel(self)
-        dlg.title("SFACG App Session")
+        dlg.title("SFC App Session")
         dlg.transient(self)
         dlg.grab_set()
         dlg.resizable(True, False)
@@ -1520,23 +1520,23 @@ class ExternalNovelDialog(tk.Toplevel):
             cookie = txt_cookie.get("1.0", "end").strip()
             if not cookie and (not username or not password):
                 messagebox.showwarning(
-                    "SFACG App Session",
+                    "SFC App Session",
                     "Enter username/password or paste an app cookie.",
                     parent=dlg,
                 )
                 return
             dlg.destroy()
             if cookie:
-                self._append_log("Importing SFACG app cookie...")
+                self._append_log("Importing SFC app cookie...")
             else:
-                self._append_log("Logging in to SFACG app API...")
+                self._append_log("Logging in to SFC app API...")
             self._btn_download.configure(state="disabled")
             self._btn_browser.configure(state="disabled")
-            self._btn_sfacg_app.configure(state="disabled")
+            self._btn_sfc_app.configure(state="disabled")
             self._chk_regular_browser.configure(state="disabled")
             self._btn_paste_batch.configure(state="disabled")
             self._btn_batch_file.configure(state="disabled")
-            self._work_queue.put(("sfacg_app_login", {
+            self._work_queue.put(("sfc_app_login", {
                 "username": username,
                 "password": password,
                 "cookie": cookie,
@@ -1549,12 +1549,12 @@ class ExternalNovelDialog(tk.Toplevel):
         ttk.Button(
             btns,
             text="Import Android",
-            command=lambda: (dlg.destroy(), self._on_sfacg_android_import()),
+            command=lambda: (dlg.destroy(), self._on_sfc_android_import()),
         ).pack(side="left")
         ttk.Button(
             btns,
             text="Open Android",
-            command=lambda: self._on_sfacg_android_open(),
+            command=lambda: self._on_sfc_android_open(),
         ).pack(side="left", padx=(0, 5))
         ent_user.focus_set()
         dlg.bind("<Return>", lambda _e: submit())
@@ -1563,38 +1563,38 @@ class ExternalNovelDialog(tk.Toplevel):
     def _set_app_buttons_enabled(self, enabled):
         state = "normal" if enabled else "disabled"
         self._btn_browser.configure(state=state)
-        self._btn_sfacg_app.configure(state=state)
+        self._btn_sfc_app.configure(state=state)
         self._chk_regular_browser.configure(state=state)
         self._btn_download.configure(state=state)
         self._btn_paste_batch.configure(state=state)
         self._btn_batch_file.configure(state=state)
 
-    def _on_sfacg_android_open(self):
+    def _on_sfc_android_open(self):
         self._append_log("Opening Android emulator...")
         self._set_app_buttons_enabled(False)
-        self._work_queue.put(("sfacg_android_open", None))
+        self._work_queue.put(("sfc_android_open", None))
 
-    def _on_sfacg_android_import(self):
-        self._append_log("Trying to import SFACG app session from Android...")
+    def _on_sfc_android_import(self):
+        self._append_log("Trying to import SFC app session from Android...")
         self._set_app_buttons_enabled(False)
-        self._work_queue.put(("sfacg_android_import", None))
+        self._work_queue.put(("sfc_android_import", None))
 
-    def _on_sfacg_android_done(self, ok):
+    def _on_sfc_android_done(self, ok):
         self._set_app_buttons_enabled(True)
         if ok:
             self._append_log(
-                "Android emulator opened. Install/open SFACG, log in, "
+                "Android emulator opened. Install/open SFC, log in, "
                 "then use Enter App > Import Android."
             )
         else:
             self._append_log("Android emulator action failed.")
 
-    def _on_sfacg_app_done(self, ok):
+    def _on_sfc_app_done(self, ok):
         self._set_app_buttons_enabled(True)
         if ok:
-            self._append_log("SFACG app session saved.")
+            self._append_log("SFC app session saved.")
         else:
-            self._append_log("SFACG app login failed.")
+            self._append_log("SFC app login failed.")
 
     # ------------------------------------------------------------------
     # Fetch Info (internal helper — called from workers)
@@ -1679,7 +1679,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_stop.configure(state="normal")
         self._chk_generate_on_stop.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
-        self._btn_sfacg_app.configure(state="disabled")
+        self._btn_sfc_app.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
         self._progress['value'] = 0
@@ -1727,7 +1727,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_stop.configure(state="disabled")
         self._chk_generate_on_stop.configure(state="normal")
         self._btn_browser.configure(state="normal")
-        self._btn_sfacg_app.configure(state="normal")
+        self._btn_sfc_app.configure(state="normal")
         self._btn_paste_batch.configure(state="normal")
         self._btn_batch_file.configure(state="normal")
         self._lbl_eta.configure(text="")
@@ -1749,14 +1749,14 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_faloo(url)
                         and not self._scraper.is_xiyuwx(url)
-                        and not self._scraper.is_global_novelpia(url)
-                        and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_global_npia(url)
+                        and not self._scraper.is_rbooks(url)
                         and not self._scraper.is_kobo(url)
-                        and not self._scraper.is_munpia(url)
-                        and not self._scraper.is_joara(url)
-                        and not self._scraper.is_naver_series(url)
-                        and not self._scraper.is_naver_novel(url)
-                        and not self._scraper.is_novelpia(url)):
+                        and not self._scraper.is_mpia(url)
+                        and not self._scraper.is_jara(url)
+                        and not self._scraper.is_nweb_series(url)
+                        and not self._scraper.is_nweb_novel(url)
+                        and not self._scraper.is_npia(url)):
                     self._scraper.start()
             self._apply_scraper_options()
 
@@ -1781,7 +1781,7 @@ class ExternalNovelDialog(tk.Toplevel):
         start = 0
         end = (
             data.get('chapterCount', len(chapters))
-            if data.get('_novelpia')
+            if data.get('_npia')
             else len(chapters)
         )
         if self._var_from_enabled.get():
@@ -1822,12 +1822,12 @@ class ExternalNovelDialog(tk.Toplevel):
                 1 for result in self._chapter_results if result is None
             )
             if (
-                data.get('_novelpia')
+                data.get('_npia')
                 and failures
                 and not generate_after_stop
             ):
                 self._log(
-                    f"❌ [Novelpia] Output not generated because {failures} "
+                    f"❌ [Npia] Output not generated because {failures} "
                     "chapter(s) failed. No partial EPUB was written."
                 )
                 return
@@ -1957,7 +1957,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._btn_stop.configure(state="normal")
         self._chk_generate_on_stop.configure(state="disabled")
         self._btn_browser.configure(state="disabled")
-        self._btn_sfacg_app.configure(state="disabled")
+        self._btn_sfc_app.configure(state="disabled")
         self._btn_paste_batch.configure(state="disabled")
         self._btn_batch_file.configure(state="disabled")
         self._progress['value'] = 0
@@ -2024,14 +2024,14 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_faloo(url)
                         and not self._scraper.is_xiyuwx(url)
-                        and not self._scraper.is_global_novelpia(url)
-                        and not self._scraper.is_ridibooks(url)
+                        and not self._scraper.is_global_npia(url)
+                        and not self._scraper.is_rbooks(url)
                         and not self._scraper.is_kobo(url)
-                        and not self._scraper.is_munpia(url)
-                        and not self._scraper.is_joara(url)
-                        and not self._scraper.is_naver_series(url)
-                        and not self._scraper.is_naver_novel(url)
-                        and not self._scraper.is_novelpia(url)
+                        and not self._scraper.is_mpia(url)
+                        and not self._scraper.is_jara(url)
+                        and not self._scraper.is_nweb_series(url)
+                        and not self._scraper.is_nweb_novel(url)
+                        and not self._scraper.is_npia(url)
                         and not self._scraper._context):
                     self._scraper.start()
                     self._apply_scraper_options()
@@ -2059,7 +2059,7 @@ class ExternalNovelDialog(tk.Toplevel):
             start = 0
             end = (
                 data.get('chapterCount', len(chapters))
-                if data.get('_novelpia')
+                if data.get('_npia')
                 else len(chapters)
             )
             if self._var_from_enabled.get():
@@ -2091,12 +2091,12 @@ class ExternalNovelDialog(tk.Toplevel):
                 1 for result in self._chapter_results if result is None
             )
             if (
-                data.get('_novelpia')
+                data.get('_npia')
                 and failures
                 and not generate_after_stop
             ):
                 self._log(
-                    f"❌ [Novelpia] Output not generated because {failures} "
+                    f"❌ [Npia] Output not generated because {failures} "
                     "chapter(s) failed. No partial file was written."
                 )
                 continue
@@ -2339,10 +2339,10 @@ class ExternalNovelDialog(tk.Toplevel):
                           'Chrome/120.0.0.0 Safari/537.36',
             'Referer': data.get('bookUrl', ''),
         })
-        if data.get('_ridibooks'):
+        if data.get('_rbooks'):
             img_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
-                'Origin': 'https://ridibooks.com',
+                'Referer': data.get('bookUrl') or 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
+                'Origin': 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         elif data.get('_kobo'):
@@ -2351,18 +2351,18 @@ class ExternalNovelDialog(tk.Toplevel):
                 'Origin': 'https://www.kobo.com',
             })
             self._copy_browser_cookies_to_session(img_session)
-        elif data.get('_munpia'):
+        elif data.get('_mpia'):
             img_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
-                'Origin': 'https://www.munpia.com',
+                'Referer': data.get('bookUrl') or 'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/',
+                'Origin': 'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com',
             })
             self._copy_browser_cookies_to_session(img_session)
-        elif data.get('_global_novelpia'):
+        elif data.get('_global_npia'):
             img_session.headers.update({
                 'Referer': (
-                    data.get('bookUrl') or 'https://global.novelpia.com/'
+                    data.get('bookUrl') or 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/'
                 ),
-                'Origin': 'https://global.novelpia.com',
+                'Origin': 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         img_compress_type = (
@@ -2518,9 +2518,9 @@ class ExternalNovelDialog(tk.Toplevel):
         finally:
             img_session.close()
 
-    def _kakao_extra_css(self):
-        """Collect original Kakao viewer CSS from downloaded chapters."""
-        if not (self._book_data and self._book_data.get('_kakaopage')):
+    def _kpage_extra_css(self):
+        """Collect original Kpage viewer CSS from downloaded chapters."""
+        if not (self._book_data and self._book_data.get('_kpage')):
             return ''
 
         css_parts = ["""
@@ -2531,12 +2531,12 @@ body {
 .chapter > h1:first-child {
   display: none;
 }
-.kakao-source-heading {
+.kpage-source-heading {
   margin-top: 4vh !important;
   margin-bottom: 3vh !important;
   text-align: center !important;
 }
-.kakao-page-break {
+.kpage-page-break {
   display: block;
   height: 0;
   line-height: 0;
@@ -2697,7 +2697,7 @@ p > img {
             self._log("  Cover compression: OFF")
 
         data = self._book_data
-        is_kakao = bool(data.get('_kakaopage'))
+        is_kpage = bool(data.get('_kpage'))
         use_long_image_layout = (
             bool(self._var_long_image_layout.get())
             and self._has_long_image_chapters()
@@ -2712,7 +2712,7 @@ img { display: block; max-width: 100%; max-height: 100%;
       margin-left: auto; margin-right: auto; margin-bottom: 2%; margin-top: 2%; }
 """
         chapter_css = self._chapter_extra_css()
-        if chapter_css and not is_kakao:
+        if chapter_css and not is_kpage:
             css = f"{css}\n\n/* Scraper-provided chapter CSS */\n{chapter_css}\n"
         if use_long_image_layout:
             css = (
@@ -2720,9 +2720,9 @@ img { display: block; max-width: 100%; max-height: 100%;
                 f"{self._long_image_layout_css()}\n"
             )
             self._log("  Long image layout: ON")
-        kakao_css = self._kakao_extra_css()
-        if kakao_css:
-            css = f"{css}\n\n/* KakaoPage original viewer CSS */\n{kakao_css}\n"
+        kpage_css = self._kpage_extra_css()
+        if kpage_css:
+            css = f"{css}\n\n/* Kpage original viewer CSS */\n{kpage_css}\n"
         cover_url, cover_data = ExternalNovelDialog._preferred_external_cover(
             data, self._chapter_results
         )
@@ -2746,16 +2746,16 @@ img { display: block; max-width: 100%; max-height: 100%;
                           'Chrome/120.0.0.0 Safari/537.36',
             'Referer': data.get('bookUrl', ''),
         })
-        if is_kakao:
+        if is_kpage:
             img_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://page.kakao.com/',
-                'Origin': 'https://page.kakao.com',
+                'Referer': data.get('bookUrl') or 'https://page.\u006b\u0061\u006b\u0061\u006f.com/',
+                'Origin': 'https://page.\u006b\u0061\u006b\u0061\u006f.com',
             })
             self._copy_browser_cookies_to_session(img_session)
-        elif data.get('_ridibooks'):
+        elif data.get('_rbooks'):
             img_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
-                'Origin': 'https://ridibooks.com',
+                'Referer': data.get('bookUrl') or 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
+                'Origin': 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         elif data.get('_kobo'):
@@ -2764,18 +2764,18 @@ img { display: block; max-width: 100%; max-height: 100%;
                 'Origin': 'https://www.kobo.com',
             })
             self._copy_browser_cookies_to_session(img_session)
-        elif data.get('_munpia'):
+        elif data.get('_mpia'):
             img_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
-                'Origin': 'https://www.munpia.com',
+                'Referer': data.get('bookUrl') or 'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/',
+                'Origin': 'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com',
             })
             self._copy_browser_cookies_to_session(img_session)
-        elif data.get('_global_novelpia'):
+        elif data.get('_global_npia'):
             img_session.headers.update({
                 'Referer': (
-                    data.get('bookUrl') or 'https://global.novelpia.com/'
+                    data.get('bookUrl') or 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/'
                 ),
-                'Origin': 'https://global.novelpia.com',
+                'Origin': 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com',
             })
             self._copy_browser_cookies_to_session(img_session)
         img_counter = [0]
@@ -2837,7 +2837,7 @@ img { display: block; max-width: 100%; max-height: 100%;
 
             # Add introduction page if available (synopsis/description)
             intro_html = data.get('introductionHTML', '')
-            status = data.get('status', '') if data.get('_novelpia') else ''
+            status = data.get('status', '') if data.get('_npia') else ''
             status_html = (
                 f'<p><strong>Status:</strong> {html.escape(status)}</p>'
                 if status else ''
@@ -2901,7 +2901,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     completed_image_bytes = 0
 
                     # Reuse HTTP sessions across image tasks. Creating a new
-                    # TLS connection for every Kakao page image is expensive,
+                    # TLS connection for every Kpage image is expensive,
                     # especially when compression is disabled and downloading
                     # is the dominant cost.
                     session_pool = None
@@ -3112,7 +3112,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                     content_html, rename_map
                 )
 
-                show_chapter_title = not is_kakao
+                show_chapter_title = not is_kpage
                 if use_long_image_layout and ch_data.get('images'):
                     show_chapter_title = False
                 toc_sections = ch_data.get('tocSections') or []
@@ -3127,11 +3127,11 @@ img { display: block; max-width: 100%; max-height: 100%;
                     toc_sections=toc_sections,
                 )
 
-            if is_kakao and self._var_kakao_dedupe_images.get():
+            if is_kpage and self._var_kpage_dedupe_images.get():
                 max_positions = max(
-                    1, min(10, self._var_kakao_dedupe_leading_images.get())
+                    1, min(10, self._var_kpage_dedupe_leading_images.get())
                 )
-                self._remove_kakao_duplicate_cover_pages(
+                self._remove_kpage_duplicate_cover_pages(
                     epub, max_positions=max_positions
                 )
 
@@ -3187,11 +3187,11 @@ img { display: block; max-width: 100%; max-height: 100%;
         if copied:
             self._log(f"  Using {copied} browser cookie(s) for image downloads.")
 
-    def _remove_kakao_duplicate_cover_pages(self, epub, max_positions=2):
-        """Remove repeated Kakao boilerplate images by exact bytes.
+    def _remove_kpage_duplicate_cover_pages(self, epub, max_positions=2):
+        """Remove repeated Kpage boilerplate images by exact bytes.
 
         This does not download or probe anything. It only looks at the
-        configured number of leading images from Kakao image chapters, then
+        configured number of leading images from Kpage image chapters, then
         removes later occurrences whose bytes are identical while keeping the
         first copy. This avoids extension-based false positives.
         """
@@ -3206,7 +3206,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         occurrences_by_bytes = {}
         for chap_idx, chap in enumerate(epub.chapters):
             content = chap.get('content') or ''
-            if 'kakao-image-chapter' not in content:
+            if 'kpage-image-chapter' not in content:
                 continue
             matches = re.findall(
                 r'<img\b[^>]*\bsrc=["\']\.\./Images/([^"\']+)["\']',
@@ -3246,12 +3246,12 @@ img { display: block; max-width: 100%; max-height: 100%;
             if img.get('filename') not in duplicate_names
         ]
         self._log(
-            f"  Removed {len(duplicate_names)} duplicate Kakao "
+            f"  Removed {len(duplicate_names)} duplicate Kpage "
             "boilerplate image occurrence(s), keeping the first copy."
         )
 
     def _remove_image_page_by_filename(self, html_str, filename):
-        """Remove a Kakao image-page wrapper, falling back to the img tag."""
+        """Remove a Kpage image-page wrapper, falling back to the img tag."""
         if not html_str or not filename:
             return html_str
 
@@ -3261,7 +3261,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         }
         for src in sources:
             pattern = (
-                r'\s*<div class="kakao-image-page">\s*'
+                r'\s*<div class="kpage-image-page">\s*'
                 r'<img\b[^>]*\bsrc=["\']' + re.escape(src) +
                 r'["\'][^>]*/?>\s*</div>'
             )
@@ -3277,7 +3277,7 @@ img { display: block; max-width: 100%; max-height: 100%;
     def _preferred_external_cover(data, chapter_results):
         cover_url = data.get('coverUrl', '')
         cover_data = data.get('_coverData')
-        if data.get('_ridibooks') or data.get('_kobo'):
+        if data.get('_rbooks') or data.get('_kobo'):
             for result in chapter_results or []:
                 if isinstance(result, dict) and result.get('coverUrl'):
                     return result['coverUrl'], (
@@ -3337,7 +3337,7 @@ img { display: block; max-width: 100%; max-height: 100%;
                         image_host = (
                             urllib.parse.urlparse(url).hostname or ''
                         ).lower()
-                        if image_host != 'pv-gn.novelpia.com':
+                        if image_host != 'pv-gn.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com':
                             effective_cookies = {
                                 key: value
                                 for key, value in effective_cookies.items()
@@ -3533,9 +3533,9 @@ h3, h4, h5, h6 { text-align: center; margin-bottom: 15%; margin-top: 10%; }
 img { display: block; max-width: 100%; max-height: 100%;
       margin-left: auto; margin-right: auto; margin-bottom: 2%; margin-top: 2%; }
 """
-        kakao_css = self._kakao_extra_css()
-        if kakao_css:
-            css = f"{css}\n\n/* KakaoPage original viewer CSS */\n{kakao_css}\n"
+        kpage_css = self._kpage_extra_css()
+        if kpage_css:
+            css = f"{css}\n\n/* Kpage original viewer CSS */\n{kpage_css}\n"
 
         data = self._book_data
         metadata = {
@@ -3553,16 +3553,16 @@ img { display: block; max-width: 100%; max-height: 100%;
                           'Chrome/120.0.0.0 Safari/537.36',
             'Referer': data.get('bookUrl', ''),
         })
-        if data.get('_kakaopage'):
+        if data.get('_kpage'):
             image_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://page.kakao.com/',
-                'Origin': 'https://page.kakao.com',
+                'Referer': data.get('bookUrl') or 'https://page.\u006b\u0061\u006b\u0061\u006f.com/',
+                'Origin': 'https://page.\u006b\u0061\u006b\u0061\u006f.com',
             })
             self._copy_browser_cookies_to_session(image_session)
-        elif data.get('_ridibooks'):
+        elif data.get('_rbooks'):
             image_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://ridibooks.com/',
-                'Origin': 'https://ridibooks.com',
+                'Referer': data.get('bookUrl') or 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
+                'Origin': 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com',
             })
             self._copy_browser_cookies_to_session(image_session)
         elif data.get('_kobo'):
@@ -3571,18 +3571,18 @@ img { display: block; max-width: 100%; max-height: 100%;
                 'Origin': 'https://www.kobo.com',
             })
             self._copy_browser_cookies_to_session(image_session)
-        elif data.get('_munpia'):
+        elif data.get('_mpia'):
             image_session.headers.update({
-                'Referer': data.get('bookUrl') or 'https://www.munpia.com/',
-                'Origin': 'https://www.munpia.com',
+                'Referer': data.get('bookUrl') or 'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/',
+                'Origin': 'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com',
             })
             self._copy_browser_cookies_to_session(image_session)
-        elif data.get('_global_novelpia'):
+        elif data.get('_global_npia'):
             image_session.headers.update({
                 'Referer': (
-                    data.get('bookUrl') or 'https://global.novelpia.com/'
+                    data.get('bookUrl') or 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/'
                 ),
-                'Origin': 'https://global.novelpia.com',
+                'Origin': 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com',
             })
             self._copy_browser_cookies_to_session(image_session)
 
@@ -3854,8 +3854,8 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_regular_browser.set(
                 cfg.get("ext_regular_browser", False)
             )
-            self._var_ntk_novelpia_cover.set(
-                cfg.get("ext_ntk_novelpia_cover", False)
+            self._var_ntk_npia_cover.set(
+                cfg.get("ext_ntk_npia_cover", False)
             )
             self._var_syosetu_amazon_cover.set(
                 cfg.get("ext_syosetu_amazon_cover", False)
@@ -3863,21 +3863,21 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_long_image_layout.set(
                 cfg.get("ext_long_image_layout", False)
             )
-            self._var_kakao_skip_last_page.set(
-                cfg.get("ext_kakao_skip_last_page", False)
+            self._var_kpage_skip_last_page.set(
+                cfg.get("ext_kpage_skip_last_page", False)
             )
-            self._var_kakao_keep_filler.set(
-                cfg.get("ext_kakao_keep_filler", False)
+            self._var_kpage_keep_filler.set(
+                cfg.get("ext_kpage_keep_filler", False)
             )
-            self._var_kakao_dedupe_images.set(
-                cfg.get("ext_kakao_dedupe_images", True)
+            self._var_kpage_dedupe_images.set(
+                cfg.get("ext_kpage_dedupe_images", True)
             )
-            self._var_kakao_dedupe_leading_images.set(
-                cfg.get("ext_kakao_dedupe_leading_images", 2)
+            self._var_kpage_dedupe_leading_images.set(
+                cfg.get("ext_kpage_dedupe_leading_images", 2)
             )
-            self._spn_kakao_dedupe_leading.configure(
+            self._spn_kpage_dedupe_leading.configure(
                 state=(
-                    "normal" if self._var_kakao_dedupe_images.get()
+                    "normal" if self._var_kpage_dedupe_images.get()
                     else "disabled"
                 )
             )
@@ -3928,22 +3928,22 @@ img { display: block; max-width: 100%; max-height: 100%;
         cfg["ext_use_cache"] = self._var_use_cache.get()
         cfg["ext_cache_images"] = self._var_cache_images.get()
         cfg["ext_regular_browser"] = self._var_regular_browser.get()
-        cfg["ext_ntk_novelpia_cover"] = (
-            self._var_ntk_novelpia_cover.get()
+        cfg["ext_ntk_npia_cover"] = (
+            self._var_ntk_npia_cover.get()
         )
         cfg["ext_syosetu_amazon_cover"] = (
             self._var_syosetu_amazon_cover.get()
         )
         cfg["ext_long_image_layout"] = self._var_long_image_layout.get()
-        cfg["ext_kakao_skip_last_page"] = (
-            self._var_kakao_skip_last_page.get()
+        cfg["ext_kpage_skip_last_page"] = (
+            self._var_kpage_skip_last_page.get()
         )
-        cfg["ext_kakao_keep_filler"] = self._var_kakao_keep_filler.get()
-        cfg["ext_kakao_dedupe_images"] = (
-            self._var_kakao_dedupe_images.get()
+        cfg["ext_kpage_keep_filler"] = self._var_kpage_keep_filler.get()
+        cfg["ext_kpage_dedupe_images"] = (
+            self._var_kpage_dedupe_images.get()
         )
-        cfg["ext_kakao_dedupe_leading_images"] = max(
-            1, min(10, self._var_kakao_dedupe_leading_images.get())
+        cfg["ext_kpage_dedupe_leading_images"] = max(
+            1, min(10, self._var_kpage_dedupe_leading_images.get())
         )
         try:
             with open(cfg_path, "w", encoding="utf-8") as f:

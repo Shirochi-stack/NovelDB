@@ -183,15 +183,15 @@ def test_external_config_migrates_legacy_interval_to_fixed_range(
         '_var_from', '_var_to', '_var_skip_paid', '_var_number_chapters',
         '_var_regular_browser', '_var_blank_paragraph_lines',
         '_var_generate_on_stop',
-        '_var_ntk_novelpia_cover', '_var_syosetu_amazon_cover',
-        '_var_long_image_layout', '_var_kakao_skip_last_page',
-        '_var_kakao_keep_filler', '_var_kakao_dedupe_images',
-        '_var_kakao_dedupe_leading_images',
+        '_var_ntk_npia_cover', '_var_syosetu_amazon_cover',
+        '_var_long_image_layout', '_var_kpage_skip_last_page',
+        '_var_kpage_keep_filler', '_var_kpage_dedupe_images',
+        '_var_kpage_dedupe_leading_images',
     )
     dialog = SimpleNamespace(**{
         name: Setting(None) for name in setting_names
     })
-    dialog._spn_kakao_dedupe_leading = SimpleNamespace(
+    dialog._spn_kpage_dedupe_leading = SimpleNamespace(
         configure=lambda **_kwargs: None
     )
 
@@ -328,22 +328,22 @@ def test_external_download_forwards_range_and_randomizes_each_batch(
     assert sleeps == [0.75]
 
 
-def test_external_novelpia_notices_follow_main_download_setting():
+def test_external_npia_notices_follow_main_download_setting():
     scraper = SimpleNamespace()
     dialog = SimpleNamespace(
         _scraper=scraper,
         _parent_gui=SimpleNamespace(var_include_notices=Setting(False)),
         _get_interval_range=lambda: (0.5, 0.5),
-        _var_kakao_skip_last_page=Setting(False),
-        _var_kakao_keep_filler=Setting(False),
-        _var_ntk_novelpia_cover=Setting(False),
+        _var_kpage_skip_last_page=Setting(False),
+        _var_kpage_keep_filler=Setting(False),
+        _var_ntk_npia_cover=Setting(False),
         _var_syosetu_amazon_cover=Setting(False),
         _var_kobo_horizontal_layout=Setting(True),
     )
 
     ExternalNovelDialog._apply_scraper_options(dialog)
 
-    assert scraper.novelpia_include_notices is False
+    assert scraper.npia_include_notices is False
 
 
 def test_external_download_runs_configured_number_of_retry_passes():
@@ -467,7 +467,7 @@ def test_external_download_preserves_selected_range_numbers():
     ] == [5, 6, 7]
 
 
-def test_novelpia_range_prepends_notices_without_shifting_chapter_numbers():
+def test_npia_range_prepends_notices_without_shifting_chapter_numbers():
     calls = []
 
     class Scraper:
@@ -488,7 +488,7 @@ def test_novelpia_range_prepends_notices_without_shifting_chapter_numbers():
 
     dialog = SimpleNamespace(
         _scraper=Scraper(),
-        _book_data={"_novelpia": True},
+        _book_data={"_npia": True},
         _downloading=True,
         _download_cancelled=False,
         _chapter_results=[],
@@ -501,16 +501,16 @@ def test_novelpia_range_prepends_notices_without_shifting_chapter_numbers():
         {
             "name": "Notice 1",
             "isNotice": True,
-            "_novelpiaNoticeNumber": 1,
+            "_npiaNoticeNumber": 1,
         },
         {
             "name": "Notice 2",
             "isNotice": True,
-            "_novelpiaNoticeNumber": 2,
+            "_npiaNoticeNumber": 2,
         },
-        {"name": "Chapter 1", "_novelpiaChapterNumber": 1},
-        {"name": "Chapter 2", "_novelpiaChapterNumber": 2},
-        {"name": "Chapter 3", "_novelpiaChapterNumber": 3},
+        {"name": "Chapter 1", "_npiaChapterNumber": 1},
+        {"name": "Chapter 2", "_npiaChapterNumber": 2},
+        {"name": "Chapter 3", "_npiaChapterNumber": 3},
     ]
 
     ExternalNovelDialog._do_download(
@@ -549,7 +549,7 @@ def test_external_epub_filename_uses_preserved_range_number(tmp_path):
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
     dialog._var_long_image_layout = Setting(False)
-    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)
     dialog._log = lambda _message: None
@@ -566,12 +566,12 @@ def test_external_epub_filename_uses_preserved_range_number(tmp_path):
 
 @pytest.mark.parametrize('status', ['Ongoing', 'Completed'])
 @pytest.mark.parametrize('introduction', ['', '<p>Synopsis</p>'])
-def test_novelpia_epub_info_includes_status(tmp_path, status, introduction):
+def test_npia_epub_info_includes_status(tmp_path, status, introduction):
     dialog = object.__new__(ExternalNovelDialog)
     dialog._book_data = {
         'bookname': 'Status Test',
         'author': 'Author',
-        '_novelpia': True,
+        '_npia': True,
         'status': status,
         'introductionHTML': introduction,
     }
@@ -582,7 +582,7 @@ def test_novelpia_epub_info_includes_status(tmp_path, status, introduction):
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
     dialog._var_long_image_layout = Setting(False)
-    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)
     dialog._log = lambda _message: None
@@ -617,7 +617,7 @@ def test_external_epub_uses_separate_notice_filenames(tmp_path):
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
     dialog._var_long_image_layout = Setting(False)
-    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)
     dialog._log = lambda _message: None
@@ -648,7 +648,7 @@ def test_blank_paragraph_lines_epub_and_txt_are_opt_in(tmp_path):
         dialog._parent_gui = SimpleNamespace()
         dialog._scraper = None
         dialog._var_long_image_layout = Setting(False)
-        dialog._var_kakao_dedupe_images = Setting(False)
+        dialog._var_kpage_dedupe_images = Setting(False)
         dialog._var_ext_image_workers = Setting(1)
         dialog._get_output_dir = lambda folder=folder: str(folder)
         dialog._log = lambda _message: None
@@ -683,7 +683,7 @@ def test_blank_paragraph_lines_pdf_uses_explicit_break(monkeypatch, tmp_path):
     dialog._scraper = None
     dialog._get_output_dir = lambda: str(tmp_path)
     dialog._log = lambda _message: None
-    dialog._kakao_extra_css = lambda: ''
+    dialog._kpage_extra_css = lambda: ''
     dialog._generate_pdf('Spacing', 'Author')
     assert '<p>First.</p><br/><p>Second.</p><br/>' in chapters[0]['html']
 
@@ -774,7 +774,7 @@ def test_native_progress_briefly_buffers_completions_into_chapter_order():
 
     dialog = SimpleNamespace(
         _scraper=Scraper(),
-        _book_data={"_global_novelpia": True},
+        _book_data={"_global_npia": True},
         _downloading=True,
         _download_cancelled=False,
         _chapter_results=[],
@@ -856,7 +856,7 @@ def test_external_pdf_embeds_ntk_cover_and_remote_chapter_images(
         _get_output_dir=lambda: str(tmp_path),
         _download_image_python=lambda *_args, **_kwargs: None,
         _copy_browser_cookies_to_session=lambda _session: None,
-        _kakao_extra_css=lambda: '',
+        _kpage_extra_css=lambda: '',
         _generate_txt=lambda *_args: None,
         _log=logs.append,
     )
@@ -942,7 +942,7 @@ def test_epub_toc_and_headings_are_numbered_by_book_position(tmp_path, numbered)
     dialog._parent_gui = SimpleNamespace()
     dialog._scraper = None
     dialog._var_long_image_layout = Setting(False)
-    dialog._var_kakao_dedupe_images = Setting(False)
+    dialog._var_kpage_dedupe_images = Setting(False)
     dialog._var_ext_image_workers = Setting(1)
     dialog._get_output_dir = lambda: str(tmp_path)
     dialog._log = lambda _message: None

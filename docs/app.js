@@ -4,7 +4,7 @@
 
     // === Tag Translation (Korean → English) ===
                                                                                                 const TAG_MAP = {
-        // === Novelpia (Korean) ===
+        // === Npia (Korean) ===
         "판타지": "Fantasy", "패러디": "Parody", "현대": "Modern", "라이트노벨": "Light Novel",
         "일상": "Slice of Life", "하렘": "Harem", "먼치킨": "Munchkin/OP MC", "현대판타지": "Modern Fantasy",
         "TS": "Genderbend (TS)", "로맨스": "Romance", "중세": "Medieval", "전생": "Reincarnation",
@@ -497,7 +497,7 @@
         "SELFCEST": "Selfcest", "블레이드": "Blade", "회춘": "Rejuvenation", "빙의자": "Possessor",
         "젠레스": "Genreless", "전기": "Electricity", "개": "Dog", "사역마": "Summoned Beast",
         "산란": "Scattered", "던전앤파이터": "Dungeon Fighter", "냥코대전쟁": "Battle Cats", "에이스": "Ace",
-        "노벨피아": "Nobelpia", "막내": "Youngest", "40K": "Warhammer 40K", "관계역전": "Relationship Reversal",
+        "npia": "Nobelpia", "막내": "Youngest", "40K": "Warhammer 40K", "관계역전": "Relationship Reversal",
         "다종족": "Multi-Race", "무거움": "Heavy", "이모": "Aunt", "세이아": "Seia",
         "헬스": "Gym", "수메르": "Sumeru", "할로우나이트": "Hollow Knight", "일반인": "Ordinary Person",
         "슈로대": "Shurodae", "연상녀": "Older Woman", "초먼치킨": "Super Munchkin", "카사": "Casa",
@@ -1520,7 +1520,7 @@
         "벤티": "Venti", "약간얀데레": "Slight Yandere", "차원세계": "Dimension World", "랜슬롯": "Lancelot",
         "꽁트": "Vignette", "박사": "Doctor", "안착함": "Settled In", "성장형X": "No Growth",
         "군카데미": "Military Academy", "음습": "Gloomy", "낙원": "Paradise", "건카타": "Gun Kata",
-        "하렘같은순애": "Harem-Like Pure Love", "네이버웹툰": "Naver Webtoon", "코즈믹호러향": "Cosmic Horror Flavor", "다중장르": "Multi-Genre",
+        "하렘같은순애": "Harem-Like Pure Love", "네이버웹툰": "Nweb Webtoon", "코즈믹호러향": "Cosmic Horror Flavor", "다중장르": "Multi-Genre",
         "막타충": "Finisher Addict", "가족사랑": "Family Love", "남매근친": "Sibling Incest", "외노자": "Foreign Laborer",
         "오락실": "Arcade", "자경단": "Vigilante", "ORI": "Ori", "굶지마": "Don't Starve",
         "눈마새": "Eye Slut", "큐브": "Cube", "조합": "Combination", "냉정남": "Cold Male",
@@ -2895,7 +2895,7 @@
         "공대장": "Engineering Captain", "막필": "Last Spurt", "무협요소": "Wuxia Elements", "게임빙의물": "Game Possession",
         "아라": "Ara", "노라": "Nora", "능력카피": "Ability Copy", "다량의콜라보": "Heavy Collab",
         "천재여주": "Genius Female Lead", "유치남주": "Childish Male Lead", "핫산식세계관": "Hassan Worldview", "애셋엄마": "Asset Mom",
-        "한자": "Kanji", "빨간모자": "Red Riding Hood", "이매망량": "Beautiful Blind", "설정빌런": "Setting Villain",
+        "한자": "Kanji", "빨간모자": "Red Rbooksng Hood", "이매망량": "Beautiful Blind", "설정빌런": "Setting Villain",
         "떡밥맨": "Plot Bait Man", "처녀작맨": "Virgin Work Man", "땅": "Land", "웬디": "Wendy",
         "루퐁": "Lupin", "에리프": "Elif", "카산드라": "Cassandra", "표사": "Escort Agency",
         "표국": "Escort Bureau", "정마대전": "Good Evil War", "판타지무협지": "Fantasy Wuxia", "우주생활": "Space Life",
@@ -3664,7 +3664,7 @@
         "시크": "Chic", "쿨": "Cool", "단체": "Group", "남녀성비3대7": "M:F 3:7 Ratio",
         "월드오브탱크": "World of Tanks", "난교음란": "Orgy Lewdness", "현시대": "Modern Era", "라이덴쇼군": "Raiden Shogun",
         "베드엔딩": "Bad Ending", "스2": "Starcraft 2", "호감": "Favor", "공지사항참고": "See Notice",
-        "승마": "Horse Riding", "경찰특공대": "Police SWAT", "단체TS": "Group TS", "일뽕아님": "Not Japan Fan",
+        "승마": "Horse Rbooksng", "경찰특공대": "Police SWAT", "단체TS": "Group TS", "일뽕아님": "Not Japan Fan",
         "치와와": "Chihuahua", "라오루나올지도": "Laoru Maybe", "웹툰분위기": "Webtoon Vibe", "소재용": "Material Use",
         "약간코믹": "Slightly Comic", "일본인여친": "Japanese GF", "일본문화": "Japanese Culture", "성비역전": "Gender Ratio Reversal",
         "자퇴": "Dropout", "이경": "Lee Kyung", "수경": "Soo Kyung", "전경": "Jeon Kyung",
@@ -3923,7 +3923,7 @@
         "재앙링크일지도": "Disaster Link Maybe", "베이크": "Bake", "자작폼": "Self Form", "FA": "FA",
         "컨버전스": "Convergence", "치치귀여워": "Boobs Cute", "치치가최애": "Boobs Favorite", "하이엘프": "High Elf",
         "약간원작파괴": "Slight Canon Break", "AVA": "AVA", "AVM": "AVM", "오픈채팅방": "Open Chatroom",
-        "카카오톡": "KakaoTalk", "작가방": "Author Room", "한명오": "One Person Come", "약간캐붕": "Slight OOC",
+        "카카오톡": "KpageTalk", "작가방": "Author Room", "한명오": "One Person Come", "약간캐붕": "Slight OOC",
         "먼치킨XXXX": "Munchkin XXXX", "물의호흡": "Water Breathing", "벨브요소": "Valve Elements", "장로돈키호테": "Elder Don Quixote",
         "여친빌리겠습니다": "Lend GF", "카타클리즘": "Cataclysm", "초반부": "Early Part", "아사히": "Asahi",
         "추억의만화": "Nostalgic Manga", "진구더찌질해짐": "Jingu More Pathetic", "츤데레여주": "Tsundere Female Lead", "밤을보는눈": "Eyes Seeing Night",
@@ -4070,7 +4070,7 @@
         "3호": "No. 3", "얀데레남주": "Yandere Male Lead", "암타바쿠고": "Dark Bakugo", "다이버즈": "Divers",
         "가치우": "Gachi U", "죠르노죠바나": "Giorno Giovanna", "룰러": "Ruler", "사심가득": "Full of Bias",
         "먼치킨약간": "Slight Munchkin", "이중인격약간": "Split Personality Slight", "메가라": "Megara", "연애가있다면백합": "Yuri If Romance",
-        "죠죠첨가": "JoJo Added", "화력덕후": "Firepower Fan", "힐링중": "Healing", "라이딩듀얼예정": "Riding Duel Planned",
+        "죠죠첨가": "JoJo Added", "화력덕후": "Firepower Fan", "힐링중": "Healing", "라이딩듀얼예정": "Rbooksng Duel Planned",
         "메다가박스": "Medaka Box", "신데렐라그레이": "Cinderella Grey", "2027제발빨리": "2027 Hurry", "스텔라블레이드": "Stellar Blade",
         "미워히는약": "Slight Hate", "해피시공": "Happy Space-Time", "헤이안시대": "Heian Era", "유메노세대": "Yume Generation",
         "토우지여동생": "Toji Sister", "한량": "Idle Scholar", "고대인": "Ancient One", "낭만덱": "Romance Deck",
@@ -5113,7 +5113,7 @@
         "고증은탑클래스아마도": "Top Historical Accuracy", "서바이벌배틀로얄": "Survival Battle Royale", "심령": "Spiritual", "GUITAR": "Guitar",
         "뭉탱이": "Mungtaengi", "세피로트의나무": "Tree of Sephirot", "소재들": "Materials", "쓰고싶음쓰세용": "Write When Want",
         "짬통": "Jack-of-All-Trades", "독서": "Reading", "이상한소리": "Strange Sound", "도어즈": "Doors",
-        "1일1뽑": "One Pull Per Day", "텍사스홀덤": "Texas Hold'em", "짝귀": "Matched Ears", "타기": "Riding",
+        "1일1뽑": "One Pull Per Day", "텍사스홀덤": "Texas Hold'em", "짝귀": "Matched Ears", "타기": "Rbooksng",
         "저냥": "Low Cat", "세계지리": "World Geography", "의미없는태그": "Meaningless Tag", "레시피": "Recipe",
         "기행": "Strange Travel", "맞춤법": "Spelling", "암약단체": "Secret Group", "아주가끔": "Occasionally",
         "낙서글": "Doodle Post", "개똥철학": "Dogshit Philosophy", "공지보관함": "Notice Archive", "계륵": "White Elephant",
@@ -5210,7 +5210,7 @@
         "김성근": "Kim Sung-keun", "타이포그래피": "Typography", "헌병": "Military Police", "해결사물": "Solution Thing",
         "준페이": "Junpei", "교토고": "Kyoto High", "역사서": "History Book", "까칠수": "Prickly Possible",
         "찬사": "Praise", "방황": "Wandering", "당장시작해": "Start Now", "정말사랑해": "Really Love You",
-        "노벨피아공식": "Novelpia Official", "비공감탐사기록": "Non-Empathy Exploration", "멀티섹슈얼": "Multisexual", "로맨틱코메디": "Romantic Comedy",
+        "npia공식": "Npia Official", "비공감탐사기록": "Non-Empathy Exploration", "멀티섹슈얼": "Multisexual", "로맨틱코메디": "Romantic Comedy",
         "시와인간": "Poetry and Humans", "새해": "New Year", "축하": "Celebration", "아빠는변태♥": "Daddy Pervert ♥",
         "저의": "My", "비명을": "Screams", "들어주세요": "Please Listen", "김아힌": "Kim Ah-hin",
         "친구관계": "Friendship", "잉글랜드": "England", "아무말": "No Words", "잡소리보관용": "Misc Talk Storage",
@@ -6246,18 +6246,18 @@
         card.dataset.source = novelSource;
         card.dataset.novelId = String(n.id);
         card.dataset.synopsisPreview = String(!!n.metrics?.synopsis_is_preview);
-        const cfg = SOURCES[novelSource] || SOURCES.novelpia;
+        const cfg = SOURCES[novelSource] || SOURCES.npia;
         const cardLink = n.canonicalUrl || `${cfg.linkPrefix}${n.id}`;
 
-        // Novelpia fallback covers
-        const NPIA_COVER_R19 = "https://images.novelpia.com/img/novel/adult_cover_img.jpg";
-        const NPIA_COVER_DEFAULT = "https://images.novelpia.com/img/layout/readycover4.png";
+        // Npia fallback covers
+        const NPIA_COVER_R19 = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/img/novel/adult_cover_img.jpg";
+        const NPIA_COVER_DEFAULT = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/img/layout/readycover4.png";
 
         let coverSrc = n.cover;
-        if ((!coverSrc || coverSrc === "") && novelSource === "novelpia") {
+        if ((!coverSrc || coverSrc === "") && novelSource === "npia") {
             coverSrc = (n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT;
         }
-        const fallbackSrc = (novelSource === "novelpia")
+        const fallbackSrc = (novelSource === "npia")
             ? ((n.age === 19) ? NPIA_COVER_R19 : NPIA_COVER_DEFAULT)
             : "";
 
@@ -6266,8 +6266,8 @@
             : `<div class="card-cover no-img">📖</div>`;
 
         const sortBy = sortSelect.value;
-        const isSfacgSort = sortBy.startsWith("sfacg_");
-        const isRankSort = sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly" || isSfacgSort || sortBy.startsWith("rank:");
+        const isSfcSort = sortBy.startsWith("sfc_");
+        const isRankSort = sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly" || isSfcSort || sortBy.startsWith("rank:");
         let displayRank;
         if (isRankSort) {
             displayRank = getRank(n, sortBy);
@@ -6796,68 +6796,68 @@
 
     // === Source configs ===
     const SOURCES = {
-        novelpia: {
-            label: "Novelpia",
+        npia: {
+            label: "Npia",
             dataUrl: "data/novels.json",
             format: "array",
-            coverPrefix: "https://images.novelpia.com",
-            linkPrefix: "https://novelpia.com/novel/",
+            coverPrefix: "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com",
+            linkPrefix: "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/",
             chunked: true,
             chunkCount: 5,
-            chunkPrefix: "data/novelpia_chunk_",
-            topUrl: "data/novelpia_top.json.gz",
+            chunkPrefix: "data/npia_chunk_",
+            topUrl: "data/npia_top.json.gz",
             descriptionShardCount: 128,
             descriptionShardPrefix: "data/descriptions_shard_",
         },
-        kakao: {
-            label: "KakaoPage",
-            dataUrl: "data/kakao_novels.json",
+        kpage: {
+            label: "Kpage",
+            dataUrl: "data/kpage_novels.json",
             format: "array",
             coverPrefix: "",
-            linkPrefix: "https://page.kakao.com/content/",
+            linkPrefix: "https://page.\u006b\u0061\u006b\u0061\u006f.com/content/",
             chunked: true,
             chunkCount: 3,
-            chunkPrefix: "data/kakao_chunk_",
+            chunkPrefix: "data/kpage_chunk_",
             descriptionShardCount: 128,
-            descriptionShardPrefix: "data/kakao_descriptions_shard_",
+            descriptionShardPrefix: "data/kpage_descriptions_shard_",
         },
-        sfacg: {
-            label: "SFACG",
-            dataUrl: "data/sfacg_novels.json",
+        sfc: {
+            label: "SFC",
+            dataUrl: "data/sfc_novels.json",
             format: "array",
-            coverPrefix: "https://rss.sfacg.com/web/novel/images/NovelCover/Big/",
-            linkPrefix: "https://book.sfacg.com/Novel/",
-            sfacgRanks: true,
+            coverPrefix: "https://rss.\u0073\u0066\u0061\u0063\u0067.com/web/novel/images/NovelCover/Big/",
+            linkPrefix: "https://book.\u0073\u0066\u0061\u0063\u0067.com/Novel/",
+            sfcRanks: true,
             chunked: true,
             chunkCount: 10,
-            chunkPrefix: "data/sfacg_chunk_",
-            topUrl: "data/sfacg_top.json.gz",
+            chunkPrefix: "data/sfc_chunk_",
+            topUrl: "data/sfc_top.json.gz",
             descriptionShardCount: 128,
-            descriptionShardPrefix: "data/sfacg_descriptions_shard_",
+            descriptionShardPrefix: "data/sfc_descriptions_shard_",
         },
-        naver: {
-            label: "Naver Web Novel", format: "metadata-v1", manifestUrl: "data/naver_chunk_manifest.json",
-            linkHosts: ["novel.naver.com"], purchaseHosts: ["series.naver.com", "m.series.naver.com", "novel.naver.com"],
+        nweb: {
+            label: "Nweb", format: "metadata-v1", manifestUrl: "data/nweb_chunk_manifest.json",
+            linkHosts: ["novel.\u006e\u0061\u0076\u0065\u0072.com"], purchaseHosts: ["series.\u006e\u0061\u0076\u0065\u0072.com", "m.series.\u006e\u0061\u0076\u0065\u0072.com", "novel.\u006e\u0061\u0076\u0065\u0072.com"],
         },
-        joara: {
-            label: "Joara", format: "metadata-v1", manifestUrl: "data/joara_chunk_manifest.json",
-            linkHosts: ["www.joara.com", "joara.com"],
+        jara: {
+            label: "Jara", format: "metadata-v1", manifestUrl: "data/jara_chunk_manifest.json",
+            linkHosts: ["www.\u006a\u006f\u0061\u0072\u0061.com", "\u006a\u006f\u0061\u0072\u0061.com"],
         },
-        munpia: {
-            label: "Munpia", format: "metadata-v1", manifestUrl: "data/munpia_chunk_manifest.json",
-            linkHosts: ["www.munpia.com"],
+        mpia: {
+            label: "Mpia", format: "metadata-v1", manifestUrl: "data/mpia_chunk_manifest.json",
+            linkHosts: ["www.\u006d\u0075\u006e\u0070\u0069\u0061.com"],
         },
-        ridi: {
-            label: "Ridibooks", format: "metadata-v1", manifestUrl: "data/ridi_chunk_manifest.json",
-            linkHosts: ["ridibooks.com"],
+        rbooks: {
+            label: "Rbooks", format: "metadata-v1", manifestUrl: "data/rbooks_chunk_manifest.json",
+            linkHosts: ["\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com"],
         },
-        naverseries: {
-            label: "Naver Series", format: "metadata-v1", manifestUrl: "data/naverseries_chunk_manifest.json",
-            linkHosts: ["series.naver.com"],
+        nseries: {
+            label: "Nseries", format: "metadata-v1", manifestUrl: "data/nseries_chunk_manifest.json",
+            linkHosts: ["series.\u006e\u0061\u0076\u0065\u0072.com"],
         },
     };
 
-    let currentSource = "novelpia";
+    let currentSource = "npia";
     let activeCatalogController = null;
     let catalogRequestedPage = null;
     let catalogLoading = new Map();
@@ -6865,7 +6865,7 @@
     let catalogDiagnosticRecords = new Map();
 
     function catalogPartitionLabel(source, partition) {
-        if (source !== "joara") return partition || "Catalog";
+        if (source !== "jara") return partition || "Catalog";
         const [store, catalog, category, code] = String(partition || "").split(":");
         const storeLabel = { series: "Free publication", nobless: "Noblesse", premium: "Premium" }[store];
         if (!storeLabel) return partition || "Catalog";
@@ -6888,14 +6888,14 @@
                         page != null ? `page ${page}` : "Page not reported",
                         skipped && record.row != null ? `row ${record.row}` : "",
                         skipped && record.id != null ? `novel ${record.id}` : ""].filter(Boolean).join(" — ");
-                    const latestLimit = !skipped && source === "joara"
+                    const latestLimit = !skipped && source === "jara"
                         && /^(series|nobless|premium):latest(?::category:\d+)?$/.test(partition)
                         && Number(page) === 101
                         && error.includes("requested=101, returned=1, rows=0, total=0, size=0");
                     const explanation = skipped
                         ? "This invalid row was omitted; the other rows were collected and the scan continued. Omitted listings are checked against the work's own detail record on the next catalog run."
                         : latestLimit
-                            ? "This older scan used numbered pages. Joara requires cursor pagination beyond this point. Resume with the updated scraper to rebuild the latest-list cursor and collect the missing pages."
+                            ? "This older scan used numbered pages. Jara requires cursor pagination beyond this point. Resume with the updated scraper to rebuild the latest-list cursor and collect the missing pages."
                             : `This catalog scan stopped${page != null ? ` at page ${page}` : ""}; the failed page and later pages were not collected in this scan.`;
                     const item = document.createElement("li");
                     const detail = document.createElement("p");
@@ -6939,13 +6939,13 @@
                 sortSelect.appendChild(option);
             }
             const label = String(board.label || key)
-                .replace(/^Naver Best League\s*·\s*/i, "")
-                .replace(/^Joara\s*·\s*All stores and genres\s*·\s*/i, "")
-                .replace(/^Munpia\s*·?\s*/i, "")
+                .replace(/^Nweb Best League\s*·\s*/i, "")
+                .replace(/^Jara\s*·\s*All stores and genres\s*·\s*/i, "")
+                .replace(/^Mpia\s*·?\s*/i, "")
                 .replace(/Modern Fantasy/g, "Modern Fant.")
                 .replace(/Weekly/g, "Wk").replace(/Daily/g, "Day")
                 .replace(/\s*·\s*/g, " / ");
-            option.textContent = `${source === "naver" ? "Naver" : SOURCES[source].label}: ${label}${board.stale ? " *" : ""}`;
+            option.textContent = `${source === "nweb" ? "Nweb" : SOURCES[source].label}: ${label}${board.stale ? " *" : ""}`;
             option.title = `${board.label} — ${board.observed_at || "Unknown observation time"}${board.stale ? " (last known)" : ""}`;
         }
     }

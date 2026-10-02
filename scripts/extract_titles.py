@@ -5,15 +5,15 @@ to its *_en.txt file only. Preserves existing English translations
 and sorts untranslated rows to the bottom.
 
 Usage:
-    python scripts/extract_titles.py              # Novelpia (default)
-    python scripts/extract_titles.py kakao         # KakaoPage
-    python scripts/extract_titles.py sfacg         # SFACG
+    python scripts/extract_titles.py              # Npia (default)
+    python scripts/extract_titles.py kpage         # Kpage
+    python scripts/extract_titles.py sfc         # SFC
     python scripts/extract_titles.py all           # All sources
 
 Output files in docs/data/:
-    Novelpia:  titles_en.txt
-    KakaoPage: kakao_titles_en.txt
-    SFACG:     sfacg_titles_en.txt
+    Npia:  titles_en.txt
+    Kpage: kpage_titles_en.txt
+    SFC:     sfc_titles_en.txt
 
 Format: novel_id|||Raw Title|||English Title
   - Translated rows are sorted to the top.
@@ -26,23 +26,23 @@ import json, os, sys
 sys.stdout.reconfigure(encoding="utf-8")
 
 SOURCES = {
-    "novelpia": {
+    "npia": {
         "data": os.path.join("docs", "data", "novels.json"),
         "en":   os.path.join("docs", "data", "titles_en.txt"),
     },
-    "kakao": {
-        "data": os.path.join("docs", "data", "kakao_novels.json"),
-        "en":   os.path.join("docs", "data", "kakao_titles_en.txt"),
+    "kpage": {
+        "data": os.path.join("docs", "data", "kpage_novels.json"),
+        "en":   os.path.join("docs", "data", "kpage_titles_en.txt"),
     },
-    "sfacg": {
-        "data": os.path.join("docs", "data", "sfacg_novels.json"),
-        "en":   os.path.join("docs", "data", "sfacg_titles_en.txt"),
+    "sfc": {
+        "data": os.path.join("docs", "data", "sfc_novels.json"),
+        "en":   os.path.join("docs", "data", "sfc_titles_en.txt"),
     },
 }
 
 # New adapters use normalized state so title changes invalidate stale English.
 # Existing source commands keep their original paths and behavior.
-NEW_METADATA_SOURCES = ("naver", "joara", "munpia", "ridi", "naverseries")
+NEW_METADATA_SOURCES = ("nweb", "jara", "mpia", "rbooks", "nseries")
 for _source in NEW_METADATA_SOURCES:
     SOURCES[_source] = {
         "data": os.path.join("docs", "data", f"{_source}_novels.json"),
@@ -116,7 +116,7 @@ def extract(source):
 
 
 def main():
-    source = sys.argv[1] if len(sys.argv) > 1 else "novelpia"
+    source = sys.argv[1] if len(sys.argv) > 1 else "npia"
 
     if source == "all":
         for s in SOURCES:

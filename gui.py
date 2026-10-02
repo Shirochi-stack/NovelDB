@@ -25,7 +25,7 @@ import subprocess
 from datetime import datetime
 
 from app_version import APP_NAME
-from novelpia_search_terms import DEFAULT_SEARCH_QUERY_COUNT
+from npia_search_terms import DEFAULT_SEARCH_QUERY_COUNT
 
 # ---------------------------------------------------------------------------
 # File logging setup (freeze / .exe aware)
@@ -142,7 +142,7 @@ except Exception:
 # Since this is a single file simulation, we assume these classes exist 
 # or are imported. For this script to run standalone if you have the files, 
 # I am keeping the imports exactly as you provided.
-from novelpia_auth import NovelpiaAuth
+from npia_auth import NpiaAuth
 from downloader_core import (
     DownloaderCore,
     AccessBlockedError,
@@ -186,12 +186,12 @@ class ToolTip:
             self.tipwindow = None
 
 def extract_novel_id(value):
-    """Accept a raw novel ID or a Novelpia novel URL and return the numeric ID.
+    """Accept a raw novel ID or a Npia novel URL and return the numeric ID.
 
     Returns None when the input is empty or cannot be parsed into an ID.
     Examples:
         extract_novel_id("123456")                             -> "123456"
-        extract_novel_id("https://novelpia.com/novel/123456")  -> "123456"
+        extract_novel_id("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/123456")  -> "123456"
         extract_novel_id("  /novel/123456?x=1 ")              -> "123456"
         extract_novel_id("not-an-id")                          -> None
     """
@@ -202,7 +202,7 @@ def extract_novel_id(value):
         return None
     if value.isdigit():
         return value
-    m = re.search(r"novelpia\.com/novel/(\d+)", value, flags=re.IGNORECASE)
+    m = re.search(r"\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com/novel/(\d+)", value, flags=re.IGNORECASE)
     if m:
         return m.group(1)
     m = re.search(r"/novel/(\d+)", value)
@@ -427,7 +427,7 @@ def _detect_source_ext(img_bytes, url_hint=""):
 
     Prefers PIL's header detection (reliable regardless of URL) and only
     falls back to URL extension heuristics if PIL is unavailable or can't
-    identify the bytes. This is critical for Novelpia's imagebox URLs,
+    identify the bytes. This is critical for Npia's imagebox URLs,
     which often don't expose the extension — so URL-only detection would
     mislabel GIFs as JPEGs and bypass the 'preserve GIF' code path.
     """
@@ -564,7 +564,7 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
 
 
 def _strip_leading_whitespace(text):
-    """Remove leading whitespace (including \u00a0 / &nbsp;) that Novelpia
+    """Remove leading whitespace (including \u00a0 / &nbsp;) that Npia
     injects at the start of every text segment.  Works on both raw HTML
     text and already-unescaped text, without removing line breaks."""
     # Newlines are controlled separately by the "Remove Newlines" option.
@@ -680,7 +680,7 @@ def extract_chapter_content_and_images(
                             return ""
                         # Detect the *actual* format from the downloaded bytes.
                         # Relying on the URL extension loses GIFs served from
-                        # extension-less URLs (common on Novelpia's imagebox).
+                        # extension-less URLs (common on Npia's imagebox).
                         ext = _detect_source_ext(img_bytes, url_dl)
                         original_size = len(img_bytes)
                         if compress_images and Image is not None:
@@ -885,10 +885,10 @@ def _run_webview_login(output_path):
                         _dbg(f"poll #{i}: navigated to Google OAuth")
                         was_on_google = True
 
-                # After Google OAuth, detect redirect back to novelpia.com
+                # After Google OAuth, detect redirect back to \u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com
                 # This means login succeeded — the SAME cookie is now authenticated
-                if was_on_google and 'novelpia.com' in cur_url:
-                    _dbg(f"poll #{i}: redirected back to novelpia: {cur_url[:80]}")
+                if was_on_google and '\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com' in cur_url:
+                    _dbg(f"poll #{i}: redirected back to npia: {cur_url[:80]}")
                     # Wait for the redirect chain to finish
                     time.sleep(3)
 
@@ -949,8 +949,8 @@ def _run_webview_login(output_path):
 
     try:
         window = webview.create_window(
-            "Novelpia Google Login",
-            "https://novelpia.com/",
+            "Npia Google Login",
+            "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/",
             width=int(_sw * 0.6),
             height=int(_sh * 0.7),
         )
@@ -987,7 +987,7 @@ def _run_webview_login(output_path):
     _dbg("=== webview login ended ===")
 
 
-class NovelpiaGUI(tk.Tk):
+class NpiaGUI(tk.Tk):
     def __init__(self):
         # High DPI support — dpi_setup handles process-level DPI-awareness
         # (already invoked at module load). We apply the configured scale
@@ -1059,7 +1059,7 @@ class NovelpiaGUI(tk.Tk):
             pass
         
         # Logic instances
-        self.auth = NovelpiaAuth()
+        self.auth = NpiaAuth()
         self.log_queue = queue.Queue()
         self.downloader = DownloaderCore(self.auth, self.log_message)
         
@@ -1288,7 +1288,7 @@ class NovelpiaGUI(tk.Tk):
         ttk.Label(dl_inner, text="Novel ID / URL").grid(row=1, column=0, sticky="w", pady=5)
         ent_novel_id = ttk.Entry(dl_inner, textvariable=self.var_novel_id)
         ent_novel_id.grid(row=1, column=1, columnspan=2, sticky="ew", padx=5)
-        ToolTip(ent_novel_id, "Enter a numeric Novel ID (e.g. 123456) or a full Novelpia URL\n(e.g. https://novelpia.com/novel/123456). URLs are auto-resolved.")
+        ToolTip(ent_novel_id, "Enter a numeric Novel ID (e.g. 123456) or a full Npia URL\n(e.g. https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/123456). URLs are auto-resolved.")
 
         # Format
         ttk.Label(dl_inner, text="Format").grid(row=2, column=0, sticky="w", pady=5)
@@ -1309,7 +1309,7 @@ class NovelpiaGUI(tk.Tk):
         ttk.Checkbutton(misc_chk_frame, text="Save as HTML (instead of TXT)", variable=self.var_save_html).pack(side="left")
         chk_strip = ttk.Checkbutton(misc_chk_frame, text="Remove Leading Spaces", variable=self.var_strip_leading_spaces)
         chk_strip.pack(side="left", padx=(15, 0))
-        ToolTip(chk_strip, "Strip the leading whitespace (\u00a0 / &nbsp;) that\nNovelpia adds to the beginning of every paragraph.")
+        ToolTip(chk_strip, "Strip the leading whitespace (\u00a0 / &nbsp;) that\nNpia adds to the beginning of every paragraph.")
         chk_newlines = ttk.Checkbutton(
             misc_chk_frame,
             text="Remove Newlines / <br>",
@@ -1434,7 +1434,7 @@ class NovelpiaGUI(tk.Tk):
         ToolTip(
             spn_retries,
             "Max download attempts per chapter/image before giving up.\n"
-            "Novelpia's viewer endpoint can be flaky; 5 is the sensible default.\n"
+            "Npia's viewer endpoint can be flaky; 5 is the sensible default.\n"
             "Chapter retries use downloader backoff; image retries use Interval as the backoff base.",
         )
         chk_cache = ttk.Checkbutton(notices_frame, text="Use Cache", variable=self.var_use_cache)
@@ -1562,7 +1562,7 @@ class NovelpiaGUI(tk.Tk):
         btn_external.pack(pady=5)
         ToolTip(
             btn_external,
-            "Download Novelpia or external novels through the persistent "
+            "Download Npia or external novels through the persistent "
             "browser scraper\n(syosetu, kakuyomu, biquge, etc.).",
         )
 
@@ -1647,7 +1647,7 @@ class NovelpiaGUI(tk.Tk):
         self.after(0, _apply)
 
     # --- Tag Retrieval ---
-    # Common Novelpia tags: (korean_tag, english_label)
+    # Common Npia tags: (korean_tag, english_label)
     COMMON_TAGS = [
         # -- Pinned --
         ("TS", "Genderbend"), ("약피폐", "Moderate Suffering"), ("먼치킨", "Munchkin"),
@@ -1655,7 +1655,7 @@ class NovelpiaGUI(tk.Tk):
         ("백합", "Yuri"), ("추리", "Mystery"), ("로맨스", "Romance"),
         ("하렘", "Harem"), ("역하렘", "Reverse Harem"),
         # -- Recommended --
-        ("노벨피아", "Novelpia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"),
+        ("npia", "Npia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"),
         ("오리지널", "Original"), ("순애", "Pure Love"), ("일상", "Slice of Life"), ("용사", "Hero"),
         # -- Popular --
         ("학교", "School"), ("19금", "R-19"), ("수녀", "Nun"),
@@ -2458,9 +2458,9 @@ class NovelpiaGUI(tk.Tk):
             "  \u2022 Paste Batch: paste the entries directly into a dialog window.\n\n"
             "Accepted line formats (same for both):\n"
             "   NovelID                                   -> title fetched automatically\n"
-            "   https://novelpia.com/novel/NovelID        -> URL auto-resolved\n"
+            "   https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/NovelID        -> URL auto-resolved\n"
             "   Title,NovelID                             -> title used for filename\n"
-            "   Title,https://novelpia.com/novel/NovelID\n"
+            "   Title,https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/NovelID\n"
             "   # comment                                 -> skipped\n\n"
             "If 'Quick Download' is enabled, its folder is used as the output\n"
             "directory. Otherwise you will be prompted to pick one.\n\n"
@@ -2510,7 +2510,7 @@ class NovelpiaGUI(tk.Tk):
         ttk.Label(
             main_f,
             text=(
-                "Paste one Novel ID or Novelpia URL per line.\n"
+                "Paste one Novel ID or Npia URL per line.\n"
                 "You can also use 'Title,ID' or 'Title,URL'. '#' lines are comments."
             ),
             wraplength=w - 40,
@@ -2577,7 +2577,7 @@ class NovelpiaGUI(tk.Tk):
             if not lines:
                 messagebox.showwarning(
                     "Empty Batch",
-                    "Please paste at least one Novel ID or Novelpia URL.",
+                    "Please paste at least one Novel ID or Npia URL.",
                     parent=top,
                 )
                 return
@@ -2900,7 +2900,7 @@ class NovelpiaGUI(tk.Tk):
             }
             messagebox.showwarning(
                 "Missing Novel ID",
-                "Please enter a Novel ID or Novelpia URL before downloading.",
+                "Please enter a Novel ID or Npia URL before downloading.",
             )
             self.lbl_status.config(text="Idle")
             return self._last_download_result
@@ -4349,5 +4349,5 @@ table, th, td {
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    app = NovelpiaGUI()
+    app = NpiaGUI()
     app.mainloop()

@@ -7,10 +7,16 @@ Optionally embeds title translations and/or descriptions into each chunk,
 eliminating the need for separate translation/description file downloads.
 
 Usage:
-    python scripts/chunk_and_compress.py                          # SFACG defaults
+    python scripts/chunk_and_compress.py                          # SFC defaults
     python scripts/chunk_and_compress.py --input data.json -n 10  # custom
     python scripts/chunk_and_compress.py --input data.json -n 10 --translations titles.txt --descriptions desc.txt
 """
+
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
 
 import json, gzip, os, sys, argparse, math, stat, time
 
@@ -145,7 +151,7 @@ def load_descriptions_file(path):
 
 def main():
     parser = argparse.ArgumentParser(description="Chunk and gzip a JSON dataset")
-    parser.add_argument("--input", default="docs/data/sfacg_novels.json", help="Input JSON file")
+    parser.add_argument("--input", default="docs/data/sfc_novels.json", help="Input JSON file")
     parser.add_argument("--output-dir", default=None, help="Output directory (default: same as input)")
     parser.add_argument("--prefix", default=None, help="Output filename prefix (default: derived from input)")
     parser.add_argument("-n", "--chunks", type=int, default=10, help="Number of chunks")
@@ -219,10 +225,10 @@ def main():
             if all_descriptions:
                 chunk_obj["descriptions"] = chunk_descs
 
-            raw = json.dumps(chunk_obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            raw = source_names.dumps(chunk_obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         else:
             # Legacy: plain array format
-            raw = json.dumps(chunk, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            raw = source_names.dumps(chunk, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
         gz = gzip.compress(raw, compresslevel=9, mtime=0)
 
@@ -250,7 +256,7 @@ def main():
     }
     manifest_path = os.path.join(output_dir, f"{prefix}_manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+        source_names.dump(manifest, f, indent=2)
     print(f"Manifest: {manifest_path}")
 
 

@@ -77,8 +77,8 @@ test('build trigger runs after successful pushes, including no-change reruns, ne
 });
 
 test('all metadata and translation callers grant the reusable workflow Pages write permission', () => {
-    for (const file of ['metadata-source-job.yml', 'update-naver-metadata.yml',
-        'update-munpia-metadata.yml', 'update-joara-metadata.yml', 'translate-new-metadata.yml']) {
+    for (const file of ['metadata-source-job.yml', 'update-nweb-metadata.yml',
+        'update-mpia-metadata.yml', 'update-jara-metadata.yml', 'translate-new-metadata.yml']) {
         const yaml = fs.readFileSync(path.join(workflowDir, file), 'utf8');
         assert.match(yaml, /^permissions:\r?\n  contents: write\r?\n  pages: write\r?$/m, file);
         if (file !== 'metadata-source-job.yml') {

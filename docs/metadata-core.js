@@ -77,7 +77,7 @@
                 chapters: fresh ? nullableNumber(row[7]) : (row[7] || 0),
                 complete: fresh ? (row[8] === 0 || row[8] === 1 ? row[8] : null) : (row[8] || 0),
                 updated: fresh ? (row[9] || null) : (row[9] || ""),
-                age: fresh ? nullableNumber(row[10]) : ((cfg.sfacgRanks ? row[10] : row[11]) || 0),
+                age: fresh ? nullableNumber(row[10]) : ((cfg.sfcRanks ? row[10] : row[11]) || 0),
                 metadataV1: fresh,
             };
             if (fresh) {
@@ -90,13 +90,13 @@
                 for (const [board, rank] of Object.entries(row[15] || {})) {
                     if (Number.isInteger(rank) && rank > 0) novel.rankings[board] = rank;
                 }
-            } else if (cfg.sfacgRanks) {
+            } else if (cfg.sfcRanks) {
                 ["popularityRank", "bestSellerRank", "newBooksRank", "bookmarksRank", "jpRank", "ticketRank"]
                     .forEach((field, index) => { novel[field] = row[11 + index] || 0; });
                 if (row[17]) novel.synopsis = String(row[17]).replace(/\\r\\n|\\n/g, "\n").trim();
             } else {
                 novel.weeklyRank = row[10] || 0;
-                if (source === "novelpia") {
+                if (source === "npia") {
                     ["monthlyRank", "dailyRank", "weeklyRankAdult", "monthlyRankAdult", "dailyRankAdult", "weeklyRankTeen", "monthlyRankTeen", "dailyRankTeen"]
                         .forEach((field, index) => { novel[field] = row[12 + index] || 0; });
                 }
@@ -119,8 +119,8 @@
             if (audience === "r15") return novel.age >= 15 && novel.age < 19;
             return novel.age < 19;
         }
-        if (audience === "adult") return ["novelpia", "kakao"].includes(novel.source) && novel.age === 19;
-        if (audience === "r15") return (novel.source === "sfacg" && novel.age === 19) || (novel.source === "novelpia" && novel.age === 15);
+        if (audience === "adult") return ["npia", "kpage"].includes(novel.source) && novel.age === 19;
+        if (audience === "r15") return (novel.source === "sfc" && novel.age === 19) || (novel.source === "npia" && novel.age === 15);
         return novel.age !== 19;
     }
 
@@ -157,12 +157,12 @@
 
     function rankValue(novel, type, audience) {
         if (type.startsWith("rank:")) return nativeRank(novel, type);
-        if (type === "sfacg_popularity") return novel.popularityRank || 0;
-        if (type === "sfacg_bestseller") return novel.bestSellerRank || 0;
-        if (type === "sfacg_newbooks") return novel.newBooksRank || 0;
-        if (type === "sfacg_bookmarks") return novel.bookmarksRank || 0;
-        if (type === "sfacg_jp") return novel.jpRank || 0;
-        if (type === "sfacg_ticket") return novel.ticketRank || 0;
+        if (type === "sfc_popularity") return novel.popularityRank || 0;
+        if (type === "sfc_bestseller") return novel.bestSellerRank || 0;
+        if (type === "sfc_newbooks") return novel.newBooksRank || 0;
+        if (type === "sfc_bookmarks") return novel.bookmarksRank || 0;
+        if (type === "sfc_jp") return novel.jpRank || 0;
+        if (type === "sfc_ticket") return novel.ticketRank || 0;
         // all → all ranks; general → teen ranks; adult → adult ranks; r15 → all ranks.
         if (audience === "adult") {
             if (type === "weekly") return novel.weeklyRankAdult;
@@ -179,8 +179,8 @@
         return 0;
     }
 
-    const RANK_SORTS = new Set(["daily", "weekly", "monthly", "sfacg_popularity", "sfacg_bestseller",
-        "sfacg_newbooks", "sfacg_bookmarks", "sfacg_jp", "sfacg_ticket"]);
+    const RANK_SORTS = new Set(["daily", "weekly", "monthly", "sfc_popularity", "sfc_bestseller",
+        "sfc_newbooks", "sfc_bookmarks", "sfc_jp", "sfc_ticket"]);
     let collator = null;
 
     /**
@@ -208,7 +208,7 @@
         if (RANK_SORTS.has(sortBy)) {
             // Unranked novels sort after ranked ones, then the board's own
             // platform comes first, then views break remaining ties.
-            const preferred = sortBy.startsWith("sfacg_") ? "sfacg" : "novelpia";
+            const preferred = sortBy.startsWith("sfc_") ? "sfc" : "npia";
             return [
                 { get: (novel) => rankValue(novel, sortBy, audience) || 9999, dir: -dir, nullsLast: false },
                 { get: (novel) => ((novel.source || defaultSource) === preferred ? 0 : 1), dir: 1, nullsLast: false },

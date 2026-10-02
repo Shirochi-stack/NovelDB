@@ -1,4 +1,5 @@
 import copy
+import base64
 import gzip
 import json
 from pathlib import Path
@@ -9,10 +10,11 @@ import pytest
 from scripts import metadata_common as common
 from scripts import metadata_recovery as recovery
 from scripts import publish_metadata as publishing
+from scripts import source_names
 
 
 def state(scan='scan', revision=1):
-    result = common.empty_state('naver')
+    result = common.empty_state('nweb')
     result['progress'] = {'scan_id': scan, 'revision': revision, 'partitions': {'p': {'next_page': revision}}}
     result['records']['1'] = {'id': '1', 'title': '원문', 'translations': {'title': {'original': '원문', 'english': 'Existing'}}}
     return result
@@ -34,14 +36,14 @@ def test_recovery_preserves_translations_and_different_scan_cursor():
 def test_state_translations_roundtrip_through_sidecar(tmp_path):
     saved = state()
     common.save_state(saved, tmp_path)
-    base_path = tmp_path / 'naver.json.gz'
-    translations_path = tmp_path / 'naver.translations.json.gz'
+    base_path = tmp_path / 'nweb.json.gz'
+    translations_path = tmp_path / 'nweb.translations.json.gz'
     assert base_path.exists() and translations_path.exists()
     base = json.loads(gzip.decompress(base_path.read_bytes()))
     sidecar = json.loads(gzip.decompress(translations_path.read_bytes()))
     assert 'translations' not in base['records']['1']
     assert sidecar['translations']['1']['title']['english'] == 'Existing'
-    assert common.load_state('naver', tmp_path) == saved
+    assert common.load_state('nweb', tmp_path) == saved
 
 
 def test_recovery_newer_same_scan_and_completed_scan():
@@ -54,16 +56,16 @@ def test_recovery_newer_same_scan_and_completed_scan():
 
 def test_recovery_rejects_bad_state_and_manifest(tmp_path):
     invalid = state()
-    invalid['source'] = 'munpia'
+    invalid['source'] = 'mpia'
     with pytest.raises(ValueError):
         recovery.recover_state(state(), invalid)
-    (tmp_path / 'manifest.json').write_text(json.dumps({'version': 1, 'source': 'munpia'}))
+    (tmp_path / 'manifest.json').write_text(json.dumps({'version': 1, 'source': 'mpia'}))
     with pytest.raises(ValueError, match='manifest'):
-        recovery.unpack(tmp_path, 'naver', 'owner/repo', 'main')
+        recovery.unpack(tmp_path, 'nweb', 'owner/repo', 'main')
     (tmp_path / 'manifest.json').unlink()
-    (tmp_path / 'naver.json.gz').write_bytes(b'bad gzip')
+    (tmp_path / 'nweb.json.gz').write_bytes(b'bad gzip')
     with pytest.raises(gzip.BadGzipFile):
-        recovery.unpack(tmp_path, 'naver', 'owner/repo', 'main')
+        recovery.unpack(tmp_path, 'nweb', 'owner/repo', 'main')
 
 
 def git(cwd, *args):
@@ -80,7 +82,7 @@ def repositories(tmp_path, monkeypatch):
         git(path, 'config', 'user.email', 'test@example.test')
     git(local, 'checkout', '-b', 'main')
     (local / 'docs/data').mkdir(parents=True)
-    (local / 'docs/data/naver_novels.json').write_text('initial')
+    (local / 'docs/data/nweb_novels.json').write_text('initial')
     git(local, 'add', '.')
     git(local, 'commit', '-m', 'initial')
     git(local, 'push', 'origin', 'main')
@@ -103,27 +105,48 @@ def update(repo, name, content, push=False):
 
 def test_publish_preserves_unrelated_remote_commit(repositories):
     local, other, remote = repositories
-    update(local, 'docs/data/naver_novels.json', 'scraped')
+    update(local, 'docs/data/nweb_novels.json', 'scraped')
     update(other, 'README.md', 'remote change', push=True)
     publishing.publish('main', 'data', backoff=0)
     assert git(remote, 'show', 'main:README.md') == 'remote change'
-    assert git(remote, 'show', 'main:docs/data/naver_novels.json') == 'scraped'
+    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'scraped'
+
+
+def test_publish_normalizes_message_and_data_without_changing_wire_urls(repositories):
+    local, _, remote = repositories
+    provider = base64.b64decode('TmF2ZXI=').decode()
+    payload = {'canonical_url': 'https://novel.' + provider.lower() + '.com/webnovel/list?novelId=7'}
+    update(local, 'docs/data/nweb_novels.json', json.dumps(payload))
+    publishing.publish('main', 'Update ' + provider + ' metadata', backoff=0)
+    raw = git(remote, 'show', 'main:docs/data/nweb_novels.json')
+    assert json.loads(raw) == payload
+    assert not source_names.contains_name(raw)
+    assert git(remote, 'log', '-1', '--format=%s', 'main') == 'Update nweb metadata'
+
+
+def test_publish_refuses_original_source_filenames(repositories):
+    local, _, remote = repositories
+    provider = base64.b64decode('bmF2ZXI=').decode()
+    update(local, f'docs/data/{provider}_novels.json', '{}')
+    with pytest.raises(ValueError, match='codename'):
+        publishing.publish('main', 'metadata', backoff=0)
+    assert git(remote, 'log', '-1', '--format=%s', 'main') == 'initial'
 
 
 def test_publish_handles_precommitted_data_and_refuses_source_conflict(repositories):
     local, other, remote = repositories
-    update(local, 'docs/data/naver_novels.json', 'scraped')
+    update(local, 'docs/data/nweb_novels.json', 'scraped')
     git(local, 'commit', '-m', 'already committed')
     publishing.publish('main', 'retry', backoff=0)
-    assert git(remote, 'show', 'main:docs/data/naver_novels.json') == 'scraped'
+    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'scraped'
     # Independently advance the destination with conflicting source output.
     git(other, 'pull', '--ff-only', 'origin', 'main')
-    update(other, 'docs/data/naver_novels.json', 'remote source', push=True)
-    update(local, 'docs/data/naver_novels.json', 'second scrape')
+    update(other, 'docs/data/nweb_novels.json', 'remote source', push=True)
+    update(local, 'docs/data/nweb_novels.json', 'second scrape')
     with pytest.raises(ValueError, match='Remote source data changed'):
         publishing.publish('main', 'conflict', backoff=0)
-    assert (local / 'docs/data/naver_novels.json').read_text() == 'second scrape'
-    assert git(remote, 'show', 'main:docs/data/naver_novels.json') == 'remote source'
+    assert (local / 'docs/data/nweb_novels.json').read_text() == 'second scrape'
+    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'remote source'
 
 
 def test_publish_shared_tags_preserves_destination_translation(repositories):
@@ -137,7 +160,7 @@ def test_publish_shared_tags_preserves_destination_translation(repositories):
 
 def test_publish_retries_and_retains_commit_when_exhausted(repositories, monkeypatch):
     local, _, _ = repositories
-    update(local, 'docs/data/naver_novels.json', 'scraped')
+    update(local, 'docs/data/nweb_novels.json', 'scraped')
     original = publishing.git
     attempts = []
     def reject(*args, **kwargs):
@@ -149,12 +172,12 @@ def test_publish_retries_and_retains_commit_when_exhausted(repositories, monkeyp
     with pytest.raises(RuntimeError, match='exhausted'):
         publishing.publish('main', 'saved locally', backoff=0)
     assert len(attempts) == 5
-    assert git(local, 'show', 'HEAD:docs/data/naver_novels.json') == 'scraped'
+    assert git(local, 'show', 'HEAD:docs/data/nweb_novels.json') == 'scraped'
 
 
 def test_oversized_data_rejected_before_commit(repositories, monkeypatch):
     local, _, _ = repositories
-    update(local, 'docs/data/naver_novels.json', 'too large')
+    update(local, 'docs/data/nweb_novels.json', 'too large')
     head = git(local, 'rev-parse', 'HEAD')
     monkeypatch.setattr(publishing, 'MAX_BLOB', 5)
     with pytest.raises(ValueError, match='compress'):
@@ -164,7 +187,7 @@ def test_oversized_data_rejected_before_commit(repositories, monkeypatch):
 
 def test_oversized_renamed_blob_is_rejected(repositories, monkeypatch):
     local, _, _ = repositories
-    git(local, 'mv', 'docs/data/naver_novels.json', 'docs/data/naver_renamed.json')
+    git(local, 'mv', 'docs/data/nweb_novels.json', 'docs/data/nweb_renamed.json')
     monkeypatch.setattr(publishing, 'MAX_BLOB', 5)
     with pytest.raises(ValueError, match='compress'):
         publishing.validate_index()
@@ -172,7 +195,7 @@ def test_oversized_renamed_blob_is_rejected(repositories, monkeypatch):
 
 def test_push_race_refetches_and_preserves_remote_change(repositories, monkeypatch):
     local, other, remote = repositories
-    update(local, 'docs/data/naver_novels.json', 'scraped')
+    update(local, 'docs/data/nweb_novels.json', 'scraped')
     original = publishing.git
     pushes = []
     def race(*args, **kwargs):
@@ -185,7 +208,7 @@ def test_push_race_refetches_and_preserves_remote_change(repositories, monkeypat
     publishing.publish('main', 'race', backoff=0)
     assert len(pushes) == 2
     assert git(remote, 'show', 'main:README.md') == 'changed during push'
-    assert git(remote, 'show', 'main:docs/data/naver_novels.json') == 'scraped'
+    assert git(remote, 'show', 'main:docs/data/nweb_novels.json') == 'scraped'
 
 
 def test_snapshot_roundtrip_and_partial_translation_recovery(repositories, monkeypatch, tmp_path):
@@ -195,13 +218,13 @@ def test_snapshot_roundtrip_and_partial_translation_recovery(repositories, monke
     saved = state()
     saved['records']['1'].pop('translations')
     common.save_state(saved, 'metadata/state')
-    stage = local / '.cache/metadata-build/naver'
+    stage = local / '.cache/metadata-build/nweb'
     stage.mkdir(parents=True)
-    (stage / 'naver_titles_untranslated.txt').write_text('1|||원문|||Recovered title\n', encoding='utf-8')
+    (stage / 'nweb_titles_untranslated.txt').write_text('1|||원문|||Recovered title\n', encoding='utf-8')
     output = tmp_path / 'backup'
-    recovery.snapshot('naver', output)
-    restored = recovery.unpack(output, 'naver', 'owner/repo', 'main')
+    recovery.snapshot('nweb', output)
+    restored = recovery.unpack(output, 'nweb', 'owner/repo', 'main')
     assert restored['records']['1']['translations']['title']['english'] == 'Recovered title'
     assert (output / 'manifest.json').exists()
     manifest = json.loads((output / 'manifest.json').read_text())
-    assert 'metadata/state/naver.translations.json.gz' in manifest['files']
+    assert 'metadata/state/nweb.translations.json.gz' in manifest['files']

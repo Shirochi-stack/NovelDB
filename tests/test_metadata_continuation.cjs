@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { validDecision, dispatchContinuation } = require('../scripts/metadata_continuation.cjs');
-const decision = { source: 'naver', eligible: true, scan_id: 'a'.repeat(32), revision: '31', workers: '4' };
+const decision = { source: 'nweb', eligible: true, scan_id: 'a'.repeat(32), revision: '31', workers: '4' };
 const context = { repo: { owner: 'fixture', repo: 'novels' }, payload: {
     repository: { default_branch: 'main' }, workflow_run: { head_branch: 'main', conclusion: 'success' },
 } };
@@ -9,27 +9,27 @@ const context = { repo: { owner: 'fixture', repo: 'novels' }, payload: {
 test('dispatches the same source and checkpoint only, without depending on translation success', async () => {
     const calls = [];
     const github = { rest: { actions: { createWorkflowDispatch: async (args) => calls.push(args) } } };
-    assert.equal(await dispatchContinuation({ github, context, decision, source: 'naver' }), true);
-    assert.deepEqual(calls, [{ owner: 'fixture', repo: 'novels', workflow_id: 'update-naver-metadata.yml', ref: 'main',
+    assert.equal(await dispatchContinuation({ github, context, decision, source: 'nweb' }), true);
+    assert.deepEqual(calls, [{ owner: 'fixture', repo: 'novels', workflow_id: 'update-nweb-metadata.yml', ref: 'main',
         inputs: { operation: 'resume', workers: '4', auto_continue: 'true', expected_scan: 'a'.repeat(32), expected_revision: '31' } }]);
 });
 
 test('rejects cancellation, failed metadata, another branch, bad source and malformed checkpoints', async () => {
     const github = { rest: { actions: { createWorkflowDispatch: async () => assert.fail('Unexpected dispatch') } } };
-    for (const changes of [{ eligible: false }, { source: 'joara' }, { scan_id: '../main' }, { revision: 'x' }, { workers: 17 }]) {
-        assert.equal(validDecision({ ...decision, ...changes }, 'naver'), false);
+    for (const changes of [{ eligible: false }, { source: 'jara' }, { scan_id: '../main' }, { revision: 'x' }, { workers: 17 }]) {
+        assert.equal(validDecision({ ...decision, ...changes }, 'nweb'), false);
     }
-    assert.equal(await dispatchContinuation({ github, context, decision, source: 'naver', cancelled: true }), false);
+    assert.equal(await dispatchContinuation({ github, context, decision, source: 'nweb', cancelled: true }), false);
     for (const run of [{ head_branch: 'feature', conclusion: 'success' }, { head_branch: 'main', conclusion: 'failure' }]) {
-        assert.equal(await dispatchContinuation({ github, context: { ...context, payload: { ...context.payload, workflow_run: run } }, decision, source: 'naver' }), false);
+        assert.equal(await dispatchContinuation({ github, context: { ...context, payload: { ...context.payload, workflow_run: run } }, decision, source: 'nweb' }), false);
     }
 });
 const { resolveSource } = require('../scripts/metadata_continuation.cjs');
-test('routes dynamic run names by stable workflow path with no Munpia fallback', () => {
-    for (const source of ['naver', 'joara', 'munpia', 'ridi', 'naverseries']) {
+test('routes dynamic run names by stable workflow path with no Mpia fallback', () => {
+    for (const source of ['nweb', 'jara', 'mpia', 'rbooks', 'nseries']) {
         assert.equal(resolveSource('', { name: 'Dynamic title — catalog', path: `.github/workflows/update-${source}-metadata.yml` }), source);
         assert.equal(resolveSource(source), source);
     }
-    assert.throws(() => resolveSource('', { name: 'Ridibooks metadata — catalog' }));
+    assert.throws(() => resolveSource('', { name: 'Rbooks metadata — catalog' }));
     assert.throws(() => resolveSource('wrong', {}));
 });

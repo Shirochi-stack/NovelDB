@@ -1,31 +1,37 @@
 """Convert SpazzTL's JSONL files to our optimized array JSON format.
 
 If you can't run the scrapers directly, download the JSONL files from:
-  - https://github.com/SpazzTL/Novelpedia/raw/main/static/kakao_novels.jsonl
-  - https://github.com/SpazzTL/Novelpedia/raw/main/static/sfacg_novels.jsonl
+  - https://github.com/SpazzTL/Novelpedia/raw/main/static/kpage_novels.jsonl
+  - https://github.com/SpazzTL/Novelpedia/raw/main/static/sfc_novels.jsonl
 
 Place them in docs/data/ and run:
-  python scripts/convert_jsonl.py kakao
-  python scripts/convert_jsonl.py sfacg
+  python scripts/convert_jsonl.py kpage
+  python scripts/convert_jsonl.py sfc
 
 This converts the JSONL (one JSON object per line) to our optimized array format.
 """
+
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
 
 import sys, os, json
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 SOURCE_MAP = {
-    "kakao": {
-        "input": "docs/data/kakao_novels.jsonl",
-        "output": "docs/data/kakao_novels.json",
+    "kpage": {
+        "input": "docs/data/kpage_novels.jsonl",
+        "output": "docs/data/kpage_novels.json",
     },
-    "sfacg": {
-        "input": "docs/data/sfacg_novels.jsonl",
-        "output": "docs/data/sfacg_novels.json",
+    "sfc": {
+        "input": "docs/data/sfc_novels.jsonl",
+        "output": "docs/data/sfc_novels.json",
     },
-    "novelpia": {
-        "input": "docs/data/novelpia_metadata.jsonl",
+    "npia": {
+        "input": "docs/data/npia_metadata.jsonl",
         "output": "docs/data/novels.json",
     },
 }
@@ -103,7 +109,7 @@ def convert(source):
 
     os.makedirs(os.path.dirname(cfg["output"]), exist_ok=True)
     with open(cfg["output"], "w", encoding="utf-8") as f:
-        json.dump(novels, f, ensure_ascii=False, separators=(",", ":"))
+        source_names.dump(novels, f, ensure_ascii=False, separators=(",", ":"))
 
     size_mb = os.path.getsize(cfg["output"]) / 1024 / 1024
     print(f"  Saved to {cfg['output']} ({size_mb:.1f} MB)")

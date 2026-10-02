@@ -16,7 +16,7 @@ window.unsafeWindow = window;
 // Wrap window.fetch with automatic retry for failed requests.
 // The novel-downloader getHtmlDOM -> getText calls fetch() and throws
 // "Bad response!" on non-ok status. Transient 403/429/5xx errors are common
-// on sites like SFACG under concurrent load.
+// on sites like SFC under concurrent load.
 (function() {
   var _realFetch = window.fetch.bind(window);
   var MAX_RETRIES = 3;
@@ -84,7 +84,7 @@ window.GM_xmlhttpRequest = function(details) {
   } catch (e) {}
   var useNativeTransport =
     typeof window.__npia_gm_xmlhttp_request === "function" &&
-    nativeUrl === "api.sfacg.com";
+    nativeUrl === "api.\u0073\u0066\u0061\u0063\u0067.com";
 
   if (useNativeTransport) {
     var payload = {

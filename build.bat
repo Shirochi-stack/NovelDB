@@ -3,7 +3,7 @@ setlocal EnableDelayedExpansion
 for /f %%A in ('python -c "import app_version; print(app_version.APP_NAME)"') do set APP_NAME=%%A
 for /f %%A in ('python -c "import app_version; print(app_version.APP_NAME_LITE)"') do set APP_NAME_LITE=%%A
 echo ========================================
-echo   Building NovelpiaDownloader
+echo   Building NpiaDownloader
 echo ========================================
 echo.
 
@@ -16,14 +16,14 @@ if !ERRORLEVEL! NEQ 0 (
     echo Playwright browser install failed. Cannot build the full executable.
     set FULL_RESULT=!ERRORLEVEL!
 ) else (
-python -m PyInstaller NovelpiaDownloader.spec --clean
+python -m PyInstaller NpiaDownloader.spec --clean
 set FULL_RESULT=!ERRORLEVEL!
 )
 
 echo.
 echo [2/2] Building !APP_NAME_LITE! (No Playwright)...
 echo.
-python -m PyInstaller NovelpiaDownloader_Lite.spec --clean
+python -m PyInstaller NpiaDownloader_Lite.spec --clean
 set LITE_RESULT=!ERRORLEVEL!
 
 echo.

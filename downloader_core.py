@@ -8,7 +8,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
-from novelpia_search_terms import (
+from npia_search_terms import (
     ALL_SEARCH_TERMS,
     DEFAULT_SEARCH_QUERY_COUNT,
     RETRYABLE_STATUS_CODES,
@@ -167,7 +167,7 @@ def validate_chapter_payload(payload):
     return data
 
 
-def parse_novelpia_status(source):
+def parse_npia_status(source):
     """Read the novel's completion badge, never unrelated page text."""
     from bs4 import BeautifulSoup
 
@@ -179,7 +179,7 @@ def parse_novelpia_status(source):
     return 'Completed' if badges.select_one('.b_comp') else 'Ongoing'
 
 
-def parse_novelpia_notice_html(source):
+def parse_npia_notice_html(source):
     """Return author-notice chapter records in oldest-first reading order."""
     source = source or ""
     table_match = re.search(
@@ -210,7 +210,7 @@ def parse_novelpia_notice_html(source):
         title = "Notice: " + clean_title if clean_title else "Notice"
         results.append({"id": chapter_id, "title": html.unescape(title)})
 
-    # Novelpia renders this table newest-first. Downloads place notices before
+    # Npia renders this table newest-first. Downloads place notices before
     # regular chapters, so normalize it to oldest-first reading order.
     results.reverse()
     return results
@@ -223,7 +223,7 @@ class DownloaderCore:
         self.stop_signal = False
 
     @staticmethod
-    def _normalize_novelpia_image_url(value):
+    def _normalize_npia_image_url(value):
         if not value:
             return None
         value = html.unescape(str(value)).strip().strip("\"'")
@@ -232,22 +232,22 @@ class DownloaderCore:
         if value.startswith("//"):
             value = "https:" + value
         elif value.startswith("/imagebox/"):
-            value = "https://images.novelpia.com" + value
+            value = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com" + value
         elif value.startswith("imagebox/"):
-            value = "https://images.novelpia.com/" + value
+            value = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/" + value
         value = re.sub(
-            r"^https?://(?:image\.novelpia\.com|novelpia\.com)/imagebox/",
-            "https://images.novelpia.com/imagebox/",
+            r"^https?://(?:image\.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com|\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com)/imagebox/",
+            "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/",
             value,
             flags=re.IGNORECASE,
         )
-        if not re.match(r"^https://images?\.novelpia\.com/imagebox/", value, re.IGNORECASE):
+        if not re.match(r"^https://images?\.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com/imagebox/", value, re.IGNORECASE):
             return None
         return value
 
     # Schemes that can never be fetched over the network. Authors who paste
     # from MS Word / HWP leave behind <img src="file:///C:/.../clip_image001.png">
-    # placeholders; those are dead references on Novelpia too, so retrying them
+    # placeholders; those are dead references on Npia too, so retrying them
     # next run can only produce the same result.
     UNFETCHABLE_IMAGE_SCHEMES = (
         "file", "data", "about", "blob", "javascript", "cid", "res", "chrome",
@@ -293,11 +293,11 @@ class DownloaderCore:
         if value.startswith("//"):
             value = "https:" + value
         elif value.startswith("/imagebox/"):
-            value = "https://images.novelpia.com" + value
+            value = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com" + value
         elif value.startswith("imagebox/"):
-            value = "https://images.novelpia.com/" + value
+            value = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/" + value
         elif not urlparse(value).scheme:
-            value = urljoin("https://novelpia.com/", value)
+            value = urljoin("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/", value)
 
         parsed = urlparse(value)
         if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
@@ -323,7 +323,7 @@ class DownloaderCore:
         seen = {}
 
         def add(raw_url, source_bonus=0):
-            url = self._normalize_novelpia_image_url(raw_url)
+            url = self._normalize_npia_image_url(raw_url)
             if not url:
                 return
             lower = url.lower()
@@ -373,7 +373,7 @@ class DownloaderCore:
 
         scan_text = text.replace("\\/", "/")
         imagebox_pattern = (
-            r"(?:https?:)?//(?:images?\.novelpia\.com|novelpia\.com)/imagebox/"
+            r"(?:https?:)?//(?:images?\.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com|\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com)/imagebox/"
             r"(?:original|cover|[0-9a-f]{1,3})/[^\s\"'<>\\)]+"
             r"|/imagebox/(?:original|cover|[0-9a-f]{1,3})/[^\s\"'<>\\)]+"
         )
@@ -438,7 +438,7 @@ class DownloaderCore:
         """
         Scrapes novel metadata using regex patterns from MainWin.Download.cs.
         """
-        url = f"https://novelpia.com/novel/{novel_id}"
+        url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"
         self.log(f"Fetching metadata for Novel ID: {novel_id}...")
 
         try:
@@ -462,7 +462,7 @@ class DownloaderCore:
                 # Fallback: try og:title meta tag
                 og_title_match = re.search(r'<meta\s+property=["\']og:title["\']\s+content=["\'](.+?)["\']', text, flags=re.IGNORECASE)
                 if og_title_match:
-                    # og:title format: "노벨피아 - 웹소설로 꿈꾸는 세상! - [Title]"
+                    # og:title format: "npia - 웹소설로 꿈꾸는 세상! - [Title]"
                     # Extract the actual title after the last dash
                     full_title = og_title_match.group(1)
                     parts = full_title.split(' - ')
@@ -537,7 +537,7 @@ class DownloaderCore:
 
                 # Prefer the longer one (sometimes they differ)
                 description = og_desc if len(og_desc) > len(meta_desc) else meta_desc
-            status = parse_novelpia_status(text)
+            status = parse_npia_status(text)
 
             self.log(f"Metadata acquired: {title} by {author}")
             if cover_url:
@@ -573,11 +573,11 @@ class DownloaderCore:
         self.log("Analyzing novel to get chapter list...")
         
         while not self.stop_signal:
-            url = "https://novelpia.com/proc/episode_list"
+            url = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/episode_list"
             data = {"novel_no": novel_id, "sort": "DOWN", "page": page}
             
             try:
-                headers = {"Referer": f"https://novelpia.com/novel/{novel_id}"}
+                headers = {"Referer": f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"}
                 response = self._request_with_retries(
                     "post",
                     url,
@@ -662,7 +662,7 @@ class DownloaderCore:
         except (TypeError, ValueError):
             max_retries = self.DEFAULT_MAX_RETRIES
 
-        url = f"https://novelpia.com/proc/viewer_data/{chapter_id}"
+        url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/viewer_data/{chapter_id}"
 
         last_failure_reason = ""
 
@@ -688,7 +688,7 @@ class DownloaderCore:
                 if self.stop_signal:
                     return None
                 try:
-                    # LOGINKEY is already in session cookies via novelpia_auth.
+                    # LOGINKEY is already in session cookies via npia_auth.
                     # Don't manually override the Cookie header — it clobbers
                     # other cookies (USERKEY, NPK*) that the server needs.
                     response = self.auth.session.post(url, timeout=15)
@@ -785,10 +785,10 @@ class DownloaderCore:
         """
         notices = []
         try:
-            url = "https://novelpia.com/proc/notice_list"
+            url = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/notice_list"
             data = {"novel_no": novel_id, "page": 0}
             # Set proper Referer header to avoid empty responses
-            headers = {"Referer": f"https://novelpia.com/novel/{novel_id}"}
+            headers = {"Referer": f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"}
             resp = self.auth.session.post(url, data=data, headers=headers, timeout=15)
             text = resp.text or ""
             if not text.strip():
@@ -837,11 +837,11 @@ class DownloaderCore:
         """
         results = []
         try:
-            url = f"https://novelpia.com/novel/{novel_id}"
+            url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"
             self.log(f"Scanning notices on novel page for {novel_id}...")
             resp = self.auth.session.get(url, timeout=15)
             text = resp.text or ""
-            results = parse_novelpia_notice_html(text)
+            results = parse_npia_notice_html(text)
             if not re.search(r'\bnotice_table\b', text, re.IGNORECASE):
                 self.log("No notice table found.")
                 return []
@@ -978,7 +978,7 @@ img { max-width: 100%; height: auto; }
         self.log("PDF generation complete.")
 
     def fetch_top100_rankings(self, age_filter=""):
-        """Fetch Top 100 novel IDs from Novelpia ranking pages.
+        """Fetch Top 100 novel IDs from Npia ranking pages.
 
         Scrapes /top100/ pages for each period (daily, weekly, monthly).
         The audience is determined by age_filter:
@@ -1016,7 +1016,7 @@ img { max-width: 100%; height: auto; }
                     return results
 
                 label = f"{period_label} {audience_label}"
-                url = f"https://novelpia.com/top100/all/{period_url}/view/{audience_url}"
+                url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/top100/all/{period_url}/view/{audience_url}"
                 self.log(f"  Fetching {label}...")
 
                 try:
@@ -1037,7 +1037,7 @@ img { max-width: 100%; height: auto; }
         return results
 
     def fetch_all_novels(self, delay=0.5, rows=30, age_filter="", max_queries=DEFAULT_SEARCH_QUERY_COUNT, threads=1):
-        """Fetch ALL novel IDs from Novelpia using multiple API calls.
+        """Fetch ALL novel IDs from Npia using multiple API calls.
 
         The API caps results at ~42K per query, so we search with multiple
         tags/sweep terms and union the results for better coverage.
@@ -1051,10 +1051,10 @@ img { max-width: 100%; height: auto; }
         Returns:
             list of novel ID strings
         """
-        url = "https://novelpia.com/proc/novel"
+        url = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel"
         headers = {
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://novelpia.com/search",
+            "Referer": "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/search",
         }
 
         if max_queries is None:
@@ -1062,7 +1062,7 @@ img { max-width: 100%; height: auto; }
         max_queries = max(1, min(int(max_queries), DEFAULT_SEARCH_QUERY_COUNT))
         SEARCH_CHARS = ALL_SEARCH_TERMS[:max_queries]
 
-        self.log(f"Scraping all novel IDs from Novelpia... ({len(SEARCH_CHARS)} queries, {threads} thread(s))")
+        self.log(f"Scraping all novel IDs from Npia... ({len(SEARCH_CHARS)} queries, {threads} thread(s))")
         if age_filter == "15":
             self.log("  Age filter: Non-adult only")
         elif age_filter == "19":
@@ -1201,7 +1201,7 @@ img { max-width: 100%; height: auto; }
         return list(ids)
 
     def fetch_novels_by_tags(self, tags, delay=0.5, rows=30, age_filter="", mode="AND", threads=1):
-        """Fetch novel IDs from Novelpia's tag search API.
+        """Fetch novel IDs from Npia's tag search API.
 
         Uses GET /proc/novel?cmd=novel_search&search_type=novel_genre&search_val={tag}.
         Each tag is searched separately. Results are combined based on mode:
@@ -1224,10 +1224,10 @@ img { max-width: 100%; height: auto; }
         """
         from concurrent.futures import ThreadPoolExecutor
 
-        url = "https://novelpia.com/proc/novel"
+        url = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel"
         headers = {
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://novelpia.com/search",
+            "Referer": "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/search",
         }
 
         if mode == "GROUPS":

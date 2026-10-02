@@ -1,4 +1,4 @@
-"""Single source of truth for Novelpia Downloader build/version names."""
+"""Single source of truth for Npia Downloader build/version names."""
 
 VERSION_NUMBER = 91
 VERSION = str(VERSION_NUMBER)
@@ -7,7 +7,7 @@ APP_NAME = f"ND{VERSION}"
 APP_NAME_LITE = f"{APP_NAME}_Lite"
 
 RELEASE_TAG = f"v{VERSION}"
-BUNDLE_ID = f"com.novelpiadownloader.nd{VERSION}"
+BUNDLE_ID = f"com.npiadownloader.nd{VERSION}"
 BUNDLE_ID_LITE = f"{BUNDLE_ID}lite"
 
 # macOS CFBundle* fields accept dotted strings, but keeping them tied to the

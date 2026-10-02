@@ -162,6 +162,8 @@ Write-Host "[4/4] Copying rules-lib.js..."
 $bundlePath = Join-Path $NdDir "dist\bundle.user.js"
 if (Test-Path $bundlePath) {
     Copy-Item $bundlePath $outFile -Force
+    python (Join-Path $NpiaDir "scripts\codename_policy.py") sanitize-rules $outFile
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $size = [Math]::Round((Get-Item $outFile).Length / 1KB)
     Write-Host "  Done! ($size KB)"
 } else {

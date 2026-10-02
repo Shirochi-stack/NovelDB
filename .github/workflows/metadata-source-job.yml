@@ -97,7 +97,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          case "$METADATA_SOURCE" in naver|joara|munpia|ridi|naverseries) ;; *) exit 2 ;; esac
+          case "$METADATA_SOURCE" in nweb|jara|mpia|rbooks|nseries) ;; *) exit 2 ;; esac
           case "$METADATA_OPERATION" in catalog|rankings|resume|build|translate) ;; *) exit 2 ;; esac
           stage=".cache/metadata-build/$METADATA_SOURCE"
           state="metadata/state"

@@ -23,41 +23,41 @@ echo.
 echo [4/9] Building on-demand description shards...
 python scripts/chunk_descriptions.py docs/data/descriptions.txt --prefix descriptions_shard --output-dir docs/data -n 128
 if errorlevel 1 goto :error
-python scripts/chunk_descriptions.py docs/data/sfacg_descriptions.txt --prefix sfacg_descriptions_shard --output-dir docs/data -n 128
+python scripts/chunk_descriptions.py docs/data/sfc_descriptions.txt --prefix sfc_descriptions_shard --output-dir docs/data -n 128
 if errorlevel 1 goto :error
-python scripts/chunk_descriptions.py docs/data/kakao_descriptions.txt --prefix kakao_descriptions_shard --output-dir docs/data -n 128
-if errorlevel 1 goto :error
-echo.
-
-echo [5/9] Chunking Novelpia data...
-python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
+python scripts/chunk_descriptions.py docs/data/kpage_descriptions.txt --prefix kpage_descriptions_shard --output-dir docs/data -n 128
 if errorlevel 1 goto :error
 echo.
 
-echo [6/9] Building Novelpia top rankings...
-python scripts/build_novelpia_top.py
+echo [5/9] Chunking Npia data...
+python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix npia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
 if errorlevel 1 goto :error
 echo.
 
-echo [7/9] Chunking SFACG data...
-python scripts/chunk_and_compress.py --input docs/data/sfacg_novels.json --prefix sfacg_chunk --output-dir docs/data -n 10 --translations docs/data/sfacg_titles_en.txt
+echo [6/9] Building Npia top rankings...
+python scripts/build_npia_top.py
 if errorlevel 1 goto :error
 echo.
 
-echo [8/9] Building SFACG top rankings...
-python scripts/build_sfacg_top.py
+echo [7/9] Chunking SFC data...
+python scripts/chunk_and_compress.py --input docs/data/sfc_novels.json --prefix sfc_chunk --output-dir docs/data -n 10 --translations docs/data/sfc_titles_en.txt
 if errorlevel 1 goto :error
 echo.
 
-echo [9/9] Chunking Kakao data...
-python scripts/chunk_and_compress.py --input docs/data/kakao_novels.json --prefix kakao_chunk --output-dir docs/data -n 3 --translations docs/data/kakao_titles_en.txt
-if errorlevel 1 echo   (Kakao data not found or failed — skipping)
+echo [8/9] Building SFC top rankings...
+python scripts/build_sfc_top.py
+if errorlevel 1 goto :error
+echo.
+
+echo [9/9] Chunking Kpage data...
+python scripts/chunk_and_compress.py --input docs/data/kpage_novels.json --prefix kpage_chunk --output-dir docs/data -n 3 --translations docs/data/kpage_titles_en.txt
+if errorlevel 1 echo   (Kpage data not found or failed — skipping)
 echo.
 
 echo Building available anonymous metadata source artifacts...
 echo   New sources are staged and validated before promotion.
 echo   Existing partial catalogs retain their coverage reports during this rebuild.
-for %%S in (naver joara munpia ridi naverseries) do (
+for %%S in (nweb jara mpia rbooks nseries) do (
     if exist "metadata\state\%%S.json.gz" (
         python scripts/metadata_pipeline.py build --source %%S --output-dir ".cache/metadata-build/%%S" --state-dir metadata/state
         if errorlevel 1 goto :error

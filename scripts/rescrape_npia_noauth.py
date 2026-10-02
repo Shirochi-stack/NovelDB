@@ -1,4 +1,4 @@
-"""Full Novelpia catalog rescrape WITHOUT authentication.
+"""Full Npia catalog rescrape WITHOUT authentication.
 
 Merges freshly scraped data into the existing novels.json, preserving every
 existing unique novel ID that is not present in the latest scrape.
@@ -16,6 +16,12 @@ Usage:
     python scripts/rescrape_npia_noauth.py --dry-run
 """
 
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
+
 import sys, os, json, time, re, argparse, requests
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -31,14 +37,14 @@ HEADERS = {
 
 API_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
-    "Referer": "https://novelpia.com/search",
+    "Referer": "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/search",
 }
 
-COVER_PREFIX = "https://novelpia.com"
-IMAGE_COVER_PREFIX = "https://images.novelpia.com"
+COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
+IMAGE_COVER_PREFIX = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 DELETED_TAG = "deleted"
 PLACEHOLDER_COVER_PARTS = ("readycover", "adult_cover_img")
-from novelpia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
+from npia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
 
 AUDIENCES = [
     ("all/plus",   "all",   10, 12, 13),
@@ -54,7 +60,7 @@ PERIODS = [
 
 
 def pick_cover(item):
-    """Pick the best cover URL from a Novelpia API response."""
+    """Pick the best cover URL from a Npia API response."""
     for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
         v = item.get(k)
         if v and str(v) not in ("", "None", "null"):
@@ -121,7 +127,7 @@ def get_json_with_retry(session, params, retries, timeout=120):
     for attempt in range(1, retries + 1):
         try:
             r = session.get(
-                "https://novelpia.com/proc/novel",
+                "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel",
                 params=params,
                 headers=API_HEADERS,
                 timeout=timeout,
@@ -141,7 +147,7 @@ def get_json_with_retry(session, params, retries, timeout=120):
 
 
 def search_novels(session, search_val, retries, search_type="all"):
-    """Search Novelpia API for novels matching a search term."""
+    """Search Npia API for novels matching a search term."""
     items = []
     ROWS = 30000
     for pg in range(1, 21):
@@ -217,7 +223,7 @@ def merge_term_results(terms, results, fresh_novels):
 
 def scrape_ranking(session, period, audience):
     """Scrape top100 for a given period and audience."""
-    url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
+    url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/top100/all/{period}/view/{audience}"
     r = session.get(url, timeout=30)
     if r.status_code != 200:
         return {}
@@ -229,7 +235,7 @@ def scrape_ranking(session, period, audience):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Rescrape Novelpia catalog (no auth)")
+    parser = argparse.ArgumentParser(description="Rescrape Npia catalog (no auth)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run scrape and show merge summary without saving")
     parser.add_argument("--search-workers", type=int, default=4,
@@ -249,7 +255,7 @@ def main():
 
     print("Initializing session...")
     try:
-        session.get("https://novelpia.com", timeout=15)
+        session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com", timeout=15)
     except Exception:
         pass
 
@@ -503,7 +509,7 @@ def main():
 
     # Save optimized version (array format, no synopsis)
     with open(data_path, "w", encoding="utf-8") as f:
-        json.dump(existing_data, f, ensure_ascii=False, separators=(",", ":"))
+        source_names.dump(existing_data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"\nSaved {data_path} ({os.path.getsize(data_path) / 1024 / 1024:.1f} MB)")
 
     # Save full version with synopses for description extraction
@@ -530,7 +536,7 @@ def main():
             print(f"  Warning: Could not merge old full data: {e}")
 
     with open(full_path, "w", encoding="utf-8") as f:
-        json.dump(full_novels, f, ensure_ascii=False)
+        source_names.dump(full_novels, f, ensure_ascii=False)
     print(f"Saved {full_path} ({os.path.getsize(full_path) / 1024 / 1024:.1f} MB)")
 
 

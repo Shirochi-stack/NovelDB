@@ -1,0 +1,89 @@
+name: Update Kpage Data
+
+on:
+  schedule:
+    # Run every Sunday at 09:00 UTC
+    - cron: '0 9 * * 0'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-write-lock
+  cancel-in-progress: false
+
+jobs:
+  update-kpage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Migrate legacy descriptions to gzip
+        run: python scripts/kpage_descriptions.py
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Kpage scraper
+        run: python scripts/scrape_kpage.py --delay 0.5 --catalog-workers 4 --description-workers 4 --retries 8
+
+      - name: Guard against accidental Kpage catalog shrink
+        run: python scripts/guard_catalog_drop.py docs/data/kpage_novels.json --max-drop-ratio 0.20
+
+      - name: Reconcile Kpage descriptions
+        run: python scripts/extract_kpage_descriptions.py
+
+      - name: Sync Kpage titles from novels JSON
+        run: python scripts/extract_titles.py kpage
+
+      - name: Extract untranslated Kpage titles
+        run: python scripts/extract_untranslated_kpage_titles.py
+
+      - name: Extract untranslated Kpage descriptions
+        run: python scripts/extract_untranslated_kpage_descriptions.py
+
+      - name: Chunk Kpage descriptions
+        run: python scripts/chunk_descriptions.py docs/data/kpage_descriptions.txt.gz --prefix kpage_descriptions_shard --output-dir docs/data -n 128
+
+      - name: Re-chunk Kpage data with embedded translations
+        run: python scripts/chunk_and_compress.py --input docs/data/kpage_novels.json --prefix kpage_chunk --output-dir docs/data -n 3 --translations docs/data/kpage_titles_en.txt
+
+      - name: Snapshot recovery inputs
+        if: always()
+        run: python scripts/metadata_recovery.py snapshot --source kpage
+
+      - name: Back up before publication
+        id: backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-kpage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/recovery/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit and push
+        id: publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A -- 'docs/data/kpage_*'
+          python scripts/publish_metadata.py --message "Update kpage data"
+      - name: Report durability
+        if: always()
+        run: |
+          echo "Recovery backup: ${{ steps.backup.outcome }}; publication: ${{ steps.publish.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Recovery artifacts: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,4 @@
-"""Extract untranslated title rows from titles_en.txt for Novelpia.
+"""Extract untranslated title rows from titles_en.txt for Npia.
 
 Skips blank lines, empty IDs, and non-numeric IDs.
 """

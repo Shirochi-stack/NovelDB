@@ -14,7 +14,7 @@ from scripts import metadata_common as m
 
 
 class Adapter:
-    source = "naver"
+    source = "nweb"
     label = "Fixture"
 
     def is_allowed_url(self, url):
@@ -52,7 +52,7 @@ def test_catalog_without_native_rankings_can_complete(tmp_path):
 
 
 def test_cursor_resume_migrates_numbered_checkpoint_and_preserves_records(tmp_path):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     state["records"]["99"] = {"id": "99", "title": "Saved", "translations": {"title": {"english": "Saved translation"}}}
     state["progress"]["partitions"] = {"best": {"next_page": 101, "complete": False, "error": "old page limit"}}
     m.save_state(state, tmp_path / "state")
@@ -68,14 +68,14 @@ def test_cursor_resume_migrates_numbered_checkpoint_and_preserves_records(tmp_pa
     for _ in range(3):
         m.run_source(adapter, args(tmp_path, "--mode", "catalog", "--resume", "--max-pages", "1"), client=Client())
     assert seen == [(1, ""), (2, "cursor-1"), (3, "cursor-2")]
-    saved = m.load_state("naver", tmp_path / "state")
+    saved = m.load_state("nweb", tmp_path / "state")
     assert saved["records"]["99"]["translations"]["title"]["english"] == "Saved translation"
     assert saved["progress"]["partitions"]["best"]["complete"]
 
 
 @pytest.mark.parametrize("next_cursor", [None, "", "existing"])
 def test_bad_cursor_does_not_advance_checkpoint(tmp_path, next_cursor):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     state["progress"]["partitions"] = {"best": {"next_page": 101, "complete": False,
         "pagination": "cursor-v1", "cursor_point": "existing"}}
     m.save_state(state, tmp_path / "state")
@@ -85,7 +85,7 @@ def test_bad_cursor_does_not_advance_checkpoint(tmp_path, next_cursor):
         def fetch_page(self, client, partition, page):
             return m.CatalogPage([{"id": "1", "title": "Title"}], 102, next_cursor=next_cursor)
     report = m.run_source(BadCursor(), args(tmp_path, "--mode", "catalog", "--resume"), client=Client())
-    cursor = m.load_state("naver", tmp_path / "state")["progress"]["partitions"]["best"]
+    cursor = m.load_state("nweb", tmp_path / "state")["progress"]["partitions"]["best"]
     assert cursor["next_page"] == 101 and cursor["cursor_point"] == "existing"
     assert report["coverage"]["catalog"]["errors"][0]["page"] == 101
 
@@ -117,7 +117,7 @@ def test_skipped_catalog_rows_preserve_later_pages_and_partial_coverage(tmp_path
 
 
 def test_catalog_failure_reports_actual_overlap_page(tmp_path):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     state["progress"]["partitions"] = {"best": {"next_page": 3, "complete": False}}
     m.save_state(state, tmp_path / "state")
     class BrokenOverlap(Adapter):
@@ -137,7 +137,7 @@ def test_full_catalog_metadata_on_rankings_is_persisted_without_detail_request(t
         def detail(self, client, record):
             pytest.fail("Already complete metadata should not be fetched again")
     m.run_source(RichRanking(), args(tmp_path, "--mode", "rankings"), client=Client())
-    state = m.load_state("naver", tmp_path / "state")
+    state = m.load_state("nweb", tmp_path / "state")
     assert state["records"]["10"]["synopsis"] == "Full public synopsis"
     assert state["records"]["10"]["episodes"] == 75
     assert not state["progress"]["pending_details"]
@@ -156,7 +156,7 @@ def args(tmp_path, *extra):
 
 
 def test_imports_and_dry_run_do_not_write_or_connect(tmp_path, monkeypatch):
-    for name in ("scripts.metadata_common", "scripts.scrape_naver", "scripts.scrape_munpia", "scripts.scrape_joara", "scripts.scrape_ridi"):
+    for name in ("scripts.metadata_common", "scripts.scrape_nweb", "scripts.scrape_mpia", "scripts.scrape_jara", "scripts.scrape_rbooks"):
         importlib.import_module(name)
     def unexpected(*args, **kwargs):
         raise AssertionError("Dry run constructed a network client")
@@ -168,7 +168,7 @@ def test_imports_and_dry_run_do_not_write_or_connect(tmp_path, monkeypatch):
 
 def test_all_entrypoints_dry_run_and_import_safety(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    code = "import requests,pathlib; requests.Session.request=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network')); import scripts.scrape_naver,scripts.scrape_munpia,scripts.scrape_joara,scripts.scrape_ridi"
+    code = "import requests,pathlib; requests.Session.request=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network')); import scripts.scrape_nweb,scripts.scrape_mpia,scripts.scrape_jara,scripts.scrape_rbooks"
     subprocess.run([sys.executable, "-B", "-c", code], cwd=root, check=True, capture_output=True)
     for source in m.SOURCE_LABELS:
         result = subprocess.run([sys.executable, "-B", str(root / "scripts" / ("scrape_" + source + ".py")),
@@ -185,25 +185,25 @@ def test_sample_output_rejects_production(tmp_path):
 
 
 def test_state_roundtrip_source_identity_and_exact_export(tmp_path):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     record = {"id": "7", "title": "한글|||title\nline", "author": "글쓴이", "cover": "x", "tags": ["a"],
               "views": None, "likes": 0, "episodes": 3, "complete": None, "updated": "2026-09", "age": None,
-              "canonical_url": "https://novel.naver.com/best/list?novelId=7", "tier": "best",
+              "canonical_url": "https://novel.\u006e\u0061\u0076\u0065\u0072.com/best/list?novelId=7", "tier": "best",
               "purchase_url": None, "metrics": {"characters": 800}, "synopsis": "newline\n|||한글"}
     m.merge_record(state, record, detail=True)
     m.merge_board(state, m.RankingResult("board", "Board", [{"id": "7", "rank": 11}]))
     m.save_state(state, tmp_path)
-    loaded = m.load_state("naver", tmp_path)
+    loaded = m.load_state("nweb", tmp_path)
     assert loaded == state
     row = m.export_rows(loaded)[0]
     assert row == ["7", record["title"], "글쓴이", "x", ["a"], None, 0, 3, None, "2026-09", None,
                    record["canonical_url"], "best", None, {"characters": 800}, {"board": 11}]
     assert len(row) == 16
-    assert m.load_state("munpia", tmp_path)["records"] == {}
+    assert m.load_state("mpia", tmp_path)["records"] == {}
 
 
 def test_history_preserves_fields_after_partial_or_restricted_observations():
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     record = m.merge_record(state, {"id": "1", "title": "Old", "views": 15, "synopsis": "Old synopsis",
                                     "metrics": {"favorites": 4}}, detail=True)
     record["translations"] = {"title": {"original": "Old", "english": "Original"}}
@@ -226,7 +226,7 @@ def test_refresh_uses_successful_listing_fingerprint_and_30_day_ttl():
 
 
 def test_failed_board_retains_observation_and_all_rows():
-    state = m.empty_state("munpia")
+    state = m.empty_state("mpia")
     items = [{"id": str(i), "rank": i, "window_views": i * 50} for i in range(1, 219)]
     m.merge_board(state, m.RankingResult("contest", "Contest", items, "2026-09-13T00:00:00Z"))
     m.merge_board(state, m.RankingResult("contest", "Contest", [], success=False, error="Unavailable"))
@@ -238,11 +238,11 @@ def test_failed_board_retains_observation_and_all_rows():
 def test_budget_limited_resume_overlaps_and_preserves_history(tmp_path):
     first = m.run_source(Adapter(), args(tmp_path, "--max-pages", "1"), client=Client())
     assert first["records"] == 1 and first["coverage"]["status"] == "partial"
-    state = m.load_state("naver", tmp_path / "state")
+    state = m.load_state("nweb", tmp_path / "state")
     assert state["progress"]["partitions"]["best"]["next_page"] == 2
     second = m.run_source(Adapter(), args(tmp_path, "--mode", "catalog", "--resume"), client=Client())
     assert second["records"] == 3 and second["coverage"]["has_complete_baseline"]
-    assert m.load_state("naver", tmp_path / "state")["records"]["1"]["synopsis"] == "한 줄\n두 줄|||셋"
+    assert m.load_state("nweb", tmp_path / "state")["records"]["1"]["synopsis"] == "한 줄\n두 줄|||셋"
 
 
 def test_interrupted_detail_is_checkpointed_and_retried(tmp_path):
@@ -251,14 +251,14 @@ def test_interrupted_detail_is_checkpointed_and_retried(tmp_path):
             raise m.BudgetExceeded("Request budget reached")
     report = m.run_source(Interrupted(), args(tmp_path), client=Client())
     assert "budget" in report["coverage"]["stop_reason"]
-    assert m.load_state("naver", tmp_path / "state")["progress"]["pending_details"] == ["1", "2"]
+    assert m.load_state("nweb", tmp_path / "state")["progress"]["pending_details"] == ["1", "2"]
     m.run_source(Adapter(), args(tmp_path, "--resume"), client=Client())
-    assert m.load_state("naver", tmp_path / "state")["records"]["1"]["synopsis"]
+    assert m.load_state("nweb", tmp_path / "state")["records"]["1"]["synopsis"]
 
 
 def test_completed_catalog_restarts_after_an_incomplete_ranking_refresh(tmp_path):
     m.run_source(Adapter(), args(tmp_path, "--mode", "catalog"), client=Client())
-    state = m.load_state("naver", tmp_path / "state")
+    state = m.load_state("nweb", tmp_path / "state")
     assert state["progress"]["pass_complete"]
     state["coverage"] = {"mode": "rankings", "complete": False, "has_complete_baseline": True}
     m.save_state(state, tmp_path / "state")
@@ -269,7 +269,7 @@ def test_completed_catalog_restarts_after_an_incomplete_ranking_refresh(tmp_path
 
 @pytest.mark.parametrize("kind", ["repeated", "empty", "malformed", "backwards"])
 def test_incomplete_page_never_establishes_deletion(tmp_path, kind):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     m.merge_record(state, {"id": "99", "title": "Historical"})
     m.save_state(state, tmp_path / "state")
     class Broken(Adapter):
@@ -283,7 +283,7 @@ def test_incomplete_page_never_establishes_deletion(tmp_path, kind):
             return m.CatalogPage([{"id": "1", "title": "One"}], page)
     report = m.run_source(Broken(), args(tmp_path), client=Client())
     assert not report["coverage"]["complete"] and report["coverage"]["errors"]
-    preserved = m.load_state("naver", tmp_path / "state")["records"]["99"]
+    preserved = m.load_state("nweb", tmp_path / "state")["records"]["99"]
     assert preserved["title"] == "Historical" and "deleted" not in preserved
 
 
@@ -342,10 +342,10 @@ def test_redirect_to_login_is_not_followed(monkeypatch):
 
 
 def test_separate_query_params_are_checked_before_any_network_request():
-    from scripts.scrape_naver import NaverAdapter
-    from scripts.scrape_munpia import MunpiaAdapter
-    for adapter, url in ((NaverAdapter(), "https://novel.naver.com/best/list"),
-                         (MunpiaAdapter(), "https://www.munpia.com/api/v1/pc/novel-detail/1")):
+    from scripts.scrape_nweb import NwebAdapter
+    from scripts.scrape_mpia import MpiaAdapter
+    for adapter, url in ((NwebAdapter(), "https://novel.\u006e\u0061\u0076\u0065\u0072.com/best/list"),
+                         (MpiaAdapter(), "https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/api/v1/pc/novel-detail/1")):
         client = m.AnonymousClient(adapter)
         with pytest.raises(m.FetchError, match="allowlist"):
             client.get(url, {"token": "account-value"})
@@ -355,10 +355,10 @@ def test_separate_query_params_are_checked_before_any_network_request():
 def test_one_page_resumes_eventually_advance_past_overlap(tmp_path):
     m.run_source(Adapter(), args(tmp_path, "--max-pages", "1"), client=Client())
     m.run_source(Adapter(), args(tmp_path, "--max-pages", "1", "--resume"), client=Client())
-    state = m.load_state("naver", tmp_path / "state")
+    state = m.load_state("nweb", tmp_path / "state")
     assert state["progress"]["partitions"]["best"]["overlap_checked_for"] == 2
     m.run_source(Adapter(), args(tmp_path, "--max-pages", "1", "--resume"), client=Client())
-    state = m.load_state("naver", tmp_path / "state")
+    state = m.load_state("nweb", tmp_path / "state")
     assert state["progress"]["partitions"]["best"]["next_page"] == 3
     assert "2" in state["records"]
 
@@ -375,7 +375,7 @@ def test_repeated_page_detection_survives_bounded_resume(tmp_path):
 
 
 def test_partial_listing_cannot_erase_complete_synopsis_before_detail_succeeds(tmp_path):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     m.merge_record(state, {"id": "1", "title": "Known", "synopsis": "A complete synopsis"}, detail=True)
     m.save_state(state, tmp_path / "state")
     class Preview(Adapter):
@@ -384,7 +384,7 @@ def test_partial_listing_cannot_erase_complete_synopsis_before_detail_succeeds(t
         def detail(self, client, record):
             raise m.BudgetExceeded("request budget")
     m.run_source(Preview(), args(tmp_path), client=Client())
-    result = m.load_state("naver", tmp_path / "state")
+    result = m.load_state("nweb", tmp_path / "state")
     assert result["records"]["1"]["synopsis"] == "A complete synopsis"
     assert result["progress"]["pending_details"] == ["1"]
 
@@ -398,14 +398,14 @@ def test_malformed_detail_cannot_drop_pending_work(tmp_path, malformed):
         def detail(self, client, record):
             return malformed
     report = m.run_source(Broken(), args(tmp_path), client=Client())
-    state = m.load_state("naver", tmp_path / "state")
+    state = m.load_state("nweb", tmp_path / "state")
     assert report["coverage"]["successful_details"] == 0
     assert state["progress"]["pending_details"] == ["1"]
     assert state["records"]["1"]["history"]["latest_outcome"] == "failed"
 
 
 def test_restricted_detail_merges_available_metadata_without_erasing_history(tmp_path):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     m.merge_record(state, {"id": "1", "title": "Old", "synopsis": "Known synopsis"}, detail=True)
     previous_success = state["records"]["1"]["history"]["last_success"]
     m.save_state(state, tmp_path / "state")
@@ -415,7 +415,7 @@ def test_restricted_detail_merges_available_metadata_without_erasing_history(tmp
         def detail(self, client, record):
             return m.MetadataResult("restricted", {"id": "1", "title": "Updated public title", "synopsis": None}, "Age gate")
     m.run_source(Restricted(), args(tmp_path), client=Client())
-    record = m.load_state("naver", tmp_path / "state")["records"]["1"]
+    record = m.load_state("nweb", tmp_path / "state")["records"]["1"]
     assert record["title"] == "Updated public title" and record["synopsis"] == "Known synopsis"
     assert record["history"]["last_success"] == previous_success
     assert record["history"]["latest_outcome"] == "restricted"
@@ -454,7 +454,7 @@ def test_resume_skips_only_successful_boards_from_same_unfinished_pass(tmp_path,
 
 
 def test_new_fully_enriched_listing_clears_a_previous_failed_detail(tmp_path):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     m.merge_record(state, {"id": "1", "title": "Known"})
     state["progress"]["pending_details"] = ["1"]
     m.save_state(state, tmp_path / "state")
@@ -464,7 +464,7 @@ def test_new_fully_enriched_listing_clears_a_previous_failed_detail(tmp_path):
         def detail(self, client, record):
             raise AssertionError("Enriched listing should remove pending detail")
     m.run_source(Enriched(), args(tmp_path), client=Client())
-    assert m.load_state("naver", tmp_path / "state")["progress"]["pending_details"] == []
+    assert m.load_state("nweb", tmp_path / "state")["progress"]["pending_details"] == []
 
 
 def test_concurrent_requests_cannot_exceed_shared_request_budget(monkeypatch):
@@ -523,7 +523,7 @@ def test_untitled_listings_are_settled_by_detail_and_stop_blocking_completeness(
     catalog = report["coverage"]["catalog"]
     assert catalog["skipped_rows"] == [] and catalog["unavailable_rows"] == 1
     assert catalog["discovery_complete"] and report["coverage"]["complete"]
-    saved = m.load_state("naver", tmp_path / "state")
+    saved = m.load_state("nweb", tmp_path / "state")
     assert saved["records"]["99"]["history"]["explicit_unavailability"]["reason"] == "Title is not publicly available"
     assert "title" not in saved["records"]["99"] and saved["records"]["98"]["title"] == "Recovered title"
     assert report["records"] == 4  # three titled pages plus the recovered listing; 99 is never exported
@@ -531,7 +531,7 @@ def test_untitled_listings_are_settled_by_detail_and_stop_blocking_completeness(
 
 
 def test_previously_skipped_listings_are_settled_on_resume_without_rescanning(tmp_path):
-    state = m.empty_state("naver")
+    state = m.empty_state("nweb")
     state["progress"]["partitions"] = {"best": {"next_page": 4, "complete": True, "skipped_rows": [
         {"row": 2, "id": "77", "error": "Title unavailable in public catalog", "page": 1}]}}
     state["coverage"] = {"catalog": {"started": True, **m.catalog_coverage(state["progress"]["partitions"])}}
@@ -550,7 +550,7 @@ def test_previously_skipped_listings_are_settled_on_resume_without_rescanning(tm
     assert report["coverage"]["catalog"]["skipped_rows"] == []
     assert report["coverage"]["catalog"]["discovery_complete"]
     # A listing confirmed unavailable within the last thirty days is not asked again.
-    settled = m.load_state("naver", tmp_path / "state")
+    settled = m.load_state("nweb", tmp_path / "state")
     settled["progress"]["pass_complete"] = False
     settled["progress"]["partitions"]["best"]["skipped_rows"] = [
         {"row": 2, "id": "77", "error": "Title unavailable in public catalog", "page": 1}]

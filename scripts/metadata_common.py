@@ -4,6 +4,12 @@ Adapters are responsible for public endpoint allowlists and source semantics.
 This module never imports a desktop downloader, credentials, or browser profile.
 """
 
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
+
 import argparse
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from collections import deque
@@ -27,7 +33,7 @@ import requests
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_LABELS = {"naver": "Naver Web Novel", "munpia": "Munpia", "joara": "Joara", "ridi": "Ridibooks", "naverseries": "Naver Series"}
+SOURCE_LABELS = {"nweb": "Nweb", "mpia": "Mpia", "jara": "Jara", "rbooks": "Rbooks", "nseries": "Nseries"}
 FORMAT = "metadata-v1"
 FIELDS = ("id", "title", "author", "cover", "tags", "views", "likes", "episodes",
           "complete", "updated", "age", "canonical_url", "tier", "purchase_url",
@@ -162,7 +168,7 @@ def atomic_bytes(path, content):
 
 
 def atomic_json(path, data):
-    atomic_bytes(path, json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
+    atomic_bytes(path, source_names.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
 
 
 def atomic_text(path, text):
@@ -216,8 +222,8 @@ def save_state(state, state_dir):
         records[ident] = {key: value for key, value in record.items() if key != "translations"}
     base = {**state, "records": records}
     sidecar = {"version": 1, "source": source, "translations": translations}
-    sidecar_content = json.dumps(sidecar, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    content = json.dumps(base, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    sidecar_content = source_names.dumps(sidecar, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    content = source_names.dumps(base, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
     # Write the sidecar first. If a process stops between the two replacements,
     # load_state still validates translations against the originals in the base.
     atomic_bytes(state_dir / (source + ".translations.json.gz"), gzip.compress(sidecar_content, mtime=0))
@@ -265,7 +271,7 @@ def record_outcome(record, result):
 def listing_fingerprint(record):
     fields = {key: value for key, value in record.items()
               if not key.startswith("_") and key not in ("rankings", "history", "translations")}
-    return hashlib.sha256(json.dumps(fields, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return hashlib.sha256(source_names.dumps(fields, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def needs_detail(record, fingerprint, now=None):
@@ -695,7 +701,7 @@ def run_source(adapter, args, *, client=None):
                         checkpoint()
                         continue
                     ids = [valid_id(item.get("id")) for item in result.records]
-                    signature = hashlib.sha256(json.dumps(sorted(set(ids), key=str)).encode()).hexdigest()
+                    signature = hashlib.sha256(source_names.dumps(sorted(set(ids), key=str)).encode()).hexdigest()
                     repeated_across_resume = (page != cursor.get("last_page")
                                               and signature == cursor.get("last_page_signature"))
                     if any(ident is None for ident in ids) or (ids and result.scanned_items <= 0 and (signature in page_signatures or repeated_across_resume)):
@@ -933,5 +939,5 @@ def run_cli(adapter, argv=None):
     except (ValueError, OSError) as exc:
         print("Metadata collection could not start: " + str(exc))
         return 2
-    print(json.dumps({k: v for k, v in report.items() if k != "request_log"}, ensure_ascii=True, indent=2))
+    print(source_names.dumps({k: v for k, v in report.items() if k != "request_log"}, ensure_ascii=True, indent=2))
     return 0 if report.get("dry_run") or report.get("coverage", {}).get("metadata_updated") else 1

@@ -1,0 +1,26 @@
+name: Release Codenames
+on:
+  release:
+    types: [published, edited]
+  schedule:
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-codenames
+  cancel-in-progress: false
+jobs:
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Normalize release notes, titles, and asset metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/release_names.py

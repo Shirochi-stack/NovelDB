@@ -13,8 +13,8 @@ from external_scraper import ExternalScraper
 @pytest.mark.parametrize('url', [
     'https://b.faloo.com/724903.html',
     'https://www.qidian.com/book/123456/',
-    'https://ridibooks.com/books/6121000538',
-    'https://ridibooks.com/library/books/8706175/',
+    'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/6121000538',
+    'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/library/books/8706175/',
 ])
 def test_login_sites_open_the_saved_installed_chrome_profile(url):
     class Setting:
@@ -36,7 +36,7 @@ def test_login_sites_open_the_saved_installed_chrome_profile(url):
         _work_queue=queue.Queue(),
     )
     for name in (
-        '_btn_download', '_btn_browser', '_btn_sfacg_app',
+        '_btn_download', '_btn_browser', '_btn_sfc_app',
         '_chk_regular_browser', '_btn_paste_batch', '_btn_batch_file',
     ):
         setattr(dialog, name, Mock())

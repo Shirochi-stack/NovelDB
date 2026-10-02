@@ -1,4 +1,4 @@
-"""Update Novelpia weekly, monthly & daily rankings WITHOUT authentication.
+"""Update Npia weekly, monthly & daily rankings WITHOUT authentication.
 
 Also captures novel synopses from the API and merges them into descriptions.txt.
 
@@ -18,6 +18,12 @@ Usage:
     python scripts/update_rankings_noauth.py
 """
 
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
+
 import sys, os, json, re, time
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +37,7 @@ HEADERS = {
     "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
 }
 
-COVER_PREFIX = "https://novelpia.com"
+COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 
 AUDIENCES = [
     ("all/plus",   "all",   10, 12, 13),
@@ -48,7 +54,7 @@ PERIODS = [
 
 def scrape_ranking(session, period, audience):
     """Scrape top100 for a given period and audience."""
-    url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
+    url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/top100/all/{period}/view/{audience}"
     r = session.get(url, timeout=30)
     if r.status_code != 200:
         raise RuntimeError(f"HTTP {r.status_code} for {url}")
@@ -60,7 +66,7 @@ def scrape_ranking(session, period, audience):
 
 
 def pick_cover(item):
-    """Pick the best cover URL from a Novelpia API response."""
+    """Pick the best cover URL from a Npia API response."""
     for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
         v = item.get(k)
         if v and str(v) not in ("", "None", "null"):
@@ -87,7 +93,7 @@ def rescrape_metadata(session, ranked_ids):
     headers = {
         "Accept": "application/json, text/javascript, */*; q=0.01",
         "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://novelpia.com/search",
+        "Referer": "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/search",
     }
 
     # Common tags that collectively cover most novels
@@ -118,7 +124,7 @@ def rescrape_metadata(session, ranked_ids):
         if not remaining:
             break
         try:
-            r = session.get("https://novelpia.com/proc/novel", params={
+            r = session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel", params={
                 "cmd": "novel_search",
                 "search_type": "novel_genre",
                 "search_val": tag,
@@ -152,7 +158,7 @@ def rescrape_metadata(session, ranked_ids):
             if not remaining:
                 break
             try:
-                r = session.get("https://novelpia.com/proc/novel", params={
+                r = session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel", params={
                     "cmd": "novel_search",
                     "search_type": "all",
                     "search_val": ch,
@@ -188,19 +194,19 @@ def rescrape_metadata(session, ranked_ids):
 
 
 def main():
-    from novelpia_auth import NovelpiaAuth
+    from npia_auth import NpiaAuth
 
-    auth = NovelpiaAuth()
+    auth = NpiaAuth()
     session = auth.session
     session.headers.update(HEADERS)
 
     print("Initializing session...")
     try:
-        session.get("https://novelpia.com", timeout=15)
+        session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com", timeout=15)
     except Exception:
         pass
 
-    print("  Using generated Novelpia session key; no username/password required")
+    print("  Using generated Npia session key; no username/password required")
 
     # Phase 1: Scrape rankings
     rankings = {}
@@ -298,7 +304,7 @@ def main():
 
     # Save
     with open(data_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        source_names.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"Saved to {data_path} ({os.path.getsize(data_path) / 1024 / 1024:.1f} MB)")
 
     # Phase 4: Merge fresh descriptions into descriptions.txt

@@ -6,6 +6,12 @@ operations; prepare/build/promote operate exclusively on local metadata.
 
 from __future__ import annotations
 
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
+
 import argparse
 import gzip
 import json
@@ -19,7 +25,7 @@ import tempfile
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ("naver", "joara", "munpia", "ridi", "naverseries")
+SOURCES = ("nweb", "jara", "mpia", "rbooks", "nseries")
 SHARDS = 128
 FIELDS = {
     "title": ("titles_en.txt", "titles_untranslated.txt"),
@@ -44,7 +50,7 @@ def source_name(source):
 
 def clean_field(text):
     """Escape the interchange format; the normalized state retains raw text."""
-    return json.dumps(str(text or ""), ensure_ascii=False)[1:-1].replace("|", r"\u007c")
+    return source_names.dumps(str(text or ""), ensure_ascii=False)[1:-1].replace("|", r"\u007c")
 
 
 def decode_field(text):
@@ -158,7 +164,7 @@ def atomic_bytes(path, data):
 
 
 def gzip_json(path, data):
-    raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    raw = source_names.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     atomic_bytes(path, gzip.compress(raw, compresslevel=9, mtime=0))
 
 
@@ -369,7 +375,7 @@ def build(source, output_dir, state_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = common().export_rows(state)
     publication_state = state
-    if source == "naver":
+    if source == "nweb":
         # Publish discovery records too; the browser hides them only while synopses are enabled.
         ready = {nid: record for nid, record in state["records"].items()
                  if publishable_synopsis(record)}
@@ -381,7 +387,7 @@ def build(source, output_dir, state_dir):
         for record in state["records"].values():
             expire_translation(record, field)
         write_field_corpus(publication_state, field, output_dir, write_pending=False)
-    if source == "naver":
+    if source == "nweb":
         coverage = state.setdefault("coverage", {})
         withheld = len(state["records"]) - len(ready)
         coverage["publication"] = {"discovered": len(state["records"]), "published": len(rows),
@@ -452,12 +458,12 @@ def validate_artifacts(source, output_dir):
     rows = json.loads((output_dir / f"{source}_novels.json").read_text(encoding="utf-8"))
     if not rows or any(not isinstance(row, list) or len(row) != 16 for row in rows):
         raise ValueError("Catalog must contain nonempty metadata-v1 rows")
-    json.dumps(rows, allow_nan=False)
+    source_names.dumps(rows, allow_nan=False)
     ids = [str(row[0]) for row in rows]
     if len(set(ids)) != len(ids) or any(not nid for nid in ids):
         raise ValueError("Catalog IDs must be unique and nonempty")
-    hosts = {"naver": {"novel.naver.com"}, "joara": {"www.joara.com", "joara.com"},
-             "munpia": {"www.munpia.com", "munpia.com"}, "ridi": {"ridibooks.com"}, "naverseries": {"series.naver.com"}}
+    hosts = {"nweb": {"novel.\u006e\u0061\u0076\u0065\u0072.com"}, "jara": {"www.\u006a\u006f\u0061\u0072\u0061.com", "\u006a\u006f\u0061\u0072\u0061.com"},
+             "mpia": {"www.\u006d\u0075\u006e\u0070\u0069\u0061.com", "\u006d\u0075\u006e\u0070\u0069\u0061.com"}, "rbooks": {"\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com"}, "nseries": {"series.\u006e\u0061\u0076\u0065\u0072.com"}}
     for row in rows:
         link = urlsplit(str(row[11] or ""))
         if not row[1] or link.scheme != "https" or link.hostname not in hosts[source]:
@@ -506,10 +512,10 @@ def validate_artifacts(source, output_dir):
                 shard %= SHARDS
             if shard != index:
                 raise ValueError("A synopsis is stored in the wrong shard")
-    if source == "naver":
+    if source == "nweb":
         for row in rows:
             if row[14].get("synopsis_available") is not (str(row[0]) in synopsis_ids):
-                raise ValueError("Naver synopsis availability disagrees with shards: record without a synopsis or incorrect flag")
+                raise ValueError("Nweb synopsis availability disagrees with shards: record without a synopsis or incorrect flag")
     top_name = f"{source}_top.json.gz"
     if manifest.get("topUrl") != top_name:
         raise ValueError("Invalid top artifact path")
@@ -626,7 +632,7 @@ def main(argv=None):
         translate(args.source, output, extra)
     elif args.command == "merge":
         result = merge(args.source, output, state_dir, args.shared_tags)
-        print(json.dumps(result))
+        print(source_names.dumps(result))
     elif args.command == "build":
         build(args.source, output, state_dir)
     elif args.command == "promote":

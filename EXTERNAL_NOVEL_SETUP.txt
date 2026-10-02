@@ -2,7 +2,7 @@
   External Novel Downloader — Setup & Update Guide
 ================================================================================
 
-This feature lets NpiaDownloader download novels from 100+ non-Novelpia sites
+This feature lets NpiaDownloader download novels from 100+ non-Npia sites
 (jjwxc, syosetu, kakuyomu, qidian, etc.) by reusing the open-source
 "novel-downloader" browser extension's rule engine.
 
@@ -14,8 +14,8 @@ then injects the novel-downloader's compiled JavaScript rules into the page.
 The rules extract book metadata, chapter lists, and chapter content — all
 without needing the actual browser extension installed.
 
-Some sites, including Munpia, use a native Python scraper instead of the
-rule bundle. See the Munpia section below for its login and download options.
+Some sites, including Mpia, use a native Python scraper instead of the
+rule bundle. See the Mpia section below for its login and download options.
 
 Three JS files are required in the NpiaDownloader folder:
 
@@ -69,10 +69,10 @@ SUPPORTED SITES
 ---------------
 The rule bundle supports 100+ sites including:
 
-  Chinese:   jjwxc, qidian, zongheng, ciweimao, sfacg, 17k, shuhai, tadu,
+  Chinese:   jjwxc, qidian, zongheng, ciweimao, sfc, 17k, shuhai, tadu,
              gongzicp, linovel, qimao, cool18, and many biquge mirrors
   Japanese:  syosetu (ncode), kakuyomu, alphapolis, akatsuki-novels, novelup
-  Korean:    novelpia.jp
+  Korean:    npia.jp
   Other:     pixiv, lofter, masiro, readmoo, penana, and more
 
 For the full list, see the novel-downloader project's router file:
@@ -93,16 +93,16 @@ folder and persists across app restarts. The headless scraper reuses this
 data, so you stay authenticated without entering credentials again.
 
 
-MUNPIA
+MPIA
 -------
 Both current and legacy novel URLs are supported, for example:
 
-  https://www.munpia.com/novel/detail/564583
-  https://novel.munpia.com/564583
+  SOURCE_URL
+  SOURCE_URL
 
-Paste the URL into the External Novel Download dialog. To use your Munpia
+Paste the URL into the External Novel Download dialog. To use your Mpia
 account, click Enter Browser, log in, then close that browser window before
-downloading. Munpia automatically uses installed Chrome/Edge with the app's
+downloading. Mpia automatically uses installed Chrome/Edge with the app's
 saved browser profile, normally at:
 
   %LOCALAPPDATA%\NpiaDownloader\browser_data
@@ -123,18 +123,18 @@ Rate Limiting Min/Max controls randomized request pacing; Threads controls
 the chapter batch size. Chapter Range, retries, Stop/Generate on stop, batch
 downloads, output format selection (EPUB/TXT/PDF/CBZ), and Image Workers use
 the shared external-downloader settings. CBZ contains chapter images when
-present. Kakao-specific page/filler/image options and the NTK source-cover
+present. Kpage-specific page/filler/image options and the NTK source-cover
 option continue to apply to their respective sites.
 
 
-SFACG VIP TEXT CHAPTERS
+SFC VIP TEXT CHAPTERS
 -----------------------
-SFACG's VIP text API uses the mobile app session, not only the web browser
+SFC's VIP text API uses the mobile app session, not only the web browser
 session. Use the Enter App button in the external downloader to save a
-session_APP cookie. Direct SFACG username/password login can fetch this
+session_APP cookie. Direct SFC username/password login can fetch this
 automatically; Facebook/third-party linked accounts must paste an app cookie.
 Enter App can also open an Android emulator and try importing session_APP
-after you log into the SFACG app there. If Android SDK Emulator is missing
+after you log into the SFC app there. If Android SDK Emulator is missing
 on Windows, Open Android will try to download Google's latest Android SDK
 Command-line Tools and install the Android Emulator/platform-tools packages.
 If Java is missing, it also installs a portable Temurin JDK and sets JAVA_HOME
@@ -147,8 +147,8 @@ private app data must be read:
 
   1. Click Enter App > Open Android. The app prefers a Play Store AVD when
      one exists.
-  2. Install/open SFACG and Facebook from Play Store inside that emulator.
-  3. Log into SFACG with Facebook.
+  2. Install/open SFC and Facebook from Play Store inside that emulator.
+  3. Log into SFC with Facebook.
   4. Click Enter App > Import Android if the AVD has su/root available.
 
 If a Play Store AVD was patched with rootAVD and stops booting, click
@@ -159,14 +159,14 @@ where private app data is readable through su/Magisk.
 
 You can also provide one of:
 
-  - Environment variable NPIA_SFACG_COOKIE containing:
+  - Environment variable NPIA_SFC_COOKIE containing:
       .SFCommunity=...; session_APP=...
-  - A file named sfacg_app_cookie.txt next to the app, or in:
-      %LOCALAPPDATA%\NpiaDownloader\sfacg_app_cookie.txt
-  - config.json keys sfacg_cookie, or sfacg_user + sfacg_pass
+  - A file named sfc_app_cookie.txt next to the app, or in:
+      %LOCALAPPDATA%\NpiaDownloader\sfc_app_cookie.txt
+  - config.json keys sfc_cookie, or sfc_user + sfc_pass
 
-The scraper will reuse this app session for api.sfacg.com requests. If no
-app session is available, SFACG VIP chapters fall back to the site's image
+The scraper will reuse this app session for Source URL requests. If no
+app session is available, SFC VIP chapters fall back to the site's image
 response.
 
 

@@ -2,14 +2,14 @@ name: Translate New Metadata Sources
 run-name: Translate ${{ inputs.source || github.event.workflow_run.name }} — ${{ inputs.model || 'gpt-6-luna' }}
 on:
   workflow_run:
-    workflows: [Update Naver Metadata, Update Joara Metadata, Update Munpia Metadata, Update Ridibooks Metadata, Update Naver Series Metadata]
+    workflows: [Update Nweb Metadata, Update Jara Metadata, Update Mpia Metadata, Update Rbooks Metadata, Update Nseries Metadata]
     types: [completed]
   workflow_dispatch:
     inputs:
       source:
         required: true
         type: choice
-        options: [naver, joara, munpia, ridi, naverseries]
+        options: [nweb, jara, mpia, rbooks, nseries]
       recovery_run_id:
         description: Optional failed run checkpoint to recover
         type: string

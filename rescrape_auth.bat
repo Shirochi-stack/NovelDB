@@ -1,16 +1,16 @@
 @echo off
 echo ============================================
-echo  Authenticated Novelpia Rescrape
+echo  Authenticated Npia Rescrape
 echo ============================================
 echo.
-echo  This will scrape ALL Novelpia novels (including R19)
+echo  This will scrape ALL Npia novels (including R19)
 echo  using your loginkey from config.json, then extract
 echo  descriptions for translation.
 echo.
 
 cd /d "%~dp0"
 
-echo [1/8] Scraping Novelpia (authenticated)...
+echo [1/8] Scraping Npia (authenticated)...
 python scripts/scrape_npia.py
 if errorlevel 1 goto :error
 echo.
@@ -40,13 +40,13 @@ python scripts/chunk_descriptions.py docs/data/descriptions.txt --prefix descrip
 if errorlevel 1 goto :error
 echo.
 
-echo [7/8] Rebuilding Novelpia chunks...
-python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
+echo [7/8] Rebuilding Npia chunks...
+python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix npia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
 if errorlevel 1 goto :error
 echo.
 
-echo [8/8] Rebuilding Novelpia top data...
-python scripts/build_novelpia_top.py
+echo [8/8] Rebuilding Npia top data...
+python scripts/build_npia_top.py
 if errorlevel 1 goto :error
 echo.
 
@@ -60,9 +60,9 @@ echo    docs/data/descriptions.txt.gz
 echo    docs/data/descriptions_chunk_*.txt.gz
 echo    docs/data/descriptions_chunk_manifest.json
 echo    docs/data/descriptions_untranslated.txt
-echo    docs/data/novelpia_chunk_*.json.gz
-echo    docs/data/novelpia_chunk_manifest.json
-echo    docs/data/novelpia_top.json.gz
+echo    docs/data/npia_chunk_*.json.gz
+echo    docs/data/npia_chunk_manifest.json
+echo    docs/data/npia_top.json.gz
 echo.
 echo  Run: git add docs/data ^& git commit -m "rescrape" ^& git push
 echo ============================================

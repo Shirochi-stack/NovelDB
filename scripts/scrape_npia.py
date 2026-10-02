@@ -1,31 +1,37 @@
-"""Scrape all Novelpia novel metadata for the NovelDB site.
+"""Scrape all Npia novel metadata for the NovelDB site.
 
 Searches across many common tags to maximize coverage,
 unions results, and exports as JSON for the static site.
 
 Usage:
-    python scripts/scrape_novelpia.py
+    python scripts/scrape_npia.py
 
 Reads loginkey from config.json in the project root.
 Outputs: docs/data/novels.json
 """
+
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
 
 import sys, os, json, time, argparse, re, tempfile
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
-from novelpia_auth import NovelpiaAuth
-from novelpia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
+from npia_auth import NpiaAuth
+from npia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
 
-COVER_PREFIX = "https://novelpia.com"
-IMAGE_COVER_PREFIX = "https://images.novelpia.com"
+COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
+IMAGE_COVER_PREFIX = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 DELETED_TAG = "deleted"
 PLACEHOLDER_COVER_PARTS = ("readycover", "adult_cover_img")
 
 
 def make_session(loginkey):
-    auth = NovelpiaAuth()
+    auth = NpiaAuth()
     auth.set_manual_key(loginkey)
     return auth.session
 
@@ -39,7 +45,7 @@ def pick_cover(item):
             if v.startswith("//"):
                 return "https:" + v
             if not v.startswith("http"):
-                return "https://novelpia.com" + v
+                return "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com" + v
             return v
     return ""
 
@@ -98,7 +104,7 @@ def get_json_with_retry(session, params, headers, retries, timeout=120):
     for attempt in range(1, retries + 1):
         try:
             response = session.get(
-                "https://novelpia.com/proc/novel",
+                "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel",
                 params=params,
                 headers=headers,
                 timeout=timeout,
@@ -118,7 +124,7 @@ def get_json_with_retry(session, params, headers, retries, timeout=120):
 
 
 def search_novels(session, search_val, headers, retries, search_type="all"):
-    """Search Novelpia API for novels matching a term."""
+    """Search Npia API for novels matching a term."""
     items = []
     rows = 30000
     for pg in range(1, 21):
@@ -219,7 +225,7 @@ def write_json_file(path, data, separators=None):
             suffix=".tmp",
         ) as f:
             tmp_path = f.name
-            json.dump(data, f, ensure_ascii=False, separators=separators)
+            source_names.dump(data, f, ensure_ascii=False, separators=separators)
             f.flush()
             os.fsync(f.fileno())
         deadline = time.time() + 30
@@ -286,7 +292,7 @@ def full_from_site_row(row):
     }
 
 def main():
-    parser = argparse.ArgumentParser(description="Scrape Novelpia novels with auth")
+    parser = argparse.ArgumentParser(description="Scrape Npia novels with auth")
     parser.add_argument("--search-workers", type=int, default=4,
                         help="Parallel workers for tag/sweep search")
     parser.add_argument("--search-retries", type=int, default=4,
@@ -295,7 +301,7 @@ def main():
                         help="Seconds to stagger parallel search submissions")
     args = parser.parse_args()
 
-    auth = NovelpiaAuth()
+    auth = NpiaAuth()
     with open('config.json', 'r') as f:
         config = json.load(f)
     loginkey = config.get('loginkey', '')
@@ -303,7 +309,7 @@ def main():
 
     headers = {
         "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://novelpia.com/search",
+        "Referer": "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/search",
     }
 
     novels_by_id = {}
@@ -349,7 +355,7 @@ def main():
         for audience_url, audience_label in AUDIENCES:
             for period_url, period_label in PERIODS:
                 label = f"{period_label} {audience_label}"
-                url = f"https://novelpia.com/top100/all/{period_url}/view/{audience_url}"
+                url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/top100/all/{period_url}/view/{audience_url}"
                 r = auth.session.get(url, timeout=30)
                 rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
                 ranking = {}

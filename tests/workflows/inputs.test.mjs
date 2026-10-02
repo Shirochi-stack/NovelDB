@@ -23,7 +23,7 @@ test('reproduces the original string-valued worker input failure before conversi
 });
 
 const callee = workflow('metadata-source-job').on.workflow_call.inputs;
-for (const source of ['naver', 'munpia', 'joara', 'ridi', 'naverseries']) {
+for (const source of ['nweb', 'mpia', 'jara', 'rbooks', 'nseries']) {
     const caller = workflow(`update-${source}-metadata`);
     const bindings = caller.jobs.update.with;
     for (const operation of ['catalog', 'rankings', 'build', 'resume']) {
@@ -78,7 +78,7 @@ function tokenLimitContext(scenario) {
     };
 }
 
-for (const name of ['translate-kakao', 'translate-novelpia-top', 'translate-sfacg', 'translate-tags']) {
+for (const name of ['translate-kpage', 'translate-npia-top', 'translate-sfc', 'translate-tags']) {
     const definition = workflow(name);
     const translationSteps = Object.values(definition.jobs).flatMap(job => job.steps || [])
         .filter(step => step.run?.includes('scripts/translate_with_grok.py'));
@@ -123,7 +123,7 @@ test('new metadata translation exposes typed parallelism and chunk controls', ()
         assert.equal(typeof value, reusable[reusableName].type);
         assert.equal(value, expected);
     }
-    assert.equal(evaluate(translationJob.concurrency.group, { inputs: { source: 'joara' } }), 'metadata-joara');
+    assert.equal(evaluate(translationJob.concurrency.group, { inputs: { source: 'jara' } }), 'metadata-jara');
 });
 for (const scenario of tokenLimitCases) {
     test(`new metadata translation: output token limit ${scenario.name}`, () => {

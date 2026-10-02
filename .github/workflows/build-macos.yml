@@ -89,11 +89,11 @@ jobs:
         id: build_full
         continue-on-error: true
         run: |
-          pyinstaller NovelpiaDownloader_mac.spec --clean
+          pyinstaller NpiaDownloader_mac.spec --clean
 
       - name: Build ${{ steps.version.outputs.app_name_lite }} (No Playwright)
         run: |
-          pyinstaller NovelpiaDownloader_mac_lite.spec --clean
+          pyinstaller NpiaDownloader_mac_lite.spec --clean
 
       # If the full build failed (e.g. arm64 install_name_tool issue),
       # copy the lite build as the full build so we still get a DMG.

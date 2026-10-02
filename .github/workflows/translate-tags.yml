@@ -2,7 +2,7 @@ name: Translate Korean Catalog Tags
 
 on:
   workflow_run:
-    workflows: ["Translate Novelpia Titles & Descriptions"]
+    workflows: ["Translate Npia Titles & Descriptions"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -92,8 +92,8 @@ jobs:
       - name: Merge translated tags
         run: python scripts/merge_translated_tags.py
 
-      - name: Re-chunk Novelpia data
-        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix novelpia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
+      - name: Re-chunk Npia data
+        run: python scripts/chunk_and_compress.py --input docs/data/novels.json --prefix npia_chunk --output-dir docs/data -n 5 --translations docs/data/titles_en.txt
 
       - name: Snapshot recovery inputs
         if: always()
@@ -115,7 +115,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A -- 'docs/data/tags*' 'docs/data/novelpia_chunk*'
+          git add -A -- 'docs/data/tags*' 'docs/data/npia_chunk*'
           python scripts/publish_metadata.py --message "Translate Korean catalog tags"
       - name: Refresh GitHub Pages
         env:

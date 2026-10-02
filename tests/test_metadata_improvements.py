@@ -55,7 +55,7 @@ def test_checkpoint_count_is_bounded_for_large_detail_queue(tmp_path, monkeypatc
 
 
 def test_recovered_details_run_before_any_catalog_discovery(tmp_path):
-    saved = m.empty_state("naver")
+    saved = m.empty_state("nweb")
     saved["records"] = {str(i): {"id": str(i), "title": "Saved title"} for i in (1, 2, 3)}
     saved["progress"] = {"scan_id": "recovered", "revision": 5, "pending_details": ["3", "1", "2"],
                          "partitions": {"best": {"next_page": 20, "complete": False}}}
@@ -70,7 +70,7 @@ def test_recovered_details_run_before_any_catalog_discovery(tmp_path):
                 raise m.BudgetExceeded("Runtime budget reached")
             return super().detail(client, record)
     report = m.run_source(Backfill(), args(tmp_path, "--mode", "catalog", "--resume", "--workers", "1"), client=Client())
-    restored = m.load_state("naver", tmp_path / "state")
+    restored = m.load_state("nweb", tmp_path / "state")
     assert attempted == ["1", "2", "3"]
     assert restored["records"]["1"]["synopsis"]
     assert restored["progress"]["pending_details"] == ["3"]
@@ -91,14 +91,14 @@ def test_budget_resume_preserves_catalog_status_across_rank_refresh(tmp_path):
     second = m.run_source(Adapter(), args(tmp_path, "--mode", "rankings"), client=Client())
     assert second["coverage"]["catalog"] == first["coverage"]["catalog"]
     assert not second["coverage"]["continuation"]["eligible"]
-    assert workflow.claim_continuation("naver", tmp_path / "state", decision["scan_id"], decision["revision"])
-    assert not workflow.claim_continuation("naver", tmp_path / "state", decision["scan_id"], decision["revision"])
+    assert workflow.claim_continuation("nweb", tmp_path / "state", decision["scan_id"], decision["revision"])
+    assert not workflow.claim_continuation("nweb", tmp_path / "state", decision["scan_id"], decision["revision"])
     class Resume(Adapter):
         def fetch_page(self, *arguments):
             pytest.fail("Completed discovery must not restart during enrichment resume")
     final = m.run_source(Resume(), args(tmp_path, "--mode", "catalog", "--resume"), client=Client())
     assert final["coverage"]["complete"]
-    assert not workflow.claim_continuation("naver", tmp_path / "state", decision["scan_id"], decision["revision"])
+    assert not workflow.claim_continuation("nweb", tmp_path / "state", decision["scan_id"], decision["revision"])
 
 
 def test_rankings_only_cannot_claim_catalog_baseline(tmp_path):
@@ -148,12 +148,12 @@ def test_coverage_limitation_stops_chain_but_known_details_are_enriched(tmp_path
 
 
 def test_continuation_report_requires_success_and_enabled_flag():
-    report = {"source": "naver", "coverage": {"continuation": {
+    report = {"source": "nweb", "coverage": {"continuation": {
         "eligible": True, "scan_id": "a" * 32, "revision": 2, "workers": 4}}}
-    assert workflow.continuation_report("naver", report)["eligible"]
-    assert not workflow.continuation_report("naver", report, successful=False)["eligible"]
-    assert not workflow.continuation_report("naver", report, enabled=False)["eligible"]
-    assert not workflow.continuation_report("joara", report)["eligible"]
+    assert workflow.continuation_report("nweb", report)["eligible"]
+    assert not workflow.continuation_report("nweb", report, successful=False)["eligible"]
+    assert not workflow.continuation_report("nweb", report, enabled=False)["eligible"]
+    assert not workflow.continuation_report("jara", report)["eligible"]
 
 
 def test_luna_payload_and_provider_keys(monkeypatch):
@@ -187,7 +187,7 @@ def test_luna_payload_and_provider_keys(monkeypatch):
 
 def test_all_translation_workflows_have_luna_and_openai_secret():
     root = Path(__file__).resolve().parents[1]
-    for name in ("translate-novelpia-top", "translate-kakao", "translate-sfacg", "translate-tags", "metadata-source-job"):
+    for name in ("translate-npia-top", "translate-kpage", "translate-sfc", "translate-tags", "metadata-source-job"):
         content = (root / ".github" / "workflows" / f"{name}.yml").read_text(encoding="utf-8")
         assert "gpt-6-luna" in content and "secrets.OPENAI_API_KEY" in content
         assert "deepseek-v4-pro" not in content

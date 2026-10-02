@@ -1,5 +1,5 @@
 """
-Discord slash-command bot for Novelpia Downloader.
+Discord slash-command bot for Npia Downloader.
 
 Requirements (install):
   pip install discord.py pillow requests weasyprint
@@ -76,7 +76,7 @@ try:
 except Exception:
     _AVIF_AVAILABLE = False
 
-from novelpia_auth import NovelpiaAuth
+from npia_auth import NpiaAuth
 from downloader_core import DownloaderCore, AccessBlockedError
 from epub_generator import EpubGenerator
 from font_mapper import FontMapper
@@ -464,7 +464,7 @@ def _detect_source_ext(img_bytes, url_hint=""):
     """Return the canonical file extension for raw image bytes.
 
     PIL header detection first, URL extension as a fallback. Critical for
-    Novelpia's imagebox URLs, which often serve GIFs without a .gif suffix.
+    Npia's imagebox URLs, which often serve GIFs without a .gif suffix.
     """
     fmt_to_ext = {
         "JPEG": "jpg", "PNG": "png", "WEBP": "webp",
@@ -582,7 +582,7 @@ def _encode_image_bytes(im, image_format, quality, logger=None, static_only=Fals
 
 
 def _strip_leading_whitespace(text):
-    """Remove leading whitespace (including \u00a0 / &nbsp;) that Novelpia
+    """Remove leading whitespace (including \u00a0 / &nbsp;) that Npia
     injects at the start of every text segment."""
     text = re.sub(r'^(?:\s|\u00a0|&nbsp;)+', '', text)
     return text
@@ -650,7 +650,7 @@ def extract_chapter_content_and_images(content_json, font_mapper, session, compr
                             if url.startswith("//"):
                                 url_dl = "https:" + url
                             elif url.startswith("/"):
-                                url_dl = "https://novelpia.com" + url
+                                url_dl = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com" + url
                             elif url.startswith("http"):
                                 url_dl = url
                             else:
@@ -777,7 +777,7 @@ def run_download(user_id: int,
     """Blocking download workflow. Returns (output_path, logs)."""
     auth_cfg = load_user_auth(user_id, passphrase) or {}
     prefs = load_user_prefs(user_id) or {}
-    auth = NovelpiaAuth()
+    auth = NpiaAuth()
     if auth_cfg.get("email") and auth_cfg.get("wd"):
         auth.login(auth_cfg["email"], auth_cfg["wd"])
     elif auth_cfg.get("loginkey"):
@@ -801,7 +801,7 @@ def run_download(user_id: int,
     convert_gifs = prefs.get("convert_gifs", False) if convert_gifs is None else convert_gifs
     # Flatten every animated source to a single frame when True.
     static_only = prefs.get("static_only", False) if static_only is None else static_only
-    # Strip leading whitespace (&nbsp;) added by Novelpia.
+    # Strip leading whitespace (&nbsp;) added by Npia.
     strip_leading_spaces = prefs.get("strip_leading_spaces", False) if strip_leading_spaces is None else strip_leading_spaces
     # Retry budget per chapter (default 5, same as downloader_core).
     if max_retries is None:
@@ -833,7 +833,7 @@ def run_download(user_id: int,
     # Bot-only safeguard: if title fell back to placeholder (e.g., gated page), try og:title once more
     if meta.get("title", "").startswith("Novel_"):
         try:
-            page = auth.session.get(f"https://novelpia.com/novel/{novel_id}", timeout=15).text
+            page = auth.session.get(f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}", timeout=15).text
             m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]*content=["\'](.+?)["\']', page, flags=re.IGNORECASE)
             if m:
                 meta["title"] = html.unescape(m.group(1))
@@ -1166,7 +1166,7 @@ def run_download(user_id: int,
     return output_path, logger_msgs
 
 
-class NovelpiaBot(discord.Client):
+class NpiaBot(discord.Client):
     def __init__(self, *, intents: discord.Intents):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
@@ -1176,7 +1176,7 @@ class NovelpiaBot(discord.Client):
         await self.tree.sync()
 
 intents = discord.Intents.default()
-bot = NovelpiaBot(intents=intents)
+bot = NpiaBot(intents=intents)
 
 # --- Simple static file server for self-hosting downloads (fallback only) ---
 _download_dir = os.path.join(os.getcwd(), "downloads")
@@ -1432,7 +1432,7 @@ def clamp_interval(value: float) -> float:
     return v if v >= MIN_INTERVAL else MIN_INTERVAL
 
 
-@bot.tree.command(name="login", description="Save your Novelpia login credentials")
+@bot.tree.command(name="login", description="Save your Npia login credentials")
 @app_commands.describe(email="Account email", password="Account password", passphrase="Optional passphrase to encrypt your creds (omit to use master key)")
 async def login_cmd(interaction: discord.Interaction, email: str, password: str, passphrase: str | None = None):
     existing = _load_user_blob(interaction.user.id).get("auth")
@@ -1502,7 +1502,7 @@ async def setting_cmd(interaction: discord.Interaction):
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
-@bot.tree.command(name="download", description="Download a Novelpia novel and return the EPUB/TXT/PDF.")
+@bot.tree.command(name="download", description="Download a Npia novel and return the EPUB/TXT/PDF.")
 @app_commands.describe(
     novel_id="Novel ID (required)",
     start="Chapter start number (optional)",

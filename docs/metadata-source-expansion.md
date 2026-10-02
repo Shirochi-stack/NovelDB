@@ -1,4 +1,4 @@
-# Naver, Munpia, Joara and Ridibooks metadata integration
+# Nweb, Mpia, Jara and Rbooks metadata integration
 
 Initially implemented on **2026-09-13**, with collection, workflow and website fixes validated on **2026-09-14**. These sources have anonymous collectors, durable history, translation preparation and merging, packaging, browser support and scheduled workflow definitions. New sources remain unavailable in the selector until their manifests exist. **No new-source catalog was published during implementation.**
 
@@ -8,18 +8,18 @@ The initial implementation preserved all 457 then-existing files in `docs/data`.
 
 Collectors retrieve public titles, authors, synopses, cover URLs, genres/tags, completion, available statistics and official destinations. Account and age-verification gates are skipped. Images remain URLs. Identity is `(source, numeric-string ID)`; automatic matching of moved novels is outside this implementation.
 
-Naver covers Challenge, Best and Series Edition on `novel.naver.com`. Series storefront links can be outbound purchase destinations, but that separate storefront is not crawled.
+Nweb covers Challenge, Best and Series Edition on `Source URL`. Series storefront links can be outbound purchase destinations, but that separate storefront is not crawled.
 
-Install the project requirements (`requests`, `beautifulsoup4`, and `curl_cffi` for Ridibooks). All four entrypoints use the same CLI:
+Install the project requirements (`requests`, `beautifulsoup4`, and `curl_cffi` for Rbooks). All four entrypoints use the same CLI:
 
 ```powershell
-python scripts/scrape_naver.py --mode sample --output-dir .cache/naver-sample --state-dir .cache/naver-state
-python scripts/scrape_munpia.py --mode sample --output-dir .cache/munpia-sample --state-dir .cache/munpia-state
-python scripts/scrape_joara.py --mode sample --output-dir .cache/joara-sample --state-dir .cache/joara-state
-python scripts/scrape_naver.py --mode sample --output-dir .cache/naver-plan --dry-run
+python scripts/scrape_nweb.py --mode sample --output-dir .cache/nweb-sample --state-dir .cache/nweb-state
+python scripts/scrape_mpia.py --mode sample --output-dir .cache/mpia-sample --state-dir .cache/mpia-state
+python scripts/scrape_jara.py --mode sample --output-dir .cache/jara-sample --state-dir .cache/jara-state
+python scripts/scrape_nweb.py --mode sample --output-dir .cache/nweb-plan --dry-run
 ```
 
-`--dry-run` performs **zero requests and zero output writes**. Importing these modules does not start collection. This differs from the older unauthenticated Novelpia scraper, whose dry run crawls before skipping writes.
+`--dry-run` performs **zero requests and zero output writes**. Importing these modules does not start collection. This differs from the older unauthenticated Npia scraper, whose dry run crawls before skipping writes.
 
 | Option | Behavior |
 | --- | --- |
@@ -31,25 +31,25 @@ python scripts/scrape_naver.py --mode sample --output-dir .cache/naver-plan --dr
 | `--max-details`, `--max-requests`, `--max-runtime` | Detail, total HTTP-attempt and elapsed-second limits; collectors also accept `--max-seconds` |
 | `--workers`, `--delay`, `--retries` | Detail concurrency, host request-start interval, and bounded attempts |
 
-Sample defaults are one worker, two seconds between requests, two catalog pages per tier, five details, twenty requests and 300 seconds. Joara bootstrap requests count toward this ceiling. Catalog defaults are four workers, at least 0.5 seconds between host request starts, at most four attempts and 18,000 seconds. Retries honor `Retry-After` and consume the same budgets.
+Sample defaults are one worker, two seconds between requests, two catalog pages per tier, five details, twenty requests and 300 seconds. Jara bootstrap requests count toward this ceiling. Catalog defaults are four workers, at least 0.5 seconds between host request starts, at most four attempts and 18,000 seconds. Retries honor `Retry-After` and consume the same budgets.
 
-The [common pipeline](../scripts/metadata_pipeline.py) provides `prepare`, `translate`, `merge`, `build`, `promote` and `run`. Replace `naver` with `munpia`, `joara`, or `ridi`:
+The [common pipeline](../scripts/metadata_pipeline.py) provides `prepare`, `translate`, `merge`, `build`, `promote` and `run`. Replace `nweb` with `mpia`, `jara`, or `rbooks`:
 
 ```powershell
 # Collect and package in staging, without translation or promotion.
-python scripts/metadata_pipeline.py run --source naver --mode sample --output-dir .cache/naver-sample --state-dir .cache/naver-state
+python scripts/metadata_pipeline.py run --source nweb --mode sample --output-dir .cache/nweb-sample --state-dir .cache/nweb-state
 
 # Continue a bounded catalog; this can make many requests.
-python scripts/metadata_pipeline.py run --source naver --mode catalog --resume --output-dir .cache/metadata-build/naver --state-dir metadata/state --max-runtime 18000
+python scripts/metadata_pipeline.py run --source nweb --mode catalog --resume --output-dir .cache/metadata-build/nweb --state-dir metadata/state --max-runtime 18000
 
 # Independently selectable stages.
-python scripts/metadata_pipeline.py prepare --source naver --output-dir .cache/metadata-build/naver --state-dir metadata/state
-python scripts/metadata_pipeline.py translate --source naver --output-dir .cache/metadata-build/naver --workers 4
-python scripts/metadata_pipeline.py merge --source naver --output-dir .cache/metadata-build/naver --state-dir metadata/state
-python scripts/metadata_pipeline.py build --source naver --output-dir .cache/metadata-build/naver --state-dir metadata/state
+python scripts/metadata_pipeline.py prepare --source nweb --output-dir .cache/metadata-build/nweb --state-dir metadata/state
+python scripts/metadata_pipeline.py translate --source nweb --output-dir .cache/metadata-build/nweb --workers 4
+python scripts/metadata_pipeline.py merge --source nweb --output-dir .cache/metadata-build/nweb --state-dir metadata/state
+python scripts/metadata_pipeline.py build --source nweb --output-dir .cache/metadata-build/nweb --state-dir metadata/state
 
 # Separate publication step after inspecting validated staged artifacts.
-python scripts/metadata_pipeline.py promote --source naver --output-dir .cache/metadata-build/naver --target-dir docs/data
+python scripts/metadata_pipeline.py promote --source nweb --output-dir .cache/metadata-build/nweb --target-dir docs/data
 ```
 
 `translate` explicitly calls the existing Korean translator and uses `gpt-6-luna` by default and forwards explicit provider/model overrides. `run --translate` opts in; otherwise `run` collects, prepares and builds only. `run --dry-run` stops before all downstream writes. Incomplete catalogs need explicit `--allow-partial` promotion; scheduled jobs make that choice so validated partial originals are usable while discovery continues. Shared-tag promotion separately requires `--include-tags`.
@@ -58,25 +58,25 @@ python scripts/metadata_pipeline.py promote --source naver --output-dir .cache/m
 
 ## Verified adapters
 
-### Naver Web Novel
+### Nweb
 
-[scrape_naver.py](../scripts/scrape_naver.py) uses HTTP and BeautifulSoup. It discovers exposed genre links per tier, follows `genreMain` links into actual catalogs, enumerates only `ul.card_list`, and follows the smallest higher numbered page. The “next” block control can jump ten pages. Recommendation carousels are excluded; all-works and completed partitions are separate.
+[scrape_nweb.py](../scripts/scrape_nweb.py) uses HTTP and BeautifulSoup. It discovers exposed genre links per tier, follows `genreMain` links into actual catalogs, enumerates only `ul.card_list`, and follows the smallest higher numbered page. The “next” block control can jump ten pages. Recommendation carousels are excluded; all-works and completed partitions are separate.
 
-Public [Best League catalogs](https://novel.naver.com/best/genre?genre=102) and equivalent Challenge/Series Edition pages expose title, author, cover, episode counts and some metrics. Details use the observed tier's `/list?novelId=…` route. Synopses, tags, contributors, rating out of ten, favorites and optional Series links are parsed where present. Unloaded reaction zeroes are not likes, and notice dates are not novel-update dates. Abbreviated counts are not invented exact numbers. Completion and age remain unknown when not explicit.
+Public [Best League catalogs](SOURCE_URL) and equivalent Challenge/Series Edition pages expose title, author, cover, episode counts and some metrics. Details use the observed tier's `/list?novelId=…` route. Synopses, tags, contributors, rating out of ten, favorites and optional Series links are parsed where present. Unloaded reaction zeroes are not likes, and notice dates are not novel-update dates. Abbreviated counts are not invented exact numbers. Completion and age remain unknown when not explicit.
 
 Native keys are `best_<genre>_<daily|weekly>_<free|paid>`. Seven genres produce 28 boards: romance, romance fantasy, fantasy, modern fantasy, martial arts, mystery and light novel. Labels retain genre, category and period. Source-provided positions are used; no aggregate or monthly board is fabricated.
 
-### Munpia
+### Mpia
 
-[scrape_munpia.py](../scripts/scrape_munpia.py) calls `/api/v1/pc/remocon/novels` from page zero with forty rows and `adultMode=false`. It validates `items`, `total`, `hasNext` and access policy. Listings contain few metrics, so `/api/v1/pc/novel-detail/{id}` supplies enrichment. Links use the [current detail route](https://www.munpia.com/novel/detail/216129).
+[scrape_mpia.py](../scripts/scrape_mpia.py) calls `/api/v1/pc/remocon/novels` from page zero with forty rows and `adultMode=false`. It validates `items`, `total`, `hasNext` and access policy. Listings contain few metrics, so `/api/v1/pc/novel-detail/{id}` supplies enrichment. Links use the [current detail route](SOURCE_URL).
 
 `viewCount`, `likeCount`, `chapterCount`, `finish` and `adult` map to shared fields. Favorites, free units, characters and `unitType` remain separate metrics. Ebook/paid/free flags determine tier while native flags remain in state. The declared unit count can describe ebooks rather than serial episodes. Authors and illustrators stay separate. No chapter-list, reader or account-preference endpoint is requested. The saved-profile desktop parser is not reused.
 
 `/api/v1/main/best24` supplies `TODAY_BEST`, `PLATINUM_TODAY_BEST` and `CONTEST_BEST`. The previous completed hourly snapshot uses Korea time. Explicit ranks, observation/window information and all rows beyond 100 are retained. Window views/favorites/score stay inside ranking observations, separate from lifetime detail metrics.
 
-### Joara
+### Jara
 
-[scrape_joara.py](../scripts/scrape_joara.py) bootstraps the current public [Joara client](https://www.joara.com/latestbooks), follows its asset references and extracts public application configuration. Asset hashes and keys are not hardcoded. A fresh device identifier is used, with no account token, saved cookies or user profile. Logs omit key/device values.
+[scrape_jara.py](../scripts/scrape_jara.py) bootstraps the current public [Jara client](SOURCE_URL), follows its asset references and extracts public application configuration. Asset hashes and keys are not hardcoded. A fresh device identifier is used, with no account token, saved cookies or user profile. Logs omit key/device values.
 
 `/v2/book/latest_book` and `/v2/book/finish_book` cover `series` (Free), `nobless` (Noblesse) and `premium`. Pagination begins at one; `offset` means page size. V2 supplies substantial metadata. Missing or potentially truncated intros are enriched through `/v1/book/detail.joa`; a list intro reaching 1,000 characters needs enrichment.
 
@@ -126,9 +126,9 @@ Source-and-ID keys protect deduplication, translations, focused cards and lazy s
 
 | Workflow | Weekly catalog, 08:00 UTC | Daily ranking time UTC |
 | --- | --- | --- |
-| [Update Naver Metadata](../.github/workflows/update-naver-metadata.yml) | Monday | 16:00 |
-| [Update Munpia Metadata](../.github/workflows/update-munpia-metadata.yml) | Tuesday | 17:00 |
-| [Update Joara Metadata](../.github/workflows/update-joara-metadata.yml) | Wednesday | 18:00 |
+| [Update Nweb Metadata](../.github/workflows/update-nweb-metadata.yml) | Monday | 16:00 |
+| [Update Mpia Metadata](../.github/workflows/update-mpia-metadata.yml) | Tuesday | 17:00 |
+| [Update Jara Metadata](../.github/workflows/update-jara-metadata.yml) | Wednesday | 18:00 |
 
 Thin source workflows expose catalog/rankings/build/resume dispatch choices. The [shared job](../.github/workflows/metadata-source-job.yml) claims `data-write-lock` once, limits collection to five hours inside six hours, and commits validated originals independently of translation. Catalog schedules resume durable state. State is included in data commits; failed runs can separately commit validated progress.
 
@@ -142,36 +142,36 @@ Default bounded catalog samples produced:
 
 | Source | Catalog pages | Distinct catalog IDs | Detail requests | Total requests including bootstrap |
 | --- | ---: | ---: | ---: | ---: |
-| Naver | 6: two per tier | 120 | 5 | 14 |
-| Munpia | 2 | 79 | 5 | 7 |
-| Joara | 6: two per store | 118 | 0: list metadata available | 8 |
+| Nweb | 6: two per tier | 120 | 5 | 14 |
+| Mpia | 2 | 79 | 5 | 7 |
+| Jara | 6: two per store | 118 | 0: list metadata available | 8 |
 
-Additional ranking checks used three Naver requests, four Munpia requests including one detail, and three Joara requests. They verified six Naver boards, Munpia's three boards with 103/103/218 rows, and Joara Today Best with 100 rows. Separate fixture capture used eight anonymous requests and included Joara V1 detail metadata. Request reports contain only permitted catalog/detail/ranking routes and necessary public bootstrap assets.
+Additional ranking checks used three Nweb requests, four Mpia requests including one detail, and three Jara requests. They verified six Nweb boards, Mpia's three boards with 103/103/218 rows, and Jara Today Best with 100 rows. Separate fixture capture used eight anonymous requests and included Jara V1 detail metadata. Request reports contain only permitted catalog/detail/ranking routes and necessary public bootstrap assets.
 
-Catalog plus ranking-discovered staged data contained **491 Naver, 481 Munpia and 214 Joara records**. All passed preparation, mocked English translation, merging, packaging and artifact validation, producing 128 synopsis shards and a deduplicated 100-record top bundle per source. Mocked English was not promoted. All 457 production data files remained unchanged.
+Catalog plus ranking-discovered staged data contained **491 Nweb, 481 Mpia and 214 Jara records**. All passed preparation, mocked English translation, merging, packaging and artifact validation, producing 128 synopsis shards and a deduplicated 100-record top bundle per source. Mocked English was not promoted. All 457 production data files remained unchanged.
 
-After the final resume/allowlist fixes, a smaller fresh smoke check used seven Naver, two Munpia and six Joara requests. It observed 60/40/59 listings respectively, with one successful detail request each, including Joara's V1 endpoint. Those records also passed the complete mocked translation/build validation. These checks remained isolated in `.cache/metadata-implementation`.
+After the final resume/allowlist fixes, a smaller fresh smoke check used seven Nweb, two Mpia and six Jara requests. It observed 60/40/59 listings respectively, with one successful detail request each, including Jara's V1 endpoint. Those records also passed the complete mocked translation/build validation. These checks remained isolated in `.cache/metadata-implementation`.
 
 Offline tests cover mappings, pagination/end conditions/repetition, malformed/restricted responses, units, booleans/dates, interruption/resume/history, failed boards, equal cross-platform IDs, reversible text and stale patches, schema/manifests/shards/top, import safety, dry runs and allowlists. Node tests cover browser helpers. Fully intercepted Chromium tests exercise all seven sources, ranks, hash restoration, lazy synopses, missing manifests, failed chunks and source switching, without external browser requests.
 
-The final run passed **151 Python tests** (including three Chromium scenarios and existing Novelpia metadata regressions) and **six Node tests**. Workflow YAML, exact source schedules, documentation links and the complete 42-module script inventory were checked separately.
+The final run passed **151 Python tests** (including three Chromium scenarios and existing Npia metadata regressions) and **six Node tests**. Workflow YAML, exact source schedules, documentation links and the complete 42-module script inventory were checked separately.
 
 ```powershell
-python -m pytest tests/test_metadata_common.py tests/test_metadata_naver.py tests/test_metadata_munpia.py tests/test_metadata_joara.py tests/test_metadata_pipeline.py tests/test_metadata_frontend_browser.py tests/test_novelpia_metadata.py -q
+python -m pytest tests/test_metadata_common.py tests/test_metadata_nweb.py tests/test_metadata_mpia.py tests/test_metadata_jara.py tests/test_metadata_pipeline.py tests/test_metadata_frontend_browser.py tests/test_npia_metadata.py -q
 node --test tests/test_metadata_frontend.cjs
 node --test tests/test_metadata_pages.cjs
 ```
 
 The Pages trigger has five additional offline tests that execute its workflow script with mocked GitHub responses, checking request order, configuration/branch guards, failure handling and permission propagation. No live build request was sent while testing this fix.
 
-Full-catalog completeness, sustained production crawl rates, every ranking window and all restricted/publication tiers remain untested. Selected Joara deep-page limits were reproduced on September 14 as documented below. Moving catalogs overlap and totals change; sample counts are observations, not platform totals. Naver league-promotion continuity and Joara client-asset changes need ongoing verification. Separate local processes must not write the same source state concurrently; scheduled jobs use the shared lock. These limitations remain visible in coverage and outcomes; they do not establish deletion or cross-platform matching.
+Full-catalog completeness, sustained production crawl rates, every ranking window and all restricted/publication tiers remain untested. Selected Jara deep-page limits were reproduced on September 14 as documented below. Moving catalogs overlap and totals change; sample counts are observations, not platform totals. Nweb league-promotion continuity and Jara client-asset changes need ongoing verification. Separate local processes must not write the same source state concurrently; scheduled jobs use the shared lock. These limitations remain visible in coverage and outcomes; they do not establish deletion or cross-platform matching.
 
 See the [complete pipeline reference](metadata-pipeline.md) for all legacy scripts and source schemas, or return to the [README](../README.md).
 
 
 ## September 14: throughput, coverage and operational fixes
 
-The local Naver snapshot of 1,420 records came from a **rankings** operation, not a catalog sweep; its saved state had no catalog partitions. Munpia's 21,316-record catalog run reached its five-hour budget after 536 pages and 21,304 details. Joara's earlier catalog encountered pagination errors; a subsequent successful ranking refresh did not prove catalog completeness.
+The local Nweb snapshot of 1,420 records came from a **rankings** operation, not a catalog sweep; its saved state had no catalog partitions. Mpia's 21,316-record catalog run reached its five-hour budget after 536 pages and 21,304 details. Jara's earlier catalog encountered pagination errors; a subsequent successful ranking refresh did not prove catalog completeness.
 
 Collection now drains recovered detail work before catalog discovery and enriches new catalog pages as they arrive. A persistent detail executor refills workers as each future finishes; it no longer waits for each batch of four or recompresses the complete state after every batch. Pending IDs use an ordered dictionary for efficient membership/removal. Defaults remain four workers, a shared 0.5-second minimum between request starts per host, and four bounded attempts respecting `Retry-After`. More workers cannot exceed that host pacing floor. Numbered catalogs prefetch pages; opaque cursor chains remain sequential within each feed. Catalog and detail requests share the configured worker limit. Full enrichment can still require several five-hour runs.
 
@@ -179,13 +179,13 @@ Checkpoints are atomic compressed metadata state, written after 60 seconds or 50
 
 Live logs identify source, operation, worker/pacing settings, partition/page, rows/new IDs/cumulative records, available upstream totals, request rate, remaining time, retries, detail outcomes, checkpoint duration, stop reason and continuation status. Detail progress appears at least every ten seconds while workers are active. Workflows run Python unbuffered and write a readable job summary; diagnostic logs exclude account/application keys and response bodies.
 
-### Joara boundary evidence
+### Jara boundary evidence
 
-The old numbered latest-book requests reset at page 101. This was a scraper pagination defect, not a hard public catalog limit. Joara's public client uses `use_cursor_pagination=y`, keeps API `page=1`, and passes the response's top-level `cursor_point` into the next request. All five latest partitions now use this protocol. Completed-list pagination is unchanged.
+The old numbered latest-book requests reset at page 101. This was a scraper pagination defect, not a hard public catalog limit. Jara's public client uses `use_cursor_pagination=y`, keeps API `page=1`, and passes the response's top-level `cursor_point` into the next request. All five latest partitions now use this protocol. Completed-list pagination is unchanged.
 
 Resume saves the opaque cursor together with the logical next-page checkpoint. Old latest-list checkpoints restart from the head to establish valid cursors; known novels and translations remain saved, and finished-list checkpoints remain intact. Missing/non-advancing cursors, repeated pages and invalid responses stop with diagnostics. A bounded live check traversed 103 Free latest batches: 2,060 unique novels, including 20 new rows each at batches 100, 101, 102 and 103, with no duplicate IDs. This verifies passage beyond the previous failure, not a completed backfill.
 
-The saved 41,911-record Joara snapshot stopped seven catalog partitions: all five latest-book windows at page 101, Free finished at page 621, and Noblesse finished at page 75. Premium finished reached its end. A later check of the two failed finished pages found usable rows alongside a blank-title entry: ID `212133` on Free page 621 and ID `1556465` on Noblesse page 75. Previously, one such entry rejected its entire page and left all later pages in that partition unscanned. The collector now retains valid rows and continues past these specific blank-title entries, recording each omitted ID, page and row in coverage. These omissions still prevent a complete-catalog claim. Repeated whole pages, reset pagination, malformed envelopes and unexplained empty pages still stop that partition with explicit diagnostics. Overlapping catalog windows and retained historical records mean the number of missing unique novels cannot be inferred from page totals.
+The saved 41,911-record Jara snapshot stopped seven catalog partitions: all five latest-book windows at page 101, Free finished at page 621, and Noblesse finished at page 75. Premium finished reached its end. A later check of the two failed finished pages found usable rows alongside a blank-title entry: ID `212133` on Free page 621 and ID `1556465` on Noblesse page 75. Previously, one such entry rejected its entire page and left all later pages in that partition unscanned. The collector now retains valid rows and continues past these specific blank-title entries, recording each omitted ID, page and row in coverage. These omissions still prevent a complete-catalog claim. Repeated whole pages, reset pagination, malformed envelopes and unexplained empty pages still stop that partition with explicit diagnostics. Overlapping catalog windows and retained historical records mean the number of missing unique novels cannot be inferred from page totals.
 
 **Cursor tails (verified September 22, 2026).** Every latest-list partition previously stopped one batch before its end with "unexplained row count": the collector required each batch to hold exactly `min(20, total_cnt - consumed)` rows, but `total_cnt` moves while a scan runs (works enter behind the cursor, and hidden works are counted but never listed), so the final batch is short of what the total implies. Live checks at the saved Free and Noblesse tails returned 11 and 2 rows against 87 and 34 "remaining", and asking again with the returned cursor produced either the same rows with the same cursor or an empty list with an empty cursor. A full batch now always continues, even past the reported total. A short batch ends the feed only when the scan has consumed at least 90% of `total_cnt` and one confirming request yields no new IDs (with the returned cursor after a non-empty batch, or with the same cursor after an empty batch before the reported total); a short batch that is followed by new rows, or that arrives far before the reported total, still stops the partition with the row-count diagnostic.
 
@@ -208,7 +208,7 @@ All data-lock workflows use `group: data-write-lock` and `cancel-in-progress: fa
 
 All seven platforms' translator defaults and scheduled/manual fallback models are **`gpt-6-luna`**. Set repository secret **`OPENAI_API_KEY`** in Settings → Secrets and variables → Actions. Recognized GPT models use OpenAI credentials; a DeepSeek key is never substituted. A configured `TRANSLATION_API_KEY` or explicit provider/model/base-URL override retains its existing precedence. Luna uses Chat Completions with `reasoning_effort=none` and `max_completion_tokens`, omitting sampling temperature. Missing credentials produce a provider-specific error. Existing valid English remains active while its original is unchanged; this change does not bulk retranslate historical English.
 
-Translation output defaults to **16,384 tokens per request** across all platforms, including Naver, Joara and Munpia. Every Translate workflow exposes `output_token_limit` under **Run workflow**. For automatic runs, set the Actions repository variable `TRANSLATION_OUTPUT_TOKEN_LIMIT`; manual input takes precedence, and clearing it uses that variable (or 16,384 if unset). Use a positive integer supported by the selected provider/model. Local translation accepts the same environment variable or `--output-token-limit`, with the CLI option taking precedence. With the default compression factor of 2.0, the input chunk target is 8,192 tokens; complete rows remain unsplit.
+Translation output defaults to **16,384 tokens per request** across all platforms, including Nweb, Jara and Mpia. Every Translate workflow exposes `output_token_limit` under **Run workflow**. For automatic runs, set the Actions repository variable `TRANSLATION_OUTPUT_TOKEN_LIMIT`; manual input takes precedence, and clearing it uses that variable (or 16,384 if unset). Use a positive integer supported by the selected provider/model. Local translation accepts the same environment variable or `--output-token-limit`, with the CLI option taking precedence. With the default compression factor of 2.0, the input chunk target is 8,192 tokens; complete rows remain unsplit.
 
 ### Website loading and packaging
 
@@ -222,22 +222,22 @@ Coverage messages distinguish ranking-only initialization, active catalog collec
 
 | Source | Catalog pages | Unique staged records | Successful details | HTTP requests |
 | --- | ---: | ---: | ---: | ---: |
-| Naver | 3: one per tier | 60 | 2 | 8 |
-| Munpia | 1 | 40 | 2 | 3 |
-| Joara | 3: one per store | 59 | 0: listing metadata sufficient | 5 |
+| Nweb | 3: one per tier | 60 | 2 | 8 |
+| Mpia | 1 | 40 | 2 | 3 |
+| Jara | 3: one per store | 59 | 0: listing metadata sufficient | 5 |
 
-Each source was capped at ten requests, one page per tier and two details. All samples passed extraction, mocked translation, merging, gzip packaging and manifest validation; each produced 139 validated artifacts including 128 synopsis shards. Staging evidence is in ignored `.cache/metadata-fixes-validation/validation.json`. Hashes confirmed all 879 production catalog/corpus/state files unchanged. Separate bounded public-asset/category probes established the Joara evidence above.
+Each source was capped at ten requests, one page per tier and two details. All samples passed extraction, mocked translation, merging, gzip packaging and manifest validation; each produced 139 validated artifacts including 128 synopsis shards. Staging evidence is in ignored `.cache/metadata-fixes-validation/validation.json`. Hashes confirmed all 879 production catalog/corpus/state files unchanged. Separate bounded public-asset/category probes established the Jara evidence above.
 
-Offline regression tests cover discovery-before-details, continuous worker refilling, bounded checkpoint frequency, resume across ranking refreshes, failed-board/history preservation, no-progress stopping, duplicate/stale dispatch, Luna credential/payload routing, and Joara reset/short/duplicate responses. Intercepted browser fixtures cover all seven sources, failed chunks, switching during loading, native ranks, persistent description suppression, late-response cancellation and card/image node identity. No full backfill, account login, paid translation, production workflow dispatch or publication was performed.
+Offline regression tests cover discovery-before-details, continuous worker refilling, bounded checkpoint frequency, resume across ranking refreshes, failed-board/history preservation, no-progress stopping, duplicate/stale dispatch, Luna credential/payload routing, and Jara reset/short/duplicate responses. Intercepted browser fixtures cover all seven sources, failed chunks, switching during loading, native ranks, persistent description suppression, late-response cancellation and card/image node identity. No full backfill, account login, paid translation, production workflow dispatch or publication was performed.
 
-The first September 14 update added `queue: max` and suppressed its local validation error. Removing that setting did **not** resolve the instant failures: Joara runs 34820049974 and 34820029571 used the corrected commit `867af0f` and still failed with zero jobs. GitHub returned no error annotation, so the earlier attribution to concurrency was not confirmed.
+The first September 14 update added `queue: max` and suppressed its local validation error. Removing that setting did **not** resolve the instant failures: Jara runs 34820049974 and 34820029571 used the corrected commit `867af0f` and still failed with zero jobs. GitHub returned no error annotation, so the earlier attribution to concurrency was not confirmed.
 
 The new manual `workers` input also crossed the reusable-workflow boundary without conversion. Dispatch numeric inputs can arrive as strings, while `workflow_call` requires a number ([reported Actions issue](https://github.com/actions/runner/issues/2848)). All three callers now use `fromJSON(format('{0}', inputs.workers || 4))` to handle manual/API strings, numeric values, and missing scheduled inputs. Offline tests using GitHub's `@actions/expressions` engine reproduce the old string result and check the actual caller expressions against the reusable workflow's declared types, including operation, continuation flags and checkpoints. Run `npm ci --prefix tests/workflows` then `npm test --prefix tests/workflows`. Syntax checks also run with `actionlint` without ignored diagnostics. This fixes a reproduced input-type defect; confirmation that it resolves these particular GitHub runs requires a new run after pushing the patch. No workflow was dispatched or published during validation.
 
 
-## Ridibooks integration (September 14)
+## Rbooks integration (September 14)
 
-`scrape_ridi.py` uses the public website's `/v2/category/books` and `/v2/category/books/total-count` API routes. Four webnovel categories are included: Romance (1650), Romance Fantasy (6050), Fantasy (1750), and BL (4150). Ebooks, comics and episode content are outside this collector's scope. Catalog discovery uses the All tab and 60-row offsets for recent entries. It also enumerates every book sitemap advertised by `https://ridibooks.com/sitemap.xml`, checks categories using anonymous batches of 1,000 IDs, and fetches full metadata only for matching webnovel series. The public GraphQL `books(bookIds: ...)` query has no category offset, so it reaches older records beyond the listing window. Episode IDs resolve to canonical series IDs before merging to avoid duplicate cards. No account, reader, or purchase endpoint is called.
+`scrape_rbooks.py` uses the public website's `/v2/category/books` and `/v2/category/books/total-count` API routes. Four webnovel categories are included: Romance (1650), Romance Fantasy (6050), Fantasy (1750), and BL (4150). Ebooks, comics and episode content are outside this collector's scope. Catalog discovery uses the All tab and 60-row offsets for recent entries. It also enumerates every book sitemap advertised by `SOURCE_URL`, checks categories using anonymous batches of 1,000 IDs, and fetches full metadata only for matching webnovel series. The public GraphQL `books(bookIds: ...)` query has no category offset, so it reaches older records beyond the listing window. Episode IDs resolve to canonical series IDs before merging to avoid duplicate cards. No account, reader, or purchase endpoint is called.
 
 **Pagination verified September 16:** category API requests beyond its 6,000-result window return HTTP 400. Reducing page sizes does not remove that server limit. Sitemap enumeration provides a separate public index and does not rely on that pagination. The collector freezes sitemap URL/ID ordering in the durable scan checkpoint, archives obsolete category cursors, and resumes only contiguous successful batches. Empty batches of non-webnovels still count as checkpoint progress. Partial GraphQL errors fail the batch.
 
@@ -247,28 +247,28 @@ Live verification on September 16 enumerated 474,871 sitemap IDs and collected a
 
 The mapping follows the official frontend's serial renderer: canonical `bookId`, whole-work `serial.title`, cover and episode total, contributor roles, categories, public introduction, explicit completion/age values, and weighted native rating/count. Missing views, likes, dates and synopses remain unknown. Listing introductions come from the API's description field rather than the page's truncated preview. No account session or age-verification bypass is used.
 
-The source key is `ridi`, including in `metadata_site.bat` and `metadata_pipeline.py`. `Update Ridibooks Metadata` schedules weekly catalogs on Thursday at 08:00 UTC and daily rankings at 19:00 UTC. It uses the common resume, continuation, translation, validation and packaging stages; translation inherits the configurable 16,384-token default. The site enables Ridibooks only after a validated manifest is published.
+The source key is `rbooks`, including in `metadata_site.bat` and `metadata_pipeline.py`. `Update Rbooks Metadata` schedules weekly catalogs on Thursday at 08:00 UTC and daily rankings at 19:00 UTC. It uses the common resume, continuation, translation, validation and packaging stages; translation inherits the configurable 16,384-token default. The site enables Rbooks only after a validated manifest is published.
 
-**Live access verified with the browser-compatible transport:** standard Python Requests received Cloudflare HTTP 403, whereas a fresh anonymous `curl_cffi` Chrome-compatible connection returned JSON successfully. Ridibooks now supplies this session through the common HTTP client, preserving URL/redirect allowlists, request/runtime budgets, pacing, bounded retries, and sanitized logs. No browser profile, account login, or saved cookies are needed. The workflow installs the same transport dependency.
+**Live access verified with the browser-compatible transport:** standard Python Requests received Cloudflare HTTP 403, whereas a fresh anonymous `curl_cffi` Chrome-compatible connection returned JSON successfully. Rbooks now supplies this session through the common HTTP client, preserving URL/redirect allowlists, request/runtime budgets, pacing, bounded retries, and sanitized logs. No browser profile, account login, or saved cookies are needed. The workflow installs the same transport dependency.
 
 A live staged run collected 480 unique novels and 480 synopses, then built the catalog and all 128 synopsis shards. Further probes checked the first two pages of all four genres and deep pages. **The API separately requires offsets below 6,000.** Fantasy reports 15,309 works, so this collector cannot claim a complete fantasy catalog from its main category: it records a coverage error at page 101 rather than treating the first 6,000 as the entire source. This is an explicit API validation response, independent of the resolved HTTP 403 issue. Staged validation does not publish data or run paid translation.
 
 ```powershell
-python scripts/metadata_pipeline.py run --source ridi --mode sample --output-dir .cache/ridi-sample --state-dir .cache/ridi-state
+python scripts/metadata_pipeline.py run --source rbooks --mode sample --output-dir .cache/rbooks-sample --state-dir .cache/rbooks-state
 ```
 
 
-## R19 support and Naver Series (September 14)
+## R19 support and Nseries (September 14)
 
-- **Ridibooks:** already collects explicit R19 flags and public synopses anonymously. A 240-record genre sample contained 106 R19 works with synopses.
-- **Naver Series (`naverseries`):** newly added as a separate source, preserving its independent product ID namespace. Collects eight public novel genre lists, including explicit `.n19` badges, titles, authors, ratings, volume/episode counts, and synopsis previews. A staged 50-record sample contained 38 R19 works; eight first-page genre probes returned 200 records, including 49 R19 listings. Full adult details redirected to Naver login/age verification; public previews remain available and are labelled “Synopsis preview” on the site. Tested non-adult details returned full synopses and an explicit age rating. No reader or account routes are fetched.
-- **Joara:** a known R19 detail request explicitly required login and verification. The parser now classifies that response as restricted and records age 19 for already-known works instead of reporting a generic parse failure. Anonymous adult-catalog discovery remains unimplemented.
-- **Munpia:** anonymous `adultOnly=true` requests returned HTTP 400 even with complete catalog parameters. `adultMode=true` with `adultOnly=false` returned the default public policy/catalog. Adult-specific discovery remains unverified and is not enabled.
+- **Rbooks:** already collects explicit R19 flags and public synopses anonymously. A 240-record genre sample contained 106 R19 works with synopses.
+- **Nseries (`nseries`):** newly added as a separate source, preserving its independent product ID namespace. Collects eight public novel genre lists, including explicit `.n19` badges, titles, authors, ratings, volume/episode counts, and synopsis previews. A staged 50-record sample contained 38 R19 works; eight first-page genre probes returned 200 records, including 49 R19 listings. Full adult details redirected to Nweb login/age verification; public previews remain available and are labelled “Synopsis preview” on the site. Tested non-adult details returned full synopses and an explicit age rating. No reader or account routes are fetched.
+- **Jara:** a known R19 detail request explicitly required login and verification. The parser now classifies that response as restricted and records age 19 for already-known works instead of reporting a generic parse failure. Anonymous adult-catalog discovery remains unimplemented.
+- **Mpia:** anonymous `adultOnly=true` requests returned HTTP 400 even with complete catalog parameters. `adultMode=true` with `adultOnly=false` returned the default public policy/catalog. Adult-specific discovery remains unverified and is not enabled.
 
-Series uses the common prepare/translate/build/promote stages, compressed synopsis shards, and the existing Audience → Adult Only (19+) filter. `Update Naver Series Metadata` collects weekly on Friday at 08:00 UTC and offers manual catalog/build/resume. The shared translation workflow accepts `naverseries`. No native Series ranking board was verified, so catalog sorting is not presented as a ranking. Sources that explicitly lack ranking support can complete catalog collection without fabricated ranking data.
+Series uses the common prepare/translate/build/promote stages, compressed synopsis shards, and the existing Audience → Adult Only (19+) filter. `Update Nseries Metadata` collects weekly on Friday at 08:00 UTC and offers manual catalog/build/resume. The shared translation workflow accepts `nseries`. No native Series ranking board was verified, so catalog sorting is not presented as a ranking. Sources that explicitly lack ranking support can complete catalog collection without fabricated ranking data.
 
 ```powershell
-python scripts/metadata_pipeline.py run --source naverseries --mode sample --output-dir .cache/naverseries-sample --state-dir .cache/naverseries-state
+python scripts/metadata_pipeline.py run --source nseries --mode sample --output-dir .cache/nseries-sample --state-dir .cache/nseries-state
 ```
 
 Live validation used staging only; no production catalog or translation API was changed.

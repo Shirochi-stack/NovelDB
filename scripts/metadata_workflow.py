@@ -1,4 +1,10 @@
 """Small, testable workflow guards and summaries; never scrapes or calls GitHub."""
+
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
 import argparse
 import json
 import os
@@ -54,7 +60,7 @@ def summary(source, report):
         lines.append(f"Category {category}: {counts['observed']:,} unique works observed / "
                      f"{counts['expected']:,} reported by source")
     for error in coverage.get("errors", []):
-        lines.append("- " + json.dumps(error, ensure_ascii=False))
+        lines.append("- " + source_names.dumps(error, ensure_ascii=False))
     return "\n\n".join(lines) + "\n"
 
 

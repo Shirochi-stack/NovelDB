@@ -1,4 +1,4 @@
-"""Merge translated Novelpia titles back into titles_en.txt.
+"""Merge translated Npia titles back into titles_en.txt.
 
 Deduplicates by ID, validates IDs are numeric, prefers translated entries.
 Handles both 2-column and 3-column formats. Auto-extracts remaining untranslated.

@@ -15,27 +15,27 @@ docs/data/novels_full.json
 # Allow translation txt files in docs/data
 !docs/data/*.txt
 # Except the raw descriptions file (too large, only .gz is committed)
-docs/data/sfacg_descriptions.txt
+docs/data/sfc_descriptions.txt
 
 # External novel browser session data (cookies, localStorage)
 browser_data/
 novel-downloader/ 
 tmp_facebook_apk/
-tmp_sfacg_apk/
+tmp_sfc_apk/
 
 *.epub
 
-# Kakao descriptions are stored and processed as gzip.
-docs/data/kakao_descriptions.txt
+# Kpage descriptions are stored and processed as gzip.
+docs/data/kpage_descriptions.txt
 
 # New metadata sources publish gzip/shards; plaintext and pending corpora stay in recovery artifacts.
-docs/data/naver_descriptions.txt
-docs/data/joara_descriptions.txt
-docs/data/munpia_descriptions.txt
-docs/data/ridi_descriptions.txt
-docs/data/naverseries_descriptions.txt
-docs/data/naver_*_untranslated.txt
-docs/data/joara_*_untranslated.txt
-docs/data/munpia_*_untranslated.txt
-docs/data/ridi_*_untranslated.txt
-docs/data/naverseries_*_untranslated.txt
+docs/data/nweb_descriptions.txt
+docs/data/jara_descriptions.txt
+docs/data/mpia_descriptions.txt
+docs/data/rbooks_descriptions.txt
+docs/data/nseries_descriptions.txt
+docs/data/nweb_*_untranslated.txt
+docs/data/jara_*_untranslated.txt
+docs/data/mpia_*_untranslated.txt
+docs/data/rbooks_*_untranslated.txt
+docs/data/nseries_*_untranslated.txt

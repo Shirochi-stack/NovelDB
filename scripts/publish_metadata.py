@@ -4,6 +4,14 @@ The original local commit is retained on failure. Recovery artifacts are uploade
 by callers before invoking this command. Never force-push or resolve source data
 conflicts by choosing an arbitrary side.
 """
+
+try:
+    from . import source_names
+    from .codename_policy import sanitize_staged_data
+except ImportError:
+    import source_names
+    from codename_policy import sanitize_staged_data
+
 import argparse
 import gzip
 import json
@@ -61,6 +69,8 @@ def validate_index():
 
 
 def publish(branch, message, attempts=5, backoff=2):
+    message = source_names.to_codenames(message)
+    sanitize_staged_data()
     validate_index()
     if git('diff', '--cached', '--quiet', check=False).returncode:
         git('commit', '-m', message)
@@ -106,7 +116,7 @@ def publish(branch, message, attempts=5, backoff=2):
                 raw = ''.join(f'{tag}|||{en}\n' for tag, en in ordinary.items()).encode()
                 data = {'docs/data/tags_en.txt': raw,
                         'docs/data/tags_en.txt.gz': gzip.compress(raw, compresslevel=9, mtime=0),
-                        'docs/data/tags_extra.json.gz': gzip.compress(json.dumps(extra, ensure_ascii=False).encode(), compresslevel=9, mtime=0)}
+                        'docs/data/tags_extra.json.gz': gzip.compress(source_names.dumps(extra, ensure_ascii=False).encode(), compresslevel=9, mtime=0)}
                 for path, content in data.items():
                     sha = git('hash-object', '-w', '--stdin', input=content).stdout.decode().strip()
                     git('update-index', '--add', '--cacheinfo', '100644', sha, path, env=env)

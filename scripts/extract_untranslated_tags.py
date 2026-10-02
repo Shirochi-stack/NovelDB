@@ -12,14 +12,14 @@ except ImportError:
 
 # Kept for consumers importing the legacy helper.
 load_tag_map_from_js = legacy_tags
-SOURCES = ('novelpia', 'kakao', 'naver', 'joara', 'munpia', 'ridi', 'naverseries')
+SOURCES = ('npia', 'kpage', 'nweb', 'jara', 'mpia', 'rbooks', 'nseries')
 
 
 def extract(data_dir):
     data_dir = Path(data_dir)
     records = []
     for source in SOURCES:
-        path = data_dir / ('novels.json' if source == 'novelpia' else f'{source}_novels.json')
+        path = data_dir / ('novels.json' if source == 'npia' else f'{source}_novels.json')
         if not path.exists():
             continue
         rows = json.loads(path.read_text(encoding='utf-8'))

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from downloader_core import DownloaderCore, _without_tesseract_dll_directories
 from epub_generator import EpubGenerator
-from gui import NovelpiaGUI, extract_chapter_content_and_images
+from gui import NpiaGUI, extract_chapter_content_and_images
 
 
 def render_segments(segments, **options):
@@ -76,10 +76,10 @@ def make_fingerprint_settings(remove_newlines, save_image_urls_only=False):
 
 
 def test_newline_setting_invalidates_processed_chapter_cache():
-    keep_newlines = NovelpiaGUI._image_cache_fingerprint(
+    keep_newlines = NpiaGUI._image_cache_fingerprint(
         make_fingerprint_settings(False)
     )
-    remove_newlines = NovelpiaGUI._image_cache_fingerprint(
+    remove_newlines = NpiaGUI._image_cache_fingerprint(
         make_fingerprint_settings(True)
     )
 
@@ -92,7 +92,7 @@ def test_image_url_mode_keeps_remote_previews_without_network_requests():
             "s": [
                 {
                     "text": (
-                        '<p><img src="//images.novelpia.com/imagebox/'
+                        '<p><img src="//images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/'
                         'sample.file?size=large&amp;page=1"></p>'
                     )
                 },
@@ -126,17 +126,17 @@ def test_image_url_mode_keeps_remote_previews_without_network_requests():
     assert chapter_html.count('class="remote-image"') == 2
     assert 'width="100%"' not in chapter_html
     assert (
-        'src="https://images.novelpia.com/imagebox/'
+        'src="https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/imagebox/'
         'sample.file?size=large&amp;page=1"'
     ) in chapter_html
     assert 'src="https://cdn.example.com/second.webp"' in chapter_html
 
 
 def test_image_url_mode_changes_processed_cache_fingerprint():
-    downloaded_images = NovelpiaGUI._image_cache_fingerprint(
+    downloaded_images = NpiaGUI._image_cache_fingerprint(
         make_fingerprint_settings(False, False)
     )
-    remote_images = NovelpiaGUI._image_cache_fingerprint(
+    remote_images = NpiaGUI._image_cache_fingerprint(
         make_fingerprint_settings(False, True)
     )
 
@@ -161,12 +161,12 @@ def test_image_url_mode_disables_and_restores_image_controls():
         ],
     )
 
-    NovelpiaGUI._sync_image_url_option_states(settings)
+    NpiaGUI._sync_image_url_option_states(settings)
     assert normal_widget.state == "disabled"
     assert readonly_widget.state == "disabled"
 
     settings.var_save_image_urls_only.value = False
-    NovelpiaGUI._sync_image_url_option_states(settings)
+    NpiaGUI._sync_image_url_option_states(settings)
     assert normal_widget.state == "normal"
     assert readonly_widget.state == "readonly"
 
@@ -178,13 +178,13 @@ def test_multiple_output_formats_are_returned_in_stable_order():
         var_save_pdf=Setting(True),
     )
 
-    assert NovelpiaGUI._selected_output_formats(settings) == ["epub", "pdf"]
+    assert NpiaGUI._selected_output_formats(settings) == ["epub", "pdf"]
 
 
 def test_multiple_output_paths_share_the_save_dialog_base_name(tmp_path):
     anchor = tmp_path / "book.epub"
 
-    paths = NovelpiaGUI._output_paths_from_anchor(
+    paths = NpiaGUI._output_paths_from_anchor(
         str(anchor), ["epub", "txt", "pdf"]
     )
 
@@ -198,7 +198,7 @@ def test_multiple_output_paths_share_the_save_dialog_base_name(tmp_path):
 def test_single_output_path_preserves_custom_filename(tmp_path):
     anchor = tmp_path / "book.custom"
 
-    paths = NovelpiaGUI._output_paths_from_anchor(str(anchor), ["txt"])
+    paths = NpiaGUI._output_paths_from_anchor(str(anchor), ["txt"])
 
     assert paths == {"txt": str(anchor)}
 
@@ -206,7 +206,7 @@ def test_single_output_path_preserves_custom_filename(tmp_path):
 def test_multiple_output_paths_keep_an_unrecognized_suffix_in_base(tmp_path):
     anchor = tmp_path / "book.translation"
 
-    paths = NovelpiaGUI._output_paths_from_anchor(
+    paths = NpiaGUI._output_paths_from_anchor(
         str(anchor), ["epub", "pdf"]
     )
 
@@ -275,7 +275,7 @@ def test_gui_range_keeps_source_number_after_notice_and_failed_chapter(tmp_path)
         ("Chapter 21", "<p>Content</p>", [], False),
     ]
 
-    NovelpiaGUI._build_output(
+    NpiaGUI._build_output(
         gui,
         results,
         {"title": "Test", "author": "Author"},
@@ -337,9 +337,9 @@ def test_cache_invalidation_keeps_legacy_and_image_cache_json_compatible():
         "_image_fingerprint": "old-settings",
     }
 
-    assert NovelpiaGUI._has_cached_images(cache_data) is True
+    assert NpiaGUI._has_cached_images(cache_data) is True
 
-    NovelpiaGUI._invalidate_cached_images(cache_data)
+    NpiaGUI._invalidate_cached_images(cache_data)
 
     assert cache_data == {
         "101": '{"s": [{"text": "notice 1"}]}',

@@ -2,7 +2,7 @@
 
 This document describes the repository as inspected on **2026-09-13**. NovelDB is a static search interface for novel metadata: readers find a title, inspect its description and attributes, and follow a link to the source platform. The metadata site and the desktop novel downloader share this repository, but their collection and delivery paths are separate.
 
-The initial review used source and local artifact inspection. Subsequent implementation added Naver, Munpia and Joara using bounded anonymous samples, offline tests and a local fixture browser. No account login, authenticated batch file, desktop downloader, translation API or publishing workflow was run. All 457 existing production data files remained unchanged. The original-source snapshot below remains distinct from the new staged samples.
+The initial review used source and local artifact inspection. Subsequent implementation added Nweb, Mpia and Jara using bounded anonymous samples, offline tests and a local fixture browser. No account login, authenticated batch file, desktop downloader, translation API or publishing workflow was run. All 457 existing production data files remained unchanged. The original-source snapshot below remains distinct from the new staged samples.
 
 - [Current system and collection behavior](#1-current-system-and-data-flow)
 - [Storage and data contracts](#2-storage-and-browser-data-contracts)
@@ -14,17 +14,17 @@ The initial review used source and local artifact inspection. Subsequent impleme
 
 ## 1. Current system and data flow
 
-The published local catalogs are Novelpia and KakaoPage in Korean, and SFACG in Chinese. Naver Web Novel, Munpia and Joara now have metadata adapters and complete pipeline integration, but their implementation samples remain in ignored staging. Their selector options stay unavailable until manifests are published; see the [new-source integration guide](metadata-source-expansion.md).
+The published local catalogs are Npia and Kpage in Korean, and SFC in Chinese. Nweb, Mpia and Jara now have metadata adapters and complete pipeline integration, but their implementation samples remain in ignored staging. Their selector options stay unavailable until manifests are published; see the [new-source integration guide](metadata-source-expansion.md).
 
 | Source | Local catalog | Rows / unique source IDs | Rows tagged `deleted` | Catalog chunks |
 | --- | --- | ---: | ---: | ---: |
-| Novelpia | [novels.json](data/novels.json) | 92,267 | 10,358 | 5 |
-| KakaoPage | [kakao_novels.json](data/kakao_novels.json) | 70,164 | 214 | 3 |
-| SFACG | [sfacg_novels.json](data/sfacg_novels.json) | 280,833 | 6,983 | 10 |
+| Npia | [novels.json](data/novels.json) | 92,267 | 10,358 | 5 |
+| Kpage | [kpage_novels.json](data/kpage_novels.json) | 70,164 | 214 | 3 |
+| SFC | [sfc_novels.json](data/sfc_novels.json) | 280,833 | 6,983 | 10 |
 
 Total: **443,264 source records**, without deduplication of works across platforms.
 
-These are the local snapshot counts on the review date, including retained historical records. They are not counts of currently purchasable works. Each catalog manifest agrees with its local catalog count and has `embedded: true`. Read-only decoding of all 18 catalog chunks verified that their concatenated `novels` arrays exactly match the corresponding raw catalogs. Every current chunk contains `novels` and `translations`; embedded English-title counts are 92,007 for Novelpia, 65,367 for KakaoPage, and 277,793 for SFACG. These are artifact consistency checks, not live-source coverage tests.
+These are the local snapshot counts on the review date, including retained historical records. They are not counts of currently purchasable works. Each catalog manifest agrees with its local catalog count and has `embedded: true`. Read-only decoding of all 18 catalog chunks verified that their concatenated `novels` arrays exactly match the corresponding raw catalogs. Every current chunk contains `novels` and `translations`; embedded English-title counts are 92,007 for Npia, 65,367 for Kpage, and 277,793 for SFC. These are artifact consistency checks, not live-source coverage tests.
 
 ```mermaid
 flowchart LR
@@ -51,46 +51,46 @@ The reusable build tools operate on local data. A source scraper discovers recor
 
 | Source path | Collection and retention behavior | Authentication boundary |
 | --- | --- | --- |
-| [scrape_npia.py](../scripts/scrape_npia.py) | Broad tag/character searches, rankings, compact catalog and full metadata objects; preserves previously stored compact-catalog IDs. Used by the local authenticated batch file. | Always reads root `config.json` and passes its `loginkey` value to `NovelpiaAuth.set_manual_key`. It does not call the email/password login method. |
+| [scrape_npia.py](../scripts/scrape_npia.py) | Broad tag/character searches, rankings, compact catalog and full metadata objects; preserves previously stored compact-catalog IDs. Used by the local authenticated batch file. | Always reads root `config.json` and passes its `loginkey` value to `NpiaAuth.set_manual_key`. It does not call the email/password login method. |
 | [rescrape_npia_noauth.py](../scripts/rescrape_npia_noauth.py) | Scheduled full update using public search results; updates found records, appends new IDs, retains missing IDs and old-only full synopsis records. | Uses a plain `requests.Session`; no configured account login. Its `--dry-run` still performs remote scraping and only disables final writes. |
-| [scrape_kakao.py](../scripts/scrape_kakao.py) | Public BFF genre catalog by default, explicit alternative search mode, and synopsis collection; merges prior records before export. | Uses HTTP requests, not a logged-in browser. |
-| [scrape_sfacg.py](../scripts/scrape_sfacg.py) | Catalog passes and broad type/length buckets, public mobile rankings, synopsis and latest-chapter metadata; merges prior records before export. | Uses the application's API request headers; this is distinct from a personal account login. |
+| [scrape_kpage.py](../scripts/scrape_kpage.py) | Public BFF genre catalog by default, explicit alternative search mode, and synopsis collection; merges prior records before export. | Uses HTTP requests, not a logged-in browser. |
+| [scrape_sfc.py](../scripts/scrape_sfc.py) | Catalog passes and broad type/length buckets, public mobile rankings, synopsis and latest-chapter metadata; merges prior records before export. | Uses the application's API request headers; this is distinct from a personal account login. |
 
-For Novelpia's scheduled full update, search defaults are four workers, four attempts per page, and a 0.5-second submission stagger. Each term allows up to 20 pages of 30,000 results. Search terms and retry status codes live in [novelpia_search_terms.py](../novelpia_search_terms.py). Rankings cover all/adult/teen audiences across weekly/monthly/daily periods. Empty ranking results preserve that audience's existing rankings. The ranking-only updater additionally fails when required all/teen rankings cannot be obtained. References: [full updater](../scripts/rescrape_npia_noauth.py), [ranking updater](../scripts/update_rankings_noauth.py).
+For Npia's scheduled full update, search defaults are four workers, four attempts per page, and a 0.5-second submission stagger. Each term allows up to 20 pages of 30,000 results. Search terms and retry status codes live in [npia_search_terms.py](../npia_search_terms.py). Rankings cover all/adult/teen audiences across weekly/monthly/daily periods. Empty ranking results preserve that audience's existing rankings. The ranking-only updater additionally fails when required all/teen rankings cannot be obtained. References: [full updater](../scripts/rescrape_npia_noauth.py), [ranking updater](../scripts/update_rankings_noauth.py).
 
-Missing search results are not independently verified removals. The scheduled Novelpia updater retains missing R19 records without newly marking them deleted; missing non-R19 records can acquire the `deleted` tag. It suppresses new deletion tagging if more than 20% of at least 1,000 live non-R19 records are missing. That guard does not prevent the rest of the metadata/ranking update. Freshly found records replace their tag lists and can therefore lose a previous `deleted` tag.
+Missing search results are not independently verified removals. The scheduled Npia updater retains missing R19 records without newly marking them deleted; missing non-R19 records can acquire the `deleted` tag. It suppresses new deletion tagging if more than 20% of at least 1,000 live non-R19 records are missing. That guard does not prevent the rest of the metadata/ranking update. Freshly found records replace their tag lists and can therefore lose a previous `deleted` tag.
 
 ### How each source is collected
 
-**Novelpia.** Both full scrapers query `https://novelpia.com/proc/novel` with `cmd=novel_search`, first for shared tags and then for a character sweep. A short result page ends a term; the page cap also bounds discovery. Results are deduplicated by stringified novel ID, with the first fresh discovery winning. This is broad search-based discovery, not proof of exhaustive enumeration. Search responses supply the original title, author nickname, synopsis, tags, cover URL, views, likes, chapter count, completion, age and update value. Separate top-100 HTML pages supply ranking positions from their `/novel/{id}` links. The compact export omits the synopsis; the full object file retains it for extraction. A previously known real cover is preserved when a fresh response supplies an empty or placeholder cover. See [authenticated scraper](../scripts/scrape_npia.py) and [public scraper](../scripts/rescrape_npia_noauth.py).
+**Npia.** Both full scrapers query `SOURCE_URL` with `cmd=novel_search`, first for shared tags and then for a character sweep. A short result page ends a term; the page cap also bounds discovery. Results are deduplicated by stringified novel ID, with the first fresh discovery winning. This is broad search-based discovery, not proof of exhaustive enumeration. Search responses supply the original title, author nickname, synopsis, tags, cover URL, views, likes, chapter count, completion, age and update value. Separate top-100 HTML pages supply ranking positions from their `/novel/{id}` links. The compact export omits the synopsis; the full object file retains it for extraction. A previously known real cover is preserved when a fresh response supplies an empty or placeholder cover. See [authenticated scraper](../scripts/scrape_npia.py) and [public scraper](../scripts/rescrape_npia_noauth.py).
 
-**KakaoPage.** [scrape_kakao.py](../scripts/scrape_kakao.py) defaults to the public genre BFF at `https://bff-page.kakao.com/api/gateway/view/v1/landing/genre`, with category `11`, screen `84` and latest-product sorting. The first response's `total_count` and page size establish the remaining page requests; `is_end` marks completion. Parallel workers use separate HTTP sessions. The retry helper handles transient statuses and connection errors with numeric `Retry-After` support or exponential backoff. `--source search` instead sweeps fourteen Hangul terms through the search BFF; it is not an automatic recovery path if genre collection fails.
+**Kpage.** [scrape_kpage.py](../scripts/scrape_kpage.py) defaults to the public genre BFF at `SOURCE_URL`, with category `11`, screen `84` and latest-product sorting. The first response's `total_count` and page size establish the remaining page requests; `is_end` marks completion. Parallel workers use separate HTTP sessions. The retry helper handles transient statuses and connection errors with numeric `Retry-After` support or exponential backoff. `--source search` instead sweeps fourteen Hangul terms through the search BFF; it is not an automatic recovery path if genre collection fails.
 
-Kakao metadata includes title, author(s), category tag, cover, views, completion, update value and age. Completion is inferred from the source's status/on-issue fields or a completion marker in the title. Likes and chapter count are zero placeholders in this scraper. Missing synopses are requested from `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list` with `window_size=0`, reading `result.series_item.description`; no episode bodies are collected. Existing nonempty original descriptions act as a cache and are not routinely refreshed. The writer preserves existing English descriptions, excluding values that still contain CJK text.
+Kpage metadata includes title, author(s), category tag, cover, views, completion, update value and age. Completion is inferred from the source's status/on-issue fields or a completion marker in the title. Likes and chapter count are zero placeholders in this scraper. Missing synopses are requested from `SOURCE_URL` with `window_size=0`, reading `result.series_item.description`; no episode bodies are collected. Existing nonempty original descriptions act as a cache and are not routinely refreshed. The writer preserves existing English descriptions, excluding values that still contain CJK text.
 
-**SFACG.** [scrape_sfacg.py](../scripts/scrape_sfacg.py) starts with a dense `/novels` catalog sweep ordered by ID, fifty rows per page, then supplements discovery with source type/category buckets, character-count ranges and `latest`/`viewtimes` sort passes. Returned type IDs are supplemented by configured fallback categories. Five public mobile ranking categories provide up to twenty IDs each. Later broad-pass results replace earlier fresh records with the same ID. Periodic autosaves already merge historical records and write the main catalog; they disable new deletion tagging. Ranked works missing synopses receive further metadata lookups using their type and character-count context.
+**SFC.** [scrape_sfc.py](../scripts/scrape_sfc.py) starts with a dense `/novels` catalog sweep ordered by ID, fifty rows per page, then supplements discovery with source type/category buckets, character-count ranges and `latest`/`viewtimes` sort passes. Returned type IDs are supplemented by configured fallback categories. Five public mobile ranking categories provide up to twenty IDs each. Later broad-pass results replace earlier fresh records with the same ID. Periodic autosaves already merge historical records and write the main catalog; they disable new deletion tagging. Ranked works missing synopses receive further metadata lookups using their type and character-count context.
 
-SFACG responses supply synopsis and latest-chapter title/ID/time as metadata. The exporter stores `markCount` as its common `likes` field and `charCount` as its common `chapters` field. Its `age=19` comes from `allowDown == 0`, rather than an explicit upstream age rating. The app-level request authorization header is defined in source and is not a user-account login; its value is intentionally not reproduced here. No chapter viewer or episode-body retrieval is part of this catalog flow.
+SFC responses supply synopsis and latest-chapter title/ID/time as metadata. The exporter stores `markCount` as its common `likes` field and `charCount` as its common `chapters` field. Its `age=19` comes from `allowDown == 0`, rather than an explicit upstream age rating. The app-level request authorization header is defined in source and is not a user-account login; its value is intentionally not reproduced here. No chapter viewer or episode-body retrieval is part of this catalog flow.
 
 ### Historical records and deletion inference
 
 | Collector | What survives an absent discovery result | When a new `deleted` tag is added |
 | --- | --- | --- |
-| Authenticated Novelpia | Previous compact rows and their corresponding or reconstructed full metadata | Missing non-R19 rows; no partial-coverage guard in this path |
-| Public Novelpia | Previous compact rows and all old-only full metadata objects | Missing non-R19 rows, unless more than 20% of a baseline of at least 1,000 live non-R19 rows is missing |
-| KakaoPage | All previous catalog records; fresh records replace matching IDs | Missing rows, including after a limited/partial run; no internal coverage guard |
-| SFACG | All previous catalog records; fresh records replace matching IDs | Missing rows, unless more than 20% of at least 1,000 live rows is missing; autosaves suppress new tags |
+| Authenticated Npia | Previous compact rows and their corresponding or reconstructed full metadata | Missing non-R19 rows; no partial-coverage guard in this path |
+| Public Npia | Previous compact rows and all old-only full metadata objects | Missing non-R19 rows, unless more than 20% of a baseline of at least 1,000 live non-R19 rows is missing |
+| Kpage | All previous catalog records; fresh records replace matching IDs | Missing rows, including after a limited/partial run; no internal coverage guard |
+| SFC | All previous catalog records; fresh records replace matching IDs | Missing rows, unless more than 20% of at least 1,000 live rows is missing; autosaves suppress new tags |
 
-Authenticated Novelpia's retention loop is driven by the old compact catalog: a record found only in the old full object file is not independently retained by that scraper. The public scraper explicitly preserves old-only full objects. These details matter because historical titles and synopses help readers identify works that have moved.
+Authenticated Npia's retention loop is driven by the old compact catalog: a record found only in the old full object file is not independently retained by that scraper. The public scraper explicitly preserves old-only full objects. These details matter because historical titles and synopses help readers identify works that have moved.
 
 [guard_catalog_drop.py](../scripts/guard_catalog_drop.py) compares row counts against a Git revision. Because the collectors preserve rows, widespread false `deleted` tags can leave the row count unchanged and pass this guard. The tag therefore remains an observation about discovery, not confirmed source deletion. No existing deletion rules were changed in this documentation task.
 
 ### Authentication and run controls
 
-- [rescrape_auth.bat](../rescrape_auth.bat) invokes the account-session Novelpia scraper directly and does not forward command-line arguments. Appending `--no-auth` to this batch file does nothing to disable authentication. The scraper has no no-auth or dry-run option.
+- [rescrape_auth.bat](../rescrape_auth.bat) invokes the account-session Npia scraper directly and does not forward command-line arguments. Appending `--no-auth` to this batch file does nothing to disable authentication. The scraper has no no-auth or dry-run option.
 - [rescrape_npia_noauth.py](../scripts/rescrape_npia_noauth.py) uses fresh public HTTP sessions without opening the account configuration. Its `--dry-run` is a full network scrape followed by a return before saving, not a bounded sample or offline check.
-- [update_rankings_noauth.py](../scripts/update_rankings_noauth.py) uses `NovelpiaAuth()` to create a generated session key without username/password login. Its name does not mean it avoids all session material. The separate [update_rankings.py](../scripts/update_rankings.py) uses the configured account-session key.
-- Kakao's `--max-pages` and SFACG's `--max-pages` limit collection but still write the production catalog. SFACG can write autosaves before the final export. Neither flag is a substitute for an output-directory or no-write mode.
+- [update_rankings_noauth.py](../scripts/update_rankings_noauth.py) uses `NpiaAuth()` to create a generated session key without username/password login. Its name does not mean it avoids all session material. The separate [update_rankings.py](../scripts/update_rankings.py) uses the configured account-session key.
+- Kpage's `--max-pages` and SFC's `--max-pages` limit collection but still write the production catalog. SFC can write autosaves before the final export. Neither flag is a substitute for an output-directory or no-write mode.
 
 These distinctions were established by reading code. No configuration credential values or saved browser sessions were opened, and none of these entrypoints was run.
 
@@ -98,9 +98,9 @@ These distinctions were established by reading code. No configuration credential
 
 ### Compact catalog arrays
 
-Catalog JSON files contain arrays of positional arrays, not objects with named fields. Indices after 9 are source-specific. A missing trailing field is normal for SFACG and must be read with a fallback.
+Catalog JSON files contain arrays of positional arrays, not objects with named fields. Indices after 9 are source-specific. A missing trailing field is normal for SFC and must be read with a fallback.
 
-| Index | Novelpia | KakaoPage | SFACG |
+| Index | Npia | Kpage | SFC |
 | ---: | --- | --- | --- |
 | 0 | Source novel ID | Source series ID | Source novel ID |
 | 1 | Original title | Original title | Original title |
@@ -124,11 +124,11 @@ Catalog JSON files contain arrays of positional arrays, not objects with named f
 | 19 | Daily rank, teen | Not emitted | Latest chapter ID |
 | 20 | Not emitted | Legacy embedded synopsis accepted by extractor, not emitted by current scraper | Latest chapter time |
 
-The current snapshot has 20 fields for every Novelpia row and 12 for every Kakao row. SFACG has 280,811 rows with 21 fields, 14 with 11, and eight with 10. Export code trims trailing zero, empty-string, and empty-list values for SFACG. See [Novelpia export](../scripts/scrape_npia.py), [Kakao `save_novels`](../scripts/scrape_kakao.py), [SFACG export](../scripts/scrape_sfacg.py), and [description extraction](../scripts/extract_sfacg_descriptions.py).
+The current snapshot has 20 fields for every Npia row and 12 for every Kpage row. SFC has 280,811 rows with 21 fields, 14 with 11, and eight with 10. Export code trims trailing zero, empty-string, and empty-list values for SFC. See [Npia export](../scripts/scrape_npia.py), [Kpage `save_novels`](../scripts/scrape_kpage.py), [SFC export](../scripts/scrape_sfc.py), and [description extraction](../scripts/extract_sfc_descriptions.py).
 
-Rank zero means unranked/unavailable in these formats; it does not establish the reason. The SFACG ranking updater currently collects five categories and writes zero to the ticket slot because it does not request a ticket category. Counts and update fields retain source semantics: they are not interchangeable measurements across platforms.
+Rank zero means unranked/unavailable in these formats; it does not establish the reason. The SFC ranking updater currently collects five categories and writes zero to the ticket slot because it does not request a ticket category. Counts and update fields retain source semantics: they are not interchangeable measurements across platforms.
 
-Novelpia also has `docs/data/novels_full.json`, an object-array working file containing `id`, `title`, `synopsis`, `author`, `cover`, `tags`, `views`, `likes`, `chapters`, `complete`, `age`, and `updated`. It feeds synopsis extraction and preservation utilities. This file is ignored by Git and is not the compact browser catalog or a guaranteed file in a clean checkout. Do not infer source IDs are globally unique: the current separation is by catalog/corpus file.
+Npia also has `docs/data/novels_full.json`, an object-array working file containing `id`, `title`, `synopsis`, `author`, `cover`, `tags`, `views`, `likes`, `chapters`, `complete`, `age`, and `updated`. It feeds synopsis extraction and preservation utilities. This file is ignored by Git and is not the compact browser catalog or a guaranteed file in a clean checkout. Do not infer source IDs are globally unique: the current separation is by catalog/corpus file.
 
 ### Translation and synopsis corpora
 
@@ -142,11 +142,11 @@ An empty third column means pending translation. Synopsis newlines are encoded a
 
 | Source | Title corpus | Pending titles | Synopsis corpus | Pending synopses |
 | --- | --- | --- | --- | --- |
-| Novelpia | `titles_en.txt` | `titles_untranslated.txt` | `descriptions.txt` | `descriptions_untranslated.txt` |
-| KakaoPage | `kakao_titles_en.txt` | `kakao_titles_untranslated.txt` | `kakao_descriptions.txt` | `kakao_descriptions_untranslated.txt` |
-| SFACG | `sfacg_titles_en.txt` | `sfacg_titles_untranslated.txt` | `sfacg_descriptions.txt` | `sfacg_descriptions_untranslated.txt` |
+| Npia | `titles_en.txt` | `titles_untranslated.txt` | `descriptions.txt` | `descriptions_untranslated.txt` |
+| Kpage | `kpage_titles_en.txt` | `kpage_titles_untranslated.txt` | `kpage_descriptions.txt` | `kpage_descriptions_untranslated.txt` |
+| SFC | `sfc_titles_en.txt` | `sfc_titles_untranslated.txt` | `sfc_descriptions.txt` | `sfc_descriptions_untranslated.txt` |
 
-All these files are under `docs/data/`; synopsis `.gz` copies are also produced. Several tools accept a gzip fallback. SFACG workflows commit the compressed synopsis corpus, so a clean checkout can have only that version. The synopsis shard builder prefers whichever existing text/gzip corpus is newer; not every other reader makes that comparison.
+All these files are under `docs/data/`; synopsis `.gz` copies are also produced. Several tools accept a gzip fallback. SFC workflows commit the compressed synopsis corpus, so a clean checkout can have only that version. The synopsis shard builder prefers whichever existing text/gzip corpus is newer; not every other reader makes that comparison.
 
 The shared tag dictionary differs from the translation job's patch format:
 
@@ -154,13 +154,13 @@ The shared tag dictionary differs from the translation job's patch format:
 # Persistent tags_en.txt and tags_en.txt.gz, without this comment:
 original tag|||English tag
 
-# Temporary tags_untranslated.txt or sfacg_tags_untranslated.txt:
+# Temporary tags_untranslated.txt or sfc_tags_untranslated.txt:
 temporary_numeric_id|||original tag|||English tag
 ```
 
-Tag patch IDs are temporary sequence numbers; the durable dictionary key is original tag text. [Tag merging](../scripts/merge_translated_tags.py) keeps existing translations and adds only previously unknown tags. [Novelpia tag extraction](../scripts/extract_untranslated_tags.py) and [SFACG tag extraction](../scripts/extract_untranslated_sfacg_tags.py) also consult the legacy `TAG_MAP` in [app.js](app.js).
+Tag patch IDs are temporary sequence numbers; the durable dictionary key is original tag text. [Tag merging](../scripts/merge_translated_tags.py) keeps existing translations and adds only previously unknown tags. [Npia tag extraction](../scripts/extract_untranslated_tags.py) and [SFC tag extraction](../scripts/extract_untranslated_sfc_tags.py) also consult the legacy `TAG_MAP` in [app.js](app.js).
 
-English-validation and delimiter handling differ between scripts. Shared chunk/translation tools require an ASCII letter and reject CJK characters in the English column; older Novelpia merge paths are more permissive. Several older readers split on every delimiter, whereas newer builders split the first and last delimiter to tolerate delimiters in original text. Novelpia synopsis extraction replaces literal `|||` with fullwidth equivalents. This is an existing compatibility constraint for new adapters, not a single shared parser implementation.
+English-validation and delimiter handling differ between scripts. Shared chunk/translation tools require an ASCII letter and reject CJK characters in the English column; older Npia merge paths are more permissive. Several older readers split on every delimiter, whereas newer builders split the first and last delimiter to tolerate delimiters in original text. Npia synopsis extraction replaces literal `|||` with fullwidth equivalents. This is an existing compatibility constraint for new adapters, not a single shared parser implementation.
 
 ### Compressed catalogs, synopsis shards, and top bundles
 
@@ -180,7 +180,7 @@ The example row is abbreviated, not a complete source schema. Mapping keys are s
 {
   "chunks": 5,
   "totalEntries": 92267,
-  "files": ["novelpia_chunk_0.json.gz", "novelpia_chunk_1.json.gz", "novelpia_chunk_2.json.gz", "novelpia_chunk_3.json.gz", "novelpia_chunk_4.json.gz"],
+  "files": ["npia_chunk_0.json.gz", "npia_chunk_1.json.gz", "npia_chunk_2.json.gz", "npia_chunk_3.json.gz", "npia_chunk_4.json.gz"],
   "embedded": true
 }
 ```
@@ -199,11 +199,11 @@ The example row is abbreviated, not a complete source schema. Mapping keys are s
 }
 ```
 
-The synopsis manifest example abbreviates `files` and uses illustrative counts. Actual manifests list all 128 files. Prefixes are `descriptions_shard`, `kakao_descriptions_shard`, and `sfacg_descriptions_shard`. The builder removes existing files matching its chosen shard prefix before replacing them, so building in the live served directory is not an atomic whole-generation update.
+The synopsis manifest example abbreviates `files` and uses illustrative counts. Actual manifests list all 128 files. Prefixes are `descriptions_shard`, `kpage_descriptions_shard`, and `sfc_descriptions_shard`. The builder removes existing files matching its chosen shard prefix before replacing them, so building in the live served directory is not an atomic whole-generation update.
 
-[build_novelpia_top.py](../scripts/build_novelpia_top.py) and [build_sfacg_top.py](../scripts/build_sfacg_top.py) write up to 100 ranked rows with both English-title and synopsis maps in `novelpia_top.json.gz` and `sfacg_top.json.gz`. Novelpia sorts by all-audience weekly rank; SFACG sorts by popularity rank. Other-ranked rows tie behind those and retain input order. There is no Kakao top-builder script. These small bundles provide initial results while the full catalog loads.
+[build_npia_top.py](../scripts/build_npia_top.py) and [build_sfc_top.py](../scripts/build_sfc_top.py) write up to 100 ranked rows with both English-title and synopsis maps in `npia_top.json.gz` and `sfc_top.json.gz`. Npia sorts by all-audience weekly rank; SFC sorts by popularity rank. Other-ranked rows tie behind those and retain input order. There is no Kpage top-builder script. These small bundles provide initial results while the full catalog loads.
 
-Catalog chunks, synopsis shards, shared tag gzip, and the generic gzip utility use deterministic gzip timestamps. The two top builders and SFACG synopsis extractor do not explicitly fix gzip `mtime`, so byte changes alone can occur even when their logical input has not changed. Individual chunk writes use temporary files and replacement retries for Windows locks; manifests are written separately.
+Catalog chunks, synopsis shards, shared tag gzip, and the generic gzip utility use deterministic gzip timestamps. The two top builders and SFC synopsis extractor do not explicitly fix gzip `mtime`, so byte changes alone can occur even when their logical input has not changed. Individual chunk writes use temporary files and replacement retries for Windows locks; manifests are written separately.
 
 ## 3. How the browser uses the metadata
 
@@ -211,13 +211,13 @@ The site consists of [index.html](index.html), [app.js](app.js), [metadata-core.
 
 ### Catalog and synopsis loading
 
-`SOURCES` registers all six platforms. The selector defaults to All Sources. Existing chunk counts remain five Novelpia, three KakaoPage and ten SFACG; new sources discover counts/files/boards through their `metadata-v1` manifests. Missing manifests leave source options unavailable. Synopsis sharding uses 128 files. A static `DATA_VERSION` parameter is appended to data requests.
+`SOURCES` registers all six platforms. The selector defaults to All Sources. Existing chunk counts remain five Npia, three Kpage and ten SFC; new sources discover counts/files/boards through their `metadata-v1` manifests. Missing manifests leave source options unavailable. Synopsis sharding uses 128 files. A static `DATA_VERSION` parameter is appended to data requests.
 
 The browser fetches gzip files and decompresses them using `DecompressionStream("gzip")`, then `parseNovels` converts positional rows into display objects. Catalog chunk downloads share one pool of six requests across all loading sources, with two attempts per chunk, so a single source gets the whole pool and All Sources never holds more than six decompressed chunks in flight. Failed chunks are skipped if others succeed; an entirely failed source load raises an error. This permits partial results, so a displayed count alone is not proof that every configured chunk loaded.
 
 Records are published to the page at most every 1.2 seconds while chunks arrive (longer if a publish itself was slow). The list of all records is kept sorted for the current sort settings; a publish sorts only the newly arrived batch and merges it in, and the final publish rebuilds the list once from the per-source record lists, which follow each catalog's own chunk order, so tie order is deterministic (registry order, then catalog order) regardless of network timing. Tag counts are maintained incrementally per source as records are added, replaced or removed rather than recounted on every publish; a group's chip text and URL tag use its most common raw spelling. Parsed records stay in memory per source, so switching between All Sources and one platform does not re-download or re-parse; records for platforms outside the current selection are retained only once an All Sources load has completed (that footprint was already reached) and never when `navigator.deviceMemory` reports under 4 GB, and an incomplete or partially failed source is discarded on the next switch and loaded again.
 
-Novelpia, SFACG and available new sources have small top bundles for early rendering. All Sources iterates the registry and merges progressive results by source plus ID, preserving useful top-bundle translations/synopses. There is no cross-platform matching. Failures are isolated and partial loading/coverage is indicated. Source changes abort active catalog loading; progressive callbacks and completion checks reject obsolete results.
+Npia, SFC and available new sources have small top bundles for early rendering. All Sources iterates the registry and merges progressive results by source plus ID, preserving useful top-bundle translations/synopses. There is no cross-platform matching. Failures are isolated and partial loading/coverage is indicated. Source changes abort active catalog loading; progressive callbacks and completion checks reject obsolete results.
 
 Title translations are embedded next to `novels` in catalog chunks and attached by source-local ID. The browser does not normally fetch each plain title corpus. Synopses already included in top bundles are available immediately. For other cards, an `IntersectionObserver` with a 400-pixel margin marks cards near the viewport, but no synopsis shard is requested while any catalog is still loading (a catalog that has made no progress for 15 seconds no longer counts as loading), and requests only start once the visible results have been stable for 300 milliseconds (typing or paging resets that timer). Pending cards are grouped so each shard is fetched once per batch, at most six shards in flight; only the synopses actually shown are kept, in a 2,000-entry least-recently-used cache keyed by source and ID, which also records novels absent from their shard so they are not fetched again, and whole shards are discarded after use. A failed shard load is not recorded, so it is retried on the next visit. The card's source and ID are checked again before applying a late response. Unchecking Load Synopsis aborts and discards outstanding requests. If `IntersectionObserver` is unavailable, the fallback requests synopses for the first twelve eligible cards.
 
@@ -225,9 +225,9 @@ Title translations are embedded next to `novels` in catalog chunks and attached 
 
 - **Text search:** case-insensitive substring matching on original title, translated title and author, plus exact source ID matching. Typing is debounced by 200 milliseconds. Filters never re-sort: they scan the already sorted record list in order, and extending a text query narrows the previous result instead of rescanning every record (numeric queries rescan because exact ID matches do not narrow). Synopses are displayed, but are not part of full-text search. Clicking an author enables an exact-author filter.
 - **Tags:** included AND tags must all match, included OR tags require at least one match, and excluded tags remove a result. Matches use normalized translated labels, including explicit cross-language grouping for some tags. The shared gzipped tag dictionary supplements the large bundled fallback map. The initial tag cloud shows eighty groups; tag search can reveal further matches.
-- **Status and audience:** original-source decoding retains its existing defaults and audience rules, including SFACG's heuristic `19` displayed as R15. The separate metadata-v1 decoder preserves null age/status; unknown values do not match narrower filters.
-- **Sorting:** views, likes, the shared chapter/length field, update value, original title, Novelpia daily/weekly/monthly ranks and SFACG ranking categories. Novelpia ranking selection follows the audience filter. Missing ranks sort behind ranked rows under the default order; ties prefer the ranking's source and then views. Sorting is implemented in [metadata-core.js](metadata-core.js) (`sortRecords`): numeric sorts extract each key once into typed arrays and sort an index; the update value compares by code point, the original title by locale collation. Counts across sources retain their different meanings.
-- **Cards and navigation:** cards keep the existing layout and display translated/original titles, author, tags, metadata and synopsis. New-source metrics have native labels and unknown values are omitted. Their canonical URLs support Naver's tier routes; original sources retain prefix-based links and Novelpia cover fallbacks. Text and URLs are validated/escaped before rendering.
+- **Status and audience:** original-source decoding retains its existing defaults and audience rules, including SFC's heuristic `19` displayed as R15. The separate metadata-v1 decoder preserves null age/status; unknown values do not match narrower filters.
+- **Sorting:** views, likes, the shared chapter/length field, update value, original title, Npia daily/weekly/monthly ranks and SFC ranking categories. Npia ranking selection follows the audience filter. Missing ranks sort behind ranked rows under the default order; ties prefer the ranking's source and then views. Sorting is implemented in [metadata-core.js](metadata-core.js) (`sortRecords`): numeric sorts extract each key once into typed arrays and sort an index; the update value compares by code point, the original title by locale collation. Counts across sources retain their different meanings.
+- **Cards and navigation:** cards keep the existing layout and display translated/original titles, author, tags, metadata and synopsis. New-source metrics have native labels and unknown values are omitted. Their canonical URLs support Nweb's tier routes; original sources retain prefix-based links and Npia cover fallbacks. Text and URLs are validated/escaped before rendering.
 - **Pagination and saved state:** page sizes are 30, 60, 120 or 250. Search, tags, source, sort, audience, status and page are encoded in the URL hash. Source changes/back navigation and saved pages are restored, including after a provisional top bundle loads.
 
 The website helps users choose a source listing. It does not verify a listing's present purchase availability, perform account checkout, fetch chapters, or prove that similarly named records represent the same work.
@@ -241,63 +241,63 @@ There are **43 Python scripts/modules and one Node workflow helper** in `scripts
 | Module | Inputs/dependencies | Outputs and side effects |
 | --- | --- | --- |
 | [metadata_common.py](../scripts/metadata_common.py) | Adapter, CLI arguments, prior compressed state; requests and stdlib | Guest HTTP requests with budgets/allowlists; atomic source state, compact rows and staged reports; import-safe |
-| [scrape_naver.py](../scripts/scrape_naver.py) | Exposed tier/genre HTML, public details and scoped rankings; BeautifulSoup and common runner | Naver metadata-v1 observations, history and native boards; anonymous only |
-| [scrape_munpia.py](../scripts/scrape_munpia.py) | Public catalog/detail/ranking APIs; common runner | Munpia metadata-v1 observations, publication units and full native ranking snapshots; no chapter endpoints |
-| [scrape_joara.py](../scripts/scrape_joara.py) | Current public client configuration, V2 catalogs/Best and V1 details; BeautifulSoup and common runner | Joara metadata-v1 observations and boards; fresh public device configuration, no account state |
+| [scrape_nweb.py](../scripts/scrape_nweb.py) | Exposed tier/genre HTML, public details and scoped rankings; BeautifulSoup and common runner | Nweb metadata-v1 observations, history and native boards; anonymous only |
+| [scrape_mpia.py](../scripts/scrape_mpia.py) | Public catalog/detail/ranking APIs; common runner | Mpia metadata-v1 observations, publication units and full native ranking snapshots; no chapter endpoints |
+| [scrape_jara.py](../scripts/scrape_jara.py) | Current public client configuration, V2 catalogs/Best and V1 details; BeautifulSoup and common runner | Jara metadata-v1 observations and boards; fresh public device configuration, no account state |
 | [metadata_workflow.py](../scripts/metadata_workflow.py) | Source state, staged run report, workflow environment; common metadata module and stdlib | Claims continuation checkpoints and writes job summaries/continuation decisions; no network |
 | [metadata_continuation.cjs](../scripts/metadata_continuation.cjs) | Validated collection decision and injected GitHub client; Node stdlib | Validates source/scan/revision and dispatches eligible resume on the default branch after translation; import-safe |
 | [metadata_pipeline.py](../scripts/metadata_pipeline.py) | Source state, corpora, existing shared tags, generic builders and Korean translator | Prepare/translate/merge/build/promote/run; source-local corpora and history, staged chunks/128 shards/top/manifests; paid translation and promotion explicit |
 
-All three entrypoints require `--output-dir`; sample defaults cap twenty requests. Their dry runs make no requests or writes. Full command/field/state contracts and test evidence are in the [integration guide](metadata-source-expansion.md). `extract_titles.py` now registers all six sources; new sources delegate to common state-aware preparation. The original unique-set merger remains Novelpia-specific.
+All three entrypoints require `--output-dir`; sample defaults cap twenty requests. Their dry runs make no requests or writes. Full command/field/state contracts and test evidence are in the [integration guide](metadata-source-expansion.md). `extract_titles.py` now registers all six sources; new sources delegate to common state-aware preparation. The original unique-set merger remains Npia-specific.
 
 ### Collection, rankings, and synopsis retrieval — 8 scripts
 
 | Script | Inputs and dependencies | Outputs / side effects | Current role |
 | --- | --- | --- | --- |
-| [scrape_npia.py](../scripts/scrape_npia.py) | Source search/ranking pages; old compact/full catalogs; root `novelpia_auth` and `novelpia_search_terms`; authentication helper's HTTP dependencies | Network requests; rewrites `novels.json` and `novels_full.json`; can use configured account-session material | Local authenticated full metadata scrape; called by `rescrape_auth.bat` |
-| [rescrape_npia_noauth.py](../scripts/rescrape_npia_noauth.py) | Public source results; old compact/full catalogs; `requests`, shared search terms | Network requests; merged compact/full catalogs, preserved historical records/covers; `--dry-run` prevents final writes only | Scheduled full Novelpia update |
-| [scrape_kakao.py](../scripts/scrape_kakao.py) | Public BFF genre/search results; old catalog/corpus; `requests` | Network requests; `kakao_novels.json`, synopsis text and gzip unless descriptions skipped | Current Kakao full metadata scraper |
-| [scrape_sfacg.py](../scripts/scrape_sfacg.py) | API catalog/broad buckets and mobile ranking pages; old catalog; `requests` | Network requests; autosaves and final `sfacg_novels.json` with synopsis/latest-chapter fields | Current SFACG full metadata scraper; external synopsis-corpus reconciliation happens later |
-| [update_rankings_noauth.py](../scripts/update_rankings_noauth.py) | Existing Novelpia catalog/corpus; root `NovelpiaAuth` and its HTTP session | Creates generated session key without username/password; fetches rankings and ranked metadata; rewrites `novels.json` and `descriptions.txt` | Scheduled Novelpia rankings; not a plain credential-free `requests.Session` implementation |
-| [update_rankings.py](../scripts/update_rankings.py) | Existing Novelpia catalog; configured manual session key; root `NovelpiaAuth` | Authenticated network requests and catalog rewrite | Separate manual account-session variant; not selected by current workflows |
-| [update_sfacg_rankings.py](../scripts/update_sfacg_rankings.py) | Existing SFACG catalog; `requests`, `scrape_sfacg` helpers | Fetches five mobile ranking categories and broad-bucket metadata; rewrites SFACG catalog; clears/replaces old rankings | Scheduled SFACG rankings; extraction/chunk/top steps are in workflow, not this script |
-| [fetch_missing_sfacg_descriptions.py](../scripts/fetch_missing_sfacg_descriptions.py) | SFACG catalog and synopsis corpus; `requests`, `scrape_sfacg` helpers | May decompress synopsis gzip; network-fetches absent IDs; appends synopsis rows in batches | Used by SFACG translation workflow; 16 workers, batch size 500 by default; supports ID/limit controls |
+| [scrape_npia.py](../scripts/scrape_npia.py) | Source search/ranking pages; old compact/full catalogs; root `npia_auth` and `npia_search_terms`; authentication helper's HTTP dependencies | Network requests; rewrites `novels.json` and `novels_full.json`; can use configured account-session material | Local authenticated full metadata scrape; called by `rescrape_auth.bat` |
+| [rescrape_npia_noauth.py](../scripts/rescrape_npia_noauth.py) | Public source results; old compact/full catalogs; `requests`, shared search terms | Network requests; merged compact/full catalogs, preserved historical records/covers; `--dry-run` prevents final writes only | Scheduled full Npia update |
+| [scrape_kpage.py](../scripts/scrape_kpage.py) | Public BFF genre/search results; old catalog/corpus; `requests` | Network requests; `kpage_novels.json`, synopsis text and gzip unless descriptions skipped | Current Kpage full metadata scraper |
+| [scrape_sfc.py](../scripts/scrape_sfc.py) | API catalog/broad buckets and mobile ranking pages; old catalog; `requests` | Network requests; autosaves and final `sfc_novels.json` with synopsis/latest-chapter fields | Current SFC full metadata scraper; external synopsis-corpus reconciliation happens later |
+| [update_rankings_noauth.py](../scripts/update_rankings_noauth.py) | Existing Npia catalog/corpus; root `NpiaAuth` and its HTTP session | Creates generated session key without username/password; fetches rankings and ranked metadata; rewrites `novels.json` and `descriptions.txt` | Scheduled Npia rankings; not a plain credential-free `requests.Session` implementation |
+| [update_rankings.py](../scripts/update_rankings.py) | Existing Npia catalog; configured manual session key; root `NpiaAuth` | Authenticated network requests and catalog rewrite | Separate manual account-session variant; not selected by current workflows |
+| [update_sfc_rankings.py](../scripts/update_sfc_rankings.py) | Existing SFC catalog; `requests`, `scrape_sfc` helpers | Fetches five mobile ranking categories and broad-bucket metadata; rewrites SFC catalog; clears/replaces old rankings | Scheduled SFC rankings; extraction/chunk/top steps are in workflow, not this script |
+| [fetch_missing_sfc_descriptions.py](../scripts/fetch_missing_sfc_descriptions.py) | SFC catalog and synopsis corpus; `requests`, `scrape_sfc` helpers | May decompress synopsis gzip; network-fetches absent IDs; appends synopsis rows in batches | Used by SFC translation workflow; 16 workers, batch size 500 by default; supports ID/limit controls |
 
-The Novelpia ranking updaters patch existing catalog rows rather than append every newly ranked ID. The SFACG ranking updater also needs an existing row's genre/type and character count to locate its broad bucket. Missing synopsis retrieval checks whether an ID exists in the corpus, so existing `N/A` records are not retried by that pass.
+The Npia ranking updaters patch existing catalog rows rather than append every newly ranked ID. The SFC ranking updater also needs an existing row's genre/type and character count to locate its broad bucket. Missing synopsis retrieval checks whether an ID exists in the corpus, so existing `N/A` records are not retried by that pass.
 
 ### Title and synopsis extraction — 4 scripts
 
 | Script | Inputs and dependencies | Outputs / side effects | Current role |
 | --- | --- | --- | --- |
-| [extract_titles.py](../scripts/extract_titles.py) | Chosen source catalog and existing title corpus; stdlib; source argument defaults to `novelpia`, also `kakao`, `sfacg`, `all` | Rewrites source title corpus, retaining English by ID and placing pending rows last | Shared source registry to extend for additional sites |
-| [extract_descriptions.py](../scripts/extract_descriptions.py) | `novels_full.json`, old `descriptions.txt`; stdlib | Rewrites synopsis corpus; preserves old-only rows and English; sanitizes delimiter/newlines; temporary-file write with Windows fallback | Novelpia extraction |
-| [extract_kakao_descriptions.py](../scripts/extract_kakao_descriptions.py) | Kakao catalog, existing synopsis text/gzip; stdlib; understands legacy embedded index 20 | Rewrites synopsis text/gzip for catalog IDs, preserves English and old raw text | Reconciles scraper-produced Kakao descriptions |
-| [extract_sfacg_descriptions.py](../scripts/extract_sfacg_descriptions.py) | SFACG catalog index 17 and existing synopsis text/gzip; stdlib | Rewrites synopsis text/gzip **and catalog JSON**, clears index 17 and trims trailing defaults | Required packaging step; not a read-only extractor |
+| [extract_titles.py](../scripts/extract_titles.py) | Chosen source catalog and existing title corpus; stdlib; source argument defaults to `npia`, also `kpage`, `sfc`, `all` | Rewrites source title corpus, retaining English by ID and placing pending rows last | Shared source registry to extend for additional sites |
+| [extract_descriptions.py](../scripts/extract_descriptions.py) | `novels_full.json`, old `descriptions.txt`; stdlib | Rewrites synopsis corpus; preserves old-only rows and English; sanitizes delimiter/newlines; temporary-file write with Windows fallback | Npia extraction |
+| [extract_kpage_descriptions.py](../scripts/extract_kpage_descriptions.py) | Kpage catalog, existing synopsis text/gzip; stdlib; understands legacy embedded index 20 | Rewrites synopsis text/gzip for catalog IDs, preserves English and old raw text | Reconciles scraper-produced Kpage descriptions |
+| [extract_sfc_descriptions.py](../scripts/extract_sfc_descriptions.py) | SFC catalog index 17 and existing synopsis text/gzip; stdlib | Rewrites synopsis text/gzip **and catalog JSON**, clears index 17 and trims trailing defaults | Required packaging step; not a read-only extractor |
 
 ### Pending-translation extraction — 8 scripts
 
 | Script | Inputs and dependencies | Outputs / side effects | Current role |
 | --- | --- | --- | --- |
-| [extract_untranslated_npia_titles.py](../scripts/extract_untranslated_npia_titles.py) | `titles_en.txt`; stdlib | `titles_untranslated.txt`; **import writes** | Pending Novelpia titles |
-| [extract_untranslated_npia_descriptions.py](../scripts/extract_untranslated_npia_descriptions.py) | `descriptions.txt`; stdlib | `descriptions_untranslated.txt` with replacement fallback; **import writes** | Pending Novelpia synopses |
-| [extract_untranslated_kakao_titles.py](../scripts/extract_untranslated_kakao_titles.py) | `kakao_titles_en.txt`; stdlib | `kakao_titles_untranslated.txt`; **import writes** | Pending Kakao titles |
-| [extract_untranslated_kakao_descriptions.py](../scripts/extract_untranslated_kakao_descriptions.py) | Kakao synopsis text/gzip; stdlib | May decompress/repair master corpus, then writes pending synopsis file; **import writes** | Pending Kakao synopses and English-column repair |
-| [extract_untranslated_sfacg_titles.py](../scripts/extract_untranslated_sfacg_titles.py) | `sfacg_titles_en.txt`; stdlib | `sfacg_titles_untranslated.txt`, including invalid-English rows; **import writes** | Pending SFACG titles |
-| [extract_untranslated_sfacg_descriptions.py](../scripts/extract_untranslated_sfacg_descriptions.py) | SFACG synopsis text/gzip; stdlib | May decompress/repair master corpus, then writes pending synopsis file; **import writes** | Pending SFACG synopses, excluding trivial text and checking English validity |
-| [extract_untranslated_tags.py](../scripts/extract_untranslated_tags.py) | Novelpia catalog tags, shared tag text, legacy frontend map; stdlib | Frequency-ordered `tags_untranslated.txt` with temporary numeric IDs | Novelpia tags |
-| [extract_untranslated_sfacg_tags.py](../scripts/extract_untranslated_sfacg_tags.py) | SFACG catalog tags, shared tag text/gzip, legacy frontend map; stdlib | `sfacg_tags_untranslated.txt` with temporary numeric IDs | SFACG tags |
+| [extract_untranslated_npia_titles.py](../scripts/extract_untranslated_npia_titles.py) | `titles_en.txt`; stdlib | `titles_untranslated.txt`; **import writes** | Pending Npia titles |
+| [extract_untranslated_npia_descriptions.py](../scripts/extract_untranslated_npia_descriptions.py) | `descriptions.txt`; stdlib | `descriptions_untranslated.txt` with replacement fallback; **import writes** | Pending Npia synopses |
+| [extract_untranslated_kpage_titles.py](../scripts/extract_untranslated_kpage_titles.py) | `kpage_titles_en.txt`; stdlib | `kpage_titles_untranslated.txt`; **import writes** | Pending Kpage titles |
+| [extract_untranslated_kpage_descriptions.py](../scripts/extract_untranslated_kpage_descriptions.py) | Kpage synopsis text/gzip; stdlib | May decompress/repair master corpus, then writes pending synopsis file; **import writes** | Pending Kpage synopses and English-column repair |
+| [extract_untranslated_sfc_titles.py](../scripts/extract_untranslated_sfc_titles.py) | `sfc_titles_en.txt`; stdlib | `sfc_titles_untranslated.txt`, including invalid-English rows; **import writes** | Pending SFC titles |
+| [extract_untranslated_sfc_descriptions.py](../scripts/extract_untranslated_sfc_descriptions.py) | SFC synopsis text/gzip; stdlib | May decompress/repair master corpus, then writes pending synopsis file; **import writes** | Pending SFC synopses, excluding trivial text and checking English validity |
+| [extract_untranslated_tags.py](../scripts/extract_untranslated_tags.py) | Npia catalog tags, shared tag text, legacy frontend map; stdlib | Frequency-ordered `tags_untranslated.txt` with temporary numeric IDs | Npia tags |
+| [extract_untranslated_sfc_tags.py](../scripts/extract_untranslated_sfc_tags.py) | SFC catalog tags, shared tag text/gzip, legacy frontend map; stdlib | `sfc_tags_untranslated.txt` with temporary numeric IDs | SFC tags |
 
 ### Translation and merge — 8 scripts
 
 | Script | Inputs and dependencies | Outputs / side effects | Current role |
 | --- | --- | --- | --- |
 | [translate_with_grok.py](../scripts/translate_with_grok.py) | Pending three-column file; selected model/provider configuration; `requests`, `tiktoken` | Paid/provider API requests when run; fills third columns in the same patch file using atomic checkpoints | Shared Korean/Chinese titles, descriptions, and tags translator; provider-neutral despite filename |
-| [merge_translated_npia_titles.py](../scripts/merge_translated_npia_titles.py) | Novelpia title master and pending patch; stdlib | Rewrites master and remaining-pending file, validates/deduplicates numeric IDs; **import writes** | Novelpia title merge |
-| [merge_translated_npia_descriptions.py](../scripts/merge_translated_npia_descriptions.py) | Novelpia synopsis master and pending patch; stdlib | Rewrites master and remaining-pending file; **import writes** | Novelpia synopsis merge |
-| [merge_translated_kakao_titles.py](../scripts/merge_translated_kakao_titles.py) | Kakao title master and pending patch; stdlib | Rewrites master and remaining-pending file; **import writes** | Kakao title merge |
-| [merge_translated_kakao_descriptions.py](../scripts/merge_translated_kakao_descriptions.py) | Kakao synopsis master and pending patch; stdlib | Rewrites master and remaining-pending file, checks CJK in English; **import writes** | Kakao synopsis merge |
-| [merge_translated_sfacg_titles.py](../scripts/merge_translated_sfacg_titles.py) | SFACG title master and pending patch; stdlib | Rewrites master and remaining-pending file, checks English validity; **import writes** | SFACG title merge |
-| [merge_translated_sfacg_descriptions.py](../scripts/merge_translated_sfacg_descriptions.py) | SFACG synopsis master and pending patch; stdlib | Rewrites master and remaining-pending file, checks English validity; **import writes** | SFACG synopsis merge |
+| [merge_translated_npia_titles.py](../scripts/merge_translated_npia_titles.py) | Npia title master and pending patch; stdlib | Rewrites master and remaining-pending file, validates/deduplicates numeric IDs; **import writes** | Npia title merge |
+| [merge_translated_npia_descriptions.py](../scripts/merge_translated_npia_descriptions.py) | Npia synopsis master and pending patch; stdlib | Rewrites master and remaining-pending file; **import writes** | Npia synopsis merge |
+| [merge_translated_kpage_titles.py](../scripts/merge_translated_kpage_titles.py) | Kpage title master and pending patch; stdlib | Rewrites master and remaining-pending file; **import writes** | Kpage title merge |
+| [merge_translated_kpage_descriptions.py](../scripts/merge_translated_kpage_descriptions.py) | Kpage synopsis master and pending patch; stdlib | Rewrites master and remaining-pending file, checks CJK in English; **import writes** | Kpage synopsis merge |
+| [merge_translated_sfc_titles.py](../scripts/merge_translated_sfc_titles.py) | SFC title master and pending patch; stdlib | Rewrites master and remaining-pending file, checks English validity; **import writes** | SFC title merge |
+| [merge_translated_sfc_descriptions.py](../scripts/merge_translated_sfc_descriptions.py) | SFC synopsis master and pending patch; stdlib | Rewrites master and remaining-pending file, checks English validity; **import writes** | SFC synopsis merge |
 | [merge_translated_tags.py](../scripts/merge_translated_tags.py) | Shared dictionary and optional patch path; stdlib | Rewrites `tags_en.txt` and gzip; `--recompress-only` skips patch merge | Shared tag persistence for both languages |
 
 The translator routes by explicit base URL/model and environment configuration to an OpenAI-compatible chat-completions API. Repository defaults are model `gpt-6-luna`, 67 workers, five-second stagger, 16,384 output-token cap, and input soft chunk size `output_token_limit / compression_factor` with factor 2.0. Complete rows are never split. It accepts numeric IDs, skips valid existing English, checkpoints successful rows as each chunk finishes, and accepts partial results. Each chunk receives a single API attempt; failures remain pending rather than being retried automatically. Model/provider overrides are supported; Luna uses OpenAI credentials and compatible completion parameters.
@@ -308,20 +308,20 @@ Legacy source mergers usually retain existing English by source ID even if origi
 
 | Script | Inputs and dependencies | Outputs / side effects | Current role |
 | --- | --- | --- | --- |
-| [chunk_and_compress.py](../scripts/chunk_and_compress.py) | Catalog JSON; optional titles/descriptions; stdlib | Gzip catalog chunks and manifest; replaces chunks using temporary files | Shared progressive catalog packaging; default input is SFACG, so pass explicit source options |
+| [chunk_and_compress.py](../scripts/chunk_and_compress.py) | Catalog JSON; optional titles/descriptions; stdlib | Gzip catalog chunks and manifest; replaces chunks using temporary files | Shared progressive catalog packaging; default input is SFC, so pass explicit source options |
 | [chunk_descriptions.py](../scripts/chunk_descriptions.py) | Synopsis text/gzip, required prefix and shard count; stdlib | Removes matching old shards, writes gzip ID maps and manifest | Shared on-demand synopsis packaging |
 | [gzip_text_files.py](../scripts/gzip_text_files.py) | One or more file paths; stdlib | Deterministic sibling `.gz` files through temporary replacement; skips missing inputs | Shared compression utility |
-| [build_novelpia_top.py](../scripts/build_novelpia_top.py) | Novelpia catalog, title and synopsis text; stdlib | `novelpia_top.json.gz`; removes old uncompressed top file if present | Initial ranked results |
-| [build_sfacg_top.py](../scripts/build_sfacg_top.py) | SFACG catalog, title/synopsis text or gzip; stdlib | `sfacg_top.json.gz` | Initial ranked results |
+| [build_npia_top.py](../scripts/build_npia_top.py) | Npia catalog, title and synopsis text; stdlib | `npia_top.json.gz`; removes old uncompressed top file if present | Initial ranked results |
+| [build_sfc_top.py](../scripts/build_sfc_top.py) | SFC catalog, title/synopsis text or gzip; stdlib | `sfc_top.json.gz` | Initial ranked results |
 
 ### Preservation, guards, and historical conversion — 4 scripts
 
 | Script | Inputs and dependencies | Outputs / side effects | Current role |
 | --- | --- | --- | --- |
-| [merge_unique_sets.py](../scripts/merge_unique_sets.py) | Novelpia compact/full catalogs; stdlib | Atomically rewrites compact catalog with missing IDs from full data; preserves existing rows | Active local rebuild/rescrape helper |
-| [guard_catalog_drop.py](../scripts/guard_catalog_drop.py) | Current JSON and same file at Git ref, default `HEAD`; stdlib and Git executable | Read-only comparison; exits nonzero above allowed shrinkage | Kakao workflow guard: default 20% drop threshold with minimum previous catalog 1,000 |
-| [convert_jsonl.py](../scripts/convert_jsonl.py) | Previously obtained source JSONL export; stdlib | Overwrites selected compact catalog with generic 12-field rows | Fallback/legacy importer, absent from current workflows; SFACG output is not current schema |
-| [reexport_sfacg.py](../scripts/reexport_sfacg.py) | **Old** 12-field SFACG catalog; stdlib | Rewrites rows as first ten fields plus old index-11 age, strips trailing defaults | Historical one-time migration; running on current data would discard rankings/latest-chapter fields and misread age |
+| [merge_unique_sets.py](../scripts/merge_unique_sets.py) | Npia compact/full catalogs; stdlib | Atomically rewrites compact catalog with missing IDs from full data; preserves existing rows | Active local rebuild/rescrape helper |
+| [guard_catalog_drop.py](../scripts/guard_catalog_drop.py) | Current JSON and same file at Git ref, default `HEAD`; stdlib and Git executable | Read-only comparison; exits nonzero above allowed shrinkage | Kpage workflow guard: default 20% drop threshold with minimum previous catalog 1,000 |
+| [convert_jsonl.py](../scripts/convert_jsonl.py) | Previously obtained source JSONL export; stdlib | Overwrites selected compact catalog with generic 12-field rows | Fallback/legacy importer, absent from current workflows; SFC output is not current schema |
+| [reexport_sfc.py](../scripts/reexport_sfc.py) | **Old** 12-field SFC catalog; stdlib | Rewrites rows as first ten fields plus old index-11 age, strips trailing defaults | Historical one-time migration; running on current data would discard rankings/latest-chapter fields and misread age |
 
 ## 5. Root entrypoints and desktop boundaries
 
@@ -331,20 +331,20 @@ Run-directory assumptions differ between Python scripts: some resolve the reposi
 
 | Entrypoint | Existing sequence | Writes and limits |
 | --- | --- | --- |
-| [rescrape_auth.bat](../rescrape_auth.bat) | Authenticated Novelpia scraper → merge unique records → extract descriptions → pending descriptions → gzip → description chunks → catalog chunks → top bundle | Can use account-session material; no translation API call or automatic Git push. Its description step still requests **three `descriptions_chunk` shards**, whereas the current site build/workflows use **128 `descriptions_shard` files**. Its printed output list also uses outdated `.txt.gz` shard names. |
-| [rescrape_2.bat](../rescrape_2.bat) | Kakao scrape → reconcile descriptions → extract titles → extract pending titles/descriptions | Writes source corpora, but does not rebuild catalog chunks or synopsis shards; does not translate or push. |
+| [rescrape_auth.bat](../rescrape_auth.bat) | Authenticated Npia scraper → merge unique records → extract descriptions → pending descriptions → gzip → description chunks → catalog chunks → top bundle | Can use account-session material; no translation API call or automatic Git push. Its description step still requests **three `descriptions_chunk` shards**, whereas the current site build/workflows use **128 `descriptions_shard` files**. Its printed output list also uses outdated `.txt.gz` shard names. |
+| [rescrape_2.bat](../rescrape_2.bat) | Kpage scrape → reconcile descriptions → extract titles → extract pending titles/descriptions | Writes source corpora, but does not rebuild catalog chunks or synopsis shards; does not translate or push. |
 | [rebuild_site.bat](../rebuild_site.bat) | Original-source merges, tags, shards, chunks and top bundles, followed by available new-source builds | Local packaging only; no scraper or translation calls. Original failure handling remains compatible. New sources build in staging from durable state and validate before promotion. Supports `NOPAUSE=1`. |
 | [metadata_site.bat](../metadata_site.bat) | Source-selectable anonymous catalog/rankings/resume and prepare/translate/merge/build/promote stages | Stages under `.cache/metadata-build/<source>` with state under `metadata/state`. Translation and promotion are explicit commands; no authenticated launcher is called. |
 
-The current automated build recipes and `rebuild_site.bat` are the references for active synopsis-shard prefixes/counts. Re-running only a source scraper or the Kakao wrapper can leave browser artifacts older than the raw catalog. The authenticated wrapper's displayed promise to scrape “all” novels does not prove complete upstream coverage.
+The current automated build recipes and `rebuild_site.bat` are the references for active synopsis-shard prefixes/counts. Re-running only a source scraper or the Kpage wrapper can leave browser artifacts older than the raw catalog. The authenticated wrapper's displayed promise to scrape “all” novels does not prove complete upstream coverage.
 
 ### Desktop/bot/build wrappers — outside metadata-site collection
 
 | Entrypoint | Purpose and material side effects |
 | --- | --- |
-| [START_NovelpiaGUI.bat](../START_NovelpiaGUI.bat) | Launches root `gui.py`, the desktop downloader interface. |
-| [START_Novelpia Downloader.bat](../START_Novelpia%20Downloader.bat) | Launches `run_discord_bot.ps1`; the display name does not mean a metadata scraper. |
-| [START_NovelpiaBot_silent.bat](../START_NovelpiaBot_silent.bat) | Launches the same bot wrapper in a minimized/hidden PowerShell window. |
+| [START_NpiaGUI.bat](../START_NpiaGUI.bat) | Launches root `gui.py`, the desktop downloader interface. |
+| [START_Npia Downloader.bat](../START_Npia%20Downloader.bat) | Launches `run_discord_bot.ps1`; the display name does not mean a metadata scraper. |
+| [START_NpiaBot_silent.bat](../START_NpiaBot_silent.bat) | Launches the same bot wrapper in a minimized/hidden PowerShell window. |
 | [run_discord_bot.ps1](../run_discord_bot.ps1) | Configures the bot process environment and starts root `bot.py`; may connect to Discord. No credential values are reproduced here. |
 | [install_requirements.bat](../install_requirements.bat) | Installs/upgrades Python dependencies, using `venv` if present. It changes the Python environment. |
 | [build.bat](../build.bat) | Installs Playwright Chromium and runs PyInstaller full/lite desktop builds, producing distribution artifacts. |
@@ -352,7 +352,7 @@ The current automated build recipes and `rebuild_site.bat` are the references fo
 | [update_rules 2.bat](../update_rules%202.bat) and [patch_rules 2.ps1](../patch_rules%202.ps1) | Equivalent refresh/patch/build flow for the Shirochi fork, including upstream reset. |
 | [update_rules 3.bat](../update_rules%203.bat) and [patch_rules 3.ps1](../patch_rules%203.ps1) | Patch/build/copy flow using the existing local Shirochi checkout, retaining its checkout state instead of refreshing/resetting it. It still edits source/build configuration and copies the bundle. |
 
-These downloader rules, GUI, and bot are not required to add metadata-only website sources. Chapter content retrieval and downloader platform support belong to those separate components. Latest-chapter title/ID/time in SFACG's metadata rows are listing attributes; the metadata pipeline does not need chapter body downloads to construct search results.
+These downloader rules, GUI, and bot are not required to add metadata-only website sources. Chapter content retrieval and downloader platform support belong to those separate components. Latest-chapter title/ID/time in SFC's metadata rows are listing attributes; the metadata pipeline does not need chapter body downloads to construct search results.
 
 ## 6. GitHub Actions automation
 
@@ -364,13 +364,13 @@ Times below are configured UTC times. These workflows also support manual dispat
 
 | Workflow | Schedule | Pipeline after collection |
 | --- | --- | --- |
-| [rescrape-npia.yml](../.github/workflows/rescrape-npia.yml) | Sunday 12:00 UTC (`0 12 * * 0`) | No-account full rescrape → descriptions → gzip → 128 description shards → five catalog chunks → Novelpia top → commit/push |
-| [update-rankings.yml](../.github/workflows/update-rankings.yml) | 00:00 UTC on `*/2` days of the month (`0 0 */2 * *`) | No-account ranking updater → gzip → 128 description shards → five catalog chunks → Novelpia top → commit/push |
-| [update-kakao.yml](../.github/workflows/update-kakao.yml) | Sunday 09:00 UTC (`0 9 * * 0`) | Kakao scrape → catalog-drop guard → descriptions/titles/pending extraction → gzip → 128 synopsis shards → three catalog chunks → commit/push |
-| [update-sfacg.yml](../.github/workflows/update-sfacg.yml) | Sunday 03:00 UTC (`0 3 * * 0`) | SFACG scrape → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFACG top → commit/push |
-| [update-sfacg-rankings.yml](../.github/workflows/update-sfacg-rankings.yml) | Daily 06:00 UTC (`0 6 * * *`) | SFACG rankings → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFACG top → commit/push |
+| [rescrape-npia.yml](../.github/workflows/rescrape-npia.yml) | Sunday 12:00 UTC (`0 12 * * 0`) | No-account full rescrape → descriptions → gzip → 128 description shards → five catalog chunks → Npia top → commit/push |
+| [update-rankings.yml](../.github/workflows/update-rankings.yml) | 00:00 UTC on `*/2` days of the month (`0 0 */2 * *`) | No-account ranking updater → gzip → 128 description shards → five catalog chunks → Npia top → commit/push |
+| [update-kpage.yml](../.github/workflows/update-kpage.yml) | Sunday 09:00 UTC (`0 9 * * 0`) | Kpage scrape → catalog-drop guard → descriptions/titles/pending extraction → gzip → 128 synopsis shards → three catalog chunks → commit/push |
+| [update-sfc.yml](../.github/workflows/update-sfc.yml) | Sunday 03:00 UTC (`0 3 * * 0`) | SFC scrape → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFC top → commit/push |
+| [update-sfc-rankings.yml](../.github/workflows/update-sfc-rankings.yml) | Daily 06:00 UTC (`0 6 * * *`) | SFC rankings → extract/strip/gzip descriptions → 128 synopsis shards → ten catalog chunks → SFC top → commit/push |
 
-The Novelpia ranking cron is a day-of-month expression, not a guaranteed rolling 48-hour interval across month boundaries. The Kakao workflow overrides scraper defaults with delay 0.5, four catalog workers, four description workers, and eight retries. SFACG full update supplies delay 0.15. Publication uses precomputed data; adding a source requires its generated files to be included in the relevant commit step.
+The Npia ranking cron is a day-of-month expression, not a guaranteed rolling 48-hour interval across month boundaries. The Kpage workflow overrides scraper defaults with delay 0.5, four catalog workers, four description workers, and eight retries. SFC full update supplies delay 0.15. Publication uses precomputed data; adding a source requires its generated files to be included in the relevant commit step.
 
 ### Translation chaining
 
@@ -378,12 +378,12 @@ Translation jobs support manual dispatch and automatically run on completion of 
 
 | Workflow | Upstream completion trigger | Translation/build work |
 | --- | --- | --- |
-| [translate-novelpia-top.yml](../.github/workflows/translate-novelpia-top.yml) | `Update Novelpia Rankings` | Extract all titles/pending titles, translate/merge Korean titles and pending synopses, rebuild top/gzip/shards/chunks |
-| [translate-tags.yml](../.github/workflows/translate-tags.yml) | `Translate Novelpia Titles & Descriptions` | Extract/translate/merge Korean tags and rebuild Novelpia catalog chunks |
-| [translate-kakao.yml](../.github/workflows/translate-kakao.yml) | `Update Kakao Data` | Extract/translate/merge Korean titles and synopses, rebuild gzip/shards/chunks |
-| [translate-sfacg.yml](../.github/workflows/translate-sfacg.yml) | `Update SFACG Data` or `Update SFACG Rankings` | Titles, missing-synopsis retrieval, synopsis translation, Chinese tags, gzip/shards/chunks/top |
+| [translate-npia-top.yml](../.github/workflows/translate-npia-top.yml) | `Update Npia Rankings` | Extract all titles/pending titles, translate/merge Korean titles and pending synopses, rebuild top/gzip/shards/chunks |
+| [translate-tags.yml](../.github/workflows/translate-tags.yml) | `Translate Npia Titles & Descriptions` | Extract/translate/merge Korean tags and rebuild Npia catalog chunks |
+| [translate-kpage.yml](../.github/workflows/translate-kpage.yml) | `Update Kpage Data` | Extract/translate/merge Korean titles and synopses, rebuild gzip/shards/chunks |
+| [translate-sfc.yml](../.github/workflows/translate-sfc.yml) | `Update SFC Data` or `Update SFC Rankings` | Titles, missing-synopsis retrieval, synopsis translation, Chinese tags, gzip/shards/chunks/top |
 
-Despite its filename, Novelpia's translation workflow is not restricted to the top 100: its extractors scan pending rows across the source corpus. The full weekly Novelpia rescrape is not listed as its direct trigger. Every `workflow_run` trigger uses `types: [completed]` without a job-level upstream-success condition, so translation can start after failed upstream runs as well. Translation failures within individual chunks can leave a partially translated corpus while the script still finishes normally.
+Despite its filename, Npia's translation workflow is not restricted to the top 100: its extractors scan pending rows across the source corpus. The full weekly Npia rescrape is not listed as its direct trigger. Every `workflow_run` trigger uses `types: [completed]` without a job-level upstream-success condition, so translation can start after failed upstream runs as well. Translation failures within individual chunks can leave a partially translated corpus while the script still finishes normally.
 
 The shared lock prevents these data-writing workflows from running simultaneously, but is not a durable first-in-first-out work queue. The workflows use plain Git push and explicit staging lists; no automatic rebase/retry or cross-source orchestration framework appears in these files. New source jobs should participate in the same coordination scheme rather than writing shared tags concurrently.
 
@@ -391,9 +391,9 @@ The shared lock prevents these data-writing workflows from running simultaneousl
 
 | Source workflow | Weekly catalog | Daily native rankings |
 | --- | --- | --- |
-| [Naver](../.github/workflows/update-naver-metadata.yml) | Monday 08:00 UTC | 16:00 UTC |
-| [Munpia](../.github/workflows/update-munpia-metadata.yml) | Tuesday 08:00 UTC | 17:00 UTC |
-| [Joara](../.github/workflows/update-joara-metadata.yml) | Wednesday 08:00 UTC | 18:00 UTC |
+| [Nweb](../.github/workflows/update-nweb-metadata.yml) | Monday 08:00 UTC | 16:00 UTC |
+| [Mpia](../.github/workflows/update-mpia-metadata.yml) | Tuesday 08:00 UTC | 17:00 UTC |
+| [Jara](../.github/workflows/update-jara-metadata.yml) | Wednesday 08:00 UTC | 18:00 UTC |
 
 The thin workflows dispatch catalog/rankings/build/resume operations to [metadata-source-job.yml](../.github/workflows/metadata-source-job.yml). It limits collection to five hours inside a six-hour job, resumes durable `metadata/state/<source>.json.gz` progress, validates staged artifacts, and commits source data/state. Validated progress can be committed after failure. Temporary request logs are Actions artifacts and ignored local cache, not website files.
 
@@ -409,14 +409,14 @@ The shared new-source job explicitly requests a branch-based GitHub Pages build 
 
 - **Reuse the shared packaging contract.** New source catalogs need stable source IDs at row index 0, a clearly documented row decoder, distinct file prefixes, title/synopsis corpus registration, and matching browser loading/link handling. The existing sources already demonstrate that every field after index 9 cannot be assumed universal.
 - **Preserve discoverability of historical records.** The catalog is useful partly because removed records remain searchable. A failed or incomplete pass is not proof of deletion. Distinguish retained last-known metadata from records currently observed on a source, and keep purchase/source links scoped to their platform.
-- **Keep translation optional.** The Korean translator can serve Naver, Joara, and Munpia; raw titles/synopses must remain usable when translation is missing or partial. Existing translation code accepts numeric IDs only, so composite/non-numeric source identifiers would need an intentional compatibility change.
-- **Use active builders rather than old migrations.** `convert_jsonl.py` and `reexport_sfacg.py` encode older layouts; they are not generic templates for a new adapter. Current source serializers, the shared chunk builders, and the browser decoders define current behavior.
+- **Keep translation optional.** The Korean translator can serve Nweb, Jara, and Mpia; raw titles/synopses must remain usable when translation is missing or partial. Existing translation code accepts numeric IDs only, so composite/non-numeric source identifiers would need an intentional compatibility change.
+- **Use active builders rather than old migrations.** `convert_jsonl.py` and `reexport_sfc.py` encode older layouts; they are not generic templates for a new adapter. Current source serializers, the shared chunk builders, and the browser decoders define current behavior.
 - **Build every dependent artifact after updates.** Updating the raw catalog alone does not refresh catalog chunks, synopsis shards, top bundles, or translated-title maps. Root wrapper differences and workflow staging lists make this an explicit step.
-- **Target tests at metadata behavior.** New `tests/test_metadata_*.py` and Node tests directly cover adapters, runtime, historical state, translation and artifacts. Intercepted Chromium fixtures exercise all six sources and failures/cancellation. Existing `test_novelpia_metadata.py` remains downloader metadata/status coverage. Legacy catalog scrapers/drop guards have not gained equivalent tests as part of this change.
+- **Target tests at metadata behavior.** New `tests/test_metadata_*.py` and Node tests directly cover adapters, runtime, historical state, translation and artifacts. Intercepted Chromium fixtures exercise all six sources and failures/cancellation. Existing `test_npia_metadata.py` remains downloader metadata/status coverage. Legacy catalog scrapers/drop guards have not gained equivalent tests as part of this change.
 
 New integration is implemented and tested with staged anonymous samples; production catalogs and translation corpora remain unchanged. No full crawl or workflow dispatch occurred.
 
-See [the Naver Web Novel, Munpia and Joara integration guide](metadata-source-expansion.md) for commands, metadata-v1 fields, state/translation semantics, sample evidence and full-crawl limitations. Return to the [project README](../README.md) for desktop application documentation.
+See [the Nweb, Mpia and Jara integration guide](metadata-source-expansion.md) for commands, metadata-v1 fields, state/translation semantics, sample evidence and full-crawl limitations. Return to the [project README](../README.md) for desktop application documentation.
 
 
 ## September 14 operational update
@@ -429,16 +429,16 @@ Translation for all six sources now defaults to `gpt-6-luna`, using repository s
 
 The browser reconciles existing cards and cover nodes during progressive updates, shortens native ranking options and keeps Audience beside the bounded Sort control. Its persistent **Load descriptions** preference suppresses synopsis requests and description-bearing top bundles when disabled. Gzip catalog chunks, title corpora, top bundles and 128 synopsis shards per new source remain the packaging format.
 
-Bounded September 14 samples collected 60 Naver, 40 Munpia and 59 Joara records in 8/3/5 requests, then passed extraction, mocked translation, merging and package validation in staging. All 879 production files across `docs/data` and `metadata/state` remained byte-for-byte unchanged. No production workflow or paid translation was run. The old Joara page-101 reset was subsequently traced to numbered pagination; the cursor fix passed a 103-batch live scan. See the integration guide for checkpoint migration. Detailed evidence and tests are in the [integration guide](metadata-source-expansion.md#september-14-validation).
+Bounded September 14 samples collected 60 Nweb, 40 Mpia and 59 Jara records in 8/3/5 requests, then passed extraction, mocked translation, merging and package validation in staging. All 879 production files across `docs/data` and `metadata/state` remained byte-for-byte unchanged. No production workflow or paid translation was run. The old Jara page-101 reset was subsequently traced to numbered pagination; the cursor fix passed a 103-batch live scan. See the integration guide for checkpoint migration. Detailed evidence and tests are in the [integration guide](metadata-source-expansion.md#september-14-validation).
 
 
-### Ridibooks and Joara cursor update
+### Rbooks and Jara cursor update
 
-Ridibooks (`ridi`) is the fourth metadata-v1 source and seventh platform. Its four webnovel genres, native weekly/monthly bestseller boards, workflows, translation, and artifact format use the common pipeline. Ridibooks uses `curl_cffi` browser-compatible connections to resolve standard Requests HTTP 403 failures. Live collection and packaging passed; the API still limits each category to offsets below 6,000, reported as partial coverage for larger catalogs. See [source scope and access status](metadata-source-expansion.md#ridibooks-integration-september-14). Joara latest lists now persist opaque continuation cursors; Resume migrates old numbered checkpoints while retaining records and translations.
+Rbooks (`rbooks`) is the fourth metadata-v1 source and seventh platform. Its four webnovel genres, native weekly/monthly bestseller boards, workflows, translation, and artifact format use the common pipeline. Rbooks uses `curl_cffi` browser-compatible connections to resolve standard Requests HTTP 403 failures. Live collection and packaging passed; the API still limits each category to offsets below 6,000, reported as partial coverage for larger catalogs. See [source scope and access status](metadata-source-expansion.md#rbooks-integration-september-14). Jara latest lists now persist opaque continuation cursors; Resume migrates old numbered checkpoints while retaining records and translations.
 
 
 ### Reliable catalog collection and recovery
 
 See [publishing and recovery](metadata-recovery.md) for parallel catalog workers,
-pre-publication backups, automatic checkpoint recovery, gzip-native Kakao
+pre-publication backups, automatic checkpoint recovery, gzip-native Kpage
 descriptions, and shared Korean tag translation.

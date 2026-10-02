@@ -1,0 +1,63 @@
+name: Update SFC Rankings
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-write-lock
+  cancel-in-progress: false
+
+jobs:
+  update-sfc-rankings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Scrape SFC rankings
+        run: python scripts/update_sfc_rankings.py
+
+      - name: Extract descriptions
+        run: python scripts/extract_sfc_descriptions.py
+
+      - name: Chunk SFC descriptions
+        run: python scripts/chunk_descriptions.py docs/data/sfc_descriptions.txt --prefix sfc_descriptions_shard --output-dir docs/data -n 128
+
+      - name: Re-chunk SFC data (with embedded translations)
+        run: python scripts/chunk_and_compress.py --input docs/data/sfc_novels.json --prefix sfc_chunk --output-dir docs/data -n 10 --translations docs/data/sfc_titles_en.txt
+
+      - name: Build SFC top file
+        run: python scripts/build_sfc_top.py
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/sfc_novels.json docs/data/sfc_descriptions.txt.gz docs/data/sfc_descriptions_shard_*.json.gz docs/data/sfc_descriptions_shard_manifest.json docs/data/sfc_chunk_*.json.gz docs/data/sfc_chunk_manifest.json docs/data/sfc_top.json.gz
+          python scripts/codename_policy.py sanitize-data
+          git commit -m "📊 Update SFC rankings ($(date -u +%Y-%m-%d))"
+          git push

@@ -1,0 +1,165 @@
+name: Translate SFC
+
+on:
+  workflow_run:
+    workflows: ["Update SFC Data", "Update SFC Rankings"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'OpenAI-compatible model to use'
+        required: false
+        default: 'gpt-6-luna'
+        type: string
+      api_base_url:
+        description: 'OpenAI-compatible base URL (blank = auto route)'
+        required: false
+        default: ''
+        type: string
+      api_key:
+        description: 'API key (blank = OPENAI_API_KEY secret; provider overrides supported)'
+        required: false
+        default: ''
+        type: string
+      workers:
+        description: 'Parallel translation workers'
+        required: false
+        default: '67'
+        type: string
+      delay:
+        description: 'Seconds to stagger translation chunks'
+        required: false
+        default: '5'
+        type: string
+      output_token_limit:
+        description: 'Max output tokens per request (positive integer; blank = repository variable or 16384)'
+        required: false
+        default: '16384'
+        type: string
+      compression_factor:
+        description: 'Compression factor'
+        required: false
+        default: '2.0'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-write-lock
+  cancel-in-progress: false
+
+jobs:
+  translate-sfc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests tiktoken
+
+      - name: Mask pasted API key
+        if: ${{ github.event.inputs.api_key != '' }}
+        run: echo "::add-mask::${{ github.event.inputs.api_key }}"
+
+      # --- Translate Titles ---
+      - name: Sync SFC titles from novels JSON
+        run: python scripts/extract_titles.py sfc
+
+      - name: Extract untranslated SFC titles
+        run: python scripts/extract_untranslated_sfc_titles.py
+
+      - name: Translate SFC titles
+        env:
+          TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || '' }}
+          TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || '' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
+          TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
+        run: python scripts/translate_with_grok.py docs/data/sfc_titles_untranslated.txt --lang chinese --type titles --model ${{ github.event.inputs.model || 'gpt-6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+
+      - name: Merge translated SFC titles
+        run: python scripts/merge_translated_sfc_titles.py
+
+      # --- Translate Descriptions ---
+      - name: Reconcile SFC descriptions
+        run: python scripts/fetch_missing_sfc_descriptions.py
+
+      - name: Extract untranslated SFC descriptions
+        run: python scripts/extract_untranslated_sfc_descriptions.py
+
+      - name: Translate SFC descriptions
+        env:
+          TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || '' }}
+          TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || '' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
+          TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
+        run: python scripts/translate_with_grok.py docs/data/sfc_descriptions_untranslated.txt --lang chinese --type descriptions --model ${{ github.event.inputs.model || 'gpt-6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+
+      - name: Merge translated SFC descriptions
+        run: python scripts/merge_translated_sfc_descriptions.py
+
+      - name: Gzip SFC descriptions
+        run: python scripts/gzip_text_files.py docs/data/sfc_descriptions.txt
+
+      - name: Chunk SFC descriptions
+        run: python scripts/chunk_descriptions.py docs/data/sfc_descriptions.txt --prefix sfc_descriptions_shard --output-dir docs/data -n 128
+
+      # --- Translate Tags ---
+      - name: Extract untranslated SFC tags
+        run: python scripts/extract_untranslated_sfc_tags.py
+
+      - name: Translate SFC tags
+        env:
+          TRANSLATION_API_KEY: ${{ github.event.inputs.api_key || '' }}
+          TRANSLATION_API_KEY_NAME: ${{ github.event.inputs.api_key && 'TRANSLATION_API_KEY' || '' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          TRANSLATION_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
+          TRANSLATION_OUTPUT_TOKEN_LIMIT: ${{ github.event.inputs.output_token_limit || vars.TRANSLATION_OUTPUT_TOKEN_LIMIT || '16384' }}
+          TRANSLATION_COMPRESSION_FACTOR: ${{ github.event.inputs.compression_factor || '2.0' }}
+        run: python scripts/translate_with_grok.py docs/data/sfc_tags_untranslated.txt --lang chinese --type tags --model ${{ github.event.inputs.model || 'gpt-6-luna' }} --workers ${{ github.event.inputs.workers || '67' }} --delay ${{ github.event.inputs.delay || '5' }}
+
+      - name: Merge translated SFC tags
+        run: python scripts/merge_translated_tags.py docs/data/sfc_tags_untranslated.txt
+
+      # --- Re-chunk and build top ---
+      - name: Re-chunk SFC data (with embedded translations)
+        run: python scripts/chunk_and_compress.py --input docs/data/sfc_novels.json --prefix sfc_chunk --output-dir docs/data -n 10 --translations docs/data/sfc_titles_en.txt
+
+      - name: Build SFC top file
+        run: python scripts/build_sfc_top.py
+
+      # --- Commit ---
+      - name: Check for changes
+        id: changes
+        run: |
+          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/sfc_titles_en.txt docs/data/sfc_titles_untranslated.txt docs/data/sfc_descriptions.txt.gz docs/data/sfc_descriptions_shard_*.json.gz docs/data/sfc_descriptions_shard_manifest.json docs/data/sfc_descriptions_untranslated.txt docs/data/sfc_tags_untranslated.txt docs/data/tags_en.txt docs/data/tags_en.txt.gz docs/data/sfc_chunk_*.json.gz docs/data/sfc_chunk_manifest.json docs/data/sfc_top.json.gz
+          python scripts/codename_policy.py sanitize-data
+          git commit -m "🌐 Translate SFC titles, descriptions, and tags ($(date -u +%Y-%m-%d))"
+          git push

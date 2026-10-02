@@ -22,11 +22,11 @@ def test_kobo_url_recognizes_regional_ebook_pages_only():
     assert not ExternalScraper.is_kobo('https://evil-kobo.com/ww/en/ebook/example')
 
 
-def test_kobo_browser_errors_are_not_filtered_as_ridi_noise():
+def test_kobo_browser_errors_are_not_filtered_as_rbooks_noise():
     logs = []
     scraper = ExternalScraper(logger=logs.append)
-    scraper._ridi_chrome = True
-    scraper._ridi_site = 'Kobo'
+    scraper._rbooks_chrome = True
+    scraper._rbooks_site = 'Kobo'
 
     class Page:
         url = BOOK_URL
@@ -94,7 +94,7 @@ def test_kobo_reader_contents_supports_japanese_controls():
 
 def test_kobo_product_uses_owned_read_now_link(monkeypatch):
     scraper = ExternalScraper(logger=lambda message: None)
-    monkeypatch.setattr(scraper, '_start_ridi_browser',
+    monkeypatch.setattr(scraper, '_start_rbooks_browser',
                         lambda url, site='Kobo': True)
 
     class Locator:
@@ -129,7 +129,7 @@ def test_kobo_product_uses_owned_read_now_link(monkeypatch):
 
 def test_kobo_jp_product_uses_owned_reader_metadata(monkeypatch):
     scraper = ExternalScraper(logger=lambda message: None)
-    monkeypatch.setattr(scraper, '_start_ridi_browser',
+    monkeypatch.setattr(scraper, '_start_rbooks_browser',
                         lambda url, site='Kobo': True)
     waits = []
 
@@ -197,7 +197,7 @@ def test_kobo_owned_volume_uses_saved_browser_reader(monkeypatch):
     scraper._book_data = {'_kobo': True, '_kobo_read_url': READER_URL,
                           'coverUrl': 'https://cdn.kobo.com/cover.jpg'}
     scraper._context = object()
-    monkeypatch.setattr(scraper, '_start_ridi_browser',
+    monkeypatch.setattr(scraper, '_start_rbooks_browser',
                         lambda url, site='Kobo': calls.append((url, site)) or True)
     monkeypatch.setattr(KoboWebReader, 'extract',
                         lambda self, context, url, title, cover:

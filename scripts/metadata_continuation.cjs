@@ -1,13 +1,13 @@
 // Resolve the stable workflow path; run names are user-visible dynamic labels.
 function resolveSource(input, run) {
-    const sources = ['naver', 'munpia', 'joara', 'ridi', 'naverseries'];
+    const sources = ['nweb', 'mpia', 'jara', 'rbooks', 'nseries'];
     if (input && sources.includes(input)) return input;
-    const match = /^\.github\/workflows\/update-(naver|munpia|joara|ridi|naverseries)-metadata\.yml$/.exec(run?.path || '');
+    const match = /^\.github\/workflows\/update-(nweb|mpia|jara|rbooks|nseries)-metadata\.yml$/.exec(run?.path || '');
     if (!input && match) return match[1];
     throw new Error('Cannot identify metadata source from the originating workflow path');
 }
 function validDecision(decision, source) {
-    return ['naver', 'munpia', 'joara', 'ridi', 'naverseries'].includes(source)
+    return ['nweb', 'mpia', 'jara', 'rbooks', 'nseries'].includes(source)
         && decision?.source === source && decision.eligible === true
         && /^[a-f0-9]{32}$/.test(decision.scan_id || '')
         && /^\d+$/.test(String(decision.revision))

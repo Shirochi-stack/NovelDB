@@ -17,7 +17,7 @@ def test_eight_catalog_workers_overlap_and_commit_in_order(tmp_path):
             return m.CatalogPage([{'id': str(page), 'title': 'Title', '_detail_complete': True}],
                                  page + 1 if page < 8 else None)
     result = m.run_source(Parallel(), args(tmp_path, '--mode', 'catalog', '--workers', '8', '--max-pages', '8'), client=Client())
-    saved = m.load_state('naver', tmp_path / 'state')
+    saved = m.load_state('nweb', tmp_path / 'state')
     assert completed[0] != 1
     assert len(completed) == 8 and result['records'] == 8
     assert saved['progress']['partitions']['best']['last_page'] == 8
@@ -31,14 +31,14 @@ def test_failed_middle_page_never_advances_over_gap(tmp_path):
                 return m.CatalogPage([], None, False, 'temporary failure')
             return m.CatalogPage([{'id': str(page), 'title': 'Title', '_detail_complete': True}], page + 1)
     m.run_source(Failing(), args(tmp_path, '--mode', 'catalog', '--workers', '8', '--max-pages', '8'), client=Client())
-    saved = m.load_state('naver', tmp_path / 'state')
+    saved = m.load_state('nweb', tmp_path / 'state')
     assert set(saved['records']) == {'1', '2'}
     assert saved['progress']['partitions']['best']['next_page'] == 3
     class Resumed(Failing):
         def fetch_page(self, client, partition, page):
             return m.CatalogPage([{'id': str(page), 'title': 'Title', '_detail_complete': True}], page + 1 if page < 8 else None)
     m.run_source(Resumed(), args(tmp_path, '--mode', 'catalog', '--resume', '--workers', '8', '--max-pages', '8'), client=Client())
-    assert set(m.load_state('naver', tmp_path / 'state')['records']) == set(map(str, range(1, 9)))
+    assert set(m.load_state('nweb', tmp_path / 'state')['records']) == set(map(str, range(1, 9)))
 
 
 def test_cursor_feeds_overlap_but_each_cursor_is_sequential(tmp_path):

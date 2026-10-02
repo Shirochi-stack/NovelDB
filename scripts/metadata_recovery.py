@@ -1,4 +1,10 @@
 """Back up publication inputs and recover source checkpoints from trusted runs."""
+
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
 import argparse
 import copy
 import gzip
@@ -189,7 +195,7 @@ def restore(source, repo, branch, state_dir, run_id=None):
             result, report = recover_state(current, recovered)
             result.setdefault('recovered_artifacts', []).append(str(choice['id']))
             save_state(result, state_dir)
-        print(json.dumps({'recovery_run_id': ident, **report}))
+        print(source_names.dumps({'recovery_run_id': ident, **report}))
         reports.append(report)
     if not reports:
         print('No unpublished recovery checkpoint found')
@@ -199,7 +205,7 @@ def restore(source, repo, branch, state_dir, run_id=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['snapshot', 'restore'])
-    parser.add_argument('--source', required=True, choices=[*SOURCE_LABELS, 'kakao', 'tags'])
+    parser.add_argument('--source', required=True, choices=[*SOURCE_LABELS, 'kpage', 'tags'])
     parser.add_argument('--output', default='.cache/recovery')
     parser.add_argument('--state-dir', default='metadata/state')
     parser.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY'))
@@ -210,5 +216,5 @@ if __name__ == '__main__':
         snapshot(args.source, args.output)
     else:
         if args.source not in SOURCE_LABELS:
-            parser.error('Automatic state recovery supports the five metadata sources; Kakao/tag backups require manual merging')
+            parser.error('Automatic state recovery supports the five metadata sources; Kpage/tag backups require manual merging')
         restore(args.source, args.repo, args.branch, args.state_dir, args.run_id)

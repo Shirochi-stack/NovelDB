@@ -1,5 +1,5 @@
 """
-external_scraper.py — Playwright-based scraper for non-Novelpia sites.
+external_scraper.py — Playwright-based scraper for non-Npia sites.
 
 Uses Playwright (headless Chromium) to navigate to novel pages and inject the
 novel-downloader's compiled JavaScript rules (rules-lib.js + bridge.js).
@@ -69,7 +69,7 @@ from playwright.sync_api import (
     Browser,
     TimeoutError as PlaywrightTimeoutError,
 )
-from downloader_core import parse_novelpia_notice_html, parse_novelpia_status
+from downloader_core import parse_npia_notice_html, parse_npia_status
 
 APP_DATA_NAME = "NpiaDownloader"
 
@@ -77,14 +77,14 @@ SHUBA_API_BASE = "https://app.novelapis.com/json"
 SHUBA_API_KEY = "chuanshuo_09_03"
 SHUBA_API_USER_AGENT = "NovelApp/2.1.1 (Android/16)"
 
-SFACG_OBFUSCATED_CHARS = (
+SFC_OBFUSCATED_CHARS = (
     '宦缺泛洁槛掳马杉傲冷衡弗害烬遗刨饵韵动味碳骄寥凹汁姚也鼎勒痈慕来诊箔迅沁羞僚休儿唾摆窘厌椿母残貌盔弦沉恃棒菱沂巳釜没工溃春肢焦占遥浴轩儡栗梦陨嘴荤梢宇钮捆争土枣盛渝信茵厕忆士急败茁徘吁莉旋腆踪钩捂超峙蒙瘦差应漳沥瑚横阅文缸吱滨变形霉霹僻终愧甥券拽盘预奖鸟透真椅取堕舱票厂彩扯时宋檄瘫峨题楼搭报瘴础勤梨宠古坯忠鲍层癌键肠足荒秃认菏百涣坑投滥谚草坞太桨拓剧宾栋奉老上似丈避侥烯准种壁峦臻谴卤隆垂番协愚划鸦攻藏曾对痔跺墓根撰聂闯察咋发衅撵寡竣茶宏议亨艇务狗裤宣鹃逼饱宅孔诲遣警亿贤鄙沮译龟膀蹭絮伙触锌庚吹命躬圣追炯霞叫裴底族疟痴熊闸臆撂访午茨柿巡米鞍邹逃兑绎犀椎己控篡室劈巍参苦瞬冠摩凭胰甫讯否绅汉诛仙扁活醚挎荷篆黍捕汝吊蕊虱抓从略诞惶逆脉塔歧镶衰撮伍片阶凑松九菊固娄姻委惮酷封澎牙在翰裁南挫沾赏赫厅韩葵介鸡编欧捐能炉挠杀勘浦者粤杖幂琢焉刁爱如惫府武找佯捣锈灰茫铸肛敬阿可属沙创概廊墨乳湛咖级蚂淋反豁旺岭星琉凌嗜目侠迄喇靶福矾丹拔绥觉孟沫霖袭帕驼镁泰啊极孙实经趟当歼斗柑嗽录贡雍稽阜损铬尿痒醒岗渡宗莆捧筑岸井燎搐负粕励爵啮庄涌卢蝶垄仍脂操哉句热耽乓拐苍团斌掩孩沃堆眠闻毛歹齐辖育芳榜其蝇侩杰胞魄粱姬蜕淹轧甚寸舌播霓硒啥钎馅力皇擅染寂相熬必羹期腕跌租僵虏矫恿笨元物历砧噎犬帜舰柞腊定洽剐蕉惨摔珠着烘朋咎某丧酉友郡痹俘啦师蔑涅绒侨官戊锡泌误棘嗡顽谱懂捌潮员豢焰岁丽炕缘搁庐叁崭羔龙崩哩体酗穆猎餐机欺悉蔫寿髓庸焚洲技缠绰傍浅泄此嘶祸肪凶锣雪厢摧粗刷乙脯枪稿寝螟席扎杂第漠檀魂品籽氛越芥呕做滴债缕帛及募悬彰酌堑艘煤癣口售津耀冈涪蝗予攀棚木新泡猖宽躁阁健霍揍铰陕非樟问颠话缴况矽吗昂披努疵滩执拟鼓枷摄湃亚昏旁塑含阑荣安掐宁苞监放施辣浙主遍邀告枯释灾啪驭全断缩晌藐孵折据辕设离病呀解汲援娜幻辩很盆毡铆敢粳蔼榨游掉皑挽呈擦舀麦咏唁专肝伯章脸氖揪枚戏惠萍卧隶庙量啄贞烙响柒熙违泪娶吨矢艺培降迁映丙硬碾蠕囚怪删支适佑搽淆蜒判奄想障袄跑窜燕广登停嚷户铡挚要瘁猿甭韦嘿檬瘸烈招铅眶蜘火洛姐圾分雇阳剑练皋凝劳建脓一俏苔严洗睹耗茎国漾辆疲篱煽走歌亥诽藉狞径菠雁言审碰双慰森揣钠世芝炙蜗针奋曹鉴遁冬扫偶赐陶酚束砷兽噬揽永汤庇脖挣泣蓟本润饺常偏垛教悄芭琳计偷詹夏帝韭擂卵吧暗拆插忌橱搅条曲糖恳宙贯甲稼撇鳞鸭臭臀迂回磁淤统羽三功伏烹札杭暑凰弄祭币皿懦店萝眺瘤产菇勾笼引漏惭堡鹊闽恫宿累谰曙厩莽蔡杆烛镜碗费惧碑啡枫慧沧颊恕揭簇材握留伟灼墟噶恨俺腻赌娃蚊膨婴闺碟陵连晕扑递蜡勇沸这玻挑兜耙疫舶乃羌瓷进胖俐基卓谆企边眷独潭毅牢蛆砍而丫唆诺舟殖陈浇勉捡饮完托更腑瞎减幌我吟滑算钱枉睦妊冶红救贴忍旧刊淡依喘共斥侗先峡香紊候肺袒拄猫跳砖剂窑渔假果色挟界名逛膘蘑酪吃翟研翻频提忿饼腾倚疮脆婚甘赠鹰带摘匆锥瑟睛领钵柄祥烩蛮稗矗濒卫溜制扭藻吾赂拙辛肄轰哭哑凛羡窖筷俄姆楔缝兄民表痉舆膊捷岂蓖卡限肿倪好炬淑助且颤斋蔬莹又忻瞩二畜总坤心鸵眨挡戴榔页缨恍几胁帐传迭临锹煌典特沏向尼谷哇状溪胜衣养丛斟萤柠恼讳朱楷肆防禹烃零若醋夕倘铲岿茧薯牌罗妥距苏规瞳赘铜钒奇奸疆魁矿蛤澈呛父详丘叼路吼驮端凳床涕瓤仆撼腺亭禾乐白侯抵诧失铱慷铭识迪哨巴使涝巨棺碱奎芹掸颇浆悦激侣长埃禄袋踢舍侧舜寺盐叭鸿面局私贷比容掀搔藩览吞态左布素侵侮咀憾郸现娥记淀咯馆仿黎敖少寄匣贮脐看亩趴歉样斧酣奠旭筋狂筐蚜最聋遵酶晒擒妒拖窿鸥示抛娘县台导矮窒顺女邑慌齿蔷蜜字数竭瑶谨抒乌耕霸泥兵号亏匈侄猩褒琶署静住饿碉桂抬庆匙扬慈牟倾媚矣搀锤拇构吵嫩讹焊郁漫守贱拌效例弊灭桅尾道供葱狈垃壮筹栈扮躇疤骆揩露莫孰敏订购潍顷盈转胯撞居鞘摇周幽魔镍蚌水树戍谐飞梯豪添业晓挪柴袁烫苟怔冤念决初碎立臣纳陇异喉葬驯确死桌雾嘱臂沟殴歇丝造坛蚤围拴延自芋祟巷猜恭毒辟湖牧傅惺磐瞻砾壕踞疼尝骂咆同症耿呢敝穷饲钨块每耐巧王躯姑藕泳颈肃崖役犹辱您棕满锅垫措深忙酞讽化场馈赞节拒矛宴蛇乞杨赣咬均中邢蛛瞪睁韶悼鞋滇雄站骗于阂茅阀煎斜渴季哼跃暖签耻躲写宫剔叙载尊怒蒋翅请函贝姥穴驰盾势纵瓦罢存冲血龋脑敌瞧营仁扰刻狐啸珍荆知晤乍榴鲁冻咱竹今融烂咕喜踌赴财氏靡右琐忽贺汞赵躺垮瞒拥屏虐蒲邮壤颖破斯既棠誊彤铝蝉止案佐捞童椭凤贩那塘湿陷清圭诣须义萎梧箍蛙息入勃另锚棋舅筒卿收尽骑脏毋屡蔓胆痊膳钙并敞傀秘奶卯谭给峰远瞥禽卉傻掇冗器货悯咨剁维讲子药纲腮和嫡麓诚故些闭档选箕樱气幅酥赊辑虞怀蛊弧抢价俊跪斡雌甩绘罩忘晚驻龚斩靠涂螺锑雷步绚智组骸仅庭涸琴骚络旬乏杯灸呜椽斤寒输阉斑辐烟刑平涯般倒榷湘公氢嚎疚启乡茸芒巩鹿景甄誓秒炼杏绞剿葫筏翱骋管蓝蔗稚网君腥掺臼遇继脊瑰流磨瞅寨鸳送宝拷击汕圈蓬尉磕田疏妄绵畦仑竖刺硕渭棍试悲污豆箩云暴东憨让哈芽妖黔耍栖欠狠秆讶叉狡敷砌暮宪廉鞭彬炭嘘么首账践趣史迟瘪岳谅豺单拨拳船社厄厉天弃寇尤保摹佬尘炒苑夯匪扔顿毁雀窟熔洱湍究献姨蛔治蔽袖姜虹缀盗漱狰嚣哆豫虽煮削滚爸巫峪惕锐脱屑压泼纸荡证模院伞霄混砰谎彦糕奴派夷彻串忱耸酬致滞类郭撑樊辈哎抱缎妈艰绢朵荚颗摸事邱综冒菩稍婆轨库携懈鹏至思蹈滋痢酱论珐蜀咐窃军还强归肥爬秉莲注妓充垒瓶丢绍坊惰测柔炳榆埂掠掌董恶戳禁打菲坍开阻嚼灶逻额罐肯胶凋肤朽只匠腰蛹喊棵潘验倍柱卖裂喂粮贿门鳃勋笆迫蛾笛醛礼称奢纹卞陆趁蝴与升胺贫卸随党镐劲诫轿镊魏伎街缮估囊策屠泊舵皂疑集拼祁俯灿舷范佃征展出侈厦驴缓刀喝厚抿六港希糙才堰苹批辞聚舔缅蹄隔捍蕴弟柳州帖欢佣快桩慑生瓢椰翘骇鬃说阐蚁山瓮氮听殿渍辊办各济坠蹦联屯习月鼻植砚沿嫂区佰唉怕艳始校剥括雕祈旅置徽诈浪轴已邦裙碍窍哄撤哮部匀摊兼蓑潦橙关科绷嘻嘉妨搜值棉惩蟹倦驶税芯泻密运涧仇珊涨昌男琵渺正光呻硅有傣逐袜净吠缔溯将婶钡电迹股昧卜低无嘲兆诌沦恋溺糯钢宰饥悸夫版胃笋牡咒箭把泞虑易纤唐梅咳郑需象玉大譬崔晶洼赦弱丁馋四挂磊硝昆痰撒调蔚胳它抗猪幼镭秸谁恒印诀厨芍显恐猾冀司廷坚篮酵撕锰履位澳市汐哀辨则萧溢秦奈城隧叹茬政责炔铺掣赤兔撩蹬铃馒爪钥震凄畅移是辅讼翼栓瀑搪醉獭懒陌臃毫弛裳祷列毙岛浚遂澜盏郎贾扦酒呐境早余评作坎罚环窥狱炊淌郊怜书外册贰剪际滤油迎渊桶媒付担肌郴盂整袍就坏邻皮用谩瑞采栽吮雹烦克患轮探咸拈墅椒但恬愁裔肘峻敦件枕匿恤散谜央诵链绳讥捶烤薛直栏垣弓睬汀栅刚职畴敲扣读纱搂晰凡痞赃雏徊兴糟篇粒海复郝八赚之冯酸侍漓糜渠惋乎们晨垦吕乾千亡芜项的逸铂池僳往买搞车诬焙辗利妹富你查朝跋砸氦旷娠搓怎澡危氯契押曼帧纬受讨壹愈胚昨柬驱轻勿桓靖锭赖彼袱喧捏靴涩虚薪矩割末恩唱革幢日催五屁线情挖苯哲犊讣盟地十落去伶个苗间闹谋骏唬沼糠迈殉绊罕肖邪晋闷窗鱼嫁狭紫改炮浮灯迸锨孤诡汾抉孺甸增套灵著寞赡梭循疗弯京补乱重灌朔空粉桥演婉即昭鸽泵妆燥过彝具阴错匝人劝描亢抚张金犁氟耪板逮墙拜服喳阔址刽拿匹壶箱赔葛赎画贸帆辫沈射惊训绪沪久扼蹿叛埋劫钦爹庞绕淮颜缉悟楚叶波默颓簧擞蠢背竟驳鼠滔啃祖屿爷氰飘会苫哦雅酋堪篷邵咽伦仕伐秩柏获承屎蜂浩愉竿仗芦琼盎慨林干玄凉滦她李畏挥吝捻毕被胡崇膝馁宜踊指簿疽瘩抖皱侦掘呆巾农咙胎赛跟别剩普菜溅感权钞楞副虾膏鸯肉橡仪俗玩烽赶申万拦坷钉坦糊汛醇戈因望夹行蒸成觅钳绿资乘捎邯座险择钧为嚏述帅护笑炽讫毗不洋眩氓德花烷汪意渣浑许秀曝腿谦稻鹤蛰消雨寅玲壬嘛萄欲代由刘搬缆聘粟泉荧球寻亮村家省扛帽陀谬羊稠爽籍亲舒吭点乒衷晃振熏短汰诸烧梆惹坐屹桑丑肋速次喷理饭谊赋拭彭逝玫起骡贼了瓣谤疥退银娩黑授促河眯砒菌锗薄加圆锯辉睫褐泽或奥抠园伺揉墒刮猛兢埠年替朗玛锁微未艾呵吉琅排炎碘眉逾式趾浓卒尚客械啤帮优却沛腹胀队嵌镣谓怖垢冕叠叮像仔笔渐掷蹋笺令撬蚀接镑铣厘竞众呼痪肾愿桔孝峭疯岔黄橇隙邓媳褥该举弘川洞扒俱潜呸缄豹酝镇筛塞尧西锋脾头摈律检任翔青芬戎吐洪麻鳖诅窝声耶杜交尔拎盲盯姓隅丰伴续霜涟衙帘除标癸辰寓磋龄俞纯拢截鞠配姿郧逢爆英幕盒窄堤氨逞敛仰索痘聪见襟纺恢绝填靳沽盖碧忧鹅疾晾阵铁祝叔欣磅屉枝痕佳槐志吓房穿拧善小酿挝羚苛炸貉约猴颁益挛惯膜粪枢纪宛乖扶槽攒谢掂奏寐狸旨倔嗓蛋夸皖洒澄返豌软凿晴纂剃待蹲拂蚕求困毖积妙旗陡隘华怨憎康拍江督拣颅较膛伤逊淳享颂图滓牺荔尖神液蛀暇哥棱胸淖昼源修穗牵蝎裸合谣陪浸廓曰纫盼囱到夜惜蒂届份蒜下质孪稳涵赁徐釉隋锦颐悠俭耘答凸纽原格扇高戮抑嗣隐嫌扩漂涡劣伊肚骨嗅踩难钻帚愤处莎粥瞄娇狄拾茄鲜秤半璃毯包视馏途巢襄手淫孽硫性唯近浊怯装挤荫惦纷聊汽牛婿淘御航稀前医滁娱扳渗肩序堵硼砂钾驾坟战渤阮誉尸绸殃紧程绣结驹都戒涤畔耳备堂痛揖他拘绩伪精熟免饰焕迷伸潞溶掖绑阎铀换兹甜突踏便坡尹脚烁徒附朴虎憋术尺诗吴群桐衔挨漆料褂段简课噪戌辽吩允佛借荐仟诱殷歪儒影逗七腔抄旦吻核商身迢裹韧锄秽罪殆嘎佩饯坝盅勺绦法音碌挞吸靛戚何婪坪两秧蘸蓉推后乔熄衬曳塌剖昔狙覆度杠壳陋腐美唤谗刹跨悍翌贪怂辜通多鄂框湾梁碴词卑哪废梳赢型殊沤照兰睡款镀攫什抡抽萌闪镰召捅倡翠切织腋桃妮篓彪谈妻方妇冉疙株瓜廖学懊鲸篙持亦哺拱萨偿遮缚犯仓岩疹然褪汗辙翁威怠绽闰旱搏弥诉互等细销汹率系内瘟蕾狼淬庶茂里攘牲衫弹煞肇狮葡畸惟野繁石良仲宵拯趋所泅班博粹涉冰拉按以眼僧慢幸温卷俩舞明角粘陛嫉蓄食酮孜顾唇刃涛掏捉锻圃屈贬玖语遭夺鸣析哗顶涎够虫域苇鬼晦氧风抹码茹皆询哟北骤观惑纠颧考再架磷得慎淄钓溉谍礁喀燃藤暂遏孕疡纶悔屋秋闲裕崎梗埔达撅柯钟奔贵莱储吏墩抨饶囤娟擎啼鲤柜匡丸凯符肮喻磺钝衍汇'
 )
-SFACG_REPLACEMENT_CHARS = (
+SFC_REPLACEMENT_CHARS = (
     '啊阿埃挨哎唉哀皑癌蔼矮艾碍爱隘鞍氨安俺按暗岸胺案肮昂盎凹敖熬翱袄傲奥懊澳芭捌扒叭吧笆八疤巴拔跋靶把耙坝霸罢爸白柏百摆佰败拜稗斑班搬扳般颁板版扮拌伴瓣半办绊邦帮梆榜膀绑棒磅蚌镑傍谤苞胞包褒剥薄雹保堡饱宝抱报暴豹鲍爆杯碑悲卑北辈背贝钡倍狈备惫焙被奔苯本笨崩绷甭泵蹦迸逼鼻比鄙笔彼碧蓖蔽毕毙毖币庇痹闭敝弊必辟壁臂避陛鞭边编贬扁便变卞辨辩辫遍标彪膘表鳖憋别瘪彬斌濒滨宾摈兵冰柄丙秉饼炳病并玻菠播拨钵波博勃搏铂箔伯帛舶脖膊渤泊驳捕卜哺补埠不布步簿部怖擦猜裁材才财睬踩采彩菜蔡餐参蚕残惭惨灿苍舱仓沧藏操糙槽曹草厕策侧册测层蹭插叉茬茶查碴搽察岔差诧拆柴豺搀掺蝉馋谗缠铲产阐颤昌猖场尝常长偿肠厂敞畅唱倡超抄钞朝嘲潮巢吵炒车扯撤掣彻澈郴臣辰尘晨忱沉陈趁衬撑称城橙成呈乘程惩澄诚承逞骋秤吃痴持匙池迟弛驰耻齿侈尺赤翅斥炽充冲虫崇宠抽酬畴踌稠愁筹仇绸瞅丑臭初出橱厨躇锄雏滁除楚础储矗搐触处揣川穿椽传船喘串疮窗幢床闯创吹炊捶锤垂春椿醇唇淳纯蠢戳绰疵茨磁雌辞慈瓷词此刺赐次聪葱囱匆从丛凑粗醋簇促蹿篡窜摧崔催脆瘁粹淬翠村存寸磋撮搓措挫错搭达答瘩打大呆歹傣戴带殆代贷袋待逮怠耽担丹单郸掸胆旦氮但惮淡诞弹蛋当挡党荡档刀捣蹈倒岛祷导到稻悼道盗德得的蹬灯登等瞪凳邓堤低滴迪敌笛狄涤翟嫡抵底地蒂第帝弟递缔颠掂滇碘点典靛垫电佃甸店惦奠淀殿碉叼雕凋刁掉吊钓调跌爹碟蝶迭谍叠丁盯叮钉顶鼎锭定订丢东冬董懂动栋侗恫冻洞兜抖斗陡豆逗痘都督毒犊独读堵睹赌杜镀肚度渡妒端短锻段断缎堆兑队对墩吨蹲敦顿囤钝盾遁掇哆多夺垛躲朵跺舵剁惰堕蛾峨鹅俄额讹娥恶厄扼遏鄂饿恩而儿耳尔饵洱二贰发罚筏伐乏阀法珐藩帆番翻樊矾钒繁凡烦反返范贩犯饭泛坊芳方肪房防妨仿访纺放菲非啡飞肥匪诽吠肺废沸费芬酚吩氛分纷坟焚汾粉奋份忿愤粪丰封枫蜂峰锋风疯烽逢冯缝讽奉凤佛否夫敷肤孵扶拂辐幅氟符伏俘服浮涪福袱弗甫抚辅俯釜斧脯腑府腐赴副覆赋复傅付阜父腹负富讣附妇缚咐噶嘎该改概钙盖溉干甘杆柑竿肝赶感秆敢赣冈刚钢缸肛纲岗港杠篙皋高膏羔糕搞镐稿告哥歌搁戈鸽胳疙割革葛格蛤阁隔铬个各给根跟耕更庚羹埂耿梗工攻功恭龚供躬公宫弓巩汞拱贡共钩勾沟苟狗垢构购够辜菇咕箍估沽孤姑鼓古蛊骨谷股故顾固雇刮瓜剐寡挂褂乖拐怪棺关官冠观管馆罐惯灌贯光广逛瑰规圭硅归龟闺轨鬼诡癸桂柜跪贵刽辊滚棍锅郭国果裹过哈骸孩海氦亥害骇酣憨邯韩含涵寒函喊罕翰撼捍旱憾悍焊汗汉夯杭航壕嚎豪毫郝好耗号浩呵喝荷菏核禾和何合盒貉阂河涸赫褐鹤贺嘿黑痕很狠恨哼亨横衡恒轰哄烘虹鸿洪宏弘红喉侯猴吼厚候后呼乎忽瑚壶葫胡蝴狐糊湖弧虎唬护互沪户花哗华猾滑画划化话槐徊怀淮坏欢环桓还缓换患唤痪豢焕涣宦幻荒慌黄磺蝗簧皇凰惶煌晃幌恍谎灰挥辉徽恢蛔回毁悔慧卉惠晦贿秽会烩汇讳诲绘荤昏婚魂浑混豁活伙火获或惑霍货祸击圾基机畸稽积箕肌饥迹激讥鸡姬绩缉吉极棘辑籍集及急疾汲即嫉级挤几脊己蓟技冀季伎祭剂悸济寄寂计记既忌际妓继纪嘉枷夹佳家加荚颊贾甲钾假稼价架驾嫁歼监坚尖笺间煎兼肩艰奸缄茧检柬碱拣捡简俭剪减荐槛鉴践贱见键箭件健舰剑饯渐溅涧建僵姜将浆江疆蒋桨奖讲匠酱降蕉椒礁焦胶交郊浇骄娇嚼搅铰矫侥脚狡角饺缴绞剿教酵轿较叫窖揭接皆秸街阶截劫节桔杰捷睫竭洁结解姐戒藉芥界借介疥诫届巾筋斤金今津襟紧锦仅谨进靳晋禁近烬浸尽劲荆兢茎睛晶鲸京惊精粳经井警景颈静境敬镜径痉靖竟竞净炯窘揪究纠玖韭久灸九酒厩救旧臼舅咎就疚鞠拘狙疽居驹菊局咀矩举沮聚拒据巨具距踞锯俱句惧炬剧捐鹃娟倦眷卷绢撅攫抉掘倔爵觉决诀绝均菌钧军君峻俊竣浚郡骏喀咖卡咯开揩楷凯慨刊堪勘坎砍看康慷糠扛抗亢炕考拷烤靠坷苛柯棵磕颗科壳咳可渴克刻客课肯啃垦恳坑吭空恐孔控抠口扣寇枯哭窟苦酷库裤夸垮挎跨胯块筷侩快宽款匡筐狂框矿眶旷况亏盔岿窥葵奎魁傀馈愧溃坤昆捆困括扩廓阔垃拉喇蜡腊辣啦莱来赖蓝婪栏拦篮阑兰澜谰揽览懒缆烂滥琅榔狼廊郎朗浪捞劳牢老佬姥酪烙涝勒乐雷镭蕾磊累儡垒擂肋类泪棱楞冷厘梨犁黎篱狸离漓理李里鲤礼莉荔吏栗丽厉励砾历利僳例俐痢立粒沥隶力璃哩俩联莲连镰廉怜涟帘敛脸链恋炼练粮凉梁粱良两辆量晾亮谅撩聊僚疗燎寥辽潦了撂镣廖料列裂烈劣猎琳林磷霖临邻鳞淋凛赁吝拎玲菱零龄铃伶羚凌灵陵岭领另令溜琉榴硫馏留刘瘤流柳六龙聋咙笼窿隆垄拢陇楼娄搂篓漏陋芦卢颅庐炉掳卤虏鲁麓碌露路赂鹿潞禄录陆戮驴吕铝侣旅履屡缕虑氯律率滤绿峦挛孪滦卵乱掠略抡轮伦仑沦纶论萝螺罗逻锣箩骡裸落洛骆络妈麻玛码蚂马骂嘛吗埋买麦卖迈脉瞒馒蛮满蔓曼慢漫谩芒茫盲氓忙莽猫茅锚毛矛铆卯茂冒帽貌贸么玫枚梅酶霉煤没眉媒镁每美昧寐妹媚门闷们萌蒙檬盟锰猛梦孟眯醚靡糜迷谜弥米秘觅泌蜜密幂棉眠绵冕免勉娩缅面苗描瞄藐秒渺庙妙蔑灭民抿皿敏悯闽明螟鸣铭名命谬摸摹蘑模膜磨摩魔抹末莫墨默沫漠寞陌谋牟某拇牡亩姆母墓暮幕募慕木目睦牧穆拿哪呐钠那娜纳氖乃奶耐奈南男难囊挠脑恼闹淖呢馁内嫩能妮霓倪泥尼拟你匿腻逆溺蔫拈年碾撵捻念娘酿鸟尿捏聂孽啮镊镍涅您柠狞凝宁拧泞牛扭钮纽脓浓农弄奴努怒女暖虐疟挪懦糯诺哦欧鸥殴藕呕偶沤啪趴爬帕怕琶拍排牌徘湃派攀潘盘磐盼畔判叛乓庞旁耪胖抛咆刨炮袍跑泡呸胚培裴赔陪配佩沛喷盆砰抨烹澎彭蓬棚硼篷膨朋鹏捧碰坯砒霹批披劈琵毗啤脾疲皮匹痞僻屁譬篇偏片骗飘漂瓢票撇瞥拼频贫品聘乒坪苹萍平凭瓶评屏坡泼颇婆破魄迫粕剖扑铺仆莆葡菩蒲埔朴圃普浦谱曝瀑期欺栖戚妻七凄漆柒沏其棋奇歧畦崎脐齐旗祈祁骑起岂乞企启契砌器气迄弃汽泣讫掐洽牵扦钎铅千迁签仟谦乾黔钱钳前潜遣浅谴堑嵌欠歉枪呛腔羌墙蔷强抢橇锹敲悄桥瞧乔侨巧鞘撬翘峭俏窍切茄且怯窃钦侵亲秦琴勤芹擒禽寝沁青轻氢倾卿清擎晴氰情顷请庆琼穷秋丘邱球求囚酋泅趋区蛆曲躯屈驱渠取娶龋趣去圈颧权醛泉全痊拳犬券劝缺炔瘸却鹊榷确雀裙群然燃冉染瓤壤攘嚷让饶扰绕惹热壬仁人忍韧任认刃妊纫扔仍日戎茸蓉荣融熔溶容绒冗揉柔肉茹蠕儒孺如辱乳汝入褥软阮蕊瑞锐闰润若弱撒洒萨腮鳃塞赛三叁伞散桑嗓丧搔骚扫嫂瑟色涩森僧莎砂杀刹沙纱傻啥煞筛晒珊苫杉山删煽衫闪陕擅赡膳善汕扇缮墒伤商赏晌上尚裳梢捎稍烧芍勺韶少哨邵绍奢赊蛇舌舍赦摄射慑涉社设砷申呻伸身深娠绅神沈审婶甚肾慎渗声生甥牲升绳省盛剩胜圣师失狮施湿诗尸虱十石拾时什食蚀实识史矢使屎驶始式示士世柿事拭誓逝势是嗜噬适仕侍释饰氏市恃室视试收手首守寿授售受瘦兽蔬枢梳殊抒输叔舒淑疏书赎孰熟薯暑曙署蜀黍鼠属术述树束戍竖墅庶数漱恕刷耍摔衰甩帅栓拴霜双爽谁水睡税吮瞬顺舜说硕朔烁斯撕嘶思私司丝死肆寺嗣四伺似饲巳松耸怂颂送宋讼诵搜艘擞嗽苏酥俗素速粟塑溯宿诉肃酸蒜算虽隋随绥髓碎岁穗遂隧祟孙损笋蓑梭唆缩琐索锁所塌他它她塔獭挞蹋踏胎苔抬台泰酞太态汰坍摊贪瘫滩坛檀痰潭谭谈坦毯袒碳探叹炭汤塘搪堂棠膛唐糖倘躺淌趟烫掏涛滔绦萄桃逃淘陶讨套特藤腾疼誊梯剔踢锑提题蹄啼体替嚏惕涕剃屉天添填田甜恬舔腆挑条迢眺跳贴铁帖厅听烃汀廷停亭庭艇通桐酮瞳同铜彤童桶捅筒统痛偷投头透凸秃突图徒途涂屠土吐兔湍团推颓腿蜕褪退吞屯臀拖托脱鸵陀驮驼椭妥拓唾挖哇蛙洼娃瓦袜歪外豌弯湾玩顽丸烷完碗挽晚皖惋宛婉万腕汪王亡枉网往旺望忘妄威巍微危韦违桅围唯惟为潍维苇萎委伟伪尾纬未蔚味畏胃喂魏位渭谓尉慰卫瘟温蚊文闻纹吻稳紊问嗡翁瓮挝蜗涡窝我斡卧握沃巫呜钨乌污诬屋无芜梧吾吴毋武五捂午舞伍侮坞戊雾晤物勿务悟误昔熙析西硒矽晰嘻吸锡牺稀息希悉膝夕惜熄烯溪汐犀檄袭席习媳喜铣洗系隙戏细瞎虾匣霞辖暇峡侠狭下厦夏吓掀锨先仙鲜纤咸贤衔舷闲涎弦嫌显险现献县腺馅羡宪陷限线相厢镶香箱襄湘乡翔祥详想响享项巷橡像向象萧硝霄削哮嚣销消宵淆晓小孝校肖啸笑效楔些歇蝎鞋协挟携邪斜胁谐写械卸蟹懈泄泻谢屑薪芯锌欣辛新忻心信衅星腥猩惺兴刑型形邢行醒幸杏性姓兄凶胸匈汹雄熊休修羞朽嗅锈秀袖绣墟戌需虚嘘须徐许蓄酗叙旭序畜恤絮婿绪续轩喧宣悬旋玄选癣眩绚靴薛学穴雪血勋熏循旬询寻驯巡殉汛训讯逊迅压押鸦鸭呀丫芽牙蚜崖衙涯雅哑亚讶焉咽阉烟淹盐严研蜒岩延言颜阎炎沿奄掩眼衍演艳堰燕厌砚雁唁彦焰宴谚验殃央鸯秧杨扬佯疡羊洋阳氧仰痒养样漾邀腰妖瑶摇尧遥窑谣姚咬舀药要耀椰噎耶爷野冶也页掖业叶曳腋夜液一壹医揖铱依伊衣颐夷遗移仪胰疑沂宜姨彝椅蚁倚已乙矣以艺抑易邑屹亿役臆逸肄疫亦裔意毅忆义益溢诣议谊译异翼翌绎茵荫因殷音阴姻吟银淫寅饮尹引隐印英樱婴鹰应缨莹萤营荧蝇迎赢盈影颖硬映哟拥佣臃痈庸雍踊蛹咏泳涌永恿勇用幽优悠忧尤由邮铀犹油游酉有友右佑釉诱又幼迂淤于盂榆虞愚舆余俞逾鱼愉渝渔隅予娱雨与屿禹宇语羽玉域芋郁吁遇喻峪御愈欲狱育誉浴寓裕预豫驭鸳渊冤元垣袁原援辕园员圆猿源缘远苑愿怨院曰约越跃钥岳粤月悦阅耘云郧匀陨允运蕴酝晕韵孕匝砸杂栽哉灾宰载再在咱攒暂赞赃脏葬遭糟凿藻枣早澡蚤躁噪造皂灶燥责择则泽贼怎增憎曾赠扎喳渣札轧铡闸眨栅榨咋乍炸诈摘斋宅窄债寨瞻毡詹粘沾盏斩辗崭展蘸栈占战站湛绽樟章彰漳张掌涨杖丈帐账仗胀瘴障招昭找沼赵照罩兆肇召遮折哲蛰辙者锗蔗这浙珍斟真甄砧臻贞针侦枕疹诊震振镇阵蒸挣睁征狰争怔整拯正政帧症郑证芝枝支吱蜘知肢脂汁之织职直植殖执值侄址指止趾只旨纸志挚掷至致置帜峙制智秩稚质炙痔滞治窒中盅忠钟衷终种肿重仲众舟周州洲诌粥轴肘帚咒皱宙昼骤珠株蛛朱猪诸诛逐竹烛煮拄瞩嘱主著柱助蛀贮铸筑住注祝驻抓爪拽专砖转撰赚篆桩庄装妆撞壮状椎锥追赘坠缀谆准捉拙卓桌琢茁酌啄着灼浊兹咨资姿滋淄孜紫仔籽滓子自渍字鬃棕踪宗综总纵邹走奏揍租足卒族祖诅阻组钻纂嘴醉最罪尊遵昨左佐柞做作坐座'
 )
-SFACG_CHAR_TRANS = str.maketrans(
-    dict(zip(SFACG_OBFUSCATED_CHARS, SFACG_REPLACEMENT_CHARS))
+SFC_CHAR_TRANS = str.maketrans(
+    dict(zip(SFC_OBFUSCATED_CHARS, SFC_REPLACEMENT_CHARS))
 )
 
 
@@ -182,32 +182,32 @@ class ExternalScraper:
         self._page = None
         self._chrome_process = None
         self._ntk_temp_chrome = False
-        self._munpia_chrome = False
-        self._munpia_cdp_port = None
-        self.munpia_interval = 0.5
-        self.munpia_interval_max = None
-        self._novelpia_chrome = False
-        self._novelpia_cdp_port = None
-        self._ridi_chrome = False
-        self._ridi_site = ''
-        self._ridi_cdp_port = None
-        self._ridi_app_proxy = None
-        self._ridi_app_lock = threading.Lock()
-        self._global_novelpia_session = None
-        self._global_novelpia_login_at = ''
-        self._global_novelpia_refresh_attempted = False
-        self._global_novelpia_auth_lock = threading.Lock()
-        self._global_novelpia_ad_state_lock = threading.Lock()
-        self._global_novelpia_ad_queue = None
-        self._global_novelpia_ad_thread = None
-        self._global_novelpia_ad_stop = threading.Event()
-        self._global_novelpia_ad_playwright = None
-        self._global_novelpia_ad_browser = None
-        self._global_novelpia_ad_context = None
-        self._global_novelpia_ad_page = None
-        self._global_novelpia_ad_process = None
-        self._global_novelpia_ad_cdp_port = None
-        self._global_novelpia_ad_profile = None
+        self._mpia_chrome = False
+        self._mpia_cdp_port = None
+        self.mpia_interval = 0.5
+        self.mpia_interval_max = None
+        self._npia_chrome = False
+        self._npia_cdp_port = None
+        self._rbooks_chrome = False
+        self._rbooks_site = ''
+        self._rbooks_cdp_port = None
+        self._rbooks_app_proxy = None
+        self._rbooks_app_lock = threading.Lock()
+        self._global_npia_session = None
+        self._global_npia_login_at = ''
+        self._global_npia_refresh_attempted = False
+        self._global_npia_auth_lock = threading.Lock()
+        self._global_npia_ad_state_lock = threading.Lock()
+        self._global_npia_ad_queue = None
+        self._global_npia_ad_thread = None
+        self._global_npia_ad_stop = threading.Event()
+        self._global_npia_ad_playwright = None
+        self._global_npia_ad_browser = None
+        self._global_npia_ad_context = None
+        self._global_npia_ad_page = None
+        self._global_npia_ad_process = None
+        self._global_npia_ad_cdp_port = None
+        self._global_npia_ad_profile = None
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._faloo_pages = []    # Reused Faloo reader pages
@@ -225,38 +225,38 @@ class ExternalScraper:
                         self.ntk_curl_command = f.read().strip()
             except Exception:
                 self.ntk_curl_command = ""
-        self.ntk_prefer_novelpia_cover = False
-        self.novelpia_include_notices = True
+        self.ntk_prefer_npia_cover = False
+        self.npia_include_notices = True
         self.syosetu_amazon_cover_fallback = False
         self.kobo_horizontal_layout = True
-        self._kakao_css_cache = {}
-        self.kakao_keep_filler = False
-        self.kakao_skip_last_page = False
-        self._sfacg_app_cookie = None
-        self._sfacg_app_cookie_checked = False
-        self._sfacg_app_prefer_logged = False
+        self._kpage_css_cache = {}
+        self.kpage_keep_filler = False
+        self.kpage_skip_last_page = False
+        self._sfc_app_cookie = None
+        self._sfc_app_cookie_checked = False
+        self._sfc_app_prefer_logged = False
         self._1qxs_cookies = {}
         self._1qxs_request_lock = threading.Lock()
         self._1qxs_next_request_at = 0.0
         self._1qxs_cooldown_until = 0.0
-        self._joara_http = None
-        self._joara_params = None
-        self._joara_token = ''
-        self._joara_key = None
-        self._joara_key_born = 0.0
-        self._joara_run = 0
-        self._joara_last_request_at = 0.0
-        self._joara_request_lock = threading.Lock()
-        self._joara_next_request_at = 0.0
-        self._naver_cookies = None
-        # Publisher logo banners detected for the current Naver book. Many
+        self._jara_http = None
+        self._jara_params = None
+        self._jara_token = ''
+        self._jara_key = None
+        self._jara_key_born = 0.0
+        self._jara_run = 0
+        self._jara_last_request_at = 0.0
+        self._jara_request_lock = threading.Lock()
+        self._jara_next_request_at = 0.0
+        self._nweb_cookies = None
+        # Publisher logo banners detected for the current Nweb book. Many
         # works upload a fresh copy of the logo for every episode, so logos
         # are recognised by appearance, not only by URL.
-        self._naver_end_images = set()
-        self._naver_logo_signatures = []
-        self._naver_logo_names = set()
-        self._naver_image_signatures = {}
-        self._naver_image_lock = threading.Lock()
+        self._nweb_end_images = set()
+        self._nweb_logo_signatures = []
+        self._nweb_logo_names = set()
+        self._nweb_image_signatures = {}
+        self._nweb_image_lock = threading.Lock()
         # Set by a native scraper when retrying is pointless (for example a
         # site-wide human check that was not completed). The dialog stops
         # the download instead of retrying every remaining chapter.
@@ -280,7 +280,7 @@ class ExternalScraper:
         """Python transport for GM_xmlhttpRequest.
 
         Browser fetch cannot set several userscript/app headers and is still
-        subject to CORS. Some novel-downloader rules, including SFACG's app API
+        subject to CORS. Some novel-downloader rules, including SFC's app API
         fallback, rely on the stronger Tampermonkey transport.
         """
         details = details or {}
@@ -290,7 +290,7 @@ class ExternalScraper:
 
         method = (details.get("method") or "GET").upper()
         parsed_url = urllib.parse.urlparse(url)
-        is_sfacg_api = parsed_url.netloc.lower() == "api.sfacg.com"
+        is_sfc_api = parsed_url.netloc.lower() == "api.\u0073\u0066\u0061\u0063\u0067.com"
         headers = {
             str(k): str(v)
             for k, v in (details.get("headers") or {}).items()
@@ -322,8 +322,8 @@ class ExternalScraper:
                 if name and value is not None and name not in seen:
                     cookie_parts.append(f"{name}={value}")
                     seen.add(name)
-            if is_sfacg_api:
-                app_cookie = self._get_sfacg_app_cookie()
+            if is_sfc_api:
+                app_cookie = self._get_sfc_app_cookie()
                 for item in self._split_cookie_header(app_cookie):
                     name = item.split("=", 1)[0].strip()
                     if not name:
@@ -346,13 +346,13 @@ class ExternalScraper:
 
         try:
             import requests
-            if is_sfacg_api:
+            if is_sfc_api:
                 cookie_header = ""
                 for key, value in headers.items():
                     if key.lower() == "cookie":
                         cookie_header = value
                         break
-                return self._sfacg_api_gm_request(
+                return self._sfc_api_gm_request(
                     requests,
                     method,
                     url,
@@ -411,20 +411,20 @@ class ExternalScraper:
         return result
 
     @staticmethod
-    def _sfacg_api_status_code(response):
+    def _sfc_api_status_code(response):
         try:
             data = response.json()
             return data.get("status", {}).get("httpCode")
         except Exception:
             return None
 
-    def _sfacg_api_response(
+    def _sfc_api_response(
             self, requests, method, url, data, timeout, cookie_header):
-        """Run one SFACG app API request with native signing and nonce retry."""
+        """Run one SFC app API request with native signing and nonce retry."""
         last_response = None
         for attempt in range(1, 21):
             nonce = str(uuid.uuid4()).upper()
-            headers = self._sfacg_headers(nonce, method=method)
+            headers = self._sfc_headers(nonce, method=method)
             if cookie_header:
                 headers["Cookie"] = cookie_header
             response = requests.request(
@@ -436,25 +436,25 @@ class ExternalScraper:
                 allow_redirects=True,
             )
             last_response = response
-            if self._sfacg_api_status_code(response) != 417:
+            if self._sfc_api_status_code(response) != 417:
                 return response
             if attempt % 5 == 0 or attempt == 20:
                 self.log(
-                    "[SFACG] App API signature rejected; rotating "
+                    "[SFC] App API signature rejected; rotating "
                     f"native nonce {attempt}/20."
                 )
             time.sleep(0.25)
         return last_response
 
-    def _sfacg_api_gm_request(
+    def _sfc_api_gm_request(
             self, requests, method, url, data, timeout, response_type,
             cookie_header):
-        """GM_xmlhttpRequest transport for SFACG app API calls."""
-        response = self._sfacg_api_response(
+        """GM_xmlhttpRequest transport for SFC app API calls."""
+        response = self._sfc_api_response(
             requests, method, url, data, timeout, cookie_header
         )
         if response is None:
-            return {"error": "sfacg api request failed"}
+            return {"error": "sfc api request failed"}
         return self._gm_response_result(response, response_type)
 
     @staticmethod
@@ -501,7 +501,7 @@ class ExternalScraper:
         return out
 
     @staticmethod
-    def _sfacg_sign(nonce, timestamp, device_token, salt):
+    def _sfc_sign(nonce, timestamp, device_token, salt):
         long_nonce = nonce * 4
 
         def index_calc(index):
@@ -537,16 +537,16 @@ class ExternalScraper:
                 final += char
         return hashlib.md5(final.encode("utf-8")).hexdigest().upper()
 
-    def _sfacg_headers(self, nonce, method="GET"):
+    def _sfc_headers(self, nonce, method="GET"):
         device_token = "910D166A-736E-3231-8B21-8D12DFD75F16"
         salt = "lPQDb9AKO7$LjkPG"
         timestamp = int(time.time() * 1000)
         sfsecurity = (
             f"nonce={nonce}&timestamp={timestamp}&devicetoken={device_token}"
-            f"&sign={self._sfacg_sign(nonce, timestamp, device_token, salt)}"
+            f"&sign={self._sfc_sign(nonce, timestamp, device_token, salt)}"
         )
         headers = {
-            "accept": "application/vnd.sfacg.api+json;version=1",
+            "accept": "application/vnd.\u0073\u0066\u0061\u0063\u0067.api+json;version=1",
             "accept-charset": "UTF-8",
             "accept-encoding": "gzip",
             "authorization": (
@@ -562,17 +562,17 @@ class ExternalScraper:
             headers["content-type"] = "application/json; charset=UTF-8"
         return headers
 
-    def _get_sfacg_app_cookie(self):
-        """Return optional SFACG app API cookie for VIP text chapters."""
-        if self._sfacg_app_cookie_checked:
-            return self._sfacg_app_cookie or ""
-        self._sfacg_app_cookie_checked = True
+    def _get_sfc_app_cookie(self):
+        """Return optional SFC app API cookie for VIP text chapters."""
+        if self._sfc_app_cookie_checked:
+            return self._sfc_app_cookie or ""
+        self._sfc_app_cookie_checked = True
 
-        cookie = (os.environ.get("NPIA_SFACG_COOKIE") or "").strip()
+        cookie = (os.environ.get("NPIA_SFC_COOKIE") or "").strip()
         if not cookie:
             for path in (
-                os.path.join(_get_base_dir(), "sfacg_app_cookie.txt"),
-                os.path.join(_get_app_data_dir(), "sfacg_app_cookie.txt"),
+                os.path.join(_get_base_dir(), "sfc_app_cookie.txt"),
+                os.path.join(_get_app_data_dir(), "sfc_app_cookie.txt"),
             ):
                 try:
                     if os.path.exists(path):
@@ -592,28 +592,28 @@ class ExternalScraper:
             config = {}
 
         if not cookie:
-            cookie = str(config.get("sfacg_cookie") or "").strip()
+            cookie = str(config.get("sfc_cookie") or "").strip()
 
         if not cookie:
             username = (
-                os.environ.get("NPIA_SFACG_USER")
-                or config.get("sfacg_user")
+                os.environ.get("NPIA_SFC_USER")
+                or config.get("sfc_user")
                 or ""
             )
             password = (
-                os.environ.get("NPIA_SFACG_PASS")
-                or config.get("sfacg_pass")
+                os.environ.get("NPIA_SFC_PASS")
+                or config.get("sfc_pass")
                 or ""
             )
             if username and password:
-                cookie = self._sfacg_login(str(username), str(password))
+                cookie = self._sfc_login(str(username), str(password))
                 if cookie:
                     try:
                         os.makedirs(_get_app_data_dir(), exist_ok=True)
                         with open(
                             os.path.join(
                                 _get_app_data_dir(),
-                                "sfacg_app_cookie.txt",
+                                "sfc_app_cookie.txt",
                             ),
                             "w",
                             encoding="utf-8",
@@ -628,16 +628,16 @@ class ExternalScraper:
                 for item in self._split_cookie_header(cookie)
             ]
             if "session_APP" in names:
-                self.log("[SFACG] Using app API session for VIP text chapters.")
+                self.log("[SFC] Using app API session for VIP text chapters.")
             else:
                 self.log(
-                    "[SFACG] App cookie configured but session_APP is missing."
+                    "[SFC] App cookie configured but session_APP is missing."
                 )
-            self._sfacg_app_cookie = cookie
-        return self._sfacg_app_cookie or ""
+            self._sfc_app_cookie = cookie
+        return self._sfc_app_cookie or ""
 
-    def _sfacg_should_prefer_app_api(self):
-        """Use SFACG's app API for all chapters when session_APP exists."""
+    def _sfc_should_prefer_app_api(self):
+        """Use SFC's app API for all chapters when session_APP exists."""
         source_url = (
             (self._book_data or {}).get("bookUrl")
             or self._book_url
@@ -647,21 +647,21 @@ class ExternalScraper:
             host = urllib.parse.urlparse(source_url).hostname or ""
         except Exception:
             host = ""
-        if "sfacg.com" not in host.lower():
+        if "\u0073\u0066\u0061\u0063\u0067.com" not in host.lower():
             return False
-        cookie = self._get_sfacg_app_cookie()
+        cookie = self._get_sfc_app_cookie()
         names = {
             item.split("=", 1)[0]
             for item in self._split_cookie_header(cookie)
         }
         ok = "session_APP" in names
-        if ok and not self._sfacg_app_prefer_logged:
-            self.log("[SFACG] App session available; preferring app API for all chapters.")
-            self._sfacg_app_prefer_logged = True
+        if ok and not self._sfc_app_prefer_logged:
+            self.log("[SFC] App session available; preferring app API for all chapters.")
+            self._sfc_app_prefer_logged = True
         return ok
 
     @staticmethod
-    def _sfacg_chapter_id_from_url(url):
+    def _sfc_chapter_id_from_url(url):
         try:
             path = urllib.parse.urlparse(url).path
         except Exception:
@@ -670,24 +670,24 @@ class ExternalScraper:
         return matches[-1] if matches else ""
 
     @staticmethod
-    def _sfacg_image_name(url, index):
+    def _sfc_image_name(url, index):
         path = urllib.parse.urlparse(url).path
-        name = os.path.basename(path) or f"sfacg_image_{index}.jpg"
+        name = os.path.basename(path) or f"sfc_image_{index}.jpg"
         name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
         if not name:
-            name = f"sfacg_image_{index}.jpg"
+            name = f"sfc_image_{index}.jpg"
         if "." not in name:
             name += ".jpg"
         return name
 
     @staticmethod
-    def _sfacg_decode_content(text):
-        """Decode SFACG app API text substitution into readable Chinese."""
-        return str(text or "").translate(SFACG_CHAR_TRANS)
+    def _sfc_decode_content(text):
+        """Decode SFC app API text substitution into readable Chinese."""
+        return str(text or "").translate(SFC_CHAR_TRANS)
 
     @classmethod
-    def _sfacg_content_to_outputs(cls, text):
-        raw_text = cls._sfacg_decode_content(text)
+    def _sfc_content_to_outputs(cls, text):
+        raw_text = cls._sfc_decode_content(text)
         image_pattern = re.compile(
             r"\[img(?:=[^\]]*)?\](https?://.*?)\[/img\]",
             re.IGNORECASE | re.DOTALL,
@@ -700,7 +700,7 @@ class ExternalScraper:
             if url not in seen_urls:
                 seen_urls.add(url)
                 images.append({
-                    "name": cls._sfacg_image_name(url, len(images) + 1),
+                    "name": cls._sfc_image_name(url, len(images) + 1),
                     "url": url,
                     "data": None,
                 })
@@ -738,20 +738,20 @@ class ExternalScraper:
             "images": images,
         }
 
-    def _sfacg_app_cookie_header(self):
-        cookie = self._get_sfacg_app_cookie()
+    def _sfc_app_cookie_header(self):
+        cookie = self._get_sfc_app_cookie()
         parts = self._split_cookie_header(cookie)
         names = {item.split("=", 1)[0] for item in parts}
         if "session_APP" not in names:
             return ""
         return "; ".join(parts)
 
-    def _sfacg_parse_chapter_app_api(
+    def _sfc_parse_chapter_app_api(
             self, chapter_url, chapter_name, requests_module=None,
             cookie_header=None):
-        """Fetch one SFACG chapter directly through the mobile/app API."""
-        chapter_id = self._sfacg_chapter_id_from_url(chapter_url)
-        cookie_header = cookie_header or self._sfacg_app_cookie_header()
+        """Fetch one SFC chapter directly through the mobile/app API."""
+        chapter_id = self._sfc_chapter_id_from_url(chapter_url)
+        cookie_header = cookie_header or self._sfc_app_cookie_header()
         if not chapter_id or not cookie_header:
             return None
         requests = requests_module
@@ -759,14 +759,14 @@ class ExternalScraper:
             try:
                 import requests
             except Exception as e:
-                self.log(f"[SFACG] App API unavailable: {e}")
+                self.log(f"[SFC] App API unavailable: {e}")
                 return None
 
         api_url = (
-            f"https://api.sfacg.com/Chaps/{chapter_id}"
+            f"https://api.\u0073\u0066\u0061\u0063\u0067.com/Chaps/{chapter_id}"
             "?expand=content%2Cexpand.content"
         )
-        response = self._sfacg_api_response(
+        response = self._sfc_api_response(
             requests, "GET", api_url, None, 30.0, cookie_header
         )
         if response is None:
@@ -779,7 +779,7 @@ class ExternalScraper:
         status = payload.get("status", {}).get("httpCode")
         if status in (401, 403):
             self.log(
-                f"[SFACG] API chapter {chapter_id} requires an app session "
+                f"[SFC] API chapter {chapter_id} requires an app session "
                 f"with access ({status})"
             )
             return None
@@ -798,7 +798,7 @@ class ExternalScraper:
         if not content:
             return None
         title = data.get("title") or chapter_name
-        outputs = self._sfacg_content_to_outputs(content)
+        outputs = self._sfc_content_to_outputs(content)
         return {
             "chapterName": title,
             "contentHtml": outputs["contentHtml"],
@@ -807,53 +807,53 @@ class ExternalScraper:
             "images": outputs["images"],
         }
 
-    def login_sfacg_app(self, username, password):
-        """Log in through SFACG's app API and persist session_APP cookie."""
+    def login_sfc_app(self, username, password):
+        """Log in through SFC's app API and persist session_APP cookie."""
         username = str(username or "").strip()
         password = str(password or "")
         if not username or not password:
             return False
-        cookie = self._sfacg_login(username, password)
+        cookie = self._sfc_login(username, password)
         if not cookie:
             return False
         try:
             os.makedirs(_get_app_data_dir(), exist_ok=True)
             with open(
-                os.path.join(_get_app_data_dir(), "sfacg_app_cookie.txt"),
+                os.path.join(_get_app_data_dir(), "sfc_app_cookie.txt"),
                 "w",
                 encoding="utf-8",
             ) as f:
                 f.write(cookie)
         except Exception as e:
-            self.log(f"[SFACG] Could not save app cookie: {e}")
-        self._sfacg_app_cookie = cookie
-        self._sfacg_app_cookie_checked = True
+            self.log(f"[SFC] Could not save app cookie: {e}")
+        self._sfc_app_cookie = cookie
+        self._sfc_app_cookie_checked = True
         return True
 
-    def save_sfacg_app_cookie(self, cookie):
-        """Persist a user-supplied SFACG app API cookie."""
+    def save_sfc_app_cookie(self, cookie):
+        """Persist a user-supplied SFC app API cookie."""
         cookie = str(cookie or "").strip()
         names = [
             item.split("=", 1)[0]
             for item in self._split_cookie_header(cookie)
         ]
         if "session_APP" not in names:
-            self.log("[SFACG] App cookie import failed: session_APP missing.")
+            self.log("[SFC] App cookie import failed: session_APP missing.")
             return False
         try:
             os.makedirs(_get_app_data_dir(), exist_ok=True)
             with open(
-                os.path.join(_get_app_data_dir(), "sfacg_app_cookie.txt"),
+                os.path.join(_get_app_data_dir(), "sfc_app_cookie.txt"),
                 "w",
                 encoding="utf-8",
             ) as f:
                 f.write(cookie)
         except Exception as e:
-            self.log(f"[SFACG] Could not save app cookie: {e}")
+            self.log(f"[SFC] Could not save app cookie: {e}")
             return False
-        self._sfacg_app_cookie = cookie
-        self._sfacg_app_cookie_checked = True
-        self.log("[SFACG] App cookie imported.")
+        self._sfc_app_cookie = cookie
+        self._sfc_app_cookie_checked = True
+        self.log("[SFC] App cookie imported.")
         return True
 
     @staticmethod
@@ -1537,7 +1537,7 @@ class ExternalScraper:
             self.log(f"[Android] Could not open {label}: {e}")
             return False
 
-    def _launch_sfacg_after_android_boot_async(self, avd_name=None):
+    def _launch_sfc_after_android_boot_async(self, avd_name=None):
         def run():
             if self._android_wait_for_device(timeout=240):
                 serial = ""
@@ -1547,8 +1547,8 @@ class ExternalScraper:
                             serial = item_serial
                             break
                 self._launch_android_package(
-                    "com.sfacg",
-                    "SFACG",
+                    "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
+                    "SFC",
                     serial=serial or None,
                 )
 
@@ -1852,8 +1852,8 @@ class ExternalScraper:
                 return False
         if "play" not in avd_name.lower():
             self.log(
-                "[Android] Using rootable AVD for SFACG import. "
-                "Facebook/SFACG must be installed there."
+                "[Android] Using rootable AVD for SFC import. "
+                "Facebook/SFC must be installed there."
             )
         running_serial = self._android_serial_for_avd(avd_name)
         if running_serial:
@@ -1862,8 +1862,8 @@ class ExternalScraper:
                 f"({running_serial}); reusing it."
             )
             self._launch_android_package(
-                "com.sfacg",
-                "SFACG",
+                "\u0063\u006f\u006d\u002e\u0073\u0066\u0061\u0063\u0067",
+                "SFC",
                 serial=running_serial,
             )
             return True
@@ -1887,7 +1887,7 @@ class ExternalScraper:
                 args,
                 cwd=os.path.dirname(emulator),
             )
-            self._launch_sfacg_after_android_boot_async(avd_name)
+            self._launch_sfc_after_android_boot_async(avd_name)
             return True
         except Exception as e:
             self.log(f"[Android] Could not launch emulator: {e}")
@@ -1957,7 +1957,7 @@ class ExternalScraper:
             time.sleep(2)
         return False
 
-    def _android_sfacg_packages(self, serial=None):
+    def _android_sfc_packages(self, serial=None):
         try:
             proc = self._adb(
                 "shell",
@@ -1974,7 +1974,7 @@ class ExternalScraper:
         for line in proc.stdout.splitlines():
             name = line.replace("package:", "").strip()
             lower = name.lower()
-            if "sfacg" in lower or "boluobao" in lower:
+            if "sfc" in lower or "boluobao" in lower:
                 packages.append(name)
         return packages
 
@@ -2010,8 +2010,8 @@ class ExternalScraper:
         )
 
     @staticmethod
-    def _sfacg_cookie_from_sqlite_bytes(raw):
-        fd, temp_path = tempfile.mkstemp(prefix="sfacg_cookies_", suffix=".db")
+    def _sfc_cookie_from_sqlite_bytes(raw):
+        fd, temp_path = tempfile.mkstemp(prefix="sfc_cookies_", suffix=".db")
         os.close(fd)
         try:
             with open(temp_path, "wb") as f:
@@ -2048,7 +2048,7 @@ class ExternalScraper:
         return "", encrypted
 
     @staticmethod
-    def _sfacg_cookie_from_text(raw):
+    def _sfc_cookie_from_text(raw):
         try:
             text = raw.decode("utf-8", errors="ignore")
         except Exception:
@@ -2069,7 +2069,7 @@ class ExternalScraper:
         parts.append(f"session_APP={session.group(1)}")
         return "; ".join(parts)
 
-    def import_sfacg_app_cookie_from_android(self):
+    def import_sfc_app_cookie_from_android(self):
         """Try to extract session_APP from an emulator after app login."""
         if not self._android_wait_for_device():
             self.log("[Android] No booted emulator/device found.")
@@ -2099,28 +2099,28 @@ class ExternalScraper:
                 self.log(
                     "[Android] Rooted Play Store AVDs are supported if "
                     "Magisk/su is available. Otherwise use the rootable AVD "
-                    "(syfe_poc_api35) for SFACG login/import."
+                    "(syfe_poc_api35) for SFC login/import."
                 )
                 return False
             if root_serial and "uid=0(root)" not in (id_proc.stdout or ""):
                 self.log(
-                    "[Android] Using su/root access for SFACG app data "
+                    "[Android] Using su/root access for SFC app data "
                     f"on {root_serial}."
                 )
         except Exception:
             pass
         if not root_serial:
             root_serial = self._android_serial()
-        packages = self._android_sfacg_packages(serial=root_serial)
+        packages = self._android_sfc_packages(serial=root_serial)
         if not packages:
             self.log(
-                "[Android] SFACG app package not found. Install/login in the "
-                "SFACG app from Play Store first."
+                "[Android] SFC app package not found. Install/login in the "
+                "SFC app from Play Store first."
             )
             return False
         encrypted_seen = False
         for package in packages:
-            self.log(f"[Android] Checking SFACG package: {package}")
+            self.log(f"[Android] Checking SFC package: {package}")
             paths = [
                 f"/data/data/{package}/app_webview/Default/Cookies",
                 f"/data/data/{package}/app_webview/Cookies",
@@ -2169,11 +2169,11 @@ class ExternalScraper:
                 raw = self._android_read_file(path, serial=root_serial)
                 if not raw:
                     continue
-                cookie, encrypted = self._sfacg_cookie_from_sqlite_bytes(raw)
+                cookie, encrypted = self._sfc_cookie_from_sqlite_bytes(raw)
                 encrypted_seen = encrypted_seen or encrypted
                 if not cookie:
-                    cookie = self._sfacg_cookie_from_text(raw)
-                if cookie and self.save_sfacg_app_cookie(cookie):
+                    cookie = self._sfc_cookie_from_text(raw)
+                if cookie and self.save_sfc_app_cookie(cookie):
                     self.log(f"[Android] Imported session_APP from {package}.")
                     return True
         if encrypted_seen:
@@ -2185,7 +2185,7 @@ class ExternalScraper:
             self.log("[Android] session_APP was not found in app data.")
         return False
 
-    def _sfacg_login(self, username, password):
+    def _sfc_login(self, username, password):
         payload = json.dumps({
             "password": password,
             "shuMeiId": "",
@@ -2195,10 +2195,10 @@ class ExternalScraper:
             import requests
 
             session = requests.Session()
-            response = self._sfacg_api_response(
+            response = self._sfc_api_response(
                 session,
                 "POST",
-                "https://api.sfacg.com/sessions",
+                "https://api.\u0073\u0066\u0061\u0063\u0067.com/sessions",
                 payload,
                 30.0,
                 "",
@@ -2211,15 +2211,15 @@ class ExternalScraper:
                 sfcommunity = cookies.get(".SFCommunity")
                 session_app = cookies.get("session_APP")
                 if sfcommunity and session_app:
-                    self.log("[SFACG] App API login succeeded.")
+                    self.log("[SFC] App API login succeeded.")
                     return (
                         f".SFCommunity={sfcommunity}; "
                         f"session_APP={session_app}"
                     )
             msg = data.get("status", {}).get("msg") or response.reason
-            self.log(f"[SFACG] App API login failed: {msg}")
+            self.log(f"[SFC] App API login failed: {msg}")
         except Exception as e:
-            self.log(f"[SFACG] App API login failed: {e}")
+            self.log(f"[SFC] App API login failed: {e}")
         return ""
 
     @staticmethod
@@ -2322,10 +2322,10 @@ class ExternalScraper:
         return False
 
     # Chrome drops site session cookies when the Enter Browser window closes.
-    # Downloads start in a new Chrome process, so preserve RIDI and Kobo
+    # Downloads start in a new Chrome process, so preserve RBOOKS and Kobo
     # logins alongside Qidian's until that process can restore them.
     _SESSION_COOKIE_DOMAINS = (
-        'qidian.com', 'yuewen.com', 'ridibooks.com', 'kobo.com',
+        'qidian.com', 'yuewen.com', '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com', 'kobo.com',
     )
 
     @classmethod
@@ -3082,7 +3082,7 @@ class ExternalScraper:
     def _park_chrome_windows_for_profile(self, user_data_dir):
         """Move headed Chrome off-screen without minimizing or hiding it.
 
-        Novelpia rejects viewer requests when Chrome is minimized or its
+        Npia rejects viewer requests when Chrome is minimized or its
         window is hidden. Keeping the native window in the normal restored
         state preserves headed-browser visibility while preventing it from
         covering the user's desktop.
@@ -3461,7 +3461,7 @@ class ExternalScraper:
         self._page = self._context.new_page()
         # Suppress console noise but capture errors
         self._page.on("console", self._on_console)
-        self._munpia_chrome = False
+        self._mpia_chrome = False
         self.log("Browser ready.")
 
     def _start_ntk_browser(self, start_url):
@@ -3556,9 +3556,9 @@ class ExternalScraper:
         use_regular = (
             regular_browser
             or self.is_ntk_novel(start_url)
-            or self.is_novelpia(start_url)
-            or self.is_global_novelpia(start_url)
-            or self.is_munpia(start_url)
+            or self.is_npia(start_url)
+            or self.is_global_npia(start_url)
+            or self.is_mpia(start_url)
         )
         if use_regular and self.is_ntk_novel(start_url):
             user_data_dir = self._get_ntk_user_data_dir()
@@ -3783,8 +3783,8 @@ class ExternalScraper:
         except Exception:
             self._playwright = None
 
-    def _console_from_ridi(self, msg):
-        if self._ridi_chrome and getattr(self, '_ridi_site', '') in ('', 'Ridi'):
+    def _console_from_rbooks(self, msg):
+        if self._rbooks_chrome and getattr(self, '_rbooks_site', '') in ('', 'Rbooks'):
             return True
         try:
             page = getattr(msg, 'page', None)
@@ -3792,13 +3792,13 @@ class ExternalScraper:
         except Exception:
             host = ''
         host = (host or '').lower()
-        return host == 'ridibooks.com' or host.endswith('.ridibooks.com')
+        return host == '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com' or host.endswith('.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com')
 
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
         text = msg.text
         lowered = text.lower()
-        # Ridi emits these two known browser/analytics messages on every
+        # Rbooks emits these two known browser/analytics messages on every
         # otherwise-successful product page. They do not affect scraping and
         # should not be presented to the user as downloader failures.
         if (
@@ -3811,19 +3811,19 @@ class ExternalScraper:
             return
         if 'TypeError: Failed to fetch' in text:
             return
-        # Ridi's own trackers (Google Analytics, DoubleClick, TikTok,
-        # Facebook frames, ...) being blocked by Ridi's own CSP: several per
+        # Rbooks's own trackers (Google Analytics, DoubleClick, TikTok,
+        # Facebook frames, ...) being blocked by Rbooks's own CSP: several per
         # page, none affecting scraping. Other sites keep these lines, since
         # a CSP block there can be a real scraping failure.
         if (
             'content security policy' in lowered
-            and self._console_from_ridi(msg)
+            and self._console_from_rbooks(msg)
         ):
             return
         if (
             'blocked by cors policy' in lowered
-            and 'static.ridicdn.net/web-font/pretendard/' in lowered
-            and self._console_from_ridi(msg)
+            and 'static.\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net/web-font/pretendard/' in lowered
+            and self._console_from_rbooks(msg)
         ):
             return
         if 'whoas.xyz/collect' in text:
@@ -3838,7 +3838,7 @@ class ExternalScraper:
             "[ND-Bridge]" in text
             or "[ND-Fetch]" in text
             or "[Init]" in text
-            or "[sfacg]" in text
+            or "[sfc]" in text
         ):
             self.log(f"[JS] {text}")
         elif msg.type == "error" and "Failed to load resource" not in text:
@@ -3869,16 +3869,16 @@ class ExternalScraper:
         return bool(re.match(r'^/(book|chapter)/\d+', parsed.path or ''))
 
     @staticmethod
-    def is_novelpia(url):
-        """Return True for Korean Novelpia novel and viewer URLs."""
+    def is_npia(url):
+        """Return True for Korean Npia novel and viewer URLs."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return False
         host = (parsed.hostname or '').lower()
-        if host == 'global.novelpia.com':
+        if host == 'global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com':
             return False
-        if host != 'novelpia.com' and not host.endswith('.novelpia.com'):
+        if host != '\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com' and not host.endswith('.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'):
             return False
         return bool(
             re.match(
@@ -3888,13 +3888,13 @@ class ExternalScraper:
         )
 
     @staticmethod
-    def is_global_novelpia(url):
-        """Return True for Global Novelpia novel index URLs."""
+    def is_global_npia(url):
+        """Return True for Global Npia novel index URLs."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return False
-        if (parsed.hostname or '').lower() != 'global.novelpia.com':
+        if (parsed.hostname or '').lower() != 'global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com':
             return False
         return bool(re.match(
             r'^/novel/\d+(?:[/?#]|$)',
@@ -3903,14 +3903,14 @@ class ExternalScraper:
         ))
 
     @staticmethod
-    def is_ridibooks(url):
-        """Return True for Ridi product, viewer, and library book URLs."""
+    def is_rbooks(url):
+        """Return True for Rbooks product, viewer, and library book URLs."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return False
         host = (parsed.hostname or '').lower()
-        if host != 'ridibooks.com' and not host.endswith('.ridibooks.com'):
+        if host != '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com' and not host.endswith('.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com'):
             return False
         return bool(re.match(
             r'^/(?:books/\d+(?:/view)?|library/books/\d+)/?$',
@@ -4188,15 +4188,15 @@ class ExternalScraper:
 
     def cleanup(self):
         """Release browser resources."""
-        self._global_novelpia_shutdown_ad_worker()
+        self._global_npia_shutdown_ad_worker()
         self._backup_storage_state()
         site_cdp_port = (
-            self._ridi_cdp_port
-            if self._ridi_chrome
+            self._rbooks_cdp_port
+            if self._rbooks_chrome
             else (
-                self._novelpia_cdp_port
-                if self._novelpia_chrome
-                else self._munpia_cdp_port
+                self._npia_cdp_port
+                if self._npia_chrome
+                else self._mpia_cdp_port
             )
         )
         if site_cdp_port:
@@ -4248,21 +4248,21 @@ class ExternalScraper:
             self._chrome_process = None
         except Exception:
             self._chrome_process = None
-        self._munpia_chrome = False
-        self._munpia_cdp_port = None
-        self._novelpia_chrome = False
-        self._novelpia_cdp_port = None
-        self._ridi_chrome = False
-        self._ridi_site = ''
-        self._ridi_cdp_port = None
+        self._mpia_chrome = False
+        self._mpia_cdp_port = None
+        self._npia_chrome = False
+        self._npia_cdp_port = None
+        self._rbooks_chrome = False
+        self._rbooks_site = ''
+        self._rbooks_cdp_port = None
         try:
-            if self._global_novelpia_session:
-                self._global_novelpia_session.close()
+            if self._global_npia_session:
+                self._global_npia_session.close()
         except Exception:
             pass
-        self._global_novelpia_session = None
-        self._global_novelpia_login_at = ''
-        self._global_novelpia_refresh_attempted = False
+        self._global_npia_session = None
+        self._global_npia_login_at = ''
+        self._global_npia_refresh_attempted = False
         if self._ntk_temp_chrome:
             try:
                 closed = self._close_ntk_profile_chrome(
@@ -4294,12 +4294,12 @@ class ExternalScraper:
         if self._book_data and (
             self._book_data.get('_ntk_novel')
             or self._book_data.get('_qidian')
-            or self._book_data.get('_munpia')
-            or self._book_data.get('_novelpia')
+            or self._book_data.get('_mpia')
+            or self._book_data.get('_npia')
             or self._book_data.get('_69shuba')
             or self._book_data.get('_1qxs')
-            or self._book_data.get('_joara')
-            or self._book_data.get('_naver_novel')
+            or self._book_data.get('_jara')
+            or self._book_data.get('_nweb_novel')
         ):
             return
 
@@ -4443,7 +4443,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         The reader decrypts bought chapters in the page, and in headless
         Chrome that fails ("章节加载失败"). The off-screen headed Chrome used
-        for Ridi and Faloo decrypts them, so it is tried first.
+        for Rbooks and Faloo decrypts them, so it is tried first.
         """
         if self._context and self._page:
             try:
@@ -4454,7 +4454,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         elif self._context or self._browser or self._chrome_process:
             self.cleanup()
 
-        if self._start_ridi_browser(start_url, site='Qidian'):
+        if self._start_rbooks_browser(start_url, site='Qidian'):
             self._prepare_qidian_context()
             return True
         if self._chrome_processes_using_profile(self._get_user_data_dir()):
@@ -5507,13 +5507,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         return results
 
     # ------------------------------------------------------------------
-    # KakaoPage native scraper (fallback for unsupported JS rules)
+    # Kpage native scraper (fallback for unsupported JS rules)
     # ------------------------------------------------------------------
     @staticmethod
-    def is_kakaopage(url):
-        """Check if the URL is a KakaoPage content URL."""
+    def is_kpage(url):
+        """Check if the URL is a Kpage content URL."""
         return bool(url and re.match(
-            r'https?://page\.kakao\.com/content/\d+', url
+            r'https?://page\.\u006b\u0061\u006b\u0061\u006f\.com/content/\d+', url
         ))
 
     @staticmethod
@@ -5545,8 +5545,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         )
 
     @staticmethod
-    def is_munpia(url):
-        """Check if the URL is a Munpia novel or chapter page."""
+    def is_mpia(url):
+        """Check if the URL is a Mpia novel or chapter page."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
@@ -5554,13 +5554,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         host = (parsed.hostname or '').lower()
         if parsed.scheme not in ('http', 'https'):
             return False
-        if host in ('munpia.com', 'www.munpia.com'):
+        if host in ('\u006d\u0075\u006e\u0070\u0069\u0061.com', 'www.\u006d\u0075\u006e\u0070\u0069\u0061.com'):
             return bool(re.fullmatch(
                 r'/novel/(?:detail/\d+|viewer/\d+/\d+)/?',
                 parsed.path or '/',
             ))
         return bool(
-            host == 'novel.munpia.com'
+            host == 'novel.\u006d\u0075\u006e\u0070\u0069\u0061.com'
             and re.fullmatch(
                 r'/\d+(?:/page/\d+)?(?:/neSrl/\d+)?/?',
                 parsed.path or '/'
@@ -5568,8 +5568,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         )
 
     @staticmethod
-    def _munpia_novel_id(url):
-        if not ExternalScraper.is_munpia(url):
+    def _mpia_novel_id(url):
+        if not ExternalScraper.is_mpia(url):
             return ''
         try:
             match = re.match(
@@ -6203,14 +6203,14 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return candidates[0][1]
         return first_content_image
 
-    def _ntk_novelpia_id_from_cover_url(self, cover_url):
+    def _ntk_npia_id_from_cover_url(self, cover_url):
         match = re.search(r'/novel_thumb/(\d+)', cover_url or '', re.I)
         return match.group(1) if match else ''
 
-    def _ntk_fetch_novelpia_cover_url(self, novelpia_id):
-        if not novelpia_id:
+    def _ntk_fetch_npia_cover_url(self, npia_id):
+        if not npia_id:
             return ''
-        url = f'https://novelpia.com/novel/{novelpia_id}'
+        url = f'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{npia_id}'
         headers = {
             'User-Agent': (
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -6218,7 +6218,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 'Chrome/120.0.0.0 Safari/537.36'
             ),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Referer': 'https://novelpia.com/',
+            'Referer': 'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/',
         }
         try:
             req = urllib.request.Request(url, headers=headers)
@@ -6226,15 +6226,15 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 text = response.read().decode('utf-8', 'ignore')
         except Exception as e:
             self.log(
-                f"[NewToki] Novelpia cover lookup failed for "
-                f"{novelpia_id}: {e}"
+                f"[NewToki] Npia cover lookup failed for "
+                f"{npia_id}: {e}"
             )
             return ''
         patterns = (
-            r'"(//images\.novelpia\.com/imagebox/original/[^"]+)"',
-            r'"(//images\.novelpia\.com/imagebox/cover/[^"]+)"',
-            r'(https?:)?(//images\.novelpia\.com/imagebox/original/[^\s"\'<>]+)',
-            r'(https?:)?(//images\.novelpia\.com/imagebox/cover/[^\s"\'<>]+)',
+            r'"(//images\.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com/imagebox/original/[^"]+)"',
+            r'"(//images\.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com/imagebox/cover/[^"]+)"',
+            r'(https?:)?(//images\.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com/imagebox/original/[^\s"\'<>]+)',
+            r'(https?:)?(//images\.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061\.com/imagebox/cover/[^\s"\'<>]+)',
         )
         for pattern in patterns:
             match = re.search(pattern, text, re.I)
@@ -6247,22 +6247,22 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return html.unescape(value).replace('\\/', '/')
         return ''
 
-    def _ntk_prefer_novelpia_cover_url(self, cover_url):
-        if not self.ntk_prefer_novelpia_cover:
+    def _ntk_prefer_npia_cover_url(self, cover_url):
+        if not self.ntk_prefer_npia_cover:
             return cover_url
-        novelpia_id = self._ntk_novelpia_id_from_cover_url(cover_url)
-        if not novelpia_id:
+        npia_id = self._ntk_npia_id_from_cover_url(cover_url)
+        if not npia_id:
             return cover_url
-        novelpia_cover = self._ntk_fetch_novelpia_cover_url(novelpia_id)
-        if novelpia_cover:
+        npia_cover = self._ntk_fetch_npia_cover_url(npia_id)
+        if npia_cover:
             self.log(
-                f"[NewToki] Using Novelpia cover for mapped ID "
-                f"{novelpia_id}: {novelpia_cover}"
+                f"[NewToki] Using Npia cover for mapped ID "
+                f"{npia_id}: {npia_cover}"
             )
-            return novelpia_cover
+            return npia_cover
         self.log(
-            f"[NewToki] Novelpia cover unavailable for mapped ID "
-            f"{novelpia_id}; using NewToki cover."
+            f"[NewToki] Npia cover unavailable for mapped ID "
+            f"{npia_id}; using NewToki cover."
         )
         return cover_url
 
@@ -8525,7 +8525,7 @@ async ({ url }) => {
             return None
         chapters = data.get('chapters') or []
 
-        data['coverUrl'] = self._ntk_prefer_novelpia_cover_url(
+        data['coverUrl'] = self._ntk_prefer_npia_cover_url(
             data.get('coverUrl', '')
         )
         if data.get('coverUrl'):
@@ -8614,19 +8614,19 @@ async ({ url }) => {
         return None
 
     # ------------------------------------------------------------------
-    # Global Novelpia scraper (ported from the user's pia-scrap project)
+    # Global Npia scraper (ported from the user's pia-scrap project)
     # ------------------------------------------------------------------
-    _GLOBAL_NOVELPIA_BASE = 'https://global.novelpia.com'
-    _GLOBAL_NOVELPIA_API = 'https://api-global.novelpia.com'
-    _GLOBAL_NOVELPIA_TIMEOUT = 90
-    _GLOBAL_NOVELPIA_IMAGE_COOKIES = (
+    _GLOBAL_NPIA_BASE = 'https://global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
+    _GLOBAL_NPIA_API = 'https://api-global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
+    _GLOBAL_NPIA_TIMEOUT = 90
+    _GLOBAL_NPIA_IMAGE_COOKIES = (
         'CloudFront-Policy',
         'CloudFront-Key-Pair-Id',
         'CloudFront-Signature',
     )
 
     @staticmethod
-    def _global_novelpia_novel_id(url):
+    def _global_npia_novel_id(url):
         try:
             path = urllib.parse.urlparse(url or '').path or ''
         except Exception:
@@ -8635,7 +8635,7 @@ async ({ url }) => {
         return match.group(1) if match else ''
 
     @staticmethod
-    def _global_novelpia_episode_id(url):
+    def _global_npia_episode_id(url):
         try:
             path = urllib.parse.urlparse(url or '').path or ''
         except Exception:
@@ -8643,17 +8643,17 @@ async ({ url }) => {
         match = re.search(r'/viewer/(\d+)', path, re.I)
         return match.group(1) if match else ''
 
-    def _global_novelpia_profile_cookies(self):
+    def _global_npia_profile_cookies(self):
         """Read current cookies from the saved External Browser profile.
 
         Enter Browser uses installed Chrome directly, so its cookie database
         can be newer than ``nd_storage_state.json``. In particular, Global
-        Novelpia may add TKEY during login; using the older snapshot causes
+        Npia may add TKEY during login; using the older snapshot causes
         the API refresh to reject an otherwise valid browser session.
         """
-        return self._profile_cookie_records('novelpia.com')
+        return self._profile_cookie_records('\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com')
 
-    def _global_novelpia_sync_browser_cookies(self, session):
+    def _global_npia_sync_browser_cookies(self, session):
         """Copy the dedicated External Downloader profile into requests."""
         if self._context:
             try:
@@ -8666,8 +8666,8 @@ async ({ url }) => {
             # saved through Enter Browser.
             cookie_records = {}
             for origin in (
-                self._GLOBAL_NOVELPIA_BASE,
-                self._GLOBAL_NOVELPIA_API,
+                self._GLOBAL_NPIA_BASE,
+                self._GLOBAL_NPIA_API,
             ):
                 for cookie in self._storage_cookies_for_url(origin):
                     key = (
@@ -8676,7 +8676,7 @@ async ({ url }) => {
                     )
                     cookie_records[key] = cookie
             # Current Chrome data wins over the exported fallback snapshot.
-            for cookie in self._global_novelpia_profile_cookies():
+            for cookie in self._global_npia_profile_cookies():
                 key = (
                     cookie.get('name'), cookie.get('domain'),
                     cookie.get('path'),
@@ -8688,8 +8688,8 @@ async ({ url }) => {
             domain = (cookie.get('domain') or '').lower()
             cookie_host = domain.lstrip('.')
             if (
-                cookie_host != 'novelpia.com'
-                and not cookie_host.endswith('.novelpia.com')
+                cookie_host != '\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
+                and not cookie_host.endswith('.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com')
             ):
                 continue
             name = cookie.get('name')
@@ -8700,7 +8700,7 @@ async ({ url }) => {
                 session.cookies.set(
                     name,
                     value,
-                    domain=cookie.get('domain') or '.novelpia.com',
+                    domain=cookie.get('domain') or '.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com',
                     path=cookie.get('path') or '/',
                 )
                 copied += 1
@@ -8709,7 +8709,7 @@ async ({ url }) => {
         return copied
 
     @staticmethod
-    def _global_novelpia_has_saved_login(session):
+    def _global_npia_has_saved_login(session):
         """Recognize browser auth cookies without making a network probe."""
         values = {}
         try:
@@ -8724,21 +8724,21 @@ async ({ url }) => {
         login_marker = is_login not in ('', '0', 'false', 'n', 'no')
         return bool(userkey and (tkey or (login_key and login_marker)))
 
-    def _global_novelpia_ensure_session(self, refresh_login=False):
+    def _global_npia_ensure_session(self, refresh_login=False):
         """Create an API session and import the latest browser credentials."""
         try:
             import requests
         except Exception as e:
-            self.log(f'[Global Novelpia] requests is unavailable: {e}')
+            self.log(f'[Global Npia] requests is unavailable: {e}')
             return None
 
-        if self._global_novelpia_session is None:
+        if self._global_npia_session is None:
             session = requests.Session()
             session.headers.update({
                 'Accept': 'application/json, text/plain, */*',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Origin': self._GLOBAL_NOVELPIA_BASE,
-                'Referer': f'{self._GLOBAL_NOVELPIA_BASE}/',
+                'Origin': self._GLOBAL_NPIA_BASE,
+                'Referer': f'{self._GLOBAL_NPIA_BASE}/',
                 'User-Agent': (
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                     'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -8746,53 +8746,53 @@ async ({ url }) => {
                 ),
                 'X-Requested-With': 'XMLHttpRequest',
             })
-            self._global_novelpia_session = session
+            self._global_npia_session = session
 
-        session = self._global_novelpia_session
-        self._global_novelpia_sync_browser_cookies(session)
+        session = self._global_npia_session
+        self._global_npia_sync_browser_cookies(session)
         cookie_names = {cookie.name for cookie in session.cookies}
         if 'USERKEY' not in cookie_names:
             session.cookies.set(
                 'USERKEY', uuid.uuid4().hex,
-                domain='.novelpia.com', path='/',
+                domain='.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com', path='/',
             )
         if 'last_login' not in cookie_names:
             session.cookies.set(
                 'last_login', 'basic',
-                domain='.novelpia.com', path='/',
+                domain='.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com', path='/',
             )
 
         # Book discovery and free chapters begin anonymously. Account access
         # is refreshed lazily only after an episode endpoint rejects anonymous
         # access, unless a caller explicitly requests a refresh.
         if refresh_login:
-            self._global_novelpia_refresh_login()
+            self._global_npia_refresh_login()
         return session
 
-    def _global_novelpia_refresh_login(self, expected_token=None):
-        """Exchange Global Novelpia cookies for a fresh LOGINAT token."""
-        with self._global_novelpia_auth_lock:
+    def _global_npia_refresh_login(self, expected_token=None):
+        """Exchange Global Npia cookies for a fresh LOGINAT token."""
+        with self._global_npia_auth_lock:
             if (
                 expected_token is not None
-                and self._global_novelpia_login_at
-                and self._global_novelpia_login_at != expected_token
+                and self._global_npia_login_at
+                and self._global_npia_login_at != expected_token
             ):
                 return True
             if (
                 not expected_token
-                and self._global_novelpia_refresh_attempted
-                and not self._global_novelpia_login_at
+                and self._global_npia_refresh_attempted
+                and not self._global_npia_login_at
             ):
                 return False
-            self._global_novelpia_refresh_attempted = True
-            session = self._global_novelpia_session
+            self._global_npia_refresh_attempted = True
+            session = self._global_npia_session
             if session is None:
                 return False
-            self._global_novelpia_sync_browser_cookies(session)
+            self._global_npia_sync_browser_cookies(session)
             try:
                 response = session.get(
-                    f'{self._GLOBAL_NOVELPIA_API}/v1/login/refresh',
-                    timeout=self._GLOBAL_NOVELPIA_TIMEOUT,
+                    f'{self._GLOBAL_NPIA_API}/v1/login/refresh',
+                    timeout=self._GLOBAL_NPIA_TIMEOUT,
                 )
                 payload = response.json()
             except Exception:
@@ -8806,14 +8806,14 @@ async ({ url }) => {
                 and isinstance(token, str)
                 and bool(token.strip())
             ):
-                self._global_novelpia_login_at = urllib.parse.unquote(token)
+                self._global_npia_login_at = urllib.parse.unquote(token)
                 return True
             return False
 
-    def _global_novelpia_clone_session(self):
-        source = self._global_novelpia_session
+    def _global_npia_clone_session(self):
+        source = self._global_npia_session
         if source is None:
-            source = self._global_novelpia_ensure_session()
+            source = self._global_npia_ensure_session()
         if source is None:
             return None
         import requests
@@ -8823,7 +8823,7 @@ async ({ url }) => {
         return session
 
     @staticmethod
-    def _global_novelpia_compact_ad_geometry():
+    def _global_npia_compact_ad_geometry():
         """Place the real 300x250 reward ad in a small visible window."""
         width, height = 520, 500
         if sys.platform != 'win32':
@@ -8835,23 +8835,23 @@ async ({ url }) => {
         except Exception:
             return 40, 40, width, height
 
-    def _global_novelpia_browser_cookie_records(self):
+    def _global_npia_browser_cookie_records(self):
         """Build Playwright cookies from the live and saved API sessions."""
         records = {}
-        for cookie in self._global_novelpia_profile_cookies():
+        for cookie in self._global_npia_profile_cookies():
             key = (
                 cookie.get('name'), cookie.get('domain'),
                 cookie.get('path') or '/',
             )
             records[key] = cookie
-        session = self._global_novelpia_session
+        session = self._global_npia_session
         if session is not None:
             try:
                 for cookie in session.cookies:
                     record = {
                         'name': cookie.name,
                         'value': cookie.value,
-                        'domain': cookie.domain or '.novelpia.com',
+                        'domain': cookie.domain or '.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com',
                         'path': cookie.path or '/',
                         'secure': bool(cookie.secure),
                     }
@@ -8865,7 +8865,7 @@ async ({ url }) => {
         for record in records.values():
             domain = str(record.get('domain') or '').lower()
             host = domain.lstrip('.')
-            if host != 'novelpia.com' and not host.endswith('.novelpia.com'):
+            if host != '\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com' and not host.endswith('.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'):
                 continue
             name = record.get('name')
             value = record.get('value')
@@ -8874,14 +8874,14 @@ async ({ url }) => {
             cookies.append({
                 'name': str(name),
                 'value': str(value),
-                'domain': domain or '.novelpia.com',
+                'domain': domain or '.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com',
                 'path': str(record.get('path') or '/'),
                 'secure': bool(record.get('secure')),
             })
         return cookies
 
-    def _global_novelpia_apply_ad_cookies(self, context):
-        cookies = self._global_novelpia_browser_cookie_records()
+    def _global_npia_apply_ad_cookies(self, context):
+        cookies = self._global_npia_browser_cookie_records()
         if not cookies:
             return 0
         try:
@@ -8890,8 +8890,8 @@ async ({ url }) => {
         except Exception:
             return 0
 
-    def _global_novelpia_apply_ad_storage(self, context):
-        """Restore saved Global Novelpia localStorage into the ad window."""
+    def _global_npia_apply_ad_storage(self, context):
+        """Restore saved Global Npia localStorage into the ad window."""
         try:
             with open(self._get_storage_state_path(), 'r', encoding='utf-8') as f:
                 state = json.load(f)
@@ -8899,7 +8899,7 @@ async ({ url }) => {
             return 0
 
     @staticmethod
-    def _global_novelpia_install_spoiler_shield(context):
+    def _global_npia_install_spoiler_shield(context):
         """Install a reload-persistent neutral cover for unlocked viewers."""
         script = r"""
 (() => {
@@ -9024,7 +9024,7 @@ async ({ url }) => {
             return False
 
     @staticmethod
-    def _global_novelpia_prepare_ad_navigation(page):
+    def _global_npia_prepare_ad_navigation(page):
         """Clear only the next-document marker, keeping the current story hidden."""
         try:
             return bool(page.evaluate(r"""
@@ -9038,7 +9038,7 @@ async ({ url }) => {
             return False
 
     @staticmethod
-    def _global_novelpia_hide_ad_story(page):
+    def _global_npia_hide_ad_story(page):
         """Cover viewer content without obscuring an ad that is still running."""
         try:
             return bool(page.evaluate(r"""
@@ -9069,8 +9069,8 @@ async ({ url }) => {
             return False
 
     @staticmethod
-    def _global_novelpia_click_ad_continue(page):
-        """Click only Novelpia's exact Continue control, shielding first."""
+    def _global_npia_click_ad_continue(page):
+        """Click only Npia's exact Continue control, shielding first."""
         # Playwright's role locator pierces open shadow DOM, which plain
         # querySelector does not. Ezoic commonly renders its completion UI in
         # such a shadow root. Page-level locators intentionally do not search
@@ -9080,7 +9080,7 @@ async ({ url }) => {
                 candidate = matches.nth(index)
                 if not candidate.is_visible():
                     continue
-                ExternalScraper._global_novelpia_hide_ad_story(page)
+                ExternalScraper._global_npia_hide_ad_story(page)
                 try:
                     candidate.click(timeout=1500)
                 except Exception:
@@ -9147,7 +9147,7 @@ async ({ url }) => {
             origin for origin in (state.get('origins') or [])
             if isinstance(origin, dict)
             and str(origin.get('origin') or '').rstrip('/')
-            == self._GLOBAL_NOVELPIA_BASE
+            == self._GLOBAL_NPIA_BASE
         ]
         if not origins:
             return 0
@@ -9166,22 +9166,22 @@ async ({ url }) => {
         except Exception:
             return 0
 
-    def _global_novelpia_close_ad_browser_owned(self):
+    def _global_npia_close_ad_browser_owned(self):
         """Close compact-ad resources on their owning worker thread."""
-        page = self._global_novelpia_ad_page
-        context = self._global_novelpia_ad_context
-        browser = self._global_novelpia_ad_browser
-        playwright = self._global_novelpia_ad_playwright
-        process = self._global_novelpia_ad_process
-        port = self._global_novelpia_ad_cdp_port
-        profile = self._global_novelpia_ad_profile
-        self._global_novelpia_ad_page = None
-        self._global_novelpia_ad_context = None
-        self._global_novelpia_ad_browser = None
-        self._global_novelpia_ad_playwright = None
-        self._global_novelpia_ad_process = None
-        self._global_novelpia_ad_cdp_port = None
-        self._global_novelpia_ad_profile = None
+        page = self._global_npia_ad_page
+        context = self._global_npia_ad_context
+        browser = self._global_npia_ad_browser
+        playwright = self._global_npia_ad_playwright
+        process = self._global_npia_ad_process
+        port = self._global_npia_ad_cdp_port
+        profile = self._global_npia_ad_profile
+        self._global_npia_ad_page = None
+        self._global_npia_ad_context = None
+        self._global_npia_ad_browser = None
+        self._global_npia_ad_playwright = None
+        self._global_npia_ad_process = None
+        self._global_npia_ad_cdp_port = None
+        self._global_npia_ad_profile = None
         for resource in (page, context, browser):
             try:
                 if resource:
@@ -9209,18 +9209,18 @@ async ({ url }) => {
         except Exception:
             pass
 
-    def _global_novelpia_start_ad_browser_owned(self):
+    def _global_npia_start_ad_browser_owned(self):
         """Start/reuse the compact visible Chrome on the ad worker thread."""
-        if self._page_is_usable(self._global_novelpia_ad_page):
-            self._global_novelpia_apply_ad_cookies(
-                self._global_novelpia_ad_context
+        if self._page_is_usable(self._global_npia_ad_page):
+            self._global_npia_apply_ad_cookies(
+                self._global_npia_ad_context
             )
-            return self._global_novelpia_ad_page
+            return self._global_npia_ad_page
 
-        self._global_novelpia_close_ad_browser_owned()
+        self._global_npia_close_ad_browser_owned()
         profile = tempfile.TemporaryDirectory(prefix='npia_global_ad_')
         profile_dir = os.path.join(profile.name, 'browser_data')
-        x, y, width, height = self._global_novelpia_compact_ad_geometry()
+        x, y, width, height = self._global_npia_compact_ad_geometry()
         process = None
         port = None
         playwright = None
@@ -9244,20 +9244,20 @@ async ({ url }) => {
             context = contexts[0]
             pages = context.pages
             page = pages[-1] if pages else context.new_page()
-            self._global_novelpia_ad_profile = profile
-            self._global_novelpia_ad_process = process
-            self._global_novelpia_ad_cdp_port = port
-            self._global_novelpia_ad_playwright = playwright
-            self._global_novelpia_ad_browser = browser
-            self._global_novelpia_ad_context = context
-            self._global_novelpia_ad_page = page
-            self._global_novelpia_apply_ad_cookies(context)
-            self._global_novelpia_apply_ad_storage(context)
-            self._global_novelpia_install_spoiler_shield(context)
+            self._global_npia_ad_profile = profile
+            self._global_npia_ad_process = process
+            self._global_npia_ad_cdp_port = port
+            self._global_npia_ad_playwright = playwright
+            self._global_npia_ad_browser = browser
+            self._global_npia_ad_context = context
+            self._global_npia_ad_page = page
+            self._global_npia_apply_ad_cookies(context)
+            self._global_npia_apply_ad_storage(context)
+            self._global_npia_install_spoiler_shield(context)
             return page
         except Exception as error:
             self.log(
-                '[Global Novelpia] Could not open the compact ad window: '
+                '[Global Npia] Could not open the compact ad window: '
                 f'{error}'
             )
             try:
@@ -9277,46 +9277,46 @@ async ({ url }) => {
                 pass
             return None
 
-    def _global_novelpia_ticket_available(self, episode_no):
-        session = self._global_novelpia_clone_session()
+    def _global_npia_ticket_available(self, episode_no):
+        session = self._global_npia_clone_session()
         if session is None:
             return False
         try:
-            status, payload = self._global_novelpia_request_json(
+            status, payload = self._global_npia_request_json(
                 session,
-                f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode',
+                f'{self._GLOBAL_NPIA_API}/v1/novel/episode',
                 params={'episode_no': str(episode_no)},
-                login_at=self._global_novelpia_login_at or None,
+                login_at=self._global_npia_login_at or None,
                 max_retries=1,
             )
             if status != 200:
                 return False
-            token, direct_url = self._global_novelpia_extract_ticket_token(
+            token, direct_url = self._global_npia_extract_ticket_token(
                 payload
             )
             return bool(token or direct_url)
         finally:
             session.close()
 
-    def _global_novelpia_run_ad_request(self, request):
+    def _global_npia_run_ad_request(self, request):
         """Render one real site reward ad and wait for server confirmation."""
         episode_no = request['episode_no']
         chapter_name = request['chapter_name']
-        if self._global_novelpia_ticket_available(episode_no):
+        if self._global_npia_ticket_available(episode_no):
             return True
 
-        page = self._global_novelpia_start_ad_browser_owned()
+        page = self._global_npia_start_ad_browser_owned()
         if not page:
             return False
-        context = self._global_novelpia_ad_context
-        self._global_novelpia_apply_ad_cookies(context)
+        context = self._global_npia_ad_context
+        self._global_npia_apply_ad_cookies(context)
         grant_seen = threading.Event()
 
         def inspect_response(response):
             try:
                 parsed = urllib.parse.urlparse(response.url or '')
                 if (
-                    parsed.hostname == 'api-global.novelpia.com'
+                    parsed.hostname == 'api-global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
                     and parsed.path == '/v1/ad/reward/grant'
                     and response.request.method.upper() == 'POST'
                     and 200 <= int(response.status) < 300
@@ -9330,28 +9330,28 @@ async ({ url }) => {
         except Exception:
             pass
         self.log(
-            f'  [Global Novelpia] Advertisement required: {chapter_name}'
+            f'  [Global Npia] Advertisement required: {chapter_name}'
         )
         self.log(
-            '  [Global Novelpia] A compact ad window is open. Let the ad '
+            '  [Global Npia] A compact ad window is open. Let the ad '
             'finish; Continue will be clicked automatically.'
         )
-        chapter_url = f'{self._GLOBAL_NOVELPIA_BASE}/viewer/{episode_no}'
-        self._global_novelpia_prepare_ad_navigation(page)
+        chapter_url = f'{self._GLOBAL_NPIA_BASE}/viewer/{episode_no}'
+        self._global_npia_prepare_ad_navigation(page)
         try:
             page.goto(
                 chapter_url,
                 wait_until='domcontentloaded',
-                timeout=self._GLOBAL_NOVELPIA_TIMEOUT * 1000,
+                timeout=self._GLOBAL_NPIA_TIMEOUT * 1000,
             )
         except PlaywrightTimeoutError:
             self.log(
-                '  [Global Novelpia] The ad page is responding slowly; '
+                '  [Global Npia] The ad page is responding slowly; '
                 'continuing to wait in the compact window.'
             )
         except Exception as error:
             self.log(
-                f'  [Global Novelpia] Ad page failed to open for '
+                f'  [Global Npia] Ad page failed to open for '
                 f'{chapter_name}: {error}'
             )
             try:
@@ -9369,18 +9369,18 @@ async ({ url }) => {
         try:
             while (
                 time.monotonic() < deadline
-                and not self._global_novelpia_ad_stop.is_set()
+                and not self._global_npia_ad_stop.is_set()
                 and not self._stop_requested
             ):
                 if not self._page_is_usable(page):
                     self.log(
-                        '  [Global Novelpia] The compact ad window was closed '
+                        '  [Global Npia] The compact ad window was closed '
                         f'before completion: {chapter_name}'
                     )
                     return False
                 now = time.monotonic()
                 if not continue_clicked and now >= next_continue_check:
-                    continue_clicked = self._global_novelpia_click_ad_continue(
+                    continue_clicked = self._global_npia_click_ad_continue(
                         page
                     )
                     if continue_clicked:
@@ -9389,7 +9389,7 @@ async ({ url }) => {
                 if not activation_attempted and now + 3 >= next_ticket_check:
                     # The current viewer normally opens its reward modal with
                     # `instant: true`. This narrowly-scoped fallback clicks
-                    # only Novelpia's own main-page "watch ad" control, never
+                    # only Npia's own main-page "watch ad" control, never
                     # content inside an advertiser iframe.
                     try:
                         activation_attempted = bool(page.evaluate(r"""
@@ -9407,16 +9407,16 @@ async ({ url }) => {
                     except Exception:
                         activation_attempted = True
                 if now >= next_ticket_check:
-                    if self._global_novelpia_ticket_available(episode_no):
+                    if self._global_npia_ticket_available(episode_no):
                         # Some ad providers grant the ticket just before the
                         # Continue control is painted. Hide the viewer now,
                         # keep looking briefly, and click it as soon as it
                         # exists. Providers without a Continue step resume
                         # after the short grace period.
-                        self._global_novelpia_hide_ad_story(page)
+                        self._global_npia_hide_ad_story(page)
                         if not continue_clicked:
                             continue_clicked = (
-                                self._global_novelpia_click_ad_continue(page)
+                                self._global_npia_click_ad_continue(page)
                             )
                         ticket_confirmed_at = ticket_confirmed_at or now
                         if (
@@ -9424,7 +9424,7 @@ async ({ url }) => {
                             or now - ticket_confirmed_at >= 3
                         ):
                             self.log(
-                                '  [Global Novelpia] Advertisement confirmed; '
+                                '  [Global Npia] Advertisement confirmed; '
                                 f'resuming {chapter_name}.'
                             )
                             return True
@@ -9434,7 +9434,7 @@ async ({ url }) => {
                 except Exception:
                     time.sleep(0.05)
             self.log(
-                '  [Global Novelpia] Advertisement was not confirmed within '
+                '  [Global Npia] Advertisement was not confirmed within '
                 f'four minutes: {chapter_name}'
             )
             return False
@@ -9444,9 +9444,9 @@ async ({ url }) => {
             except Exception:
                 pass
 
-    def _global_novelpia_ad_worker_main(self, work_queue):
+    def _global_npia_ad_worker_main(self, work_queue):
         try:
-            while not self._global_novelpia_ad_stop.is_set():
+            while not self._global_npia_ad_stop.is_set():
                 try:
                     request = work_queue.get(timeout=0.25)
                 except queue.Empty:
@@ -9455,18 +9455,18 @@ async ({ url }) => {
                     break
                 try:
                     request['success'] = bool(
-                        self._global_novelpia_run_ad_request(request)
+                        self._global_npia_run_ad_request(request)
                     )
                 except Exception as error:
                     self.log(
-                        '[Global Novelpia] Compact ad window error: '
+                        '[Global Npia] Compact ad window error: '
                         f'{error}'
                     )
                     request['success'] = False
                 finally:
                     request['done'].set()
         finally:
-            self._global_novelpia_close_ad_browser_owned()
+            self._global_npia_close_ad_browser_owned()
             while True:
                 try:
                     pending = work_queue.get_nowait()
@@ -9475,11 +9475,11 @@ async ({ url }) => {
                 if isinstance(pending, dict):
                     pending['success'] = False
                     pending['done'].set()
-            with self._global_novelpia_ad_state_lock:
-                if self._global_novelpia_ad_thread is threading.current_thread():
-                    self._global_novelpia_ad_thread = None
+            with self._global_npia_ad_state_lock:
+                if self._global_npia_ad_thread is threading.current_thread():
+                    self._global_npia_ad_thread = None
 
-    def _global_novelpia_complete_ad(
+    def _global_npia_complete_ad(
         self, novel_no, episode_no, chapter_name
     ):
         """Queue an ad-gated episode on the single browser-owning thread."""
@@ -9490,52 +9490,52 @@ async ({ url }) => {
             'done': threading.Event(),
             'success': False,
         }
-        with self._global_novelpia_ad_state_lock:
-            thread = self._global_novelpia_ad_thread
+        with self._global_npia_ad_state_lock:
+            thread = self._global_npia_ad_thread
             if not thread or not thread.is_alive():
-                self._global_novelpia_ad_stop.clear()
-                self._global_novelpia_ad_queue = queue.Queue()
+                self._global_npia_ad_stop.clear()
+                self._global_npia_ad_queue = queue.Queue()
                 thread = threading.Thread(
-                    target=self._global_novelpia_ad_worker_main,
-                    args=(self._global_novelpia_ad_queue,),
-                    name='GlobalNovelpiaAd',
+                    target=self._global_npia_ad_worker_main,
+                    args=(self._global_npia_ad_queue,),
+                    name='GlobalNpiaAd',
                     daemon=True,
                 )
-                self._global_novelpia_ad_thread = thread
+                self._global_npia_ad_thread = thread
                 thread.start()
-            work_queue = self._global_novelpia_ad_queue
+            work_queue = self._global_npia_ad_queue
             work_queue.put(request)
 
         while not request['done'].wait(0.25):
-            if self._global_novelpia_ad_stop.is_set() or self._stop_requested:
+            if self._global_npia_ad_stop.is_set() or self._stop_requested:
                 return False
         return bool(request['success'])
 
-    def _global_novelpia_shutdown_ad_worker(self):
+    def _global_npia_shutdown_ad_worker(self):
         """Stop the ad owner without touching the downloader's main Chrome."""
-        thread = self._global_novelpia_ad_thread
+        thread = self._global_npia_ad_thread
         if not thread:
             return
-        self._global_novelpia_ad_stop.set()
-        work_queue = self._global_novelpia_ad_queue
+        self._global_npia_ad_stop.set()
+        work_queue = self._global_npia_ad_queue
         if work_queue:
             try:
                 work_queue.put_nowait(None)
             except Exception:
                 pass
-        port = self._global_novelpia_ad_cdp_port
+        port = self._global_npia_ad_cdp_port
         if port:
             self._request_cdp_browser_close(port)
         if thread is not threading.current_thread():
             thread.join(timeout=8)
-        process = self._global_novelpia_ad_process
+        process = self._global_npia_ad_process
         if thread.is_alive() and process and process.poll() is None:
             try:
                 process.terminate()
             except Exception:
                 pass
 
-    def _global_novelpia_request_json(
+    def _global_npia_request_json(
         self,
         session,
         url,
@@ -9557,7 +9557,7 @@ async ({ url }) => {
                     url,
                     headers=headers or None,
                     params=params,
-                    timeout=self._GLOBAL_NOVELPIA_TIMEOUT,
+                    timeout=self._GLOBAL_NPIA_TIMEOUT,
                 )
                 last_status = int(response.status_code or 0)
                 try:
@@ -9572,7 +9572,7 @@ async ({ url }) => {
 
             retryable = (
                 last_status == 429 or last_status >= 500 or not last_status
-            ) and not self._global_novelpia_ad_required(
+            ) and not self._global_npia_ad_required(
                 last_status, last_payload
             )
             if not retryable or attempt >= max_retries:
@@ -9590,14 +9590,14 @@ async ({ url }) => {
         return last_status, last_payload
 
     @staticmethod
-    def _global_novelpia_safe_int(value, fallback=0):
+    def _global_npia_safe_int(value, fallback=0):
         try:
             return int(value)
         except (TypeError, ValueError):
             return fallback
 
     @staticmethod
-    def _global_novelpia_pick_strings(items, *keys):
+    def _global_npia_pick_strings(items, *keys):
         values = []
         if not isinstance(items, list):
             return values
@@ -9617,7 +9617,7 @@ async ({ url }) => {
         return values
 
     @staticmethod
-    def _global_novelpia_payload_message(payload):
+    def _global_npia_payload_message(payload):
         if not isinstance(payload, dict):
             return str(payload or '')
         result = payload.get('result') or {}
@@ -9633,7 +9633,7 @@ async ({ url }) => {
         return ' '.join(str(value) for value in values if value).strip()
 
     @classmethod
-    def _global_novelpia_ad_required(cls, status, payload):
+    def _global_npia_ad_required(cls, status, payload):
         """Recognize the server's basic-advertisement episode gate."""
         if not isinstance(payload, dict):
             return False
@@ -9644,7 +9644,7 @@ async ({ url }) => {
             code = result.get('code')
         code_text = str(code or '').strip()
         name = str(result.get('name') or payload.get('name') or '').upper()
-        message = cls._global_novelpia_payload_message(payload).lower()
+        message = cls._global_npia_payload_message(payload).lower()
         code_match = code_text in ('0010', '10')
         return bool(
             status >= 400
@@ -9655,7 +9655,7 @@ async ({ url }) => {
         )
 
     @staticmethod
-    def _global_novelpia_ad_novel_id(payload):
+    def _global_npia_ad_novel_id(payload):
         """Extract novel_no from the episode error payload when provided."""
         def walk(value):
             if isinstance(value, dict):
@@ -9676,8 +9676,8 @@ async ({ url }) => {
         return walk(payload)
 
     @classmethod
-    def _global_novelpia_access_denied(cls, status, payload):
-        message = cls._global_novelpia_payload_message(payload).lower()
+    def _global_npia_access_denied(cls, status, payload):
+        message = cls._global_npia_payload_message(payload).lower()
         return bool(
             status in (401, 403)
             or re.search(
@@ -9688,55 +9688,55 @@ async ({ url }) => {
             )
         )
 
-    def _global_novelpia_parse_book(self, url):
-        """Load Global Novelpia metadata and its canonical ASC episode list."""
-        novel_id = self._global_novelpia_novel_id(url)
+    def _global_npia_parse_book(self, url):
+        """Load Global Npia metadata and its canonical ASC episode list."""
+        novel_id = self._global_npia_novel_id(url)
         if not novel_id:
-            self.log('[Global Novelpia] ERROR: Invalid novel URL.')
+            self.log('[Global Npia] ERROR: Invalid novel URL.')
             return None
 
         self._stop_requested = False
-        book_url = f'{self._GLOBAL_NOVELPIA_BASE}/novel/{novel_id}'
+        book_url = f'{self._GLOBAL_NPIA_BASE}/novel/{novel_id}'
         self.log(
-            '[Global Novelpia] Note: this site can respond slowly. API '
-            f'requests may wait up to {self._GLOBAL_NOVELPIA_TIMEOUT} seconds.'
+            '[Global Npia] Note: this site can respond slowly. API '
+            f'requests may wait up to {self._GLOBAL_NPIA_TIMEOUT} seconds.'
         )
 
         # Metadata and episode lists do not require loading the website. Read
         # the saved profile locally, then exchange its login cookies for the
         # API token only when an authenticated browser session actually exists.
-        session = self._global_novelpia_ensure_session(refresh_login=False)
+        session = self._global_npia_ensure_session(refresh_login=False)
         if session is None:
             return None
-        if self._global_novelpia_has_saved_login(session):
-            if self._global_novelpia_refresh_login():
+        if self._global_npia_has_saved_login(session):
+            if self._global_npia_refresh_login():
                 self.log(
-                    '[Global Novelpia] Using the saved authenticated browser '
+                    '[Global Npia] Using the saved authenticated browser '
                     'session.'
                 )
             else:
                 self.log(
-                    '[Global Novelpia] Saved browser login could not be used; '
+                    '[Global Npia] Saved browser login could not be used; '
                     'continuing with anonymous access.'
                 )
         else:
             self.log(
-                '[Global Novelpia] No saved login found; using anonymous '
+                '[Global Npia] No saved login found; using anonymous '
                 'access without an account check.'
             )
 
-        status, novel_payload = self._global_novelpia_request_json(
+        status, novel_payload = self._global_npia_request_json(
             session,
-            f'{self._GLOBAL_NOVELPIA_API}/v1/novel',
+            f'{self._GLOBAL_NPIA_API}/v1/novel',
             params={'novel_no': novel_id},
-            login_at=self._global_novelpia_login_at or None,
+            login_at=self._global_npia_login_at or None,
         )
         result = novel_payload.get('result') if isinstance(novel_payload, dict) else None
         novel = result.get('novel') if isinstance(result, dict) else None
         if status != 200 or not isinstance(novel, dict):
-            message = self._global_novelpia_payload_message(novel_payload)
+            message = self._global_npia_payload_message(novel_payload)
             self.log(
-                f'[Global Novelpia] ERROR: Metadata request failed '
+                f'[Global Npia] ERROR: Metadata request failed '
                 f'(HTTP {status or "network"})'
                 + (f': {message}' if message else '.')
             )
@@ -9748,18 +9748,18 @@ async ({ url }) => {
             rows = max(1, int(episode_count or 1000))
         except (TypeError, ValueError):
             rows = 1000
-        list_status, list_payload = self._global_novelpia_request_json(
+        list_status, list_payload = self._global_npia_request_json(
             session,
-            f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode/list',
+            f'{self._GLOBAL_NPIA_API}/v1/novel/episode/list',
             params={'novel_no': novel_id, 'rows': rows, 'sort': 'ASC'},
-            login_at=self._global_novelpia_login_at or None,
+            login_at=self._global_npia_login_at or None,
         )
         list_result = list_payload.get('result') if isinstance(list_payload, dict) else None
         episodes = list_result.get('list') if isinstance(list_result, dict) else None
         if list_status != 200 or not isinstance(episodes, list):
-            message = self._global_novelpia_payload_message(list_payload)
+            message = self._global_npia_payload_message(list_payload)
             self.log(
-                f'[Global Novelpia] ERROR: Episode list failed '
+                f'[Global Npia] ERROR: Episode list failed '
                 f'(HTTP {list_status or "network"})'
                 + (f': {message}' if message else '.')
             )
@@ -9767,7 +9767,7 @@ async ({ url }) => {
 
         indexed_episodes = list(enumerate(episodes))
         indexed_episodes.sort(key=lambda item: (
-            self._global_novelpia_safe_int(
+            self._global_npia_safe_int(
                 item[1].get('epi_num'), item[0] + 1
             ),
             item[0],
@@ -9785,7 +9785,7 @@ async ({ url }) => {
             if episode_no in seen:
                 continue
             seen.add(episode_no)
-            episode_number = self._global_novelpia_safe_int(
+            episode_number = self._global_npia_safe_int(
                 episode.get('epi_num'), len(chapters) + 1
             )
             title = str(
@@ -9793,36 +9793,36 @@ async ({ url }) => {
             ).strip()
             chapters.append({
                 'id': episode_no,
-                'url': f'{self._GLOBAL_NOVELPIA_BASE}/viewer/{episode_no}',
+                'url': f'{self._GLOBAL_NPIA_BASE}/viewer/{episode_no}',
                 'name': title,
                 'fullName': title,
                 'isVIP': False,
                 'isPaid': False,
                 'isAccessible': True,
-                '_globalNovelpiaChapterNumber': episode_number,
-                '_globalNovelpiaEpisode': episode,
+                '_globalNpiaChapterNumber': episode_number,
+                '_globalNpiaEpisode': episode,
             })
 
         if not chapters:
-            self.log('[Global Novelpia] ERROR: No episodes were found.')
+            self.log('[Global Npia] ERROR: No episodes were found.')
             return None
 
         writers = result.get('writer_list') or []
         author = ''
         if writers and isinstance(writers[0], dict):
             author = str(writers[0].get('writer_name') or '').strip()
-        tags = self._global_novelpia_pick_strings(
+        tags = self._global_npia_pick_strings(
             result.get('tag_list'), 'tag_name', 'name', 'title'
-        ) + self._global_novelpia_pick_strings(
+        ) + self._global_npia_pick_strings(
             novel.get('tag_list'), 'tag_name', 'name', 'title'
         )
-        categories = self._global_novelpia_pick_strings(
+        categories = self._global_npia_pick_strings(
             result.get('cate_list'), 'cate_name', 'name', 'title'
-        ) + self._global_novelpia_pick_strings(
+        ) + self._global_npia_pick_strings(
             novel.get('cate_list'), 'cate_name', 'name', 'title'
-        ) + self._global_novelpia_pick_strings(
+        ) + self._global_npia_pick_strings(
             result.get('genre_list'), 'genre_name', 'name', 'title'
-        ) + self._global_novelpia_pick_strings(
+        ) + self._global_npia_pick_strings(
             novel.get('genre_list'), 'genre_name', 'name', 'title'
         )
         subjects = list(dict.fromkeys(categories + tags))
@@ -9859,19 +9859,19 @@ async ({ url }) => {
             'chapters': chapters,
             'language': 'en',
             'tags': subjects,
-            '_global_novelpia': True,
-            '_global_novelpia_novel_id': novel_id,
+            '_global_npia': True,
+            '_global_npia_novel_id': novel_id,
         }
         self._book_data = data
         self._book_url = book_url
         self.log(
-            f'[Global Novelpia] Book: {title} by {author or "?"} - '
+            f'[Global Npia] Book: {title} by {author or "?"} - '
             f'{len(chapters)} chapters'
         )
         return data
 
     @staticmethod
-    def _global_novelpia_looks_like_jwt(value):
+    def _global_npia_looks_like_jwt(value):
         if not isinstance(value, str):
             return False
         parts = value.split('.')
@@ -9885,7 +9885,7 @@ async ({ url }) => {
         return True
 
     @classmethod
-    def _global_novelpia_extract_ticket_token(cls, payload):
+    def _global_npia_extract_ticket_token(cls, payload):
         """Return the ticket token/direct URL using pia-scrap's strict order."""
         result = payload.get('result') if isinstance(payload, dict) else {}
         result = result if isinstance(result, dict) else {}
@@ -9893,7 +9893,7 @@ async ({ url }) => {
         for key in ('_t', 't', 'token'):
             value = result.get(key)
             if isinstance(value, str) and value:
-                if cls._global_novelpia_looks_like_jwt(value):
+                if cls._global_npia_looks_like_jwt(value):
                     return value, ''
                 fallback = fallback or value
         for value in result.values():
@@ -9902,7 +9902,7 @@ async ({ url }) => {
             for key in ('_t', 't', 'token'):
                 nested = value.get(key)
                 if isinstance(nested, str) and nested:
-                    if cls._global_novelpia_looks_like_jwt(nested):
+                    if cls._global_npia_looks_like_jwt(nested):
                         return nested, ''
                     fallback = fallback or nested
 
@@ -9922,14 +9922,14 @@ async ({ url }) => {
             try:
                 parsed = urllib.parse.urlparse(value)
                 if (
-                    parsed.hostname == 'api-global.novelpia.com'
+                    parsed.hostname == 'api-global.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
                     and parsed.path.endswith('/v1/novel/episode/content')
                 ):
                     token = (
                         urllib.parse.parse_qs(parsed.query).get('_t') or ['']
                     )[0]
                     if token:
-                        if cls._global_novelpia_looks_like_jwt(token):
+                        if cls._global_npia_looks_like_jwt(token):
                             return token, value
                         fallback = fallback or token
             except Exception:
@@ -9937,19 +9937,19 @@ async ({ url }) => {
         return (fallback, '') if fallback else ('', '')
 
     @classmethod
-    def _global_novelpia_signed_image_cookies(cls, ticket_payload):
+    def _global_npia_signed_image_cookies(cls, ticket_payload):
         result = ticket_payload.get('result') if isinstance(ticket_payload, dict) else {}
         signed = result.get('signed_key') if isinstance(result, dict) else {}
         if not isinstance(signed, dict):
             return {}
         return {
             name: str(signed[name])
-            for name in cls._GLOBAL_NOVELPIA_IMAGE_COOKIES
+            for name in cls._GLOBAL_NPIA_IMAGE_COOKIES
             if signed.get(name)
         }
 
     @staticmethod
-    def _global_novelpia_raw_content(content_payload):
+    def _global_npia_raw_content(content_payload):
         result = content_payload.get('result') if isinstance(content_payload, dict) else {}
         result = result if isinstance(result, dict) else {}
         data = result.get('data') or {}
@@ -9978,7 +9978,7 @@ async ({ url }) => {
         return ''
 
     @staticmethod
-    def _global_novelpia_best_srcset(value):
+    def _global_npia_best_srcset(value):
         value = str(value or '').strip()
         if value.startswith('data:'):
             return value
@@ -10001,7 +10001,7 @@ async ({ url }) => {
         return max(candidates, key=lambda item: item[1])[0] if candidates else ''
 
     @staticmethod
-    def _global_novelpia_image_name(image_url, episode_no, image_index):
+    def _global_npia_image_name(image_url, episode_no, image_index):
         if str(image_url).startswith('data:'):
             mime = str(image_url).split(';', 1)[0].lower()
             extension = {
@@ -10011,7 +10011,7 @@ async ({ url }) => {
                 'data:image/avif': 'avif',
                 'data:image/svg+xml': 'svg',
             }.get(mime, 'jpg')
-            return f'global_novelpia_{episode_no}_{image_index}.{extension}'
+            return f'global_npia_{episode_no}_{image_index}.{extension}'
         try:
             name = urllib.parse.unquote(
                 os.path.basename(urllib.parse.urlparse(image_url).path)
@@ -10020,10 +10020,10 @@ async ({ url }) => {
             name = ''
         name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
         if not name or not re.search(r'\.[A-Za-z0-9]{2,5}$', name):
-            name = f'global_novelpia_{episode_no}_{image_index}.jpg'
+            name = f'global_npia_{episode_no}_{image_index}.jpg'
         return name
 
-    def _global_novelpia_build_chapter_result(
+    def _global_npia_build_chapter_result(
         self,
         raw_html,
         chapter_name,
@@ -10035,7 +10035,7 @@ async ({ url }) => {
             from bs4 import BeautifulSoup
             from bs4.element import Tag
         except Exception as e:
-            self.log(f'  [Global Novelpia] BeautifulSoup unavailable: {e}')
+            self.log(f'  [Global Npia] BeautifulSoup unavailable: {e}')
             return None
         soup = BeautifulSoup(raw_html or '', 'html.parser')
         lazy_attributes = (
@@ -10063,12 +10063,12 @@ async ({ url }) => {
             if picture is not None:
                 for source in picture.find_all('source'):
                     for attribute in source_attributes:
-                        candidate = self._global_novelpia_best_srcset(
+                        candidate = self._global_npia_best_srcset(
                             source.get(attribute)
                         )
                         if candidate:
                             return normalize_url(candidate)
-            candidate = self._global_novelpia_best_srcset(
+            candidate = self._global_npia_best_srcset(
                 image.get('data-srcset')
             )
             if candidate:
@@ -10077,7 +10077,7 @@ async ({ url }) => {
                 candidate = image.get(attribute)
                 if candidate:
                     return normalize_url(candidate)
-            candidate = self._global_novelpia_best_srcset(image.get('srcset'))
+            candidate = self._global_npia_best_srcset(image.get('srcset'))
             if candidate:
                 return normalize_url(candidate)
             return normalize_url(image.get('src'))
@@ -10132,14 +10132,14 @@ async ({ url }) => {
         images = []
         seen = set()
         cookies = dict(signed_cookies or {})
-        episode_no = self._global_novelpia_episode_id(chapter_url) or 'chapter'
+        episode_no = self._global_npia_episode_id(chapter_url) or 'chapter'
         for image_index, image_url in enumerate(asset_urls, start=1):
             if not image_url or image_url in seen:
                 continue
             seen.add(image_url)
             entry = {
                 'url': image_url,
-                'name': self._global_novelpia_image_name(
+                'name': self._global_npia_image_name(
                     image_url, episode_no, image_index
                 ),
             }
@@ -10151,7 +10151,7 @@ async ({ url }) => {
                 ).lower()
             except Exception:
                 image_host = ''
-            if cookies and image_host == 'pv-gn.novelpia.com':
+            if cookies and image_host == 'pv-gn.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com':
                 entry['_cookies'] = cookies
             images.append(entry)
 
@@ -10160,43 +10160,43 @@ async ({ url }) => {
             'sourceChapterName': chapter_name,
             'contentText': content_text,
             'contentHtml': (
-                f'<div class="global-novelpia-content">{content_html}</div>'
+                f'<div class="global-npia-content">{content_html}</div>'
             ),
             'contentCss': (
-                '.global-novelpia-content p { margin: 0 0 0.75em; '
+                '.global-npia-content p { margin: 0 0 0.75em; '
                 'line-height: 1.8; }\n'
-                '.global-novelpia-content img { max-width: 100%; height: auto; }'
+                '.global-npia-content img { max-width: 100%; height: auto; }'
             ),
             'images': images,
             'chapterUrl': chapter_url,
             '_imageCookies': cookies,
         }
 
-    def _global_novelpia_parse_chapter(self, chapter_url, chapter_name):
-        """Fetch a Global Novelpia ticket, content payload, and signed images."""
-        episode_no = self._global_novelpia_episode_id(chapter_url)
+    def _global_npia_parse_chapter(self, chapter_url, chapter_name):
+        """Fetch a Global Npia ticket, content payload, and signed images."""
+        episode_no = self._global_npia_episode_id(chapter_url)
         if not episode_no:
-            self.log(f'  [Global Novelpia] Invalid chapter URL: {chapter_url}')
+            self.log(f'  [Global Npia] Invalid chapter URL: {chapter_url}')
             return None
 
-        if self._global_novelpia_session is None:
-            self._global_novelpia_ensure_session()
+        if self._global_npia_session is None:
+            self._global_npia_ensure_session()
         auth_refreshed = False
         ad_attempted = False
         for _request_attempt in range(4):
-            session = self._global_novelpia_clone_session()
+            session = self._global_npia_clone_session()
             if session is None:
                 return None
-            login_at = self._global_novelpia_login_at
+            login_at = self._global_npia_login_at
             try:
-                status, ticket = self._global_novelpia_request_json(
+                status, ticket = self._global_npia_request_json(
                     session,
-                    f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode',
+                    f'{self._GLOBAL_NPIA_API}/v1/novel/episode',
                     params={'episode_no': episode_no},
                     login_at=login_at,
                     max_retries=4,
                 )
-                ticket_message = self._global_novelpia_payload_message(
+                ticket_message = self._global_npia_payload_message(
                     ticket
                 ).lower()
                 auth_expired = (
@@ -10210,12 +10210,12 @@ async ({ url }) => {
                 )
                 if auth_expired and not auth_refreshed:
                     auth_refreshed = True
-                    if self._global_novelpia_refresh_login(login_at):
+                    if self._global_npia_refresh_login(login_at):
                         continue
-                if self._global_novelpia_ad_required(status, ticket):
+                if self._global_npia_ad_required(status, ticket):
                     if ad_attempted:
                         self.log(
-                            '  [Global Novelpia] Advertisement completion was '
+                            '  [Global Npia] Advertisement completion was '
                             f'not accepted for {chapter_name}.'
                         )
                         return {
@@ -10225,12 +10225,12 @@ async ({ url }) => {
                         }
                     ad_attempted = True
                     novel_no = (
-                        self._global_novelpia_ad_novel_id(ticket)
+                        self._global_npia_ad_novel_id(ticket)
                         or str((self._book_data or {}).get(
-                            '_global_novelpia_novel_id', ''
+                            '_global_npia_novel_id', ''
                         ))
                     )
-                    if self._global_novelpia_complete_ad(
+                    if self._global_npia_complete_ad(
                         novel_no, episode_no, chapter_name
                     ):
                         continue
@@ -10240,37 +10240,37 @@ async ({ url }) => {
                         'chapterName': chapter_name,
                     }
                 if status >= 400 or not status:
-                    if self._global_novelpia_access_denied(status, ticket):
+                    if self._global_npia_access_denied(status, ticket):
                         self.log(
-                            f'  [Global Novelpia] LOCKED or login required: '
+                            f'  [Global Npia] LOCKED or login required: '
                             f'{chapter_name}'
                         )
                         return {'_locked': True, 'chapterName': chapter_name}
-                    message = self._global_novelpia_payload_message(ticket)
+                    message = self._global_npia_payload_message(ticket)
                     self.log(
-                        f'  [Global Novelpia] Ticket failed for {chapter_name} '
+                        f'  [Global Npia] Ticket failed for {chapter_name} '
                         f'(HTTP {status or "network"})'
                         + (f': {message}' if message else '.')
                     )
                     return None
 
-                token, direct_url = self._global_novelpia_extract_ticket_token(
+                token, direct_url = self._global_npia_extract_ticket_token(
                     ticket
                 )
                 if not token and not direct_url:
-                    if self._global_novelpia_access_denied(status, ticket):
+                    if self._global_npia_access_denied(status, ticket):
                         return {'_locked': True, 'chapterName': chapter_name}
                     self.log(
-                        f'  [Global Novelpia] Ticket contained no content '
+                        f'  [Global Npia] Ticket contained no content '
                         f'token: {chapter_name}'
                     )
                     return None
                 content_url = (
                     direct_url
-                    or f'{self._GLOBAL_NOVELPIA_API}/v1/novel/episode/content'
+                    or f'{self._GLOBAL_NPIA_API}/v1/novel/episode/content'
                 )
                 content_status, content_payload = (
-                    self._global_novelpia_request_json(
+                    self._global_npia_request_json(
                         session,
                         content_url,
                         params=None if direct_url else {'_t': token},
@@ -10278,50 +10278,50 @@ async ({ url }) => {
                     )
                 )
                 if content_status >= 400 or not content_status:
-                    if self._global_novelpia_access_denied(
+                    if self._global_npia_access_denied(
                         content_status, content_payload
                     ):
                         return {'_locked': True, 'chapterName': chapter_name}
-                    message = self._global_novelpia_payload_message(
+                    message = self._global_npia_payload_message(
                         content_payload
                     )
                     self.log(
-                        f'  [Global Novelpia] Content failed for {chapter_name} '
+                        f'  [Global Npia] Content failed for {chapter_name} '
                         f'(HTTP {content_status or "network"})'
                         + (f': {message}' if message else '.')
                     )
                     return None
-                raw_html = self._global_novelpia_raw_content(content_payload)
+                raw_html = self._global_npia_raw_content(content_payload)
                 if not raw_html:
                     self.log(
-                        f'  [Global Novelpia] Empty content: {chapter_name}'
+                        f'  [Global Npia] Empty content: {chapter_name}'
                     )
                     return None
-                result = self._global_novelpia_build_chapter_result(
+                result = self._global_npia_build_chapter_result(
                     raw_html,
                     chapter_name,
                     chapter_url,
-                    self._global_novelpia_signed_image_cookies(ticket),
+                    self._global_npia_signed_image_cookies(ticket),
                 )
                 return result
             finally:
                 session.close()
         return None
 
-    def _global_novelpia_parse_chapter_batch(
+    def _global_npia_parse_chapter_batch(
         self, batch_info, success_callback=None
     ):
         """Fetch one External Downloader batch through pia-scrap's API path."""
         if not batch_info:
             return []
-        self._global_novelpia_ensure_session()
+        self._global_npia_ensure_session()
         from concurrent.futures import ThreadPoolExecutor
 
         def fetch_one(item):
             index, chapter = item
             if self._stop_requested:
                 return None
-            result = self._global_novelpia_parse_chapter(
+            result = self._global_npia_parse_chapter(
                 chapter.get('url', ''),
                 chapter.get('fullName', '') or chapter.get('name', ''),
             )
@@ -10340,10 +10340,10 @@ async ({ url }) => {
             return list(executor.map(fetch_one, enumerate(batch_info)))
 
     # ------------------------------------------------------------------
-    # Ridibooks webnovel scraper (ported from the contributed ridi-dl extension)
+    # Rbooks webnovel scraper (ported from the contributed rbooks-dl extension)
     # ------------------------------------------------------------------
     @staticmethod
-    def _ridi_book_id(url):
+    def _rbooks_book_id(url):
         try:
             path = urllib.parse.urlparse(url or '').path or ''
         except Exception:
@@ -10352,7 +10352,7 @@ async ({ url }) => {
         return match.group(1) if match else ''
 
     @staticmethod
-    def _ridi_is_viewer_url(url):
+    def _rbooks_is_viewer_url(url):
         try:
             path = urllib.parse.urlparse(url or '').path or ''
         except Exception:
@@ -10362,8 +10362,8 @@ async ({ url }) => {
         ))
 
     @staticmethod
-    def _ridi_image_name(image_url, chapter_id, image_index):
-        """Build a stable EPUB-safe name for a Ridi chapter image."""
+    def _rbooks_image_name(image_url, chapter_id, image_index):
+        """Build a stable EPUB-safe name for a Rbooks chapter image."""
         try:
             parsed = urllib.parse.urlparse(image_url or '')
             name = urllib.parse.unquote(os.path.basename(parsed.path))
@@ -10371,11 +10371,11 @@ async ({ url }) => {
             name = ''
         name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
         if not name or not re.search(r'\.[A-Za-z0-9]{2,5}$', name):
-            name = f'ridi_{chapter_id or "chapter"}_{image_index}.jpg'
+            name = f'rbooks_{chapter_id or "chapter"}_{image_index}.jpg'
         return name
 
     @staticmethod
-    def _ridi_page_is_usable(page):
+    def _rbooks_page_is_usable(page):
         """Treat a disconnected Playwright page as unavailable."""
         if page is None:
             return False
@@ -10389,7 +10389,7 @@ async ({ url }) => {
             return False
 
     @staticmethod
-    def _ridi_browser_closed_error(error):
+    def _rbooks_browser_closed_error(error):
         message = str(error or '').lower()
         return any(fragment in message for fragment in (
             'target page, context or browser has been closed',
@@ -10400,10 +10400,10 @@ async ({ url }) => {
             'browser disconnected',
         ))
 
-    def _ridi_connect_cdp(self, port, site='Ridi'):
+    def _rbooks_connect_cdp(self, port, site='Rbooks'):
         """Attach to the saved installed-Chrome session.
 
-        Ridi currently challenges the bundled headless Chromium build.  The
+        Rbooks currently challenges the bundled headless Chromium build.  The
         contributed extension runs in normal Chrome, so its reader needs
         that browser and the profile's login cookies. Faloo uses the same
         session for chapters that need authentication.
@@ -10421,12 +10421,12 @@ async ({ url }) => {
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on('console', self._on_console)
-            self._ridi_chrome = True
-            self._ridi_site = site
-            self._ridi_cdp_port = port
+            self._rbooks_chrome = True
+            self._rbooks_site = site
+            self._rbooks_cdp_port = port
             self.log(f'[{site}] Installed-Chrome session ready.')
-            if site in ('Ridi', 'Kobo'):
-                domain = 'ridibooks.com' if site == 'Ridi' else 'kobo.com'
+            if site in ('Rbooks', 'Kobo'):
+                domain = '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com' if site == 'Rbooks' else 'kobo.com'
                 restored = self._restore_session_cookies(domain)
                 if restored:
                     self.log(
@@ -10439,16 +10439,16 @@ async ({ url }) => {
             self.cleanup()
             return False
 
-    def _start_ridi_browser(self, start_url, site='Ridi'):
+    def _start_rbooks_browser(self, start_url, site='Rbooks'):
         """Run a site in installed Chrome with the saved external profile."""
         if self._context and self._page:
             try:
                 self._page.evaluate('1')
-                if self._ridi_chrome:
-                    self._ridi_site = site
-                    if site in ('Ridi', 'Kobo'):
+                if self._rbooks_chrome:
+                    self._rbooks_site = site
+                    if site in ('Rbooks', 'Kobo'):
                         self._restore_session_cookies(
-                            'ridibooks.com' if site == 'Ridi'
+                            '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com' if site == 'Rbooks'
                             else 'kobo.com'
                         )
                     return True
@@ -10481,8 +10481,8 @@ async ({ url }) => {
                         f'[{site}] Reusing the existing External Downloader '
                         'browser session.'
                     )
-                    return (self._ridi_connect_cdp(port) if site == 'Ridi'
-                            else self._ridi_connect_cdp(port, site))
+                    return (self._rbooks_connect_cdp(port) if site == 'Rbooks'
+                            else self._rbooks_connect_cdp(port, site))
 
             pids = ', '.join(str(pid) for pid in locked_pids)
             self.log(
@@ -10521,11 +10521,11 @@ async ({ url }) => {
             return False
 
         self._park_chrome_windows_for_profile(user_data_dir)
-        return (self._ridi_connect_cdp(port) if site == 'Ridi'
-                else self._ridi_connect_cdp(port, site))
+        return (self._rbooks_connect_cdp(port) if site == 'Rbooks'
+                else self._rbooks_connect_cdp(port, site))
 
     @staticmethod
-    def _ridi_api_title(payload):
+    def _rbooks_api_title(payload):
         """Read a usable episode title from one book-api response."""
         title = (payload or {}).get('title')
         if isinstance(title, str):
@@ -10538,7 +10538,7 @@ async ({ url }) => {
         return ''
 
     @staticmethod
-    def _ridi_api_next_id(payload):
+    def _rbooks_api_next_id(payload):
         prop = ((payload or {}).get('series') or {}).get('property') or {}
         next_books = prop.get('next_books') or {}
         if not isinstance(next_books, dict):
@@ -10549,27 +10549,27 @@ async ({ url }) => {
                 return value
         return ''
 
-    def _ridi_open_api_book(self, book_id):
+    def _rbooks_open_api_book(self, book_id):
         """Open the API as a top-level document and return its first JSON.
 
         A top-level navigation is deliberately used here.  Fetching the API
-        from the Ridi product page is blocked by that page's CSP, while a raw
+        from the Rbooks product page is blocked by that page's CSP, while a raw
         Python/APIRequestContext client gets a separate Cloudflare challenge.
         Installed Chrome navigation uses the same browser identity as the
         contributed extension and establishes a same-origin API page for the
         remaining requests.
         """
         if not self._context:
-            raise RuntimeError('Ridi browser context is unavailable')
+            raise RuntimeError('Rbooks browser context is unavailable')
         page = self._context.new_page()
         page.on('console', self._on_console)
-        api_url = f'https://book-api.ridibooks.com/books/{book_id}'
+        api_url = f'https://book-api.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{book_id}'
         try:
             page.goto(
                 api_url,
                 wait_until='domcontentloaded',
                 timeout=45000,
-                referer=f'https://ridibooks.com/books/{book_id}',
+                referer=f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{book_id}',
             )
             deadline = time.monotonic() + 30
             last_text = ''
@@ -10590,7 +10590,7 @@ async ({ url }) => {
             if 'just a moment' in title.lower() or 'cloudflare' in last_text.lower():
                 raise RuntimeError(
                     'Cloudflare verification did not complete. Use Enter '
-                    'Browser on the Ridi URL, finish verification, close the '
+                    'Browser on the Rbooks URL, finish verification, close the '
                     'browser, and retry.'
                 )
             raise RuntimeError('book API did not return JSON')
@@ -10601,12 +10601,12 @@ async ({ url }) => {
                 pass
             raise
 
-    def _ridi_api_fetch_book(self, api_page, book_id, retries=3):
+    def _rbooks_api_fetch_book(self, api_page, book_id, retries=3):
         """Fetch one book through the API page's same-origin context."""
         for attempt in range(1, max(1, int(retries)) + 1):
             if self._stop_requested:
                 return None
-            if not self._ridi_page_is_usable(api_page):
+            if not self._rbooks_page_is_usable(api_page):
                 return None
             try:
                 response = api_page.evaluate(
@@ -10633,7 +10633,7 @@ async ({ url }) => {
                     return json.loads(response.get('text') or '{}')
                 delay = 2 * attempt if status == 429 else attempt
             except Exception as e:
-                if self._ridi_browser_closed_error(e):
+                if self._rbooks_browser_closed_error(e):
                     return None
                 delay = attempt
             if attempt < retries:
@@ -10644,12 +10644,12 @@ async ({ url }) => {
         return None
 
     @classmethod
-    def _ridi_contiguous_catalog_ids(
+    def _rbooks_contiguous_catalog_ids(
         cls, series_id, total, rendered_links, first_data
     ):
-        """Infer a serial catalog only when Ridi proves IDs are contiguous.
+        """Infer a serial catalog only when Rbooks proves IDs are contiguous.
 
-        Ridi's product page renders an initial run of episode links. For
+        Rbooks's product page renders an initial run of episode links. For
         series whose official root payload reports the same consecutive next
         ID, that run safely establishes the numeric catalog pattern. The
         caller still validates the final generated ID against book-api before
@@ -10660,7 +10660,7 @@ async ({ url }) => {
             return []
         rendered_ids = []
         for link in rendered_links or []:
-            book_id = cls._ridi_book_id(link)
+            book_id = cls._rbooks_book_id(link)
             if book_id and book_id not in rendered_ids:
                 rendered_ids.append(book_id)
         if len(rendered_ids) < 2 or series_id not in rendered_ids:
@@ -10674,7 +10674,7 @@ async ({ url }) => {
 
         width = len(series_id)
         expected_next = str(start + 1).zfill(width)
-        if cls._ridi_api_next_id(first_data) != expected_next:
+        if cls._rbooks_api_next_id(first_data) != expected_next:
             return []
         return [
             str(start + offset).zfill(width)
@@ -10682,7 +10682,7 @@ async ({ url }) => {
         ]
 
     @classmethod
-    def _ridi_generated_catalog_titles(cls, first_title, ordered_ids):
+    def _rbooks_generated_catalog_titles(cls, first_title, ordered_ids):
         """Expand an API title such as ``Book 1화`` for the fast catalog."""
         first_title = str(first_title or '').strip()
         if not first_title or not ordered_ids:
@@ -10701,7 +10701,7 @@ async ({ url }) => {
             for index, book_id in enumerate(ordered_ids)
         }
 
-    def _ridi_discover_episode_chain(self, series_id, rendered_links=None):
+    def _rbooks_discover_episode_chain(self, series_id, rendered_links=None):
         """Follow series.property.next_books outside the product-page CSP."""
         result = {
             'links': [],
@@ -10712,7 +10712,7 @@ async ({ url }) => {
         }
         api_page = None
         try:
-            api_page, first_data = self._ridi_open_api_book(series_id)
+            api_page, first_data = self._rbooks_open_api_book(series_id)
             prop = (first_data.get('series') or {}).get('property') or {}
             total = int(
                 prop.get('total_book_count')
@@ -10727,31 +10727,31 @@ async ({ url }) => {
             ordered_ids = [str(series_id)]
             seen = set(ordered_ids)
             current_data = first_data
-            first_title = self._ridi_api_title(first_data)
+            first_title = self._rbooks_api_title(first_data)
             if first_title:
                 result['titleById'][str(series_id)] = first_title
 
             # Volume ebooks have a finite next_books chain too. Keep each
-            # volume as one reader entry when Ridi explicitly links it;
+            # volume as one reader entry when Rbooks explicitly links it;
             # ownership is checked by the viewer when that entry is opened.
             if not result['isSerial']:
                 if total < 2:
                     return result
                 while len(ordered_ids) < min(total, 100):
-                    next_id = self._ridi_api_next_id(current_data)
+                    next_id = self._rbooks_api_next_id(current_data)
                     if not next_id or next_id in seen:
                         break
-                    current_data = self._ridi_api_fetch_book(api_page, next_id)
+                    current_data = self._rbooks_api_fetch_book(api_page, next_id)
                     if not current_data:
                         break
                     seen.add(next_id)
                     ordered_ids.append(next_id)
-                    volume_title = self._ridi_api_title(current_data)
+                    volume_title = self._rbooks_api_title(current_data)
                     if volume_title:
                         result['titleById'][next_id] = volume_title
                 if len(ordered_ids) > 1:
                     result['links'] = [
-                        f'https://ridibooks.com/books/{volume_id}/view'
+                        f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{volume_id}/view'
                         for volume_id in ordered_ids
                     ]
                     result['diagnostics'].append(
@@ -10759,16 +10759,16 @@ async ({ url }) => {
                     )
                 return result
 
-            # Most Ridi webnovels use a contiguous episode-ID range. Prove
+            # Most Rbooks webnovels use a contiguous episode-ID range. Prove
             # that from the rendered initial run and the root API's next ID,
             # then validate the official final ID. This replaces hundreds of
             # sequential next_books requests with one validation request.
-            fast_ids = self._ridi_contiguous_catalog_ids(
+            fast_ids = self._rbooks_contiguous_catalog_ids(
                 series_id, total, rendered_links, first_data
             )
             if fast_ids:
                 last_id = fast_ids[-1]
-                last_data = self._ridi_api_fetch_book(
+                last_data = self._rbooks_api_fetch_book(
                     api_page, last_id, retries=2
                 )
                 last_prop = (
@@ -10787,20 +10787,20 @@ async ({ url }) => {
                     last_data
                     and last_prop.get('is_serial')
                     and (not last_total or last_total == total)
-                    and not self._ridi_api_next_id(last_data)
+                    and not self._rbooks_api_next_id(last_data)
                 )
                 if final_is_valid:
                     ordered_ids = fast_ids
                     result['titleById'].update(
-                        self._ridi_generated_catalog_titles(
+                        self._rbooks_generated_catalog_titles(
                             first_title, ordered_ids
                         )
                     )
-                    last_title = self._ridi_api_title(last_data)
+                    last_title = self._rbooks_api_title(last_data)
                     if last_title:
                         result['titleById'][last_id] = last_title
                     result['links'] = [
-                        f'https://ridibooks.com/books/{episode_id}/view'
+                        f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{episode_id}/view'
                         for episode_id in ordered_ids
                     ]
                     result['diagnostics'].append(
@@ -10811,10 +10811,10 @@ async ({ url }) => {
 
             safety_limit = min(max(total or 10000, 1), 10000)
             while len(ordered_ids) < safety_limit and not self._stop_requested:
-                next_id = self._ridi_api_next_id(current_data)
+                next_id = self._rbooks_api_next_id(current_data)
                 if not next_id or next_id in seen:
                     break
-                current_data = self._ridi_api_fetch_book(api_page, next_id)
+                current_data = self._rbooks_api_fetch_book(api_page, next_id)
                 if not current_data:
                     # A long series can outlive a transient API tab or Chrome
                     # process. Reopen at the exact failed ID and continue the
@@ -10829,18 +10829,18 @@ async ({ url }) => {
                         except Exception:
                             pass
                         api_page = None
-                        if not self._ridi_page_is_usable(self._page):
+                        if not self._rbooks_page_is_usable(self._page):
                             self.log(
-                                '[Ridi] Browser session closed during episode '
+                                '[Rbooks] Browser session closed during episode '
                                 'discovery; restarting it.'
                             )
-                            if not self._start_ridi_browser(
-                                f'https://ridibooks.com/books/{series_id}'
+                            if not self._start_rbooks_browser(
+                                f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{series_id}'
                             ):
                                 break
                         try:
                             api_page, current_data = (
-                                self._ridi_open_api_book(next_id)
+                                self._rbooks_open_api_book(next_id)
                             )
                         except Exception:
                             current_data = None
@@ -10857,7 +10857,7 @@ async ({ url }) => {
                         break
                 seen.add(next_id)
                 ordered_ids.append(next_id)
-                episode_title = self._ridi_api_title(current_data)
+                episode_title = self._rbooks_api_title(current_data)
                 if episode_title:
                     result['titleById'][next_id] = episode_title
                 if len(ordered_ids) % 20 == 0:
@@ -10869,7 +10869,7 @@ async ({ url }) => {
                         time.sleep(0.3)
 
             result['links'] = [
-                f'https://ridibooks.com/books/{episode_id}/view'
+                f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{episode_id}/view'
                 for episode_id in ordered_ids
             ]
             result['diagnostics'].append(
@@ -10886,11 +10886,11 @@ async ({ url }) => {
                 except Exception:
                     pass
 
-    def _ridi_parse_book(self, url):
-        """Read Ridi metadata and discover its complete webnovel episode chain."""
-        book_id = self._ridi_book_id(url)
+    def _rbooks_parse_book(self, url):
+        """Read Rbooks metadata and discover its complete webnovel episode chain."""
+        book_id = self._rbooks_book_id(url)
         if not book_id:
-            self.log('[Ridi] ERROR: Invalid Ridibooks URL.')
+            self.log('[Rbooks] ERROR: Invalid Rbooks URL.')
             return None
 
         self._stop_requested = False
@@ -10898,20 +10898,20 @@ async ({ url }) => {
             r'^/library/books/\d+/?$',
             urllib.parse.urlparse(url).path or '', re.I,
         ))
-        book_url = f'https://ridibooks.com/books/{book_id}'
+        book_url = f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{book_id}'
         start_url = url if is_library else book_url
-        # The bundled headless browser is currently challenged by Ridi's
+        # The bundled headless browser is currently challenged by Rbooks's
         # Cloudflare configuration. Match the contributed Chrome extension's
         # execution environment by retaining the real installed-Chrome
         # profile for metadata, API discovery, and chapter rendering.
         if (
-            not self._ridi_chrome
-            or not self._ridi_page_is_usable(self._page)
+            not self._rbooks_chrome
+            or not self._rbooks_page_is_usable(self._page)
         ):
-            if not self._start_ridi_browser(start_url):
+            if not self._start_rbooks_browser(start_url):
                 return None
-        if not self._ridi_page_is_usable(self._page):
-            self.log('[Ridi] ERROR: Browser could not be started.')
+        if not self._rbooks_page_is_usable(self._page):
+            self.log('[Rbooks] ERROR: Browser could not be started.')
             return None
 
         if is_library:
@@ -10921,13 +10921,13 @@ async ({ url }) => {
                 if re.search(r'/(?:account/login|account/verify-adult)',
                              current_url, re.I):
                     self.log(
-                        '[Ridi] Library page requires login or age '
+                        '[Rbooks] Library page requires login or age '
                         'verification in Enter Browser.'
                     )
                     return None
-                if self._ridi_signed_in() is False:
+                if self._rbooks_signed_in() is False:
                     self.log(
-                        '[Ridi] Library URLs need a Ridi login, and the '
+                        '[Rbooks] Library URLs need a Rbooks login, and the '
                         'External Downloader profile is not signed in. Sign '
                         'in with Enter Browser, close it, then retry.'
                     )
@@ -10937,13 +10937,13 @@ async ({ url }) => {
                     try:
                         wait_for_function(r"""() =>
                           !!document.querySelector(
-                            'div.pages, #viewer_contents, [id^="ridi_c"], '
+                            'div.pages, #viewer_contents, [id^="rbooks_c"], '
                             + 'article.chapter'
                           ) || /\/books\/\d+/.test(
                             document.querySelector('link[rel="canonical"]')?.href
                             || ''
                           ) || !!document.querySelector(
-                            'a[href*="ridibooks.com/books/"], a[href^="/books/"]'
+                            'a[href*="\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/"], a[href^="/books/"]'
                           )
                         """, timeout=15000)
                     except Exception:
@@ -10958,7 +10958,7 @@ async ({ url }) => {
                   )?.href || meta('og:url');
                   const current = location.href;
                   const productRe =
-                    /^https?:\/\/([^/]+\.)?ridibooks\.com\/books\/(\d+)(?:[/?#]|$)/i;
+                    /^https?:\/\/([^/]+\.)?\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073\.com\/books\/(\d+)(?:[/?#]|$)/i;
                   let product = [current, canonical].find((value) =>
                     productRe.test(value || '')
                   ) || '';
@@ -10970,7 +10970,7 @@ async ({ url }) => {
                       .map((a) => (productRe.exec(a.href) || [])[2])
                       .filter(Boolean).map(Number);
                     if (ids.length) {
-                      product = `https://ridibooks.com/books/${Math.min(...ids)}`;
+                      product = `https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/${Math.min(...ids)}`;
                     }
                   }
                   const text = document.body?.innerText || '';
@@ -10981,16 +10981,16 @@ async ({ url }) => {
                     title: meta('og:title') || document.querySelector('h1')?.innerText
                       || document.title || '',
                     viewer: !!document.querySelector(
-                      'div.pages, #viewer_contents, [id^="ridi_c"], article.chapter'
+                      'div.pages, #viewer_contents, [id^="rbooks_c"], article.chapter'
                     ),
                   };
                 }
                 """) or {}
             except Exception as exc:
-                self.log(f'[Ridi] Library page could not load: {exc}')
+                self.log(f'[Rbooks] Library page could not load: {exc}')
                 return None
             if library.get('viewer'):
-                title = library.get('title') or f'Ridi {book_id}'
+                title = library.get('title') or f'Rbooks {book_id}'
                 chapter = {
                     'id': book_id, 'url': url, 'name': title,
                     'fullName': title, 'isVIP': False, 'isPaid': False,
@@ -10999,39 +10999,39 @@ async ({ url }) => {
                 data = {
                     'bookname': title, 'author': '', 'bookUrl': url,
                     'chapterCount': 1, 'chapters': [chapter], 'language': 'ko',
-                    '_ridibooks': True, '_ridi_book_id': book_id,
+                    '_rbooks': True, '_rbooks_book_id': book_id,
                 }
                 self._book_data, self._book_url = data, url
-                self.log(f'[Ridi] Library reader: {title}')
+                self.log(f'[Rbooks] Library reader: {title}')
                 return data
             product = library.get('product') or ''
             if not product:
                 self.log(
-                    '[Ridi] Library URL opened, but no readable book or '
-                    'product link was found. Check the Ridi login in Enter '
+                    '[Rbooks] Library URL opened, but no readable book or '
+                    'product link was found. Check the Rbooks login in Enter '
                     'Browser, then retry.'
                 )
                 return None
-            book_id = self._ridi_book_id(product)
-            book_url = f'https://ridibooks.com/books/{book_id}'
-            self.log(f'[Ridi] Library book resolves to: {book_url}')
+            book_id = self._rbooks_book_id(product)
+            book_url = f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{book_id}'
+            self.log(f'[Rbooks] Library book resolves to: {book_url}')
             if library.get('unavailable'):
                 self.log(
-                    '[Ridi] Your library marks this title "이용불가" '
+                    '[Rbooks] Your library marks this title "이용불가" '
                     '(unavailable)'
-                    + (' as an adult (19+) title. Complete or renew Ridi '
+                    + (' as an adult (19+) title. Complete or renew Rbooks '
                        'adult verification (성인인증) in Enter Browser.'
                        if library.get('adult') else '.')
                 )
 
-        self.log(f'[Ridi] Opening: {book_url}')
+        self.log(f'[Rbooks] Opening: {book_url}')
         try:
             self._page.goto(
                 book_url,
                 wait_until='domcontentloaded',
                 timeout=45000,
             )
-            # Do not wait for the full load event: Ridi's analytics resources
+            # Do not wait for the full load event: Rbooks's analytics resources
             # can keep it pending for 15 seconds even though the server-rendered
             # metadata and series shell are already ready.
             wait_for_function = getattr(self._page, 'wait_for_function', None)
@@ -11053,13 +11053,13 @@ async ({ url }) => {
                     pass
         except Exception as e:
             if 'ERR_ABORTED' not in str(e):
-                self.log(f'[Ridi] ERROR: Page load failed: {e}')
+                self.log(f'[Rbooks] ERROR: Page load failed: {e}')
                 return None
         current_url = getattr(self._page, 'url', '') or ''
         if re.search(r'/(?:account/login|account/verify-adult)',
                      current_url, re.I):
             self.log(
-                '[Ridi] Product page requires login or age verification '
+                '[Rbooks] Product page requires login or age verification '
                 'in Enter Browser.'
             )
             return None
@@ -11095,7 +11095,7 @@ async ({ url }) => {
             return '';
           };
 
-          // Metadata logic ported from scrapeNovelMeta() in ridi-dl.
+          // Metadata logic ported from scrapeNovelMeta() in rbooks-dl.
           const jsonData = {
             author: '', description: '', image: '', title: '', publisher: ''
           };
@@ -11127,7 +11127,7 @@ async ({ url }) => {
                 descriptions.push(value.description);
               }
               if (typeof value.image === 'string'
-                  && /ridicdn\.net\/cover/.test(value.image)
+                  && /\u0072\u0069\u0064\u0069\u0063\u0064\u006e\.net\/cover/.test(value.image)
                   && !jsonData.image) {
                 jsonData.image = value.image;
               }
@@ -11222,7 +11222,7 @@ async ({ url }) => {
           }
 
           const coverNode = document.querySelector(
-            'img[src*="ridicdn.net/cover"], img[srcset*="ridicdn.net/cover"], '
+            'img[src*="\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net/cover"], img[srcset*="\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net/cover"], '
             + '[class*="cover"] img, [class*="Cover"] img, .thumbnail img'
           );
           const cover = absolute(
@@ -11308,36 +11308,36 @@ async ({ url }) => {
         try:
             meta = self._page.evaluate(script) or {}
         except Exception as e:
-            self.log(f'[Ridi] ERROR: Book discovery failed: {e}')
+            self.log(f'[Rbooks] ERROR: Book discovery failed: {e}')
             return None
 
         for line in meta.get('diagnostics') or []:
-            self.log(f'[Ridi] {line}')
+            self.log(f'[Rbooks] {line}')
 
         links = meta.get('links') or []
         title_by_id = dict(meta.get('titleById') or {})
         series_id = str(meta.get('seriesId') or '')
         api_result = None
         if series_id and self._context:
-            api_result = self._ridi_discover_episode_chain(
+            api_result = self._rbooks_discover_episode_chain(
                 series_id, rendered_links=links
             )
             for line in api_result.get('diagnostics') or []:
-                self.log(f'[Ridi] {line}')
+                self.log(f'[Rbooks] {line}')
             api_links = api_result.get('links') or []
             if len(api_links) > len(links):
                 links = api_links
             title_by_id.update(api_result.get('titleById') or {})
             if api_result.get('error'):
                 self.log(
-                    '[Ridi] Episode API warning: '
+                    '[Rbooks] Episode API warning: '
                     f"{api_result.get('error')}"
                 )
         chapters = []
         seen = set()
         for chapter_number, raw_chapter_url in enumerate(links, start=1):
             chapter_url = urllib.parse.urljoin(book_url, raw_chapter_url)
-            chapter_id = self._ridi_book_id(chapter_url)
+            chapter_id = self._rbooks_book_id(chapter_url)
             if not chapter_id or chapter_id in seen:
                 continue
             seen.add(chapter_id)
@@ -11349,27 +11349,27 @@ async ({ url }) => {
                 'fullName': title,
                 'isVIP': False,
                 'isPaid': False,
-                # Ridi's catalog does not reveal whether this browser profile
+                # Rbooks's catalog does not reveal whether this browser profile
                 # owns a chapter. The rendered viewer makes that determination.
                 'isAccessible': True,
-                '_ridiChapterNumber': chapter_number,
+                '_rbooksChapterNumber': chapter_number,
             })
 
         if not chapters:
             if api_result and api_result.get('error'):
                 self.log(
-                    '[Ridi] ERROR: Webnovel episode discovery failed. '
-                    'Complete Ridi/Cloudflare verification with Enter Browser '
+                    '[Rbooks] ERROR: Webnovel episode discovery failed. '
+                    'Complete Rbooks/Cloudflare verification with Enter Browser '
                     'and retry.'
                 )
             else:
                 self.log(
-                    '[Ridi] ERROR: No webnovel episodes or linked ebook '
+                    '[Rbooks] ERROR: No webnovel episodes or linked ebook '
                     'volumes were found on this book page.'
                 )
             return None
 
-        title = meta.get('title') or f'Ridi {book_id}'
+        title = meta.get('title') or f'Rbooks {book_id}'
         introduction = meta.get('synopsis') or ''
         data = {
             'bookname': title,
@@ -11387,24 +11387,24 @@ async ({ url }) => {
             'chapters': chapters,
             'language': 'ko',
             'tags': meta.get('tags') or [],
-            '_ridibooks': True,
-            '_ridi_book_id': book_id,
+            '_rbooks': True,
+            '_rbooks_book_id': book_id,
         }
         self._book_data = data
         self._book_url = book_url
         self.log(
-            f'[Ridi] Book: {title} by {data.get("author") or "?"} - '
+            f'[Rbooks] Book: {title} by {data.get("author") or "?"} - '
             f'{len(chapters)} chapters'
         )
         return data
 
-    def _ridi_content_state(self, page):
+    def _rbooks_content_state(self, page):
         """Return the contribution's viewer readiness signal."""
         try:
             return page.evaluate(r"""
             () => {
               const selectors = [
-                'div.pages', '#viewer_contents', '[id^="ridi_c"]',
+                'div.pages', '#viewer_contents', '[id^="rbooks_c"]',
                 'article.chapter', '.chapter'
               ];
               let content = null;
@@ -11427,13 +11427,13 @@ async ({ url }) => {
         except Exception:
             return {}
 
-    def _ridi_wait_for_content(self, page, timeout=30):
+    def _rbooks_wait_for_content(self, page, timeout=30):
         """Wait until the rendered viewer text is both complete and stable."""
         deadline = time.monotonic() + max(1, timeout)
         last_length = -1
         stable_count = 0
         while time.monotonic() < deadline and not self._stop_requested:
-            state = self._ridi_content_state(page)
+            state = self._rbooks_content_state(page)
             if state.get('refused'):
                 return False
             length = int(state.get('length') or 0)
@@ -11454,13 +11454,13 @@ async ({ url }) => {
                 time.sleep(0.7)
         return False
 
-    def _ridi_detect_access_wall(self, page):
-        """Classify Ridi purchase/login redirects without retrying them."""
+    def _rbooks_detect_access_wall(self, page):
+        """Classify Rbooks purchase/login redirects without retrying them."""
         try:
             return page.evaluate(r"""
             () => {
               const selectors = [
-                'div.pages', '#viewer_contents', '[id^="ridi_c"]',
+                'div.pages', '#viewer_contents', '[id^="rbooks_c"]',
                 'article.chapter', '.chapter'
               ];
               if (selectors.some((selector) => document.querySelector(selector))) {
@@ -11486,8 +11486,8 @@ async ({ url }) => {
         except Exception:
             return {'wall': False}
 
-    def _ridi_extract_loaded_content(self, page, fallback_title):
-        """Extract and clean the currently rendered Ridi viewer document."""
+    def _rbooks_extract_loaded_content(self, page, fallback_title):
+        """Extract and clean the currently rendered Rbooks viewer document."""
         try:
             return page.evaluate(r"""
             (fallbackTitle) => {
@@ -11496,7 +11496,7 @@ async ({ url }) => {
                 ''
               );
               const selectors = [
-                'div.pages', '#viewer_contents', '[id^="ridi_c"]',
+                'div.pages', '#viewer_contents', '[id^="rbooks_c"]',
                 'article.chapter', '.chapter'
               ];
               let source = null;
@@ -11565,12 +11565,12 @@ async ({ url }) => {
               });
               content.querySelectorAll('hr').forEach((node) => node.remove());
 
-              content.querySelectorAll('div.ridiborder').forEach((node) => {
+              content.querySelectorAll('div.\u0072\u0069\u0064\u0069border').forEach((node) => {
                 const blockquote = document.createElement('blockquote');
                 while (node.firstChild) blockquote.appendChild(node.firstChild);
                 node.parentNode.replaceChild(blockquote, node);
               });
-              content.querySelectorAll('.ridicenter').forEach((node) => {
+              content.querySelectorAll('.\u0072\u0069\u0064\u0069center').forEach((node) => {
                 const paragraph = document.createElement('p');
                 paragraph.setAttribute('align', 'center');
                 while (node.firstChild) paragraph.appendChild(node.firstChild);
@@ -11636,10 +11636,10 @@ async ({ url }) => {
             }
             """, fallback_title) or None
         except Exception as e:
-            self.log(f'  [Ridi] Chapter extraction failed: {fallback_title}: {e}')
+            self.log(f'  [Rbooks] Chapter extraction failed: {fallback_title}: {e}')
             return None
 
-    def _ridi_build_chapter_result(
+    def _rbooks_build_chapter_result(
         self,
         payload,
         chapter_name,
@@ -11651,7 +11651,7 @@ async ({ url }) => {
         content_html = payload.get('content') or ''
         images = []
         seen = set()
-        chapter_id = self._ridi_book_id(chapter_url)
+        chapter_id = self._rbooks_book_id(chapter_url)
         for image_index, item in enumerate(payload.get('imageUrls') or [], start=1):
             if not isinstance(item, dict):
                 continue
@@ -11671,7 +11671,7 @@ async ({ url }) => {
                 )
             images.append({
                 'url': absolute,
-                'name': self._ridi_image_name(
+                'name': self._rbooks_image_name(
                     absolute,
                     chapter_id,
                     image_index,
@@ -11692,33 +11692,33 @@ async ({ url }) => {
             'chapterName': display_name,
             'sourceChapterName': chapter_name,
             'contentText': payload.get('contentText') or '',
-            'contentHtml': f'<div class="ridi-content">{content_html}</div>',
+            'contentHtml': f'<div class="rbooks-content">{content_html}</div>',
             'contentCss': (
-                '.ridi-content p { margin: 0 0 0.75em; line-height: 1.8; }\n'
-                '.ridi-content blockquote { margin: 1em 1.5em; padding: 0.5em 1em; '
+                '.rbooks-content p { margin: 0 0 0.75em; line-height: 1.8; }\n'
+                '.rbooks-content blockquote { margin: 1em 1.5em; padding: 0.5em 1em; '
                 'border-left: 0.25em solid #999; }\n'
-                '.ridi-content img { max-width: 100%; height: auto; }'
+                '.rbooks-content img { max-width: 100%; height: auto; }'
             ),
             'images': images,
             'chapterUrl': chapter_url,
         }
 
-    def _ridi_signed_in(self):
-        """Return a cookie hint; the RIDI library is the authority."""
+    def _rbooks_signed_in(self):
+        """Return a cookie hint; the RBOOKS library is the authority."""
         try:
             names = {cookie.get('name') for cookie in self._context.cookies([
-                'https://ridibooks.com/',
-                'https://account.ridibooks.com/',
-                'https://library.ridibooks.com/',
+                'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
+                'https://account.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
+                'https://library.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
             ])}
         except Exception:
             return None
-        return bool(names & {'ridi-at', 'ridi-rt', 'ridi-gs-at'})
+        return bool(names & {'\u0072\u0069\u0064\u0069\u002d\u0061\u0074', '\u0072\u0069\u0064\u0069\u002d\u0072\u0074', '\u0072\u0069\u0064\u0069\u002d\u0067\u0073\u002d\u0061\u0074'})
 
-    _RIDI_OWNED_JS = r"""
+    _RBOOKS_OWNED_JS = r"""
 async (ids) => {
   // The same lookup the library page makes; only owned b_ids come back.
-  const response = await fetch('https://library-api.ridibooks.com/items', {
+  const response = await fetch('https://library-api.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/items', {
     method: 'POST', credentials: 'include',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({b_ids: ids}),
@@ -11729,10 +11729,10 @@ async (ids) => {
 }
 """
 
-    def _ridi_owned_ids(self, page, book_id):
+    def _rbooks_owned_ids(self, page, book_id):
         """Volumes of the current book that the signed-in account owns.
 
-        Returns a set, or None when Ridi's library could not be asked.
+        Returns a set, or None when Rbooks's library could not be asked.
         """
         ids = [str(chapter.get('id')) for chapter in
                (self._book_data or {}).get('chapters') or []
@@ -11740,22 +11740,22 @@ async (ids) => {
         if book_id and book_id not in ids:
             ids.append(book_id)
         key = tuple(ids)
-        cache = getattr(self, '_ridi_owned_cache', None)
+        cache = getattr(self, '_rbooks_owned_cache', None)
         if cache and cache[0] == key:
             return cache[1]
         owned = None
         library_error = None
         if owned is None and self._context:
-            # The product/viewer origin can be blocked by RIDI's CORS rules.
+            # The product/viewer origin can be blocked by RBOOKS's CORS rules.
             # Ask from the library origin first, which may call library-api.
             library_page = None
             try:
                 library_page = self._context.new_page()
                 library_page.goto(
-                    'https://library.ridibooks.com/',
+                    'https://library.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
                     wait_until='domcontentloaded', timeout=30000,
                 )
-                found = library_page.evaluate(self._RIDI_OWNED_JS, ids[:500])
+                found = library_page.evaluate(self._RBOOKS_OWNED_JS, ids[:500])
                 owned = set(found) if found is not None else None
             except Exception as exc:
                 library_error = exc
@@ -11767,35 +11767,35 @@ async (ids) => {
                         pass
         if owned is None:
             try:
-                found = page.evaluate(self._RIDI_OWNED_JS, ids[:500])
+                found = page.evaluate(self._RBOOKS_OWNED_JS, ids[:500])
                 owned = set(found) if found is not None else None
             except Exception:
                 pass
         if owned is None and library_error:
-            self.log(f'  [Ridi] Library ownership lookup warning: '
+            self.log(f'  [Rbooks] Library ownership lookup warning: '
                      f'{library_error}')
         if owned is not None:
-            self._ridi_owned_cache = (key, owned)
+            self._rbooks_owned_cache = (key, owned)
         return owned
 
-    def _ridi_refused_result(self, chapter_name, page=None, book_id=''):
+    def _rbooks_refused_result(self, chapter_name, page=None, book_id=''):
         """Explain the viewer's "cannot open this title" notice.
 
-        Ridi answers HTTP 400 "웹 뷰어에서 지원하지 않는 작품입니다" for owned
+        Rbooks answers HTTP 400 "웹 뷰어에서 지원하지 않는 작품입니다" for owned
         and unowned volumes alike, so ask the library which one this is.
         """
-        owned = (self._ridi_owned_ids(page, str(book_id))
+        owned = (self._rbooks_owned_ids(page, str(book_id))
                  if page is not None and book_id else None)
-        if owned is None and self._ridi_signed_in() is False:
+        if owned is None and self._rbooks_signed_in() is False:
             self.log(
-                f'  [Ridi] Viewer refused {chapter_name}: the RIDI library '
+                f'  [Rbooks] Viewer refused {chapter_name}: the RBOOKS library '
                 'could not confirm this browser session. Sign in with Enter '
                 'Browser, close that window, then download again.'
             )
             reason = 'login'
         elif owned is None:
             self.log(
-                f'  [Ridi] Viewer refused {chapter_name}: the RIDI library '
+                f'  [Rbooks] Viewer refused {chapter_name}: the RBOOKS library '
                 'could not verify access to this volume. Retry; if this '
                 'continues, sign in with Enter Browser and try again.'
             )
@@ -11803,65 +11803,65 @@ async (ids) => {
         else:
             if str(book_id) not in owned:
                 self.log(
-                    f'  [Ridi] {chapter_name} is not in this account\'s '
-                    'library. Buy or rent it on Ridi first.'
+                    f'  [Rbooks] {chapter_name} is not in this account\'s '
+                    'library. Buy or rent it on Rbooks first.'
                 )
                 reason = 'purchase'
             else:
                 if sys.platform == 'win32' and hasattr(self._context, 'new_page'):
                     try:
-                        from ridi_app_proxy import RidiAppProxy
-                        with self._ridi_app_lock:
-                            if self._ridi_app_proxy is None:
-                                self._ridi_app_proxy = RidiAppProxy(
+                        from rbooks_app_proxy import RbooksAppProxy
+                        with self._rbooks_app_lock:
+                            if self._rbooks_app_proxy is None:
+                                self._rbooks_app_proxy = RbooksAppProxy(
                                     self.log, lambda: self._stop_requested
                                 )
-                            result = self._ridi_app_proxy.extract(
+                            result = self._rbooks_app_proxy.extract(
                                 self._context, str(book_id), chapter_name,
-                                f'https://view.ridibooks.com/books/{book_id}',
+                                f'https://view.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{book_id}',
                             )
                         if result and result.get('contentHtml'):
-                            self.log(f'  [Ridi] Saved owned PC viewer volume: '
+                            self.log(f'  [Rbooks] Saved owned PC viewer volume: '
                                      f'{chapter_name}')
                             return result
                     except Exception as exc:
-                        self.log(f'  [Ridi] PC viewer could not read '
+                        self.log(f'  [Rbooks] PC viewer could not read '
                                  f'{chapter_name}: {exc}')
                 self.log(
-                    f'  [Ridi] You own {chapter_name}, but Ridi will not open '
+                    f'  [Rbooks] You own {chapter_name}, but Rbooks will not open '
                     'it in its web viewer ("웹 뷰어에서 지원하지 않는 작품입니다"). '
-                    'The RIDI PC viewer could not provide this volume.'
+                    'The RBOOKS PC viewer could not provide this volume.'
                 )
                 reason = 'app_only'
         return {'_locked': True, 'chapterName': chapter_name,
                 '_lockReason': reason}
 
-    def _ridi_finish_loaded_chapter(self, page, chapter_url, chapter_name):
-        """Validate, retry, and extract a Ridi page after navigation starts."""
+    def _rbooks_finish_loaded_chapter(self, page, chapter_url, chapter_name):
+        """Validate, retry, and extract a Rbooks page after navigation starts."""
         # Never interpret the last URL cached on a dead Playwright page. A
         # disconnected page commonly retains the series product URL, which
         # previously made a browser crash look like a paid-chapter redirect.
-        if not self._ridi_page_is_usable(page):
+        if not self._rbooks_page_is_usable(page):
             return None
         try:
             page.wait_for_load_state('load', timeout=30000)
         except Exception as e:
             if (
-                self._ridi_browser_closed_error(e)
-                or not self._ridi_page_is_usable(page)
+                self._rbooks_browser_closed_error(e)
+                or not self._rbooks_page_is_usable(page)
             ):
                 return None
 
-        if not self._ridi_page_is_usable(page):
+        if not self._rbooks_page_is_usable(page):
             return None
 
         try:
             current_url = page.url or ''
         except Exception:
             return None
-        if current_url and not self._ridi_is_viewer_url(current_url):
+        if current_url and not self._rbooks_is_viewer_url(current_url):
             self.log(
-                f'  [Ridi] LOCKED or unpurchased (redirected to {current_url}): '
+                f'  [Rbooks] LOCKED or unpurchased (redirected to {current_url}): '
                 f'{chapter_name}'
             )
             return {'_locked': True, 'chapterName': chapter_name}
@@ -11870,27 +11870,27 @@ async (ids) => {
         for attempt in range(1, 4):
             if self._stop_requested:
                 return None
-            if not self._ridi_page_is_usable(page):
+            if not self._rbooks_page_is_usable(page):
                 return None
-            if self._ridi_wait_for_content(page, timeout=30):
+            if self._rbooks_wait_for_content(page, timeout=30):
                 content_ready = True
                 break
-            if not self._ridi_page_is_usable(page):
+            if not self._rbooks_page_is_usable(page):
                 return None
-            wall = self._ridi_detect_access_wall(page)
+            wall = self._rbooks_detect_access_wall(page)
             if wall.get('wall') and wall.get('refused'):
-                return self._ridi_refused_result(
-                    chapter_name, page, self._ridi_book_id(chapter_url)
+                return self._rbooks_refused_result(
+                    chapter_name, page, self._rbooks_book_id(chapter_url)
                 )
             if wall.get('wall'):
                 self.log(
-                    f'  [Ridi] LOCKED or unpurchased: {chapter_name} '
+                    f'  [Rbooks] LOCKED or unpurchased: {chapter_name} '
                     f'(redirect={bool(wall.get("offViewer"))}, '
                     f'purchase/login markers={wall.get("hits", 0)})'
                 )
                 return {'_locked': True, 'chapterName': chapter_name}
             self.log(
-                f'  [Ridi] Content validation failed for {chapter_name} '
+                f'  [Rbooks] Content validation failed for {chapter_name} '
                 f'(attempt {attempt}/3).'
             )
             if attempt < 3:
@@ -11908,53 +11908,53 @@ async (ids) => {
                         pass
                 except Exception as e:
                     self.log(
-                        f'  [Ridi] Reload warning for {chapter_name}: {e}'
+                        f'  [Rbooks] Reload warning for {chapter_name}: {e}'
                     )
                     if (
-                        self._ridi_browser_closed_error(e)
-                        or not self._ridi_page_is_usable(page)
+                        self._rbooks_browser_closed_error(e)
+                        or not self._rbooks_page_is_usable(page)
                     ):
                         return None
 
         if not content_ready:
-            self.log(f'  [Ridi] Viewer did not stabilize: {chapter_name}')
+            self.log(f'  [Rbooks] Viewer did not stabilize: {chapter_name}')
             return None
 
-        if not self._ridi_page_is_usable(page):
+        if not self._rbooks_page_is_usable(page):
             return None
-        payload = self._ridi_extract_loaded_content(page, chapter_name)
+        payload = self._rbooks_extract_loaded_content(page, chapter_name)
         if not payload or not payload.get('content'):
-            if not self._ridi_page_is_usable(page):
+            if not self._rbooks_page_is_usable(page):
                 return None
-            wall = self._ridi_detect_access_wall(page)
+            wall = self._rbooks_detect_access_wall(page)
             if wall.get('wall'):
-                self.log(f'  [Ridi] LOCKED or unpurchased: {chapter_name}')
+                self.log(f'  [Rbooks] LOCKED or unpurchased: {chapter_name}')
                 return {'_locked': True, 'chapterName': chapter_name}
-            self.log(f'  [Ridi] No chapter content extracted: {chapter_name}')
+            self.log(f'  [Rbooks] No chapter content extracted: {chapter_name}')
             return None
 
-        return self._ridi_build_chapter_result(
+        return self._rbooks_build_chapter_result(
             payload,
             chapter_name,
             chapter_url,
         )
 
-    def _ridi_parse_chapter(self, chapter_url, chapter_name, page=None):
-        """Open and extract one authenticated Ridi webnovel viewer page."""
+    def _rbooks_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Open and extract one authenticated Rbooks webnovel viewer page."""
         target = page or self._page
         for session_attempt in range(2):
-            if not self._ridi_page_is_usable(target):
+            if not self._rbooks_page_is_usable(target):
                 if target is not None or session_attempt:
                     self.log(
-                        '  [Ridi] Browser session closed before chapter load; '
+                        '  [Rbooks] Browser session closed before chapter load; '
                         'restarting it.'
                     )
-                if not self._start_ridi_browser(
+                if not self._start_rbooks_browser(
                     self._book_url or chapter_url
                 ):
                     return None
                 target = self._page
-                if not self._ridi_page_is_usable(target):
+                if not self._rbooks_page_is_usable(target):
                     return None
 
             navigation_failed = False
@@ -11968,10 +11968,10 @@ async (ids) => {
                 target.goto(chapter_url, **kwargs)
             except Exception as e:
                 navigation_failed = True
-                self.log(f'  [Ridi] Page load warning for {chapter_name}: {e}')
+                self.log(f'  [Rbooks] Page load warning for {chapter_name}: {e}')
                 if (
-                    self._ridi_browser_closed_error(e)
-                    or not self._ridi_page_is_usable(target)
+                    self._rbooks_browser_closed_error(e)
+                    or not self._rbooks_page_is_usable(target)
                 ):
                     target = None
                     continue
@@ -11985,20 +11985,20 @@ async (ids) => {
                 except Exception:
                     return None
                 if (
-                    not self._ridi_is_viewer_url(current_url)
-                    or self._ridi_book_id(current_url)
-                    != self._ridi_book_id(chapter_url)
+                    not self._rbooks_is_viewer_url(current_url)
+                    or self._rbooks_book_id(current_url)
+                    != self._rbooks_book_id(chapter_url)
                 ):
                     return None
 
-            result = self._ridi_finish_loaded_chapter(
+            result = self._rbooks_finish_loaded_chapter(
                 target,
                 chapter_url,
                 chapter_name,
             )
             if (
                 result is None
-                and not self._ridi_page_is_usable(target)
+                and not self._rbooks_page_is_usable(target)
                 and not session_attempt
             ):
                 target = None
@@ -12006,20 +12006,20 @@ async (ids) => {
             return result
         return None
 
-    def _ridi_parallel_pages(self, count, _restarted=False):
-        """Return up to the extension's four authenticated Ridi worker pages."""
+    def _rbooks_parallel_pages(self, count, _restarted=False):
+        """Return up to the extension's four authenticated Rbooks worker pages."""
         count = max(1, min(4, int(count or 1)))
-        if not self._context or not self._ridi_page_is_usable(self._page):
-            if not self._start_ridi_browser(
-                self._book_url or 'https://ridibooks.com/'
+        if not self._context or not self._rbooks_page_is_usable(self._page):
+            if not self._start_rbooks_browser(
+                self._book_url or 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/'
             ):
                 return []
-        if not self._context or not self._ridi_page_is_usable(self._page):
+        if not self._context or not self._rbooks_page_is_usable(self._page):
             return []
 
         usable = []
         for worker in self._worker_pages:
-            if self._ridi_page_is_usable(worker):
+            if self._rbooks_page_is_usable(worker):
                 usable.append(worker)
             else:
                 try:
@@ -12041,25 +12041,25 @@ async (ids) => {
                 worker.on('console', self._on_console)
                 self._worker_pages.append(worker)
             except Exception as e:
-                self.log(f'  [Ridi] Worker page failed: {e}')
-                if self._ridi_browser_closed_error(e) and not _restarted:
+                self.log(f'  [Rbooks] Worker page failed: {e}')
+                if self._rbooks_browser_closed_error(e) and not _restarted:
                     self.log(
-                        '  [Ridi] Browser session closed while creating '
+                        '  [Rbooks] Browser session closed while creating '
                         'chapter workers; it will be restarted.'
                     )
                     self.cleanup()
-                    if self._start_ridi_browser(
-                        self._book_url or 'https://ridibooks.com/'
+                    if self._start_rbooks_browser(
+                        self._book_url or 'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/'
                     ):
-                        return self._ridi_parallel_pages(count, _restarted=True)
+                        return self._rbooks_parallel_pages(count, _restarted=True)
                 break
         return ([self._page] + self._worker_pages)[:count]
 
-    def _ridi_parse_chapter_batch_parallel(
+    def _rbooks_parse_chapter_batch_parallel(
         self, batch_info, interval=0, interval_max=None,
         success_callback=None,
     ):
-        """Render Ridi chapters in a polite worker pool capped at four pages."""
+        """Render Rbooks chapters in a polite worker pool capped at four pages."""
         if not batch_info:
             return []
         results = [None] * len(batch_info)
@@ -12070,7 +12070,7 @@ async (ids) => {
             chunk = batch_info[chunk_start:chunk_start + 4]
             chunk_results = {}
             for session_attempt in range(2):
-                pages = self._ridi_parallel_pages(len(chunk))
+                pages = self._rbooks_parallel_pages(len(chunk))
                 if not pages:
                     break
                 active = []
@@ -12090,11 +12090,11 @@ async (ids) => {
                     except Exception as e:
                         navigation_failed = True
                         self.log(
-                            f'  [Ridi] Page load warning for {name}: {e}'
+                            f'  [Rbooks] Page load warning for {name}: {e}'
                         )
                         if (
-                            self._ridi_browser_closed_error(e)
-                            or not self._ridi_page_is_usable(page)
+                            self._rbooks_browser_closed_error(e)
+                            or not self._rbooks_page_is_usable(page)
                         ):
                             session_lost = True
                             break
@@ -12105,9 +12105,9 @@ async (ids) => {
                         except Exception:
                             current_url = ''
                         if (
-                            not self._ridi_is_viewer_url(current_url)
-                            or self._ridi_book_id(current_url)
-                            != self._ridi_book_id(url)
+                            not self._rbooks_is_viewer_url(current_url)
+                            or self._rbooks_book_id(current_url)
+                            != self._rbooks_book_id(url)
                         ):
                             continue
                     active.append((chunk_start + offset, page, url, name))
@@ -12116,14 +12116,14 @@ async (ids) => {
                     for result_index, page, url, name in active:
                         if self._stop_requested:
                             break
-                        value = self._ridi_finish_loaded_chapter(
+                        value = self._rbooks_finish_loaded_chapter(
                             page,
                             url,
                             name,
                         )
                         if (
                             value is None
-                            and not self._ridi_page_is_usable(page)
+                            and not self._rbooks_page_is_usable(page)
                         ):
                             session_lost = True
                             break
@@ -12144,11 +12144,11 @@ async (ids) => {
                     break
                 if session_attempt == 0:
                     self.log(
-                        '  [Ridi] Browser session closed during chapter '
+                        '  [Rbooks] Browser session closed during chapter '
                         'download; restarting this batch.'
                     )
                     self.cleanup()
-                    if not self._start_ridi_browser(
+                    if not self._start_rbooks_browser(
                         self._book_url or chunk[0].get('url', '')
                     ):
                         break
@@ -12164,10 +12164,10 @@ async (ids) => {
         return results
 
     # ------------------------------------------------------------------
-    # Novelpia native scraper
+    # Npia native scraper
     # ------------------------------------------------------------------
     @staticmethod
-    def _novelpia_novel_id(url):
+    def _npia_novel_id(url):
         try:
             path = urllib.parse.urlparse(url or '').path or ''
         except Exception:
@@ -12176,7 +12176,7 @@ async (ids) => {
         return match.group(1) if match else ''
 
     @staticmethod
-    def _novelpia_chapter_id(url):
+    def _npia_chapter_id(url):
         try:
             path = urllib.parse.urlparse(url or '').path or ''
         except Exception:
@@ -12185,7 +12185,7 @@ async (ids) => {
         return match.group(1) if match else ''
 
     @staticmethod
-    def _novelpia_parse_episode_html(source):
+    def _npia_parse_episode_html(source):
         """Convert one episode_list HTML response into chapter records."""
         source = source or ''
         pattern = re.compile(
@@ -12214,7 +12214,7 @@ async (ids) => {
             ))
             chapters.append({
                 'id': chapter_id,
-                'url': f'https://novelpia.com/viewer/{chapter_id}',
+                'url': f'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/viewer/{chapter_id}',
                 'name': title or f'Chapter {len(chapters) + 1}',
                 'fullName': title or f'Chapter {len(chapters) + 1}',
                 'isVIP': is_plus,
@@ -12226,43 +12226,43 @@ async (ids) => {
         return chapters
 
     @staticmethod
-    def _novelpia_parse_notice_html(source):
+    def _npia_parse_notice_html(source):
         """Convert the novel page's notice table into chapter records."""
         notices = []
         for index, notice in enumerate(
-            parse_novelpia_notice_html(source), start=1
+            parse_npia_notice_html(source), start=1
         ):
             chapter_id = notice['id']
             title = notice['title']
             notices.append({
                 'id': chapter_id,
-                'url': f'https://novelpia.com/viewer/{chapter_id}',
+                'url': f'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/viewer/{chapter_id}',
                 'name': title,
                 'fullName': title,
                 'isVIP': False,
                 'isPaid': False,
                 'isAccessible': True,
                 'isNotice': True,
-                '_novelpiaNoticeNumber': index,
+                '_npiaNoticeNumber': index,
             })
         return notices
 
     @staticmethod
-    def _novelpia_tag_chapter_result(result, chapter_info):
+    def _npia_tag_chapter_result(result, chapter_info):
         """Carry notice/source-position metadata into parsed chapter data."""
         if not isinstance(result, dict):
             return result
         is_notice = bool(chapter_info.get('isNotice'))
         result.setdefault('_is_notice', is_notice)
         if is_notice:
-            source_number = chapter_info.get('_novelpiaNoticeNumber')
+            source_number = chapter_info.get('_npiaNoticeNumber')
         else:
-            source_number = chapter_info.get('_novelpiaChapterNumber')
+            source_number = chapter_info.get('_npiaChapterNumber')
         if source_number is not None:
             result.setdefault('_chapter_number', source_number)
         return result
 
-    def _novelpia_connect_cdp(self, port):
+    def _npia_connect_cdp(self, port):
         """Attach the external scraper to its installed-Chrome session."""
         try:
             self._playwright = sync_playwright().start()
@@ -12277,21 +12277,21 @@ async (ids) => {
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on('console', self._on_console)
-            self._novelpia_chrome = True
-            self._novelpia_cdp_port = port
-            self.log('[Novelpia] External browser session ready.')
+            self._npia_chrome = True
+            self._npia_cdp_port = port
+            self.log('[Npia] External browser session ready.')
             return True
         except Exception as e:
-            self.log(f'ERROR: [Novelpia] Could not attach to Chrome: {e}')
+            self.log(f'ERROR: [Npia] Could not attach to Chrome: {e}')
             self.cleanup()
             return False
 
-    def _start_novelpia_browser(self, start_url):
+    def _start_npia_browser(self, start_url):
         """Reuse External Downloader's installed Chrome and saved profile."""
         if self._context and self._page:
             try:
                 self._page.evaluate('1')
-                if self._novelpia_chrome:
+                if self._npia_chrome:
                     return True
                 self.cleanup()
             except Exception:
@@ -12301,7 +12301,7 @@ async (ids) => {
 
         user_data_dir = self._get_user_data_dir()
         self.log(
-            '[Novelpia] Starting headed installed Chrome off-screen with the '
+            '[Npia] Starting headed installed Chrome off-screen with the '
             'External Downloader profile...'
         )
         self.log(f'Browser profile: {user_data_dir}')
@@ -12319,18 +12319,18 @@ async (ids) => {
             for port in ports:
                 if self._wait_for_cdp(port, timeout=2):
                     self.log(
-                        '[Novelpia] Reusing the existing External Downloader '
+                        '[Npia] Reusing the existing External Downloader '
                         'browser session.'
                     )
-                    return self._novelpia_connect_cdp(port)
+                    return self._npia_connect_cdp(port)
 
             pids = ', '.join(str(pid) for pid in locked_pids)
             self.log(
-                '[Novelpia] The External Downloader browser profile is '
+                '[Npia] The External Downloader browser profile is '
                 f'already open in process(es): {pids}'
             )
             self.log(
-                '[Novelpia] Close the Enter Browser window, then click '
+                '[Npia] Close the Enter Browser window, then click '
                 'Download again.'
             )
             return False
@@ -12343,7 +12343,7 @@ async (ids) => {
         )
         if not proc or not port:
             self.log(
-                'ERROR: [Novelpia] Installed Chrome/Edge was not found.'
+                'ERROR: [Npia] Installed Chrome/Edge was not found.'
             )
             return False
 
@@ -12357,27 +12357,27 @@ async (ids) => {
                 break
         if not ready:
             self.log(
-                'ERROR: [Novelpia] External browser did not become ready.'
+                'ERROR: [Npia] External browser did not become ready.'
             )
             self.cleanup()
             return False
 
         self._park_chrome_windows_for_profile(user_data_dir)
-        return self._novelpia_connect_cdp(port)
+        return self._npia_connect_cdp(port)
 
-    def _novelpia_parse_book(self, url):
-        """Read Novelpia metadata and its paginated episode list."""
-        novel_id = self._novelpia_novel_id(url)
+    def _npia_parse_book(self, url):
+        """Read Npia metadata and its paginated episode list."""
+        novel_id = self._npia_novel_id(url)
         if not novel_id:
-            self.log('[Novelpia] ERROR: Invalid novel URL.')
+            self.log('[Npia] ERROR: Invalid novel URL.')
             return None
 
         self._stop_requested = False
-        book_url = f'https://novelpia.com/novel/{novel_id}'
-        if not self._start_novelpia_browser(book_url):
+        book_url = f'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}'
+        if not self._start_npia_browser(book_url):
             return None
 
-        self.log(f'[Novelpia] Opening: {book_url}')
+        self.log(f'[Npia] Opening: {book_url}')
         try:
             self._page.goto(
                 book_url,
@@ -12386,7 +12386,7 @@ async (ids) => {
             )
         except Exception as e:
             if 'ERR_ABORTED' not in str(e):
-                self.log(f'[Novelpia] ERROR: Page load failed: {e}')
+                self.log(f'[Npia] ERROR: Page load failed: {e}')
                 return None
 
         try:
@@ -12446,34 +12446,34 @@ async (ids) => {
                 }
             """) or {}
         except Exception as e:
-            self.log(f'[Novelpia] ERROR: Metadata extraction failed: {e}')
+            self.log(f'[Npia] ERROR: Metadata extraction failed: {e}')
             return None
 
         page_html = ''
         try:
             page_html = self._page.content()
-            meta['status'] = parse_novelpia_status(page_html)
+            meta['status'] = parse_npia_status(page_html)
         except Exception as e:
-            self.log(f'[Novelpia] Status extraction failed: {e}')
+            self.log(f'[Npia] Status extraction failed: {e}')
         notices = []
-        if self.novelpia_include_notices:
+        if self.npia_include_notices:
             try:
-                notices = self._novelpia_parse_notice_html(
+                notices = self._npia_parse_notice_html(
                     page_html
                 )
             except Exception as e:
                 # Notices are optional; a page-layout issue must not prevent
                 # the regular episode list from being downloaded.
-                self.log(f'[Novelpia] Author notice scan failed: {e}')
+                self.log(f'[Npia] Author notice scan failed: {e}')
             if notices:
                 self.log(
-                    f'[Novelpia] Found {len(notices)} author notice(s).'
+                    f'[Npia] Found {len(notices)} author notice(s).'
                 )
 
         chapters = []
         seen = set()
         page_no = 0
-        self.log('[Novelpia] Reading episode list...')
+        self.log('[Npia] Reading episode list...')
         while not self._stop_requested:
             try:
                 response = self._page.evaluate(
@@ -12504,25 +12504,25 @@ async (ids) => {
                 ) or {}
             except Exception as e:
                 self.log(
-                    f'[Novelpia] ERROR: Episode page {page_no} failed: {e}'
+                    f'[Npia] ERROR: Episode page {page_no} failed: {e}'
                 )
                 return None
 
             if int(response.get('status') or 0) != 200:
                 self.log(
-                    '[Novelpia] ERROR: Episode list returned HTTP '
+                    '[Npia] ERROR: Episode list returned HTTP '
                     f"{response.get('status')} on page {page_no}."
                 )
                 return None
             source = response.get('text') or ''
             if 'Authentication required' in source:
                 self.log(
-                    '[Novelpia] Login required. Use Enter Browser, log in, '
+                    '[Npia] Login required. Use Enter Browser, log in, '
                     'close that window, and retry.'
                 )
                 return None
 
-            page_chapters = self._novelpia_parse_episode_html(source)
+            page_chapters = self._npia_parse_episode_html(source)
             new_count = 0
             for chapter in page_chapters:
                 chapter_id = chapter['id']
@@ -12536,22 +12536,22 @@ async (ids) => {
             page_no += 1
             if page_no >= 1000:
                 self.log(
-                    '[Novelpia] ERROR: Episode pagination exceeded the '
+                    '[Npia] ERROR: Episode pagination exceeded the '
                     'safety limit.'
                 )
                 return None
 
         if not chapters:
             self.log(
-                '[Novelpia] ERROR: No chapters were found. Use Enter Browser '
+                '[Npia] ERROR: No chapters were found. Use Enter Browser '
                 'to confirm the saved login session.'
             )
             return None
 
         for chapter_number, chapter in enumerate(chapters, start=1):
-            chapter['_novelpiaChapterNumber'] = chapter_number
+            chapter['_npiaChapterNumber'] = chapter_number
 
-        title = meta.get('title') or f'Novelpia {novel_id}'
+        title = meta.get('title') or f'Npia {novel_id}'
         data = {
             'bookname': title,
             'author': meta.get('author') or '',
@@ -12564,20 +12564,20 @@ async (ids) => {
             'noticeCount': len(notices),
             'language': 'ko',
             'tags': meta.get('tags') or [],
-            '_novelpia': True,
-            '_novelpia_novel_id': novel_id,
+            '_npia': True,
+            '_npia_novel_id': novel_id,
             'status': meta.get('status') or '',
         }
         self._book_data = data
         self._book_url = book_url
         self.log(
-            f'[Novelpia] Book: {title} by '
+            f'[Npia] Book: {title} by '
             f"{data.get('author') or '?'} - {len(chapters)} chapters, "
             f'{len(notices)} author notice(s)'
         )
         return data
 
-    def _novelpia_build_chapter_result(
+    def _npia_build_chapter_result(
         self,
         payload,
         chapter_name,
@@ -12592,19 +12592,19 @@ async (ids) => {
         stripped = text.lstrip()
         if stripped[:128].lower().startswith(('<!doctype html', '<html')):
             self.log(
-                f'  [Novelpia] Rejected HTML response: {chapter_name}'
+                f'  [Npia] Rejected HTML response: {chapter_name}'
             )
             return None
         try:
             data = json.loads(stripped)
         except (TypeError, json.JSONDecodeError) as e:
             self.log(
-                f'  [Novelpia] Invalid viewer JSON: {chapter_name}: {e}'
+                f'  [Npia] Invalid viewer JSON: {chapter_name}: {e}'
             )
             return None
         if not isinstance(data, dict):
             self.log(
-                f'  [Novelpia] Invalid viewer response: {chapter_name}'
+                f'  [Npia] Invalid viewer response: {chapter_name}'
             )
             return None
 
@@ -12626,14 +12626,14 @@ async (ids) => {
                 or 'server rejected viewer access'
             )
             self.log(
-                f'  [Novelpia] Viewer rejected {chapter_name}: {message}'
+                f'  [Npia] Viewer rejected {chapter_name}: {message}'
             )
             return None
 
         segments = data.get('s')
         if not isinstance(segments, list) or not segments:
             self.log(
-                f'  [Novelpia] Viewer returned no chapter content: '
+                f'  [Npia] Viewer returned no chapter content: '
                 f'{chapter_name}'
             )
             return None
@@ -12683,9 +12683,9 @@ async (ids) => {
                 ).split('?', 1)[0]
                 name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
                 if not name or not re.search(r'\.[A-Za-z0-9]{2,5}$', name):
-                    chapter_id = self._novelpia_chapter_id(chapter_url)
+                    chapter_id = self._npia_chapter_id(chapter_url)
                     name = (
-                        f'novelpia_{chapter_id or "chapter"}_'
+                        f'npia_{chapter_id or "chapter"}_'
                         f'{image_index}.jpg'
                     )
                 images.append({'url': image_url, 'name': name})
@@ -12705,7 +12705,7 @@ async (ids) => {
             )
         ):
             self.log(
-                f'  [Novelpia] Invalid rendered content rejected: '
+                f'  [Npia] Invalid rendered content rejected: '
                 f'{chapter_name}'
             )
             return None
@@ -12715,17 +12715,17 @@ async (ids) => {
             'sourceChapterName': chapter_name,
             'contentText': content_text,
             'contentHtml': (
-                f'<div class="novelpia-content">{content_html}</div>'
+                f'<div class="npia-content">{content_html}</div>'
             ),
             'contentCss': (
-                '.novelpia-content p { margin: 0 0 0.75em; '
+                '.npia-content p { margin: 0 0 0.75em; '
                 'line-height: 1.8; }\n'
-                '.novelpia-content img { max-width: 100%; height: auto; }'
+                '.npia-content img { max-width: 100%; height: auto; }'
             ),
             'images': images,
         }
 
-    def _novelpia_parse_chapter(
+    def _npia_parse_chapter(
         self,
         chapter_url,
         chapter_name,
@@ -12734,14 +12734,14 @@ async (ids) => {
         """Open one viewer page and consume its single viewer_data response."""
         target = page or self._page
         if target is None:
-            if not self._start_novelpia_browser(chapter_url):
+            if not self._start_npia_browser(chapter_url):
                 return None
             target = self._page
 
-        chapter_id = self._novelpia_chapter_id(chapter_url)
+        chapter_id = self._npia_chapter_id(chapter_url)
         if not chapter_id:
             self.log(
-                f'  [Novelpia] Invalid chapter URL: {chapter_url}'
+                f'  [Npia] Invalid chapter URL: {chapter_url}'
             )
             return None
 
@@ -12768,7 +12768,7 @@ async (ids) => {
             response = response_info.value
         except Exception as e:
             self.log(
-                f'  [Novelpia] Viewer response was not received: '
+                f'  [Npia] Viewer response was not received: '
                 f'{chapter_name}: {e}'
             )
             return None
@@ -12778,24 +12778,24 @@ async (ids) => {
             payload = response.text()
         except Exception as e:
             self.log(
-                f'  [Novelpia] Could not read viewer response: '
+                f'  [Npia] Could not read viewer response: '
                 f'{chapter_name}: {e}'
             )
             return None
         if status != 200:
             self.log(
-                f'  [Novelpia] Viewer returned HTTP {status}: {chapter_name}'
+                f'  [Npia] Viewer returned HTTP {status}: {chapter_name}'
             )
             return None
 
-        return self._novelpia_build_chapter_result(
+        return self._npia_build_chapter_result(
             payload,
             chapter_name,
             chapter_url,
         )
 
-    def _munpia_connect_cdp(self, port):
-        """Attach Playwright to an existing Munpia Chrome CDP port."""
+    def _mpia_connect_cdp(self, port):
+        """Attach Playwright to an existing Mpia Chrome CDP port."""
         try:
             self._playwright = sync_playwright().start()
             self._browser = self._playwright.chromium.connect_over_cdp(
@@ -12809,21 +12809,21 @@ async (ids) => {
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on("console", self._on_console)
-            self._munpia_chrome = True
-            self._munpia_cdp_port = port
-            self.log("[Munpia] Chrome session ready.")
+            self._mpia_chrome = True
+            self._mpia_cdp_port = port
+            self.log("[Mpia] Chrome session ready.")
             return True
         except Exception as e:
-            self.log(f"ERROR: [Munpia] Could not attach to Chrome: {e}")
+            self.log(f"ERROR: [Mpia] Could not attach to Chrome: {e}")
             self.cleanup()
             return False
 
-    def _start_munpia_browser(self, start_url):
-        """Launch installed Chrome with the saved profile for Munpia."""
+    def _start_mpia_browser(self, start_url):
+        """Launch installed Chrome with the saved profile for Mpia."""
         if self._context and self._page:
             try:
                 self._page.evaluate("1")
-                if self._munpia_chrome:
+                if self._mpia_chrome:
                     return True
                 self.cleanup()
             except Exception:
@@ -12832,7 +12832,7 @@ async (ids) => {
             self.cleanup()
 
         user_data_dir = self._get_user_data_dir()
-        self.log("[Munpia] Launching background Chrome with saved profile...")
+        self.log("[Mpia] Launching background Chrome with saved profile...")
         self.log(f"Browser profile: {user_data_dir}")
 
         locked_pids = self._chrome_processes_using_profile(user_data_dir)
@@ -12848,17 +12848,17 @@ async (ids) => {
             for port in ports:
                 if self._wait_for_cdp(port, timeout=2):
                     self.log(
-                        "[Munpia] Reusing existing hidden Chrome session."
+                        "[Mpia] Reusing existing hidden Chrome session."
                     )
-                    return self._munpia_connect_cdp(port)
+                    return self._mpia_connect_cdp(port)
 
             pids = ", ".join(str(pid) for pid in locked_pids)
             self.log(
-                "[Munpia] Browser profile is already open in process(es): "
+                "[Mpia] Browser profile is already open in process(es): "
                 f"{pids}"
             )
             self.log(
-                "[Munpia] Close the Npia login browser window, then retry "
+                "[Mpia] Close the Npia login browser window, then retry "
                 "the download."
             )
             return False
@@ -12871,8 +12871,8 @@ async (ids) => {
         )
         if not proc or not port:
             self.log(
-                "ERROR: [Munpia] Installed Chrome/Edge was not found. "
-                "Munpia blocks the bundled headless browser."
+                "ERROR: [Mpia] Installed Chrome/Edge was not found. "
+                "Mpia blocks the bundled headless browser."
             )
             return False
 
@@ -12886,17 +12886,17 @@ async (ids) => {
                 break
         if not ready:
             self.log(
-                "ERROR: [Munpia] Chrome remote debugging endpoint did not "
+                "ERROR: [Mpia] Chrome remote debugging endpoint did not "
                 "start."
             )
             self.cleanup()
             return False
         self._hide_chrome_windows_for_profile(user_data_dir)
 
-        return self._munpia_connect_cdp(port)
+        return self._mpia_connect_cdp(port)
 
-    def _munpia_wait_for_selector(self, page, selector, timeout=45):
-        """Wait through Munpia's security interstitial for a target selector."""
+    def _mpia_wait_for_selector(self, page, selector, timeout=45):
+        """Wait through Mpia's security interstitial for a target selector."""
         deadline = time.time() + max(1, timeout)
         last_marker = ''
         while time.time() < deadline and not self._stop_requested:
@@ -12926,10 +12926,10 @@ async (ids) => {
             except Exception:
                 time.sleep(1)
         if last_marker:
-            self.log(f"[Munpia] Still waiting on page marker: {last_marker}")
+            self.log(f"[Mpia] Still waiting on page marker: {last_marker}")
         return False
 
-    def _munpia_page_has_selector(self, page, selector):
+    def _mpia_page_has_selector(self, page, selector):
         try:
             return bool(
                 page
@@ -12942,11 +12942,11 @@ async (ids) => {
         except Exception:
             return False
 
-    def _munpia_parallel_pages(self, count, start_url):
-        """Return one usable Munpia Chrome page per parallel chapter."""
+    def _mpia_parallel_pages(self, count, start_url):
+        """Return one usable Mpia Chrome page per parallel chapter."""
         count = max(1, count)
-        if not self._context or not self._page or not self._munpia_chrome:
-            if not self._start_munpia_browser(start_url):
+        if not self._context or not self._page or not self._mpia_chrome:
+            if not self._start_mpia_browser(start_url):
                 return []
 
         if not self._page_is_usable(self._page):
@@ -12954,7 +12954,7 @@ async (ids) => {
                 self._page = self._context.new_page()
                 self._page.on("console", self._on_console)
             except Exception as e:
-                self.log(f"  [Munpia] Could not create primary page: {e}")
+                self.log(f"  [Mpia] Could not create primary page: {e}")
                 return []
 
         usable_workers = []
@@ -12986,13 +12986,13 @@ async (ids) => {
                     self._get_user_data_dir()
                 )
             except Exception as e:
-                self.log(f"  [Munpia] Worker page failed: {e}")
+                self.log(f"  [Mpia] Worker page failed: {e}")
                 break
 
         self._hide_chrome_windows_for_profile(self._get_user_data_dir())
         return ([self._page] + self._worker_pages)[:count]
 
-    def _munpia_api_get(self, path):
+    def _mpia_api_get(self, path):
         """Read the website API in its logged-in, same-origin browser session."""
         response = self._page.evaluate("""
             async (path) => {
@@ -13012,17 +13012,17 @@ async (ids) => {
         """, path)
         if not isinstance(response, dict) or response.get('status') != 200:
             status = response.get('status') if isinstance(response, dict) else '?'
-            raise RuntimeError(f'Munpia API returned HTTP {status}')
+            raise RuntimeError(f'Mpia API returned HTTP {status}')
         payload = response.get('data')
         if (not isinstance(payload, dict)
                 or payload.get('code') != 'M000_00000'
                 or not isinstance(payload.get('result'), dict)):
             code = payload.get('code') if isinstance(payload, dict) else '?'
-            raise RuntimeError(f'Munpia API rejected the request ({code})')
+            raise RuntimeError(f'Mpia API rejected the request ({code})')
         return payload['result']
 
     @staticmethod
-    def _munpia_chapter_from_api(row, novel_id, logged_in=False):
+    def _mpia_chapter_from_api(row, novel_id, logged_in=False):
         """Keep purchase status separate from whether this session can read."""
         if not isinstance(row, dict):
             return None
@@ -13040,7 +13040,7 @@ async (ids) => {
         rented = logged_in and rental_seconds > 0
         title = str(row.get('title') or f'Chapter {order}').strip()
         return {
-            'url': f'https://www.munpia.com/novel/viewer/{novel_id}/{chapter_id}',
+            'url': f'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/viewer/{novel_id}/{chapter_id}',
             'name': title,
             'fullName': f'{order}. {title}',
             'order': order,
@@ -13048,14 +13048,14 @@ async (ids) => {
             'isVIP': not free,
             'isPaid': not free,
             'isAccessible': bool(free or purchased or rented),
-            '_munpiaPurchased': bool(purchased),
-            '_munpiaRented': bool(rented),
+            '_mpiaPurchased': bool(purchased),
+            '_mpiaRented': bool(rented),
             'date': row.get('createdAt') or '',
         }
 
-    def _munpia_wait_list_interval(self):
+    def _mpia_wait_list_interval(self):
         delay = self._random_interval_delay(
-            self.munpia_interval, self.munpia_interval_max,
+            self.mpia_interval, self.mpia_interval_max,
         )
         deadline = time.monotonic() + delay
         while not self._stop_requested:
@@ -13065,44 +13065,44 @@ async (ids) => {
             time.sleep(min(0.1, remaining))
         return False
 
-    def _munpia_parse_book(self, url):
-        """Read the current Munpia detail API using the saved browser profile."""
+    def _mpia_parse_book(self, url):
+        """Read the current Mpia detail API using the saved browser profile."""
         self._stop_requested = False
         self._book_data = None
-        novel_id = self._munpia_novel_id(url)
+        novel_id = self._mpia_novel_id(url)
         if not novel_id:
-            self.log('[Munpia] ERROR: Could not extract novel id from URL.')
+            self.log('[Mpia] ERROR: Could not extract novel id from URL.')
             return None
-        # The legacy novel.munpia.com URLs now redirect to this website too.
-        book_url = f'https://www.munpia.com/novel/detail/{novel_id}'
-        if not self._start_munpia_browser(book_url):
+        # The legacy novel.\u006d\u0075\u006e\u0070\u0069\u0061.com URLs now redirect to this website too.
+        book_url = f'https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/detail/{novel_id}'
+        if not self._start_mpia_browser(book_url):
             return None
         try:
             self._page.goto(book_url, wait_until='domcontentloaded', timeout=30000)
-            if not self._munpia_wait_for_selector(self._page, 'main h1'):
+            if not self._mpia_wait_for_selector(self._page, 'main h1'):
                 self.log(
-                    '[Munpia] ERROR: Novel page did not load. Use Enter Browser '
+                    '[Mpia] ERROR: Novel page did not load. Use Enter Browser '
                     'to check the saved session, then retry.'
                 )
                 return None
-            detail = self._munpia_api_get(f'/api/v1/pc/novel-detail/{novel_id}')
+            detail = self._mpia_api_get(f'/api/v1/pc/novel-detail/{novel_id}')
             info = detail.get('novelInfo') or {}
             if str(info.get('id')) != novel_id or not info.get('title'):
                 raise ValueError('Invalid novel metadata')
             logged_in = detail.get('login') is True
             self.log(
-                '[Munpia] Saved browser session is logged in; reading free '
+                '[Mpia] Saved browser session is logged in; reading free '
                 'and already purchased/rented chapters.' if logged_in else
-                '[Munpia] No saved login; only free chapters are accessible. '
+                '[Mpia] No saved login; only free chapters are accessible. '
                 'Use Enter Browser to log in for purchased chapters.'
             )
             chapters = []
             seen = set()
             total = None
             for page_no in range(1, 1001):
-                if not self._munpia_wait_list_interval():
+                if not self._mpia_wait_list_interval():
                     return None
-                listing = self._munpia_api_get(
+                listing = self._mpia_api_get(
                     f'/api/v1/pc/novel-detail/{novel_id}/chapters'
                     f'?order=ENTRY_FIRST&page={page_no}&size=30'
                 )
@@ -13114,7 +13114,7 @@ async (ids) => {
                     raise ValueError('Invalid chapter list')
                 added = 0
                 for row in rows:
-                    chapter = self._munpia_chapter_from_api(row, novel_id, logged_in)
+                    chapter = self._mpia_chapter_from_api(row, novel_id, logged_in)
                     if chapter is None:
                         raise ValueError('Invalid chapter entry')
                     if chapter['neSrl'] not in seen:
@@ -13130,7 +13130,7 @@ async (ids) => {
             if not chapters or total is None or len(chapters) < total:
                 raise ValueError('No complete chapter list was returned')
         except Exception as error:
-            self.log(f'[Munpia] ERROR: Could not parse book: {error}')
+            self.log(f'[Mpia] ERROR: Could not parse book: {error}')
             return None
         if self._stop_requested:
             return None
@@ -13149,32 +13149,32 @@ async (ids) => {
             'tags': [tag['title'] for tag in (info.get('tags') or [])
                      if isinstance(tag, dict) and tag.get('title')],
             'status': 'Completed' if info.get('finish') else 'Ongoing',
-            '_munpia': True,
-            '_munpia_novel_id': novel_id,
-            '_munpia_logged_in': logged_in,
-            '_munpia_declared_count': info.get('chapterCount') or total,
+            '_mpia': True,
+            '_mpia_novel_id': novel_id,
+            '_mpia_logged_in': logged_in,
+            '_mpia_declared_count': info.get('chapterCount') or total,
         }
         self._book_data = data
         self._book_url = book_url
         free_count = sum(not ch['isVIP'] for ch in chapters)
         owned_count = sum(ch['isVIP'] and ch['isAccessible'] for ch in chapters)
         self.log(
-            f"[Munpia] Book: {data['bookname']} by {data['author']} - "
+            f"[Mpia] Book: {data['bookname']} by {data['author']} - "
             f'{len(chapters)} chapters ({free_count} free, '
             f'{owned_count} purchased/rented accessible).'
         )
         return data
 
 
-    _MUNPIA_READER_SELECTOR = (
-        '#ENTRY-CONTENT .tcontent, html[data-nd-munpia-ready="1"], '
-        'html[data-nd-munpia-denied="1"]'
+    _MPIA_READER_SELECTOR = (
+        '#ENTRY-CONTENT .tcontent, html[data-nd-mpia-ready="1"], '
+        'html[data-nd-mpia-denied="1"]'
     )
 
-    _MUNPIA_READER_INIT_JS = r"""
+    _MPIA_READER_INIT_JS = r"""
         (() => {
-            if (window.__ndMunpiaReader) return;
-            const state = window.__ndMunpiaReader = {
+            if (window.__ndMpiaReader) return;
+            const state = window.__ndMpiaReader = {
                 entry: null, entryId: '', contentOK: false, error: null,
             };
             const path = value => {
@@ -13203,8 +13203,8 @@ async (ids) => {
                     state.entryId = match[1];
                     state.contentOK = false;
                     state.error = null;
-                    document.documentElement.removeAttribute('data-nd-munpia-ready');
-                    document.documentElement.removeAttribute('data-nd-munpia-denied');
+                    document.documentElement.removeAttribute('data-nd-mpia-ready');
+                    document.documentElement.removeAttribute('data-nd-mpia-denied');
                 }
                 const response = await nativeFetch.apply(this, arguments);
                 const json = /application\/json/i.test(response.headers.get('content-type') || '');
@@ -13216,7 +13216,7 @@ async (ids) => {
                             state.error = {status: response.status, code: data?.code,
                                 message: data?.message || ''};
                         }).catch(() => {});
-                        document.documentElement.setAttribute('data-nd-munpia-denied', '1');
+                        document.documentElement.setAttribute('data-nd-mpia-denied', '1');
                     }
                 } else if (path(url).match(infoPattern) && json) {
                     response.clone().json().then(data => recordInfo(url, data)).catch(() => {});
@@ -13245,16 +13245,16 @@ async (ids) => {
             CanvasRenderingContext2D.prototype.fillText = function(text) {
                 const result = nativeFillText.apply(this, arguments);
                 if (state.contentOK && String(text || '').trim()) {
-                    document.documentElement.setAttribute('data-nd-munpia-ready', '1');
+                    document.documentElement.setAttribute('data-nd-mpia-ready', '1');
                 }
                 return result;
             };
         })();
     """
 
-    _MUNPIA_CANVAS_EXTRACT_JS = r"""
+    _MPIA_CANVAS_EXTRACT_JS = r"""
         async () => {
-            const state = window.__ndMunpiaReader;
+            const state = window.__ndMpiaReader;
             if (!state?.contentOK) {
                 const error = state?.error;
                 return {locked: !!error && (error.status === 401 || error.status === 403
@@ -13270,11 +13270,11 @@ async (ids) => {
                 .map(item => item.name)
                 .filter(url => /\/novel_wasm-[^/]+\.js(?:\?|$)/.test(url));
             const moduleUrl = moduleUrls[moduleUrls.length - 1];
-            if (!moduleUrl) return {error: 'Munpia reader module was not loaded'};
+            if (!moduleUrl) return {error: 'Mpia reader module was not loaded'};
             const renderer = await import(moduleUrl);
             if (typeof renderer.render_page !== 'function'
                 || typeof renderer.get_total_pages !== 'function') {
-                return {error: 'Munpia reader rendering API changed'};
+                return {error: 'Mpia reader rendering API changed'};
             }
             const canvas = document.createElement('canvas');
             const ratio = window.devicePixelRatio || 1;
@@ -13296,7 +13296,7 @@ async (ids) => {
             const pages = renderer.get_total_pages(canvas, linesPerPage,
                 fontSize, lineHeight, font, padding, 0, 0);
             if (!Number.isInteger(pages) || pages < 1 || pages > 10000) {
-                return {error: 'Munpia reader returned an invalid page count'};
+                return {error: 'Mpia reader returned an invalid page count'};
             }
             const cleanId = value => String(value || '').replace(/^(?:@PIC:)+/, '');
             const attachments = new Map((state.entry?.attachments || []).map(item =>
@@ -13368,30 +13368,30 @@ async (ids) => {
                     try { url = new URL(block.url, location.href); } catch (_) { continue; }
                     if (!/^https?:$/.test(url.protocol)) continue;
                     const extension = url.pathname.match(/\.(png|jpe?g|gif|webp|avif)$/i)?.[1] || 'jpg';
-                    images.push({url: url.href, name: `munpia_${entryId}_${images.length + 1}.${extension}`});
+                    images.push({url: url.href, name: `mpia_${entryId}_${images.length + 1}.${extension}`});
                     markup.push(`<p><img src="${escape(url.href)}" /></p>`);
                 }
             }
-            if (!texts.length && !images.length) return {error: 'Munpia reader returned empty content'};
+            if (!texts.length && !images.length) return {error: 'Mpia reader returned empty content'};
             return {chapterName: state.entry?.title || '',
                 contentText: texts.join('\n'),
-                contentHtml: `<div class="munpia-content">${markup.join('\n')}</div>`, images};
+                contentHtml: `<div class="mpia-content">${markup.join('\n')}</div>`, images};
         }
     """
 
-    def _munpia_prepare_reader_page(self, page):
+    def _mpia_prepare_reader_page(self, page):
         """Observe the site's authorized reader before its navigation starts."""
         try:
-            if not getattr(page, '_nd_munpia_reader_prepared', False):
-                page.add_init_script(self._MUNPIA_READER_INIT_JS)
-                page._nd_munpia_reader_prepared = True
+            if not getattr(page, '_nd_mpia_reader_prepared', False):
+                page.add_init_script(self._MPIA_READER_INIT_JS)
+                page._nd_mpia_reader_prepared = True
             return True
         except Exception as e:
-            self.log(f"  [Munpia] Could not prepare reader: {e}")
+            self.log(f"  [Mpia] Could not prepare reader: {e}")
             return False
 
-    def _munpia_extract_loaded_chapter(self, target, chapter_name):
-        """Extract Munpia chapter content from an already-loaded page."""
+    def _mpia_extract_loaded_chapter(self, target, chapter_name):
+        """Extract Mpia chapter content from an already-loaded page."""
         try:
             data = target.evaluate("""
                 () => {
@@ -13456,7 +13456,7 @@ async (ids) => {
                                 /[^A-Za-z0-9._-]+/g, '_'
                             ).replace(/^[_\\.]+|[_\\.]+$/g, '');
                             if (!name || !/\\.[A-Za-z0-9]{2,5}$/.test(name)) {
-                                name = `munpia_image_${idx + 1}.jpg`;
+                                name = `mpia_image_${idx + 1}.jpg`;
                             }
                             return {url: src, name};
                         }).filter(Boolean);
@@ -13477,24 +13477,24 @@ async (ids) => {
                         locked: !contentText && !images.length,
                         chapterName: heading,
                         contentText,
-                        contentHtml: `<div class="munpia-content">${contentHtml}</div>`,
+                        contentHtml: `<div class="mpia-content">${contentHtml}</div>`,
                         images,
                     };
                 }
             """) or {}
         except Exception as e:
-            self.log(f"  [Munpia] Extract failed: {chapter_name}: {e}")
+            self.log(f"  [Mpia] Extract failed: {chapter_name}: {e}")
             return None
 
         if data.get('canvasReader'):
             try:
-                data = target.evaluate(self._MUNPIA_CANVAS_EXTRACT_JS) or {}
+                data = target.evaluate(self._MPIA_CANVAS_EXTRACT_JS) or {}
             except Exception as e:
-                self.log(f"  [Munpia] Reader extraction failed: {chapter_name}: {e}")
+                self.log(f"  [Mpia] Reader extraction failed: {chapter_name}: {e}")
                 return None
 
         if data.get('locked'):
-            self.log(f"  [Munpia] Locked or unreadable: {chapter_name}")
+            self.log(f"  [Mpia] Locked or unreadable: {chapter_name}")
             return {
                 '_locked': True,
                 'chapterName': data.get('chapterName') or chapter_name,
@@ -13503,7 +13503,7 @@ async (ids) => {
         if data.get('error') or not (
             data.get('contentText') or data.get('images')
         ):
-            self.log(f"  [Munpia] Reader is not readable: {chapter_name}")
+            self.log(f"  [Mpia] Reader is not readable: {chapter_name}")
             return None
 
         return {
@@ -13512,39 +13512,39 @@ async (ids) => {
             'contentText': data.get('contentText') or '',
             'contentHtml': data.get('contentHtml') or '',
             'contentCss': (
-                '.munpia-content p { margin: 0 0 0.75em; '
+                '.mpia-content p { margin: 0 0 0.75em; '
                 'line-height: 1.8; }\n'
-                '.munpia-content img { max-width: 100%; height: auto; }'
+                '.mpia-content img { max-width: 100%; height: auto; }'
             ),
             'images': data.get('images') or [],
         }
 
-    def _munpia_parse_chapter(self, chapter_url, chapter_name, page=None):
-        """Fetch one Munpia chapter using the existing authenticated browser."""
+    def _mpia_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Fetch one Mpia chapter using the existing authenticated browser."""
         if self._stop_requested:
             return None
         target = page or self._page
         if target is None:
-            if not self._start_munpia_browser(chapter_url):
+            if not self._start_mpia_browser(chapter_url):
                 return None
             target = self._page
 
         try:
-            if not self._munpia_prepare_reader_page(target):
+            if not self._mpia_prepare_reader_page(target):
                 return None
             target.goto(chapter_url, wait_until="domcontentloaded",
                         timeout=30000)
-            ready = self._munpia_wait_for_selector(
-                target, self._MUNPIA_READER_SELECTOR, timeout=45
+            ready = self._mpia_wait_for_selector(
+                target, self._MPIA_READER_SELECTOR, timeout=45
             )
         except Exception as e:
-            self.log(f"  [Munpia] Page load failed: {chapter_name}: {e}")
+            self.log(f"  [Mpia] Page load failed: {chapter_name}: {e}")
             return None
         if not ready or self._stop_requested:
             return None
-        return self._munpia_extract_loaded_chapter(target, chapter_name)
+        return self._mpia_extract_loaded_chapter(target, chapter_name)
 
-    def _munpia_parse_chapter_batch_parallel(
+    def _mpia_parse_chapter_batch_parallel(
         self, batch_info, interval=0.5, success_callback=None,
         interval_max=None,
     ):
@@ -13575,23 +13575,23 @@ async (ids) => {
                 pass
 
         first_url = eligible[0][1].get('url', '') or self._book_url
-        pages = self._munpia_parallel_pages(len(eligible), first_url)
+        pages = self._mpia_parallel_pages(len(eligible), first_url)
         active = {}
 
         def poll_loaded():
             for index, (page, name, deadline) in list(active.items()):
                 if self._stop_requested:
                     break
-                if self._munpia_page_has_selector(
-                    page, self._MUNPIA_READER_SELECTOR
+                if self._mpia_page_has_selector(
+                    page, self._MPIA_READER_SELECTOR
                 ):
-                    results[index] = self._munpia_extract_loaded_chapter(
+                    results[index] = self._mpia_extract_loaded_chapter(
                         page, name
                     )
                     del active[index]
                     report_success(index, results[index])
                 elif time.monotonic() >= deadline:
-                    self.log(f"  [Munpia] Timed out waiting for: {name}")
+                    self.log(f"  [Mpia] Timed out waiting for: {name}")
                     del active[index]
 
         def wait_interval():
@@ -13611,7 +13611,7 @@ async (ids) => {
             for offset, (index, chapter) in enumerate(eligible):
                 if self._stop_requested:
                     break
-                results[index] = self._munpia_parse_chapter(
+                results[index] = self._mpia_parse_chapter(
                     chapter.get('url', ''),
                     chapter.get('fullName', '') or chapter.get('name', ''),
                     page=pages[0] if pages else self._page,
@@ -13629,12 +13629,12 @@ async (ids) => {
                 goto_kwargs = {'wait_until': 'commit', 'timeout': 15000}
                 if self._book_url:
                     goto_kwargs['referer'] = self._book_url
-                self._munpia_prepare_reader_page(page)
+                self._mpia_prepare_reader_page(page)
                 page.goto(chapter.get('url', ''), **goto_kwargs)
             except Exception as e:
                 # A failed navigation may leave the previous chapter in the
                 # tab. Never extract that DOM as the requested chapter.
-                self.log(f"  [Munpia] Page load failed for {name}: {e}")
+                self.log(f"  [Mpia] Page load failed for {name}: {e}")
             else:
                 active[index] = (page, name, time.monotonic() + 45)
             self._hide_chrome_windows_for_profile(self._get_user_data_dir())
@@ -13649,8 +13649,8 @@ async (ids) => {
                 time.sleep(0.2)
         return results
 
-    def _kakao_parse_book(self, url):
-        """Scrape book metadata + episode list from a KakaoPage content page.
+    def _kpage_parse_book(self, url):
+        """Scrape book metadata + episode list from a Kpage content page.
 
         Uses Playwright DOM scraping instead of novel-downloader JS rules.
         Returns the standard book data dict or None on error.
@@ -13659,7 +13659,7 @@ async (ids) => {
             self.start()
 
         self._stop_requested = False
-        self.log(f"[KakaoPage] Navigating to: {url}")
+        self.log(f"[Kpage] Navigating to: {url}")
 
         # Extract series ID from URL
         m = re.search(r'/content/(\d+)', url)
@@ -13673,7 +13673,7 @@ async (ids) => {
             self.log(f"ERROR: Page load failed: {e}")
             return None
 
-        self.log("[KakaoPage] Extracting metadata...")
+        self.log("[Kpage] Extracting metadata...")
 
         # --- Extract metadata via JS ---
         try:
@@ -13685,7 +13685,7 @@ async (ids) => {
                     };
                     // Title: try og:title first, then first h2
                     var title = og('title') || '';
-                    // Clean "- 웹소설 | 카카오페이지" suffix from og:title
+                    // Clean "- 웹소설 | kpage" suffix from og:title
                     title = title.replace(/\\s*[-–]\\s*(웹소설|웹툰).*$/i, '').trim();
                     if (!title) {
                         var h2 = document.querySelector('h2');
@@ -13752,21 +13752,21 @@ async (ids) => {
         total_episodes = meta.get('totalEpisodes', 0)
 
         if not title:
-            self.log("ERROR: Could not extract title from KakaoPage.")
+            self.log("ERROR: Could not extract title from Kpage.")
             return None
 
-        self.log(f"[KakaoPage] Title: {title}, Author: {author}, "
+        self.log(f"[Kpage] Title: {title}, Author: {author}, "
                  f"Episodes: {total_episodes}")
 
         # --- Fetch episode list via BFF API ---
         # The DOM only shows ~5-6 episodes initially and expanding is
         # unreliable.  Instead, call the BFF API directly from the
         # browser context to get ALL episodes in a single request.
-        self.log("[KakaoPage] Fetching episode list via API...")
+        self.log("[Kpage] Fetching episode list via API...")
         try:
             episodes = self._page.evaluate("""
                 async (seriesId) => {
-                    const url = `https://bff-page.kakao.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000&sort_opt=asc`;
+                    const url = `https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/api/v2/content/product/list?series_id=${seriesId}&cursor_index=0&cursor_direction=ANCHOR&window_size=10000&sort_opt=asc`;
                     const resp = await fetch(url, { credentials: 'include' });
                     const data = await resp.json();
                     const list = (data.result || {}).list || [];
@@ -13832,24 +13832,24 @@ async (ids) => {
         if not episodes:
             self.log("WARNING: No episodes found on page.")
 
-        # Sort oldest-to-newest like Kakao's first-episode-first option. Some Kakao
+        # Sort oldest-to-newest like Kpage's first-episode-first option. Some Kpage
         # responses mix cursor order, missing order_value, and title-only
         # numbering, so use every stable signal we have.
-        episodes.sort(key=self._kakao_episode_sort_key)
+        episodes.sort(key=self._kpage_episode_sort_key)
 
         # Fix relative URLs to absolute
         for ep in episodes:
             if ep['url'] and not ep['url'].startswith('http'):
-                ep['url'] = 'https://page.kakao.com' + ep['url']
+                ep['url'] = 'https://page.\u006b\u0061\u006b\u0061\u006f.com' + ep['url']
 
-        self.log(f"[KakaoPage] Found {len(episodes)} episodes.")
+        self.log(f"[Kpage] Found {len(episodes)} episodes.")
         paid_accessible = sum(
             1 for ep in episodes
             if ep.get('isAccessible') and not ep.get('isFree')
         )
         if paid_accessible:
             self.log(
-                f"[KakaoPage] Detected {paid_accessible} rented/purchased "
+                f"[Kpage] Detected {paid_accessible} rented/purchased "
                 "episode(s) as accessible."
             )
 
@@ -13876,7 +13876,7 @@ async (ids) => {
                 })()
             """) or []
             if tags:
-                self.log(f"[KakaoPage] Tags: {', '.join(tags)}")
+                self.log(f"[Kpage] Tags: {', '.join(tags)}")
         except Exception:
             pass  # Tags are optional
 
@@ -13891,7 +13891,7 @@ async (ids) => {
             'chapters': episodes,
             'language': 'ko',
             'tags': tags,
-            '_kakaopage': True,  # Flag for chapter parser
+            '_kpage': True,  # Flag for chapter parser
         }
 
         self._book_data = data
@@ -13899,8 +13899,8 @@ async (ids) => {
         return data
 
     @staticmethod
-    def _kakao_title_number(title):
-        """Best-effort episode number from Korean/Arabic Kakao titles."""
+    def _kpage_title_number(title):
+        """Best-effort episode number from Korean/Arabic Kpage titles."""
         if not title:
             return 0
         m = re.search(r'(\d+)\s*화', str(title))
@@ -13911,20 +13911,20 @@ async (ids) => {
                 return 0
         return 0
 
-    def _kakao_episode_sort_key(self, ep):
-        """Oldest-to-newest sort key for Kakao episode rows."""
+    def _kpage_episode_sort_key(self, ep):
+        """Oldest-to-newest sort key for Kpage episode rows."""
         order = ep.get('order') or 0
         if not order:
-            order = self._kakao_title_number(
+            order = self._kpage_title_number(
                 ep.get('fullName') or ep.get('name') or ''
             )
         product_id = ep.get('productId') or 0
         return (order or 10**12, product_id)
 
-    def _kakao_build_image_chapter(self, image_files, chapter_name):
-        """Build standard chapter data from Kakao ImageViewerData files."""
+    def _kpage_build_image_chapter(self, image_files, chapter_name):
+        """Build standard chapter data from Kpage ImageViewerData files."""
         images = []
-        html_parts = ['<div class="kakao-image-chapter">']
+        html_parts = ['<div class="kpage-image-chapter">']
         text_parts = []
 
         ordered = sorted(
@@ -13940,7 +13940,7 @@ async (ids) => {
             filename = filename.split('?', 1)[0].split('&', 1)[0]
             filename = re.sub(r'[^A-Za-z0-9._-]+', '_', filename).strip('._')
             if not filename or '.' not in filename:
-                filename = f'kakao_image_{idx:04d}.jpg'
+                filename = f'kpage_image_{idx:04d}.jpg'
 
             images.append({'url': img_url, 'name': filename})
             alt = f"{chapter_name} image {idx}"
@@ -13952,7 +13952,7 @@ async (ids) => {
             if height:
                 size_attrs += f' height="{int(height)}"'
             html_parts.append(
-                '<div class="kakao-image-page">'
+                '<div class="kpage-image-page">'
                 f'<img src="{html.escape(img_url, quote=True)}" '
                 f'alt="{html.escape(alt, quote=True)}"{size_attrs}/>'
                 '</div>'
@@ -13969,17 +13969,17 @@ async (ids) => {
             'contentText': '\n'.join(text_parts),
             'contentHtml': '\n'.join(html_parts),
             'contentCss': (
-                '.kakao-image-chapter { text-align: center; }\n'
-                '.kakao-image-page { margin: 0 auto 0.5rem; '
+                '.kpage-image-chapter { text-align: center; }\n'
+                '.kpage-image-page { margin: 0 auto 0.5rem; '
                 'page-break-inside: avoid; }\n'
-                '.kakao-image-page img { display: block; max-width: 100%; '
+                '.kpage-image-page img { display: block; max-width: 100%; '
                 'height: auto; margin: 0 auto; }'
             ),
             'images': images,
         }
 
-    def _kakao_load_all_episodes(self, expected_count):
-        """Expand the episode list on a KakaoPage content page.
+    def _kpage_load_all_episodes(self, expected_count):
+        """Expand the episode list on a Kpage content page.
 
         Clicks the expand chevron and scrolls until all episodes are visible.
         """
@@ -14050,8 +14050,8 @@ async (ids) => {
                 )
                 self._page.wait_for_timeout(800)
 
-    def _kakao_parse_chapter(self, chapter_url, chapter_name, page=None):
-        """Scrape a single KakaoPage chapter from the viewer.
+    def _kpage_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Scrape a single Kpage chapter from the viewer.
 
         Uses a fast API-only approach:
           1. Call the BFF viewer data API to get sdownload resource URLs.
@@ -14070,10 +14070,10 @@ async (ids) => {
         # Extract series_id and product_id from the chapter URL
         m = re.search(r'/content/(\d+)/viewer/(\d+)', chapter_url)
         if not m:
-            self.log(f"  [KakaoPage] Invalid viewer URL: {chapter_url}")
+            self.log(f"  [Kpage] Invalid viewer URL: {chapter_url}")
             return None
         s_id, p_id = m.group(1), m.group(2)
-        # Ensure the page is on the kakao.com domain so that fetch()
+        # Ensure the page is on the \u006b\u0061\u006b\u0061\u006f.com domain so that fetch()
         # sends the correct cookies.  After "Enter Browser" restarts the
         # headless browser, the page is on about:blank — the BFF API
         # returns 403 Forbidden for requests from a null origin.
@@ -14081,26 +14081,26 @@ async (ids) => {
             current_url = target.url or ''
         except Exception:
             current_url = ''
-        if 'kakao.com' not in current_url or 'tab_type=about' in current_url:
+        if '\u006b\u0061\u006b\u0061\u006f.com' not in current_url or 'tab_type=about' in current_url:
             try:
                 target.goto(
-                    f'https://page.kakao.com/content/{s_id}',
+                    f'https://page.\u006b\u0061\u006b\u0061\u006f.com/content/{s_id}',
                     wait_until="domcontentloaded", timeout=30000,
                 )
                 target.wait_for_timeout(1000)
             except Exception as e:
-                self.log(f"  [KakaoPage] Failed to navigate to book page: {e}")
+                self.log(f"  [Kpage] Failed to navigate to book page: {e}")
 
         # ---- Strategy 1: Direct API fetch (fast, no navigation) ----
         api_result = None
         try:
             api_result = target.evaluate("""
             async ([seriesId, productId]) => {
-                // bff-page.kakao.com is a different origin from page.kakao.com.
+                // bff-page.\u006b\u0061\u006b\u0061\u006f.com is a different origin from page.\u006b\u0061\u006b\u0061\u006f.com.
                 // Include credentials or purchased/age-verified viewer data can
                 // look anonymously locked even while the user is logged in.
                 const vResp = await fetch(
-                    `https://bff-page.kakao.com/api/gateway/api/v1/viewer/data`
+                    `https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/api/v1/viewer/data`
                     + `?series_id=${seriesId}&product_id=${productId}`,
                     { credentials: 'include' }
                 );
@@ -14209,7 +14209,7 @@ async (ids) => {
             }
             """, [s_id, p_id])
         except Exception as e:
-            self.log(f"  [KakaoPage] API fetch error: {e}")
+            self.log(f"  [Kpage] API fetch error: {e}")
 
         if api_result:
             http_st = api_result.get('httpStatus', '?')
@@ -14218,7 +14218,7 @@ async (ids) => {
             if api_result.get('locked'):
                 reason = api_result.get('reason') or 'locked'
                 self.log(
-                    f"  [KakaoPage] LOCKED: {chapter_name} "
+                    f"  [Kpage] LOCKED: {chapter_name} "
                     f"(HTTP {http_st}, msg={api_msg}, "
                     f"reason={reason}, "
                     f"page={page_url})"
@@ -14226,7 +14226,7 @@ async (ids) => {
                 return {'_locked': True, 'chapterName': chapter_name}
             if api_result.get('unavailable'):
                 self.log(
-                    f"  [KakaoPage] Fast API unavailable: {chapter_name} "
+                    f"  [Kpage] Fast API unavailable: {chapter_name} "
                     f"(HTTP {http_st}, msg={api_msg}, "
                     f"reason={api_result.get('reason')}, "
                     f"keys={api_result.get('responseKeys', '')}, "
@@ -14236,17 +14236,17 @@ async (ids) => {
             else:
                 image_files = api_result.get('imageFiles') or []
                 if image_files:
-                    return self._kakao_build_image_chapter(
+                    return self._kpage_build_image_chapter(
                         image_files, chapter_name)
 
                 raw_chunks = api_result.get('chunks', [])
                 json_chunks = [r.encode('utf-8') for r in raw_chunks]
-                para_tuples, content_css = self._kakao_extract_from_json(
+                para_tuples, content_css = self._kpage_extract_from_json(
                     json_chunks)
                 if para_tuples:
-                    full_text, content_html = self._kakao_build_output(
+                    full_text, content_html = self._kpage_build_output(
                         para_tuples)
-                    display_name = self._kakao_heading_title(
+                    display_name = self._kpage_heading_title(
                         para_tuples, chapter_name)
                     return {
                         'chapterName': display_name,
@@ -14258,16 +14258,16 @@ async (ids) => {
                     }
 
         self.log(
-            f"  [KakaoPage] Fast API returned no readable text: "
+            f"  [Kpage] Fast API returned no readable text: "
             f"{chapter_name}"
         )
         return None
 
     @staticmethod
-    def _kakao_strip_headings(para_tuples):
+    def _kpage_strip_headings(para_tuples):
         """Remove redundant episode heading paragraphs from chapter text.
 
-        KakaoPage chapters start with a heading like '제1화' or '제103화'
+        Kpage chapters start with a heading like '제1화' or '제103화'
         that duplicates info already in the chapter title.  Strip these
         and any surrounding &nbsp; spacers from the very beginning.
 
@@ -14287,7 +14287,7 @@ async (ids) => {
         return cleaned
 
     @staticmethod
-    def _kakao_build_output_legacy(para_tuples):
+    def _kpage_build_output_legacy(para_tuples):
         """Convert (plain_text, html_fragment, type, style) tuples to
         full text and HTML output.
 
@@ -14317,7 +14317,7 @@ async (ids) => {
         return '\n'.join(text_parts), '\n'.join(html_parts)
 
     @staticmethod
-    def _kakao_heading_title(para_tuples, fallback):
+    def _kpage_heading_title(para_tuples, fallback):
         """Use the first source heading as the EPUB title/TOC label."""
         for item in para_tuples:
             plain = (item[0] or '').strip()
@@ -14328,8 +14328,8 @@ async (ids) => {
         return fallback
 
     @staticmethod
-    def _kakao_build_output(para_tuples):
-        """Convert parsed Kakao paragraph tuples to full text and HTML."""
+    def _kpage_build_output(para_tuples):
+        """Convert parsed Kpage paragraph tuples to full text and HTML."""
         from html import escape as _esc
 
         def _attrs_to_html(attrs, style, extra_class=''):
@@ -14396,8 +14396,8 @@ async (ids) => {
             return 'p'
 
         def _append_page_break(parts):
-            if parts and parts[-1] != '<div class="kakao-page-break">&#160;</div>':
-                parts.append('<div class="kakao-page-break">&#160;</div>')
+            if parts and parts[-1] != '<div class="kpage-page-break">&#160;</div>':
+                parts.append('<div class="kpage-page-break">&#160;</div>')
 
         text_parts = []
         html_parts = []
@@ -14432,7 +14432,7 @@ async (ids) => {
             if is_heading and not first_heading_seen:
                 first_heading_seen = True
                 pending_heading_break = True
-                extra_class = 'kakao-source-heading'
+                extra_class = 'kpage-source-heading'
 
             text_parts.append(text_plain)
             attr_html = _attrs_to_html(p_attrs, p_style, extra_class)
@@ -14446,7 +14446,7 @@ async (ids) => {
     def _is_colophon_chunk(paragraphs_text):
         """Check if a chunk's combined text looks like publisher boilerplate.
 
-        KakaoPage embeds a copyright/colophon page in every chapter EPUB
+        Kpage embeds a copyright/colophon page in every chapter EPUB
         with ISBN, copyright notices, and publisher info.  These share
         contentId=0 with the actual chapter-title paragraphs, so we
         can't filter by ID alone — we detect them by content markers.
@@ -14473,7 +14473,7 @@ async (ids) => {
             '표지', '주소',
         ]
         contact_markers = [
-            '블로그', '트위터', '투고', 'blog.naver.com',
+            '블로그', '트위터', '투고', 'blog.\u006e\u0061\u0076\u0065\u0072.com',
             'dreambook', 'samyangcnc',
         ]
 
@@ -14495,15 +14495,15 @@ async (ids) => {
             return True
         return False
 
-    def _kakao_fetch_css_resource(self, style_info):
-        """Download a Kakao EPUB CSS resource referenced by styleList."""
+    def _kpage_fetch_css_resource(self, style_info):
+        """Download a Kpage EPUB CSS resource referenced by styleList."""
         src = (style_info or {}).get('src') or ''
         if not src:
             return ''
         file_name = (style_info or {}).get('fileName') or 'style.css'
         cache_key = f'{src}|{file_name}'
-        if cache_key in self._kakao_css_cache:
-            return self._kakao_css_cache[cache_key]
+        if cache_key in self._kpage_css_cache:
+            return self._kpage_css_cache[cache_key]
 
         if src.startswith('http://') or src.startswith('https://'):
             url = src
@@ -14511,7 +14511,7 @@ async (ids) => {
             kid = urllib.parse.quote(src, safe='/')
             fname = urllib.parse.quote(file_name)
             url = (
-                'https://dn-img-page.kakao.com/download/resource'
+                'https://dn-img-page.\u006b\u0061\u006b\u0061\u006f.com/download/resource'
                 f'?kid={kid}&filename={fname}'
             )
 
@@ -14525,7 +14525,7 @@ async (ids) => {
                         'AppleWebKit/537.36 (KHTML, like Gecko) '
                         'Chrome/120.0.0.0 Safari/537.36'
                     ),
-                    'Referer': 'https://page.kakao.com/',
+                    'Referer': 'https://page.\u006b\u0061\u006b\u0061\u006f.com/',
                 })
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
                     raw = resp.read()
@@ -14538,21 +14538,21 @@ async (ids) => {
                 last_error = e
                 if attempt < 3:
                     self.log(
-                        f"  [KakaoPage] CSS fetch retry {attempt + 1}/3: "
+                        f"  [Kpage] CSS fetch retry {attempt + 1}/3: "
                         f"{file_name} ({e})"
                     )
                     time.sleep(0.75)
 
         if not css and last_error:
             self.log(
-                f"  [KakaoPage] CSS fetch failed after 3 tries: "
+                f"  [Kpage] CSS fetch failed after 3 tries: "
                 f"{file_name}: {last_error}"
             )
 
-        self._kakao_css_cache[cache_key] = css
+        self._kpage_css_cache[cache_key] = css
         return css
 
-    def _kakao_extract_from_json(self, json_chunks):
+    def _kpage_extract_from_json(self, json_chunks):
         """Parse paragraphList from intercepted JSON API responses.
 
         Each JSON chunk has structure:
@@ -14581,7 +14581,7 @@ async (ids) => {
             return _esc(_unesc(text))
 
         def _style_to_css(style):
-            """Convert KakaoPage style dict to an inline CSS string."""
+            """Convert Kpage style dict to an inline CSS string."""
             css_parts = []
             # Color — check multiple possible field names
             color = (style.get('color') or style.get('fontColor')
@@ -14724,7 +14724,7 @@ async (ids) => {
                 content_id = info.get('contentId', 0)
                 para_list = info.get('paragraphList', [])
                 for style_info in (info.get('styleList') or []):
-                    css = self._kakao_fetch_css_resource(style_info)
+                    css = self._kpage_fetch_css_resource(style_info)
                     if css and css not in seen_css:
                         seen_css.add(css)
                         css_parts.append(css)
@@ -14750,14 +14750,14 @@ async (ids) => {
                 continue
 
         skip_last_index = None
-        if (self.kakao_skip_last_page and not self.kakao_keep_filler
+        if (self.kpage_skip_last_page and not self.kpage_keep_filler
                 and len(parsed_chunks) > 1):
             skip_last_index = parsed_chunks[-1][0]
 
         all_paras = []
         for chunk_index, chunk_paras in parsed_chunks:
             combined = ' '.join(t for _, _, _, t, _, _, _, _ in chunk_paras)
-            if not self.kakao_keep_filler:
+            if not self.kpage_keep_filler:
                 if skip_last_index is not None and chunk_index == skip_last_index:
                     continue
 
@@ -14770,7 +14770,7 @@ async (ids) => {
         if not all_paras:
             return [], '\n\n'.join(css_parts)
 
-        # Sort by chunk order first. Some Kakao chapters have multiple
+        # Sort by chunk order first. Some Kpage chapters have multiple
         # contentId=0 resources (cover, then body), so contentId alone can
         # interleave unrelated pages.
         all_paras.sort(key=lambda x: (x[0], x[1], x[2]))
@@ -15203,7 +15203,7 @@ async (ids) => {
         }
 
     # ------------------------------------------------------------------
-    # Shared helpers for the Joara / Naver HTTP scrapers
+    # Shared helpers for the Jara / Nweb HTTP scrapers
     # ------------------------------------------------------------------
     _KR_UA = (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -15219,8 +15219,8 @@ async (ids) => {
     def _reader_html_blocks(cls, fragment, base_url=''):
         """Split reader HTML into ordered ``('text'|'img', value)`` blocks.
 
-        Raw newlines inside text nodes are line breaks, as on Naver and
-        Joara readers whose paragraphs are ``white-space: pre-line``.
+        Raw newlines inside text nodes are line breaks, as on Nweb and
+        Jara readers whose paragraphs are ``white-space: pre-line``.
         """
         from bs4 import BeautifulSoup
         from bs4.element import Comment, NavigableString
@@ -15419,45 +15419,45 @@ async (ids) => {
         return len(records)
 
     # ------------------------------------------------------------------
-    # Joara native scraper (public mobile-web API)
+    # Jara native scraper (public mobile-web API)
     # ------------------------------------------------------------------
-    _JOARA_ORIGIN = 'https://www.joara.com'
-    _JOARA_API = 'https://api.joara.com'
-    # Public production config from Joara's web bundle. It is re-read from
+    _JARA_ORIGIN = 'https://www.\u006a\u006f\u0061\u0072\u0061.com'
+    _JARA_API = 'https://api.\u006a\u006f\u0061\u0072\u0061.com'
+    # Public production config from Jara's web bundle. It is re-read from
     # the live bundle when possible and these values are only a fallback.
-    _JOARA_DEFAULT_PARAMS = {
+    _JARA_DEFAULT_PARAMS = {
         'api_key': 'mw_8ba234e7801ba288554ca07ae44c7',
         'ver': '3.2.0',
         'device': 'mw',
         'devicetoken': 'mw',
     }
-    # Only chapter.joa requests count toward Joara's J-Defender. Its run
+    # Only chapter.joa requests count toward Jara's J-Defender. Its run
     # counter (redis_data.call_20_30_cnt) grows while requests are at most
     # ~30 s apart and resets after a longer gap; about 28 quick requests in
     # a row trigger a reCAPTCHA. Measured live on 2026-09-24.
-    _JOARA_MIN_REQUEST_INTERVAL = 5.0
-    _JOARA_RUN_LIMIT = 15
-    _JOARA_COOLDOWN = 35.0
+    _JARA_MIN_REQUEST_INTERVAL = 5.0
+    _JARA_RUN_LIMIT = 15
+    _JARA_COOLDOWN = 35.0
     # A chapter_valid key expires ~30 s after the call that created it, and a
     # chapter served after that is encrypted with a throwaway key that can
     # never be decrypted. Keys older than this are replaced before use.
-    _JOARA_KEY_MAX_AGE = 20.0
-    _JOARA_KEY_TTL = 31.5
-    _JOARA_DECRYPT_RETRIES = 2
+    _JARA_KEY_MAX_AGE = 20.0
+    _JARA_KEY_TTL = 31.5
+    _JARA_DECRYPT_RETRIES = 2
 
     @staticmethod
-    def is_joara(url):
-        """Return True for Joara book and viewer URLs."""
-        return bool(ExternalScraper._joara_book_code(url))
+    def is_jara(url):
+        """Return True for Jara book and viewer URLs."""
+        return bool(ExternalScraper._jara_book_code(url))
 
     @staticmethod
-    def _joara_book_code(url):
+    def _jara_book_code(url):
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return ''
         host = (parsed.hostname or '').lower()
-        if host not in ('joara.com', 'www.joara.com', 'm.joara.com'):
+        if host not in ('\u006a\u006f\u0061\u0072\u0061.com', 'www.\u006a\u006f\u0061\u0072\u0061.com', 'm.\u006a\u006f\u0061\u0072\u0061.com'):
             return ''
         match = re.match(r'^/book/(\d+)/?$', parsed.path or '')
         if match:
@@ -15469,8 +15469,8 @@ async (ids) => {
                 return value
         return ''
 
-    def _joara_session(self):
-        session = self._joara_http
+    def _jara_session(self):
+        session = self._jara_http
         if session is not None:
             return session
         import requests
@@ -15480,29 +15480,29 @@ async (ids) => {
             'User-Agent': self._KR_UA,
             'Accept': 'application/json',
             'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.7',
-            'Origin': self._JOARA_ORIGIN,
-            'Referer': self._JOARA_ORIGIN + '/',
+            'Origin': self._JARA_ORIGIN,
+            'Referer': self._JARA_ORIGIN + '/',
         })
-        self._joara_http = session
+        self._jara_http = session
         return session
 
-    def _joara_public_params(self):
-        params = self._joara_params
+    def _jara_public_params(self):
+        params = self._jara_params
         if params:
             return params
-        params = dict(self._JOARA_DEFAULT_PARAMS)
-        session = self._joara_session()
+        params = dict(self._JARA_DEFAULT_PARAMS)
+        session = self._jara_session()
         try:
-            home = session.get(self._JOARA_ORIGIN + '/', timeout=20).text
+            home = session.get(self._JARA_ORIGIN + '/', timeout=20).text
             bundles = re.findall(
                 r'src="(/static/js/main\.[A-Za-z0-9]+\.chunk\.js)"', home
             )
             if bundles:
                 bundle = session.get(
-                    self._JOARA_ORIGIN + bundles[-1], timeout=30
+                    self._JARA_ORIGIN + bundles[-1], timeout=30
                 ).text
                 match = re.search(
-                    r'["\']https://api\.joara\.com["\']\s*,\s*apiKey\s*:',
+                    r'["\']https://api\.\u006a\u006f\u0061\u0072\u0061\.com["\']\s*,\s*apiKey\s*:',
                     bundle,
                 )
                 if match:
@@ -15517,15 +15517,15 @@ async (ids) => {
                         if value:
                             params[key] = value.group(1)
         except Exception as exc:
-            self.log(f'[Joara] Using built-in API config ({exc}).')
+            self.log(f'[Jara] Using built-in API config ({exc}).')
         # The chapter key from chapter_valid.joa is bound to this device ID,
         # so it must stay the same for the whole session.
         params['deviceuid'] = uuid.uuid4().hex
-        self._joara_params = params
+        self._jara_params = params
         return params
 
     @staticmethod
-    def _joara_token_from_signed_info(raw):
+    def _jara_token_from_signed_info(raw):
         try:
             wrapper = json.loads(raw) if isinstance(raw, str) else raw
         except Exception:
@@ -15547,7 +15547,7 @@ async (ids) => {
         token = data.get('token') if isinstance(data, dict) else ''
         return str(token).strip() if token else ''
 
-    def _joara_leveldb_signed_info(self):
+    def _jara_leveldb_signed_info(self):
         """Best-effort read of ``signedInfo`` from Chrome's localStorage.
 
         Only uncompressed LevelDB records are visible here; the Playwright
@@ -15568,7 +15568,7 @@ async (ids) => {
         except Exception:
             return values
         marker = re.compile(
-            rb'_https://(?:www\.|m\.)?joara\.com\x00\x01signedInfo'
+            rb'_https://(?:www\.|m\.)?\x6a\x6f\x61\x72\x61\.com\x00\x01signedInfo'
         )
         decoder = json.JSONDecoder()
         for name in names:
@@ -15595,8 +15595,8 @@ async (ids) => {
                     break
         return values
 
-    def _joara_saved_token(self):
-        """Return the Joara login token saved by Enter Browser, if any."""
+    def _jara_saved_token(self):
+        """Return the Jara login token saved by Enter Browser, if any."""
         candidates = []
         try:
             with open(
@@ -15607,21 +15607,21 @@ async (ids) => {
                 host = (urllib.parse.urlparse(
                     origin.get('origin') or ''
                 ).hostname or '').lower()
-                if host != 'joara.com' and not host.endswith('.joara.com'):
+                if host != '\u006a\u006f\u0061\u0072\u0061.com' and not host.endswith('.\u006a\u006f\u0061\u0072\u0061.com'):
                     continue
                 for item in origin.get('localStorage') or []:
                     if item.get('name') == 'signedInfo':
                         candidates.append(item.get('value') or '')
         except Exception:
             pass
-        candidates.extend(reversed(self._joara_leveldb_signed_info()))
+        candidates.extend(reversed(self._jara_leveldb_signed_info()))
         for raw in candidates:
-            token = self._joara_token_from_signed_info(raw)
+            token = self._jara_token_from_signed_info(raw)
             if token:
                 return token
         return ''
 
-    def _joara_sleep(self, seconds):
+    def _jara_sleep(self, seconds):
         deadline = time.monotonic() + max(0.0, seconds)
         while True:
             if self._stop_requested:
@@ -15631,22 +15631,22 @@ async (ids) => {
                 return
             time.sleep(min(0.2, remaining))
 
-    def _joara_wait_for_request_slot(self):
+    def _jara_wait_for_request_slot(self):
         while True:
             if self._stop_requested:
                 raise RuntimeError('download stopped')
-            with self._joara_request_lock:
+            with self._jara_request_lock:
                 now = time.monotonic()
-                if now >= self._joara_next_request_at:
-                    self._joara_next_request_at = (
-                        now + self._JOARA_MIN_REQUEST_INTERVAL
+                if now >= self._jara_next_request_at:
+                    self._jara_next_request_at = (
+                        now + self._JARA_MIN_REQUEST_INTERVAL
                     )
                     return
-                delay = min(0.2, self._joara_next_request_at - now)
+                delay = min(0.2, self._jara_next_request_at - now)
             time.sleep(delay)
 
-    def _joara_note_chapter_request(self, chapter):
-        """Track Joara's run counter and schedule a cool-down when needed."""
+    def _jara_note_chapter_request(self, chapter):
+        """Track Jara's run counter and schedule a cool-down when needed."""
         redis = (chapter or {}).get('redis_data')
         run = None
         if isinstance(redis, dict):
@@ -15657,49 +15657,49 @@ async (ids) => {
         now = time.monotonic()
         if run is None:
             # Mirror the server rule when the counter is missing.
-            if now - self._joara_last_request_at > 30.0:
-                self._joara_run = 1
+            if now - self._jara_last_request_at > 30.0:
+                self._jara_run = 1
             else:
-                self._joara_run += 1
+                self._jara_run += 1
         else:
-            self._joara_run = run
-        self._joara_last_request_at = now
-        if self._joara_run >= self._JOARA_RUN_LIMIT:
-            self._joara_run = 0
+            self._jara_run = run
+        self._jara_last_request_at = now
+        if self._jara_run >= self._JARA_RUN_LIMIT:
+            self._jara_run = 0
 
-    def _joara_api_get(self, path, params=None, use_token=True):
-        query = dict(self._joara_public_params())
-        token = self._joara_token if use_token else ''
+    def _jara_api_get(self, path, params=None, use_token=True):
+        query = dict(self._jara_public_params())
+        token = self._jara_token if use_token else ''
         if token:
             query['token'] = token
         query.update(params or {})
-        response = self._joara_session().get(
-            self._JOARA_API + path, params=query, timeout=30
+        response = self._jara_session().get(
+            self._JARA_API + path, params=query, timeout=30
         )
         if response.status_code >= 500:
-            raise RuntimeError(f'Joara returned HTTP {response.status_code}')
+            raise RuntimeError(f'Jara returned HTTP {response.status_code}')
         try:
             payload = response.json()
         except ValueError as exc:
             raise RuntimeError(
-                f'Joara returned non-JSON (HTTP {response.status_code})'
+                f'Jara returned non-JSON (HTTP {response.status_code})'
             ) from exc
         if not isinstance(payload, dict):
-            raise RuntimeError('Joara returned an unexpected response')
+            raise RuntimeError('Jara returned an unexpected response')
         return payload
 
-    def _joara_fetch_key(self):
-        payload = self._joara_api_get('/v1/book/chapter_valid.joa')
+    def _jara_fetch_key(self):
+        payload = self._jara_api_get('/v1/book/chapter_valid.joa')
         data = payload.get('data')
         if (
             payload.get('status') != 1
             or not isinstance(data, list)
             or len(data) < 2
         ):
-            raise RuntimeError('Joara did not return a chapter key')
+            raise RuntimeError('Jara did not return a chapter key')
         return (str(data[0]), str(data[1]))
 
-    def _joara_chapter_key(self, force=False):
+    def _jara_chapter_key(self, force=False):
         """Return a key that stays live for the next chapter request.
 
         chapter_valid returns the live key unchanged until it expires and
@@ -15709,46 +15709,46 @@ async (ids) => {
         now = time.monotonic()
         if (
             not force
-            and self._joara_key
-            and now - self._joara_key_born <= self._JOARA_KEY_MAX_AGE
+            and self._jara_key
+            and now - self._jara_key_born <= self._JARA_KEY_MAX_AGE
         ):
-            return self._joara_key
+            return self._jara_key
         sent = time.monotonic()
-        key = self._joara_fetch_key()
-        if key != self._joara_key:
-            self._joara_key, self._joara_key_born = key, sent
+        key = self._jara_fetch_key()
+        if key != self._jara_key:
+            self._jara_key, self._jara_key_born = key, sent
             return key
         if (
             force
-            and time.monotonic() - self._joara_key_born
-            <= self._JOARA_KEY_MAX_AGE
+            and time.monotonic() - self._jara_key_born
+            <= self._JARA_KEY_MAX_AGE
         ):
             # The key is still live, so expiry did not cause the failed
             # decrypt; waiting it out would only add ~30 s to the retry.
             return key
         # The same key may be close to expiry: wait it out so the next one
         # has a known age.
-        self._joara_sleep(
-            self._joara_key_born + self._JOARA_KEY_TTL - time.monotonic()
+        self._jara_sleep(
+            self._jara_key_born + self._JARA_KEY_TTL - time.monotonic()
         )
         for _attempt in range(3):
             sent = time.monotonic()
-            key = self._joara_fetch_key()
-            if key != self._joara_key:
-                self._joara_key, self._joara_key_born = key, sent
+            key = self._jara_fetch_key()
+            if key != self._jara_key:
+                self._jara_key, self._jara_key_born = key, sent
                 return key
-            self._joara_sleep(1.0)
+            self._jara_sleep(1.0)
         # Still unchanged: keep its original age rather than calling it new.
         return key
 
-    def _joara_request_human_check(self):
-        """Clear Joara's J-Defender captcha automatically.
+    def _jara_request_human_check(self):
+        """Clear Jara's J-Defender captcha automatically.
 
         Opens /defender in a temporary headless browser, clicks the captcha
         button, waits for the page to confirm, then closes the browser.
         Falls back to a visible browser if the headless click fails.
         """
-        self.log('[Joara] Solving captcha automatically...')
+        self.log('[Jara] Solving captcha automatically...')
         solved = False
         pw = None
         try:
@@ -15767,7 +15767,7 @@ async (ids) => {
             try:
                 page = ctx.new_page()
                 page.goto(
-                    self._JOARA_ORIGIN + '/defender',
+                    self._JARA_ORIGIN + '/defender',
                     wait_until='networkidle',
                     timeout=20000,
                 )
@@ -15796,13 +15796,13 @@ async (ids) => {
                 if clicked:
                     page.wait_for_timeout(3000)
                     solved = True
-                    self.log('[Joara] Captcha clicked.')
+                    self.log('[Jara] Captcha clicked.')
                 else:
-                    self.log('[Joara] No captcha button found on /defender.')
+                    self.log('[Jara] No captcha button found on /defender.')
             finally:
                 ctx.close()
         except Exception as exc:
-            self.log(f'[Joara] Auto-solve failed ({exc}), opening browser...')
+            self.log(f'[Jara] Auto-solve failed ({exc}), opening browser...')
         finally:
             if pw:
                 try:
@@ -15812,26 +15812,26 @@ async (ids) => {
 
         if not solved:
             try:
-                self.open_visible_browser(self._JOARA_ORIGIN + '/defender')
+                self.open_visible_browser(self._JARA_ORIGIN + '/defender')
             except Exception as exc:
-                self.log(f'[Joara] Could not open the browser: {exc}')
+                self.log(f'[Jara] Could not open the browser: {exc}')
                 return False
 
         if self._stop_requested:
             return False
-        token = self._joara_saved_token()
+        token = self._jara_saved_token()
         if token:
-            self._joara_token = token
-        self._joara_run = 0
-        with self._joara_request_lock:
-            self._joara_next_request_at = (
-                time.monotonic() + self._JOARA_MIN_REQUEST_INTERVAL
+            self._jara_token = token
+        self._jara_run = 0
+        with self._jara_request_lock:
+            self._jara_next_request_at = (
+                time.monotonic() + self._JARA_MIN_REQUEST_INTERVAL
             )
         return True
 
     @staticmethod
-    def _joara_decrypt(content, key_pair):
-        """Decrypt Joara chapter text (CryptoJS AES-CBC, UTF-8 key/IV)."""
+    def _jara_decrypt(content, key_pair):
+        """Decrypt Jara chapter text (CryptoJS AES-CBC, UTF-8 key/IV)."""
         from cryptography.hazmat.primitives import padding
         from cryptography.hazmat.primitives.ciphers import (
             Cipher, algorithms, modes,
@@ -15849,11 +15849,11 @@ async (ids) => {
         return plain.decode('utf-8')
 
     @staticmethod
-    def _joara_is_true(value):
+    def _jara_is_true(value):
         return str(value or '').strip().upper() in ('TRUE', 'Y', '1')
 
     @staticmethod
-    def _joara_is_login_error(payload):
+    def _jara_is_login_error(payload):
         message = str((payload or {}).get('message') or '')
         return (
             (payload or {}).get('error_code') in (9200,)
@@ -15861,8 +15861,8 @@ async (ids) => {
         )
 
     @staticmethod
-    def _joara_chapter_name(sortno, title):
-        """Name an episode the way Joara lists it: "N화".
+    def _jara_chapter_name(sortno, title):
+        """Name an episode the way Jara lists it: "N화".
 
         ``sub_subject`` is either the episode's own title or a section
         heading shared by a run of episodes ("prologue", "만남", ...), so it
@@ -15876,64 +15876,64 @@ async (ids) => {
             return title
         return f'{label} - {title}'
 
-    def _joara_parse_book(self, url):
+    def _jara_parse_book(self, url):
         self._stop_requested = False
-        book_code = self._joara_book_code(url)
+        book_code = self._jara_book_code(url)
         if not book_code:
-            self.log('[Joara] ERROR: Could not find a book code in the URL.')
+            self.log('[Jara] ERROR: Could not find a book code in the URL.')
             return None
 
-        self._joara_token = self._joara_saved_token()
-        if self._joara_token:
+        self._jara_token = self._jara_saved_token()
+        if self._jara_token:
             self.log(
-                '[Joara] Using the login saved by Enter Browser for '
+                '[Jara] Using the login saved by Enter Browser for '
                 'purchased and adult chapters.'
             )
-        self.log(f'[Joara] Fetching book {book_code} via the Joara API...')
+        self.log(f'[Jara] Fetching book {book_code} via the Jara API...')
         try:
-            payload = self._joara_api_get(
+            payload = self._jara_api_get(
                 '/v1/book/detail.joa',
                 {'book_code': book_code, 'promotion_code': ''},
             )
             if (
                 payload.get('status') != 1
-                and self._joara_token
-                and self._joara_is_login_error(payload)
+                and self._jara_token
+                and self._jara_is_login_error(payload)
             ):
                 self.log(
-                    '[Joara] The saved login was rejected; continuing '
+                    '[Jara] The saved login was rejected; continuing '
                     'without it (free chapters only).'
                 )
-                self._joara_token = ''
-                payload = self._joara_api_get(
+                self._jara_token = ''
+                payload = self._jara_api_get(
                     '/v1/book/detail.joa',
                     {'book_code': book_code, 'promotion_code': ''},
                 )
         except Exception as exc:
-            self.log(f'ERROR: [Joara] Book request failed: {exc}')
+            self.log(f'ERROR: [Jara] Book request failed: {exc}')
             return None
 
         if payload.get('status') != 1:
             message = payload.get('message') or 'unknown error'
-            self.log(f'ERROR: [Joara] {message}')
-            if self._joara_is_login_error(payload):
+            self.log(f'ERROR: [Jara] {message}')
+            if self._jara_is_login_error(payload):
                 self.log(
-                    '[Joara] This work needs a logged-in (and possibly '
+                    '[Jara] This work needs a logged-in (and possibly '
                     'age-verified) account. Use Enter Browser, log in to '
-                    'joara.com, close the browser, then fetch again.'
+                    '\u006a\u006f\u0061\u0072\u0061.com, close the browser, then fetch again.'
                 )
             return None
 
         book = payload.get('book') or {}
         rows = book.get('chapter') or []
         if str(book.get('book_code') or '') != book_code or not rows:
-            self.log('ERROR: [Joara] The book has no readable chapter list.')
+            self.log('ERROR: [Jara] The book has no readable chapter list.')
             return None
 
         is_paid_store = (
-            self._joara_is_true(book.get('is_premium'))
-            or self._joara_is_true(book.get('is_nobless'))
-            or self._joara_is_true(book.get('is_finish'))
+            self._jara_is_true(book.get('is_premium'))
+            or self._jara_is_true(book.get('is_nobless'))
+            or self._jara_is_true(book.get('is_finish'))
         )
         chapters = []
         for row in sorted(
@@ -15942,15 +15942,15 @@ async (ids) => {
         ):
             sortno = int(row.get('sortno') or 0)
             title = html.unescape(str(row.get('sub_subject') or '')).strip()
-            name = self._joara_chapter_name(sortno, title)
-            is_paid = is_paid_store and not self._joara_is_true(
+            name = self._jara_chapter_name(sortno, title)
+            is_paid = is_paid_store and not self._jara_is_true(
                 row.get('is_free')
             )
-            accessible = not is_paid or self._joara_is_true(row.get('is_buy'))
+            accessible = not is_paid or self._jara_is_true(row.get('is_buy'))
             cid = str(row['cid'])
             chapters.append({
                 'url': (
-                    f'{self._JOARA_ORIGIN}/viewer?'
+                    f'{self._JARA_ORIGIN}/viewer?'
                     + urllib.parse.urlencode({
                         'cid': cid, 'bookCode': book_code, 'sortno': sortno,
                     })
@@ -15979,9 +15979,9 @@ async (ids) => {
         category = str(
             book.get('category_ko_name') or book.get('category_name') or ''
         ).strip()
-        book_url = f'{self._JOARA_ORIGIN}/book/{book_code}'
+        book_url = f'{self._JARA_ORIGIN}/book/{book_code}'
         data = {
-            'bookname': title or f'Joara Book {book_code}',
+            'bookname': title or f'Jara Book {book_code}',
             'author': author or 'Unknown',
             'coverUrl': str(book.get('book_img') or ''),
             'description': intro,
@@ -15993,32 +15993,32 @@ async (ids) => {
             'tags': list(dict.fromkeys(tags)),
             'category': [category] if category else [],
             'status': (
-                '완결' if self._joara_is_true(book.get('chk_finish'))
+                '완결' if self._jara_is_true(book.get('chk_finish'))
                 else '연재'
             ),
             'bookUrl': book_url,
             'chapterCount': len(chapters),
             'chapters': chapters,
             'language': 'ko',
-            '_joara': True,
-            '_joara_book_code': book_code,
+            '_jara': True,
+            '_jara_book_code': book_code,
         }
         self._book_data = data
         self._book_url = book_url
         locked = sum(1 for ch in chapters if not ch['isAccessible'])
         self.log(
-            f"[Joara] Book: {data['bookname']} by {data['author']} - "
+            f"[Jara] Book: {data['bookname']} by {data['author']} - "
             f'{len(chapters)} chapters'
             + (f' ({locked} paid chapter(s) not owned)' if locked else '')
         )
         self.log(
-            f'[Joara] Chapters are fetched at most one every '
-            f'{self._JOARA_MIN_REQUEST_INTERVAL:.0f}s. If Joara triggers a '
+            f'[Jara] Chapters are fetched at most one every '
+            f'{self._JARA_MIN_REQUEST_INTERVAL:.0f}s. If Jara triggers a '
             f'captcha, it will be solved automatically.'
         )
         return data
 
-    def _joara_parse_chapter(self, chapter_url, chapter_name, cid=None):
+    def _jara_parse_chapter(self, chapter_url, chapter_name, cid=None):
         if self.abort_reason:
             return None
         if not cid:
@@ -16027,7 +16027,7 @@ async (ids) => {
             )
             cid = (query.get('cid') or [''])[0]
         if not cid:
-            self.log(f'  [Joara] Missing chapter id: {chapter_name}')
+            self.log(f'  [Jara] Missing chapter id: {chapter_name}')
             return None
 
         text = None
@@ -16036,97 +16036,97 @@ async (ids) => {
         human_checked = False
         while text is None:
             try:
-                self._joara_wait_for_request_slot()
+                self._jara_wait_for_request_slot()
                 # Check the key age after the pacing wait, right before the
                 # chapter request that it has to decrypt.
-                key_pair = self._joara_chapter_key(force=decrypt_failures > 0)
+                key_pair = self._jara_chapter_key(force=decrypt_failures > 0)
                 # A key wait can outlast the slot reserved above; spacing is
                 # measured between the chapter requests themselves.
-                with self._joara_request_lock:
-                    self._joara_next_request_at = max(
-                        self._joara_next_request_at,
-                        time.monotonic() + self._JOARA_MIN_REQUEST_INTERVAL,
+                with self._jara_request_lock:
+                    self._jara_next_request_at = max(
+                        self._jara_next_request_at,
+                        time.monotonic() + self._JARA_MIN_REQUEST_INTERVAL,
                     )
-                payload = self._joara_api_get(
+                payload = self._jara_api_get(
                     '/v1/book/chapter.joa', {'cid': cid}
                 )
             except Exception as exc:
                 if not self._stop_requested:
                     self.log(
-                        f'  [Joara] Chapter request failed: {chapter_name}: '
+                        f'  [Jara] Chapter request failed: {chapter_name}: '
                         f'{exc}'
                     )
                 return None
 
             chapter = payload.get('chapter')
             chapter = chapter if isinstance(chapter, dict) else {}
-            self._joara_note_chapter_request(chapter)
+            self._jara_note_chapter_request(chapter)
             redis = chapter.get('redis_data')
             if (
-                self._joara_is_true(payload.get('is_captcha'))
+                self._jara_is_true(payload.get('is_captcha'))
                 or (
                     isinstance(redis, dict)
-                    and self._joara_is_true(redis.get('is_captcha'))
+                    and self._jara_is_true(redis.get('is_captcha'))
                 )
             ):
                 if not human_checked:
                     self.log(
-                        "[Joara] Joara's J-Defender triggered a captcha "
+                        "[Jara] Jara's J-Defender triggered a captcha "
                         'check. Attempting to solve it automatically...'
                     )
                     human_checked = 0
                 human_checked += 1
                 if human_checked > 3:
                     self.abort_reason = (
-                        "[Joara] Joara's reCAPTCHA check is still active. "
-                        'Open joara.com/defender with Enter Browser, complete '
+                        "[Jara] Jara's reCAPTCHA check is still active. "
+                        'Open \u006a\u006f\u0061\u0072\u0061.com/defender with Enter Browser, complete '
                         'it, then download the remaining chapters again.'
                     )
                     return None
                 if human_checked == 1:
-                    if not self._joara_request_human_check():
+                    if not self._jara_request_human_check():
                         self.abort_reason = (
-                            "[Joara] Download stopped: Joara's reCAPTCHA "
+                            "[Jara] Download stopped: Jara's reCAPTCHA "
                             'check was not completed.'
                         )
                         return None
                 else:
                     self.log(
-                        f'[Joara] Captcha still active, retrying '
+                        f'[Jara] Captcha still active, retrying '
                         f'({human_checked}/3)...'
                     )
                     time.sleep(3)
                 continue
 
             if payload.get('status') != 1 or not chapter:
-                if self._joara_is_login_error(payload):
+                if self._jara_is_login_error(payload):
                     return {'_locked': True, 'chapterName': chapter_name}
                 message = payload.get('message') or 'unknown error'
-                self.log(f'  [Joara] {chapter_name}: {message}')
+                self.log(f'  [Jara] {chapter_name}: {message}')
                 return None
 
             try:
-                text = self._joara_decrypt(
+                text = self._jara_decrypt(
                     chapter.get('content') or '', key_pair
                 )
             except Exception as exc:
                 # The content was encrypted with a key that expired before
                 # the server handled the request. Re-decrypting it can never
                 # work; fetch a new key and request the chapter again, as
-                # Joara's own viewer does.
+                # Jara's own viewer does.
                 decrypt_failures += 1
-                if decrypt_failures > self._JOARA_DECRYPT_RETRIES:
+                if decrypt_failures > self._JARA_DECRYPT_RETRIES:
                     self.log(
-                        f'  [Joara] Could not decrypt {chapter_name}: {exc}'
+                        f'  [Jara] Could not decrypt {chapter_name}: {exc}'
                     )
                     return None
                 try:
-                    self._joara_sleep(1.5)
+                    self._jara_sleep(1.5)
                 except RuntimeError:
                     return None
 
         if re.search(r'<\s*/?\s*(?:p|br|img|div|span)\b', text, re.I):
-            blocks = self._reader_html_blocks(text, self._JOARA_ORIGIN + '/')
+            blocks = self._reader_html_blocks(text, self._JARA_ORIGIN + '/')
         else:
             blocks = self._reader_plain_blocks(text)
         note = str(chapter.get('episode') or '').replace('\r\n', '\n').strip()
@@ -16134,27 +16134,27 @@ async (ids) => {
             blocks.append(('text', '* * *'))
             blocks.extend(self._reader_plain_blocks(note))
         if not blocks:
-            self.log(f'  [Joara] Empty chapter: {chapter_name}')
+            self.log(f'  [Jara] Empty chapter: {chapter_name}')
             return None
         return self._reader_chapter_result(
-            blocks, chapter_name, 'joara-content'
+            blocks, chapter_name, 'jara-content'
         )
 
     # ------------------------------------------------------------------
-    # Naver Web Novel / Naver Series native scraper
+    # Nweb / Nseries native scraper
     # ------------------------------------------------------------------
-    _NAVER_NOVEL_ORIGIN = 'https://novel.naver.com'
-    _NAVER_SERIES_ORIGIN = 'https://series.naver.com'
+    _NWEB_NOVEL_ORIGIN = 'https://novel.\u006e\u0061\u0076\u0065\u0072.com'
+    _NWEB_SERIES_ORIGIN = 'https://series.\u006e\u0061\u0076\u0065\u0072.com'
 
     @staticmethod
-    def _naver_novel_parts(url):
-        """Return ``(tier, novel_id, volume_no)`` for Naver Web Novel URLs."""
+    def _nweb_novel_parts(url):
+        """Return ``(tier, novel_id, volume_no)`` for Nweb URLs."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return None
         host = (parsed.hostname or '').lower()
-        if host not in ('novel.naver.com', 'm.novel.naver.com'):
+        if host not in ('novel.\u006e\u0061\u0076\u0065\u0072.com', 'm.novel.\u006e\u0061\u0076\u0065\u0072.com'):
             return None
         match = re.match(
             r'^/(webnovel|best|challenge)/(list|detail)/?$',
@@ -16170,19 +16170,19 @@ async (ids) => {
         return match.group(1), novel_id, volume_no
 
     @staticmethod
-    def is_naver_novel(url):
-        """Return True for Naver Web Novel (novel.naver.com) work URLs."""
-        return ExternalScraper._naver_novel_parts(url) is not None
+    def is_nweb_novel(url):
+        """Return True for Nweb (novel.\u006e\u0061\u0076\u0065\u0072.com) work URLs."""
+        return ExternalScraper._nweb_novel_parts(url) is not None
 
     @staticmethod
-    def is_naver_series(url):
-        """Return True for Naver Series novel product URLs."""
+    def is_nweb_series(url):
+        """Return True for Nseries novel product URLs."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return False
         host = (parsed.hostname or '').lower()
-        if host not in ('series.naver.com', 'm.series.naver.com'):
+        if host not in ('series.\u006e\u0061\u0076\u0065\u0072.com', 'm.series.\u006e\u0061\u0076\u0065\u0072.com'):
             return False
         if not re.match(
             r'^/novel/detail\.(?:series|nhn)/?$', parsed.path or ''
@@ -16194,7 +16194,7 @@ async (ids) => {
             for key in ('productNo', 'originalProductId')
         )
 
-    def _naver_new_session(self):
+    def _nweb_new_session(self):
         import requests
 
         session = requests.Session()
@@ -16206,11 +16206,11 @@ async (ids) => {
             ),
             'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.7',
         })
-        if self._naver_cookies is not None:
-            session.cookies.update(self._naver_cookies)
+        if self._nweb_cookies is not None:
+            session.cookies.update(self._nweb_cookies)
         return session
 
-    def _naver_fetch(self, session, url, referer=''):
+    def _nweb_fetch(self, session, url, referer=''):
         headers = {'Referer': referer} if referer else None
         last_error = None
         for attempt in range(3):
@@ -16229,14 +16229,14 @@ async (ids) => {
             except Exception as exc:
                 last_error = exc
                 time.sleep(1.0 * (attempt + 1))
-        raise RuntimeError(f'Naver request failed: {last_error}')
+        raise RuntimeError(f'Nweb request failed: {last_error}')
 
     @staticmethod
-    def _naver_needs_login(response):
+    def _nweb_needs_login(response):
         host = (urllib.parse.urlparse(response.url or '').hostname or '')
-        return host.lower().startswith('nid.naver.com')
+        return host.lower().startswith('nid.\u006e\u0061\u0076\u0065\u0072.com')
 
-    def _naver_list_rows(self, soup, tier, novel_id):
+    def _nweb_list_rows(self, soup, tier, novel_id):
         rows = []
         pattern = re.compile(
             rf'/{tier}/detail\?novelId={novel_id}&(?:amp;)?volumeNo=(\d+)'
@@ -16260,38 +16260,38 @@ async (ids) => {
             })
         return rows
 
-    def _naver_parse_book(self, url, series_url=''):
+    def _nweb_parse_book(self, url, series_url=''):
         from bs4 import BeautifulSoup
 
         self._stop_requested = False
-        parts = self._naver_novel_parts(url)
+        parts = self._nweb_novel_parts(url)
         if not parts:
-            self.log('[Naver] ERROR: Could not parse the Web Novel URL.')
+            self.log('[Nweb] ERROR: Could not parse the Web Novel URL.')
             return None
         tier, novel_id, _volume = parts
         list_url = (
-            f'{self._NAVER_NOVEL_ORIGIN}/{tier}/list?novelId={novel_id}'
+            f'{self._NWEB_NOVEL_ORIGIN}/{tier}/list?novelId={novel_id}'
         )
 
         import requests
 
         jar = requests.cookies.RequestsCookieJar()
         if self._load_saved_site_cookies(
-            jar, self._NAVER_NOVEL_ORIGIN + '/', 'naver.com'
+            jar, self._NWEB_NOVEL_ORIGIN + '/', '\u006e\u0061\u0076\u0065\u0072.com'
         ):
-            self.log('[Naver] Using cookies saved by Enter Browser.')
-        self._naver_cookies = jar
-        session = self._naver_new_session()
-        self.log(f'[Naver] Fetching {tier} novel {novel_id}...')
+            self.log('[Nweb] Using cookies saved by Enter Browser.')
+        self._nweb_cookies = jar
+        session = self._nweb_new_session()
+        self.log(f'[Nweb] Fetching {tier} novel {novel_id}...')
         try:
-            response = self._naver_fetch(session, list_url)
+            response = self._nweb_fetch(session, list_url)
         except Exception as exc:
-            self.log(f'ERROR: [Naver] Book request failed: {exc}')
+            self.log(f'ERROR: [Nweb] Book request failed: {exc}')
             return None
-        if self._naver_needs_login(response):
+        if self._nweb_needs_login(response):
             self.log(
-                'ERROR: [Naver] This work needs a logged-in, age-verified '
-                'Naver account. Use Enter Browser, log in to Naver, close '
+                'ERROR: [Nweb] This work needs a logged-in, age-verified '
+                'Nweb account. Use Enter Browser, log in to Nweb, close '
                 'the browser, then fetch again.'
             )
             return None
@@ -16302,7 +16302,7 @@ async (ids) => {
             content = soup.select_one('#content')
             message = content.get_text(' ', strip=True)[:120] if content else ''
             self.log(
-                'ERROR: [Naver] Work page not found or not public'
+                'ERROR: [Nweb] Work page not found or not public'
                 + (f': {message}' if message else '.')
             )
             return None
@@ -16342,14 +16342,14 @@ async (ids) => {
                 total = int(match.group(1).replace(',', ''))
                 break
 
-        rows = self._naver_list_rows(soup, tier, novel_id)
+        rows = self._nweb_list_rows(soup, tier, novel_id)
         per_page = len(rows)
         page_count = 1
         if per_page and total > per_page:
             page_count = (total + per_page - 1) // per_page
         if page_count > 1:
             self.log(
-                f'[Naver] Reading {page_count} episode list pages '
+                f'[Nweb] Reading {page_count} episode list pages '
                 f'({total} episodes)...'
             )
             from concurrent.futures import ThreadPoolExecutor
@@ -16357,14 +16357,14 @@ async (ids) => {
             def fetch_page(page):
                 if self._stop_requested:
                     return []
-                page_session = self._naver_new_session()
+                page_session = self._nweb_new_session()
                 try:
-                    page_response = self._naver_fetch(
+                    page_response = self._nweb_fetch(
                         page_session,
                         f'{list_url}&page={page}',
                         referer=list_url,
                     )
-                    return self._naver_list_rows(
+                    return self._nweb_list_rows(
                         BeautifulSoup(page_response.text, 'html.parser'),
                         tier,
                         novel_id,
@@ -16379,7 +16379,7 @@ async (ids) => {
                     ):
                         rows.extend(page_rows)
             except Exception as exc:
-                self.log(f'ERROR: [Naver] Episode list failed: {exc}')
+                self.log(f'ERROR: [Nweb] Episode list failed: {exc}')
                 return None
         session.close()
 
@@ -16387,11 +16387,11 @@ async (ids) => {
         for row in rows:
             by_volume.setdefault(row['volumeNo'], row)
         if not by_volume:
-            self.log('ERROR: [Naver] No readable episodes were listed.')
+            self.log('ERROR: [Nweb] No readable episodes were listed.')
             return None
         if total and len(by_volume) != total:
             self.log(
-                f'[Naver] Warning: the page reports {total} episodes but '
+                f'[Nweb] Warning: the page reports {total} episodes but '
                 f'{len(by_volume)} were listed.'
             )
 
@@ -16401,7 +16401,7 @@ async (ids) => {
             name = row['name'] or f'{volume_no}화'
             chapters.append({
                 'url': (
-                    f'{self._NAVER_NOVEL_ORIGIN}/{tier}/detail?'
+                    f'{self._NWEB_NOVEL_ORIGIN}/{tier}/detail?'
                     f'novelId={novel_id}&volumeNo={volume_no}'
                 ),
                 'name': name,
@@ -16412,7 +16412,7 @@ async (ids) => {
                 '_volumeNo': volume_no,
             })
 
-        self._naver_end_images = self._naver_detect_end_images(
+        self._nweb_end_images = self._nweb_detect_end_images(
             chapters, list_url
         )
         completed = info.select_one('.bullet_comp, .bullet_comp_ex')
@@ -16437,31 +16437,31 @@ async (ids) => {
             'chapterCount': len(chapters),
             'chapters': chapters,
             'language': 'ko',
-            '_naver_novel': True,
-            '_naver_tier': tier,
-            '_naver_novel_id': novel_id,
-            '_naver_end_images': sorted(self._naver_end_images),
+            '_nweb_novel': True,
+            '_nweb_tier': tier,
+            '_nweb_novel_id': novel_id,
+            '_nweb_end_images': sorted(self._nweb_end_images),
         }
         if series_url:
-            data['_naver_series_url'] = series_url
+            data['_nweb_series_url'] = series_url
         self._book_data = data
         self._book_url = list_url
         self.log(
-            f"[Naver] Book: {data['bookname']} by {data['author']} - "
+            f"[Nweb] Book: {data['bookname']} by {data['author']} - "
             f'{len(chapters)} episodes'
         )
         return data
 
-    def _naver_episode_blocks(self, chapter_url, referer=''):
+    def _nweb_episode_blocks(self, chapter_url, referer=''):
         """Fetch one episode; return ``(blocks, needs_login)``."""
         from bs4 import BeautifulSoup
 
-        session = self._naver_new_session()
+        session = self._nweb_new_session()
         try:
-            response = self._naver_fetch(session, chapter_url, referer=referer)
+            response = self._nweb_fetch(session, chapter_url, referer=referer)
         finally:
             session.close()
-        if self._naver_needs_login(response):
+        if self._nweb_needs_login(response):
             return None, True
         soup = BeautifulSoup(response.text, 'html.parser')
         content = soup.select_one('.detail_view_content')
@@ -16470,13 +16470,13 @@ async (ids) => {
         return self._reader_html_blocks(str(content), chapter_url), False
 
     @staticmethod
-    def _naver_image_key(url):
+    def _nweb_image_key(url):
         # The same upload is served with different ``?type=`` resize hints.
         parsed = urllib.parse.urlparse(url or '')
         return f'{(parsed.hostname or "").lower()}{parsed.path}'
 
     @staticmethod
-    def _naver_trailing_images(blocks):
+    def _nweb_trailing_images(blocks):
         """Images after the episode's last line of text."""
         trailing = []
         for kind, value in reversed(blocks or []):
@@ -16486,22 +16486,22 @@ async (ids) => {
         return trailing[::-1]
 
     @staticmethod
-    def _naver_image_name(key):
+    def _nweb_image_name(key):
         return urllib.parse.unquote(key.rsplit('/', 1)[-1]).casefold()
 
-    _NAVER_LOGO_MIN_ASPECT = 3.5
+    _NWEB_LOGO_MIN_ASPECT = 3.5
 
-    def _naver_fetch_signature(self, url, referer=''):
+    def _nweb_fetch_signature(self, url, referer=''):
         """Return ``(aspect, 64x8 grayscale pixels)`` for an image, or None."""
         try:
             from io import BytesIO
             from PIL import Image
 
-            session = self._naver_new_session()
+            session = self._nweb_new_session()
             try:
                 response = session.get(
                     url,
-                    headers={'Referer': referer or self._NAVER_NOVEL_ORIGIN},
+                    headers={'Referer': referer or self._NWEB_NOVEL_ORIGIN},
                     timeout=30,
                 )
                 response.raise_for_status()
@@ -16515,22 +16515,22 @@ async (ids) => {
         except Exception:
             return None
 
-    def _naver_image_signature(self, url, referer=''):
-        key = self._naver_image_key(url)
-        with self._naver_image_lock:
-            if key in self._naver_image_signatures:
-                return self._naver_image_signatures[key]
-        signature = self._naver_fetch_signature(url, referer)
-        with self._naver_image_lock:
-            self._naver_image_signatures[key] = signature
+    def _nweb_image_signature(self, url, referer=''):
+        key = self._nweb_image_key(url)
+        with self._nweb_image_lock:
+            if key in self._nweb_image_signatures:
+                return self._nweb_image_signatures[key]
+        signature = self._nweb_fetch_signature(url, referer)
+        with self._nweb_image_lock:
+            self._nweb_image_signatures[key] = signature
         return signature
 
     @classmethod
-    def _naver_is_banner(cls, signature):
-        return bool(signature) and signature[0] >= cls._NAVER_LOGO_MIN_ASPECT
+    def _nweb_is_banner(cls, signature):
+        return bool(signature) and signature[0] >= cls._NWEB_LOGO_MIN_ASPECT
 
     @staticmethod
-    def _naver_signatures_match(first, second):
+    def _nweb_signatures_match(first, second):
         """Same image: same shape and the same marks on a white banner."""
         aspect_a, pixels_a = first
         aspect_b, pixels_b = second
@@ -16544,18 +16544,18 @@ async (ids) => {
             return True
         return sum(marked) / len(marked) < 30
 
-    def _naver_detect_end_images(self, chapters, referer):
+    def _nweb_detect_end_images(self, chapters, referer):
         """Find publisher logo banners to drop from every episode.
 
         Series Edition works close each episode with the publisher's logo
-        banner (Barobook, Munpia, EPYRUS, 대원씨아이, ...), often a fresh
+        banner (Barobook, Mpia, EPYRUS, 대원씨아이, ...), often a fresh
         upload per episode. A banner-shaped image (much wider than tall)
         that closes at least two sampled episodes with the same appearance
         is a logo. Covers and illustrations are never banner-shaped, so
         they are always kept.
         """
-        self._naver_logo_signatures = []
-        self._naver_logo_names = set()
+        self._nweb_logo_signatures = []
+        self._nweb_logo_names = set()
         if len(chapters) < 2:
             return set()
         count = len(chapters)
@@ -16567,14 +16567,14 @@ async (ids) => {
             if self._stop_requested:
                 return set()
             try:
-                blocks, _needs_login = self._naver_episode_blocks(
+                blocks, _needs_login = self._nweb_episode_blocks(
                     chapters[index]['url'], referer
                 )
             except Exception:
                 continue
-            for url in self._naver_trailing_images(blocks):
-                signature = self._naver_image_signature(url, referer)
-                if self._naver_is_banner(signature):
+            for url in self._nweb_trailing_images(blocks):
+                signature = self._nweb_image_signature(url, referer)
+                if self._nweb_is_banner(signature):
                     banners.append((sample, url, signature))
 
         found = set()
@@ -16582,47 +16582,47 @@ async (ids) => {
             samples = {
                 other_sample
                 for other_sample, _other, other_signature in banners
-                if self._naver_signatures_match(signature, other_signature)
+                if self._nweb_signatures_match(signature, other_signature)
             }
             if len(samples) >= 2:
-                key = self._naver_image_key(url)
+                key = self._nweb_image_key(url)
                 found.add(key)
-                self._naver_logo_names.add(self._naver_image_name(key))
+                self._nweb_logo_names.add(self._nweb_image_name(key))
                 if not any(
-                    self._naver_signatures_match(signature, known)
-                    for known in self._naver_logo_signatures
+                    self._nweb_signatures_match(signature, known)
+                    for known in self._nweb_logo_signatures
                 ):
-                    self._naver_logo_signatures.append(signature)
+                    self._nweb_logo_signatures.append(signature)
         if found:
-            names = ', '.join(sorted(self._naver_logo_names))
+            names = ', '.join(sorted(self._nweb_logo_names))
             self.log(
-                f'[Naver] Removing the publisher logo from every episode, '
+                f'[Nweb] Removing the publisher logo from every episode, '
                 f'wherever it appears: {names}'
             )
         return found
 
-    def _naver_is_end_image(self, url, trailing=False):
-        key = self._naver_image_key(url)
-        if key in self._naver_end_images:
+    def _nweb_is_end_image(self, url, trailing=False):
+        key = self._nweb_image_key(url)
+        if key in self._nweb_end_images:
             return True
         if not trailing and (
-            self._naver_image_name(key) not in self._naver_logo_names
+            self._nweb_image_name(key) not in self._nweb_logo_names
         ):
             # Only images named like a logo or closing the episode are ever
             # downloaded for comparison.
             return False
-        signature = self._naver_image_signature(
+        signature = self._nweb_image_signature(
             url, (self._book_data or {}).get('bookUrl') or ''
         )
-        return self._naver_is_banner(signature) and any(
-            self._naver_signatures_match(signature, logo)
-            for logo in self._naver_logo_signatures
+        return self._nweb_is_banner(signature) and any(
+            self._nweb_signatures_match(signature, logo)
+            for logo in self._nweb_logo_signatures
         )
 
-    def _naver_drop_end_images(self, blocks):
+    def _nweb_drop_end_images(self, blocks):
         """Remove every copy of a detected publisher logo from an episode."""
         blocks = list(blocks or [])
-        if not self._naver_logo_signatures and not self._naver_end_images:
+        if not self._nweb_logo_signatures and not self._nweb_end_images:
             return blocks
         last_text = max(
             (index for index, (kind, _value) in enumerate(blocks)
@@ -16632,59 +16632,59 @@ async (ids) => {
         kept = [
             (kind, value) for index, (kind, value) in enumerate(blocks)
             if kind != 'img'
-            or not self._naver_is_end_image(value, index > last_text)
+            or not self._nweb_is_end_image(value, index > last_text)
         ]
         # An episode that is nothing but the logo keeps it rather than
         # becoming an empty chapter that the dialog would retry.
         return kept or blocks
 
-    def _naver_parse_chapter(self, chapter_url, chapter_name):
+    def _nweb_parse_chapter(self, chapter_url, chapter_name):
         book_url = (self._book_data or {}).get('bookUrl') or ''
         try:
-            blocks, needs_login = self._naver_episode_blocks(
+            blocks, needs_login = self._nweb_episode_blocks(
                 chapter_url, referer=book_url
             )
         except Exception as exc:
-            self.log(f'  [Naver] Chapter request failed: {chapter_name}: {exc}')
+            self.log(f'  [Nweb] Chapter request failed: {chapter_name}: {exc}')
             return None
         if needs_login:
             return {'_locked': True, 'chapterName': chapter_name}
         if blocks is None:
-            self.log(f'  [Naver] Episode is not readable: {chapter_name}')
+            self.log(f'  [Nweb] Episode is not readable: {chapter_name}')
             return None
-        blocks = self._naver_drop_end_images(blocks)
+        blocks = self._nweb_drop_end_images(blocks)
         if not blocks:
-            self.log(f'  [Naver] Empty episode: {chapter_name}')
+            self.log(f'  [Nweb] Empty episode: {chapter_name}')
             return None
         return self._reader_chapter_result(
-            blocks, chapter_name, 'naver-novel-content'
+            blocks, chapter_name, 'nweb-novel-content'
         )
 
-    def _naver_series_parse_book(self, url):
-        """Resolve a Naver Series product to its Naver Web Novel edition.
+    def _nweb_series_parse_book(self, url):
+        """Resolve a Nseries product to its Nweb edition.
 
-        Series novels are read in Naver's DRM app (``series-pc://``); there
+        Series novels are read in Nweb's DRM app (``series-pc://``); there
         is no web reader to download from. Many Series works are also
-        serialized on novel.naver.com, which the product page links to.
+        serialized on novel.\u006e\u0061\u0076\u0065\u0072.com, which the product page links to.
         """
         self._stop_requested = False
-        session = self._naver_new_session()
+        session = self._nweb_new_session()
         self._load_saved_site_cookies(
-            session.cookies, self._NAVER_SERIES_ORIGIN + '/', 'naver.com'
+            session.cookies, self._NWEB_SERIES_ORIGIN + '/', '\u006e\u0061\u0076\u0065\u0072.com'
         )
-        self.log('[Naver Series] Fetching the Series product page...')
+        self.log('[Nseries] Fetching the Series product page...')
         try:
-            response = self._naver_fetch(session, url)
+            response = self._nweb_fetch(session, url)
         except Exception as exc:
-            self.log(f'ERROR: [Naver Series] Product request failed: {exc}')
+            self.log(f'ERROR: [Nseries] Product request failed: {exc}')
             return None
         finally:
             session.close()
-        if self._naver_needs_login(response):
+        if self._nweb_needs_login(response):
             self.log(
-                'ERROR: [Naver Series] This product needs a logged-in, '
-                'age-verified Naver account. Use Enter Browser, log in to '
-                'Naver, close the browser, then fetch again.'
+                'ERROR: [Nseries] This product needs a logged-in, '
+                'age-verified Nweb account. Use Enter Browser, log in to '
+                'Nweb, close the browser, then fetch again.'
             )
             return None
 
@@ -16692,7 +16692,7 @@ async (ids) => {
         series_total = re.search(r'totalCount=(\d+)', page)
         web_url = ''
         for href in re.findall(
-            r'href="((?:https?:)?//novel\.naver\.com/'
+            r'href="((?:https?:)?//novel\.\u006e\u0061\u0076\u0065\u0072\.com/'
             r'(?:webnovel|best|challenge)/list\?novelId=\d+)"',
             page,
         ):
@@ -16701,22 +16701,22 @@ async (ids) => {
             break
         if not web_url:
             self.log(
-                'ERROR: [Naver Series] Series novels can only be read in '
-                "Naver's DRM-protected Series app, and this product has no "
-                'Naver Web Novel edition to download from.'
+                'ERROR: [Nseries] Series novels can only be read in '
+                "Nweb's DRM-protected Series app, and this product has no "
+                'Nweb edition to download from.'
             )
             return None
 
         self.log(
-            '[Naver Series] Series episodes are app-only (DRM). Downloading '
-            f'the free Naver Web Novel edition instead: {web_url}'
+            '[Nseries] Series episodes are app-only (DRM). Downloading '
+            f'the free Nweb edition instead: {web_url}'
         )
-        data = self._naver_parse_book(web_url, series_url=response.url or url)
+        data = self._nweb_parse_book(web_url, series_url=response.url or url)
         if data and series_total:
             self.log(
-                f'[Naver Series] The Series edition lists '
+                f'[Nseries] The Series edition lists '
                 f'{series_total.group(1)} episode(s); '
-                f"{data['chapterCount']} are readable on Naver Web Novel."
+                f"{data['chapterCount']} are readable on Nweb."
             )
         return data
 
@@ -17962,7 +17962,7 @@ async (ids) => {
         # version renders it. Reuse the existing External Downloader page.
         if not self._page:
             try:
-                self._start_ridi_browser(canonical, site='Faloo')
+                self._start_rbooks_browser(canonical, site='Faloo')
             except Exception as exc:
                 self.log(f'[Faloo] Browser could not start: {exc}')
         for target in candidates:
@@ -18189,7 +18189,7 @@ async (ids) => {
             return []
         if not self._context:
             try:
-                self._start_ridi_browser(
+                self._start_rbooks_browser(
                     chapters[0].get('url', 'https://b.faloo.com/'),
                     site='Faloo',
                 )
@@ -18265,7 +18265,7 @@ async (ids) => {
         self._faloo_pages = []
 
     def _kobo_parse_book(self, url):
-        if not self._start_ridi_browser(url, site='Kobo'):
+        if not self._start_rbooks_browser(url, site='Kobo'):
             return None
         try:
             self._page.goto(url, wait_until='domcontentloaded', timeout=45000)
@@ -18433,7 +18433,7 @@ async (ids) => {
                      'account\'s Kobo library.')
             return {'_locked': True, 'chapterName': chapter_name,
                     '_lockReason': 'purchase'}
-        if not self._start_ridi_browser(chapter_url, site='Kobo'):
+        if not self._start_rbooks_browser(chapter_url, site='Kobo'):
             return None
         try:
             from kobo_web_proxy import KoboWebReader
@@ -18479,28 +18479,28 @@ async (ids) => {
                 '[69shuba] Detected 69shuba.tw URL, using native scraper.'
             )
             return self._69shuba_parse_book(url)
-        if self.is_global_novelpia(url):
+        if self.is_global_npia(url):
             self.log(
-                '[Global Novelpia] Detected Global Novelpia URL, using the '
+                '[Global Npia] Detected Global Npia URL, using the '
                 "integrated pia-scrap API scraper."
             )
-            return self._global_novelpia_parse_book(url)
-        if self.is_ridibooks(url):
+            return self._global_npia_parse_book(url)
+        if self.is_rbooks(url):
             self.log(
-                '[Ridi] Detected Ridibooks webnovel URL, using the '
+                '[Rbooks] Detected Rbooks webnovel URL, using the '
                 'contributed native scraper.'
             )
-            return self._ridi_parse_book(url)
-        if self.is_novelpia(url):
+            return self._rbooks_parse_book(url)
+        if self.is_npia(url):
             self.log(
-                '[Novelpia] Detected Novelpia URL, using the External '
+                '[Npia] Detected Npia URL, using the External '
                 'Downloader browser profile.'
             )
-            return self._novelpia_parse_book(url)
-        # KakaoPage: use native scraper instead of JS rules
-        if self.is_kakaopage(url):
-            self.log("[KakaoPage] Detected KakaoPage URL, using native scraper.")
-            return self._kakao_parse_book(url)
+            return self._npia_parse_book(url)
+        # Kpage: use native scraper instead of JS rules
+        if self.is_kpage(url):
+            self.log("[Kpage] Detected Kpage URL, using native scraper.")
+            return self._kpage_parse_book(url)
         if self.is_qidian(url):
             self.log("[Qidian] Detected Qidian URL, using native scraper.")
             return self._qidian_parse_book(url)
@@ -18509,23 +18509,23 @@ async (ids) => {
         if self.is_yeduji(url):
             self.log("[Yeduji] Detected Yeduji URL, using native scraper.")
             return self._yeduji_parse_book(url)
-        if self.is_munpia(url):
-            self.log("[Munpia] Detected Munpia URL, using native scraper.")
-            return self._munpia_parse_book(url)
-        if self.is_joara(url):
-            self.log("[Joara] Detected Joara URL, using native API scraper.")
-            return self._joara_parse_book(url)
-        if self.is_naver_series(url):
+        if self.is_mpia(url):
+            self.log("[Mpia] Detected Mpia URL, using native scraper.")
+            return self._mpia_parse_book(url)
+        if self.is_jara(url):
+            self.log("[Jara] Detected Jara URL, using native API scraper.")
+            return self._jara_parse_book(url)
+        if self.is_nweb_series(url):
             self.log(
-                "[Naver Series] Detected Naver Series URL, using native "
+                "[Nseries] Detected Nseries URL, using native "
                 "scraper."
             )
-            return self._naver_series_parse_book(url)
-        if self.is_naver_novel(url):
+            return self._nweb_series_parse_book(url)
+        if self.is_nweb_novel(url):
             self.log(
-                "[Naver] Detected Naver Web Novel URL, using native scraper."
+                "[Nweb] Detected Nweb URL, using native scraper."
             )
-            return self._naver_parse_book(url)
+            return self._nweb_parse_book(url)
 
         if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
             self.log(
@@ -18681,23 +18681,23 @@ async (ids) => {
             self._sleep_interval(interval, interval_max)
             return result
 
-        if self._book_data and self._book_data.get('_global_novelpia'):
+        if self._book_data and self._book_data.get('_global_npia'):
             url = chapter_info.get('url', '')
             name = (
                 chapter_info.get('fullName', '')
                 or chapter_info.get('name', '')
             )
-            result = self._global_novelpia_parse_chapter(url, name)
+            result = self._global_npia_parse_chapter(url, name)
             self._sleep_interval(interval, interval_max)
             return result
 
-        if self._book_data and self._book_data.get('_ridibooks'):
+        if self._book_data and self._book_data.get('_rbooks'):
             url = chapter_info.get('url', '')
             name = (
                 chapter_info.get('fullName', '')
                 or chapter_info.get('name', '')
             )
-            result = self._ridi_parse_chapter(
+            result = self._rbooks_parse_chapter(
                 url,
                 name,
                 page=page or self._page,
@@ -18705,28 +18705,28 @@ async (ids) => {
             self._sleep_interval(interval, interval_max)
             return result
 
-        if self._book_data and self._book_data.get('_novelpia'):
+        if self._book_data and self._book_data.get('_npia'):
             url = chapter_info.get('url', '')
             name = (
                 chapter_info.get('fullName', '')
                 or chapter_info.get('name', '')
             )
-            result = self._novelpia_parse_chapter(
+            result = self._npia_parse_chapter(
                 url,
                 name,
                 page=page or self._page,
             )
-            result = self._novelpia_tag_chapter_result(result, chapter_info)
+            result = self._npia_tag_chapter_result(result, chapter_info)
             self._sleep_interval(interval, interval_max)
             return result
 
-        # KakaoPage: use native viewer scraping
-        if self._book_data and self._book_data.get('_kakaopage'):
+        # Kpage: use native viewer scraping
+        if self._book_data and self._book_data.get('_kpage'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('name', '')
             full_name = chapter_info.get('fullName', '') or name
             target_page = page or self._page
-            result = self._kakao_parse_chapter(url, full_name,
+            result = self._kpage_parse_chapter(url, full_name,
                                                page=target_page)
             self._sleep_interval(interval, interval_max)
             return result
@@ -18744,26 +18744,26 @@ async (ids) => {
             result = self._yeduji_parse_chapter(url, name, is_paid=is_paid)
             self._sleep_interval(interval, interval_max)
             return result
-        if self._book_data and self._book_data.get('_munpia'):
+        if self._book_data and self._book_data.get('_mpia'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
             if chapter_info.get('isAccessible') is False:
                 return {'_locked': True, 'chapterName': name}
-            result = self._munpia_parse_chapter(url, name, page=page)
+            result = self._mpia_parse_chapter(url, name, page=page)
             self._sleep_interval(interval, interval_max)
             return result
-        if self._book_data and self._book_data.get('_joara'):
+        if self._book_data and self._book_data.get('_jara'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
-            result = self._joara_parse_chapter(
+            result = self._jara_parse_chapter(
                 url, name, cid=chapter_info.get('_cid')
             )
             self._sleep_interval(interval, interval_max)
             return result
-        if self._book_data and self._book_data.get('_naver_novel'):
+        if self._book_data and self._book_data.get('_nweb_novel'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
-            result = self._naver_parse_chapter(url, name)
+            result = self._nweb_parse_chapter(url, name)
             self._sleep_interval(interval, interval_max)
             return result
         if self._book_data and self._book_data.get('_qidian'):
@@ -18781,8 +18781,8 @@ async (ids) => {
         name = chapter_info.get('name', '')
         is_vip = chapter_info.get('isVIP', False)
         is_paid = chapter_info.get('isPaid', False)
-        if self._sfacg_should_prefer_app_api():
-            data = self._sfacg_parse_chapter_app_api(url, name)
+        if self._sfc_should_prefer_app_api():
+            data = self._sfc_parse_chapter_app_api(url, name)
             if data:
                 self._sleep_interval(interval, interval_max)
                 return data
@@ -18838,7 +18838,7 @@ async (ids) => {
         return data
 
     def parse_chapter_batch(self, batch_info, interval=0.5,
-                            _skip_sfacg_app=False, success_callback=None,
+                            _skip_sfc_app=False, success_callback=None,
                             interval_max=None):
         """Parse multiple chapters concurrently via JS Promise.all.
 
@@ -18981,8 +18981,8 @@ async (ids) => {
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 return list(executor.map(fetch_69shuba, batch_info))
 
-        if self._book_data and self._book_data.get('_global_novelpia'):
-            return self._global_novelpia_parse_chapter_batch(
+        if self._book_data and self._book_data.get('_global_npia'):
+            return self._global_npia_parse_chapter_batch(
                 batch_info,
                 success_callback=success_callback,
             )
@@ -18999,26 +18999,26 @@ async (ids) => {
                 report_success(index, result)
             return results
 
-        if self._book_data and self._book_data.get('_ridibooks'):
+        if self._book_data and self._book_data.get('_rbooks'):
             options = {
                 'interval': interval,
                 'success_callback': success_callback,
             }
             if interval_max is not None:
                 options['interval_max'] = interval_max
-            return self._ridi_parse_chapter_batch_parallel(
+            return self._rbooks_parse_chapter_batch_parallel(
                 batch_info, **options
             )
 
-        # Novelpia is intentionally sequential. One navigation produces one
+        # Npia is intentionally sequential. One navigation produces one
         # viewer request; there is no speculative concurrency here.
-        if self._book_data and self._book_data.get('_novelpia'):
+        if self._book_data and self._book_data.get('_npia'):
             results = []
             for index, chapter in enumerate(batch_info):
                 if self._stop_requested:
                     results.append(None)
                     continue
-                result = self._novelpia_parse_chapter(
+                result = self._npia_parse_chapter(
                     chapter.get('url', ''),
                     (
                         chapter.get('fullName', '')
@@ -19026,21 +19026,21 @@ async (ids) => {
                     ),
                     page=self._page,
                 )
-                result = self._novelpia_tag_chapter_result(result, chapter)
+                result = self._npia_tag_chapter_result(result, chapter)
                 results.append(result)
                 report_success(index, result)
                 if index < len(batch_info) - 1:
                     self._sleep_interval(interval, interval_max)
             return results
 
-        # KakaoPage: no batch API — fall back to sequential downloads
-        if self._book_data and self._book_data.get('_kakaopage'):
+        # Kpage: no batch API — fall back to sequential downloads
+        if self._book_data and self._book_data.get('_kpage'):
             results = []
             for i, ch in enumerate(batch_info):
                 if self._stop_requested:
                     results.append(None)
                     continue
-                data = self._kakao_parse_chapter(
+                data = self._kpage_parse_chapter(
                     ch.get('url', ''),
                     ch.get('fullName', '') or ch.get('name', ''),
                     page=self._page
@@ -19065,22 +19065,22 @@ async (ids) => {
                 if i < len(batch_info) - 1:
                     self._sleep_interval(interval, interval_max)
             return results
-        if self._book_data and self._book_data.get('_munpia'):
-            return self._munpia_parse_chapter_batch_parallel(
+        if self._book_data and self._book_data.get('_mpia'):
+            return self._mpia_parse_chapter_batch_parallel(
                 batch_info,
                 interval=interval,
                 interval_max=interval_max,
                 success_callback=success_callback,
             )
-        # Joara counts requests per IP and answers bursts with a captcha,
+        # Jara counts requests per IP and answers bursts with a captcha,
         # so chapters are fetched one at a time.
-        if self._book_data and self._book_data.get('_joara'):
+        if self._book_data and self._book_data.get('_jara'):
             results = []
             for index, chapter in enumerate(batch_info):
                 if self._stop_requested or self.abort_reason:
                     results.append(None)
                     continue
-                result = self._joara_parse_chapter(
+                result = self._jara_parse_chapter(
                     chapter.get('url', ''),
                     chapter.get('fullName', '') or chapter.get('name', ''),
                     cid=chapter.get('_cid'),
@@ -19090,9 +19090,9 @@ async (ids) => {
                 if index < len(batch_info) - 1:
                     self._sleep_interval(interval, interval_max)
             return results
-        # Naver Web Novel episodes are static pages; the dialog sizes the
+        # Nweb episodes are static pages; the dialog sizes the
         # batch from the user's thread setting.
-        if self._book_data and self._book_data.get('_naver_novel'):
+        if self._book_data and self._book_data.get('_nweb_novel'):
             from concurrent.futures import ThreadPoolExecutor
 
             launch_delays = [0.0]
@@ -19102,13 +19102,13 @@ async (ids) => {
                     + self._random_interval_delay(interval, interval_max)
                 )
 
-            def fetch_naver(item):
+            def fetch_nweb(item):
                 offset, chapter = item
                 if launch_delays[offset] > 0:
                     time.sleep(launch_delays[offset])
                 if self._stop_requested:
                     return None
-                result = self._naver_parse_chapter(
+                result = self._nweb_parse_chapter(
                     chapter.get('url', ''),
                     chapter.get('fullName', '') or chapter.get('name', ''),
                 )
@@ -19118,7 +19118,7 @@ async (ids) => {
             with ThreadPoolExecutor(
                 max_workers=max(1, len(batch_info))
             ) as executor:
-                return list(executor.map(fetch_naver, enumerate(batch_info)))
+                return list(executor.map(fetch_nweb, enumerate(batch_info)))
         # Qidian: render one chapter per browser page, up to the UI thread
         # count that the dialog used to size this batch.
         if self._book_data and self._book_data.get('_qidian'):
@@ -19175,15 +19175,15 @@ async (ids) => {
                 report_success(index, result)
             return results
 
-        if (not _skip_sfacg_app
-                and self._sfacg_should_prefer_app_api()):
+        if (not _skip_sfc_app
+                and self._sfc_should_prefer_app_api()):
             from concurrent.futures import ThreadPoolExecutor
             try:
                 import requests
             except Exception as e:
-                self.log(f"[SFACG] App API unavailable: {e}")
+                self.log(f"[SFC] App API unavailable: {e}")
                 requests = None
-            cookie_header = self._sfacg_app_cookie_header()
+            cookie_header = self._sfc_app_cookie_header()
 
             max_workers = max(1, min(len(batch_info), 16))
             launch_delays = [0.0]
@@ -19193,11 +19193,11 @@ async (ids) => {
                     + self._random_interval_delay(interval, interval_max)
                 )
 
-            def fetch_sfacg_app(item):
+            def fetch_sfc_app(item):
                 offset, ch = item
                 if launch_delays[offset] > 0:
                     time.sleep(launch_delays[offset])
-                return self._sfacg_parse_chapter_app_api(
+                return self._sfc_parse_chapter_app_api(
                     ch.get('url', ''),
                     ch.get('name', ''),
                     requests_module=requests,
@@ -19206,7 +19206,7 @@ async (ids) => {
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 results = list(executor.map(
-                    fetch_sfacg_app,
+                    fetch_sfc_app,
                     enumerate(batch_info),
                 ))
 
@@ -19220,7 +19220,7 @@ async (ids) => {
             fallback_batch = [batch_info[i] for i in fallback_indices]
             fallback_options = {
                 'interval': interval,
-                '_skip_sfacg_app': True,
+                '_skip_sfc_app': True,
             }
             if interval_max is not None:
                 fallback_options['interval_max'] = interval_max

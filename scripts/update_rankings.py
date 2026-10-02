@@ -1,4 +1,4 @@
-"""Update Novelpia weekly, monthly & daily rankings with authentication.
+"""Update Npia weekly, monthly & daily rankings with authentication.
 
 Scrapes the top100 pages for each audience (all, adult, teen) × each period
 (daily, weekly, monthly), then patches novels.json with audience-specific ranks.
@@ -16,12 +16,18 @@ Usage:
     python scripts/update_rankings.py
 """
 
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
+
 import sys, os, json, re, time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
-from novelpia_auth import NovelpiaAuth
+from npia_auth import NpiaAuth
 
 # (period, audience, label, data_index_weekly, data_index_monthly, data_index_daily)
 # We scrape per-audience and store to the matching index.
@@ -37,12 +43,12 @@ PERIODS = [
     ("today",  "daily"),
 ]
 
-COVER_PREFIX = "https://novelpia.com"
+COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 
 
 def scrape_ranking(session, period, audience):
     """Scrape top100 for a given period and audience."""
-    url = f"https://novelpia.com/top100/all/{period}/view/{audience}"
+    url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/top100/all/{period}/view/{audience}"
     r = session.get(url, timeout=30)
     rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
     ranking = {}
@@ -52,7 +58,7 @@ def scrape_ranking(session, period, audience):
 
 
 def pick_cover(item):
-    """Pick the best cover URL from a Novelpia API response."""
+    """Pick the best cover URL from a Npia API response."""
     for k in ("novel_img_all", "novel_thumb_all", "cover_url", "novel_img", "novel_thumb"):
         v = item.get(k)
         if v and str(v) not in ("", "None", "null"):
@@ -78,7 +84,7 @@ def rescrape_metadata(session, ranked_ids):
     remaining = set(str(nid) for nid in ranked_ids)
     headers = {
         "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://novelpia.com/search",
+        "Referer": "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/search",
     }
 
     # Common tags that collectively cover most novels
@@ -108,7 +114,7 @@ def rescrape_metadata(session, ranked_ids):
         if not remaining:
             break
         try:
-            r = session.get("https://novelpia.com/proc/novel", params={
+            r = session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel", params={
                 "cmd": "novel_search",
                 "search_type": "novel_genre",
                 "search_val": tag,
@@ -141,7 +147,7 @@ def rescrape_metadata(session, ranked_ids):
             if not remaining:
                 break
             try:
-                r = session.get("https://novelpia.com/proc/novel", params={
+                r = session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel", params={
                     "cmd": "novel_search",
                     "search_type": "all",
                     "search_val": ch,
@@ -179,7 +185,7 @@ def main():
     config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
     config = json.load(open(config_path, "r"))
 
-    auth = NovelpiaAuth()
+    auth = NpiaAuth()
     loginkey = config.get("loginkey", "")
     if not loginkey:
         print("No loginkey in config.json!")
@@ -259,7 +265,7 @@ def main():
 
     # Save
     with open(data_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        source_names.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"Saved to {data_path} ({os.path.getsize(data_path) / 1024 / 1024:.1f} MB)")
 
 

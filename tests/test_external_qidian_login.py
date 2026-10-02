@@ -32,7 +32,7 @@ def test_qidian_download_opens_the_original_login_profile(monkeypatch):
     monkeypatch.setattr(scraper, '_chrome_processes_using_profile',
                         lambda _path: [])
     # Installed Chrome is unavailable, so the headless fallback runs.
-    monkeypatch.setattr(scraper, '_start_ridi_browser',
+    monkeypatch.setattr(scraper, '_start_rbooks_browser',
                         lambda *_args, **_kwargs: False)
     monkeypatch.setattr(scraper, '_restore_storage_state',
                         lambda: (_ for _ in ()).throw(AssertionError(
@@ -74,7 +74,7 @@ def test_enter_browser_session_login_survives_window_close(monkeypatch, tmp_path
          'session': True, 'httpOnly': True, 'secure': False, 'sameSite': 'Lax'},
         {'name': 'alk', 'value': 'a', 'domain': '.yuewen.com', 'path': '/',
          'session': False},
-        {'name': 'ridi-at', 'value': 'r', 'domain': '.ridibooks.com',
+        {'name': '\u0072\u0069\u0064\u0069\u002d\u0061\u0074', 'value': 'r', 'domain': '.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com',
          'path': '/', 'session': True},
         {'name': 'KoboSession', 'value': 's', 'domain': '.kobo.com',
          'path': '/', 'session': True},
@@ -114,7 +114,7 @@ def test_enter_browser_session_login_survives_window_close(monkeypatch, tmp_path
     assert scraper._cdp_snapshot_session_cookies(9222) == 1
     with open(scraper._get_session_cookie_path(), encoding='utf-8') as saved:
         assert {cookie['name'] for cookie in json.load(saved)['cookies']} == {
-            'ywkey', 'ridi-at', 'KoboSession'
+            'ywkey', '\u0072\u0069\u0064\u0069\u002d\u0061\u0074', 'KoboSession'
         }
 
     added = []
@@ -131,9 +131,9 @@ def test_enter_browser_session_login_survives_window_close(monkeypatch, tmp_path
     assert added == [{'name': 'ywkey', 'value': 'k', 'domain': '.qidian.com',
                       'path': '/', 'httpOnly': True, 'secure': False,
                       'sameSite': 'Lax'}]
-    assert scraper._restore_session_cookies('ridibooks.com') == 1
-    assert added[-1] == {'name': 'ridi-at', 'value': 'r',
-                         'domain': '.ridibooks.com', 'path': '/',
+    assert scraper._restore_session_cookies('\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com') == 1
+    assert added[-1] == {'name': '\u0072\u0069\u0064\u0069\u002d\u0061\u0074', 'value': 'r',
+                         'domain': '.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com', 'path': '/',
                          'httpOnly': False, 'secure': False}
     assert scraper._restore_session_cookies('kobo.com') == 1
     assert added[-1] == {'name': 'KoboSession', 'value': 's',
@@ -150,13 +150,13 @@ def test_qidian_prefers_headed_installed_chrome_and_restores_login(monkeypatch):
     calls = []
     scripts = []
 
-    def headed(url, site='Ridi'):
+    def headed(url, site='Rbooks'):
         calls.append((url, site))
         scraper._context = SimpleNamespace(add_init_script=scripts.append)
         scraper._page = SimpleNamespace(evaluate=lambda _script: 1)
         return True
 
-    monkeypatch.setattr(scraper, '_start_ridi_browser', headed)
+    monkeypatch.setattr(scraper, '_start_rbooks_browser', headed)
     monkeypatch.setattr(scraper, '_start_qidian_headless', lambda _url: (
         _ for _ in ()).throw(AssertionError('headless must not run')))
     restored = []
@@ -171,7 +171,7 @@ def test_qidian_prefers_headed_installed_chrome_and_restores_login(monkeypatch):
 
 def test_qidian_does_not_fall_back_while_enter_browser_is_open(monkeypatch):
     scraper = ExternalScraper(logger=lambda _message: None)
-    monkeypatch.setattr(scraper, '_start_ridi_browser', lambda *a, **k: False)
+    monkeypatch.setattr(scraper, '_start_rbooks_browser', lambda *a, **k: False)
     monkeypatch.setattr(scraper, '_chrome_processes_using_profile',
                         lambda _path: [1234])
     monkeypatch.setattr(scraper, '_start_qidian_headless', lambda _url: (

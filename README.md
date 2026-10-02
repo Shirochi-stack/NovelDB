@@ -1,4 +1,4 @@
-# NovelpiaDownloader
+# NpiaDownloader
 
 A fork of that enhances the user experience and output quality. This version adds comprehensive metadata (tags, author, synopsis), improves EPUB formatting with HTML tag and newline support, includes file size optimization, and much more\!
 
@@ -33,22 +33,22 @@ A fork of that enhances the user experience and output quality. This version add
 
 ## 🌐 NovelDB Metadata Website
 
-This repository also contains **NovelDB**, a static search website in `docs/`. Its metadata pipeline supports Novelpia, Kakao Page, SFACG, Naver Web Novel, Munpia, Joara, Ridibooks, and Naver Series. Users search and filter listings, read synopses, and follow links to the original platforms. New sources become selectable when their validated catalogs are published.
+This repository also contains **NovelDB**, a static search website in `docs/`. Its metadata pipeline supports Npia, Kpage, SFC, Nweb, Mpia, Jara, Rbooks, and Nseries. Users search and filter listings, read synopses, and follow links to the original platforms. New sources become selectable when their validated catalogs are published.
 
-Ridibooks uses a fresh browser-compatible HTTP session for its public API. Live checks collected 480 novels with synopses and verified all four webnovel genres. Its category API limits offsets to below 6,000, so larger catalogs remain explicitly partial. Joara latest-list scans now use persistent continuation cursors, verified past the old page-101 failure. Resume migrates old checkpoints while preserving saved novels and translations.
+Rbooks uses a fresh browser-compatible HTTP session for its public API. Live checks collected 480 novels with synopses and verified all four webnovel genres. Its category API limits offsets to below 6,000, so larger catalogs remain explicitly partial. Jara latest-list scans now use persistent continuation cursors, verified past the old page-101 failure. Resume migrates old checkpoints while preserving saved novels and translations.
 
 - [Metadata pipeline and script reference](docs/metadata-pipeline.md): discovery, field schemas, historical records, translations, website loading, batch entry points, and scheduled workflows.
-- [Naver Web Novel, Munpia, Joara, and Ridibooks integration](docs/metadata-source-expansion.md): implemented anonymous collectors, commands, durable history, translation/build stages, workflows, tests, and full-crawl limitations.
+- [Nweb, Mpia, Jara, and Rbooks integration](docs/metadata-source-expansion.md): implemented anonymous collectors, commands, durable history, translation/build stages, workflows, tests, and full-crawl limitations.
 
-For a bounded staged sample, run `python scripts/metadata_pipeline.py run --source naver --mode sample --output-dir .cache/naver-sample --state-dir .cache/naver-state` (also supports `munpia`, `joara`, and `ridi`). Add `--dry-run` for zero requests and zero writes. Collection and local builds do not publish; translation and promotion are explicit operations. Implementation verification used anonymous samples and mocked translation, with existing production data unchanged.
+For a bounded staged sample, run `python scripts/metadata_pipeline.py run --source nweb --mode sample --output-dir .cache/nweb-sample --state-dir .cache/nweb-state` (also supports `mpia`, `jara`, and `rbooks`). Add `--dry-run` for zero requests and zero writes. Collection and local builds do not publish; translation and promotion are explicit operations. Implementation verification used anonymous samples and mocked translation, with existing production data unchanged.
 
 **Translation setup:** add `OPENAI_API_KEY` under GitHub **Settings → Secrets and variables → Actions → New repository secret**. All eight sources now default to `gpt-6-luna`; existing English is retained and only missing/changed originals enter the queue. Explicit provider/model overrides remain supported.
 
-For Naver, Munpia, Joara, and Ridibooks, choose **catalog** to collect/resume discovery and details, **rankings** for native boards, **build** to repackage saved state, or **resume** to continue saved collection. Catalog runs discover listings before detail enrichment, use four continuously refilled detail workers by default, and save every 60 seconds or 500 changed records plus phase boundaries. A five-hour budget is a resumable limit, not a claim of full coverage. With **auto_continue** enabled (default), a progressing budget-limited catalog is queued again after the translation attempt; failures, coverage limitations, cancellation, and no progress stop the chain. See the integration guide for recovery and coverage meanings.
+For Nweb, Mpia, Jara, and Rbooks, choose **catalog** to collect/resume discovery and details, **rankings** for native boards, **build** to repackage saved state, or **resume** to continue saved collection. Catalog runs discover listings before detail enrichment, use four continuously refilled detail workers by default, and save every 60 seconds or 500 changed records plus phase boundaries. A five-hour budget is a resumable limit, not a claim of full coverage. With **auto_continue** enabled (default), a progressing budget-limited catalog is queued again after the translation attempt; failures, coverage limitations, cancellation, and no progress stop the chain. See the integration guide for recovery and coverage meanings.
 
-The website preserves cards and covers while chunks arrive. **Load Synopsis** defaults on and persists across refreshes; turn it off to skip synopsis shards and description-bearing top bundles. Naver, Munpia, Joara, and Ridibooks still use `.json.gz` catalog chunks, gzip corpora/top bundles, and 128 compressed synopsis shards per source.
+The website preserves cards and covers while chunks arrive. **Load Synopsis** defaults on and persists across refreshes; turn it off to skip synopsis shards and description-bearing top bundles. Nweb, Mpia, Jara, and Rbooks still use `.json.gz` catalog chunks, gzip corpora/top bundles, and 128 compressed synopsis shards per source.
 
-Naver Series (`naverseries`) is a separate source with public R19 listing metadata. Full adult details require verification; available catalog text is labelled as a synopsis preview. See the integration guide for tested R19 support and limitations.
+Nseries (`nseries`) is a separate source with public R19 listing metadata. Full adult details require verification; available catalog text is labelled as a synopsis preview. See the integration guide for tested R19 support and limitations.
 
 The website metadata pipeline is separate from the desktop novel downloader described below.
 
@@ -56,7 +56,7 @@ The website metadata pipeline is separate from the desktop novel downloader desc
 
 ## 🌐 External Novel Downloader
 
-In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ external sites** via the built-in **External Novel** button. This feature is powered by the [novel-downloader](https://github.com/404-novel-project/novel-downloader) project's rule engine.
+In addition to Npia, NpiaDownloader supports downloading novels from **100+ external sites** via the built-in **External Novel** button. This feature is powered by the [novel-downloader](https://github.com/404-novel-project/novel-downloader) project's rule engine.
 
 ### Supported Sites (partial list)
 
@@ -67,13 +67,13 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 | Pixiv Novel | novel.pixiv.net |
 | Qidian | book.qidian.com |
 | JJWXC | jjwxc.net |
-| Kakao Page | page.kakao.com |
-| Global Novelpia | global.novelpia.com |
-| Ridi webnovels | ridibooks.com |
-| Joara | joara.com |
-| Naver Web Novel | novel.naver.com |
-| Naver Series (via its Web Novel edition) | series.naver.com |
-| SFACG | book.sfacg.com |
+| Kpage | Source URL |
+| Global Npia | Source URL |
+| Rbooks webnovels | Source URL |
+| Jara | Source URL |
+| Nweb | Source URL |
+| Nseries (via its Web Novel edition) | Source URL |
+| SFC | Source URL |
 | Hameln | syosetu.org |
 | …and 90+ more | See [novel-downloader](https://github.com/404-novel-project/novel-downloader) |
 
@@ -87,14 +87,14 @@ In addition to Novelpia, NpiaDownloader supports downloading novels from **100+ 
 
 The scraper uses a headless Chromium browser with the novel-downloader rules injected at runtime. Login sessions are persistent — use the **Enter Browser** button to log in to sites that require authentication, and your cookies will be reused for all future downloads.
 
-Joara, Naver Web Novel, and Naver Series use direct HTTP scrapers instead of the browser. Joara downloads free chapters without an account. After logging in to joara.com through **Enter Browser**, it can also download purchased and adult chapters. Naver Web Novel episodes are free; adult works need a logged-in Naver account. Naver Series novels can only be read in Naver's DRM-protected app, so a Series URL is resolved to the work's Naver Web Novel edition when the product page links one. Episodes that exist only on Series are not downloadable.
+Jara, Nweb, and Nseries use direct HTTP scrapers instead of the browser. Jara downloads free chapters without an account. After logging in to Source URL through **Enter Browser**, it can also download purchased and adult chapters. Nweb episodes are free; adult works need a logged-in Nweb account. Nseries novels can only be read in Nweb's DRM-protected app, so a Series URL is resolved to the work's Nweb edition when the product page links one. Episodes that exist only on Series are not downloadable.
 
 The External Downloader chooses a fresh random chapter delay between **Min**
 and **Max**. Setting both to the same value produces a fixed delay. Existing
 configurations containing only `ext_interval` continue to load it as both ends
 of the range.
 
-Global Novelpia support integrates the `pia-scrap` API workflow directly into
+Global Npia support integrates the `pia-scrap` API workflow directly into
 the External Downloader. Free chapters and chapters available to the saved
 browser account are supported, including signed chapter images. Book discovery
 starts directly through the API without loading the website. Current cookies
@@ -103,15 +103,15 @@ to the API credential before chapter 1, while users without saved login cookies
 continue anonymously without an account request. The slower Global API uses a
 90-second request timeout.
 
-Ridi support covers serialized webnovels and owned volume ebooks. Free episodes
+Rbooks support covers serialized webnovels and owned volume ebooks. Free episodes
 and episodes purchased or rented by the logged-in account can be downloaded;
-other premium episodes are reported as locked. For a volume that Ridi refuses in
+other premium episodes are reported as locked. For a volume that Rbooks refuses in
 its web viewer, the downloader passes the saved Chrome login to the official
-RIDI Windows PC viewer and reads its rendered sections into the EPUB. Install
-the RIDI PC viewer first. Close an already running PC viewer before retrying so
-the downloader can start it with local reader access. Ridi runs in the saved
+RBOOKS Windows PC viewer and reads its rendered sections into the EPUB. Install
+the RBOOKS PC viewer first. Close an already running PC viewer before retrying so
+the downloader can start it with local reader access. Rbooks runs in the saved
 installed-Chrome profile so its product page, book API, and Cloudflare session
-share one browser identity. If Ridi requests verification, open the URL with
+share one browser identity. If Rbooks requests verification, open the URL with
 **Enter Browser**, complete it, close that window, and retry.
 
 ### Updating Rules
@@ -121,7 +121,7 @@ The site-specific scraping rules are compiled from the upstream [novel-downloade
 
 ## 🚀 Usage
 
-To download paid chapters, you'll need a `LOGINKEY`. You can get it by logging into your Novelpia account in a web browser, opening the developer tools (F12), and navigating to the **Storage** tab. Copy the value of your `LOGINKEY` from there.
+To download paid chapters, you'll need a `LOGINKEY`. You can get it by logging into your Npia account in a web browser, opening the developer tools (F12), and navigating to the **Storage** tab. Copy the value of your `LOGINKEY` from there.
 *(You must have access to the content that you intend to download on your account.)*
 
 A higher thread count and a lower interval can speed up your downloads, but be aware that this increases the risk of an IP ban.
@@ -158,12 +158,12 @@ Two sibling buttons feed the same sequential batch engine:
 Both accept the same line formats, one entry per line:
 
 - `NovelID`
-- `https://novelpia.com/novel/NovelID` (URL auto-resolved)
+- `SOURCE_URL` (URL auto-resolved)
 - `Title,NovelID` — the title is used in the output filename.
-- `Title,https://novelpia.com/novel/NovelID`
+- `Title,SOURCE_URL`
 - `# comment` — any line beginning with `#` is skipped.
 
-The main **Novel ID / URL** field in the single-download form also accepts a full Novelpia URL — it's resolved to the numeric ID automatically and written back into the field.
+The main **Novel ID / URL** field in the single-download form also accepts a full Npia URL — it's resolved to the numeric ID automatically and written back into the field.
 
 **How it works:**
 
@@ -187,7 +187,7 @@ The main **Novel ID / URL** field in the single-download form also accepts a ful
 
 ## 🛠️ Command-Line Arguments
 
-The NovelpiaDownloader can be operated directly from the command line, ideal for automated and scripted downloads.
+The NpiaDownloader can be operated directly from the command line, ideal for automated and scripted downloads.
 
 *(Keep the table of arguments and usage examples exactly as you have them, they are very clear and well-formatted.)*
 
@@ -198,10 +198,10 @@ The NovelpiaDownloader can be operated directly from the command line, ideal for
 Here are some solutions to common problems you might encounter.
 
 **Q: I'm getting an error that says I'm not logged in, but I've entered my LOGINKEY.**
-A: Ensure your `LOGINKEY` is still valid. Novelpia keys expire after a period of time. Try logging out and back in on the website, then get a new `LOGINKEY` from the storage tab and use that. Make sure you click the "Log In" button in the application.
+A: Ensure your `LOGINKEY` is still valid. Npia keys expire after a period of time. Try logging out and back in on the website, then get a new `LOGINKEY` from the storage tab and use that. Make sure you click the "Log In" button in the application.
 
 **Q: The download process seems to be stuck or is extremely slow.**
-A: This could be due to a temporary IP ban from Novelpia's servers, which can happen with a high thread count. Try the following:
+A: This could be due to a temporary IP ban from Npia's servers, which can happen with a high thread count. Try the following:
 
 1.  Reduce your thread count and increase the interval in the settings.
 2.  If the problem persists, wait for a few hours and try again, as the IP ban is usually temporary.
@@ -211,7 +211,7 @@ A: This could be due to a temporary IP ban from Novelpia's servers, which can ha
 A: Double-check the `-from` and `-to` arguments to make sure they cover the desired chapter range. Ensure you have a valid `LOGINKEY` for any paid chapters. Lastly, make sure your account has access to the content you are downloading.
 
 **Q: How do I find the `Novel ID`?**
-A: The `Novel ID` is the number in the novel's URL. For example, if the URL is `https://novelpia.com/novel/123456`, the `Novel ID` is `123456`.
+A: The `Novel ID` is the number in the novel's URL. For example, if the URL is `SOURCE_URL`, the `Novel ID` is `123456`.
 
 **Q: My EPUB reader is throwing errors when I try to open the EPUB.**
 A: This can be caused by missing chapters (e.g., R19 chapters being skipped due to account permissions). The easiest fix is to open the EPUB in [Calibre](https://calibre-ebook.com/download) (an open-source e-book & EPUB manager) and convert it to a new EPUB file. This can be done in bulk.
@@ -225,13 +225,13 @@ A: Use Moon+ Reader, ReadEra, or Calibre. Lithium and some other readers may not
 
 ## 📜 Legal & Disclaimer
 
-This project is a fork of CjangCjengh's NovelpiaDownloader and is intended for personal use to create backups of content you have legally accessed. I am not affiliated with Novelpia. Please respect their terms of service and copyright laws.
+This project is a fork of CjangCjengh's NpiaDownloader and is intended for personal use to create backups of content you have legally accessed. I am not affiliated with Npia. Please respect their terms of service and copyright laws.
 
 ### Credits
 
 - **[novel-downloader](https://github.com/404-novel-project/novel-downloader)** by [404-novel-project](https://github.com/404-novel-project) — Powers the external novel download feature with support for 100+ sites.
 - **[NTKDownloader](https://github.com/tyuop077/NTKDownloader/tree/main)** by [tyuop077](https://github.com/tyuop077) — Reference implementation for the NewToki `curl_cffi` Chrome impersonation, `nv` issue flow, HMAC-signed `/api/novel-content` requests, and payload decryption approach used by this project.
-- **Razure** — Contributed the `ridi-dl` Chrome extension whose episode discovery, metadata, viewer cleanup, paywall detection, and image handling power the native Ridi external scraper.
-- **[CjangCjengh/NovelpiaDownloader](https://github.com/CjangCjengh/NovelpiaDownloader)** — Original Novelpia downloader this project is forked from.
+- **Razure** — Contributed the `rbooks-dl` Chrome extension whose episode discovery, metadata, viewer cleanup, paywall detection, and image handling power the native Rbooks external scraper.
+- **[CjangCjengh/NpiaDownloader](https://github.com/CjangCjengh/NpiaDownloader)** — Original Npia downloader this project is forked from.
 
 -----

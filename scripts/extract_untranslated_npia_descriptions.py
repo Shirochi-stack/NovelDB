@@ -1,4 +1,4 @@
-"""Extract untranslated description rows from descriptions.txt for Novelpia.
+"""Extract untranslated description rows from descriptions.txt for Npia.
 
 Creates: docs/data/descriptions_untranslated.txt (only rows missing column 3)
 Skips blank lines, empty IDs, and non-numeric IDs.

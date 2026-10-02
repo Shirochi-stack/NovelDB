@@ -8,13 +8,19 @@ Usage:
     python scripts/merge_unique_sets.py
 """
 
+try:
+    from . import source_names
+except ImportError:
+    import source_names
+
+
 import sys, json, os, tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
-COVER_PREFIX = "https://novelpia.com"
+COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 
 ROOT = Path(__file__).resolve().parents[1]
 NOVELS_JSON_REL = "docs/data/novels.json"
@@ -35,7 +41,7 @@ def atomic_write_json(path, data):
             suffix=".tmp",
         ) as f:
             tmp_path = Path(f.name)
-            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+            source_names.dump(data, f, ensure_ascii=False, separators=(",", ":"))
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)

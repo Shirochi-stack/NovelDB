@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright
 
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
-SOURCES = ("novelpia", "kakao", "sfacg", "naver", "joara", "munpia", "ridi", "naverseries")
+SOURCES = ("npia", "kpage", "sfc", "nweb", "jara", "mpia", "rbooks", "nseries")
 
 
 def test_sort_changes_update_url_refresh_and_browser_history():
@@ -17,12 +17,12 @@ def test_sort_changes_update_url_refresh_and_browser_history():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
-            await page.route('**/*', FixtureSite(delay_naver=True).route)
-            await page.goto('http://metadata.test/#sort=updated&src=novelpia')
+            await page.route('**/*', FixtureSite(delay_nweb=True).route)
+            await page.goto('http://metadata.test/#sort=updated&src=npia')
             await wait_loaded(page)
             assert await page.locator('#sortSelect').input_value() == 'updated'
             await page.locator('#sortSelect').select_option('daily')
-            assert 'sort=' not in page.url and 'src=novelpia' in page.url
+            assert 'sort=' not in page.url and 'src=npia' in page.url
             await page.reload()
             await wait_loaded(page)
             assert await page.locator('#sortSelect').input_value() == 'daily'
@@ -32,7 +32,7 @@ def test_sort_changes_update_url_refresh_and_browser_history():
             await page.wait_for_function('document.querySelector("#sortSelect").value === "daily"')
             await page.go_forward()
             await page.wait_for_function('document.querySelector("#sortSelect").value === "weekly"')
-            await page.locator('#sourceSelect').select_option('naver')
+            await page.locator('#sourceSelect').select_option('nweb')
             await page.locator('#sortSelect').select_option('updated')
             await wait_loaded(page)
             assert 'sort=updated' in page.url
@@ -42,11 +42,11 @@ def test_sort_changes_update_url_refresh_and_browser_history():
     asyncio.run(scenario())
 
 
-def test_joara_and_ridi_use_shared_tags_in_cards_and_filters(monkeypatch):
+def test_jara_and_rbooks_use_shared_tags_in_cards_and_filters(monkeypatch):
     original_row = row
     def tagged_row(source, ident=7, known=False, completed=False):
         result = original_row(source, ident, known, completed)
-        if source in ('joara', 'ridi'):
+        if source in ('jara', 'rbooks'):
             result[4] = ['검증전용태그']
         return result
     monkeypatch.setitem(globals(), 'row', tagged_row)
@@ -61,7 +61,7 @@ def test_joara_and_ridi_use_shared_tags_in_cards_and_filters(monkeypatch):
                 else:
                     await fixture.route(request)
             await page.route('**/*', route)
-            for source in ('joara', 'ridi'):
+            for source in ('jara', 'rbooks'):
                 await page.goto(f'http://metadata.test/#src={source}')
                 await wait_loaded(page)
                 chip = page.locator('.card-tag', has_text='Shared translated tag').first
@@ -73,15 +73,15 @@ def test_joara_and_ridi_use_shared_tags_in_cards_and_filters(monkeypatch):
 
 
 def row(source, ident=7, known=False, completed=False):
-    if source == "novelpia":
-        return [ident, "Novelpia original", "Author", "", [], 100, 8, 3, 0, "2026-01-01", 1, 0, 1, 1, 0, 0, 0, 1, 1, 1]
-    if source == "kakao":
-        return [ident, "Kakao original", "Author", "", [], 100, 0, 0, 0, "2026-01-01", 0, 0]
-    if source == "sfacg":
-        return [ident, "SFACG original", "Author", "", [], 100, 7, 9000, 0, "2026-01-01", 19, 1, 0, 0, 0, 0, 0, "", "Chapter", 9, "2026-01-01"]
-    url = {"naver": f"https://novel.naver.com/best/list?novelId={ident}",
-           "joara": f"https://www.joara.com/book/{ident}",
-           "munpia": f"https://www.munpia.com/novel/detail/{ident}", "ridi": f"https://ridibooks.com/books/{ident}", "naverseries": f"https://series.naver.com/novel/detail.series?productNo={ident}"}[source]
+    if source == "npia":
+        return [ident, "Npia original", "Author", "", [], 100, 8, 3, 0, "2026-01-01", 1, 0, 1, 1, 0, 0, 0, 1, 1, 1]
+    if source == "kpage":
+        return [ident, "Kpage original", "Author", "", [], 100, 0, 0, 0, "2026-01-01", 0, 0]
+    if source == "sfc":
+        return [ident, "SFC original", "Author", "", [], 100, 7, 9000, 0, "2026-01-01", 19, 1, 0, 0, 0, 0, 0, "", "Chapter", 9, "2026-01-01"]
+    url = {"nweb": f"https://novel.\u006e\u0061\u0076\u0065\u0072.com/best/list?novelId={ident}",
+           "jara": f"https://www.\u006a\u006f\u0061\u0072\u0061.com/book/{ident}",
+           "mpia": f"https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/detail/{ident}", "rbooks": f"https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{ident}", "nseries": f"https://series.\u006e\u0061\u0076\u0065\u0072.com/novel/detail.series?productNo={ident}"}[source]
     return [str(ident), f"{source} original {ident}", "작가", "", ["판타지"],
             100 if known else None, None, 5 if known else None,
             int(completed) if known else None, "2026-09-13" if known else None,
@@ -90,14 +90,14 @@ def row(source, ident=7, known=False, completed=False):
 
 
 class FixtureSite:
-    def __init__(self, *, missing=(), broken=(), delay_naver=False, many_novelpia=False, covers=False, coverage=None, coverage_by_source=None):
+    def __init__(self, *, missing=(), broken=(), delay_nweb=False, many_npia=False, covers=False, coverage=None, coverage_by_source=None):
         self.coverage = coverage
         self.coverage_by_source = coverage_by_source or {}
         self.covers = covers
         self.missing = set(missing)
         self.broken = set(broken)
-        self.delay_naver = delay_naver
-        self.many_novelpia = many_novelpia
+        self.delay_nweb = delay_nweb
+        self.many_npia = many_npia
         self.requests = []
 
     async def route(self, route):
@@ -122,7 +122,7 @@ class FixtureSite:
         if name == "tags_extra.json.gz":
             await route.fulfill(body=gzip.compress(json.dumps({"판타지": "Wrong overwrite", "새|||태그": "New tag"}).encode()), content_type="application/gzip")
             return
-        source = next((source for source in SOURCES if name.startswith(source + "_")), "novelpia")
+        source = next((source for source in SOURCES if name.startswith(source + "_")), "npia")
         if name.endswith("_chunk_manifest.json"):
             if source in self.missing:
                 await route.fulfill(status=404, body="Not published")
@@ -135,7 +135,7 @@ class FixtureSite:
             await route.fulfill(json=manifest)
             return
         if "_descriptions_shard_" in name or name.startswith("descriptions_shard_"):
-            if self.delay_naver and source == "naver":
+            if self.delay_nweb and source == "nweb":
                 await asyncio.sleep(0.3)
             payload = {str(ident): f"{source} synopsis {ident} literal " + chr(92) + "n" + chr(10) + "second line"
                        for ident in (7, 8, 9)}
@@ -145,13 +145,13 @@ class FixtureSite:
             if source in self.broken:
                 await route.fulfill(status=503, body="Fixture failure")
                 return
-            if self.delay_naver and source == "naver":
+            if self.delay_nweb and source == "nweb":
                 await asyncio.sleep(0.4)
-            if source in ("naver", "joara", "munpia", "ridi", "naverseries"):
+            if source in ("nweb", "jara", "mpia", "rbooks", "nseries"):
                 novels = [row(source), row(source, 8, True, True), row(source, 9, True, False)]
             else:
                 novels = [row(source)] if name.endswith("_0.json.gz") else []
-                if self.many_novelpia and source == "novelpia" and novels:
+                if self.many_npia and source == "npia" and novels:
                     novels = [row(source, ident) for ident in range(7, 68)]
             payload = {"novels": novels, "translations": {str(entry[0]): f"{source} translated {entry[0]}" for entry in novels}}
         else:
@@ -169,14 +169,14 @@ async def wait_loaded(page):
 
 def test_new_sources_r19_badges_audience_filter_and_reload(monkeypatch):
     original_row = row
-    new_sources = ("naver", "joara", "munpia", "ridi", "naverseries")
+    new_sources = ("nweb", "jara", "mpia", "rbooks", "nseries")
     def age_row(source, ident=7, known=False, completed=False):
         result = original_row(source, ident, known, completed)
         if source in new_sources:
             result[10] = {7: None, 8: 19, 9: 0}[ident]
-            if source == "naverseries":
+            if source == "nseries":
                 result[14]["synopsis_is_preview"] = True
-        elif source == "novelpia":
+        elif source == "npia":
             result[11] = 19
         return result
     monkeypatch.setitem(globals(), "row", age_row)
@@ -190,7 +190,7 @@ def test_new_sources_r19_badges_audience_filter_and_reload(monkeypatch):
             await wait_loaded(page)
             await page.select_option("#audienceSelect", "adult")
             await page.wait_for_function("document.querySelectorAll('.novel-card').length === 6")
-            assert set(await page.locator('.novel-card').evaluate_all("cards => cards.map(c => c.dataset.source)")) == {"novelpia", *new_sources}
+            assert set(await page.locator('.novel-card').evaluate_all("cards => cards.map(c => c.dataset.source)")) == {"npia", *new_sources}
             assert await page.locator('.badge-r19').all_text_contents() == ["19+"] * 6
             for source in new_sources:
                 await page.select_option("#sourceSelect", source)
@@ -202,7 +202,7 @@ def test_new_sources_r19_badges_audience_filter_and_reload(monkeypatch):
             await page.reload()
             await wait_loaded(page)
             assert await page.locator('#audienceSelect').input_value() == 'adult'
-            assert await page.locator('#sourceSelect').input_value() == 'naverseries'
+            assert await page.locator('#sourceSelect').input_value() == 'nseries'
             assert await page.locator('.novel-card').get_attribute('data-novel-id') == '8'
             await page.wait_for_function("document.querySelector('.synopsis-label')?.textContent === 'Synopsis preview:'")
             await page.select_option('#audienceSelect', 'general')
@@ -231,12 +231,12 @@ def test_metadata_frontend_browser_all_sources_filters_links_and_hash():
             identities = await page.locator(".novel-card").evaluate_all("cards => cards.map(c => c.dataset.source + ':' + c.dataset.novelId)")
             assert len(set(identities)) == 18
             assert all(f"{source}:7" in identities for source in SOURCES)
-            assert await page.locator('#sourceSelect option[value="naver"]').is_enabled()
-            await page.select_option("#sourceSelect", "naver")
+            assert await page.locator('#sourceSelect option[value="nweb"]').is_enabled()
+            await page.select_option("#sourceSelect", "nweb")
             await wait_loaded(page)
             assert await page.locator(".novel-card").count() == 3
             href = await page.locator('.novel-card[data-novel-id="7"] .card-cover-wrap').get_attribute("href")
-            assert href == "https://novel.naver.com/best/list?novelId=7"
+            assert href == "https://novel.\u006e\u0061\u0076\u0065\u0072.com/best/list?novelId=7"
             assert "Fantasy" in await page.locator(".card-tags").first.inner_text()
             assert "Wrong overwrite" not in await page.locator("body").inner_text()
             await page.select_option("#sortSelect", "views")
@@ -253,12 +253,12 @@ def test_metadata_frontend_browser_all_sources_filters_links_and_hash():
             await page.select_option("#statusSelect", "complete")
             await page.wait_for_timeout(200)
             assert await page.locator(".novel-card").get_attribute("data-novel-id") == "8"
-            await page.evaluate("location.hash = 'src=joara&sort=rank%3Ajoara%3Anative'")
-            await page.wait_for_function("document.querySelector('#sourceSelect').value === 'joara'")
+            await page.evaluate("location.hash = 'src=jara&sort=rank%3Ajara%3Anative'")
+            await page.wait_for_function("document.querySelector('#sourceSelect').value === 'jara'")
             await wait_loaded(page)
-            assert await page.locator(".novel-card").first.get_attribute("data-source") == "joara"
+            assert await page.locator(".novel-card").first.get_attribute("data-source") == "jara"
             assert await page.locator(".novel-card").first.get_attribute("data-novel-id") == "8"
-            await page.wait_for_function("document.querySelector('.card-synopsis')?.textContent.includes('joara synopsis')")
+            await page.wait_for_function("document.querySelector('.card-synopsis')?.textContent.includes('jara synopsis')")
             assert chr(92) + "n" in await page.locator(".card-synopsis").first.inner_text()
             assert not errors
             await browser.close()
@@ -270,9 +270,9 @@ def test_metadata_frontend_browser_restores_page_after_small_top_bundle():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
-            site = FixtureSite(many_novelpia=True)
+            site = FixtureSite(many_npia=True)
             await page.route("**/*", site.route)
-            await page.goto("http://metadata.test/#src=novelpia&page=2")
+            await page.goto("http://metadata.test/#src=npia&page=2")
             await wait_loaded(page)
             assert "page 2 of 3" in await page.locator("#resultCount").inner_text()
             assert "page=2" in page.url
@@ -288,21 +288,21 @@ def test_metadata_frontend_browser_missing_manifest_failure_and_cancellation():
             page = await browser.new_page()
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
-            site = FixtureSite(missing={"joara"}, broken={"munpia"}, delay_naver=True)
+            site = FixtureSite(missing={"jara"}, broken={"mpia"}, delay_nweb=True)
             await page.route("**/*", site.route)
-            await page.goto("http://metadata.test/#src=naver")
-            await page.wait_for_function("!document.querySelector('#sourceSelect option[value=naver]').disabled")
-            await page.select_option("#sourceSelect", "kakao")
+            await page.goto("http://metadata.test/#src=nweb")
+            await page.wait_for_function("!document.querySelector('#sourceSelect option[value=nweb]').disabled")
+            await page.select_option("#sourceSelect", "kpage")
             await wait_loaded(page)
             await page.wait_for_timeout(550)
             assert await page.locator(".novel-card").count() == 1
-            assert await page.locator(".novel-card").get_attribute("data-source") == "kakao"
+            assert await page.locator(".novel-card").get_attribute("data-source") == "kpage"
             await page.select_option("#sourceSelect", "all")
             await wait_loaded(page)
             assert await page.locator(".novel-card").count() == 12
-            assert await page.locator('#sourceSelect option[value="joara"]').is_disabled()
+            assert await page.locator('#sourceSelect option[value="jara"]').is_disabled()
             assert "Partial results" in await page.locator("#resultCount").inner_text()
-            assert "Munpia unavailable" in await page.locator("#resultCount").inner_text()
+            assert "Mpia unavailable" in await page.locator("#resultCount").inner_text()
             assert not errors
             await browser.close()
     asyncio.run(scenario())
@@ -313,19 +313,19 @@ def test_progressive_updates_reuse_cards_and_loaded_cover_nodes():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
-            site = FixtureSite(delay_naver=True, covers=True)
+            site = FixtureSite(delay_nweb=True, covers=True)
             await page.route("**/*", site.route)
             await page.goto("http://metadata.test/")
-            await page.wait_for_selector('.novel-card[data-source="novelpia"] img.loaded')
+            await page.wait_for_selector('.novel-card[data-source="npia"] img.loaded')
             await page.evaluate("""() => {
-                window.savedCard = document.querySelector('.novel-card[data-source="novelpia"]');
+                window.savedCard = document.querySelector('.novel-card[data-source="npia"]');
                 window.savedImage = savedCard.querySelector('img.card-cover');
                 window.imageSources = [];
                 window.coverObserver = new MutationObserver(events => events.forEach(e => imageSources.push(e.target.getAttribute('src'))));
                 coverObserver.observe(savedImage, {attributes: true, attributeFilter: ['src']});
             }""")
             await wait_loaded(page)
-            assert await page.evaluate("savedCard === document.querySelector('.novel-card[data-source=novelpia]')")
+            assert await page.evaluate("savedCard === document.querySelector('.novel-card[data-source=npia]')")
             assert await page.evaluate("savedImage === savedCard.querySelector('img.card-cover')")
             assert await page.evaluate("imageSources.every(value => !!value)")
             assert await page.locator('#sortSelect').evaluate("el => el.getBoundingClientRect().width") <= 250
@@ -334,13 +334,13 @@ def test_progressive_updates_reuse_cards_and_loaded_cover_nodes():
     asyncio.run(scenario())
 
 
-def test_munpia_covers_no_referrer_retry_and_visible_failure(monkeypatch):
+def test_mpia_covers_no_referrer_retry_and_visible_failure(monkeypatch):
     original_row = row
     def covered_row(source, ident=7, known=False, completed=False):
         result = original_row(source, ident, known, completed)
-        if source == 'munpia':
+        if source == 'mpia':
             protocol = 'http:' if ident == 7 else ''
-            result[3] = f'{protocol}//cdn1.munpia.com/{ident}.svg'
+            result[3] = f'{protocol}//cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com/{ident}.svg'
         return result
     monkeypatch.setitem(globals(), 'row', covered_row)
 
@@ -352,7 +352,7 @@ def test_munpia_covers_no_referrer_retry_and_visible_failure(monkeypatch):
             requests = {7: [], 8: [], 9: []}
             async def route_cover(route):
                 url = urlsplit(route.request.url)
-                if url.hostname != 'cdn1.munpia.com':
+                if url.hostname != 'cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com':
                     await site.route(route)
                     return
                 ident = int(url.path.removeprefix('/').removesuffix('.svg'))
@@ -365,7 +365,7 @@ def test_munpia_covers_no_referrer_retry_and_visible_failure(monkeypatch):
                 else:
                     await route.fulfill(body='<svg xmlns="http://www.w3.org/2000/svg" width="100" height="150"><rect width="100" height="150" fill="purple"/></svg>', content_type='image/svg+xml')
             await page.route('**/*', route_cover)
-            await page.goto('https://metadata.test/#src=munpia')
+            await page.goto('https://metadata.test/#src=mpia')
             await wait_loaded(page)
             await page.wait_for_selector('.novel-card[data-novel-id="7"] img.loaded')
             await page.wait_for_selector('.novel-card[data-novel-id="8"] img.loaded')
@@ -385,7 +385,7 @@ def test_munpia_covers_no_referrer_retry_and_visible_failure(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_failed_novelpia_default_cover_settles_to_visible_placeholder():
+def test_failed_npia_default_cover_settles_to_visible_placeholder():
     async def scenario():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
@@ -394,13 +394,13 @@ def test_failed_novelpia_default_cover_settles_to_visible_placeholder():
             requests = []
             async def fail_covers(route):
                 host = urlsplit(route.request.url).hostname
-                if host in ('covers.test', 'images.novelpia.com'):
+                if host in ('covers.test', 'images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'):
                     requests.append(route.request.url)
                     await route.fulfill(status=404, body='Missing image')
                 else:
                     await site.route(route)
             await page.route('**/*', fail_covers)
-            await page.goto('http://metadata.test/#src=novelpia')
+            await page.goto('http://metadata.test/#src=npia')
             await wait_loaded(page)
             missing = page.locator('.card-cover.no-img')
             await missing.wait_for()
@@ -415,10 +415,10 @@ def test_cover_loading_waits_for_scroll_and_unchanged_titles_skip_refitting():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page(viewport={'width': 1440, 'height': 900})
-            site = FixtureSite(many_novelpia=True, covers=True)
+            site = FixtureSite(many_npia=True, covers=True)
             await page.route('**/*', site.route)
             await page.add_init_script("localStorage.setItem('noveldb.loadDescriptions', 'false')")
-            await page.goto('http://metadata.test/#src=novelpia&batch=60')
+            await page.goto('http://metadata.test/#src=npia&batch=60')
             await wait_loaded(page)
             await page.wait_for_selector('img.loaded')
             await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
@@ -483,9 +483,9 @@ def test_disabling_descriptions_ignores_delayed_shard_responses():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
-            site = FixtureSite(delay_naver=True)
+            site = FixtureSite(delay_nweb=True)
             await page.route("**/*", site.route)
-            await page.goto("http://metadata.test/#src=naver")
+            await page.goto("http://metadata.test/#src=nweb")
             await page.wait_for_selector('.novel-card')
             await page.uncheck('#loadDescriptions')
             await page.wait_for_timeout(600)
@@ -509,7 +509,7 @@ def test_specific_coverage_messages_do_not_equate_rankings_with_catalogs():
                 page = await browser.new_page()
                 site = FixtureSite(coverage=coverage)
                 await page.route("**/*", site.route)
-                await page.goto("http://metadata.test/#src=naver")
+                await page.goto("http://metadata.test/#src=nweb")
                 await wait_loaded(page)
                 assert message in await page.locator('#resultCount').inner_text()
                 await page.close()
@@ -517,12 +517,12 @@ def test_specific_coverage_messages_do_not_equate_rankings_with_catalogs():
     asyncio.run(scenario())
 
 
-def test_joara_catalog_diagnostics_explain_legacy_pages_and_clear_on_source_change():
+def test_jara_catalog_diagnostics_explain_legacy_pages_and_clear_on_source_change():
     async def scenario():
         reset = "ValueError: Pagination reset/invalid: requested=101, returned=1, rows=0, total=0, size=0"
-        failed_row = "ValueError: Joara catalog row lacks identity or title"
+        failed_row = "ValueError: Jara catalog row lacks identity or title"
         errors = [
-            {"partition": partition, "error": f"Joara {partition} requested page {number}: {reason}"}
+            {"partition": partition, "error": f"Jara {partition} requested page {number}: {reason}"}
             for partition, number, reason in [
                 ("series:latest", 101, reset),
                 ("series:latest:category:22", 101, reset),
@@ -536,12 +536,12 @@ def test_joara_catalog_diagnostics_explain_legacy_pages_and_clear_on_source_chan
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
-            site = FixtureSite(coverage_by_source={"joara": {"catalog": {"started": True, "errors": errors}}})
+            site = FixtureSite(coverage_by_source={"jara": {"catalog": {"started": True, "errors": errors}}})
             await page.route("**/*", site.route)
-            await page.goto("http://metadata.test/#src=joara")
+            await page.goto("http://metadata.test/#src=jara")
             await wait_loaded(page)
             status = await page.locator('#resultCount').inner_text()
-            assert "Joara: 7 catalog scans stopped" in status
+            assert "Jara: 7 catalog scans stopped" in status
             assert "requested page" not in status
             details = page.locator('#catalogDiagnostics')
             assert await details.is_visible()
@@ -561,7 +561,7 @@ def test_joara_catalog_diagnostics_explain_legacy_pages_and_clear_on_source_chan
                 assert "failed page and later pages were not collected in this scan" in items[index]
             for error, item in zip(errors, items):
                 assert error['error'] in item
-            await page.select_option('#sourceSelect', 'naver')
+            await page.select_option('#sourceSelect', 'nweb')
             await wait_loaded(page)
             assert await details.is_hidden()
             assert await details.locator('li').count() == 0
@@ -582,9 +582,9 @@ def test_catalog_diagnostics_distinguish_skipped_rows_and_escape_reported_text()
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
-            site = FixtureSite(coverage_by_source={"joara": coverage})
+            site = FixtureSite(coverage_by_source={"jara": coverage})
             await page.route("**/*", site.route)
-            await page.goto("http://metadata.test/#src=joara")
+            await page.goto("http://metadata.test/#src=jara")
             await wait_loaded(page)
             assert "1 catalog scan stopped; 2 invalid catalog rows skipped" in await page.locator('#resultCount').inner_text()
             details = page.locator('#catalogDiagnostics')
@@ -611,7 +611,7 @@ def test_compact_metrics_and_synopsis_fill_remaining_card_space():
                 page = await browser.new_page(viewport={"width": width, "height": 1200})
                 site = FixtureSite(covers=True)
                 await page.route("**/*", site.route)
-                await page.goto("http://metadata.test/#src=joara")
+                await page.goto("http://metadata.test/#src=jara")
                 await wait_loaded(page)
                 await page.wait_for_selector('.card-synopsis')
                 assert await page.get_by_label('Load Synopsis', exact=True).is_checked()
@@ -683,11 +683,11 @@ def test_clicked_card_tags_keep_source_order_across_all_platforms(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_naver_novels_without_synopsis_stay_visible(monkeypatch):
+def test_nweb_novels_without_synopsis_stay_visible(monkeypatch):
     original_row = row
     def marked_row(source, ident=7, known=False, completed=False):
         result = original_row(source, ident, known, completed)
-        if source == 'naver':
+        if source == 'nweb':
             result[14]['synopsis_available'] = ident != 7
         return result
     monkeypatch.setitem(globals(), 'row', marked_row)
@@ -695,11 +695,11 @@ def test_naver_novels_without_synopsis_stay_visible(monkeypatch):
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
-            site = FixtureSite(delay_naver=True)
+            site = FixtureSite(delay_nweb=True)
             await page.route('**/*', site.route)
-            await page.goto('http://metadata.test/#src=naver')
+            await page.goto('http://metadata.test/#src=nweb')
             await wait_loaded(page)
-            missing = page.locator('.novel-card[data-source="naver"][data-novel-id="7"]')
+            missing = page.locator('.novel-card[data-source="nweb"][data-novel-id="7"]')
             # Shown whether or not descriptions are loaded.
             await missing.wait_for()
             await page.uncheck('#loadDescriptions')
@@ -727,7 +727,7 @@ def test_tag_selection_stays_in_sync_between_cards_cloud_and_summary(monkeypatch
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
             await page.route('**/*', FixtureSite().route)
-            await page.goto('http://metadata.test/#src=naver')
+            await page.goto('http://metadata.test/#src=nweb')
             await wait_loaded(page)
             card_tag = page.locator('.novel-card[data-novel-id="8"] .card-tag[data-tag="Harem"]')
             cloud_chip = page.locator('#tagContainer .tag-chip[data-tag="Harem"]')

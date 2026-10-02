@@ -1,4 +1,4 @@
-"""Merge translated Novelpia descriptions back into descriptions.txt.
+"""Merge translated Npia descriptions back into descriptions.txt.
 
 Deduplicates by ID, validates IDs are numeric, prefers translated entries.
 Handles both 2-column (id|||english) and 3-column (id|||korean|||english) formats.
