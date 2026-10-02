@@ -58,25 +58,6 @@ The website metadata pipeline is separate from the desktop novel downloader desc
 
 In addition to Npia, NpiaDownloader supports downloading novels from **100+ external sites** via the built-in **External Novel** button. This feature is powered by the [novel-downloader](https://github.com/404-novel-project/novel-downloader) project's rule engine.
 
-### Supported Sites (partial list)
-
-| Platform | URL |
-|---|---|
-| Kakuyomu | kakuyomu.jp |
-| Syosetu (なろう) | ncode.syosetu.com |
-| Pixiv Novel | novel.pixiv.net |
-| Qidian | book.qidian.com |
-| JJWXC | jjwxc.net |
-| Kpage | Source URL |
-| Global Npia | Source URL |
-| Rbooks webnovels | Source URL |
-| Jara | Source URL |
-| Nweb | Source URL |
-| Nseries (via its Web Novel edition) | Source URL |
-| SFC | Source URL |
-| Hameln | syosetu.org |
-| …and 90+ more | See [novel-downloader](https://github.com/404-novel-project/novel-downloader) |
-
 ### How it works
 
 1. Click **External Novel** in the main window.
