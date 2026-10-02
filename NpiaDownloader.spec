@@ -93,7 +93,7 @@ a = Analysis(
         ('gm_stubs.js', '.'),       # Tampermonkey/Greasemonkey API stubs
         ('bridge.js', '.'),         # JS bridge for book/chapter parsing
         ('rules-lib.js', '.'),      # Compiled novel-downloader rule bundle
-        # Qidian bought-chapter decoder: reference glyphs and frequencies
+        # Qdn bought-chapter decoder: reference glyphs and frequencies
         ('data/fonts', 'data/fonts'),
         ('data/zh_char_frequency.txt', 'data'),
         # Floo VIP image reader: renders reference glyphs with Windows GDI+

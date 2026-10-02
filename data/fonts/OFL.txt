@@ -1,5 +1,5 @@
 NotoSansCJKsc-Regular-hanzi.otf is a subset of Noto Sans CJK SC Regular
-(version 2.004), reduced to the Chinese characters the Qidian decoder uses
+(version 2.004), reduced to the Chinese characters the Qdn decoder uses
 as a reference. It is used only to identify glyphs; it is never displayed.
 
 Copyright © 2014-2021 Adobe (http://www.adobe.com/).

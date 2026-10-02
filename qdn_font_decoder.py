@@ -1,11 +1,11 @@
-"""Decode Qidian's font-encrypted VIP chapter text.
+"""Decode Qdn's font-encrypted VIP chapter text.
 
-Bought Qidian chapters are rendered with two per-page cipher fonts: a
+Bought Qdn chapters are rendered with two per-page cipher fonts: a
 "fixed" font for U+4E00-9FA5 and a per-chapter blob font for U+3400-4DB5.
 Each code point is drawn with the outline of a different character, some
 outlines are stored mirrored, and the outlines carry small random jitter,
 so they cannot be matched by hash. The browser extraction script
-(``QIDIAN_EXTRACT_JS``) returns what is visibly rendered, in visual order,
+(``QDN_EXTRACT_JS``) returns what is visibly rendered, in visual order,
 plus the font files. This module identifies each cipher glyph by comparing
 its rendering with a reference font of the same design (Source Han Sans /
 Noto Sans CJK), using character frequency to settle near-identical shapes.
@@ -38,10 +38,10 @@ _FONT_EXTENSIONS = ('.otf', '.ttf', '.ttc', '.otc')
 def _reference_font_paths():
     """Reference fonts, best design match first.
 
-    The bundled Noto Sans CJK SC subset is the design Qidian's cipher glyphs
+    The bundled Noto Sans CJK SC subset is the design Qdn's cipher glyphs
     are drawn from; installed CJK fonts only fill characters it lacks.
     """
-    candidates = [os.environ.get('NPIA_QIDIAN_REF_FONT', '')]
+    candidates = [os.environ.get('NPIA_QDN_REF_FONT', '')]
     bundled = os.path.join(_HERE, 'data', 'fonts')
     if os.path.isdir(bundled):
         candidates += [os.path.join(bundled, name)
@@ -260,13 +260,13 @@ def warm_up():
     """Build the reference glyphs in the background before chapters arrive."""
     if not available():
         return None
-    thread = threading.Thread(target=_Reference.get, name='qidian-ref',
+    thread = threading.Thread(target=_Reference.get, name='qdn-ref',
                               daemon=True)
     thread.start()
     return thread
 
 
-class QidianFontDecoder:
+class QdnFontDecoder:
     """Map rendered cipher characters of one chapter page to real text."""
 
     def __init__(self, payload):
@@ -375,7 +375,7 @@ class QidianFontDecoder:
 
 def decode_payload(payload):
     """Return (paragraphs, stats) for an extraction payload."""
-    decoder = QidianFontDecoder(payload)
+    decoder = QdnFontDecoder(payload)
     lines = decoder.decode_paragraphs(payload.get('paragraphs') or [])
     return lines, {
         'decoded': decoder.decoded,
@@ -385,7 +385,7 @@ def decode_payload(payload):
 
 # Installed before the reader's scripts run (context init script). The
 # reader builds one font face in script; it is invisible to stylesheets.
-QIDIAN_FONTFACE_HOOK_JS = r'''(() => {
+QDN_FONTFACE_HOOK_JS = r'''(() => {
   // Record fonts the reader builds in script. They override the CSS
   // @font-face fonts and are not visible in any stylesheet.
   const Native = window.FontFace;
@@ -413,7 +413,7 @@ QIDIAN_FONTFACE_HOOK_JS = r'''(() => {
 
 # Collects the glyphs that actually paint, in visual order, plus the cipher
 # fonts. Scrolls the chapter, because off-screen paragraphs are decoys.
-QIDIAN_EXTRACT_JS = r'''async () => {
+QDN_EXTRACT_JS = r'''async () => {
   const main = document.querySelector('main.r-font-encrypt, main[id^="c-"]')
     || document.querySelector('main');
   if (!main) return {error: 'no reader'};

@@ -9,6 +9,10 @@ import json
 import re
 
 _PAIRS = [
+    ("UWlkaWFu", "qdn"),
+    ("6LW354K55Lit5paH572R", "qdn"), ("6LW36bue5Lit5paH57ay", "qdn"),
+    ("6LW354K56K+75Lmm", "qdn"), ("6LW36bue6K6A5pu4", "qdn"),
+    ("6LW354K55bCP6K+0572R", "qdn"), ("6LW36bue5bCP6Kqq57ay", "qdn"),
     ("RmFsb28=", "floo"), ("6aOe5Y2i", "floo"), ("6aOb55un", "floo"),
     ("TmF2ZXIgV2ViIE5vdmVs", "nweb"), ("TmF2ZXIgU2VyaWVz", "nseries"),
     ("bmF2ZXJzZXJpZXM=", "nseries"), ("S2FrYW8gUGFnZQ==", "kpage"),

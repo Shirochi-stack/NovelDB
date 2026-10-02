@@ -3,7 +3,7 @@
 ================================================================================
 
 This feature lets NpiaDownloader download novels from 100+ non-Npia sites
-(jjwxc, syosetu, kakuyomu, qidian, etc.) by reusing the open-source
+(jjwxc, syosetu, kakuyomu, qdn, etc.) by reusing the open-source
 "novel-downloader" browser extension's rule engine.
 
 
@@ -69,7 +69,7 @@ SUPPORTED SITES
 ---------------
 The rule bundle supports 100+ sites including:
 
-  Chinese:   jjwxc, qidian, zongheng, ciweimao, sfc, 17k, shuhai, tadu,
+  Chinese:   jjwxc, qdn, zongheng, ciweimao, sfc, 17k, shuhai, tadu,
              gongzicp, linovel, qimao, cool18, and many biquge mirrors
   Japanese:  syosetu (ncode), kakuyomu, alphapolis, akatsuki-novels, novelup
   Korean:    npia.jp

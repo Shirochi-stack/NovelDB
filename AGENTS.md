@@ -1,7 +1,7 @@
 # Repository naming
 
 Use source codenames everywhere: `npia`, `kpage`, `sfc`, `nweb`, `mpia`,
-`jara`, `rbooks`, `nseries`, and `floo`. This applies to paths, identifiers, docs,
+`jara`, `rbooks`, `nseries`, `floo`, and `qdn`. This applies to paths, identifiers, docs,
 comments, UI text, workflow labels, commit messages, release titles/notes,
 and release asset names/labels.
 

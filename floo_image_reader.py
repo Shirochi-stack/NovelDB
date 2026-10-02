@@ -65,10 +65,10 @@ _NEVER_ALONE = set('丨丶丿乀乁乚亅冫冖冂凵勹匚匸卩厶宀彳彡攵
 
 
 def _charset():
-    import qidian_font_decoder  # shares the GB2312 list and the corpus frequencies
-    freq = qidian_font_decoder._load_frequency()
+    import qdn_font_decoder  # shares the GB2312 list and the corpus frequencies
+    freq = qdn_font_decoder._load_frequency()
     chars = []
-    for index, ch in enumerate(qidian_font_decoder._common_hanzi()):
+    for index, ch in enumerate(qdn_font_decoder._common_hanzi()):
         # GB2312 level 2 (after the first 3755) holds rare characters; those
         # never seen in the novel corpus only cause look-alike mistakes.
         if ch in _NEVER_ALONE or (index >= 3755 and not freq.get(ch)):

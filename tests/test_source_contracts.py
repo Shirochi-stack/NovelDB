@@ -19,6 +19,7 @@ from scripts.metadata_common import SOURCE_LABELS
     ('is_nweb_novel', 'bm92ZWwubmF2ZXIuY29t', '/webnovel/list?novelId=123'),
     ('is_nweb_series', 'c2VyaWVzLm5hdmVyLmNvbQ==', '/novel/detail.series?productNo=123'),
     ('is_floo', 'Yi5mYWxvby5jb20=', '/724903.html'),
+    ('is_qdn', 'd3d3LnFpZGlhbi5jb20=', '/book/1/'),
 ])
 def test_codename_detectors_recognize_real_wire_hosts(method, encoded, path):
     host = base64.b64decode(encoded).decode()
@@ -34,6 +35,7 @@ def test_metadata_source_ids_use_codenames():
 
 
 def test_policy_does_not_rename_ordinary_words():
-    text = 'riding, ridiculous, Riding, RIDING, RIDICULOUS, meridian, gridItems'
+    text = ('riding, ridiculous, Riding, RIDING, RIDICULOUS, meridian, gridItems, '
+            '\u8d77\u70b9, \u8d77\u9ede')
     assert source_names.to_codenames(text) == text
     assert not source_names.contains_name(text)

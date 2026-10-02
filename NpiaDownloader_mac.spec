@@ -92,7 +92,7 @@ if icon_file:
 for js in ['gm_stubs.js', 'bridge.js', 'rules-lib.js']:
     if os.path.exists(js):
         _datas.append((js, '.'))
-# Qidian bought-chapter decoder: reference glyphs and frequencies
+# Qdn bought-chapter decoder: reference glyphs and frequencies
 if os.path.isdir('data/fonts'):
     _datas.append(('data/fonts', 'data/fonts'))
 if os.path.exists('data/zh_char_frequency.txt'):

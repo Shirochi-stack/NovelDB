@@ -12,7 +12,7 @@ from external_scraper import ExternalScraper
 
 @pytest.mark.parametrize('url', [
     'https://b.\u0066\u0061\u006c\u006f\u006f.com/724903.html',
-    'https://www.qidian.com/book/123456/',
+    'https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/book/123456/',
     'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/6121000538',
     'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/library/books/8706175/',
 ])

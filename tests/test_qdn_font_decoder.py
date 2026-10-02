@@ -7,7 +7,7 @@ import pytest
 np = pytest.importorskip('numpy')
 ttLib = pytest.importorskip('fontTools.ttLib')
 
-import qidian_font_decoder as q  # noqa: E402
+import qdn_font_decoder as q  # noqa: E402
 
 BUNDLED = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        'data', 'fonts', 'NotoSansCJKsc-Regular-hanzi.otf')
@@ -17,7 +17,7 @@ def _cipher_font(mapping, mirrored=()):
     """A TrueType font whose code points draw other characters' outlines.
 
     ``mapping`` maps cipher code point -> the character its glyph shows.
-    Characters in ``mirrored`` are stored flipped, as Qidian stores some.
+    Characters in ``mirrored`` are stored flipped, as Qdn stores some.
     """
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.cu2quPen import Cu2QuPen
@@ -73,7 +73,7 @@ def test_cipher_glyphs_decode_to_the_characters_they_draw():
 
 
 def test_later_face_of_a_family_takes_precedence():
-    decoder = q.QidianFontDecoder.__new__(q.QidianFontDecoder)
+    decoder = q.QdnFontDecoder.__new__(q.QdnFontDecoder)
     first = type('Face', (), {'family': 'F', 'covers': lambda self, ch: True})()
     second = type('Face', (), {'family': 'F', 'covers': lambda self, ch: True})()
     decoder.fonts = [first, second]
@@ -121,9 +121,9 @@ def test_extraction_reads_what_is_painted_in_visual_order(tmp_path):
         with sync_api.sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': 800, 'height': 600})
-            page.add_init_script(q.QIDIAN_FONTFACE_HOOK_JS)
+            page.add_init_script(q.QDN_FONTFACE_HOOK_JS)
             page.goto(page_file.as_uri())
-            payload = page.evaluate(q.QIDIAN_EXTRACT_JS)
+            payload = page.evaluate(q.QDN_EXTRACT_JS)
             browser.close()
     except Exception as exc:  # pragma: no cover - no browser installed
         pytest.skip(f'Chromium unavailable: {exc}')

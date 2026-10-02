@@ -576,7 +576,7 @@ class ExternalNovelDialog(tk.Toplevel):
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
                 if (not self._scraper.is_ntk_novel(url)
-                        and not self._scraper.is_qidian(url)
+                        and not self._scraper.is_qdn(url)
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
@@ -766,7 +766,7 @@ class ExternalNovelDialog(tk.Toplevel):
 
         Chapters are split into batches of `num_threads` size.
         Each batch uses the scraper's fastest available concurrent path.
-        Qidian renders one chapter per browser page in the batch.
+        Qdn renders one chapter per browser page in the batch.
         Failed chapters are retried immediately before the next batch starts.
         """
         # Keep the source-book position after slicing.  Output writers use
@@ -833,7 +833,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     and not is_69shuba and not is_1qxs and not is_floo
                     and not is_xiyuwx
                     and not is_jara and not is_nweb_novel
-                    and not (self._book_data and self._book_data.get('_qidian'))):
+                    and not (self._book_data and self._book_data.get('_qdn'))):
                 self._scraper.start()
                 # Navigate to the book page so that JS fetch() calls
                 # originate from the \u006b\u0061\u006b\u0061\u006f.com domain.  The BFF API
@@ -916,8 +916,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         f"Cache hits: {cache_hits}; "
                         f"{total - cache_hits} chapter(s) need network download."
                     )
-            is_qidian = bool(
-                self._book_data and self._book_data.get('_qidian')
+            is_qdn = bool(
+                self._book_data and self._book_data.get('_qdn')
             )
             batch_size = 1 if is_npia else max(1, num_threads)
             rate_interval = interval
@@ -927,13 +927,13 @@ class ExternalNovelDialog(tk.Toplevel):
                     "[Npia] Safe mode: one chapter request at a time; "
                     "automatic chapter retries are disabled."
                 )
-            if is_qidian and self._scraper:
-                qidian_floor = getattr(
-                    self._scraper, '_QIDIAN_MIN_INTERVAL', 0.0
+            if is_qdn and self._scraper:
+                qdn_floor = getattr(
+                    self._scraper, '_QDN_MIN_INTERVAL', 0.0
                 )
                 rate_interval = max(
                     interval,
-                    qidian_floor,
+                    qdn_floor,
                 )
                 rate_interval_max = max(
                     interval_max, rate_interval
@@ -1190,14 +1190,14 @@ class ExternalNovelDialog(tk.Toplevel):
                     sleep_time = ExternalScraper._random_interval_delay(
                         rate_interval, rate_interval_max
                     )
-                if is_qidian:
+                if is_qdn:
                     sleep_display = (
                         f"{sleep_time:.1f}s"
                         if sleep_time
                         else "0s"
                     )
                     self._log(
-                        f"[Qidian] Batch {batch_number} took "
+                        f"[Qdn] Batch {batch_number} took "
                         f"{batch_elapsed:.1f}s; rate sleep {sleep_display}"
                     )
                 elif sleep_time > 0:
@@ -1442,7 +1442,7 @@ class ExternalNovelDialog(tk.Toplevel):
             )
         elif start_url and any((
             ExternalScraper.is_floo(start_url),
-            ExternalScraper.is_qidian(start_url),
+            ExternalScraper.is_qdn(start_url),
             ExternalScraper.is_rbooks(start_url),
             ExternalScraper.is_kobo(start_url),
         )):
@@ -1743,7 +1743,7 @@ class ExternalNovelDialog(tk.Toplevel):
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
                 if (not self._scraper.is_ntk_novel(url)
-                        and not self._scraper.is_qidian(url)
+                        and not self._scraper.is_qdn(url)
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
@@ -2019,7 +2019,7 @@ class ExternalNovelDialog(tk.Toplevel):
             # Fetch metadata
             try:
                 if (not self._scraper.is_ntk_novel(url)
-                        and not self._scraper.is_qidian(url)
+                        and not self._scraper.is_qdn(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_floo(url)

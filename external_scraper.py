@@ -208,7 +208,7 @@ class ExternalScraper:
         self._global_npia_ad_process = None
         self._global_npia_ad_cdp_port = None
         self._global_npia_ad_profile = None
-        self._qidian_profile_snapshot_root = None
+        self._qdn_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
         self._floo_pages = []    # Reused Floo reader pages
         self._book_data = None
@@ -2323,9 +2323,9 @@ class ExternalScraper:
 
     # Chrome drops site session cookies when the Enter Browser window closes.
     # Downloads start in a new Chrome process, so preserve RBOOKS and Kobo
-    # logins alongside Qidian's until that process can restore them.
+    # logins alongside Qdn's until that process can restore them.
     _SESSION_COOKIE_DOMAINS = (
-        'qidian.com', 'yuewen.com', '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com', 'kobo.com',
+        '\u0071\u0069\u0064\u0069\u0061\u006e.com', 'yuewen.com', '\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com', 'kobo.com',
     )
 
     @classmethod
@@ -3270,16 +3270,16 @@ class ExternalScraper:
 
     def _backup_storage_state(self):
         """Persist cookies/localStorage as an extra guard against profile loss."""
-        if not self._context or self._qidian_profile_snapshot_root:
+        if not self._context or self._qdn_profile_snapshot_root:
             return
         try:
             self._context.storage_state(path=self._get_storage_state_path())
         except Exception:
             pass
 
-    def _create_qidian_profile_snapshot(self, user_data_dir):
-        """Copy the real login profile to a disposable Qidian download profile."""
-        tmp_root = tempfile.mkdtemp(prefix="npia_qidian_profile_")
+    def _create_qdn_profile_snapshot(self, user_data_dir):
+        """Copy the real login profile to a disposable Qdn download profile."""
+        tmp_root = tempfile.mkdtemp(prefix="npia_qdn_profile_")
         snapshot_dir = os.path.join(tmp_root, "browser_data")
 
         ignored_names = {
@@ -3325,9 +3325,9 @@ class ExternalScraper:
 
         return tmp_root, snapshot_dir
 
-    def _cleanup_qidian_profile_snapshot(self):
-        root = self._qidian_profile_snapshot_root
-        self._qidian_profile_snapshot_root = None
+    def _cleanup_qdn_profile_snapshot(self):
+        root = self._qdn_profile_snapshot_root
+        self._qdn_profile_snapshot_root = None
         if root:
             shutil.rmtree(root, ignore_errors=True)
 
@@ -3857,14 +3857,14 @@ class ExternalScraper:
         )
 
     @staticmethod
-    def is_qidian(url):
-        """Check if the URL is a Qidian book or chapter URL."""
+    def is_qdn(url):
+        """Check if the URL is a Qdn book or chapter URL."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except Exception:
             return False
         host = (parsed.hostname or '').lower()
-        if host != 'qidian.com' and not host.endswith('.qidian.com'):
+        if host != '\u0071\u0069\u0064\u0069\u0061\u006e.com' and not host.endswith('.\u0071\u0069\u0064\u0069\u0061\u006e.com'):
             return False
         return bool(re.match(r'^/(book|chapter)/\d+', parsed.path or ''))
 
@@ -4276,7 +4276,7 @@ class ExternalScraper:
             except Exception:
                 pass
             self._ntk_temp_chrome = False
-        self._cleanup_qidian_profile_snapshot()
+        self._cleanup_qdn_profile_snapshot()
 
     # ------------------------------------------------------------------
     # Multi-page support for parallel chapter downloads
@@ -4293,7 +4293,7 @@ class ExternalScraper:
             return
         if self._book_data and (
             self._book_data.get('_ntk_novel')
-            or self._book_data.get('_qidian')
+            or self._book_data.get('_qdn')
             or self._book_data.get('_mpia')
             or self._book_data.get('_npia')
             or self._book_data.get('_69shuba')
@@ -4378,8 +4378,8 @@ class ExternalScraper:
                 if self._book_data and self._book_data.get('_ntk_novel'):
                     self.log("Page recovered for NewToki scraper.")
                     return True
-                if self._book_data and self._book_data.get('_qidian'):
-                    self.log("Page recovered for Qidian scraper.")
+                if self._book_data and self._book_data.get('_qdn'):
+                    self.log("Page recovered for Qdn scraper.")
                     return True
                 self._install_bridge_bindings(self._page)
                 self._page.evaluate(self._gm_stubs_js)
@@ -4397,29 +4397,29 @@ class ExternalScraper:
         return True
 
     # ------------------------------------------------------------------
-    # Qidian native scraper (rendered Chrome fallback for encrypted reader)
+    # Qdn native scraper (rendered Chrome fallback for encrypted reader)
     # ------------------------------------------------------------------
-    # Qidian uses the UI's interval setting. Keep this floor at zero unless
+    # Qdn uses the UI's interval setting. Keep this floor at zero unless
     # the site starts requiring a hard minimum delay.
-    _QIDIAN_MIN_INTERVAL = 0.0
+    _QDN_MIN_INTERVAL = 0.0
 
     @staticmethod
-    def _qidian_desktop_user_agent():
+    def _qdn_desktop_user_agent():
         return (
-            os.environ.get("NPIA_QIDIAN_USER_AGENT")
+            os.environ.get("NPIA_QDN_USER_AGENT")
             or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                "AppleWebKit/537.36 (KHTML, like Gecko) "
                "Chrome/137.0.0.0 Safari/537.36"
         )
 
     @staticmethod
-    def _qidian_stealth_init_script():
+    def _qdn_stealth_init_script():
         return """
 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 """
 
-    def _qidian_eval(self, page, script, arg=None, attempts=12, delay=0.75):
-        """Evaluate JS on a Qidian page, tolerating SPA reload races."""
+    def _qdn_eval(self, page, script, arg=None, attempts=12, delay=0.75):
+        """Evaluate JS on a Qdn page, tolerating SPA reload races."""
         last_error = None
         for _ in range(max(1, attempts)):
             try:
@@ -4438,8 +4438,8 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     time.sleep(delay)
         raise last_error
 
-    def _start_qidian_browser(self, start_url):
-        """Open Qidian in installed Chrome with the saved profile.
+    def _start_qdn_browser(self, start_url):
+        """Open Qdn in installed Chrome with the saved profile.
 
         The reader decrypts bought chapters in the page, and in headless
         Chrome that fails ("章节加载失败"). The off-screen headed Chrome used
@@ -4454,29 +4454,29 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         elif self._context or self._browser or self._chrome_process:
             self.cleanup()
 
-        if self._start_rbooks_browser(start_url, site='Qidian'):
-            self._prepare_qidian_context()
+        if self._start_rbooks_browser(start_url, site='Qdn'):
+            self._prepare_qdn_context()
             return True
         if self._chrome_processes_using_profile(self._get_user_data_dir()):
             # The Enter Browser window is still open; already reported.
             return False
         self.log(
-            "[Qidian] Installed Chrome could not start off-screen; using "
+            "[Qdn] Installed Chrome could not start off-screen; using "
             "headless Chrome. Bought chapters may not decrypt there."
         )
-        return self._start_qidian_headless(start_url)
+        return self._start_qdn_headless(start_url)
 
-    def _prepare_qidian_context(self):
+    def _prepare_qdn_context(self):
         """Restore the session login and watch the reader's font setup."""
-        restored = self._restore_session_cookies('qidian.com')
+        restored = self._restore_session_cookies('\u0071\u0069\u0064\u0069\u0061\u006e.com')
         restored += self._restore_session_cookies('yuewen.com')
         if restored:
             self.log(
-                f"[Qidian] Restored {restored} session login cookie(s) "
+                f"[Qdn] Restored {restored} session login cookie(s) "
                 "saved from Enter Browser."
             )
-            if self._qidian_session_live() is False:
-                # Qidian's pages renew the login from the remember-me `alk`
+            if self._qdn_session_live() is False:
+                # Qdn's pages renew the login from the remember-me `alk`
                 # cookie only when ywkey/ywguid are absent, so expired copies
                 # must go or they block the renewal.
                 for name in ('ywkey', 'ywguid', 'ywopenid'):
@@ -4485,25 +4485,25 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     except Exception:
                         pass
                 self.log(
-                    "[Qidian] The saved login has expired; letting Qidian "
+                    "[Qdn] The saved login has expired; letting Qdn "
                     "renew it. If VIP chapters stay locked, sign in again "
                     "with Enter Browser."
                 )
         try:
-            from qidian_font_decoder import QIDIAN_FONTFACE_HOOK_JS
-            self._context.add_init_script(QIDIAN_FONTFACE_HOOK_JS)
+            from qdn_font_decoder import QDN_FONTFACE_HOOK_JS
+            self._context.add_init_script(QDN_FONTFACE_HOOK_JS)
         except Exception as e:
-            self.log(f"[Qidian] Reader font hook unavailable: {e}")
+            self.log(f"[Qdn] Reader font hook unavailable: {e}")
 
-    def _qidian_session_live(self):
-        """True/False from Qidian's own user check; None when it can't tell."""
+    def _qdn_session_live(self):
+        """True/False from Qdn's own user check; None when it can't tell."""
         try:
             csrf = next((c['value'] for c in self._context.cookies(
-                ['https://www.qidian.com/']) if c['name'] == '_csrfToken'), '')
+                ['https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/']) if c['name'] == '_csrfToken'), '')
             response = self._context.request.get(
-                'https://www.qidian.com/ajax/UserInfo/GetUserInfo'
+                'https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/ajax/UserInfo/GetUserInfo'
                 f'?_csrfToken={urllib.parse.quote(csrf)}',
-                headers={'Referer': 'https://www.qidian.com/'}, timeout=15000,
+                headers={'Referer': 'https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/'}, timeout=15000,
             )
             data = response.json()
         except Exception:
@@ -4514,25 +4514,25 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return False
         return None
 
-    def _start_qidian_headless(self, start_url):
-        """Launch a headless persistent browser for Qidian downloads."""
+    def _start_qdn_headless(self, start_url):
+        """Launch a headless persistent browser for Qdn downloads."""
         user_data_dir = self._get_user_data_dir()
-        self.log("[Qidian] Launching headless browser with saved profile...")
+        self.log("[Qdn] Launching headless browser with saved profile...")
         self.log(f"Browser profile: {user_data_dir}")
 
         locked_pids = self._chrome_processes_using_profile(user_data_dir)
         if locked_pids:
             self.log(
-                "ERROR: [Qidian] Browser profile is currently open. Close "
+                "ERROR: [Qdn] Browser profile is currently open. Close "
                 "the regular login browser window before starting Download."
             )
             return False
 
         # Chrome's encrypted cookies can be tied to the original profile.
         # Copying it made a successful Enter Browser login disappear here.
-        qidian_user_data_dir = user_data_dir
+        qdn_user_data_dir = user_data_dir
 
-        qidian_args = [
+        qdn_args = [
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process',
             '--disable-blink-features=AutomationControlled',
@@ -4543,11 +4543,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             '--hide-crash-restore-bubble',
             '--lang=zh-CN',
         ]
-        qidian_context_options = {
+        qdn_context_options = {
             "headless": True,
-            "args": qidian_args,
+            "args": qdn_args,
             "ignore_https_errors": True,
-            "user_agent": self._qidian_desktop_user_agent(),
+            "user_agent": self._qdn_desktop_user_agent(),
             "viewport": {"width": 1280, "height": 800},
             "locale": "zh-CN",
             "timezone_id": "Asia/Shanghai",
@@ -4557,57 +4557,57 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             try:
                 self._context = (
                     self._playwright.chromium.launch_persistent_context(
-                        qidian_user_data_dir,
+                        qdn_user_data_dir,
                         channel="chrome",
-                        **qidian_context_options,
+                        **qdn_context_options,
                     )
                 )
-                self.log("[Qidian] Using installed Chrome in headless mode.")
+                self.log("[Qdn] Using installed Chrome in headless mode.")
             except Exception as chrome_error:
                 self.log(
-                    "[Qidian] Installed Chrome headless unavailable; "
+                    "[Qdn] Installed Chrome headless unavailable; "
                     "falling back to bundled Chromium."
                 )
-                self.log(f"[Qidian] Chrome launch warning: {chrome_error}")
+                self.log(f"[Qdn] Chrome launch warning: {chrome_error}")
                 self._context = (
                     self._playwright.chromium.launch_persistent_context(
-                        qidian_user_data_dir,
-                        **qidian_context_options,
+                        qdn_user_data_dir,
+                        **qdn_context_options,
                     )
                 )
 
             try:
                 self._context.add_init_script(
-                    self._qidian_stealth_init_script()
+                    self._qdn_stealth_init_script()
                 )
-                from qidian_font_decoder import QIDIAN_FONTFACE_HOOK_JS
-                self._context.add_init_script(QIDIAN_FONTFACE_HOOK_JS)
+                from qdn_font_decoder import QDN_FONTFACE_HOOK_JS
+                self._context.add_init_script(QDN_FONTFACE_HOOK_JS)
             except Exception:
                 pass
             # The original profile already contains the persistent cookies.
             # An older storage backup could overwrite those, so only add the
             # session login cookies Chrome dropped when Enter Browser closed.
-            restored = self._restore_session_cookies('qidian.com')
+            restored = self._restore_session_cookies('\u0071\u0069\u0064\u0069\u0061\u006e.com')
             restored += self._restore_session_cookies('yuewen.com')
             if restored:
                 self.log(
-                    f"[Qidian] Restored {restored} session login cookie(s) "
+                    f"[Qdn] Restored {restored} session login cookie(s) "
                     "saved from Enter Browser."
                 )
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
             self._page.on("console", self._on_console)
-            self.log("[Qidian] Headless browser ready.")
+            self.log("[Qdn] Headless browser ready.")
             return True
         except Exception as e:
             if self._is_profile_lock_error(e):
                 self.log(
-                    "ERROR: [Qidian] Browser profile is already open. "
+                    "ERROR: [Qdn] Browser profile is already open. "
                     "Close the Npia login browser window and try again."
                 )
             else:
                 self.log(
-                    "ERROR: [Qidian] Could not start headless browser. "
+                    "ERROR: [Qdn] Could not start headless browser. "
                     "Use Enter Browser for any login or verification, then "
                     f"retry. Details: {e}"
                 )
@@ -4615,13 +4615,13 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return False
 
     @staticmethod
-    def _qidian_abs_url(value):
+    def _qdn_abs_url(value):
         value = (value or '').strip()
         if value.startswith('//'):
             return 'https:' + value
-        return urllib.parse.urljoin('https://www.qidian.com/', value)
+        return urllib.parse.urljoin('https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/', value)
 
-    def _qidian_page_diagnostic(self, page):
+    def _qdn_page_diagnostic(self, page):
         script = r"""
 (() => {
   const html = document.documentElement?.innerHTML || '';
@@ -4646,11 +4646,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 })()
 """
         try:
-            return self._qidian_eval(page, script, attempts=1)
+            return self._qdn_eval(page, script, attempts=1)
         except Exception:
             return None
 
-    def _qidian_wait_for_book(self, page, timeout=45):
+    def _qdn_wait_for_book(self, page, timeout=45):
         deadline = time.time() + timeout
         script = """
 (() => {
@@ -4686,10 +4686,10 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 time.sleep(1)
         return False
 
-    def _qidian_wait_for_chapter(self, page, timeout=60):
+    def _qdn_wait_for_chapter(self, page, timeout=60):
         deadline = time.time() + timeout
         while time.time() < deadline and not self._stop_requested:
-            if self._qidian_chapter_ready(page):
+            if self._qdn_chapter_ready(page):
                 return True
             try:
                 page.wait_for_timeout(1000)
@@ -4697,7 +4697,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 time.sleep(1)
         return False
 
-    def _qidian_chapter_ready(self, page):
+    def _qdn_chapter_ready(self, page):
         script = """
 (() => {
   const main = document.querySelector(
@@ -4747,11 +4747,11 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         except Exception:
             return False
 
-    def _qidian_parallel_pages(self, count, start_url):
-        """Return one usable Qidian browser page per parallel chapter."""
+    def _qdn_parallel_pages(self, count, start_url):
+        """Return one usable Qdn browser page per parallel chapter."""
         count = max(1, count)
         if not self._context or not self._page:
-            if not self._start_qidian_browser(start_url):
+            if not self._start_qdn_browser(start_url):
                 return []
 
         if not self._page_is_usable(self._page):
@@ -4759,7 +4759,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 self._page = self._context.new_page()
                 self._page.on("console", self._on_console)
             except Exception as e:
-                self.log(f"  [Qidian] Could not create primary page: {e}")
+                self.log(f"  [Qdn] Could not create primary page: {e}")
                 return []
 
         usable_workers = []
@@ -4788,40 +4788,40 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 page.on("console", self._on_console)
                 self._worker_pages.append(page)
             except Exception as e:
-                self.log(f"  [Qidian] Worker page failed: {e}")
+                self.log(f"  [Qdn] Worker page failed: {e}")
                 break
 
         return ([self._page] + self._worker_pages)[:count]
 
-    def _qidian_parse_book(self, url):
-        """Scrape Qidian metadata and catalog from the rendered book page."""
+    def _qdn_parse_book(self, url):
+        """Scrape Qdn metadata and catalog from the rendered book page."""
         self._stop_requested = False
-        if not self._start_qidian_browser(url):
+        if not self._start_qdn_browser(url):
             return None
         try:
             # Bought chapters are decoded against reference glyphs that take
             # about two seconds to build; do it while the book page loads.
-            import qidian_font_decoder
-            qidian_font_decoder.warm_up()
+            import qdn_font_decoder
+            qdn_font_decoder.warm_up()
         except Exception:
             pass
 
-        self.log(f"[Qidian] Navigating to: {url}")
+        self.log(f"[Qdn] Navigating to: {url}")
         try:
             self._page.goto(url, wait_until="domcontentloaded", timeout=45000)
         except Exception as e:
-            self.log(f"[Qidian] Page load warning: {e}")
+            self.log(f"[Qdn] Page load warning: {e}")
 
-        if not self._qidian_wait_for_book(self._page):
-            diag = self._qidian_page_diagnostic(self._page)
+        if not self._qdn_wait_for_book(self._page):
+            diag = self._qdn_page_diagnostic(self._page)
             if diag and diag.get('verification'):
                 self.log(
-                    "ERROR: [Qidian] Qidian returned a verification/captcha "
+                    "ERROR: [Qdn] Qdn returned a verification/captcha "
                     "page in headless mode. Use Enter Browser to complete "
                     "verification, then retry Download."
                 )
                 self.log(
-                    "[Qidian] Page diagnostic: "
+                    "[Qdn] Page diagnostic: "
                     f"url={diag.get('url', '')}, "
                     f"title={diag.get('title', '')}, "
                     f"state={diag.get('readyState', '')}, "
@@ -4829,14 +4829,14 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 )
             elif diag:
                 self.log(
-                    "ERROR: [Qidian] Book page did not render. "
+                    "ERROR: [Qdn] Book page did not render. "
                     f"url={diag.get('url', '')}, "
                     f"title={diag.get('title', '')}, "
                     f"state={diag.get('readyState', '')}, "
                     f"text={diag.get('text', '')}"
                 )
             else:
-                self.log("ERROR: [Qidian] Book page did not render.")
+                self.log("ERROR: [Qdn] Book page did not render.")
             return None
 
         script = r"""
@@ -4918,49 +4918,49 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 })()
 """
         try:
-            data = self._qidian_eval(self._page, script)
+            data = self._qdn_eval(self._page, script)
         except Exception as e:
-            self.log(f"ERROR: [Qidian] Metadata extraction failed: {e}")
+            self.log(f"ERROR: [Qdn] Metadata extraction failed: {e}")
             return None
 
         if not data or not data.get('bookname'):
-            self.log("ERROR: [Qidian] Could not extract book title.")
+            self.log("ERROR: [Qdn] Could not extract book title.")
             return None
         if not data.get('chapters'):
-            self.log("ERROR: [Qidian] No chapters found.")
+            self.log("ERROR: [Qdn] No chapters found.")
             return None
 
-        data['_qidian'] = True
-        data['_qidian_min_interval'] = self._QIDIAN_MIN_INTERVAL
+        data['_qdn'] = True
+        data['_qdn_min_interval'] = self._QDN_MIN_INTERVAL
         self._book_data = data
         self._book_url = url
         self.log(
-            f"[Qidian] Book: {data.get('bookname', '?')} by "
+            f"[Qdn] Book: {data.get('bookname', '?')} by "
             f"{data.get('author', '?')} - {data.get('chapterCount', 0)} "
             "chapters"
         )
         return data
 
-    # Qidian's WAF ("WAF拦截页面 / 您的请求已中断") blocks the whole session
+    # Qdn's WAF ("WAF拦截页面 / 您的请求已中断") blocks the whole session
     # after bursts of chapter loads, so space loads out and, when it trips,
     # wait it out instead of recording every later chapter as locked.
-    _QIDIAN_MIN_GAP = 2.5
-    _QIDIAN_WAF_COOLDOWNS = (60, 180, 420, 900)
+    _QDN_MIN_GAP = 2.5
+    _QDN_WAF_COOLDOWNS = (60, 180, 420, 900)
 
-    def _qidian_sleep(self, seconds):
+    def _qdn_sleep(self, seconds):
         deadline = time.time() + seconds
         while time.time() < deadline and not self._stop_requested:
             time.sleep(min(0.5, max(0.0, deadline - time.time())))
         return not self._stop_requested
 
-    def _qidian_pace(self):
-        last = getattr(self, '_qidian_last_load', 0.0)
-        wait = last + self._QIDIAN_MIN_GAP - time.time()
+    def _qdn_pace(self):
+        last = getattr(self, '_qdn_last_load', 0.0)
+        wait = last + self._QDN_MIN_GAP - time.time()
         if wait > 0:
-            self._qidian_sleep(wait)
-        self._qidian_last_load = time.time()
+            self._qdn_sleep(wait)
+        self._qdn_last_load = time.time()
 
-    def _qidian_blocked(self, page):
+    def _qdn_blocked(self, page):
         try:
             return bool(page.evaluate(
                 "() => /WAF/.test(document.title || '')"
@@ -4969,33 +4969,33 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         except Exception:
             return False
 
-    def _qidian_wait_out_block(self, attempt, chapter_name):
+    def _qdn_wait_out_block(self, attempt, chapter_name):
         """Pause after a WAF block. False once every cooldown is used up."""
-        if attempt >= len(self._QIDIAN_WAF_COOLDOWNS):
+        if attempt >= len(self._QDN_WAF_COOLDOWNS):
             self.log(
-                f"  [Qidian] Still blocked by Qidian's firewall; giving up on "
+                f"  [Qdn] Still blocked by Qdn's firewall; giving up on "
                 f"{chapter_name}. Wait a while, then download the rest."
             )
             return False
-        pause = self._QIDIAN_WAF_COOLDOWNS[attempt]
+        pause = self._QDN_WAF_COOLDOWNS[attempt]
         self.log(
-            f"  [Qidian] Qidian's firewall is blocking requests (WAF拦截). "
+            f"  [Qdn] Qdn's firewall is blocking requests (WAF拦截). "
             f"Pausing {pause // 60} min before retrying {chapter_name} "
-            f"({attempt + 1}/{len(self._QIDIAN_WAF_COOLDOWNS)})."
+            f"({attempt + 1}/{len(self._QDN_WAF_COOLDOWNS)})."
         )
-        return self._qidian_sleep(pause)
+        return self._qdn_sleep(pause)
 
-    def _qidian_parse_chapter(self, chapter_url, chapter_name, page=None):
-        """Scrape one rendered Qidian chapter."""
+    def _qdn_parse_chapter(self, chapter_url, chapter_name, page=None):
+        """Scrape one rendered Qdn chapter."""
         if not self._context or not self._page:
-            if not self._start_qidian_browser(chapter_url):
+            if not self._start_qdn_browser(chapter_url):
                 return None
 
         target = page or self._page
-        for attempt in range(len(self._QIDIAN_WAF_COOLDOWNS) + 1):
+        for attempt in range(len(self._QDN_WAF_COOLDOWNS) + 1):
             if self._stop_requested:
                 return None
-            self._qidian_pace()
+            self._qdn_pace()
             try:
                 goto_kwargs = {
                     "wait_until": "domcontentloaded",
@@ -5005,17 +5005,17 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     goto_kwargs["referer"] = self._book_url
                 target.goto(chapter_url, **goto_kwargs)
             except Exception as e:
-                self.log(f"  [Qidian] Page load warning: {e}")
-            if not self._qidian_blocked(target):
+                self.log(f"  [Qdn] Page load warning: {e}")
+            if not self._qdn_blocked(target):
                 break
-            if not self._qidian_wait_out_block(attempt, chapter_name):
+            if not self._qdn_wait_out_block(attempt, chapter_name):
                 return None
 
-        if not self._qidian_wait_for_chapter(target):
-            self.log(f"  [Qidian] Timed out waiting for: {chapter_name}")
+        if not self._qdn_wait_for_chapter(target):
+            self.log(f"  [Qdn] Timed out waiting for: {chapter_name}")
             return None
-        if self._qidian_is_encrypted(target):
-            return self._qidian_decode_encrypted(target, chapter_name)
+        if self._qdn_is_encrypted(target):
+            return self._qdn_decode_encrypted(target, chapter_name)
 
         script = r"""
 (chapterName) => {
@@ -5093,7 +5093,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
   const contentText = paras.join('\n');
   // A guest or unpurchased VIP chapter renders a few real paragraphs and
-  // a subscribe prompt. Qidian's own page data says which one this is.
+  // a subscribe prompt. Qdn's own page data says which one this is.
   let pageData = null;
   try {
     pageData = JSON.parse(
@@ -5134,21 +5134,21 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 }
 """
         try:
-            data = self._qidian_eval(
+            data = self._qdn_eval(
                 target, script, arg=chapter_name, attempts=10
             )
         except Exception as e:
-            self.log(f"  [Qidian] Chapter extraction failed: {e}")
+            self.log(f"  [Qdn] Chapter extraction failed: {e}")
             return None
 
         if not data:
-            self.log(f"  [Qidian] Empty result for: {chapter_name}")
+            self.log(f"  [Qdn] Empty result for: {chapter_name}")
             return None
         if data.get('error') == 'locked':
-            return self._qidian_locked_result(data, chapter_name)
+            return self._qdn_locked_result(data, chapter_name)
         if data.get('error') == 'verification':
             self.log(
-                f"  [Qidian] Verification required for: {chapter_name}. "
+                f"  [Qdn] Verification required for: {chapter_name}. "
                 "Use Enter Browser to complete login or verification, then "
                 "retry."
             )
@@ -5159,27 +5159,27 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             }
         if data.get('error'):
             self.log(
-                f"  [Qidian] {data.get('error')} for: {chapter_name}"
+                f"  [Qdn] {data.get('error')} for: {chapter_name}"
             )
             return None
         return data
 
-    def _qidian_locked_result(self, data, chapter_name):
+    def _qdn_locked_result(self, data, chapter_name):
         reason = data.get('reason') or ''
         if reason == 'login':
             detail = ('preview only; the saved profile is not signed in to '
-                      'Qidian. Sign in with Enter Browser, close it, then retry')
+                      'Qdn. Sign in with Enter Browser, close it, then retry')
         elif reason == 'purchase':
             detail = 'preview only; this account has not bought the chapter'
         else:
             detail = 'LOCKED or login required'
         if data.get('expected'):
             detail += f" ({data.get('chars', 0)}/{data['expected']} chars)"
-        self.log(f"  [Qidian] {detail}: {chapter_name}")
+        self.log(f"  [Qdn] {detail}: {chapter_name}")
         return {'_locked': True, 'chapterName': chapter_name,
                 '_lockReason': reason or 'locked'}
 
-    _QIDIAN_ENCRYPTION_STATE_JS = r"""
+    _QDN_ENCRYPTION_STATE_JS = r"""
 () => {
   let pageData = null;
   try {
@@ -5210,21 +5210,21 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 }
 """
 
-    def _qidian_encryption_state(self, page):
+    def _qdn_encryption_state(self, page):
         try:
-            return page.evaluate(self._QIDIAN_ENCRYPTION_STATE_JS) or {}
+            return page.evaluate(self._QDN_ENCRYPTION_STATE_JS) or {}
         except Exception:
             return {}
 
-    def _qidian_is_encrypted(self, page):
-        return bool(self._qidian_encryption_state(page).get('encrypted'))
+    def _qdn_is_encrypted(self, page):
+        return bool(self._qdn_encryption_state(page).get('encrypted'))
 
-    def _qidian_decode_encrypted(self, page, chapter_name, timeout=150):
-        """Read a bought chapter that Qidian renders with cipher fonts."""
-        import qidian_font_decoder
-        if not qidian_font_decoder.available():
+    def _qdn_decode_encrypted(self, page, chapter_name, timeout=150):
+        """Read a bought chapter that Qdn renders with cipher fonts."""
+        import qdn_font_decoder
+        if not qdn_font_decoder.available():
             self.log(
-                "  [Qidian] Bought chapters need numpy and a Chinese reference "
+                "  [Qdn] Bought chapters need numpy and a Chinese reference "
                 f"font to decode; neither was found: {chapter_name}"
             )
             return None
@@ -5238,7 +5238,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         deadline = time.time() + timeout
         state = {}
         while time.time() < deadline and not self._stop_requested:
-            state = self._qidian_encryption_state(page)
+            state = self._qdn_encryption_state(page)
             if state.get('rendered') or state.get('failed') or state.get('blocked'):
                 break
             try:
@@ -5246,33 +5246,33 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             except Exception:
                 time.sleep(0.1)
         if state.get('blocked'):
-            self.log(f"  [Qidian] Blocked by Qidian's firewall: {chapter_name}")
+            self.log(f"  [Qdn] Blocked by Qdn's firewall: {chapter_name}")
             return None
         if state.get('failed'):
             self.log(
-                f"  [Qidian] The reader could not decrypt {chapter_name} "
+                f"  [Qdn] The reader could not decrypt {chapter_name} "
                 "(章节加载失败). Retry, or open it once in Enter Browser."
             )
             return None
         if not state.get('rendered'):
-            self.log(f"  [Qidian] Timed out decrypting: {chapter_name}")
+            self.log(f"  [Qdn] Timed out decrypting: {chapter_name}")
             return None
         try:
-            payload = page.evaluate(qidian_font_decoder.QIDIAN_EXTRACT_JS)
-            lines, stats = qidian_font_decoder.decode_payload(payload or {})
+            payload = page.evaluate(qdn_font_decoder.QDN_EXTRACT_JS)
+            lines, stats = qdn_font_decoder.decode_payload(payload or {})
         except Exception as e:
-            self.log(f"  [Qidian] Could not decode {chapter_name}: {e}")
+            self.log(f"  [Qdn] Could not decode {chapter_name}: {e}")
             return None
         text = '\n'.join(lines)
         words = int(state.get('words') or 0)
         if not lines or (words >= 500 and len(text) < words * 0.8):
             self.log(
-                f"  [Qidian] Decoded text is incomplete for {chapter_name} "
+                f"  [Qdn] Decoded text is incomplete for {chapter_name} "
                 f"({len(text)}/{words} chars)."
             )
             return None
         self.log(
-            f"  [Qidian] Decoded font-encrypted chapter: {len(lines)} "
+            f"  [Qdn] Decoded font-encrypted chapter: {len(lines)} "
             f"paragraphs, {stats['decoded']} glyphs"
             + (f", {stats['low_confidence']} uncertain"
                if stats['low_confidence'] else '')
@@ -5288,10 +5288,10 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             'images': [],
         }
 
-    def _qidian_extract_loaded_chapter(self, page, chapter_name):
-        """Extract one Qidian chapter from a page that already navigated."""
-        if self._qidian_is_encrypted(page):
-            return self._qidian_decode_encrypted(page, chapter_name)
+    def _qdn_extract_loaded_chapter(self, page, chapter_name):
+        """Extract one Qdn chapter from a page that already navigated."""
+        if self._qdn_is_encrypted(page):
+            return self._qdn_decode_encrypted(page, chapter_name)
         script = r"""
 (chapterName) => {
   const escapeHtml = (value) => String(value || '')
@@ -5368,7 +5368,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   paras = paras.filter((line) => !/^(\d+\s*){1,4}$/.test(line));
   const contentText = paras.join('\n');
   // A guest or unpurchased VIP chapter renders a few real paragraphs and
-  // a subscribe prompt. Qidian's own page data says which one this is.
+  // a subscribe prompt. Qdn's own page data says which one this is.
   let pageData = null;
   try {
     pageData = JSON.parse(
@@ -5409,20 +5409,20 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 }
 """
         try:
-            data = self._qidian_eval(page, script, arg=chapter_name,
+            data = self._qdn_eval(page, script, arg=chapter_name,
                                      attempts=10)
         except Exception as e:
-            self.log(f"  [Qidian] Chapter extraction failed: {e}")
+            self.log(f"  [Qdn] Chapter extraction failed: {e}")
             return None
 
         if not data:
-            self.log(f"  [Qidian] Empty result for: {chapter_name}")
+            self.log(f"  [Qdn] Empty result for: {chapter_name}")
             return None
         if data.get('error') == 'locked':
-            return self._qidian_locked_result(data, chapter_name)
+            return self._qdn_locked_result(data, chapter_name)
         if data.get('error') == 'verification':
             self.log(
-                f"  [Qidian] Verification required for: {chapter_name}. "
+                f"  [Qdn] Verification required for: {chapter_name}. "
                 "Use Enter Browser to complete login or verification, then "
                 "retry."
             )
@@ -5433,18 +5433,18 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             }
         if data.get('error'):
             self.log(
-                f"  [Qidian] {data.get('error')} for: {chapter_name}"
+                f"  [Qdn] {data.get('error')} for: {chapter_name}"
             )
             return None
         return data
 
-    def _qidian_parse_chapter_batch_parallel(self, batch_info):
-        """Load a Qidian batch across multiple Chrome tabs/pages."""
+    def _qdn_parse_chapter_batch_parallel(self, batch_info):
+        """Load a Qdn batch across multiple Chrome tabs/pages."""
         if not batch_info:
             return []
 
         first_url = batch_info[0].get('url', '') or self._book_url
-        pages = self._qidian_parallel_pages(len(batch_info), first_url)
+        pages = self._qdn_parallel_pages(len(batch_info), first_url)
         if not pages:
             return [None] * len(batch_info)
 
@@ -5454,7 +5454,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 break
             url = ch.get('url', '')
             name = ch.get('fullName', '') or ch.get('name', '')
-            self._qidian_pace()
+            self._qdn_pace()
             try:
                 goto_kwargs = {
                     "wait_until": "commit",
@@ -5464,7 +5464,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     goto_kwargs["referer"] = self._book_url
                 page.goto(url, **goto_kwargs)
             except Exception as e:
-                self.log(f"  [Qidian] Page load warning for {name}: {e}")
+                self.log(f"  [Qdn] Page load warning for {name}: {e}")
             active.append((i, page, name))
 
         results = [None] * len(batch_info)
@@ -5475,35 +5475,35 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         while pending and time.time() < deadline and not self._stop_requested:
             for i in list(pending):
                 page, _name = active_by_index[i]
-                if self._qidian_chapter_ready(page):
+                if self._qdn_chapter_ready(page):
                     pending.remove(i)
             if pending:
                 time.sleep(0.25)
 
         for i in sorted(pending):
             _page, name = active_by_index[i]
-            self.log(f"  [Qidian] Timed out waiting for: {name}")
+            self.log(f"  [Qdn] Timed out waiting for: {name}")
 
         retry = []
         for i, page, name in active:
             if self._stop_requested:
                 continue
-            if i in pending or self._qidian_blocked(page):
+            if i in pending or self._qdn_blocked(page):
                 retry.append(i)
                 continue
-            results[i] = self._qidian_extract_loaded_chapter(page, name)
+            results[i] = self._qdn_extract_loaded_chapter(page, name)
             result = results[i]
             if result is None or (result or {}).get('_verification_required'):
                 retry.append(i)
 
         # Blocked, timed-out or unfinished tabs are read again one at a time;
-        # that path waits out Qidian's firewall instead of giving up.
+        # that path waits out Qdn's firewall instead of giving up.
         for i in retry:
             if self._stop_requested:
                 break
             ch = batch_info[i]
             name = ch.get('fullName', '') or ch.get('name', '')
-            results[i] = self._qidian_parse_chapter(ch.get('url', ''), name)
+            results[i] = self._qdn_parse_chapter(ch.get('url', ''), name)
         return results
 
     # ------------------------------------------------------------------
@@ -18501,9 +18501,9 @@ async (ids) => {
         if self.is_kpage(url):
             self.log("[Kpage] Detected Kpage URL, using native scraper.")
             return self._kpage_parse_book(url)
-        if self.is_qidian(url):
-            self.log("[Qidian] Detected Qidian URL, using native scraper.")
-            return self._qidian_parse_book(url)
+        if self.is_qdn(url):
+            self.log("[Qdn] Detected Qdn URL, using native scraper.")
+            return self._qdn_parse_book(url)
         if self.is_ntk_novel(url):
             return self._ntk_parse_book(url)
         if self.is_yeduji(url):
@@ -18766,14 +18766,14 @@ async (ids) => {
             result = self._nweb_parse_chapter(url, name)
             self._sleep_interval(interval, interval_max)
             return result
-        if self._book_data and self._book_data.get('_qidian'):
+        if self._book_data and self._book_data.get('_qdn'):
             url = chapter_info.get('url', '')
             name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
-            result = self._qidian_parse_chapter(url, name, page=page)
+            result = self._qdn_parse_chapter(url, name, page=page)
             self._sleep_interval(
                 interval,
                 interval_max,
-                minimum=self._QIDIAN_MIN_INTERVAL,
+                minimum=self._QDN_MIN_INTERVAL,
             )
             return result
 
@@ -19119,10 +19119,10 @@ async (ids) => {
                 max_workers=max(1, len(batch_info))
             ) as executor:
                 return list(executor.map(fetch_nweb, enumerate(batch_info)))
-        # Qidian: render one chapter per browser page, up to the UI thread
+        # Qdn: render one chapter per browser page, up to the UI thread
         # count that the dialog used to size this batch.
-        if self._book_data and self._book_data.get('_qidian'):
-            return self._qidian_parse_chapter_batch_parallel(batch_info)
+        if self._book_data and self._book_data.get('_qdn'):
+            return self._qdn_parse_chapter_batch_parallel(batch_info)
         if self._book_data and self._book_data.get('_ntk_novel'):
             if self._ntk_browser_fallback:
                 if self._book_data.get('_ntk_kind') == 'webtoon':
