@@ -1,6 +1,6 @@
-"""Read Faloo VIP chapter images back into text.
+"""Read Floo VIP chapter images back into text.
 
-Faloo never sends a bought VIP chapter's text to the browser; its reader
+Floo never sends a bought VIP chapter's text to the browser; its reader
 shows images drawn on the server (Page4VipImage.aspx) with GDI+ ClearType
 text in Microsoft YaHei, saved as web-palette GIFs. The image request
 accepts font_size=32 and font_color=000000, which gives crisp black text on
@@ -11,7 +11,7 @@ the user's own Windows machine; the font is not redistributable), then reads
 each image line by line: full-width cells are matched against the reference
 glyphs with a small alignment search and a character-frequency prior, and
 half-width runs (digits, Latin, brackets) are matched at their real advance
-widths so the grid stays in sync. Faloo's anti-OCR strike lines are erased
+widths so the grid stays in sync. Floo's anti-OCR strike lines are erased
 first and its watermarks are removed from the text.
 """
 import hashlib
@@ -42,7 +42,7 @@ _STRIKE_MIN = 36
 FULL_PUNCT = '，。、；：？！“”‘’（）《》〈〉【】〔〕「」『』…—～·￥'
 ASCII = ''.join(chr(c) for c in range(0x21, 0x7f))
 _HERE = getattr(sys, '_MEIPASS', None) or os.path.dirname(os.path.abspath(__file__))
-_ATLAS_SCRIPT = os.path.join(_HERE, 'data', 'faloo_glyph_atlas.ps1')
+_ATLAS_SCRIPT = os.path.join(_HERE, 'data', 'floo_glyph_atlas.ps1')
 _FONT_PATH = os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts', 'msyh.ttc')
 
 
@@ -185,7 +185,7 @@ class _Atlas:
     def _load_or_build(self, chars):
         key = hashlib.sha1(('\n'.join(chars) + f'|{ATLAS_VERSION}|'
                             + str(os.path.getsize(_FONT_PATH))).encode('utf-8')).hexdigest()[:16]
-        path = os.path.join(_cache_dir(), f'faloo_glyphs_{key}.npz')
+        path = os.path.join(_cache_dir(), f'floo_glyphs_{key}.npz')
         if os.path.exists(path):
             data = np.load(path)
             return data['glyphs'], data['advances']
@@ -239,13 +239,13 @@ class _Atlas:
 def warm_up():
     if not available():
         return None
-    thread = threading.Thread(target=_Atlas.get, name='faloo-atlas', daemon=True)
+    thread = threading.Thread(target=_Atlas.get, name='floo-atlas', daemon=True)
     thread.start()
     return thread
 
 
 def _erase_strike_lines(ink):
-    """Remove Faloo's decoy underlines and return (ink, erased mask).
+    """Remove Floo's decoy underlines and return (ink, erased mask).
 
     Some phrases are underlined to disturb OCR. Measured on real chapters,
     every such line is exactly 2px thick and sits in the last two ink rows
@@ -426,7 +426,7 @@ class _LineReader:
         return start + shifts[int(scores.argmax())]
 
     def _punct(self, ink, top, x):
-        """Full-width punctuation, which Faloo places up to ~8px away from
+        """Full-width punctuation, which Floo places up to ~8px away from
         where GDI+ draws it alone, so it gets a wider horizontal search."""
         atlas = self.atlas
         ids = atlas.punct
@@ -439,7 +439,7 @@ class _LineReader:
         solid = area > 0.35
         if not solid.any():
             return best
-        # Faloo draws each mark identically every time; reuse the answer.
+        # Floo draws each mark identically every time; reuse the answer.
         # Key on the cell itself; the mark never leaves it.
         rows = CELL_H + 2 * self.punct_rows
         key = b'p' + self._tall_window(ink, top - self.punct_rows, x - 2, PITCH + 4,
@@ -691,7 +691,7 @@ def _calibrate_phase(ink, atlas, bands, tops, origin, samples=60):
 
 
 def read_image(data, cache=None):
-    """Lines of one Faloo chapter image as (text, starts_paragraph)."""
+    """Lines of one Floo chapter image as (text, starts_paragraph)."""
     atlas = _Atlas.get()
     if isinstance(data, (bytes, bytearray)):
         image = Image.open(io.BytesIO(data))
@@ -737,12 +737,12 @@ def read_image(data, cache=None):
     return lines
 
 
-# e.g. [072409129飞卢083493221]; digits may be misread as letters.
+# e.g. [072409129floo083493221]; digits may be misread as letters.
 _WATERMARK_INLINE = re.compile(
-    r'[\[\]［］「」|lI]?[0-9０-９A-Za-z|\ufffd]{4,14}飞卢[0-9０-９A-Za-z|\ufffd]{4,14}[\[\]［］「」|lI！!]?')
-_AD = re.compile(r'[（(][^（）()]{0,12}就上飞卢小说网[^（）()]{0,3}[）)]')
+    r'[\[\]［］「」|lI]?[0-9０-９A-Za-z|\ufffd]{4,14}\u98de\u5362[0-9０-９A-Za-z|\ufffd]{4,14}[\[\]［］「」|lI！!]?')
+_AD = re.compile(r'[（(][^（）()]{0,12}就上\u98de\u5362小说网[^（）()]{0,3}[）)]')
 _LONE_DASH = re.compile(r'(?<=[\u3400-\u9fff])—(?=[\u3400-\u9fff])')
-_WATERMARK_LINE = re.compile(r'^\s*(?:飞卢提醒您|支持飞卢小说网)')
+_WATERMARK_LINE = re.compile(r'^\s*(?:\u98de\u5362提醒您|支持\u98de\u5362小说网)')
 
 
 def lines_to_paragraphs(lines):
@@ -752,7 +752,7 @@ def lines_to_paragraphs(lines):
         body = text.strip('\u3000 ')
         if not body:
             continue
-        # Faloo's footer paragraphs ("飞卢提醒您…", "支持飞卢小说网…") wrap onto
+        # Floo's footer paragraphs ("floo提醒您…", "支持floo小说网…") wrap onto
         # continuation lines that carry the reader's ID and IP; drop them all.
         if new_paragraph or not paragraphs:
             dropping = bool(_WATERMARK_LINE.match(body))
@@ -767,7 +767,7 @@ def lines_to_paragraphs(lines):
         paragraph = _WATERMARK_INLINE.sub('', paragraph).strip()
         # "—" and "一" are the same stroke; a dash comes in pairs ("——").
         paragraph = _LONE_DASH.sub('一', paragraph)
-        # Faloo inserts its own ads, e.g. （看爽小说，就上飞卢小说网！）.
+        # Floo inserts its own ads, e.g. （看爽小说，就上floo小说网！）.
         paragraph = _AD.sub('', paragraph).strip()
         if paragraph:
             cleaned.append(paragraph)

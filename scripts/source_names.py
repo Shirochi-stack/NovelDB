@@ -9,6 +9,7 @@ import json
 import re
 
 _PAIRS = [
+    ("RmFsb28=", "floo"), ("6aOe5Y2i", "floo"), ("6aOb55un", "floo"),
     ("TmF2ZXIgV2ViIE5vdmVs", "nweb"), ("TmF2ZXIgU2VyaWVz", "nseries"),
     ("bmF2ZXJzZXJpZXM=", "nseries"), ("S2FrYW8gUGFnZQ==", "kpage"),
     ("S2FrYW9QYWdl", "kpage"), ("UmlkaWJvb2tz", "rbooks"),

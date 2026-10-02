@@ -18,6 +18,7 @@ from scripts.metadata_common import SOURCE_LABELS
     ('is_rbooks', 'cmlkaWJvb2tzLmNvbQ==', '/books/1234567890'),
     ('is_nweb_novel', 'bm92ZWwubmF2ZXIuY29t', '/webnovel/list?novelId=123'),
     ('is_nweb_series', 'c2VyaWVzLm5hdmVyLmNvbQ==', '/novel/detail.series?productNo=123'),
+    ('is_floo', 'Yi5mYWxvby5jb20=', '/724903.html'),
 ])
 def test_codename_detectors_recognize_real_wire_hosts(method, encoded, path):
     host = base64.b64decode(encoded).decode()

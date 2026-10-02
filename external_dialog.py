@@ -580,7 +580,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
-                        and not self._scraper.is_faloo(url)
+                        and not self._scraper.is_floo(url)
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_npia(url)
                         and not self._scraper.is_rbooks(url)
@@ -809,8 +809,8 @@ class ExternalNovelDialog(tk.Toplevel):
             is_69shuba = bool(
                 self._book_data and self._book_data.get("_69shuba")
             )
-            is_faloo = bool(
-                self._book_data and self._book_data.get("_faloo")
+            is_floo = bool(
+                self._book_data and self._book_data.get("_floo")
             )
             is_xiyuwx = bool(
                 self._book_data and self._book_data.get("_xiyuwx")
@@ -830,7 +830,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     and not is_rbooks
                     and not is_kobo
                     and not is_global_npia
-                    and not is_69shuba and not is_1qxs and not is_faloo
+                    and not is_69shuba and not is_1qxs and not is_floo
                     and not is_xiyuwx
                     and not is_jara and not is_nweb_novel
                     and not (self._book_data and self._book_data.get('_qidian'))):
@@ -1343,8 +1343,8 @@ class ExternalNovelDialog(tk.Toplevel):
             self._log(f"\u274c Download error: {e}")
         finally:
             if (self._scraper and self._book_data
-                    and self._book_data.get('_faloo')):
-                self._scraper.close_faloo_pages()
+                    and self._book_data.get('_floo')):
+                self._scraper.close_floo_pages()
 
     def _do_open_browser(self, start_url=None, regular_browser=False):
         """Open a visible browser on the worker thread for manual login."""
@@ -1441,7 +1441,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 "only free chapters."
             )
         elif start_url and any((
-            ExternalScraper.is_faloo(start_url),
+            ExternalScraper.is_floo(start_url),
             ExternalScraper.is_qidian(start_url),
             ExternalScraper.is_rbooks(start_url),
             ExternalScraper.is_kobo(start_url),
@@ -1747,7 +1747,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_yeduji(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
-                        and not self._scraper.is_faloo(url)
+                        and not self._scraper.is_floo(url)
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_npia(url)
                         and not self._scraper.is_rbooks(url)
@@ -2022,7 +2022,7 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_qidian(url)
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
-                        and not self._scraper.is_faloo(url)
+                        and not self._scraper.is_floo(url)
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_npia(url)
                         and not self._scraper.is_rbooks(url)

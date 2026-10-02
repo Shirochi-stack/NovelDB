@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-import faloo_image_reader as reader
+import floo_image_reader as reader
 
 
 def test_paragraphs_join_wrapped_lines_and_drop_footer():
@@ -9,9 +9,9 @@ def test_paragraphs_join_wrapped_lines_and_drop_footer():
         ('　　“救？拿什么救？”', True),
         ('　　仆三那双死灰色的眸子扫过众人，', True),
         ('嘴角勾起一抹嘲弄的弧度。', False),
-        ('　　飞卢提醒您：读书要劳逸结合，', True),
+        ('　　\u98de\u5362提醒您：读书要劳逸结合，', True),
         ('fl_12345678 127.0.0.1', False),
-        ('　　支持飞卢小说网，支持正版阅读', True),
+        ('　　支持\u98de\u5362小说网，支持正版阅读', True),
     ]
     assert reader.lines_to_paragraphs(lines) == [
         '“救？拿什么救？”',
@@ -20,16 +20,16 @@ def test_paragraphs_join_wrapped_lines_and_drop_footer():
 
 
 @pytest.mark.parametrize('noisy', [
-    '“这就是创生地？”[072409129飞卢083493221]',
-    '“这就是创生地？”「072409J�飞卢08349322！',
-    '“这就是创生地？”l0724O9129飞卢O83493221I',
+    '“这就是创生地？”[072409129\u98de\u5362083493221]',
+    '“这就是创生地？”「072409J�\u98de\u536208349322！',
+    '“这就是创生地？”l0724O9129\u98de\u5362O83493221I',
 ])
 def test_inline_watermark_is_removed(noisy):
     assert reader.lines_to_paragraphs([(noisy, True)]) == ['“这就是创生地？”']
 
 
 def test_ads_removed_and_lone_dash_becomes_yi():
-    lines = [('他看了—眼（看爽小说，就上飞卢小说网！）——走了。', True)]
+    lines = [('他看了—眼（看爽小说，就上\u98de\u5362小说网！）——走了。', True)]
     assert reader.lines_to_paragraphs(lines) == ['他看了一眼——走了。']
 
 

@@ -7,7 +7,7 @@ param(
   [int]$CellH = 56,
   [int]$Columns = 100
 )
-# Render reference glyphs the way Faloo's reader images are drawn: GDI+
+# Render reference glyphs the way Floo's reader images are drawn: GDI+
 # ClearType text in Microsoft YaHei, black on white. One glyph per cell,
 # drawn at (8, 8). Also writes each glyph's advance width in pixels.
 $ErrorActionPreference = 'Stop'

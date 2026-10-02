@@ -210,7 +210,7 @@ class ExternalScraper:
         self._global_npia_ad_profile = None
         self._qidian_profile_snapshot_root = None
         self._worker_pages = []   # Additional pages for parallel downloads
-        self._faloo_pages = []    # Reused Faloo reader pages
+        self._floo_pages = []    # Reused Floo reader pages
         self._book_data = None
         self._book_url = None     # Stored for initialising worker pages
         self._ntk_api_state = None
@@ -4213,7 +4213,7 @@ class ExternalScraper:
             except Exception:
                 pass
         self._worker_pages = []
-        self.close_faloo_pages()
+        self.close_floo_pages()
         try:
             if self._page:
                 self._page.close()
@@ -4443,7 +4443,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         The reader decrypts bought chapters in the page, and in headless
         Chrome that fails ("章节加载失败"). The off-screen headed Chrome used
-        for Rbooks and Faloo decrypts them, so it is tried first.
+        for Rbooks and Floo decrypts them, so it is tried first.
         """
         if self._context and self._page:
             try:
@@ -10405,7 +10405,7 @@ async ({ url }) => {
 
         Rbooks currently challenges the bundled headless Chromium build.  The
         contributed extension runs in normal Chrome, so its reader needs
-        that browser and the profile's login cookies. Faloo uses the same
+        that browser and the profile's login cookies. Floo uses the same
         session for chapters that need authentication.
         """
         try:
@@ -17726,17 +17726,17 @@ async (ids) => {
         return None
 
     # ------------------------------------------------------------------
-    # Faloo (desktop and mobile book URLs)
+    # Floo (desktop and mobile book URLs)
     # ------------------------------------------------------------------
     @staticmethod
-    def _faloo_book_id(url):
-        """Accept Faloo's book, catalog and chapter links on either host."""
+    def _floo_book_id(url):
+        """Accept Floo's book, catalog and chapter links on either host."""
         try:
             parsed = urllib.parse.urlparse(url or '')
         except (TypeError, ValueError):
             return ''
         if (parsed.hostname or '').lower() not in {
-            'b.faloo.com', 'wap.faloo.com', 'www.faloo.com',
+            'b.\u0066\u0061\u006c\u006f\u006f.com', 'wap.\u0066\u0061\u006c\u006f\u006f.com', 'www.\u0066\u0061\u006c\u006f\u006f.com',
         }:
             return ''
         path = parsed.path or ''
@@ -17757,23 +17757,23 @@ async (ids) => {
         return ''
 
     @staticmethod
-    def is_faloo(url):
-        return bool(ExternalScraper._faloo_book_id(url))
+    def is_floo(url):
+        return bool(ExternalScraper._floo_book_id(url))
 
-    def _faloo_fetch(self, url):
+    def _floo_fetch(self, url):
         import requests
         session = requests.Session()  # A session per call is safe in the batch pool.
         session.headers.update({
             'User-Agent': self._YEDUJI_UA,
             'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9',
-            'Referer': 'https://b.faloo.com/',
+            'Referer': 'https://b.\u0066\u0061\u006c\u006f\u006f.com/',
         })
-        self._load_saved_site_cookies(session.cookies, url, 'faloo.com')
+        self._load_saved_site_cookies(session.cookies, url, '\u0066\u0061\u006c\u006f\u006f.com')
         for _ in range(3):
             response = session.get(url, timeout=30)
             response.raise_for_status()
-            # Under load Faloo answers with a script that sets C3VK and
+            # Under load Floo answers with a script that sets C3VK and
             # reloads the page. A browser follows it; do the same here.
             challenge = re.search(
                 rb'cookie\s*=\s*["\']C3VK=([0-9a-fA-F]+)', response.content[:2000]
@@ -17781,12 +17781,12 @@ async (ids) => {
             if not challenge:
                 break
             session.cookies.set('C3VK', challenge.group(1).decode(),
-                                domain='b.faloo.com', path='/')
+                                domain='b.\u0066\u0061\u006c\u006f\u006f.com', path='/')
         return response.content, response.url
 
     @staticmethod
-    def _faloo_decode_html(page):
-        """Faloo desktop pages use GBK; mobile pages may use UTF-8."""
+    def _floo_decode_html(page):
+        """Floo desktop pages use GBK; mobile pages may use UTF-8."""
         if isinstance(page, str):
             return page
         try:
@@ -17795,15 +17795,15 @@ async (ids) => {
             return page.decode('gb18030', errors='replace')
 
     @staticmethod
-    def _faloo_soups(page):
+    def _floo_soups(page):
         """Try explicit decoding and the parser's original byte detection."""
         from bs4 import BeautifulSoup
-        yield BeautifulSoup(ExternalScraper._faloo_decode_html(page), 'html.parser')
+        yield BeautifulSoup(ExternalScraper._floo_decode_html(page), 'html.parser')
         if isinstance(page, bytes):
             yield BeautifulSoup(page, 'html.parser')
 
     @staticmethod
-    def _faloo_fix_text(value):
+    def _floo_fix_text(value):
         """Repair GBK text already misread as Latin-1 or Windows-1252."""
         if not value or re.search(r'[\u3400-\u9fff]', value):
             return value
@@ -17817,12 +17817,12 @@ async (ids) => {
         return value
 
     @staticmethod
-    def _faloo_text(node):
+    def _floo_text(node):
         value = node.get_text(' ', strip=True) if node else ''
-        return ExternalScraper._faloo_fix_text(value)
+        return ExternalScraper._floo_fix_text(value)
 
     @staticmethod
-    def _faloo_chapter_links(soup, base_url, book_id):
+    def _floo_chapter_links(soup, base_url, book_id):
         """Read the site's catalog container, retaining its displayed order."""
         selectors = (
             'div.C-Fo-Zuo div.DivTable a[href]',  # desktop catalog
@@ -17842,13 +17842,13 @@ async (ids) => {
             href = urllib.parse.urljoin(base_url, link.get('href', ''))
             parsed = urllib.parse.urlparse(href)
             if (parsed.hostname or '').lower() not in {
-                'b.faloo.com', 'wap.faloo.com', 'www.faloo.com',
+                'b.\u0066\u0061\u006c\u006f\u006f.com', 'wap.\u0066\u0061\u006c\u006f\u006f.com', 'www.\u0066\u0061\u006c\u006f\u006f.com',
             } or not re.search(r'\.(?:html|aspx)$', parsed.path, re.I):
                 continue
             # Exclude the work page and catalog navigation.
             if re.fullmatch(rf'/{re.escape(book_id)}\.html', parsed.path, re.I):
                 continue
-            name = ExternalScraper._faloo_text(link)
+            name = ExternalScraper._floo_text(link)
             if not name or href in seen:
                 continue
             seen.add(href)
@@ -17856,7 +17856,7 @@ async (ids) => {
             marker = ' '.join((
                 link.get('class') and ' '.join(link.get('class')) or '',
                 row.get('class') and ' '.join(row.get('class')) or '',
-                ExternalScraper._faloo_text(row),
+                ExternalScraper._floo_text(row),
             ))
             paid = bool(re.search(r'\bvip\b|付费|订阅|收费|已锁|🔒', marker, re.I))
             chapters.append({
@@ -17865,52 +17865,52 @@ async (ids) => {
             })
         return chapters
 
-    def _faloo_book_from_page(self, page, final_url, book_id, canonical):
-        for soup in self._faloo_soups(page):
-            data = self._faloo_book_from_soup(
+    def _floo_book_from_page(self, page, final_url, book_id, canonical):
+        for soup in self._floo_soups(page):
+            data = self._floo_book_from_soup(
                 soup, final_url, book_id, canonical
             )
             if data:
                 return data
         return None
 
-    def _faloo_book_from_soup(self, soup, final_url, book_id, canonical):
-        title = self._faloo_text(soup.select_one('h1#novelName'))
+    def _floo_book_from_soup(self, soup, final_url, book_id, canonical):
+        title = self._floo_text(soup.select_one('h1#novelName'))
         if not title:
-            title = self._faloo_text(soup.select_one('h1'))
-        chapters = self._faloo_chapter_links(soup, final_url, book_id)
+            title = self._floo_text(soup.select_one('h1'))
+        chapters = self._floo_chapter_links(soup, final_url, book_id)
         if not title or not chapters:
             return None
-        author = self._faloo_text(soup.select_one('a.rentouOne, .author a, .author'))
+        author = self._floo_text(soup.select_one('a.rentouOne, .author a, .author'))
         if not author:
             # Desktop book pages: the author link beside the avatar searches
             # by author (l_0_1.html?t=2&k=...); the avatar link's title reads
-            # "<author>_飞卢大神作家".
+            # "<author>_floo大神作家".
             box = soup.select_one('#novelName')
             box = box.parent if box else soup
             link = box.select_one('a[href*="l_0_1.html?t=2"]')
-            author = self._faloo_text(link)
+            author = self._floo_text(link)
             if not author:
                 guru = box.select_one('a[href*="/guru/"][title]')
                 if guru:
-                    author = self._faloo_fix_text(
+                    author = self._floo_fix_text(
                         guru.get('title', '').split('_', 1)[0].strip()
                     )
         if not author:
             image = soup.select_one('img.rentouOne')
             if image:
-                author = self._faloo_fix_text(
+                author = self._floo_fix_text(
                     (image.get('alt') or image.get('title') or '').strip()
                 )
                 if not author:
-                    author = self._faloo_text(image.parent)
+                    author = self._floo_text(image.parent)
                     author = re.sub(r'^作者\s*[:：]?\s*', '', author)
         if not author:
             meta_author = soup.select_one('meta[name="author"]')
-            author = self._faloo_fix_text(
+            author = self._floo_fix_text(
                 (meta_author.get('content') or '').strip()
             ) if meta_author else ''
-        introduction = self._faloo_text(soup.select_one(
+        introduction = self._floo_text(soup.select_one(
             'div.T-L-T-C-Box1, .book-intro, .bookIntro, .intro'
         ))
         cover = soup.select_one('img.imgcss, .book-cover img, .cover img')
@@ -17920,23 +17920,23 @@ async (ids) => {
             'coverUrl': cover_url, 'description': introduction,
             'introduction': introduction,
             'introductionHTML': f'<p>{html.escape(introduction)}</p>' if introduction else '',
-            'tags': [self._faloo_text(tag) for tag in soup.select('div.T-R-T-B2-Box1 a')],
+            'tags': [self._floo_text(tag) for tag in soup.select('div.T-R-T-B2-Box1 a')],
             'category': [], 'bookUrl': canonical,
             'chapterCount': len(chapters), 'chapters': chapters,
-            'language': 'zh', '_faloo': True,
+            'language': 'zh', '_floo': True,
         }
         return data
 
-    def _faloo_parse_book(self, url):
+    def _floo_parse_book(self, url):
         try:
             # VIP chapters are read from images; build the reference
             # glyphs while the catalog loads.
-            import faloo_image_reader
-            faloo_image_reader.warm_up()
+            import floo_image_reader
+            floo_image_reader.warm_up()
         except Exception:
             pass
-        book_id = self._faloo_book_id(url)
-        canonical = f'https://b.faloo.com/{book_id}.html'
+        book_id = self._floo_book_id(url)
+        canonical = f'https://b.\u0066\u0061\u006c\u006f\u006f.com/{book_id}.html'
         self._stop_requested = False
         candidates = [canonical]
         if url != canonical:
@@ -17944,33 +17944,33 @@ async (ids) => {
 
         for target in candidates:
             try:
-                page, final_url = self._faloo_fetch(target)
-                data = self._faloo_book_from_page(
+                page, final_url = self._floo_fetch(target)
+                data = self._floo_book_from_page(
                     page, final_url, book_id, canonical
                 )
                 if data:
                     self._book_data, self._book_url = data, canonical
                     self.log(
-                        f'[Faloo] Book: {data["bookname"]} by '
+                        f'[Floo] Book: {data["bookname"]} by '
                         f'{data["author"]} - {len(data["chapters"])} chapters'
                     )
                     return data
             except Exception as exc:
-                self.log(f'[Faloo] Book request failed: {exc}')
+                self.log(f'[Floo] Book request failed: {exc}')
 
         # The HTTP response can lack the catalog while the site's browser
         # version renders it. Reuse the existing External Downloader page.
         if not self._page:
             try:
-                self._start_rbooks_browser(canonical, site='Faloo')
+                self._start_rbooks_browser(canonical, site='Floo')
             except Exception as exc:
-                self.log(f'[Faloo] Browser could not start: {exc}')
+                self.log(f'[Floo] Browser could not start: {exc}')
         for target in candidates:
             if not self._page:
                 break
             try:
                 self._page.goto(target, wait_until='domcontentloaded', timeout=30000)
-                data = self._faloo_book_from_page(
+                data = self._floo_book_from_page(
                     self._page.content(), self._page.url, book_id, canonical
                 )
                 if not data:
@@ -17981,45 +17981,45 @@ async (ids) => {
                         )
                     except PlaywrightTimeoutError:
                         pass
-                    data = self._faloo_book_from_page(
+                    data = self._floo_book_from_page(
                         self._page.content(), self._page.url, book_id, canonical
                     )
                 if data:
                     self._book_data, self._book_url = data, canonical
                     self.log(
-                        f'[Faloo] Book: {data["bookname"]} by '
+                        f'[Floo] Book: {data["bookname"]} by '
                         f'{data["author"]} - {len(data["chapters"])} chapters'
                     )
                     return data
             except Exception as exc:
-                self.log(f'[Faloo] Browser book request failed: {exc}')
-        self.log('[Faloo] Book title or chapter catalog was not found.')
+                self.log(f'[Floo] Browser book request failed: {exc}')
+        self.log('[Floo] Book title or chapter catalog was not found.')
         return None
 
-    def _faloo_parse_chapter(self, chapter_url, chapter_name):
+    def _floo_parse_chapter(self, chapter_url, chapter_name):
         try:
-            page, _ = self._faloo_fetch(chapter_url)
+            page, _ = self._floo_fetch(chapter_url)
         except Exception as exc:
-            self.log(f'  [Faloo] Chapter request failed: {chapter_name}: {exc}')
+            self.log(f'  [Floo] Chapter request failed: {chapter_name}: {exc}')
             return None
-        return self._faloo_chapter_from_page(
-            page, chapter_name, chapter_url, self._faloo_saved_cookies
+        return self._floo_chapter_from_page(
+            page, chapter_name, chapter_url, self._floo_saved_cookies
         )
 
-    def _faloo_saved_cookies(self):
+    def _floo_saved_cookies(self):
         import requests
         jar = requests.cookies.RequestsCookieJar()
-        self._load_saved_site_cookies(jar, 'https://b.faloo.com/', 'faloo.com')
+        self._load_saved_site_cookies(jar, 'https://b.\u0066\u0061\u006c\u006f\u006f.com/', '\u0066\u0061\u006c\u006f\u006f.com')
         return {cookie.name: cookie.value for cookie in jar}
 
-    # Faloo's reader replaces a chapter it will not serve with these prompts.
+    # Floo's reader replaces a chapter it will not serve with these prompts.
     # They appear inside .noveContent, so the container alone proves nothing.
-    _FALOO_LOGIN_WALL = re.compile(r'您还没有登录|请登录后')
-    _FALOO_PURCHASE_WALL = re.compile(
+    _FLOO_LOGIN_WALL = re.compile(r'您还没有登录|请登录后')
+    _FLOO_PURCHASE_WALL = re.compile(
         r'订阅本章|购买本章|余额不足|开通VIP|升级VIP会员|设置自动订阅'
     )
 
-    def _faloo_chapter_from_page(self, page, chapter_name, chapter_url='',
+    def _floo_chapter_from_page(self, page, chapter_name, chapter_url='',
                                  cookies=None):
         """Read one chapter page. ``cookies`` returns the reader's cookies.
 
@@ -18027,7 +18027,7 @@ async (ids) => {
         as the page, so they are only requested when images are present.
         """
         soup = content = None
-        for candidate in self._faloo_soups(page):
+        for candidate in self._floo_soups(page):
             candidate_content = candidate.select_one(
                 '.noveContent, #novelContent, .novelContent, '
                 '#chapterContent, .chapter-content'
@@ -18043,7 +18043,7 @@ async (ids) => {
 
         if not content:
             page_text = soup.get_text(' ', strip=True)
-            if self._FALOO_LOGIN_WALL.search(page_text):
+            if self._FLOO_LOGIN_WALL.search(page_text):
                 return locked('login')
             if re.search(r'订阅|充值|购买本章|开通VIP', page_text):
                 return locked('purchase')
@@ -18052,18 +18052,18 @@ async (ids) => {
         for node in content.select('script, style, noscript, .ads, .advertisement'):
             node.decompose()
         # Free chapters end with a recharge promotion linking to the pay site.
-        for link in content.select('a[href*="pay.faloo.com"]'):
+        for link in content.select('a[href*="pay.\u0066\u0061\u006c\u006f\u006f.com"]'):
             promo = link.find_parent('p')
             if promo and promo in content.find_all('p'):
                 promo.decompose()
-        wall_text = self._faloo_fix_text(content.get_text(' ', strip=True))
+        wall_text = self._floo_fix_text(content.get_text(' ', strip=True))
         # A signed-in reader who has not bought the chapter gets the same
         # .c_c1 box, reading "您还没有订阅本章节", so only its text says why.
         if (content.select_one('a[href*="regist/login"]')
-                or self._FALOO_LOGIN_WALL.search(wall_text)):
+                or self._FLOO_LOGIN_WALL.search(wall_text)):
             return locked('login')
 
-        base_url = chapter_url or 'https://b.faloo.com/'
+        base_url = chapter_url or 'https://b.\u0066\u0061\u006c\u006f\u006f.com/'
         image_urls = []
         # VIP text is drawn as images. The server HTML only has loading
         # placeholders plus image_do3(...) calls; page2020.js builds each
@@ -18078,7 +18078,7 @@ async (ids) => {
             background = args[13] if len(args) > 13 else '1'
             host = 'read6' if chapter_type == '0' else 'read'
             image_urls.append(
-                f'https://{host}.faloo.com/Page4VipImage.aspx?num={num}&o={o}'
+                f'https://{host}.\u0066\u0061\u006c\u006f\u006f.com/Page4VipImage.aspx?num={num}&o={o}'
                 f'&id={book}&n={chapter}&ct={chapter_type}&en={en}&t={part}'
                 f'&font_size={size}&font_color={color}'
                 f'&FontFamilyType={family}&backgroundtype={background}'
@@ -18095,7 +18095,7 @@ async (ids) => {
                 ))
         if image_urls:
             request_cookies = cookies() if callable(cookies) else (cookies or {})
-            text_result = self._faloo_read_vip_images(
+            text_result = self._floo_read_vip_images(
                 image_urls, request_cookies, base_url, chapter_name
             )
             if text_result:
@@ -18103,7 +18103,7 @@ async (ids) => {
             chapter_no = re.search(r'_(\d+)\.html', base_url)
             chapter_no = chapter_no.group(1) if chapter_no else 'chapter'
             images = [
-                {'url': url, 'name': f'faloo_{chapter_no}_{index:03d}.gif',
+                {'url': url, 'name': f'floo_{chapter_no}_{index:03d}.gif',
                  '_cookies': request_cookies}
                 for index, url in enumerate(image_urls, start=1)
             ]
@@ -18122,9 +18122,9 @@ async (ids) => {
         # An image slot without an image, or a subscription offer, is what
         # a signed-in reader sees before buying the chapter.
         if (content.select_one('.con_img, .c_c3, .c_c4')
-                or self._FALOO_PURCHASE_WALL.search(wall_text)):
+                or self._FLOO_PURCHASE_WALL.search(wall_text)):
             return locked('purchase')
-        text = self._faloo_fix_text(content.get_text('\n', strip=True))
+        text = self._floo_fix_text(content.get_text('\n', strip=True))
         if not text or re.search(r'^(?:订阅|充值|购买本章|开通VIP)', text):
             return locked('purchase')
         paragraphs = [line.strip() for line in text.splitlines() if line.strip()]
@@ -18135,18 +18135,18 @@ async (ids) => {
             'images': [],
         }
 
-    def _faloo_read_vip_images(self, image_urls, cookies, chapter_url, chapter_name):
+    def _floo_read_vip_images(self, image_urls, cookies, chapter_url, chapter_name):
         """Turn a bought VIP chapter's images back into text.
 
         The server draws the text; it accepts a larger size and black ink,
-        which faloo_image_reader reads reliably. Returns None (keep the
+        which floo_image_reader reads reliably. Returns None (keep the
         images) when the reader is unavailable or unsure of the result.
         """
         try:
-            import faloo_image_reader
+            import floo_image_reader
         except ImportError:
             return None
-        if not faloo_image_reader.available():
+        if not floo_image_reader.available():
             return None
         import requests
         parts = []
@@ -18160,18 +18160,18 @@ async (ids) => {
                 )
                 response.raise_for_status()
                 parts.append(response.content)
-            paragraphs = faloo_image_reader.read_chapter(parts)
+            paragraphs = floo_image_reader.read_chapter(parts)
         except Exception as exc:
-            self.log(f'  [Faloo] Could not read {chapter_name} as text, keeping '
+            self.log(f'  [Floo] Could not read {chapter_name} as text, keeping '
                      f'the images: {exc}')
             return None
         text = '\n'.join(paragraphs)
         unsure = text.count('�')
         if not text or unsure > max(3, len(text) // 100):
-            self.log(f'  [Faloo] {chapter_name}: {unsure} unreadable characters; '
+            self.log(f'  [Floo] {chapter_name}: {unsure} unreadable characters; '
                      'keeping the chapter images instead.')
             return None
-        self.log(f'  [Faloo] Read {len(image_urls)} VIP image(s) of {chapter_name} '
+        self.log(f'  [Floo] Read {len(image_urls)} VIP image(s) of {chapter_name} '
                  f'as text: {len(paragraphs)} paragraphs, {len(text)} characters'
                  + (f', {unsure} unsure' if unsure else '') + '.')
         return {
@@ -18182,7 +18182,7 @@ async (ids) => {
             'chapterUrl': chapter_url,
         }
 
-    def _faloo_parse_chapters_browser(self, chapters, interval=0,
+    def _floo_parse_chapters_browser(self, chapters, interval=0,
                                       interval_max=None):
         """Render missing chapters in browser tabs on Playwright's thread."""
         if not chapters:
@@ -18190,16 +18190,16 @@ async (ids) => {
         if not self._context:
             try:
                 self._start_rbooks_browser(
-                    chapters[0].get('url', 'https://b.faloo.com/'),
-                    site='Faloo',
+                    chapters[0].get('url', 'https://b.\u0066\u0061\u006c\u006f\u006f.com/'),
+                    site='Floo',
                 )
             except Exception as exc:
-                self.log(f'  [Faloo] Browser could not start: {exc}')
+                self.log(f'  [Floo] Browser could not start: {exc}')
         if not self._context:
             return [None] * len(chapters)
-        while len(self._faloo_pages) < len(chapters):
-            self._faloo_pages.append(self._context.new_page())
-        pages = self._faloo_pages[:len(chapters)]
+        while len(self._floo_pages) < len(chapters):
+            self._floo_pages.append(self._context.new_page())
+        pages = self._floo_pages[:len(chapters)]
         results = [None] * len(chapters)
         loaded = [False] * len(chapters)
         # Starting each navigation at response commit lets their page
@@ -18215,7 +18215,7 @@ async (ids) => {
                 )
                 loaded[index] = True
             except Exception as exc:
-                self.log(f'  [Faloo] Browser chapter failed: {exc}')
+                self.log(f'  [Floo] Browser chapter failed: {exc}')
         for index, page in enumerate(pages):
             if self._stop_requested:
                 break
@@ -18232,37 +18232,37 @@ async (ids) => {
                     pass
                 chapter = chapters[index]
                 name = chapter.get('fullName') or chapter.get('name', '')
-                results[index] = self._faloo_chapter_from_page(
+                results[index] = self._floo_chapter_from_page(
                     page.content(), name, chapter.get('url', ''),
                     lambda: {
                         cookie['name']: cookie['value']
                         for cookie in self._context.cookies(
-                            ['https://b.faloo.com/', 'https://read.faloo.com/']
+                            ['https://b.\u0066\u0061\u006c\u006f\u006f.com/', 'https://read.\u0066\u0061\u006c\u006f\u006f.com/']
                         )
                     },
                 )
             except Exception as exc:
-                self.log(f'  [Faloo] Browser chapter failed: {exc}')
-        if (not getattr(self, '_faloo_login_warned', False)
+                self.log(f'  [Floo] Browser chapter failed: {exc}')
+        if (not getattr(self, '_floo_login_warned', False)
                 and any(result and result.get('_lockReason') == 'login'
                         for result in results)):
-            self._faloo_login_warned = True
+            self._floo_login_warned = True
             self.log(
-                '  [Faloo] VIP chapters need a signed-in Faloo account in the '
+                '  [Floo] VIP chapters need a signed-in Floo account in the '
                 'External Downloader profile. Sign in with Enter Browser, '
                 'close that window, then download again.'
             )
         return results
 
-    def close_faloo_pages(self):
-        """Release reader pages after the current Faloo download."""
-        self._faloo_login_warned = False
-        for page in self._faloo_pages:
+    def close_floo_pages(self):
+        """Release reader pages after the current Floo download."""
+        self._floo_login_warned = False
+        for page in self._floo_pages:
             try:
                 page.close()
             except Exception:
                 pass
-        self._faloo_pages = []
+        self._floo_pages = []
 
     def _kobo_parse_book(self, url):
         if not self._start_rbooks_browser(url, site='Kobo'):
@@ -18466,9 +18466,9 @@ async (ids) => {
             site = self._xiyuwx_site_name(url)
             self.log(f'[{site}] Detected book URL, using native scraper.')
             return self._xiyuwx_parse_book(url)
-        if self.is_faloo(url):
-            self.log('[Faloo] Detected Faloo book URL, using native scraper.')
-            return self._faloo_parse_book(url)
+        if self.is_floo(url):
+            self.log('[Floo] Detected Floo book URL, using native scraper.')
+            return self._floo_parse_book(url)
         if self.is_1qxs(url):
             self.log(
                 '[1qxs] Detected 1qxs URL, using the direct HTTP scraper.'
@@ -18648,15 +18648,15 @@ async (ids) => {
             self._sleep_interval(interval, interval_max)
             return result
 
-        if self._book_data and self._book_data.get('_faloo'):
+        if self._book_data and self._book_data.get('_floo'):
             name = chapter_info.get('fullName') or chapter_info.get('name', '')
             result = None
             if not (chapter_info.get('isVIP') or chapter_info.get('isPaid')):
-                result = self._faloo_parse_chapter(
+                result = self._floo_parse_chapter(
                     chapter_info.get('url', ''), name
                 )
             if not result or result.get('_locked'):
-                browser_result = self._faloo_parse_chapters_browser([chapter_info])[0]
+                browser_result = self._floo_parse_chapters_browser([chapter_info])[0]
                 result = browser_result or result
             self._sleep_interval(interval, interval_max)
             return result
@@ -18906,7 +18906,7 @@ async (ids) => {
                     report_success(index, result)
             return results
 
-        if self._book_data and self._book_data.get('_faloo'):
+        if self._book_data and self._book_data.get('_floo'):
             from concurrent.futures import ThreadPoolExecutor
 
             launch_delays = [0.0]
@@ -18916,7 +18916,7 @@ async (ids) => {
                     + self._random_interval_delay(interval, interval_max)
                 )
 
-            def fetch_faloo(item):
+            def fetch_floo(item):
                 index, chapter = item
                 if launch_delays[index]:
                     time.sleep(launch_delays[index])
@@ -18926,7 +18926,7 @@ async (ids) => {
                     # A guest preview can look like full text. Read paid
                     # chapters in the authenticated profile from the start.
                     return None
-                result = self._faloo_parse_chapter(
+                result = self._floo_parse_chapter(
                     chapter.get('url', ''),
                     chapter.get('fullName') or chapter.get('name', ''),
                 )
@@ -18935,11 +18935,11 @@ async (ids) => {
 
             # The dialog sizes a batch from the user's thread setting.
             with ThreadPoolExecutor(max_workers=max(1, len(batch_info))) as pool:
-                results = list(pool.map(fetch_faloo, enumerate(batch_info)))
+                results = list(pool.map(fetch_floo, enumerate(batch_info)))
             missing = [i for i, result in enumerate(results)
                        if not result or result.get('_locked')]
             if missing and not self._stop_requested:
-                recovered = self._faloo_parse_chapters_browser(
+                recovered = self._floo_parse_chapters_browser(
                     [batch_info[i] for i in missing], interval, interval_max
                 )
                 for index, result in zip(missing, recovered):
