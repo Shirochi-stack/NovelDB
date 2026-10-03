@@ -223,6 +223,52 @@ def test_refresh_uses_successful_listing_fingerprint_and_30_day_ttl():
     assert not m.needs_detail(record, "a", now)
     assert m.needs_detail(record, "b", now)
     assert m.needs_detail(record, "a", now + timedelta(days=31))
+    assert not m.needs_detail(record, "a", now + timedelta(days=31), refresh_days=90)
+    assert m.needs_detail(record, "a", now, version=2)
+    assert not m.needs_detail({**record, "detail_version": 2}, "a", now, version=2)
+
+
+def test_field_fingerprint_ignores_listing_counters():
+    fields = ("title", "episodes")
+    base = {"id": "1", "title": "T", "episodes": 3, "metrics": {"favorites": 1}}
+    same = m.listing_fingerprint(base, fields)
+    assert same.startswith(m.FIELD_FINGERPRINT)
+    assert m.listing_fingerprint({**base, "metrics": {"favorites": 9}}, fields) == same
+    assert m.listing_fingerprint({**base, "episodes": 4}, fields) != same
+
+
+def test_field_fingerprints_adopt_fresh_details_and_refresh_on_change(tmp_path):
+    class Counted(Adapter):
+        favorites = 1
+        episodes = 1
+        def fetch_page(self, client, partition, page):
+            client.requests += 1
+            return m.CatalogPage([{"id": "1", "title": "T", "episodes": self.episodes,
+                                   "metrics": {"favorites": self.favorites}}], None)
+        def detail(self, client, record):
+            client.details = getattr(client, "details", 0) + 1
+            return super().detail(client, record)
+    # A detail fetched under the whole-listing fingerprint stays valid.
+    client = Client()
+    m.run_source(Counted(), args(tmp_path, "--mode", "catalog"), client=client)
+    assert client.details == 1
+    adapter = Counted()
+    adapter.detail_fields = ("title", "episodes")
+    adapter.favorites = 5
+    client = Client()
+    m.run_source(adapter, args(tmp_path, "--mode", "catalog"), client=client)
+    assert getattr(client, "details", 0) == 0
+    adapter.favorites = 9
+    m.run_source(adapter, args(tmp_path, "--mode", "catalog"), client=client)
+    assert getattr(client, "details", 0) == 0
+    adapter.episodes = 2
+    m.run_source(adapter, args(tmp_path, "--mode", "catalog"), client=client)
+    assert client.details == 1
+    # A new detail version re-requests each work once.
+    adapter.detail_version = 2
+    m.run_source(adapter, args(tmp_path, "--mode", "catalog"), client=client)
+    m.run_source(adapter, args(tmp_path, "--mode", "catalog"), client=client)
+    assert client.details == 2
 
 
 def test_failed_board_retains_observation_and_all_rows():

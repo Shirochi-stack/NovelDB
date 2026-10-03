@@ -10,7 +10,7 @@ BOOK_MAP = re.compile(r"https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b
 IDS_QUERY = "query($bookIds:[String!]!){books(bookIds:$bookIds){id categories{id parentId} series{id}}}"
 DETAIL_QUERY = """query($bookIds:[String!]!){books(bookIds:$bookIds){id categories{id parentId name}
  title{main} authors{name role} introduction{description} isAdultOnly publicationInfo{name}
- ratings{count rating} series{id title totalEpisodeCount isCompleted thumbnail{large}}}}"""
+ ratings{count rating} series{id title totalEpisodeCount isCompleted lastOpenedDate thumbnail{large}}}}"""
 
 
 def xml_locations(raw):
@@ -74,7 +74,7 @@ def as_catalog_item(book):
             "publisher": book.get("publicationInfo"), "ratings": book.get("ratings"),
             "serial": {"serialId": series.get("id"), "title": series.get("title"),
                        "total": series.get("totalEpisodeCount"), "completion": series.get("isCompleted"),
-                       "cover": series.get("thumbnail")}}}
+                       "cover": series.get("thumbnail"), "lastOpenedEpisodeDate": series.get("lastOpenedDate")}}}
 
 
 class SitemapCatalog:
@@ -87,7 +87,8 @@ class SitemapCatalog:
         self._client = client
         self._scan_id = ""
         self._sitemap_ids = {}
-        parts = [{"key": f"{category}:sitemap-v1", "tier": "webnovel", "category": category,
+        # v2: category pages hold 200 rows, so v1 (60-row) cursors are retired.
+        parts = [{"key": f"{category}:sitemap-v2", "tier": "webnovel", "category": category,
                   "start_page": 1} for category in self.categories]
         if client is not None:
             urls = getattr(self, "_snapshot_urls", None)
@@ -130,7 +131,7 @@ class SitemapCatalog:
                 raise ValueError("Invalid Rbooks catalog total")
             expected[category] = total
             self._totals[(category, None)] = total
-            cursors.setdefault(f"{category}:sitemap-v1", {"next_page": 1, "complete": False})["coverage_complete"] = False
+            cursors.setdefault(f"{category}:sitemap-v2", {"next_page": 1, "complete": False})["coverage_complete"] = False
         self._parts = partitions
 
     def finalize_catalog(self, state):
@@ -145,7 +146,7 @@ class SitemapCatalog:
         verified = all(counts[c] == expected.get(c) for c in self.categories)
         state["coverage"].setdefault("catalog", {})["verification"] = audit
         for category in self.categories:
-            cursors.setdefault(f"{category}:sitemap-v1", {})["coverage_complete"] = verified
+            cursors.setdefault(f"{category}:sitemap-v2", {})["coverage_complete"] = verified
         if not verified and all(cursors.get(p["key"], {}).get("complete") for p in self._parts):
             state["coverage"]["errors"].append({"error": "Rbooks sitemap/category counts differ; coverage remains partial", "counts": audit})
 

@@ -4,7 +4,7 @@ from scripts.metadata_common import FetchError
 
 HTML = '''<ul class="lst_list"><li><a class="pic"><img src="https://example.test/cover.jpg"></a>
 <h3><em class="ico n19">19금</em><a href="/novel/detail.series?productNo=123" title="Original title">Original title(3권/완결)</a></h3>
-<span class="author">Writer</span><em class="score_num">9.5</em><p class="dsc">Public synopsis preview..</p></li></ul>
+<p class="info"><em class="score_num">9.5</em><em class="bar">|</em><span class="author">Writer</span><em class="bar">|</em> 2026.10.03. <em class="bar">|</em><span class="free_info">30화 무료</span></p><p class="dsc">Public synopsis preview..</p></li></ul>
 <p class="pagenate"><strong>1</strong><a href="/novel/categoryProductList.series?genreCode=201&page=2">2</a></p>'''
 
 
@@ -17,6 +17,17 @@ def test_explicit_r19_badge_and_series_product_id():
     assert row["episodes"] is None and row["metrics"]["volumes"] == 3
     assert row["synopsis_is_preview"] and row["synopsis"] == "Public synopsis preview.."
     assert row["canonical_url"] == BASE + "/novel/detail.series?productNo=123"
+    assert row["updated"] == "2026-10-03" and row["metrics"]["rating"] == 9.5
+
+
+def test_ongoing_status_and_episode_count():
+    row = parse_catalog(HTML.replace("(3권/완결)", "(329화/미완결)"), {"genre": "201"}, 1).records[0]
+    assert row["complete"] == 0 and row["episodes"] == 329
+
+
+def test_missing_row_date_stays_unknown():
+    row = parse_catalog(HTML.replace(" 2026.10.03. ", " "), {"genre": "201"}, 1).records[0]
+    assert row["updated"] is None
 
 
 def test_missing_age_badge_does_not_mean_general_audience():

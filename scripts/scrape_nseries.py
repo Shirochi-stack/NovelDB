@@ -9,9 +9,9 @@ from urllib.parse import parse_qs, urlsplit
 from bs4 import BeautifulSoup
 
 try:
-    from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, run_cli
+    from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, run_cli, source_date
 except ImportError:
-    from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, run_cli
+    from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, run_cli, source_date
 
 BASE = "https://series.\u006e\u0061\u0076\u0065\u0072.com"
 CATALOG = BASE + "/novel/categoryProductList.series"
@@ -39,7 +39,11 @@ def parse_catalog(html, partition, page):
         title = link.get("title", "").strip()
         if not title:
             return CatalogPage([], None, False, "Nseries title unavailable")
-        units = re.search(r"\(([\d,]+)(화|권)/(완결|연재중)\)\s*$", link.get_text(strip=True))
+        # Ongoing works print "미완결"; "연재중" is kept for older markup.
+        units = re.search(r"\(([\d,]+)(화|권)/(완결|미완결|연재중)\)\s*$", link.get_text(strip=True))
+        info = item.select_one("p.info")
+        # The row's own date is its newest episode or volume.
+        day = re.search(r"(?<![\d.])(\d{4})\.(\d{2})\.(\d{2})\.?(?![\d])", info.get_text(" ", strip=True)) if info else None
         author, cover, intro = item.select_one(".author"), item.select_one("a.pic img[src]"), item.select_one(".dsc")
         score = item.select_one(".score_num")
         score_text = score.get_text(strip=True) if score else ""
@@ -53,7 +57,9 @@ def parse_catalog(html, partition, page):
             "metrics": {"rating": float(score_text) if re.fullmatch(r"\d+(?:\.\d+)?", score_text) else None,
                         "rating_scale": 10, "volumes": int(units[1].replace(",", "")) if units and units[2] == "권" else None,
                         "synopsis_is_preview": True},
-            "views": None, "likes": None, "updated": None, "canonical_url": url, "purchase_url": url,
+            "views": None, "likes": None, "updated": "-".join(day.groups()) if day else None,
+            "source_dates": {"updated": source_date(day[0])} if day else {},
+            "canonical_url": url, "purchase_url": url,
             "tier": "series", "synopsis_is_preview": True})
     higher = []
     for link in soup.select(".pagenate a[href]"):
@@ -70,6 +76,10 @@ class NseriesAdapter:
     source = "nseries"
     label = "Nseries"
     supports_rankings = False  # Catalog sort order is not a native ranking board.
+    # A detail request only adds the full synopsis and age rating. New episodes,
+    # dates and ratings arrive with every catalog row and need no detail request.
+    detail_fields = ("title", "synopsis", "age")
+    detail_refresh_days = 90
 
     @staticmethod
     def is_allowed_url(url):

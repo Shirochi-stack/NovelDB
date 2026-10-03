@@ -5,6 +5,7 @@ account cookies, or challenge bypasses. HTTP restrictions remain resumable error
 """
 import math
 import re
+from datetime import datetime, timedelta, timezone
 from html import unescape
 from urllib.parse import parse_qs, urlsplit
 
@@ -13,15 +14,16 @@ from curl_cffi import requests as browser_requests
 
 try:
     from . import rbooks_sitemap as sitemap
-    from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult, run_cli
+    from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult, run_cli, source_date
 except ImportError:
     import rbooks_sitemap as sitemap
-    from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult, run_cli
+    from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult, run_cli, source_date
 
 API = "https://api.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/v2/category/books"
 CATEGORIES = {"1650": "Romance", "6050": "Romance fantasy", "1750": "Fantasy", "4150": "BL"}
-PAGE_SIZE = 60
-
+PAGE_SIZE = 200  # The category API's largest accepted limit.
+RANKING_SIZE = 100  # A whole bestseller board in one request.
+KST = timezone(timedelta(hours=9))
 
 
 def number(value):
@@ -30,6 +32,20 @@ def number(value):
 
 def obj(value):
     return value if isinstance(value, dict) else {}
+
+
+def opened(value):
+    """Newest episode release as Korean wall-clock time, like other sources.
+    The category API sends an offset; the metadata batch sends bare KST."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(KST).replace(tzinfo=None)
+    return moment.isoformat()
 
 
 def normalize(item, tier):
@@ -65,10 +81,13 @@ def normalize(item, tier):
             "views": None, "likes": None, "episodes": number(serial.get("total")),
             "complete": int(serial["completion"]) if isinstance(serial.get("completion"), bool) else None,
             "age": 19 if book.get("adultsOnly") is True else 0 if book.get("adultsOnly") is False else None,
-            "updated": None, "canonical_url": url, "purchase_url": url, "tier": tier,
+            "updated": opened(serial.get("lastOpenedEpisodeDate")),
+            "source_dates": ({"updated": source_date(serial["lastOpenedEpisodeDate"])}
+                             if opened(serial.get("lastOpenedEpisodeDate")) else {}),
+            "canonical_url": url, "purchase_url": url, "tier": tier,
             "metrics": {"rating": rating, "rating_count": rating_count},
             "publisher": obj(book.get("publisher")).get("name"),
-            "rbooks_categories": sorted({str(value) for c in book.get("categories", []) if isinstance(c, dict)
+            "rbooks_categories": sorted({str(value) for c in book.get("categories") or [] if isinstance(c, dict)
                                        for value in (c.get("categoryId", c.get("id")), c.get("parentId")) if value}),
             "_detail_complete": isinstance(intro, str)}
 
@@ -112,8 +131,8 @@ class RbooksAdapter(sitemap.SitemapCatalog):
         return p.path in {"/v2/category/books", "/v2/category/books/total-count"} and set(parse_qs(p.query, keep_blank_values=True)) <= {
             "category_id", "tab", "limit", "offset", "platform", "order_by", "period"}
 
-    def _page(self, client, category, page, period=None, order="recent"):
-        if (page - 1) * PAGE_SIZE >= 6000:
+    def _page(self, client, category, page, period=None, order="recent", size=PAGE_SIZE):
+        if (page - 1) * size >= 6000:
             raise ValueError("Rbooks API rejects offsets >= 6000 for this category/sort; other catalog partitions continue, coverage remains partial")
         params = {"category_id": category, "tab": "bestsellers" if period else "books", "platform": "web"}
         if period:
@@ -125,16 +144,16 @@ class RbooksAdapter(sitemap.SitemapCatalog):
                 raise ValueError("Invalid Rbooks catalog total")
             self._totals[key] = total
         total = self._totals[key]
-        params.update(limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
+        params.update(limit=size, offset=(page - 1) * size)
         if not period:
             params["order_by"] = order
         rows = data(client.get_json(API, params=params)).get("items")
-        if not isinstance(rows, list) or len(rows) != min(PAGE_SIZE, max(0, total - params["offset"])):
+        if not isinstance(rows, list) or len(rows) != min(size, max(0, total - params["offset"])):
             raise ValueError("Rbooks catalog row count disagrees with its total")
         records = [normalize(row, "webnovel") for row in rows]
         if len({r["id"] for r in records}) != len(records):
             raise ValueError("Rbooks repeated a work within a catalog page")
-        return CatalogPage(records, page + 1 if page * PAGE_SIZE < min(total, 6000) else None, observed_total=total)
+        return CatalogPage(records, page + 1 if page * size < min(total, 6000) else None, observed_total=total)
 
     def fetch_page(self, client, partition, page):
         try:
@@ -165,19 +184,13 @@ class RbooksAdapter(sitemap.SitemapCatalog):
                 label = f"Rbooks · {genre} · {period.title()} Bestsellers"
                 try:
                     records, seen = [], set()
-                    for page in (1, 2):
-                        result = self._page(client, category, page, period)
-                        for i, record in enumerate(result.records):
-                            rank = (page - 1) * PAGE_SIZE + i + 1
-                            if rank > 100:
-                                break
-                            if record["id"] in seen:
-                                raise ValueError("Rbooks repeated a bestseller page")
-                            seen.add(record["id"])
-                            self._ranking_records[record["id"]] = record
-                            records.append({**record, "rank": rank})
-                        if result.next_page is None:
-                            break
+                    result = self._page(client, category, 1, period, size=RANKING_SIZE)
+                    for rank, record in enumerate(result.records, 1):
+                        if record["id"] in seen:
+                            raise ValueError("Rbooks repeated a bestseller entry")
+                        seen.add(record["id"])
+                        self._ranking_records[record["id"]] = record
+                        records.append({**record, "rank": rank})
                     yield RankingResult(key, label, records)
                 except BudgetExceeded:
                     raise

@@ -5708,7 +5708,10 @@
     // === Format date as human-readable (e.g. "Jan 16, 2024") ===
     function fmtDate(dateStr) {
         if (!dateStr) return "";
-        const d = new Date(dateStr);
+        // Date-only values are calendar days; Date() would read them as UTC
+        // midnight and show the previous day west of UTC.
+        const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+        const d = day ? new Date(+day[1], day[2] - 1, +day[3]) : new Date(dateStr);
         if (isNaN(d.getTime())) return "";
         const months = ["Jan","Feb","Mar","Apr","May","Jun",
                         "Jul","Aug","Sep","Oct","Nov","Dec"];

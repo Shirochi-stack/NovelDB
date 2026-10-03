@@ -268,18 +268,30 @@ def record_outcome(record, result):
     record["detail_error"] = result.reason or result.status
 
 
-def listing_fingerprint(record):
+FIELD_FINGERPRINT = "v2:"
+
+
+def listing_fingerprint(record, fields=None):
+    """Hash a listing. With ``fields``, only those listing values decide whether
+    the detail page can have changed; counters the listing already carries
+    (favorites, ratings) then no longer trigger a detail request."""
+    if fields is not None:
+        subset = {key: record.get(key) for key in fields}
+        return FIELD_FINGERPRINT + hashlib.sha256(
+            source_names.dumps(subset, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     fields = {key: value for key, value in record.items()
               if not key.startswith("_") and key not in ("rankings", "history", "translations")}
     return hashlib.sha256(source_names.dumps(fields, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def needs_detail(record, fingerprint, now=None):
+def needs_detail(record, fingerprint, now=None, *, refresh_days=30, version=None):
+    if version is not None and record.get("detail_version") != version:
+        return True
     if record.get("detail_listing_fingerprint") != fingerprint:
         return True
     try:
         last = datetime.fromisoformat(record["history"]["last_success"].replace("Z", "+00:00"))
-        return ((now or datetime.now(timezone.utc)) - last).total_seconds() >= 30 * 86400
+        return ((now or datetime.now(timezone.utc)) - last).total_seconds() >= refresh_days * 86400
     except (KeyError, TypeError, ValueError):
         return True
 
@@ -547,6 +559,9 @@ def run_source(adapter, args, *, client=None):
             progress["revision"] = progress.get("revision", 0) + 1
 
     request_slots = threading.BoundedSemaphore(args.workers)
+    detail_fields = getattr(adapter, "detail_fields", None)
+    detail_policy = {"refresh_days": getattr(adapter, "detail_refresh_days", 30),
+                     "version": getattr(adapter, "detail_version", None)}
 
     def queue_untitled(item):
         """Ask the detail endpoint about a listing the catalog page could not use.
@@ -620,6 +635,8 @@ def run_source(adapter, args, *, client=None):
                             record = merge_record(state, result.record, detail=result.status == "success")
                     if result.status == "success":
                         record["detail_listing_fingerprint"] = record.get("listing_fingerprint")
+                        if detail_policy["version"] is not None:
+                            record["detail_version"] = detail_policy["version"]
                         coverage["successful_details"] += 1
                     else:
                         record_outcome(state["records"][ident], result)
@@ -721,9 +738,16 @@ def run_source(adapter, args, *, client=None):
                     page_signatures.add(signature)
                     before_count = len(state["records"])
                     for item, ident in zip(result.records, ids):
-                        fingerprint = listing_fingerprint(item)
+                        fingerprint = listing_fingerprint(item, detail_fields)
                         old = state["records"].get(ident, {})
-                        refresh = needs_detail(old, fingerprint)
+                        stored = old.get("detail_listing_fingerprint")
+                        if (detail_fields is not None and stored and not stored.startswith(FIELD_FINGERPRINT)
+                                and not needs_detail(old, stored, **detail_policy)):
+                            # A detail fetched under the whole-listing fingerprint is
+                            # still fresh; adopt the field fingerprint instead of
+                            # re-requesting every work once.
+                            old["detail_listing_fingerprint"] = fingerprint
+                        refresh = needs_detail(old, fingerprint, **detail_policy)
                         enriched = bool(item.get("_detail_complete"))
                         observation = item
                         if not enriched and old.get("synopsis") and old.get("history", {}).get("last_success"):
@@ -738,6 +762,8 @@ def run_source(adapter, args, *, client=None):
                         record["listing_fingerprint"] = fingerprint
                         if enriched:
                             record["detail_listing_fingerprint"] = fingerprint
+                            if detail_policy["version"] is not None:
+                                record["detail_version"] = detail_policy["version"]
                             if ident in pending:
                                 pending.pop(ident, None)
                         observed.add(ident)

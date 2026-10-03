@@ -124,7 +124,7 @@ def test_outbound_purchase_link_is_recorded_without_fetching_it():
     client = FakeClient(lambda url, params: html)
     result = NwebAdapter().detail(client, {"id": "1161705", "canonical_url": CANONICAL})
     assert result.record["purchase_url"] == "https://series.\u006e\u0061\u0076\u0065\u0072.com/novel/detail.series?productNo=123"
-    assert client.calls == [(CANONICAL, None)]
+    assert client.calls == [(CANONICAL, {"order": "Update"})]
 
 
 def test_ranking_uses_explicit_positions_and_separates_free_and_paid():
@@ -216,3 +216,23 @@ def test_budget_is_not_disguised_as_empty_catalog_or_failed_board():
         NwebAdapter().detail(client, {"id": "1161705", "canonical_url": CANONICAL})
     with pytest.raises(BudgetExceeded):
         next(NwebAdapter().rankings(client))
+
+
+def _episode_rows(*dates):
+    return '<ul class="list_type2 v3">' + "".join(
+        f'<li id="volume{i}" class="volumeComment"><span class="date">{d}</span></li>' for i, d in enumerate(dates, 1)
+    ) + '</ul><ul class="list_type2"><li><span class="date">2099.01.01</span></li></ul>'
+
+
+def test_detail_records_newest_episode_date_in_either_order():
+    from datetime import date
+    html = fixture("detail.html")
+    today = date(2026, 10, 3)
+    oldest_first = parse_detail(html + _episode_rows("2023.11.01", "2023.11.05"), {"id": "1161705"}, CANONICAL, today)
+    assert oldest_first.record["updated"] == "2023-11-05"
+    assert oldest_first.record["source_dates"]["updated"]["raw"] == "2023.11.05"
+    posted_today = parse_detail(html + _episode_rows("22:14", "2026.09.29"), {"id": "1161705"}, CANONICAL, today)
+    assert posted_today.record["updated"] == "2026-10-03T22:14:00"
+    # Other lists on the page (recommendations) never supply a date.
+    undated = parse_detail(html + _episode_rows(), {"id": "1161705", "updated": "2020-01-01"}, CANONICAL, today)
+    assert undated.record["updated"] == "2020-01-01"

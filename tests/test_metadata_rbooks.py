@@ -22,7 +22,7 @@ def item(ident=123):
 
 
 class Client:
-    def __init__(self, total=61):
+    def __init__(self, total=201):
         self.total = total
         self.calls = []
     def get_json(self, url, params=None):
@@ -49,6 +49,19 @@ def test_sparse_values_remain_unknown():
     assert record["episodes"] is record["complete"] is record["age"] is None
     assert record["metrics"] == {"rating": None, "rating_count": None}
     assert not record["_detail_complete"]
+    assert record["updated"] is None
+
+
+def test_newest_episode_date_from_both_metadata_shapes():
+    rest = item()
+    rest["book"]["serial"]["lastOpenedEpisodeDate"] = "2026-10-03T22:00:05+09:00"
+    record = normalize(rest, "webnovel")
+    assert record["updated"] == "2026-10-03T22:00:05"
+    assert record["source_dates"]["updated"]["timezone"] == "+09:00"
+    from scripts.rbooks_sitemap import as_catalog_item
+    batch = as_catalog_item({"id": "9", "title": {"main": "T"},
+                             "series": {"id": "9", "title": "T", "lastOpenedDate": "2026-10-03 07:00:05"}})
+    assert normalize(batch, "webnovel")["updated"] == "2026-10-03T07:00:05"
 
 
 def test_catalog_offsets_and_four_genres():
@@ -57,9 +70,9 @@ def test_catalog_offsets_and_four_genres():
     assert {p["category"] for p in partitions} == set(CATEGORIES)
     first = a.fetch_page(c, partitions[0], 1)
     second = a.fetch_page(c, partitions[0], 2)
-    assert len(first.records) == 60 and first.next_page == 2 and first.observed_total == 61
+    assert len(first.records) == 200 and first.next_page == 2 and first.observed_total == 201
     assert len(second.records) == 1 and second.next_page is None
-    assert c.calls[-1][1]["offset"] == 60
+    assert c.calls[-1][1]["offset"] == 200 and c.calls[-1][1]["limit"] == 200
     assert c.calls[-1][1]["order_by"] == "recent"
 
 
@@ -69,6 +82,9 @@ def test_rankings_are_explicit_periods_and_top_100():
     assert len(boards) == 8 and all(b.success for b in boards)
     assert [r["rank"] for r in boards[0].records] == list(range(1, 101))
     assert {p["period"] for _, p in c.calls} == {"weekly", "monthly"}
+    # One 100-row request per board after its total.
+    assert sum(not url.endswith("total-count") for url, _ in c.calls) == 8
+    assert all(p["limit"] == 100 for url, p in c.calls if not url.endswith("total-count"))
     assert all(p["tab"] == "bestsellers" and "order_by" not in p for _, p in c.calls)
 
 

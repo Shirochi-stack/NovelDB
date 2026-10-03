@@ -7,6 +7,7 @@ Nseries is a possible outbound link, not an additional crawl target.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
@@ -14,12 +15,12 @@ from bs4 import BeautifulSoup
 try:
     from .metadata_common import (
         BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult,
-        run_cli, utc_now,
+        run_cli, source_date, utc_now,
     )
 except ImportError:  # Direct ``python scripts/scrape_nweb.py`` invocation.
     from metadata_common import (
         BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult,
-        run_cli, utc_now,
+        run_cli, source_date, utc_now,
     )
 
 
@@ -83,6 +84,36 @@ def _removed_work(soup):
         if _REMOVED_ALERT.search(script.string or script.get_text() or ""):
             return True
     return False
+
+
+KST = timezone(timedelta(hours=9))
+
+
+def _episode_date(text, today):
+    """Episode rows print a date, or only a time for episodes posted today (KST)."""
+    text = text.strip()
+    match = re.fullmatch(r"(\d{2}|\d{4})\.(\d{1,2})\.(\d{1,2})\.?", text)
+    if match:
+        year = int(match[1]) + (2000 if len(match[1]) == 2 else 0)
+        try:
+            return datetime(year, int(match[2]), int(match[3]))
+        except ValueError:
+            return None
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", text)
+    if match and int(match[1]) < 24 and int(match[2]) < 60:
+        return datetime(today.year, today.month, today.day, int(match[1]), int(match[2]))
+    return None
+
+
+def _latest_episode(soup, today):
+    """The newest dated episode row; the order of the list does not matter."""
+    dates = []
+    for row in soup.select("ul.list_type2 > li[id^=volume]"):
+        stamp = row.select_one(".date")
+        value = _episode_date(_text(stamp), today) if stamp else None
+        if value is not None:
+            dates.append((value, _text(stamp)))
+    return max(dates) if dates else None
 
 
 def _completion(node):
@@ -150,7 +181,7 @@ def parse_catalog(html, partition, page):
     return CatalogPage(records=records, next_page=min(higher) if higher else None)
 
 
-def parse_detail(html, previous, response_url):
+def parse_detail(html, previous, response_url, today=None):
     soup = BeautifulSoup(html, "html.parser")
     info = soup.select_one(".section_area_info")
     identity = _detail_identity(response_url)
@@ -216,6 +247,11 @@ def parse_detail(html, previous, response_url):
         if urlsplit(destination).hostname in {"series.\u006e\u0061\u0076\u0065\u0072.com", "m.series.\u006e\u0061\u0076\u0065\u0072.com"}:
             record["purchase_url"] = destination
             break
+    latest = _latest_episode(soup, today or datetime.now(KST).date())
+    if latest:
+        value, raw = latest
+        record["updated"] = value.date().isoformat() if raw.count(".") >= 2 else value.isoformat()
+        record["source_dates"] = {**(record.get("source_dates") or {}), "updated": source_date(raw)}
     record["_detail_complete"] = True
     return MetadataResult(status="success", record=record)
 
@@ -257,6 +293,11 @@ def parse_ranking(html, genre, period, observed_at):
 class NwebAdapter:
     source = "nweb"
     label = "Nweb"
+    # Favorites and ratings come from every catalog page; only these listing
+    # values can mean the detail page (synopsis, keywords, newest episode) moved.
+    detail_fields = ("title", "author", "cover", "episodes", "complete", "tier")
+    detail_refresh_days = 90
+    detail_version = 2  # Version 2 records the newest episode date.
 
     @staticmethod
     def is_allowed_url(url):
@@ -318,7 +359,8 @@ class NwebAdapter:
         if not canonical or not _detail_identity(canonical):
             return MetadataResult(status="failed", reason="Nweb metadata needs a verified tier-specific detail URL")
         try:
-            response = client.get(canonical)
+            # Series Edition lists episodes oldest first unless asked otherwise.
+            response = client.get(canonical, params={"order": "Update"})
             return parse_detail(response.text, record, response.url)
         except BudgetExceeded:
             raise
