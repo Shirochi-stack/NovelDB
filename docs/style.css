@@ -66,9 +66,10 @@ header {
 
 /* === Main === */
 main {
-    max-width: 1500px;
+    /* Fills a 1920px (16:9) screen; wider displays keep readable cards. */
+    max-width: 2400px;
     margin: 0 auto;
-    padding: 1.5rem;
+    padding: 1.5rem 2rem;
 }
 
 /* === Controls === */
@@ -379,9 +380,15 @@ main {
 /* === Results Grid === */
 .results-grid {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 1rem;
     transition: opacity 0.15s ease;
+}
+
+@media (max-width: 1500px) {
+    .results-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 1240px) {
