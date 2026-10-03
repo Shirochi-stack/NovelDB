@@ -115,6 +115,11 @@ def test_completion_requires_current_scan_counts_not_old_records():
     adapter.finalize_catalog(state)
     assert catalog_coverage(state['progress']['partitions'])['discovery_complete']
     assert not state['coverage']['errors']
+    # Works published while the scan ran exceed the count taken at its start.
+    state['records']['2'] = {'rbooks_seen_scan': 'new', 'rbooks_categories': list(CATEGORIES)}
+    adapter.finalize_catalog(state)
+    assert catalog_coverage(state['progress']['partitions'])['discovery_complete']
+    assert not state['coverage']['errors']
 
 
 def test_public_post_uses_request_budget_and_refuses_redirects(monkeypatch):

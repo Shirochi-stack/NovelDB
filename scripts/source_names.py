@@ -50,8 +50,38 @@ def to_codenames(text, *, preserve_case=False):
     return NAME_PATTERN.sub(replace, text)
 
 
+_FOLDED_NAMES = sorted(set(_LOOKUP))
+
+
+def _escape_match(match):
+    return "".join(f"\\u{ord(c):04x}" for c in match.group())
+
+
 def escape_names(text):
-    return NAME_PATTERN.sub(lambda m: "".join(f"\\u{ord(c):04x}" for c in m.group()), text)
+    # Scanning hundreds of megabytes with the full pattern is slow, and every
+    # match begins with a folded name, so only those positions are tried.
+    # Characters that fold to a different length fall back to the full scan.
+    folded = text.lower().replace("ſ", "s").replace("ı", "i")
+    if len(folded) != len(text):
+        return NAME_PATTERN.sub(_escape_match, text)
+    starts = set()
+    for name in _FOLDED_NAMES:
+        position = folded.find(name)
+        while position != -1:
+            starts.add(position)
+            position = folded.find(name, position + 1)
+    if not starts:
+        return text
+    parts, end = [], 0
+    for start in sorted(starts):
+        if start < end:
+            continue
+        match = NAME_PATTERN.match(text, start)
+        if match:
+            parts += (text[end:start], _escape_match(match))
+            end = match.end()
+    parts.append(text[end:])
+    return "".join(parts)
 
 
 def contains_name(text):

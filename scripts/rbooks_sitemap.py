@@ -143,7 +143,9 @@ class SitemapCatalog:
                                for record in state["records"].values()) for category in self.categories}
         audit = {category: {"expected": expected.get(category), "observed": counts[category]}
                  for category in self.categories}
-        verified = all(counts[c] == expected.get(c) for c in self.categories)
+        # Works published during a multi-day scan are seen but were not in the
+        # count taken when it began, so only a shortfall means missing works.
+        verified = all(isinstance(expected.get(c), int) and counts[c] >= expected[c] for c in self.categories)
         state["coverage"].setdefault("catalog", {})["verification"] = audit
         for category in self.categories:
             cursors.setdefault(f"{category}:sitemap-v2", {})["coverage_complete"] = verified

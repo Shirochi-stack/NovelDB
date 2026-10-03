@@ -236,3 +236,15 @@ def test_detail_records_newest_episode_date_in_either_order():
     # Other lists on the page (recommendations) never supply a date.
     undated = parse_detail(html + _episode_rows(), {"id": "1161705", "updated": "2020-01-01"}, CANONICAL, today)
     assert undated.record["updated"] == "2020-01-01"
+
+
+def test_blank_title_card_is_skipped_and_settled_by_its_detail_page():
+    html = fixture("catalog.html").replace('<span class="title">나 혼자 전직 거부</span>', '<span class="title"></span>')
+    result = parse_catalog(html, PARTITION, 1)
+    assert result.complete and result.error is None and result.next_page == 2
+    assert [row["id"] for row in result.records] == ["1161705"]
+    assert result.skipped_rows == [{"row": 2, "id": "1235715", "error": "Title unavailable in public catalog"}]
+    assert result.untitled[0]["id"] == "1235715" and result.untitled[0]["canonical_url"].endswith("novelId=1235715")
+    assert NwebAdapter.resolves_skipped_rows
+    blank = fixture("detail.html").replace('<h2 class="title">어느 날 능력자가 되었다</h2>', '<h2 class="title"></h2>')
+    assert parse_detail(blank, {"id": "1161705"}, CANONICAL).status == "unavailable"

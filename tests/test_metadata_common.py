@@ -621,3 +621,49 @@ def test_adapters_without_detail_resolution_keep_reporting_skipped_rows(tmp_path
     report = m.run_source(Skipping(), args(tmp_path, "--mode", "catalog"), client=Client())
     assert len(report["coverage"]["catalog"]["skipped_rows"]) == 1
     assert not report["coverage"]["catalog"]["discovery_complete"]
+
+
+def test_detail_version_backfills_works_a_resumed_scan_does_not_list(tmp_path):
+    state = m.empty_state("nweb")
+    now = m.utc_now()
+    state["records"] = {
+        "7": {"id": "7", "title": "Old", "history": {"last_success": now}},
+        "8": {"id": "8", "title": "Done", "detail_version": 2, "history": {"last_success": now}},
+        "9": {"id": "9", "title": "Adult", "history": {"latest_outcome": "restricted", "last_attempt": now}},
+    }
+    m.save_state(state, tmp_path / "state")
+    class Versioned(Adapter):
+        detail_version = 2
+        def detail(self, client, record):
+            client.seen = getattr(client, "seen", []) + [record["id"]]
+            return super().detail(client, record)
+    client = Client()
+    m.run_source(Versioned(), args(tmp_path, "--mode", "catalog"), client=client)
+    assert "7" in client.seen and "8" not in client.seen and "9" not in client.seen
+    assert m.load_state("nweb", tmp_path / "state")["records"]["7"]["detail_version"] == 2
+
+
+def test_fast_name_escaping_matches_the_full_pattern():
+    from scripts import source_names
+    samples = [name for name in source_names.NAMES] + [name.upper() for name in source_names.NAMES]
+    short = source_names._SHORT
+    text = " | ".join(samples) + f" x{short} {short}s {short}cdn İ ſ"
+    expected = source_names.NAME_PATTERN.sub(source_names._escape_match, text)
+    assert source_names.escape_names(text) == expected
+    assert source_names.escape_names("plain text") == "plain text"
+
+
+def test_finished_but_unverified_pass_restarts_instead_of_resuming_nothing(tmp_path):
+    class Unverified(Adapter):
+        def finalize_catalog(self, state):
+            state["coverage"]["errors"].append({"error": "counts differ"})
+    m.run_source(Unverified(), args(tmp_path, "--mode", "catalog"), client=Client())
+    # A resumed run with nothing left to do changes nothing and flags the pass.
+    idle = Client()
+    m.run_source(Unverified(), args(tmp_path, "--mode", "catalog", "--resume"), client=idle)
+    first = m.load_state("nweb", tmp_path / "state")["progress"]
+    assert not first["pass_complete"] and first["pass_exhausted"] and idle.requests == 0
+    client = Client()
+    m.run_source(Unverified(), args(tmp_path, "--mode", "catalog", "--resume"), client=client)
+    second = m.load_state("nweb", tmp_path / "state")["progress"]
+    assert second["scan_id"] != first["scan_id"] and client.requests >= 3

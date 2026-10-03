@@ -41,7 +41,7 @@ def test_details_start_before_discovery_finishes_and_workers_refill(tmp_path):
 def test_checkpoint_count_is_bounded_for_large_detail_queue(tmp_path, monkeypatch):
     saves = []
     original_save = m.save_state
-    def save(state, directory):
+    def save(state, directory, **kwargs):
         saves.append(len(state["progress"]["pending_details"]))
         original_save(state, directory)
     monkeypatch.setattr(m, "save_state", save)
@@ -66,14 +66,14 @@ def test_recovered_details_run_before_any_catalog_discovery(tmp_path):
             pytest.fail("Must finish recovered details before discovering more pages")
         def detail(self, client, record):
             attempted.append(record["id"])
-            if record["id"] == "3":
+            if record["id"] == "1":
                 raise m.BudgetExceeded("Runtime budget reached")
             return super().detail(client, record)
     report = m.run_source(Backfill(), args(tmp_path, "--mode", "catalog", "--resume", "--workers", "1"), client=Client())
     restored = m.load_state("nweb", tmp_path / "state")
-    assert attempted == ["1", "2", "3"]
-    assert restored["records"]["1"]["synopsis"]
-    assert restored["progress"]["pending_details"] == ["3"]
+    assert attempted == ["3", "2", "1"]  # Newer works first.
+    assert restored["records"]["3"]["synopsis"]
+    assert restored["progress"]["pending_details"] == ["1"]
     assert restored["progress"]["partitions"]["best"]["next_page"] == 20
     assert report["coverage"]["pages"] == 0 and report["coverage"]["continuation"]["eligible"]
 

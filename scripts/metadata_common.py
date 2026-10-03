@@ -209,7 +209,7 @@ def load_state(source, state_dir):
     return state
 
 
-def save_state(state, state_dir):
+def save_state(state, state_dir, *, compresslevel=9):
     source = state["source"]
     if source not in SOURCE_LABELS:
         raise ValueError("Unknown metadata source")
@@ -226,8 +226,8 @@ def save_state(state, state_dir):
     content = source_names.dumps(base, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
     # Write the sidecar first. If a process stops between the two replacements,
     # load_state still validates translations against the originals in the base.
-    atomic_bytes(state_dir / (source + ".translations.json.gz"), gzip.compress(sidecar_content, mtime=0))
-    atomic_bytes(state_dir / (source + ".json.gz"), gzip.compress(content, mtime=0))
+    atomic_bytes(state_dir / (source + ".translations.json.gz"), gzip.compress(sidecar_content, compresslevel, mtime=0))
+    atomic_bytes(state_dir / (source + ".json.gz"), gzip.compress(content, compresslevel, mtime=0))
 
 
 def valid_id(value):
@@ -532,6 +532,7 @@ def run_source(adapter, args, *, client=None):
     had_budget = False
 
     last_save, last_detail_log, changes = time.monotonic(), time.monotonic(), 0
+    save_seconds = 0.0
     initial_revision = progress.get("revision", 0)
     progress.setdefault("scan_id", uuid4().hex)
 
@@ -541,14 +542,18 @@ def run_source(adapter, args, *, client=None):
                      f"{max(0, args.max_runtime-elapsed):.0f}s remaining")
 
     def checkpoint(force=False):
-        nonlocal last_save, changes
-        if not force and changes < 500 and time.monotonic() - last_save < 60:
+        nonlocal last_save, changes, save_seconds
+        elapsed = time.monotonic() - last_save
+        # Large states take seconds to save; keep saving under a tenth of the run.
+        if not force and ((changes < 500 and elapsed < 60) or elapsed < 10 * save_seconds):
             return
         progress["pending_details"] = list(pending)
         coverage["requests"] = client.requests
         before = time.monotonic()
-        save_state(state, state_dir)
+        # Periodic checkpoints favour speed; forced ones (start, end) are stored compactly.
+        save_state(state, state_dir, compresslevel=9 if force else 1)
         last_save, changes = time.monotonic(), 0
+        save_seconds = last_save - before
         log(f"Checkpoint: {len(state['records']):,} records, {len(pending):,} details pending; "
             f"saved in {last_save-before:.2f}s; revision {progress.get('revision', 0)}")
 
@@ -581,6 +586,26 @@ def run_source(adapter, args, *, client=None):
             pending[ident] = None
             advanced()
 
+    def queue_detail_version():
+        """A new detail version applies to every stored work, not only those a
+        resumed scan happens to list again. Recent restrictions are not retried."""
+        now, queued = datetime.now(timezone.utc), 0
+        for ident, record in state["records"].items():
+            if (ident in pending or not record.get("title")
+                    or record.get("detail_version") == detail_policy["version"]):
+                continue
+            history = record.get("history", {})
+            if history.get("latest_outcome") in ("restricted", "unavailable"):
+                try:
+                    attempt = datetime.fromisoformat(str(history["last_attempt"]).replace("Z", "+00:00"))
+                    if (now - attempt).total_seconds() < detail_policy["refresh_days"] * 86400:
+                        continue
+                except (KeyError, ValueError):
+                    pass
+            pending[ident] = None
+            queued += 1
+        return queued
+
     def fetch_details(force_checkpoint=True):
         nonlocal detail_count, last_detail_log
         if not pending or (args.max_details is not None and detail_count >= args.max_details):
@@ -594,7 +619,9 @@ def run_source(adapter, args, *, client=None):
         ranking_ids = {str(item["id"]) for board in state["boards"].values() for item in board["records"]}
         queue = deque(sorted((ident for ident in pending if ident not in detail_attempted
                       and (args.mode != "rankings" or ident in ranking_ids)),
-                      key=lambda ident: (bool(state["records"][ident].get("synopsis")), int(ident))))
+                      # Missing synopses first, then newer (higher) IDs: recent
+                      # works are the ones readers browse first.
+                      key=lambda ident: (bool(state["records"][ident].get("synopsis")), -int(ident))))
         budget_error = None
         def fetch(ident):
             try:
@@ -658,7 +685,7 @@ def run_source(adapter, args, *, client=None):
         f"request limit={args.max_requests or 'none'}; scan={progress['scan_id']}")
     try:
         if args.mode != "rankings":
-            if not args.resume or progress.get("pass_complete"):
+            if not args.resume or progress.get("pass_complete") or progress.pop("pass_exhausted", False):
                 progress["partitions"] = {}
                 progress["pass_started_at"] = utc_now()
                 progress["scan_id"] = uuid4().hex
@@ -667,6 +694,10 @@ def run_source(adapter, args, *, client=None):
             progress["phase"] = "discovery"
             coverage["catalog"]["started"] = True
             checkpoint(force=True)
+            if args.mode == "catalog" and detail_policy["version"] is not None:
+                queued = queue_detail_version()
+                if queued:
+                    log(f"Details: {queued:,} records predate detail version {detail_policy['version']}")
             # Resume enrichment before spending another run discovering listings.
             # The pending queue is durable even when a recovered scan differs.
             if args.mode == "catalog":
@@ -880,6 +911,16 @@ def run_source(adapter, args, *, client=None):
         coverage["has_complete_baseline"] = bool(previous_baseline or (coverage["complete"] and args.mode == "catalog"))
         if args.mode == "catalog":
             progress["pass_complete"] = coverage["complete"]
+            finished = progress.get("partitions") or {}
+            # Every partition finished, nothing was cut short or left pending,
+            # this run scanned and enriched nothing and no board needs a retry,
+            # yet the pass is incomplete (e.g. a failed verification). Resuming
+            # would repeat the same empty run forever, so the next run starts afresh.
+            progress["pass_exhausted"] = bool(
+                not coverage["complete"] and not had_budget and not pending and finished
+                and not coverage["pages"] and not coverage["details"]
+                and not any("board" in error for error in coverage["errors"])
+                and all(c.get("complete") and not c.get("error") for c in finished.values()))
         if args.mode != "rankings":
             cursors = progress.get("partitions", {})
             coverage["catalog"].update(catalog_coverage(cursors, state["records"]))
@@ -894,7 +935,11 @@ def run_source(adapter, args, *, client=None):
         coverage["status"] = "complete" if coverage["complete"] else "partial"
         coverage["continuation"] = {
             "eligible": bool(args.mode == "catalog" and had_budget and not coverage["errors"]
-                             and not coverage["catalog"].get("errors") and not coverage["enrichment"]["failed"]
+                             # Errors recorded by earlier runs are retried by the next
+                             # one; only failures seen in this run (above) stop the chain.
+                             # Failed details stay queued; they only stop the chain
+                             # when a run could not complete any detail at all.
+                             and (not coverage["enrichment"]["failed"] or coverage["successful_details"] > 0)
                              and progress.get("revision", 0) > initial_revision),
             "scan_id": progress["scan_id"], "revision": progress.get("revision", 0),
             "phase": progress.get("phase"), "workers": args.workers}

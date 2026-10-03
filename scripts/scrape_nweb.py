@@ -128,17 +128,23 @@ def parse_catalog(html, partition, page):
         if _empty_message(soup.select_one("#content")):
             return CatalogPage(records=[], next_page=None)
         return CatalogPage(records=[], next_page=None, complete=False, error="Nweb catalog markup was not found")
-    records = []
+    records, skipped_rows, untitled = [], [], []
     seen = set()
-    for link in catalog.select("li > a.link"):
+    for position, link in enumerate(catalog.select("li > a.link"), start=1):
         identity = _detail_identity(link.get("href", ""))
         title = _text(link.select_one(".title"))
-        if identity is None or not title:
-            return CatalogPage(records=[], next_page=None, complete=False, error="Invalid Nweb catalog identity or title")
+        if identity is None:
+            return CatalogPage(records=[], next_page=None, complete=False, error="Invalid Nweb catalog identity")
         novel_id, tier, canonical = identity
         if novel_id in seen:
             continue
         seen.add(novel_id)
+        if not title:
+            # A few works have a blank title on their own page as well. Keep
+            # scanning; the work's detail record settles the omission.
+            skipped_rows.append({"row": position, "id": novel_id, "error": "Title unavailable in public catalog"})
+            untitled.append({"id": novel_id, "tier": tier, "canonical_url": canonical})
+            continue
         image = link.select_one(".thumbnail img[src]")
         genre_name = partition.get("genre_name", "")
         rating = _number(_text(link.select_one(".meta_data_group .score_area")))
@@ -173,12 +179,13 @@ def parse_catalog(html, partition, page):
             value = query.get("page", [""])[0]
             if value.isdigit() and int(value) > page:
                 higher.append(int(value))
-    if not records and higher:
+    if not records and not skipped_rows and higher:
         return CatalogPage(records=[], next_page=None, complete=False, error="Empty Nweb page still has further pages")
-    if not records and not _empty_message(soup.select_one("#content")):
+    if not records and not skipped_rows and not _empty_message(soup.select_one("#content")):
         return CatalogPage(records=[], next_page=None, complete=False, error="Unexplained empty Nweb catalog")
     # The next-group arrow is page 11 on page 1. Numbered links are authoritative.
-    return CatalogPage(records=records, next_page=min(higher) if higher else None)
+    return CatalogPage(records=records, next_page=min(higher) if higher else None,
+                       skipped_rows=skipped_rows, untitled=untitled)
 
 
 def parse_detail(html, previous, response_url, today=None):
@@ -187,6 +194,9 @@ def parse_detail(html, previous, response_url, today=None):
     identity = _detail_identity(response_url)
     if not identity or identity[0] != str(previous["id"]):
         return MetadataResult(status="failed", reason="Nweb detail identity changed unexpectedly")
+    if info is not None and info.select_one("h2.title") is not None and not _text(info.select_one("h2.title")):
+        # The work page exists but its title is blank: nothing can be listed.
+        return MetadataResult(status="unavailable", reason="Nweb work has no public title")
     if info is None or not _text(info.select_one("h2.title")):
         if re.search(r"성인.{0,15}인증|로그인.{0,15}필요", _text(soup.select_one("#content"))):
             return MetadataResult(status="restricted", reason="Nweb requires verification for this metadata")
@@ -298,6 +308,7 @@ class NwebAdapter:
     detail_fields = ("title", "author", "cover", "episodes", "complete", "tier")
     detail_refresh_days = 90
     detail_version = 2  # Version 2 records the newest episode date.
+    resolves_skipped_rows = True
 
     @staticmethod
     def is_allowed_url(url):
