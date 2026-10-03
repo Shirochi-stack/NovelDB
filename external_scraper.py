@@ -11824,9 +11824,14 @@ async (ids) => {
                             self.log(f'  [Rbooks] Saved owned PC viewer volume: '
                                      f'{chapter_name}')
                             return result
+                        raise RuntimeError('PC viewer returned no verified content.')
                     except Exception as exc:
                         self.log(f'  [Rbooks] PC viewer could not read '
                                  f'{chapter_name}: {exc}')
+                        self.log('  [Rbooks] This is a reader export failure; '
+                                 'the volume will be retried and will not be '
+                                 'marked as unavailable or paid.')
+                        return None
                 self.log(
                     f'  [Rbooks] You own {chapter_name}, but Rbooks will not open '
                     'it in its web viewer ("웹 뷰어에서 지원하지 않는 작품입니다"). '

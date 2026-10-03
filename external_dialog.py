@@ -682,10 +682,11 @@ class ExternalNovelDialog(tk.Toplevel):
         # Old RBOOKS desktop exports could silently omit their opening pages.
         # Source covers are local reader bytes, unavailable after stripping
         # image data from a cache entry.
-        if 'rbooks-content' in str(result.get('contentHtml') or ''):
+        cached_html = str(result.get('contentHtml') or '')
+        if ('rbooks-content' in cached_html or
+                '\u0072\u0069\u0064\u0069-content' in cached_html):
             from rbooks_app_proxy import RbooksAppProxy
-            if (result.get('_rbooksAppExportVersion') !=
-                    RbooksAppProxy.EXPORT_VERSION or
+            if (not RbooksAppProxy.is_verified_export(result) or
                     (result.get('_rbooksAppHasSourceCover') and
                      not result.get('_coverData'))):
                 return False
@@ -1338,6 +1339,13 @@ class ExternalNovelDialog(tk.Toplevel):
                     f"{failed} failed."
                 )
 
+            if is_rbooks and failed:
+                missing = [chapter.get('name') or f'Volume {start + index + 1}'
+                           for index, chapter in enumerate(selected)
+                           if results[index] is None]
+                self._log(f'❌ [Rbooks] INCOMPLETE: {failed} selected volume(s) '
+                          'failed verification. Missing: ' + '; '.join(missing))
+
             self._chapter_results = results
         except Exception as e:
             self._log(f"\u274c Download error: {e}")
@@ -1822,12 +1830,13 @@ class ExternalNovelDialog(tk.Toplevel):
                 1 for result in self._chapter_results if result is None
             )
             if (
-                data.get('_npia')
+                (data.get('_npia') or data.get('_rbooks'))
                 and failures
                 and not generate_after_stop
             ):
+                source = 'Rbooks' if data.get('_rbooks') else 'Npia'
                 self._log(
-                    f"❌ [Npia] Output not generated because {failures} "
+                    f"❌ [{source}] Output not generated because {failures} "
                     "chapter(s) failed. No partial EPUB was written."
                 )
                 return
@@ -2091,12 +2100,13 @@ class ExternalNovelDialog(tk.Toplevel):
                 1 for result in self._chapter_results if result is None
             )
             if (
-                data.get('_npia')
+                (data.get('_npia') or data.get('_rbooks'))
                 and failures
                 and not generate_after_stop
             ):
+                source = 'Rbooks' if data.get('_rbooks') else 'Npia'
                 self._log(
-                    f"❌ [Npia] Output not generated because {failures} "
+                    f"❌ [{source}] Output not generated because {failures} "
                     "chapter(s) failed. No partial file was written."
                 )
                 continue

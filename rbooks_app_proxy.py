@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 
 from bs4 import BeautifulSoup
+from scripts.source_names import dumps as source_dumps
 
 
 class RbooksAppError(RuntimeError):
@@ -27,13 +28,53 @@ class RbooksAppError(RuntimeError):
 
 class RbooksAppProxy:
     INSTALLER_URL = 'https://getapp.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/windows'
-    EXPORT_VERSION = 2
+    EXPORT_VERSION = 3
+    # Reader overlays are HTML, so native Enter and JavaScript alert handlers
+    # cannot close them. Cancel a synced position jump to keep our TOC selection.
+    PAGE_POPUP_SCRIPT = r"""(() => {
+      const visible = el => el && el.getClientRects().length &&
+        getComputedStyle(el).visibility !== 'hidden' &&
+        getComputedStyle(el).display !== 'none';
+      const label = el => (el.innerText || el.value || el.getAttribute('aria-label') || '')
+        .trim().replace(/\s+/g, ' ');
+      const controls = root => Array.from(root.querySelectorAll(
+        'button, [role="button"], input[type="button"], input[type="submit"]'))
+        .filter(el => visible(el) && !el.disabled);
+      for (const cancel of controls(document)) {
+        if (!/^(취소|Cancel)$/i.test(label(cancel))) continue;
+        for (let box = cancel.parentElement; box && box !== document.body;
+             box = box.parentElement) {
+          const text = box.innerText || '';
+          if (text.length > 1200) break;
+          if (/읽던\s*페이지/.test(text) && /다른\s*기기|현재\s*페이지/.test(text) &&
+              controls(box).some(el => /^(이동|Move)$/i.test(label(el)))) {
+            cancel.click();
+            return 'reading-position';
+          }
+        }
+      }
+      for (const box of document.querySelectorAll(
+        '[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog[open]')) {
+        if (!visible(box)) continue;
+        const buttons = controls(box);
+        // Only acknowledge a single-action notice. Multi-action dialogs may
+        // change the book, purchase something, or delete data.
+        if (buttons.length === 1 && /^(확인|닫기|OK|Close)$/i.test(label(buttons[0]))) {
+          buttons[0].click();
+          return 'notice';
+        }
+      }
+      return null;
+    })()"""
 
     def __init__(self, log, stop_requested=lambda: False):
         self.log = log
         self.stop_requested = stop_requested
         self.port = None
         self.process = None
+        self._reader_targets = {}
+        self._popup_lock = threading.Lock()
+        self._popup_revision = 0
         self.executable = os.path.join(
             os.environ.get('ProgramFiles', r'C:\Program Files'),
             '\u0052\u0049\u0044\u0049', '\u0052\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073', '\u0052\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.exe',
@@ -265,7 +306,7 @@ class RbooksAppProxy:
         except OSError:
             return False
 
-    def _wait_for_viewer(self, snapshot, reopen=None):
+    def _wait_for_viewer(self, snapshot, reopen=None, title=None):
         # A library click can start a download without opening its reader.
         # Slow disks/networks need more time, followed by another open click.
         end = time.monotonic() + 180
@@ -273,8 +314,19 @@ class RbooksAppProxy:
         while time.monotonic() < end:
             if self.stop_requested():
                 raise RbooksAppError('Download cancelled.')
-            if self._tab('Viewer'):
-                return
+            tab = self._tab('Viewer')
+            if tab:
+                matches = not title or self._evaluate_target(tab, """(() => {
+                  const normalize = text => text.replace(/\\s+/g, '').trim();
+                  const expected = normalize(%s);
+                  return (document.body.innerText || '').split('\\n')
+                    .some(line => normalize(line) === expected);
+                })()""" % source_dumps(title))
+                if matches:
+                    self._reader_targets['Viewer'] = tab.get('id')
+                    self.log('  [Rbooks] Confirmed the requested volume in '
+                             'the PC viewer.')
+                    return
             if self._reader_cache_error(snapshot):
                 raise RbooksAppError(
                     'RBOOKS could not open its cached copy of this volume. '
@@ -294,14 +346,19 @@ class RbooksAppProxy:
         )
 
     def _tab(self, suffix):
+        target_id = self._reader_targets.get(suffix)
         return next((t for t in self._tabs(self.port)
                      if t.get('type') == 'page' and
+                     (not target_id or t.get('id') == target_id) and
                      t.get('url', '').endswith('?' + suffix)), None)
 
     def _evaluate(self, suffix, expression):
         tab = self._tab(suffix)
         if not tab:
             return None
+        return self._evaluate_target(tab, expression)
+
+    def _evaluate_target(self, tab, expression):
         import websocket
         ws = websocket.create_connection(
             tab['webSocketDebuggerUrl'], timeout=12, suppress_origin=True
@@ -316,6 +373,9 @@ class RbooksAppProxy:
                 reply = json.loads(ws.recv())
                 if reply.get('id') != 1:
                     continue
+                if reply.get('error'):
+                    raise RbooksAppError('RBOOKS viewer command failed: ' +
+                                         str(reply['error'].get('message')))
                 result = reply.get('result') or {}
                 if result.get('exceptionDetails'):
                     raise RbooksAppError('RBOOKS viewer interaction failed: ' +
@@ -439,9 +499,29 @@ class RbooksAppProxy:
                     last_native = None
                 if self._accept_js_dialog():
                     self.log('  [Rbooks] Accepted a RBOOKS PC viewer popup.')
+                self._dismiss_page_popup()
             except Exception:
                 pass
             stop.wait(0.8)
+
+    def _dismiss_page_popup(self):
+        """Dismiss overlays only in the reader bound to the requested volume."""
+        if not self._reader_targets.get('Viewer'):
+            return False
+        with self._popup_lock:
+            try:
+                kind = self._evaluate('Viewer', self.PAGE_POPUP_SCRIPT)
+            except Exception:
+                return False
+            if kind not in ('reading-position', 'notice'):
+                return False
+            self._popup_revision += 1
+            if kind == 'reading-position':
+                self.log('  [Rbooks] Cancelled the synced reading-position popup; '
+                         'keeping the requested source page.')
+            else:
+                self.log('  [Rbooks] Dismissed an in-page reader notice.')
+            return True
 
     def _sso(self, context):
         page = context.new_page()
@@ -465,6 +545,7 @@ class RbooksAppProxy:
             page.close()
 
     def _open_owned_book(self, context, book_id, title):
+        self._reader_targets.clear()
         otp = self._sso(context)
         payload = json.dumps({'b_ids': [str(book_id)]}, separators=(',', ':'))
         link = ('\u0072\u0069\u0064\u0069://download?sso_otp=' + urllib.parse.quote(otp) +
@@ -490,8 +571,9 @@ class RbooksAppProxy:
                    'sign-in handoff.',
                    '  [Rbooks] Waiting for the RBOOKS library to open...')
         self.log('  [Rbooks] RBOOKS library opened; locating the owned volume...')
-        title_js = json.dumps(title, ensure_ascii=False)
-        book_id_js = json.dumps(str(book_id))
+        self._close_reader_windows()
+        title_js = source_dumps(title, ensure_ascii=False)
+        book_id_js = source_dumps(str(book_id))
         def click_book():
             return self._evaluate('Books', """(() => {
               const title = %s;
@@ -500,19 +582,21 @@ class RbooksAppProxy:
                 e.textContent?.trim() === title &&
                 ![...e.children].some(c => c.textContent?.trim() === title));
               if (!matches.length) return false;
-              let cover = '';
-              for (let node = matches[0], depth = 0;
-                   node && depth < 7; node = node.parentElement, depth++) {
-                const image = [...node.querySelectorAll('img')].find(img =>
-                  (img.currentSrc || img.src || '').includes(
-                    '/cover/' + bookId + '/'));
-                if (image) {
-                  cover = image.currentSrc || image.src;
-                  break;
+              for (const match of matches) {
+                for (let node = match, depth = 0;
+                     node && depth < 7; node = node.parentElement, depth++) {
+                  const images = [...node.querySelectorAll('img')];
+                  if (images.length > 1) break;
+                  const image = images.find(img =>
+                    (img.currentSrc || img.src || '').includes(
+                      '/cover/' + bookId + '/'));
+                  if (image) {
+                    match.click();
+                    return true;
+                  }
                 }
               }
-              matches[0].click();
-              return {cover};
+              return false;
             })()""" % (title_js, book_id_js))
         snapshot = self._reader_log_snapshot()
         self._wait(click_book, 120,
@@ -520,11 +604,29 @@ class RbooksAppProxy:
                    '  [Rbooks] Waiting for the owned volume to appear in '
                    'the RBOOKS library...')
         self.log('  [Rbooks] Found the owned volume; opening the reader...')
-        self._wait_for_viewer(snapshot, reopen=click_book)
+        self._wait_for_viewer(snapshot, reopen=click_book, title=title)
         # The library supplies a 165px thumbnail, never the export cover.
         return (
             f'https://img.\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net/cover/{book_id}/large'
         )
+
+    def _close_reader_windows(self):
+        """Retire old reader/TOC windows while keeping the library open."""
+        tabs = [tab for tab in self._tabs(self.port)
+                if tab.get('url', '').endswith(('?Viewer', '?TocModal'))]
+        old_ids = {tab['id'] for tab in tabs}
+        for tab in tabs:
+            try:
+                self._evaluate_target(tab, 'window.close()')
+            except Exception:
+                # Closing a window can disconnect its debugger before a reply.
+                pass
+        if old_ids:
+            self._wait(lambda: not any(tab.get('id') in old_ids
+                                      for tab in self._tabs(self.port)), 15,
+                       'Previous RBOOKS reader windows did not close. '
+                       'Export stopped to avoid reading the wrong volume.')
+        self._reader_targets.clear()
 
     def _toc_rows(self):
         return self._evaluate('TocModal', """(() => {
@@ -553,7 +655,7 @@ class RbooksAppProxy:
             const index = page.getAttribute('data-spine-index');
             if (!/^\\d+$/.test(index || '')) continue;
             sections.push({spine: Number(index),
-                           offset: page.style.marginLeft,
+                           offset: page.style.cssText + ':' + doc.body.scrollTop,
                            ready: Number(doc.body.style.opacity || 1) === 1,
                            html: content.innerHTML, text: content.innerText});
           }
@@ -634,7 +736,8 @@ class RbooksAppProxy:
           const slider = document.querySelector('input[type="range"]');
           if (!slider) return null;
           const step = Number(slider.step) || 1;
-          const target = Math.floor(%d / step) * step;
+          const target = Math.max(Number(slider.min) || 0,
+            Math.min(Number(slider.max), Math.floor(%d / step) * step));
           Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
             .set.call(slider, String(target));
           slider.dispatchEvent(new Event('input', {bubbles: true}));
@@ -645,9 +748,14 @@ class RbooksAppProxy:
             raise RbooksAppError('RBOOKS viewer page control was not found.')
         stable = None
         stable_since = 0
+        popup_revision = self._popup_revision
 
         def rendered():
-            nonlocal stable, stable_since
+            nonlocal stable, stable_since, popup_revision
+            self._dismiss_page_popup()
+            if popup_revision != self._popup_revision:
+                popup_revision = self._popup_revision
+                stable = None
             frames = self._front_sections()
             signature = self._frame_signature(frames)
             if (self._reader_page() != expected or not frames or
@@ -663,13 +771,14 @@ class RbooksAppProxy:
         return self._wait(rendered, 20,
                           f'RBOOKS page {expected + 1} did not finish rendering.')
 
-    def _front_matter(self, first_chapter_page):
+    def _front_matter(self, first_chapter_page, first_spine=None):
         """Read the source cover and pages omitted from the reader's TOC menu."""
-        first_frames = self._navigate_reader_page(first_chapter_page - 1)
-        first_section = self._select_front_section(first_frames)
-        if not first_section:
-            raise RbooksAppError('RBOOKS first chapter did not render.')
-        first_spine = first_section['spine']
+        if first_spine is None:
+            first_frames = self._navigate_reader_page(first_chapter_page - 1)
+            first_section = self._select_front_section(first_frames)
+            if not first_section:
+                raise RbooksAppError('RBOOKS first chapter did not render.')
+            first_spine = first_section['spine']
         pages = []
         images = {}
         cover_data = ''
@@ -716,10 +825,12 @@ class RbooksAppProxy:
                 raise RbooksAppError('RBOOKS front matter is unexpectedly long.')
         return pages, images, cover_data
 
-    def _read_front_matter(self, first_chapter_page):
+    def _read_front_matter(self, first_chapter_page, first_spine=None):
         for attempt in range(2):
             try:
-                result = self._front_matter(first_chapter_page)
+                result = (self._front_matter(first_chapter_page)
+                          if first_spine is None else
+                          self._front_matter(first_chapter_page, first_spine))
                 self.log(f'  [Rbooks] Read {len(result[0])} source '
                          'front-matter page(s).')
                 return result
@@ -766,6 +877,106 @@ class RbooksAppProxy:
           row.click(); return true;
         })()""" % index)
 
+    @staticmethod
+    def _normalized_label(label):
+        return re.sub(r'[\s\u200b\u2060\u2063\ufeff]+', '', label)
+
+    @classmethod
+    def _section_matches_title(cls, section, title):
+        soup = BeautifulSoup(section.get('html') or '', 'html.parser')
+        expected = cls._normalized_label(title)
+        headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        # Some sources use a styled paragraph instead of a heading element.
+        if not headings:
+            headings = soup.find_all(['p', 'div'], limit=5)
+        return any(cls._normalized_label(node.get_text()) == expected
+                   for node in headings)
+
+    @classmethod
+    def _section_has_content(cls, section, title):
+        soup = BeautifulSoup(section.get('html') or '', 'html.parser')
+        expected = cls._normalized_label(title)
+        for node in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div']):
+            if cls._normalized_label(node.get_text()) == expected:
+                node.decompose()
+        return bool(cls._normalized_label(soup.get_text()) or soup.find('img'))
+
+    def _read_toc_section(self, row, seen):
+        """Use the app's own TOC anchor, then verify the actual source heading."""
+        for attempt in range(2):
+            try:
+                if not self._open_toc_row(row['index']):
+                    raise RbooksAppError('Could not select source section: ' +
+                                         row['title'])
+                stable = None
+                stable_since = 0
+                popup_revision = self._popup_revision
+
+                def rendered():
+                    nonlocal stable, stable_since, popup_revision
+                    self._dismiss_page_popup()
+                    if popup_revision != self._popup_revision:
+                        popup_revision = self._popup_revision
+                        stable = None
+                    matching = [frame for frame in self._front_sections()
+                                if frame.get('ready', True) and
+                                frame['spine'] not in seen and
+                                self._section_matches_title(frame, row['title']) and
+                                self._section_has_content(frame, row['title'])]
+                    section = self._select_front_section(matching)
+                    if not section:
+                        stable = None
+                        return None
+                    signature = self._frame_signature([section])
+                    if signature != stable:
+                        stable, stable_since = signature, time.monotonic()
+                        return None
+                    return (section if time.monotonic() - stable_since >= 0.7
+                            else None)
+
+                return self._wait(
+                    rendered, 20, 'RBOOKS source section did not match its TOC '
+                    'or repeated an earlier section: ' + row['title'],
+                    '  [Rbooks] Waiting to verify source section: ' + row['title'])
+            except RbooksAppError as exc:
+                if self.stop_requested() or attempt:
+                    raise
+                self.log(f'  [Rbooks] Retrying source section: {exc}')
+
+    @staticmethod
+    def _toc_signature(rows):
+        return tuple((row['index'], row['page'], row['title']) for row in rows)
+
+    @classmethod
+    def is_verified_export(cls, result):
+        proof = result.get('_rbooksVerification') or {}
+        count = proof.get('expectedSections', 0)
+        if (result.get('_rbooksAppExportVersion') != cls.EXPORT_VERSION or
+                proof.get('complete') is not True or not proof.get('bookId') or
+                not isinstance(count, int) or count <= 0 or
+                proof.get('verifiedSections') != count):
+            return False
+        soup = BeautifulSoup(result.get('contentHtml') or '', 'html.parser')
+        return len(soup.select('.rbooks-volume-section')) == count
+
+    def _verify_sections(self, book_id, rows, sections, seen):
+        if (len(sections) != len(rows) or len(seen) != len(rows) or
+                [title for title, _ in sections] !=
+                [row['title'] for row in rows] or
+                any(not self._section_matches_title({'html': content}, title) or
+                    not self._section_has_content({'html': content}, title)
+                    for title, content in sections)):
+            raise RbooksAppError('RBOOKS export is incomplete; source sections '
+                                 'do not match the full table of contents.')
+        if self._toc_signature(self._toc_rows()) != self._toc_signature(rows):
+            raise RbooksAppError('RBOOKS table of contents changed during '
+                                 'export. Retry the volume.')
+        self.log(f'  [Rbooks] Completeness verified for volume {book_id}: '
+                 f'{len(sections)}/{len(rows)} source TOC sections, '
+                 'with matching headings and no repeated sections.')
+        return {'bookId': str(book_id), 'expectedSections': len(rows),
+                'verifiedSections': len(sections), 'complete': True}
+
     def extract(self, context, book_id, title, chapter_url):
         stop = threading.Event()
         watcher = threading.Thread(target=self._dismiss_viewer_popups,
@@ -794,22 +1005,19 @@ class RbooksAppProxy:
           if (!e) return false;
           e.click(); return true;
         })()"""), 10, 'RBOOKS table of contents was not found.')
-        self._wait(lambda: self._tab('TocModal'), 10,
-                   'RBOOKS table of contents did not open.')
+        toc = self._wait(lambda: self._tab('TocModal'), 10,
+                         'RBOOKS table of contents did not open.')
+        self._reader_targets['TocModal'] = toc.get('id')
         rows = self._wait(self._toc_rows, 15,
                           'RBOOKS table of contents is empty.')
+        first_section = self._read_toc_section(rows[0], set())
         front_pages, front_images, cover_data = self._read_front_matter(
-            rows[0]['page']
-        )
+            rows[0]['page'], first_section['spine'])
         sections = []
         seen = set()
         image_data = dict(front_images)
         for row in rows:
-            frames = self._navigate_reader_page(row['page'] - 1)
-            section = self._select_front_section(frames)
-            if not section or section['spine'] in seen:
-                raise RbooksAppError('RBOOKS section was repeated or empty: ' +
-                                   row['title'])
+            section = self._read_toc_section(row, seen)
             seen.add(section['spine'])
             content = self._clean_section(section['html'])
             if not BeautifulSoup(content, 'html.parser').get_text(strip=True):
@@ -820,8 +1028,9 @@ class RbooksAppProxy:
                                        + row['title'])
                 image_data[item['url']] = item['data']
             sections.append((row['title'], content))
-            self.log(f'  [Rbooks] Read section {len(sections)}/{len(rows)}: '
+            self.log(f'  [Rbooks] Verified section {len(sections)}/{len(rows)}: '
                      + row['title'])
+        verification = self._verify_sections(book_id, rows, sections, seen)
         part_title, part_id = self._part_heading(front_pages)
         chapter_points = [
             {'title': section_title, 'id': f'rbooks-section-{i}'}
@@ -865,6 +1074,7 @@ class RbooksAppProxy:
             })
         return {
             '_rbooksAppExportVersion': self.EXPORT_VERSION,
+            '_rbooksVerification': verification,
             '_rbooksAppHasSourceCover': bool(cover_data),
             'chapterName': title,
             'sourceChapterName': title,

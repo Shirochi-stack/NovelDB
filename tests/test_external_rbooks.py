@@ -1130,10 +1130,14 @@ def test_rbooks_cache_rejects_missing_front_matter_and_stripped_cover():
     from external_dialog import ExternalNovelDialog
     from rbooks_app_proxy import RbooksAppProxy
 
-    old = {'contentHtml': '<div class="rbooks-content"><p>Story</p></div>'}
+    old = {'contentHtml': '<div class="rbooks-content">'
+                         '<div class="rbooks-volume-section"><p>Story</p></div>'
+                         '</div>'}
     assert not ExternalNovelDialog._external_cacheable(old)
     complete = dict(old, _rbooksAppExportVersion=RbooksAppProxy.EXPORT_VERSION,
-                    _rbooksAppHasSourceCover=True, _coverData='data:image/jpeg;base64,YQ==')
+                    _rbooksAppHasSourceCover=True, _coverData='data:image/jpeg;base64,YQ==',
+                    _rbooksVerification={'bookId': '123', 'expectedSections': 1,
+                                         'verifiedSections': 1, 'complete': True})
     assert ExternalNovelDialog._external_cacheable(complete)
     stripped = ExternalNovelDialog._external_cache_result(complete, False)
     assert not ExternalNovelDialog._external_cacheable(stripped)
@@ -1148,9 +1152,10 @@ def test_rbooks_pc_handoff_opens_executable_without_windows_uri_handler(
     proxy = rbooks_app_proxy.RbooksAppProxy(lambda message: None)
     proxy.executable = r'C:\Program Files\RBOOKS\Rbooks\\u0052\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.exe'
     monkeypatch.setattr(proxy, '_sso', lambda context: 'short-lived-ticket')
+    monkeypatch.setattr(proxy, '_close_reader_windows', lambda: None)
     monkeypatch.setattr(proxy, '_wait', lambda *args, **kwargs: True)
     monkeypatch.setattr(proxy, '_wait_for_viewer',
-                        lambda snapshot, reopen=None: True)
+                        lambda snapshot, reopen=None, title=None: True)
     monkeypatch.setattr(rbooks_app_proxy.subprocess, 'Popen',
                         lambda args, **kwargs: calls.append(args))
     monkeypatch.setattr(os, 'startfile',

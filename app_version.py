@@ -1,6 +1,6 @@
 """Single source of truth for Npia Downloader build/version names."""
 
-VERSION_NUMBER = 91
+VERSION_NUMBER = 93
 VERSION = str(VERSION_NUMBER)
 
 APP_NAME = f"ND{VERSION}"
