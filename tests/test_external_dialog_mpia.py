@@ -163,6 +163,7 @@ def test_mpia_metadata_uses_native_browser_startup(monkeypatch, entrypoint):
         def __init__(self, logger):
             super().__init__(logger=logger)
             self.start = Mock()
+            self.prepare_download_browser = Mock()
             self.parse_book = Mock(return_value={
                 '_mpia': True,
                 'bookname': 'Example',

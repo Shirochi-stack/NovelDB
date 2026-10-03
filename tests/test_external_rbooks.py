@@ -1155,7 +1155,8 @@ def test_rbooks_pc_handoff_opens_executable_without_windows_uri_handler(
     monkeypatch.setattr(proxy, '_close_reader_windows', lambda: None)
     monkeypatch.setattr(proxy, '_wait', lambda *args, **kwargs: True)
     monkeypatch.setattr(proxy, '_wait_for_viewer',
-                        lambda snapshot, reopen=None, title=None: True)
+                        lambda snapshot, reopen=None, title=None,
+                        download_status=None: True)
     monkeypatch.setattr(rbooks_app_proxy.subprocess, 'Popen',
                         lambda args, **kwargs: calls.append(args))
     monkeypatch.setattr(os, 'startfile',
@@ -1165,7 +1166,10 @@ def test_rbooks_pc_handoff_opens_executable_without_windows_uri_handler(
     assert len(calls) == 1
     assert calls[0][0] == proxy.executable
     assert calls[0][1].startswith('\u0072\u0069\u0064\u0069://download?sso_otp=')
-    assert '6121000538' in calls[0][1]
+    import json
+    from urllib.parse import urlparse, parse_qs
+    query = parse_qs(urlparse(calls[0][1]).query)
+    assert json.loads(query['payload'][0]) == {'b_ids': []}
 
 
 def test_rbooks_missing_viewer_installs_from_signed_official_download(monkeypatch):
@@ -1436,6 +1440,79 @@ def test_rbooks_front_matter_links_printed_contents_and_groups_navigation():
     assert ncx.find('n:head/n:meta[@name="dtb:depth"]', ns).get(
         'content'
     ) == '2'
+
+
+def test_rbooks_unnumbered_volume_keeps_its_own_navigation_tree():
+    import xml.etree.ElementTree as ET
+    from bs4 import BeautifulSoup
+    from epub_generator import EpubGenerator
+    from rbooks_app_proxy import RbooksAppProxy
+
+    epub = EpubGenerator({'title': 'Series', 'author': 'Author'},
+                         'unused.epub', '')
+    labels = ['1부 | 겨울', '2부 | 봄', '외전外傳']
+    for number, label in enumerate(labels, 1):
+        front_pages = [{
+            'html': f'<h1 class="mtitle-h1-subtitle">{label}</h1>',
+        }]
+        children = [
+            {'title': f'Section {index}', 'id': f'rbooks-section-{index}'}
+            for index in range(1, (3 if number == 3 else 4) + 1)
+        ]
+        content = '<div id="rbooks-front-1"></div>' + ''.join(
+            f'<div id="{child["id"]}">{child["title"]}</div>'
+            for child in children
+        )
+        navigation = RbooksAppProxy._volume_navigation(
+            front_pages, f'Volume {number}', children)
+        anchors = {node['id'] for node in
+                   BeautifulSoup(content, 'html.parser').select('[id]')}
+        assert navigation[0]['id'] in anchors
+        assert all(child['id'] in anchors for child in navigation[0]['children'])
+        epub.add_chapter(f'Volume {number}', content, show_title=False,
+                         toc_sections=navigation)
+
+    ns = {'n': 'http://www.daisy.org/z3986/2005/ncx/'}
+    ncx = ET.fromstring(epub._create_toc_ncx())
+    parents = ncx.findall('n:navMap/n:navPoint', ns)
+    assert [parent.find('n:navLabel/n:text', ns).text
+            for parent in parents] == labels
+    assert [len(parent.findall('n:navPoint', ns))
+            for parent in parents] == [4, 4, 3]
+    for number, parent in enumerate(parents, 1):
+        for point in [parent] + parent.findall('n:navPoint', ns):
+            assert point.find('n:content', ns).get('src').startswith(
+                f'Text/chapter{number:04d}.xhtml#')
+
+
+def test_rbooks_volume_navigation_falls_back_to_volume_title():
+    from rbooks_app_proxy import RbooksAppProxy
+
+    children = [{'title': 'Chapter one', 'id': 'rbooks-section-1'}]
+    for front_pages, anchor in [
+        ([{'html': '<h1>Book title</h1>'}], 'rbooks-front-1'),
+        ([], 'rbooks-section-1'),
+    ]:
+        assert RbooksAppProxy._volume_navigation(
+            front_pages, 'Volume 3', children) == [{
+                'title': 'Volume 3', 'id': anchor, 'children': children,
+            }]
+
+
+def test_rbooks_previous_flat_navigation_export_is_not_reused():
+    from rbooks_app_proxy import RbooksAppProxy
+
+    result = {
+        '_rbooksAppExportVersion': 3,
+        '_rbooksVerification': {
+            'bookId': '6121000540', 'expectedSections': 1,
+            'verifiedSections': 1, 'complete': True,
+        },
+        'contentHtml': '<div class="rbooks-volume-section">Text</div>',
+    }
+    assert not RbooksAppProxy.is_verified_export(result)
+    result['_rbooksAppExportVersion'] = RbooksAppProxy.EXPORT_VERSION
+    assert RbooksAppProxy.is_verified_export(result)
 
 
 def test_rbooks_owned_cover_replaces_public_adult_warning_image():

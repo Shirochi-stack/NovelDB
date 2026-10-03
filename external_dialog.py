@@ -503,6 +503,11 @@ class ExternalNovelDialog(tk.Toplevel):
                 lambda _event, path=file_path: self._open_saved_file(path),
             )
             self._console.tag_bind(
+                tag, "<Button-3>",
+                lambda event, path=file_path: self._show_saved_file_menu(
+                    event, path),
+            )
+            self._console.tag_bind(
                 tag, "<Enter>",
                 lambda _event: self._console.configure(cursor="hand2"),
             )
@@ -529,7 +534,42 @@ class ExternalNovelDialog(tk.Toplevel):
             else:
                 subprocess.Popen(['xdg-open', path])
         except Exception as exc:
-            self._append_log(f"❌ Could not open saved file: {exc}")
+            self._append_log(f"❌ Could not open saved output: {exc}")
+
+    def _show_saved_file_menu(self, event, file_path):
+        menu = getattr(self, '_saved_file_menu', None)
+        if menu is None:
+            menu = self._saved_file_menu = tk.Menu(self, tearoff=False)
+        menu.delete(0, 'end')
+        menu.add_command(
+            label='Open file location',
+            command=lambda: self._open_saved_location(file_path),
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return 'break'
+
+    def _open_saved_location(self, file_path):
+        """Reveal a saved file, or open the saved output directory."""
+        path = os.path.normpath(os.path.abspath(os.path.expanduser(file_path)))
+        folder = path if os.path.isdir(path) else os.path.dirname(path)
+        try:
+            if not os.path.isdir(folder):
+                raise FileNotFoundError(folder)
+            if sys.platform == 'win32':
+                if os.path.isfile(path):
+                    subprocess.Popen(['explorer.exe', '/select,', path])
+                else:
+                    os.startfile(folder)  # type: ignore[attr-defined]
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', '-R', path] if os.path.isfile(path)
+                                 else ['open', folder])
+            else:
+                subprocess.Popen(['xdg-open', folder])
+        except Exception as exc:
+            self._append_log(f"❌ Could not open saved output location: {exc}")
 
     # ------------------------------------------------------------------
     # Persistent worker thread (all Playwright calls run here)
@@ -1750,6 +1790,7 @@ class ExternalNovelDialog(tk.Toplevel):
         try:
             if self._scraper is None:
                 self._scraper = ExternalScraper(logger=self._log)
+                self._scraper.prepare_download_browser()
                 if (not self._scraper.is_ntk_novel(url)
                         and not self._scraper.is_qdn(url)
                         and not self._scraper.is_yeduji(url)
@@ -1766,6 +1807,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_nweb_novel(url)
                         and not self._scraper.is_npia(url)):
                     self._scraper.start()
+            else:
+                self._scraper.prepare_download_browser()
             self._apply_scraper_options()
 
             data = self._scraper.parse_book(url)
@@ -2009,6 +2052,12 @@ class ExternalNovelDialog(tk.Toplevel):
 
         if self._scraper is None:
             self._scraper = ExternalScraper(logger=self._log)
+        try:
+            self._scraper.prepare_download_browser()
+        except Exception as exc:
+            self._msg_queue.put(("error", str(exc)))
+            self._msg_queue.put(("finished", None))
+            return
         self._apply_scraper_options()
 
         total_urls = len(urls)

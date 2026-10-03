@@ -280,7 +280,8 @@ def test_failed_volume_blocks_automatic_output_but_preserves_explicit_stop(
             'chapterCount': 2, 'chapters': [{'name': 'One'}, {'name': 'Two'}]}
     generated, logs = [], []
     dialog = SimpleNamespace(
-        _scraper=SimpleNamespace(parse_book=lambda url: data),
+        _scraper=SimpleNamespace(parse_book=lambda url: data,
+                                 prepare_download_browser=lambda: None),
         _apply_scraper_options=lambda: None, _book_data=None,
         _msg_queue=queue.Queue(), _download_cancelled=False,
         _downloading=True, _active_generate_on_stop=generate_on_stop,

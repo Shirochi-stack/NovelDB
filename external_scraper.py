@@ -2742,14 +2742,63 @@ class ExternalScraper:
         return False
 
     def _close_chrome_profile_processes(self, user_data_dir):
-        """Do not force-close the shared login profile; it can lose cookies."""
-        pids = self._chrome_processes_using_profile(user_data_dir)
-        if pids:
-            self.log(
-                "[Browser] Refusing to force-close the shared login profile "
-                f"process(es): {', '.join(str(pid) for pid in pids)}"
-            )
-        return []
+        """Release the saved profile before a new download starts."""
+        from browser_profile import (
+            profile_processes, close_profile_windows,
+            terminate_profile_processes,
+        )
+        records = profile_processes(user_data_dir)
+        if not records:
+            return []
+        self.log('[Browser] Closing the saved-profile browser for Download...')
+        ports = {
+            int(match.group(1))
+            for record in records
+            if (match := re.search(r'--remote-debugging-port=(\d+)',
+                                   record.get('command') or ''))
+        }
+        for port in ports:
+            self._cdp_snapshot_session_cookies(port)
+            self._request_cdp_browser_close(port)
+        close_profile_windows(records)
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            records = profile_processes(user_data_dir)
+            if not records:
+                self.log('[Browser] Saved profile released; continuing Download.')
+                return []
+            time.sleep(.25)
+        self.log('[Browser] Terminating remaining saved-profile process(es): ' +
+                 ', '.join(str(record['pid']) for record in records))
+        terminate_profile_processes(records)
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            records = profile_processes(user_data_dir)
+            if not records:
+                self.log('[Browser] Saved profile released; continuing Download.')
+                return []
+            time.sleep(.25)
+        return [int(record['pid']) for record in records]
+
+    def prepare_download_browser(self):
+        """Keep this worker's session, or close browsers holding its profile."""
+        if self._context and self._page:
+            try:
+                self._page.evaluate('1')
+                return
+            except Exception:
+                self.cleanup()
+        try:
+            remaining = self._close_chrome_profile_processes(
+                self._get_user_data_dir())
+        except Exception as exc:
+            raise RuntimeError(
+                'Could not release the saved browser profile for Download: '
+                + str(exc)) from exc
+        if remaining:
+            raise RuntimeError(
+                'Saved-profile browser process(es) could not be closed: ' +
+                ', '.join(str(pid) for pid in remaining))
 
     @staticmethod
     def _is_profile_lock_error(error):

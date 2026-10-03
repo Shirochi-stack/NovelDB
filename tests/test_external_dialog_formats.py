@@ -229,6 +229,10 @@ def test_generate_on_stop_toggle_controls_partial_output_generation():
 
         class Scraper:
             @staticmethod
+            def prepare_download_browser():
+                pass
+
+            @staticmethod
             def parse_book(_url):
                 return data
 

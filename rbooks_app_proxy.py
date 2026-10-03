@@ -28,7 +28,7 @@ class RbooksAppError(RuntimeError):
 
 class RbooksAppProxy:
     INSTALLER_URL = 'https://getapp.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/windows'
-    EXPORT_VERSION = 3
+    EXPORT_VERSION = 4
     # Reader overlays are HTML, so native Enter and JavaScript alert handlers
     # cannot close them. Cancel a synced position jump to keep our TOC selection.
     PAGE_POPUP_SCRIPT = r"""(() => {
@@ -66,6 +66,58 @@ class RbooksAppProxy:
       }
       return null;
     })()"""
+    LIBRARY_VOLUME_SCRIPT = r"""(() => {
+      const bookId = %s, title = %s, seriesTitle = %s, action = %s;
+      const visible = el => el.getClientRects().length &&
+        getComputedStyle(el).visibility !== 'hidden';
+      const cards = [];
+      for (const image of document.querySelectorAll('img')) {
+        if (!visible(image)) continue;
+        // These are the metadata used by the visible library card. Do not
+        // read the app's files, account state, or book content from React.
+        const key = Object.keys(image).find(k => k.startsWith('__reactFiber'));
+        for (let fiber = key && image[key], depth = 0;
+             fiber && depth < 60; fiber = fiber.return, depth++) {
+          const props = fiber.memoizedProps;
+          if (!props?.book?.bId) continue;
+          const book = props.book;
+          cards.push({image, book, props});
+          break;
+        }
+      }
+      const exact = cards.find(c => String(c.book.bId) === bookId &&
+        c.book.layout?.type !== 'manyVolume' && c.book.title === title);
+      if (exact) {
+        const {image, book, props} = exact;
+        const downloading = props.isDownloading === true;
+        const downloaded = props.isDownloaded === true;
+        const current = downloading && props.isCurrentDownloading === true;
+        const fraction = props.downloadingProgress;
+        const percent = current && typeof fraction === 'number' &&
+          Number.isFinite(fraction) ? Math.round(Math.max(0, Math.min(1, fraction)) * 100) : null;
+        const status = book.isExpired || book.isNotSupported || book.isDeleted
+          ? 'blocked' : downloading ? (current ? 'downloading' : 'queued')
+          : downloaded ? 'downloaded' : 'ready';
+        const result = {status, bookId, percent};
+        if (action === 'activate' && (status === 'ready' || status === 'downloaded')) {
+          // Clicking a downloading card cancels it, so never click that state.
+          image.click();
+          result.action = downloaded ? 'opened' : 'download-requested';
+        }
+        return result;
+      }
+      const series = cards.find(c => c.book.layout?.type === 'manyVolume' &&
+        (c.book.title === seriesTitle || c.book.title === title));
+      if (series) {
+        const result = {status:'group', bookId, seriesId:String(series.book.unitId)};
+        if (action === 'expand' || action === 'activate') {
+          series.image.click();
+          result.action = 'expanded';
+        }
+        return result;
+      }
+      return {status:'missing', bookId};
+    })()"""
 
     def __init__(self, log, stop_requested=lambda: False):
         self.log = log
@@ -73,6 +125,7 @@ class RbooksAppProxy:
         self.port = None
         self.process = None
         self._reader_targets = {}
+        self._authorized_context = None
         self._popup_lock = threading.Lock()
         self._popup_revision = 0
         self.executable = os.path.join(
@@ -306,41 +359,99 @@ class RbooksAppProxy:
         except OSError:
             return False
 
-    def _wait_for_viewer(self, snapshot, reopen=None, title=None):
+    def _wait_for_viewer(self, snapshot, reopen=None, title=None,
+                         download_status=None):
         # A library click can start a download without opening its reader.
         # Slow disks/networks need more time, followed by another open click.
         end = time.monotonic() + 180
+        hard_end = time.monotonic() + 1800
         next_report = time.monotonic() + 10
+        next_action = 0
+        last_state = None
+        matched_target = None
+        matched_since = 0
         while time.monotonic() < end:
             if self.stop_requested():
                 raise RbooksAppError('Download cancelled.')
             tab = self._tab('Viewer')
             if tab:
-                matches = not title or self._evaluate_target(tab, """(() => {
-                  const normalize = text => text.replace(/\\s+/g, '').trim();
-                  const expected = normalize(%s);
-                  return (document.body.innerText || '').split('\\n')
-                    .some(line => normalize(line) === expected);
-                })()""" % source_dumps(title))
+                try:
+                    matches = not title or self._evaluate_target(tab, """(() => {
+                      const normalize = text => text.replace(/\\s+/g, '').trim();
+                      const expected = normalize(%s);
+                      return (document.body.innerText || '').split('\\n')
+                        .some(line => normalize(line) === expected);
+                    })()""" % source_dumps(title))
+                except Exception as exc:
+                    if not self._target_disappeared(exc):
+                        raise
+                    matches = False
                 if matches:
-                    self._reader_targets['Viewer'] = tab.get('id')
-                    self.log('  [Rbooks] Confirmed the requested volume in '
-                             'the PC viewer.')
-                    return
+                    if matched_target != tab.get('id'):
+                        matched_target = tab.get('id')
+                        matched_since = time.monotonic()
+                    if not download_status or time.monotonic() - matched_since >= 1:
+                        self._reader_targets['Viewer'] = tab.get('id')
+                        self.log('  [Rbooks] Confirmed the requested volume in '
+                                 'the PC viewer.')
+                        return
+                else:
+                    matched_target = None
+            else:
+                matched_target = None
+            state = download_status() if download_status else None
+            if state:
+                status = state.get('status')
+                signature = (status, state.get('percent'))
+                now = time.monotonic()
+                if status == 'blocked':
+                    raise RbooksAppError(
+                        'The requested volume is expired or unsupported in the PC viewer.')
+                if signature != last_state:
+                    # A real per-volume progress change extends the wait; an
+                    # unrelated volume downloading cannot extend this deadline.
+                    if status in ('downloading', 'queued', 'downloaded'):
+                        end = min(hard_end, now + 180)
+                    if status not in ('missing', 'group') and (
+                            status != (last_state or (None,))[0] or now >= next_report):
+                        detail = (f" ({state['percent']}%)"
+                                  if state.get('percent') is not None else '')
+                        self.log(f'  [Rbooks] Volume {state.get("bookId")}: '
+                                 f'{status}{detail} — {title}')
+                        next_report = now + 10
+                    last_state = signature
+                    if status in ('ready', 'downloaded'):
+                        next_action = 0
+                if (reopen and status in ('group', 'ready', 'downloaded') and
+                        now >= next_action):
+                    result = reopen() or {}
+                    if isinstance(result, dict) and result.get('action'):
+                        descriptions = {'expanded':'opening its purchased series.',
+                                        'download-requested':'download requested.',
+                                        'opened':'opening downloaded volume.'}
+                        self.log(f'  [Rbooks] Volume {state.get("bookId")}: '
+                                 + descriptions.get(result['action'], result['action']))
+                    next_action = now + 10
             if self._reader_cache_error(snapshot):
                 raise RbooksAppError(
                     'RBOOKS could not open its cached copy of this volume. '
                     'Remove and download the volume again in the RBOOKS PC app.'
                 )
             if time.monotonic() >= next_report:
-                self.log('  [Rbooks] Waiting for the RBOOKS PC viewer to open '
-                         'the owned volume...')
-                if reopen:
+                if state and state.get('status') in ('downloading', 'queued'):
+                    detail = (f" ({state['percent']}%)"
+                              if state.get('percent') is not None else '')
+                    self.log(f'  [Rbooks] Volume {state.get("bookId")}: '
+                             f'{state["status"]}{detail} — {title}')
+                else:
+                    self.log('  [Rbooks] Waiting for the RBOOKS PC viewer to open '
+                             'the owned volume...')
+                if reopen and not download_status:
                     reopen()
                 next_report = time.monotonic() + 10
             time.sleep(0.35)
         raise RbooksAppError(
-            'RBOOKS PC viewer did not open the owned volume after 180 seconds. '
+            'RBOOKS PC viewer stopped making progress while opening the owned volume. '
             'Check its download status or popup; the saved browser login '
             'and library handoff already succeeded.'
         )
@@ -356,7 +467,18 @@ class RbooksAppProxy:
         tab = self._tab(suffix)
         if not tab:
             return None
-        return self._evaluate_target(tab, expression)
+        try:
+            return self._evaluate_target(tab, expression)
+        except Exception as exc:
+            if self._target_disappeared(exc):
+                return None
+            raise
+
+    @staticmethod
+    def _target_disappeared(exc):
+        # The app replaces library/reader renderers while switching views.
+        # A target listed immediately before that transition can already be gone.
+        return 'no such target id' in str(exc).lower()
 
     def _evaluate_target(self, tab, expression):
         import websocket
@@ -545,9 +667,34 @@ class RbooksAppProxy:
             page.close()
 
     def _open_owned_book(self, context, book_id, title):
-        self._reader_targets.clear()
+        # Retire the previous volume before handing off the login. Closing
+        # windows after handoff can accidentally close the newly opened reader.
+        self._close_reader_windows()
+        if self._authorized_context is context:
+            self._wait(lambda: self._tab('Books'), 15,
+                       'The PC viewer did not return to its library.')
+        else:
+            self._authorize_library(context)
+        self.log('  [Rbooks] RBOOKS library opened; locating the owned volume...')
+        self._wait(self._select_purchase_tab, 15,
+                   'The PC viewer purchase-list tab was not found.')
+        self._locate_owned_volume(book_id, title)
+        snapshot = self._reader_log_snapshot()
+        self._wait_for_viewer(
+            snapshot, title=title,
+            reopen=lambda: self._library_volume_state(book_id, title, 'activate'),
+            download_status=lambda: self._library_volume_state(book_id, title))
+        # The library supplies a 165px thumbnail, never the export cover.
+        return (
+            f'https://img.\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net/cover/{book_id}/large'
+        )
+
+    def _authorize_library(self, context):
+        self._authorized_context = None
         otp = self._sso(context)
-        payload = json.dumps({'b_ids': [str(book_id)]}, separators=(',', ':'))
+        # Authorize the library first. Start the exact volume through its card,
+        # where queued/downloading/completed states can be observed.
+        payload = json.dumps({'b_ids': []}, separators=(',', ':'))
         link = ('\u0072\u0069\u0064\u0069://download?sso_otp=' + urllib.parse.quote(otp) +
                 '&payload=' + urllib.parse.quote(payload))
         try:
@@ -570,45 +717,43 @@ class RbooksAppProxy:
                    'RBOOKS PC viewer did not open its library after the '
                    'sign-in handoff.',
                    '  [Rbooks] Waiting for the RBOOKS library to open...')
-        self.log('  [Rbooks] RBOOKS library opened; locating the owned volume...')
-        self._close_reader_windows()
-        title_js = source_dumps(title, ensure_ascii=False)
-        book_id_js = source_dumps(str(book_id))
-        def click_book():
-            return self._evaluate('Books', """(() => {
-              const title = %s;
-              const bookId = %s;
-              const matches = [...document.querySelectorAll('*')].filter(e =>
-                e.textContent?.trim() === title &&
-                ![...e.children].some(c => c.textContent?.trim() === title));
-              if (!matches.length) return false;
-              for (const match of matches) {
-                for (let node = match, depth = 0;
-                     node && depth < 7; node = node.parentElement, depth++) {
-                  const images = [...node.querySelectorAll('img')];
-                  if (images.length > 1) break;
-                  const image = images.find(img =>
-                    (img.currentSrc || img.src || '').includes(
-                      '/cover/' + bookId + '/'));
-                  if (image) {
-                    match.click();
-                    return true;
-                  }
-                }
-              }
-              return false;
-            })()""" % (title_js, book_id_js))
-        snapshot = self._reader_log_snapshot()
-        self._wait(click_book, 120,
-                   'Owned volume did not appear in the RBOOKS PC library.',
-                   '  [Rbooks] Waiting for the owned volume to appear in '
-                   'the RBOOKS library...')
-        self.log('  [Rbooks] Found the owned volume; opening the reader...')
-        self._wait_for_viewer(snapshot, reopen=click_book, title=title)
-        # The library supplies a 165px thumbnail, never the export cover.
-        return (
-            f'https://img.\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net/cover/{book_id}/large'
-        )
+        self._authorized_context = context
+
+    def _select_purchase_tab(self):
+        return self._evaluate('Books', """(() => {
+          const tab = [...document.querySelectorAll('*')].find(e =>
+            e.textContent?.trim() === '구매 목록' && !e.children.length &&
+            e.getClientRects().length);
+          if (!tab) return false;
+          tab.click(); return true;
+        })()""")
+
+    def _library_volume_state(self, book_id, title, action='observe'):
+        series_title = re.sub(r'\s+\d+\s*권\s*$', '', title).strip()
+        script = self.LIBRARY_VOLUME_SCRIPT % tuple(
+            source_dumps(value) for value in (str(book_id), title, series_title, action))
+        return self._evaluate('Books', script) or {
+            'status': 'missing', 'bookId': str(book_id)}
+
+    def _locate_owned_volume(self, book_id, title):
+        expanded = set()
+
+        def locate():
+            state = self._library_volume_state(book_id, title)
+            if state.get('status') == 'group':
+                series = state.get('seriesId')
+                if series not in expanded:
+                    self.log(f'  [Rbooks] Expanding the purchased series to '
+                             f'locate volume {book_id}...')
+                    self._library_volume_state(book_id, title, 'expand')
+                    expanded.add(series)
+                return None
+            return state if state.get('status') != 'missing' else None
+
+        return self._wait(locate, 60,
+                          'The requested volume was not found in the PC '
+                          'viewer purchase list after expanding its series.',
+                          f'  [Rbooks] Locating purchased volume {book_id}: {title}')
 
     def _close_reader_windows(self):
         """Retire old reader/TOC windows while keeping the library open."""
@@ -845,9 +990,18 @@ class RbooksAppProxy:
             soup = BeautifulSoup(page['html'], 'html.parser')
             for node in soup.select('.mtitle-h1-subtitle, h1.subtitle'):
                 title = node.get_text(' ', strip=True)
-                if re.search(r'\d+\s*부', title):
+                if title:
                     return title, f'rbooks-front-{index}'
         return '', ''
+
+    @classmethod
+    def _volume_navigation(cls, front_pages, volume_title, chapter_points):
+        title, anchor = cls._part_heading(front_pages)
+        if not title:
+            title = volume_title
+            anchor = ('rbooks-front-1' if front_pages else
+                      chapter_points[0]['id'])
+        return [{'title': title, 'id': anchor, 'children': chapter_points}]
 
     @staticmethod
     def _link_printed_contents(content, chapter_titles):
@@ -1031,7 +1185,6 @@ class RbooksAppProxy:
             self.log(f'  [Rbooks] Verified section {len(sections)}/{len(rows)}: '
                      + row['title'])
         verification = self._verify_sections(book_id, rows, sections, seen)
-        part_title, part_id = self._part_heading(front_pages)
         chapter_points = [
             {'title': section_title, 'id': f'rbooks-section-{i}'}
             for i, (section_title, _) in enumerate(sections, 1)
@@ -1091,11 +1244,8 @@ class RbooksAppProxy:
                     '\n', strip=True
                 ) for _, content in sections
             ),
-            'tocSections': (
-                [{'title': part_title, 'id': part_id,
-                  'children': chapter_points}]
-                if part_title else chapter_points
-            ),
+            'tocSections': self._volume_navigation(
+                front_pages, title, chapter_points),
             'contentCss': (
                 '.rbooks-content p { margin: 0 0 .75em; line-height: 1.7; } '
                 '.rbooks-content img { max-width: 100%; height: auto; } '

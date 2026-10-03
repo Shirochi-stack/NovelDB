@@ -407,6 +407,9 @@ def test_floo_download_does_not_start_browser_for_metadata(monkeypatch):
         def start(self):
             started.append(True)
 
+        def prepare_download_browser(self):
+            pass
+
         def parse_book(self, url):
             return {'_floo': True, 'chapterCount': 0, 'chapters': []}
 
