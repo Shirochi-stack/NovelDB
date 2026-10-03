@@ -226,6 +226,9 @@ def test_refresh_uses_successful_listing_fingerprint_and_30_day_ttl():
     assert not m.needs_detail(record, "a", now + timedelta(days=31), refresh_days=90)
     assert m.needs_detail(record, "a", now, version=2)
     assert not m.needs_detail({**record, "detail_version": 2}, "a", now, version=2)
+    restricted = {"history": {"latest_outcome": "restricted", "last_attempt": now.isoformat()}}
+    assert not m.needs_detail(restricted, "new", now, refresh_days=90)
+    assert m.needs_detail(restricted, "new", now + timedelta(days=91), refresh_days=90)
 
 
 def test_field_fingerprint_ignores_listing_counters():

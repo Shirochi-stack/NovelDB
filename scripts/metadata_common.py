@@ -285,6 +285,15 @@ def listing_fingerprint(record, fields=None):
 
 
 def needs_detail(record, fingerprint, now=None, *, refresh_days=30, version=None):
+    history = record.get("history") or {}
+    if history.get("latest_outcome") == "restricted":
+        # Sign-in or age verification does not lift between weekly runs;
+        # asking every run only repeats the same refusal.
+        try:
+            attempt = datetime.fromisoformat(str(history["last_attempt"]).replace("Z", "+00:00"))
+            return ((now or datetime.now(timezone.utc)) - attempt).total_seconds() >= refresh_days * 86400
+        except (KeyError, ValueError):
+            return True
     if version is not None and record.get("detail_version") != version:
         return True
     if record.get("detail_listing_fingerprint") != fingerprint:
