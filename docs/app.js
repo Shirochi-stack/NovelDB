@@ -6307,7 +6307,9 @@
         const statsHTML = n.metadataV1
             ? metadata.metricEntries(n).map((metric) => {
                 const icon = { views: "👁", likes: "❤", episodes: "📄", favorites: "❤", recommendations: "👍", rating: "⭐", downloads: "📥" }[metric.key];
-                const value = `${fmt(metric.value)}${metric.scale ? `/${metric.scale}` : ""}`;
+                // Averaged ratings (e.g. 3.7142857) show one decimal, rounded down.
+                const shown = metric.key === "rating" ? Math.floor(metric.value * 10 + 1e-9) / 10 : metric.value;
+                const value = `${fmt(shown)}${metric.scale ? `/${metric.scale}` : ""}`;
                 return `<span class="stat" title="${escHtml(metric.label)}" aria-label="${escHtml(metric.label)}: ${escHtml(value)}"><span aria-hidden="true">${icon}</span> ${value}</span>`;
             }).join("")
             : `<span class="stat" title="Views" aria-label="Views: ${fmt(n.views)}"><span aria-hidden="true">👁</span> ${fmt(n.views)}</span><span class="stat" title="Likes" aria-label="Likes: ${fmt(n.likes)}"><span aria-hidden="true">❤</span> ${fmt(n.likes)}</span><span class="stat" title="Episodes" aria-label="Episodes: ${fmt(n.chapters)}"><span aria-hidden="true">📄</span> ${fmt(n.chapters)}</span>`;
