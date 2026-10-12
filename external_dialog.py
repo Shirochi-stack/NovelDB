@@ -33,7 +33,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-from external_scraper import ExternalScraper
+from external_scraper import ExternalScraper, write_text_output
+from scripts.source_names import dump as dump_source_json
 
 
 def _get_base_dir():
@@ -168,6 +169,7 @@ class ExternalNovelDialog(tk.Toplevel):
         self._var_format = tk.StringVar(value="epub")
         self._var_format_epub = tk.BooleanVar(value=True)
         self._var_format_txt = tk.BooleanVar(value=False)
+        self._var_separate_txt = tk.BooleanVar(value=False)
         self._var_format_pdf = tk.BooleanVar(value=False)
         self._var_format_cbz = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -181,6 +183,10 @@ class ExternalNovelDialog(tk.Toplevel):
         ).pack(side="left", padx=5)
         ttk.Checkbutton(
             fmt_frame, text="CBZ", variable=self._var_format_cbz
+        ).pack(side="left", padx=5)
+
+        ttk.Checkbutton(
+            fmt_frame, text="Separate TXT files", variable=self._var_separate_txt
         ).pack(side="left", padx=5)
 
         # Threads
@@ -522,10 +528,10 @@ class ExternalNovelDialog(tk.Toplevel):
         self._console.configure(state="disabled")
 
     def _open_saved_file(self, file_path):
-        """Open a generated output file using the system default application."""
+        """Open a generated file or output folder with the default application."""
         path = os.path.abspath(os.path.expanduser(file_path))
         try:
-            if not os.path.isfile(path):
+            if not (os.path.isfile(path) or os.path.isdir(path)):
                 raise FileNotFoundError(path)
             if sys.platform == 'win32':
                 os.startfile(path)  # type: ignore[attr-defined]
@@ -1714,6 +1720,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 parent=self,
             )
             return
+        self._active_separate_txt = self._var_separate_txt.get()
         self._active_output_formats = output_formats
         self._active_generate_on_stop = bool(
             self._var_generate_on_stop.get()
@@ -1999,6 +2006,7 @@ class ExternalNovelDialog(tk.Toplevel):
                 parent=self,
             )
             return
+        self._active_separate_txt = self._var_separate_txt.get()
         self._active_output_formats = output_formats
         self._active_generate_on_stop = bool(
             self._var_generate_on_stop.get()
@@ -2287,31 +2295,35 @@ class ExternalNovelDialog(tk.Toplevel):
         filename = f"{title}.txt"
         filepath = os.path.join(output_dir, filename)
 
-        try:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(f"{title}\n")
-                f.write(f"Author: {author}\n")
-                f.write("=" * 60 + "\n\n")
+        header = f"{title}\nAuthor: {author}\n" + "=" * 60 + "\n\n"
+        setting = getattr(self, '_var_separate_txt', None)
+        separate = getattr(self, '_active_separate_txt', None)
+        if separate is None:
+            separate = bool(setting and setting.get())
 
-                for i, ch_data in enumerate(self._chapter_results):
-                    if ch_data is None or ch_data.get('_locked'):
-                        continue
-                    chapter_number = ExternalNovelDialog._result_chapter_number(
-                        self, i, ch_data
+        def entries():
+            if not separate:
+                yield 0, title, header
+            for i, ch_data in enumerate(self._chapter_results):
+                if ch_data is None or ch_data.get('_locked'):
+                    continue
+                chapter_number = ExternalNovelDialog._result_chapter_number(
+                    self, i, ch_data
+                )
+                heading = ExternalNovelDialog._numbered_title(
+                    self, chapter_number, ch_data.get('chapterName'))
+                content = ch_data.get('contentText', '')
+                if ExternalNovelDialog._blank_paragraph_lines_enabled(self):
+                    content = ExternalNovelDialog._space_text_paragraphs(
+                        content, ch_data.get('contentHtml', '')
                     )
-                    heading = ExternalNovelDialog._numbered_title(
-                        self, chapter_number, ch_data.get('chapterName'))
-                    content = ch_data.get('contentText', '')
-                    if ExternalNovelDialog._blank_paragraph_lines_enabled(self):
-                        content = ExternalNovelDialog._space_text_paragraphs(
-                            content, ch_data.get('contentHtml', '')
-                        )
-                    f.write(f"\n{'─' * 40}\n")
-                    f.write(f"{heading}\n")
-                    f.write(f"{'─' * 40}\n\n")
-                    f.write(content + "\n")
+                content = ((header if separate else "") + f"\n{'─' * 40}\n{heading}\n"
+                           + f"{'─' * 40}\n\n{content}\n")
+                yield chapter_number, heading, content
 
-            self._log(f"\u2705 Saved: {filepath}")
+        try:
+            location = write_text_output(filepath, entries(), separate)
+            self._log(f"\u2705 Saved: {location}")
         except Exception as e:
             self._log(f"\u274c TXT generation failed: {e}")
 
@@ -3881,6 +3893,8 @@ img { display: block; max-width: 100%; max-height: 100%;
             self._var_format_pdf.set("pdf" in configured_formats)
             self._var_format_cbz.set("cbz" in configured_formats)
             self._var_format.set(configured_formats[0])
+            if hasattr(self, "_var_separate_txt"):
+                self._var_separate_txt.set(cfg.get("ext_separate_txt", False))
             self._var_ext_threads.set(cfg.get("ext_threads", 4))
             self._var_ext_image_workers.set(cfg.get("ext_image_workers", 8))
             self._var_interval.set(cfg.get("ext_interval", 0.5))
@@ -3965,6 +3979,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         # all checkbox states from ext_formats.
         cfg["ext_format"] = primary_format
         cfg["ext_formats"] = selected_formats
+        cfg["ext_separate_txt"] = self._var_separate_txt.get()
         cfg["ext_threads"] = self._var_ext_threads.get()
         cfg["ext_image_workers"] = self._var_ext_image_workers.get()
         # Keep ext_interval as the minimum so older builds/config files retain
@@ -4006,6 +4021,6 @@ img { display: block; max-width: 100%; max-height: 100%;
         )
         try:
             with open(cfg_path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
+                dump_source_json(cfg, f, indent=2)
         except Exception:
             pass
