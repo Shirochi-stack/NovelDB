@@ -39,6 +39,7 @@ import urllib.request
 import uuid
 import zipfile
 from pathlib import Path
+from text_output import write_text_output
 if sys.platform == "win32":
     import ctypes
 

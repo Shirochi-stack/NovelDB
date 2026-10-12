@@ -24,6 +24,8 @@ import logging
 import subprocess
 from datetime import datetime
 
+from text_output import write_text_output
+from scripts.source_names import dump as dump_source_json
 from app_version import APP_NAME
 from npia_search_terms import DEFAULT_SEARCH_QUERY_COUNT
 
@@ -1107,6 +1109,7 @@ class NpiaGUI(tk.Tk):
         self.var_save_format = tk.StringVar(value="epub")
         self.var_save_epub = tk.BooleanVar(value=True)
         self.var_save_txt = tk.BooleanVar(value=False)
+        self.var_separate_txt = tk.BooleanVar(value=False)
         self.var_save_pdf = tk.BooleanVar(value=False)
         self.var_font_path = tk.StringVar()
         self.var_include_notices = tk.BooleanVar(value=True)
@@ -1284,7 +1287,6 @@ class NpiaGUI(tk.Tk):
         ttk.Checkbutton(range_frame, text="", variable=self.var_to_enabled).pack(side="left") # Checkbox without text like image
         ttk.Label(range_frame, text="To").pack(side="left")
         ttk.Spinbox(range_frame, textvariable=self.var_to_num, width=5, from_=1, to=99999).pack(side="left", padx=5)
-
         chk_number_chapters = ttk.Checkbutton(
             range_frame, text="Number chapters", variable=self.var_number_chapters,
         )
@@ -1309,6 +1311,9 @@ class NpiaGUI(tk.Tk):
             "Select one or more output formats. Chapters are downloaded once,\n"
             "then a separate file is generated for every selected format.",
         )
+
+        ttk.Checkbutton(fmt_frame, text="Separate TXT files",
+                        variable=self.var_separate_txt).pack(side="left", padx=(15, 0))
 
         # Checkboxes
         misc_chk_frame = ttk.Frame(dl_inner)
@@ -3055,6 +3060,7 @@ class NpiaGUI(tk.Tk):
         # one shared base name, then sibling files receive their normal
         # extensions (for example book.epub, book.txt, and book.pdf).
         self._output_formats = self._selected_output_formats()
+        self._active_separate_txt = self.var_separate_txt.get()
         self._output_format = self._output_formats[0]
         self.var_save_format.set(self._output_format)
         default_name = meta.get('title', f"novel_{novel_id}") if self.var_naming_mode.get() == 'title' else f"{novel_id}"
@@ -3091,15 +3097,16 @@ class NpiaGUI(tk.Tk):
             self._output_paths = self._output_paths_from_anchor(
                 path, self._output_formats
             )
-            sibling_overwrites = [
-                candidate
-                for candidate in self._output_paths.values()
+            sibling_overwrites = []
+            for fmt, candidate in self._output_paths.items():
+                if fmt == 'txt' and self._active_separate_txt:
+                    candidate = os.path.splitext(candidate)[0]
                 if (
                     os.path.normcase(os.path.abspath(candidate))
                     != os.path.normcase(os.path.abspath(path))
                     and os.path.exists(candidate)
-                )
-            ]
+                ):
+                    sibling_overwrites.append(candidate)
             if sibling_overwrites:
                 names = "\n".join(
                     f"  • {os.path.basename(candidate)}"
@@ -3890,17 +3897,18 @@ table, th, td {
     def _write_text_output(self, results, remove_newlines,
                            chapter_start=1, notice_count=0):
         """Write the TXT/HTML representation to the active output path."""
-        with open(self._output_path, 'w', encoding='utf-8') as f:
+        def entries():
             for position, res in enumerate(results, 1):
                 if not res:
                     continue
                 title, html_body, _, notice = res
+                chapter_number = chapter_start + position - 1 - notice_count
+                file_number = position if notice else chapter_number
                 title = NpiaGUI._numbered_title(
-                    self, chapter_start + position - 1 - notice_count,
-                    title, notice,
+                    self, chapter_number, title, notice,
                 )
                 if self.var_save_html.get():
-                    f.write(f"<h2>{title}</h2>\n{html_body}\n\n")
+                    yield file_number, title, f"<h2>{title}</h2>\n{html_body}\n\n"
                     continue
 
                 # Respect source formatting: paragraphs become double
@@ -3917,7 +3925,18 @@ table, th, td {
                     plain = re.sub(r'\n\s*\n', '\n\n', text).strip()
                 else:
                     plain = text.strip("\r\n")
-                f.write(f"{title}\n\n{plain}\n\n\n")
+                yield file_number, title, f"{title}\n\n{plain}\n\n\n"
+        setting = getattr(self, 'var_separate_txt', None)
+        separate = getattr(self, '_active_separate_txt', None)
+        if separate is None:
+            separate = bool(setting and setting.get())
+        location = write_text_output(self._output_path, entries(), separate)
+        if separate:
+            self._output_path = location
+            if hasattr(self, '_output_paths'):
+                self._output_paths['txt'] = location
+            self.log_message(f"TXT output folder: {location}")
+
 
     def _build_output(self, results, meta, css, cover_image, info_html,
                       chapter_start=1, notice_count=0):
@@ -4179,6 +4198,7 @@ table, th, td {
                 self.var_save_pdf.set("pdf" in configured_formats)
                 self.var_save_format.set(configured_formats[0])
                 self.var_save_html.set(cfg.get("save_html", False))
+                self.var_separate_txt.set(cfg.get("separate_txt", False))
                 # "retry_chapters" was a dead boolean; migrate silently to the new
                 # "max_retries" integer (default 5 if not present).
                 try:
@@ -4293,6 +4313,7 @@ table, th, td {
             # builds restore the full checkbox selection from `save_formats`.
             "save_format": primary_output_format,
             "save_formats": selected_output_formats,
+            "separate_txt": self.var_separate_txt.get(),
             "save_html": self.var_save_html.get(),
             "max_retries": int(self.var_max_retries.get() or 5),
             "use_cache": self.var_use_cache.get(),
@@ -4340,7 +4361,7 @@ table, th, td {
             existing.update(cfg)
             tmp_path = cfg_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(existing, f, indent=2)
+                dump_source_json(existing, f, indent=2)
             os.replace(tmp_path, cfg_path)
         except Exception as e:
             self.log_message(f"Could not save config.json: {e}")
