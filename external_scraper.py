@@ -5358,6 +5358,9 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         self.log(
             f"  [Qdn] Decoded font-encrypted chapter: {len(lines)} "
             f"paragraphs, {stats['decoded']} glyphs"
+            + (f", {stats['verified_glyphs']} verified, "
+               f"{stats.get('shape_matched_glyphs', 0)} shape matched"
+               if 'verified_glyphs' in stats else '')
             + (f", {stats['low_confidence']} uncertain"
                if stats['low_confidence'] else '')
             + '.'

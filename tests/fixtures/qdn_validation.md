@@ -18,3 +18,12 @@ does not establish complete live-site capture accuracy.
 Live inspection reached the chapter's guest preview. Full live validation
 requires an account with access to this chapter and remains deferred.
 Exact agreement on this chapter does not establish universal accuracy.
+
+The screenshot reference also supplies a partial exact lookup for the two
+unchanged captured font files. All 1,729 encoded character occurrences in
+this chapter resolve through 479 observed code/mirror pairs; the remaining
+468 characters are literal text. Tests prohibit reference rendering and
+shape matching while checking all 94 paragraphs. A font SHA-256 digest,
+character code, and mirror state must all match before using an entry.
+Unseen pairs and different font files retain shape matching. The original
+complete source mapping has not been recovered.

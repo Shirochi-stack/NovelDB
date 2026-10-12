@@ -98,6 +98,106 @@ def test_screenshot_backed_excerpt_decodes_exactly():
     assert stats['decoded'] > 0
 
 
+def _chapter_payload():
+    folder = Path(__file__).parent / 'fixtures'
+    sample = json.loads((folder / 'qdn_chapter76_capture.json').read_text(encoding='utf-8'))
+    paragraphs = [[{'parts': [{'text': atom['text'], 'fonts': atom['fonts']}],
+                   'mirrored': atom['mirrored']} for atom in atoms if atom['src'] != 'attr']
+                  for atoms in sample['atoms']]
+    return sample | {'paragraphs': paragraphs}
+
+
+def test_complete_verified_chapter_never_uses_shape_matching(monkeypatch):
+    monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    def forbidden(*_args):
+        raise AssertionError('Verified glyphs must not require shape matching')
+    monkeypatch.setattr(q, '_vector', forbidden)
+    monkeypatch.setattr(q._Reference, 'get', forbidden)
+    payload = _chapter_payload()
+    expected = json.loads((Path(__file__).parent / 'fixtures' / 'qdn_chapter76_expected.json').read_text(encoding='utf-8'))['paragraphs']
+    lines, stats = q.decode_payload(payload)
+    assert lines == expected
+    assert stats['decoded'] == stats['verified_glyphs'] == 1729
+    assert stats['shape_matched_glyphs'] == stats['low_confidence'] == 0
+    assert all(item['method'] == 'verified_font_map' for item in stats['diagnostics']
+               if item.get('font_digest'))
+
+
+def test_verified_mapping_builder_is_reproducible_and_never_matches(monkeypatch):
+    from scripts.build_qdn_verified_map import build
+    def forbidden(*_args):
+        raise AssertionError('Building verified mappings must not guess')
+    monkeypatch.setattr(q, '_vector', forbidden)
+    monkeypatch.setattr(q._Reference, 'get', forbidden)
+    sample = _chapter_payload()
+    expected = json.loads((Path(__file__).parent / 'fixtures' / 'qdn_chapter76_expected.json').read_text(encoding='utf-8'))['paragraphs']
+    saved = json.loads((Path(BUNDLED).parents[1] / 'qdn_verified_maps.json').read_text(encoding='utf-8'))
+    assert build(sample, expected) == saved
+    bad = list(expected)
+    bad[0] += '假'
+    with pytest.raises(ValueError, match='Unaligned'):
+        build(sample, bad)
+
+
+def test_unverified_font_hash_cannot_use_verified_mapping(monkeypatch):
+    monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    saved = json.loads((Path(BUNDLED).parents[1] / 'qdn_verified_maps.json').read_text(encoding='utf-8'))
+    entries = next(iter(saved['fonts'].values()))['entries']
+    source = chr(int(next(iter(entries)).split(':')[0], 16))
+    monkeypatch.setattr(q, '_vector', lambda *_args: np.array([1., 0.]))
+    decoder = q.QdnFontDecoder({'faces': []})
+    decoder.reference = SimpleNamespace(chars=['甲', '乙'], matrix=np.array([[1., 0.], [0., 1.]]),
+                                        prior=np.array([0., 0.]))
+    cipher = type('Cipher', (), {'digest': 'different-font', 'verified_digest': '0' * 64,
+                                'font': None, 'family': 'F'})()
+    decoder._resolve([(cipher, source, False)])
+    assert decoder._lookup(cipher, source, False) == '甲'
+    assert decoder.verified == 0
+    assert decoder.diagnostics[0]['method'] == 'shape_match'
+
+
+def test_unknown_glyph_and_mirror_state_keep_shape_fallback(monkeypatch):
+    monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    payload = _chapter_payload()
+    decoder = q.QdnFontDecoder(payload)
+    cipher = decoder.fonts[0]
+    entries = q._verified_entries(cipher.verified_digest)
+    source = next(chr(cp) for cp in cipher.cmap if f'{cp:X}:0' not in entries)
+    decoder.decode_char(source, [cipher.family], False)
+    assert decoder.verified == 0
+    assert decoder.diagnostics[-1]['method'] == 'shape_match'
+    cipher = next(font for font in decoder.fonts if any(
+        key.endswith(':1') and key[:-1] + '0' not in q._verified_entries(font.verified_digest)
+        for key in q._verified_entries(font.verified_digest)))
+    entries = q._verified_entries(cipher.verified_digest)
+    key = next(key for key in entries if key.endswith(':1') and key[:-1] + '0' not in entries)
+    source = chr(int(key.split(':')[0], 16))
+    decoder.decode_char(source, [cipher.family], True)
+    assert decoder.verified == 1
+    decoder.decode_char(source, [cipher.family], False)
+    assert decoder.verified == 1
+    assert decoder.diagnostics[-1]['method'] == 'shape_match'
+
+
+def test_corrupt_optional_mapping_file_falls_back(tmp_path, monkeypatch):
+    path = tmp_path / 'maps.json'
+    path.write_text('{invalid JSON', encoding='utf-8')
+    monkeypatch.setattr(q, '_VERIFIED_FILE', str(path))
+    monkeypatch.setattr(q, '_VERIFIED_MAPS', None)
+    assert q._verified_entries('a' * 64) == {}
+
+
+def test_component_refinement_still_fixes_unverified_borrow_glyph(monkeypatch):
+    monkeypatch.setattr(q, '_VERIFIED_MAPS', {})
+    monkeypatch.setattr(q, '_GLYPH_CACHE', {})
+    payload = _chapter_payload()
+    payload['paragraphs'] = [[{'parts': [{'text': '色', 'fonts': 'cipher0'}]}]]
+    lines, stats = q.decode_payload(payload)
+    assert lines == ['借']
+    assert stats['verified_glyphs'] == 0
+    assert 'component_refinement' in stats['diagnostics'][0]['reasons']
+
+
 @pytest.mark.parametrize('zoom', [1, 0.2])
 def test_complete_chapter_browser_replay_matches_screenshot(zoom):
     """Real captured fonts/glyphs in reconstructed DOM, not a live reader."""
@@ -144,8 +244,8 @@ def test_complete_chapter_browser_replay_matches_screenshot(zoom):
     # Preserve these and report them, rather than stripping them as decoys.
     assert stats['suspicious_passthrough'] == 90
     assert stats['unstable_paragraphs'] == []
-    refinement = [item for item in stats['diagnostics'] if 'component_refinement' in item['reasons']]
-    assert any(item['character'] == '借' for item in refinement)
+    assert stats['verified_glyphs'] == stats['decoded']
+    assert stats['shape_matched_glyphs'] == 0
 
 
 def test_root_wrapped_positioned_pseudos_and_clipped_decoys():
