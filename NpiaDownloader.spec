@@ -96,6 +96,7 @@ a = Analysis(
         # Qdn bought-chapter decoder: reference glyphs and frequencies
         ('data/fonts', 'data/fonts'),
         ('data/zh_char_frequency.txt', 'data'),
+        ('data/qdn_verified_maps.json', 'data'),
         # Floo VIP image reader: renders reference glyphs with Windows GDI+
         ('data/floo_glyph_atlas.ps1', 'data'),
     ],

@@ -97,6 +97,8 @@ if os.path.isdir('data/fonts'):
     _datas.append(('data/fonts', 'data/fonts'))
 if os.path.exists('data/zh_char_frequency.txt'):
     _datas.append(('data/zh_char_frequency.txt', 'data'))
+if os.path.exists('data/qdn_verified_maps.json'):
+    _datas.append(('data/qdn_verified_maps.json', 'data'))
 # Merge Playwright driver files collected earlier
 _datas.extend(_pw_datas)
 

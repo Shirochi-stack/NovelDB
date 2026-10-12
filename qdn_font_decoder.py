@@ -6,13 +6,15 @@ Each code point is drawn with the outline of a different character, some
 outlines are stored mirrored, and the outlines carry small random jitter,
 so they cannot be matched by hash. The browser extraction script
 (``QDN_EXTRACT_JS``) returns what is visibly rendered, in visual order,
-plus the font files. This module identifies each cipher glyph by comparing
-its rendering with a reference font of the same design (Source Han Sans /
+plus the font files. Screenshot-verified entries for the exact font bytes,
+character code, and mirror state bypass shape matching. Remaining glyphs
+are compared with a reference font of the same design (Source Han Sans /
 Noto Sans CJK), using character frequency to settle near-identical shapes.
 """
 import base64
 import hashlib
 import io
+import json
 import os
 import re
 import sys
@@ -37,6 +39,7 @@ _CONFIDENCE_SCORE = 0.90
 _CONFIDENCE_MARGIN = 0.03
 _HERE = getattr(sys, '_MEIPASS', None) or os.path.dirname(os.path.abspath(__file__))
 _FREQ_FILE = os.path.join(_HERE, 'data', 'zh_char_frequency.txt')
+_VERIFIED_FILE = os.path.join(_HERE, 'data', 'qdn_verified_maps.json')
 _FONT_EXTENSIONS = ('.otf', '.ttf', '.ttc', '.otc')
 
 
@@ -239,7 +242,7 @@ class _CipherFont:
         self.spans = _parse_unicode_range(unicode_range)
         self.font = ImageFont.truetype(io.BytesIO(data), _RENDER_SIZE)
         self.cmap = _font_cmap(data)
-        self._notdef = _vector(self.font, '\ue000')
+        self._notdef = _vector(self.font, '\ue000') if self.cmap is None else None
 
     def covers(self, ch):
         cp = ord(ch)
@@ -258,6 +261,32 @@ _FONT_CACHE = {}
 # chapters in a download mostly hit this cache.
 _GLYPH_CACHE = {}
 _CACHE_LOCK = threading.Lock()
+_VERIFIED_MAPS = None
+
+
+def _verified_entries(digest):
+    """Only a verified entry for these exact font bytes bypasses matching."""
+    global _VERIFIED_MAPS
+    with _CACHE_LOCK:
+        if _VERIFIED_MAPS is None:
+            _VERIFIED_MAPS = {}
+            try:
+                with open(_VERIFIED_FILE, encoding='utf-8') as stream:
+                    saved = json.load(stream)
+                if saved.get('schema') == 1:
+                    for font_digest, font in saved.get('fonts', {}).items():
+                        if not re.fullmatch(r'[0-9a-f]{64}', font_digest):
+                            continue
+                        entries = font.get('entries', {})
+                        _VERIFIED_MAPS[font_digest] = {
+                            key: value for key, value in entries.items()
+                            if re.fullmatch(r'[0-9A-F]{1,6}:[01]', key)
+                            and isinstance(value, str) and len(value) == 1
+                        }
+            except (OSError, ValueError, TypeError, AttributeError):
+                # Missing/corrupt optional maps must not suppress normal decoding.
+                _VERIFIED_MAPS = {}
+        return _VERIFIED_MAPS.get(digest, {})
 
 
 def _cipher_font(family, unicode_range, data):
@@ -268,6 +297,7 @@ def _cipher_font(family, unicode_range, data):
     if font is None:
         font = _CipherFont(family, unicode_range, data)
         font.digest = digest
+        font.verified_digest = hashlib.sha256(data).hexdigest()
         with _CACHE_LOCK:
             if len(_FONT_CACHE) > 64:
                 _FONT_CACHE.clear()
@@ -312,9 +342,10 @@ class QdnFontDecoder:
                                            'reason': 'invalid_font',
                                            'error_type': type(exc).__name__})
                 continue
-        self.reference = _Reference.get()
+        self.reference = None  # verified captures need no reference rendering
         self.low_confidence = 0
         self.decoded = 0
+        self.verified = 0
 
     def _resolve(self, keys):
         """Match every uncached cipher glyph in one matrix product."""
@@ -324,6 +355,15 @@ class QdnFontDecoder:
                        for cipher, ch, mirrored in dict.fromkeys(keys)
                        if (cipher.digest, ch, mirrored) not in _GLYPH_CACHE]
         for cipher, ch, mirrored in missing:
+            entries = _verified_entries(getattr(cipher, 'verified_digest', None))
+            verified = entries.get(f'{ord(ch):X}:{int(mirrored)}')
+            if verified is not None:
+                with _CACHE_LOCK:
+                    _GLYPH_CACHE[(cipher.digest, ch, mirrored)] = {
+                        'character': verified, 'score': None, 'margin': None,
+                        'candidates': [], 'reasons': [], 'method': 'verified_font_map',
+                    }
+                continue
             vec = _vector(cipher.font, ch, mirrored)
             if vec is None:
                 with _CACHE_LOCK:
@@ -336,7 +376,8 @@ class QdnFontDecoder:
             vectors.append(vec)
         if not vectors:
             return
-        ref = self.reference
+        ref = self.reference or _Reference.get()
+        self.reference = ref
         scores = np.stack(vectors) @ ref.matrix.T
         count = min(_CANDIDATES, scores.shape[1])
         top = np.argsort(-scores, axis=1, kind='stable')[:, :count]
@@ -388,6 +429,7 @@ class QdnFontDecoder:
                     reasons.append('component_refinement')
                 _GLYPH_CACHE[key] = {
                     'character': ref.chars[best], 'score': score, 'margin': margin,
+                    'method': 'shape_match',
                     'reasons': reasons,
                     'candidates': [{'character': ref.chars[int(index)],
                                     'score': float(scores[row, index]),
@@ -410,6 +452,8 @@ class QdnFontDecoder:
         with _CACHE_LOCK:
             match = _GLYPH_CACHE[(cipher.digest, ch, mirrored)]
         self.decoded += 1
+        if match.get('method') == 'verified_font_map':
+            self.verified += 1
         if match['reasons']:
             self.low_confidence += 1
         key = (cipher.digest, ch, mirrored)
@@ -478,6 +522,8 @@ def decode_payload(payload):
     lines = decoder.decode_paragraphs(payload.get('paragraphs') or [])
     return lines, {
         'decoded': decoder.decoded,
+        'verified_glyphs': decoder.verified,
+        'shape_matched_glyphs': decoder.decoded - decoder.verified,
         'low_confidence': decoder.low_confidence,
         'fonts': [cipher.family for cipher in decoder.fonts],
         'missing_fonts': decoder.missing_fonts,
