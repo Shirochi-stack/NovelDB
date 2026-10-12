@@ -120,6 +120,47 @@ def test_external_separate_txt_does_not_add_second_number(tmp_path):
     assert (tmp_path / 'Book' / '490. Title.txt').exists()
 
 
+@pytest.mark.parametrize('scraper', ['main', 'external'])
+def test_separate_txt_replaces_old_book_folder(tmp_path, scraper):
+    folder = tmp_path / 'Book'
+    old_chapters = folder / 'old-chapters'
+    old_chapters.mkdir(parents=True)
+    (old_chapters / 'old.txt').write_text('Old nested chapter', encoding='utf-8')
+    (folder / '0019 490. Title.txt').write_text('Old chapter', encoding='utf-8')
+    sibling = tmp_path / 'OtherBook'
+    sibling.mkdir()
+    (sibling / 'keep.txt').write_text('Keep', encoding='utf-8')
+    epub = tmp_path / 'Book.epub'
+    epub.write_bytes(b'Keep EPUB')
+    if scraper == 'main':
+        gui = SimpleNamespace(
+            _output_path=str(tmp_path / 'Book.txt'), var_save_html=Setting(False),
+            var_separate_txt=Setting(True), var_number_chapters=Setting(True),
+            log_message=lambda message: None,
+        )
+        NpiaGUI._write_text_output(gui, [('Title', '<p>New body</p>', [], False)],
+                                  False, chapter_start=490)
+    else:
+        dialog = SimpleNamespace(
+            _get_output_dir=lambda: str(tmp_path), _log=lambda message: None,
+            _var_separate_txt=Setting(True), _var_number_chapters=Setting(True),
+            _chapter_results=[{'chapterName': 'Title', 'contentText': 'New body', '_chapter_number': 490}],
+        )
+        ExternalNovelDialog._generate_txt(dialog, 'Book', 'Author')
+    assert {path.name for path in folder.iterdir()} == {'490. Title.txt'}
+    assert 'New body' in (folder / '490. Title.txt').read_text(encoding='utf-8')
+    assert (sibling / 'keep.txt').read_text(encoding='utf-8') == 'Keep'
+    assert epub.read_bytes() == b'Keep EPUB'
+
+
+def test_separate_txt_rejects_filesystem_root_as_book_folder(tmp_path):
+    existing = tmp_path / 'keep.txt'
+    existing.write_text('Keep', encoding='utf-8')
+    with pytest.raises(ValueError, match='book folder'):
+        write_text_output(tmp_path.anchor, [(1, 'Title', 'Body')], True)
+    assert existing.read_text(encoding='utf-8') == 'Keep'
+
+
 @pytest.mark.parametrize('kind', ['file', 'folder', 'missing'])
 def test_saved_output_link_opens_files_and_folders(tmp_path, monkeypatch, kind):
     import external_dialog
