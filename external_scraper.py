@@ -5310,17 +5310,51 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         try:
             payload = page.evaluate(qdn_font_decoder.QDN_EXTRACT_JS)
             lines, stats = qdn_font_decoder.decode_payload(payload or {})
+            if (stats.get('unstable_paragraphs') or stats.get('missing_fonts')) and not self._stop_requested:
+                self.log('  [Qdn] Capture unstable or fonts missing; retrying once.')
+                try:
+                    retry_payload = page.evaluate(qdn_font_decoder.QDN_EXTRACT_JS)
+                    retry_lines, retry_stats = qdn_font_decoder.decode_payload(retry_payload or {})
+                    # Keep the best capture if the second attempt is worse.
+                    def quality(candidate_lines, candidate_stats):
+                        issues = (len(candidate_stats.get('unstable_paragraphs') or [])
+                                  + len(candidate_stats.get('missing_fonts') or []))
+                        return (bool(candidate_lines), -issues, len(''.join(candidate_lines)))
+                    if quality(retry_lines, retry_stats) >= quality(lines, stats):
+                        payload, lines, stats = retry_payload, retry_lines, retry_stats
+                except Exception as exc:
+                    self.log(f'  [Qdn] Capture retry failed; keeping first output ({type(exc).__name__}).')
         except Exception as e:
             self.log(f"  [Qdn] Could not decode {chapter_name}: {e}")
             return None
         text = '\n'.join(lines)
         words = int(state.get('words') or 0)
-        if not lines or (words >= 500 and len(text) < words * 0.8):
-            self.log(
-                f"  [Qdn] Decoded text is incomplete for {chapter_name} "
-                f"({len(text)}/{words} chars)."
-            )
+        if not lines:
+            self.log(f'  [Qdn] No decoded content for {chapter_name}.')
             return None
+        incomplete = words >= 500 and len(text) < words * 0.8
+        warnings = {
+            'uncertain_glyphs': stats.get('low_confidence', 0),
+            'suspicious_passthrough': stats.get('suspicious_passthrough', 0),
+            'missing_fonts': len(stats.get('missing_fonts') or []),
+            'unstable_paragraphs': len(stats.get('unstable_paragraphs') or []),
+            'incomplete': int(incomplete),
+        }
+        if any(warnings.values()):
+            self.log(
+                f'  [Qdn] WARNING: Saving best available text for {chapter_name}: '
+                + ', '.join(f'{key}={value}' for key, value in warnings.items() if value)
+            )
+            try:
+                folders = [os.path.join(_get_base_dir(), 'logs'),
+                           os.path.join(_get_app_data_dir(), 'logs')]
+                folder = next((path for path in folders if _is_writable_dir(path)), None)
+                if folder is None:
+                    raise OSError('No writable log directory')
+                debug_path = qdn_font_decoder.write_diagnostics(payload or {}, lines, stats, folder)
+                self.log(f'  [Qdn] Replay diagnostics saved: {debug_path}')
+            except Exception as exc:
+                self.log(f'  [Qdn] Could not save replay diagnostics: {exc}')
         self.log(
             f"  [Qdn] Decoded font-encrypted chapter: {len(lines)} "
             f"paragraphs, {stats['decoded']} glyphs"

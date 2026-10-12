@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import external_scraper
 from external_scraper import ExternalScraper
+import pytest
 
 
 def test_qdn_download_opens_the_original_login_profile(monkeypatch):
@@ -62,6 +63,59 @@ def test_qdn_guest_preview_is_reported_as_login_lock():
     assert result == {'_locked': True, 'chapterName': 'ch265',
                       '_lockReason': 'login'}
     assert '142/3018' in logs[-1] and 'Enter Browser' in logs[-1]
+
+
+@pytest.mark.parametrize('retry', ['better', 'worse', 'error'])
+def test_qdn_capture_retries_once_and_saves_best_output(monkeypatch, tmp_path, retry):
+    import qdn_font_decoder as decoder
+    logs = []
+    scraper = ExternalScraper(logger=logs.append)
+    monkeypatch.setattr(decoder, 'available', lambda: True)
+    monkeypatch.setattr(scraper, '_qdn_encryption_state', lambda page: {'rendered': True, 'words': 1000})
+    monkeypatch.setattr(external_scraper, '_get_base_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(external_scraper, '_get_app_data_dir', lambda: str(tmp_path))
+    first = {'paragraphs': [], 'result': 'First output', 'missing': True}
+    second = {'paragraphs': [], 'result': 'Better output' if retry == 'better' else '', 'missing': False}
+    calls = []
+
+    class Page:
+        def bring_to_front(self):
+            pass
+
+        def evaluate(self, script):
+            calls.append(script)
+            if len(calls) == 1:
+                return first
+            if retry == 'error':
+                raise RuntimeError('retry failed')
+            return second
+
+    def decode(payload):
+        return ([payload['result']] if payload['result'] else []), {
+            'decoded': 10, 'low_confidence': 1,
+            'missing_fonts': [{'family': 'F'}] if payload['missing'] else [],
+            'suspicious_passthrough': 2, 'unstable_paragraphs': [],
+        }
+
+    monkeypatch.setattr(decoder, 'decode_payload', decode)
+    result = scraper._qdn_decode_encrypted(Page(), 'Chapter')
+    assert result['contentText'] == ('Better output' if retry == 'better' else 'First output')
+    assert len(calls) == 2
+    assert any('WARNING: Saving best available text' in line for line in logs)
+    assert any('incomplete=1' in line for line in logs)
+    assert any('Replay diagnostics saved:' in line for line in logs)
+    assert len(list((tmp_path / 'logs').glob('qdn-debug-*.json'))) == 1
+
+
+def test_qdn_diagnostic_failure_does_not_discard_text(monkeypatch):
+    import qdn_font_decoder as decoder
+    scraper = ExternalScraper(logger=lambda message: None)
+    monkeypatch.setattr(decoder, 'available', lambda: True)
+    monkeypatch.setattr(scraper, '_qdn_encryption_state', lambda page: {'rendered': True})
+    monkeypatch.setattr(decoder, 'decode_payload', lambda payload: (['Keep'], {'decoded': 1, 'low_confidence': 1}))
+    monkeypatch.setattr(external_scraper, '_is_writable_dir', lambda path: False)
+    page = SimpleNamespace(bring_to_front=lambda: None, evaluate=lambda script: {})
+    assert scraper._qdn_decode_encrypted(page, 'Chapter')['contentText'] == 'Keep'
 
 
 def test_enter_browser_session_login_survives_window_close(monkeypatch, tmp_path):
