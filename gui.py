@@ -1110,6 +1110,7 @@ class NpiaGUI(tk.Tk):
         self.var_save_pdf = tk.BooleanVar(value=False)
         self.var_font_path = tk.StringVar()
         self.var_include_notices = tk.BooleanVar(value=True)
+        self.var_number_chapters = tk.BooleanVar(value=False)
         self.var_strip_leading_spaces = tk.BooleanVar(value=False)
         self.var_remove_newlines = tk.BooleanVar(value=False)
         
@@ -1283,6 +1284,12 @@ class NpiaGUI(tk.Tk):
         ttk.Checkbutton(range_frame, text="", variable=self.var_to_enabled).pack(side="left") # Checkbox without text like image
         ttk.Label(range_frame, text="To").pack(side="left")
         ttk.Spinbox(range_frame, textvariable=self.var_to_num, width=5, from_=1, to=99999).pack(side="left", padx=5)
+
+        chk_number_chapters = ttk.Checkbutton(
+            range_frame, text="Number chapters", variable=self.var_number_chapters,
+        )
+        chk_number_chapters.pack(side="left", padx=(10, 0))
+        ToolTip(chk_number_chapters, "Prefix chapter titles with their position in the full book.\nAuthor notices are not numbered.")
 
         # Novel ID / URL
         ttk.Label(dl_inner, text="Novel ID / URL").grid(row=1, column=0, sticky="w", pady=5)
@@ -3679,7 +3686,11 @@ table, th, td {
                         notice_count=len(notice_items),
                     )
                 else:
-                    self._write_text_output(results, remove_newlines)
+                    self._write_text_output(
+                        results, remove_newlines,
+                        chapter_start=start_idx + 1,
+                        notice_count=len(notice_items),
+                    )
             except Exception as e:
                 error = f"{output_format.upper()} generation failed: {e}"
                 output_errors.append(error)
@@ -3865,13 +3876,29 @@ table, th, td {
             base = anchor_path
         return {fmt: f"{base}.{fmt}" for fmt in formats}
 
-    def _write_text_output(self, results, remove_newlines):
+    def _numbered_title(self, chapter_number, title, is_notice=False):
+        """Use the full-book position for headings without changing cached titles."""
+        if is_notice:
+            return title
+        if not title:
+            return f"Chapter {chapter_number}"
+        setting = getattr(self, 'var_number_chapters', None)
+        if setting is None or not setting.get():
+            return title
+        return f"{chapter_number}. {title}"
+
+    def _write_text_output(self, results, remove_newlines,
+                           chapter_start=1, notice_count=0):
         """Write the TXT/HTML representation to the active output path."""
         with open(self._output_path, 'w', encoding='utf-8') as f:
-            for res in results:
+            for position, res in enumerate(results, 1):
                 if not res:
                     continue
-                title, html_body, _, _ = res
+                title, html_body, _, notice = res
+                title = NpiaGUI._numbered_title(
+                    self, chapter_start + position - 1 - notice_count,
+                    title, notice,
+                )
                 if self.var_save_html.get():
                     f.write(f"<h2>{title}</h2>\n{html_body}\n\n")
                     continue
@@ -3925,6 +3952,7 @@ table, th, td {
                         chapter_number = (
                             chapter_start + result_index - notice_count
                         )
+                    t = NpiaGUI._numbered_title(self, chapter_number, t, notice)
                     epub.add_chapter(
                         t, h, is_notice=notice,
                         chapter_number=chapter_number,
@@ -3933,9 +3961,13 @@ table, th, td {
         elif self._output_format == 'pdf':
             chapters_for_pdf = []
             image_map = {}
-            for res in results:
+            for result_index, res in enumerate(results):
                 if res:
                     t, h, imgs, notice = res
+                    t = NpiaGUI._numbered_title(
+                        self, chapter_start + result_index - notice_count,
+                        t, notice,
+                    )
                     for name, data in imgs:
                         if name not in image_map:
                             image_map[name] = data
@@ -4130,6 +4162,7 @@ table, th, td {
                 self.var_cover_format.set(cfg.get("cover_format", "JPEG"))
                 self.var_zip_compress_images.set(cfg.get("zip_compress_images", False))
                 self.var_include_notices.set(cfg.get("include_notices", True))
+                self.var_number_chapters.set(cfg.get("number_chapters", False))
                 self.var_strip_leading_spaces.set(cfg.get("strip_leading_spaces", False))
                 self.var_remove_newlines.set(cfg.get("remove_newlines", False))
                 configured_formats = cfg.get("save_formats")
@@ -4253,6 +4286,7 @@ table, th, td {
             "cover_format": self.var_cover_format.get(),
             "zip_compress_images": self.var_zip_compress_images.get(),
             "include_notices": self.var_include_notices.get(),
+            "number_chapters": self.var_number_chapters.get(),
             "strip_leading_spaces": self.var_strip_leading_spaces.get(),
             "remove_newlines": self.var_remove_newlines.get(),
             # `save_format` is retained for older app/bot versions; new GUI
