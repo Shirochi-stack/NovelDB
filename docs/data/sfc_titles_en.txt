@@ -224427,7 +224427,6 @@
 51668|||我的师尊是个惹祸精|||My Master Is a Troublemaker
 60145|||遗族迷梦|||Lost Clan Dream
 58490|||神见异闻录|||God-Seeing Strange Tales
-60208|||时祸：我不能杀任何人||||||Chrono-Calamity: I Can’t Kill Anyone
 59942|||精灵的律动|||Rhythm of the Elf
 58319|||五界|||Five Worlds
 46528|||你的微笑明日依见|||I'll See Your Smile Again Tomorrow
@@ -284560,6 +284559,7 @@
 786038|||败北后堕为修女的吸血姬想要翻身|||The Vampire Princess Turned Nun After Defeat Wants a Comeback
 786041|||投资失败后我只好去当巫女了|||After My Investment Failed, I Had to Become a Shrine Maiden
 785989|||蒸汽之都的黑白长裙|||The Black-and-White Dress of the Steam City
+785958|||女神攻略计划|||Goddess Conquest Plan
 786048|||痛苦魔女小姐才不会为你流泪|||The Tormented Witch Won’t Cry for You
 786109|||转生阿嫏的不正经魔药日记|||Reincarnated as Alang: An Improper Potion-Making Diary
 785798|||学姐！再种情蛊师妹就要哈气了|||Senpai! Plant Another Love Curse and Your Junior Will Start Hissing!
@@ -285024,7 +285024,7 @@
 657694|||生存实验|||Survival Experiment
 346111|||崩坏与科学|||Honkai and Science
 786022|||你死我活|||Kill or Be Killed
-785958|||女神攻略计划|||Goddess Conquest Plan
+60208|||时祸：我不能杀任何人|||Temporal Calamity: I Can’t Kill Anyone
 747626|||111644646|||
 743906|||13948284|||
 724846|||123114514|||
