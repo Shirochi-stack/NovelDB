@@ -4662,6 +4662,7 @@
 2036106898|||팔면도도|||Pal Myeon Do Do
 2036107038|||아포칼립스의 경호원|||Bodyguard of the Apocalypse
 2036107353|||퓨전펑크에서 마법사로 사는 법|||How to Live as a Mage in Fusionpunk
+2036107742|||2회차 광고의 신이 영화를 찍으면|||When the God of Advertising Makes a Movie in His Second Life
 2037000040|||거울에 비친 왕관|||The Crown in the Mirror
 204000323|||길티 플레져|||Guilty Pleasure
 204000542|||광안(외전)|||Gwang-an (Side Story)
@@ -5792,6 +5793,7 @@
 2057341906|||야구단 신입이 너무 잘함|||The Baseball Team’s New Recruit Is Too Good
 2057342751|||30억 달러 당첨금 받고 계속 출근함|||I Won $3 Billion and Still Show Up for Work
 2057342966|||명가의 역대급 재능천재로 환생했다|||Reborn as the Greatest Prodigy of a Prestigious Family
+2057343922|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||My Ex-Wife and Former Company Go Under While I Live the American Dream
 2065000061|||영업사원 김유빈|||Salesman Kim Yu-bin
 2065000225|||미티어 스트라이커|||Meteor Striker
 2065000386|||전능의 지배자|||Ruler of Omnipotence
@@ -8903,6 +8905,7 @@
 2336051432|||빙의자의 팔은 안으로 굽는다 (15세 개정판)|||The Possessed Favor Their Own (15+ Edition)
 2336052114|||엑스트라생존필수수칙|||Essential Rules for an Extra’s Survival
 2336052227|||엑스트라생존필수수칙 (15세 개정판)|||Essential Rules for an Extra’s Survival (15+ Revised Edition)
+2336052352|||가난한 척했더니 후견인이 집착한다|||I Pretended to Be Poor, and My Patron Became Obsessed With Me
 2351000198|||배구 마에스트로|||Volleyball Maestro
 2351001414|||괴수 세계의 한의사|||The Oriental Doctor in the Monster World
 2351001673|||레이드 커맨더|||Raid Commander
@@ -19426,6 +19429,7 @@
 6322000002|||겨울은 열대어의 무늬를 모른다 (15세 개정판)|||Winter Doesn't Know the Patterns of Tropical Fish (15+ Revised Edition)
 6333000001|||계약은 계획적으로|||Contracts Should Be Planned
 6340000009|||농구의 신 다시 태어나다|||The God of Basketball Is Reborn
+6341000001|||서울역 드루이드|||The Druid of Seoul Station
 6341000511|||서울역 네크로맨서|||Necromancer of Seoul Station
 6341000732|||대군주|||The Great Overlord
 6341000996|||제왕기|||The Emperor’s Chronicle
@@ -21237,6 +21241,7 @@
 945098528|||치트 쓴 광개토대왕이 북미까지 정벌함!|||Cheat-Enabled King Gwanggaeto Conquers North America!
 945098943|||굴러들어온 아저씨|||The Uncle Who Came Rolling In
 945099059|||굴러들어온 아저씨 (15세 개정판)|||The Uncle Who Came Rolling In (15+ Edition)
+945099325|||언럭키 스위치|||Unlucky Switch
 961068701|||너의 마음이 보여 (15세 개정판)|||I Can See Your Heart (15+ Revised Edition)
 961068781|||너의 마음이 보여|||I Can See Your Heart
 961068874|||탑 아이돌, 한 번 더 데뷔합니다|||Top Idol Debuts Once Again
@@ -21248,10 +21253,7 @@
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
 120086367|||아카데미 청소부의 은밀한 공략|||
-2036107742|||2회차 광고의 신이 영화를 찍으면|||
-2057343922|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||
 2313000001|||던전 공략 LIVE|||
-2336052352|||가난한 척했더니 후견인이 집착한다|||
 2877000379|||공략은 전지적으로|||
 4178000348|||던전공략 특별회수반|||
 4186000571|||설계자의 공략방법|||
@@ -21263,7 +21265,5 @@
 425629250|||1973|||
 425666977|||유부녀 공략 시스템 각성!|||
 505027633|||현질로 소설 공략|||
-6341000001|||서울역 드루이드|||
 777039546|||공략자들|||
 945008054|||40,41|||
-945099325|||언럭키 스위치|||
