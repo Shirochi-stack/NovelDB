@@ -865,7 +865,6 @@
 106162|||가상현실 게임을 만들다.|||I Made a Virtual Reality Game
 106175|||생각하는 열매|||The Thinking Fruit
 10618|||사랑꽃|||Flower of Love
-106189|||내가mpia에서글을쓰는것은|||Why I Write on Mpia
 10619|||킹슬레이어(왕 시해자)|||Kingslayer
 106193|||마음대로 [please]|||As You Please
 106195|||SSS급 용병의 회귀|||The SSS-Rank Mercenary's Regression
@@ -5421,7 +5420,6 @@
 142795|||장옥정 개정판|||Jang Ok-jeong: Revised Edition
 142805|||귀신도 아닌 것이|||Not Even a Ghost
 142806|||매지컬 스타 라이프|||Magical Star Life
-142811|||플레이 더 mpia|||Play Mpia
 142812|||길라잡이의 등불|||The Guide's Lantern
 14286|||빛과 어둠이 공존하는 자|||The One in Whom Light and Darkness Coexist
 142868|||내가 가는 곳이 길이다|||Where I Go Becomes the Road
@@ -6907,7 +6905,6 @@
 155217|||B7|||B7
 155255|||로프|||Rope
 155271|||개막하는 성전|||The Holy War Begins
-155276|||폴 인 러브 위드 mpia|||Fall in Love with Mpia
 15528|||사신의 일기|||The Grim Reaper's Diary
 155283|||인형의 숲|||The Doll Forest
 155285|||소울리버 [E]|||Soul Reaver [E]
@@ -9807,7 +9804,6 @@
 183033|||약탈자의 후손 외|||Descendant of the Plunderer and More
 183061|||후작가 둔재는 먼치킨|||The Marquis Family’s Dunce Is Overpowered
 183066|||신궁강림 이계싹쓸이|||Divine Archer Descends and Sweeps Another World
-18307|||mpia 추천소설 모음집|||Collection of Mpia Recommendations
 183070|||마녀학개론|||An Introduction to Witchcraft
 183091|||::판데모니엄::|||::Pandemonium::
 1831|||광신번뇌|||Fanatic Afflictions
@@ -11976,7 +11972,6 @@
 201928|||다시 쓰는 야구 커리어|||Rewriting My Baseball Career
 201943|||마구 때리기 공성전|||The Smash-Hit Siege Battle
 20197|||타협연애|||A Compromise Romance
-201970|||mpia 아카데미 회장의 아들이되었다.|||I Became the Chairman’s Son at Mpia Academy
 201977|||지금 당신은 아무 생각도 없다, 틀렸나?|||You’re Not Thinking About Anything Right Now, Am I Wrong?
 202|||십이소십이다|||Twelve Is Ten
 2020|||불꽃의 검|||Sword of Flame
@@ -25559,7 +25554,6 @@
 306272|||누가 이 아름다운 시체를 까막섬으로 보냈는가?|||Who Sent This Beautiful Corpse to Kkamak Island?
 306277|||나의 직업은 전업주부|||My Occupation Is Househusband
 306292|||얀데레 여우와에 끔찍한 감금생활|||A Terrible Captive Life with a Yandere Fox
-3063|||mpia 개발일지|||Mpia Development Journal
 306316|||천재 그 이후....|||After the Genius...
 306318|||요괴도감|||Monster Compendium
 306327|||사상 최강의 밀정|||The Strongest Secret Agent in History
@@ -82517,7 +82511,6 @@
 605496|||귀환한 용사는 탑을 오르지 않는다.|||The Returned Hero Doesn’t Climb the Tower
 605498|||누나 대신 쓴 소설이 대박 나 버렸다|||The Novel I Wrote for My Sister Became a Huge Hit
 605499|||묵시록-창세 (아담과 이브)|||Apocalypse-Genesis (Adam and Eve)
-605500|||탈출한 햄스터가 곰으로 자람|||The Escaped Hamster Grew into a Bear
 605503|||르네상스 시대에 웹툰작가가 어떻게 구직을 해|||How Does a Webtoon Artist Find Work in the Renaissance?
 605506|||불과 바람의 춤사위|||The Dance of Fire and Wind
 605509|||한의사가 운기조식을 깨우침|||A Korean Medicine Doctor Learns Qi Circulation
@@ -86451,7 +86444,6 @@
 72906|||크리스마스의 이별|||Christmas Farewell
 72926|||백의제국(白衣帝國)|||The White-Clad Empire
 7293|||Broken World|||Broken World
-72932|||mpia 문의글|||Mpia Inquiry
 72936|||템페스트 고등학교 1부|||Tempest High School Part 1
 72942|||끝없는 아픔|||Endless Pain
 72948|||옅은 가식의 그 세계에서|||In That World of Faint Pretenses
@@ -90279,13 +90271,18 @@
 99971|||강남 큰손 이야기|||The Story of Gangnam's Big Shot
 99995|||정의의 이름으로|||In the Name of Justice
 99996|||my angle|||my angle
+106189|||내가\ubb38\ud53c\uc544에서글을쓰는것은|||
 121712|||1980|||
 129380|||1111111|||
+142811|||플레이 더 \ubb38\ud53c\uc544|||
+155276|||폴 인 러브 위드 \ubb38\ud53c\uc544|||
 165289|||438|||
 169643|||2,800,000|||
 176528|||8760|||
+18307|||\ubb38\ud53c\uc544 추천소설 모음집|||
 187018|||ㄻㅇㄻㄴㅇㄻㄴㅇㄹ|||
 193589|||9|||
+201970|||\ubb38\ud53c\uc544 아카데미 회장의 아들이되었다.|||
 204775|||14790|||
 205671|||ㅏㅓㅏㄷ|||
 209462|||11110|||
@@ -90311,6 +90308,7 @@
 28761|||000001|||
 289421|||57794|||
 301020|||01300930|||
+3063|||\ubb38\ud53c\uc544 개발일지|||
 312368|||12323112|||
 319132|||1%|||
 320323|||1231343346345643564363|||
@@ -90380,6 +90378,7 @@
 575548|||0100101010000101010|||
 585883|||23시59분60초|||
 588812|||7389|||
+591020|||연습장5135|||
 592002|||10시26분|||
 592010|||4095|||
 595765|||ㅌㅅㅌㅌㅌ|||
@@ -90388,9 +90387,22 @@
 603137|||1-1|||
 603183|||13-017|||
 603458|||2012|||
+605500|||시공간을 역습한 인간물약을 사야 함|||
 605986|||The Gate of Heroes(더게이트오브히어로즈)|||
 606176|||52|||
 608033|||Axiom(공리)|||
 608414|||번학무사 (番學武士)|||
+608746|||밤의 경계선에서, 너와 나|||
+609580|||교수님 잘 지내시죠. 저는 박물관 관장이 되었습니다.|||
 610021|||2035|||
+610119|||오해는 됐고 목이나 내놔라|||
+610163|||아포칼립스에서 생존하기 위한 나만의 법칙|||
+610731|||해와달 열린세계|||
+610985|||에이온 전기|||
+611861|||세자, 야림(野林)에서 눈을 뜨다|||
+612302|||내 출근길 최애는 그 카페 사장님|||
+612325|||아포칼립스 속 부활자|||
+612367|||내 뚝배기를 강타한 AI 칩|||
+612689|||이단심문관인데 세뇌 전문가로 착각 당했다.|||
 63401|||49|||
+72932|||\ubb38\ud53c\uc544 문의글|||
