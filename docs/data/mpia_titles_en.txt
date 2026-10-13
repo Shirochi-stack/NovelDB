@@ -865,6 +865,7 @@
 106162|||가상현실 게임을 만들다.|||I Made a Virtual Reality Game
 106175|||생각하는 열매|||The Thinking Fruit
 10618|||사랑꽃|||Flower of Love
+106189|||내가\ubb38\ud53c\uc544에서글을쓰는것은|||Why I Write on \u004d\u0075\u006e\u0070\u0069\u0061
 10619|||킹슬레이어(왕 시해자)|||Kingslayer
 106193|||마음대로 [please]|||As You Please
 106195|||SSS급 용병의 회귀|||The SSS-Rank Mercenary's Regression
@@ -5420,6 +5421,7 @@
 142795|||장옥정 개정판|||Jang Ok-jeong: Revised Edition
 142805|||귀신도 아닌 것이|||Not Even a Ghost
 142806|||매지컬 스타 라이프|||Magical Star Life
+142811|||플레이 더 \ubb38\ud53c\uc544|||Play More \u004d\u0075\u006e\u0070\u0069\u0061
 142812|||길라잡이의 등불|||The Guide's Lantern
 14286|||빛과 어둠이 공존하는 자|||The One in Whom Light and Darkness Coexist
 142868|||내가 가는 곳이 길이다|||Where I Go Becomes the Road
@@ -6905,6 +6907,7 @@
 155217|||B7|||B7
 155255|||로프|||Rope
 155271|||개막하는 성전|||The Holy War Begins
+155276|||폴 인 러브 위드 \ubb38\ud53c\uc544|||Fall in Love with \u004d\u0075\u006e\u0070\u0069\u0061
 15528|||사신의 일기|||The Grim Reaper's Diary
 155283|||인형의 숲|||The Doll Forest
 155285|||소울리버 [E]|||Soul Reaver [E]
@@ -9804,6 +9807,7 @@
 183033|||약탈자의 후손 외|||Descendant of the Plunderer and More
 183061|||후작가 둔재는 먼치킨|||The Marquis Family’s Dunce Is Overpowered
 183066|||신궁강림 이계싹쓸이|||Divine Archer Descends and Sweeps Another World
+18307|||\ubb38\ud53c\uc544 추천소설 모음집|||A Collection of Recommended \u004d\u0075\u006e\u0070\u0069\u0061 Novels
 183070|||마녀학개론|||An Introduction to Witchcraft
 183091|||::판데모니엄::|||::Pandemonium::
 1831|||광신번뇌|||Fanatic Afflictions
@@ -11972,6 +11976,7 @@
 201928|||다시 쓰는 야구 커리어|||Rewriting My Baseball Career
 201943|||마구 때리기 공성전|||The Smash-Hit Siege Battle
 20197|||타협연애|||A Compromise Romance
+201970|||\ubb38\ud53c\uc544 아카데미 회장의 아들이되었다.|||I Became the Son of the \u004d\u0075\u006e\u0070\u0069\u0061 Academy Chairman
 201977|||지금 당신은 아무 생각도 없다, 틀렸나?|||You’re Not Thinking About Anything Right Now, Am I Wrong?
 202|||십이소십이다|||Twelve Is Ten
 2020|||불꽃의 검|||Sword of Flame
@@ -25554,6 +25559,7 @@
 306272|||누가 이 아름다운 시체를 까막섬으로 보냈는가?|||Who Sent This Beautiful Corpse to Kkamak Island?
 306277|||나의 직업은 전업주부|||My Occupation Is Househusband
 306292|||얀데레 여우와에 끔찍한 감금생활|||A Terrible Captive Life with a Yandere Fox
+3063|||\ubb38\ud53c\uc544 개발일지|||\u004d\u0075\u006e\u0070\u0069\u0061 Development Log
 306316|||천재 그 이후....|||After the Genius...
 306318|||요괴도감|||Monster Compendium
 306327|||사상 최강의 밀정|||The Strongest Secret Agent in History
@@ -76627,6 +76633,7 @@
 591002|||유실물 보관소 : 반환되지 못한 승차권|||Lost and Found: The Ticket That Couldn’t Be Returned
 591006|||제로섬(Zero-Sum)|||Zero-Sum
 591007|||위험한 재회|||A Dangerous Reunion
+591020|||연습장5135|||Practice Notebook 5135
 591026|||우리가 만난 그 곳 - 체리 인|||The Place Where We Met - Cherry Inn
 591027|||시골 보건소 의사가 힐러로 각성함|||A Rural Clinic Doctor Awakens as a Healer
 591030|||나는 기록되지 않았다.|||I Was Never Recorded
@@ -82511,6 +82518,7 @@
 605496|||귀환한 용사는 탑을 오르지 않는다.|||The Returned Hero Doesn’t Climb the Tower
 605498|||누나 대신 쓴 소설이 대박 나 버렸다|||The Novel I Wrote for My Sister Became a Huge Hit
 605499|||묵시록-창세 (아담과 이브)|||Apocalypse-Genesis (Adam and Eve)
+605500|||시공간을 역습한 인간물약을 사야 함|||I Have to Buy the Human Potion That Struck Back at Spacetime
 605503|||르네상스 시대에 웹툰작가가 어떻게 구직을 해|||How Does a Webtoon Artist Find Work in the Renaissance?
 605506|||불과 바람의 춤사위|||The Dance of Fire and Wind
 605509|||한의사가 운기조식을 깨우침|||A Korean Medicine Doctor Learns Qi Circulation
@@ -84247,6 +84255,7 @@
 608740|||가만히 있어줘|||Please Stay Still
 608741|||해고당한 연구원이 국가권력급 신기술을 독점함|||The Fired Researcher Monopolizes National-Authority-Class Technology
 608743|||연금공학|||Alchemy Engineering
+608746|||밤의 경계선에서, 너와 나|||You and Me at the Edge of Night
 608760|||해고당한 전생 당가는 미국 시골 천재 약초꾼|||The Fired Tang Clan Reincarnate Is a Genius Herbalist in Rural America
 608761|||해고당한 외과 의사가 너무 유능함|||The Fired Surgeon Is Too Competent
 608763|||회귀 후 마력석부터 독점하는 헌터 생활|||After Regressing, I Monopolize Mana Stones First
@@ -84613,6 +84622,7 @@
 609575|||만유정원|||Garden of All Things
 609576|||천국 통신망으로 수사합니다|||Investigating Through Heaven’s Network
 609577|||드래프트 탈락자는 바다를 건넌다|||The Draft Reject Crosses the Sea
+609580|||교수님 잘 지내시죠. 저는 박물관 관장이 되었습니다.|||How Have You Been, Professor? I Became a Museum Director.
 609582|||AI가 노가다를 잘 가르쳐 줌|||AI Is Great at Teaching Construction Work
 609584|||정파가 날 죽였다- 혈마전생록 (血魔轉生錄)|||The Orthodox Sect Killed Me: Blood Demon Reincarnation Records
 609585|||일곱 번째 사람|||The Seventh Person
@@ -84865,6 +84875,7 @@
 610112|||퇴사당하고 인생 훈수 방송으로 초대박|||I Got Fired and Hit It Big with Life-Advice Streams
 610113|||기억을 수선하는 자는 죽는다|||The One Who Repairs Memories Dies
 610115|||잃어버린 것들의 나라|||The Land of Lost Things
+610119|||오해는 됐고 목이나 내놔라|||Forget the Misunderstanding—Hand Over Your Neck
 610120|||해와달 기원의 땅|||The Land Where the Sun and Moon Began
 610121|||스킬을 팔 때마다 내 스킬이 강해진다|||My Skills Grow Stronger Every Time I Sell One
 610123|||망겜 속 악덕 영주가 너무 유능함|||The Villainous Lord in a Trash Game Is Too Competent
@@ -84891,6 +84902,7 @@
 610160|||외공고수는 미식축구가 쉽다|||Football Is Easy for an External Martial Arts Master
 610161|||부모님을 쐈더니 최종 실험 통과라는데요|||I Shot My Parents, and They Say I Passed the Final Experiment
 610162|||꿈에서 재능털고 현실에서 천재됨|||Steal Talents in Dreams, Become a Genius in Reality
+610163|||아포칼립스에서 생존하기 위한 나만의 법칙|||My Rules for Surviving the Apocalypse
 610166|||폭망한 인생에 끼어든 외계 문명|||An Alien Civilization Invades My Ruined Life
 610168|||내 여자친구는 엘프(Elf)|||My Girlfriend Is an Elf
 610169|||창세 구슬을 주웠다 그리고 세상이 급변했다(일반판)|||I Picked Up a Genesis Orb, and the World Changed Overnight (Standard Edition)
@@ -85008,8 +85020,10 @@
 61066|||러브인더퓨처|||Love in the Future
 61072|||우주 유랑객|||Space Drifter
 61073|||무공으로 캐리한다|||I Carry with Martial Arts
+610731|||해와달 열린세계|||Sun and Moon: An Open World
 610774|||5초 먼저보는 펀드매니저를 해고했더니 펀드가 박살남|||I Fired the Fund Manager Who Could See Five Seconds Ahead, and the Fund Crashed
 61084|||인생은 한방이야!|||Life Is All or Nothing!
+610985|||에이온 전기|||The Annals of Aeon
 61099|||패군|||Defeated Army
 61101|||유변 생존기|||Survival at the Edge
 61109|||유기체의 십자가|||The Organic Cross
@@ -85035,8 +85049,12 @@
 61221|||상인의 길|||The Merchant's Path
 61225|||이계의 후예|||Descendant of Another World
 6123|||주사위를 굴려라|||Roll the Dice
+612302|||내 출근길 최애는 그 카페 사장님|||My Favorite Part of the Commute Is the Café Owner
+612325|||아포칼립스 속 부활자|||The Revived One in the Apocalypse
+612367|||내 뚝배기를 강타한 AI 칩|||The AI Chip That Hit Me in the Head
 61245|||괴물처럼|||Like a Monster
 61247|||페어리 익스팬드|||Fairy Expand
+612689|||이단심문관인데 세뇌 전문가로 착각 당했다.|||I'm an Inquisitor, but They Mistook Me for a Brainwashing Expert.
 61272|||별 다음에 있는 것|||What Lies Beyond the Stars
 61280|||레벨업 프로게이머|||Level-Up Pro Gamer
 61281|||불량용사|||The Bad Hero
@@ -86444,6 +86462,7 @@
 72906|||크리스마스의 이별|||Christmas Farewell
 72926|||백의제국(白衣帝國)|||The White-Clad Empire
 7293|||Broken World|||Broken World
+72932|||\ubb38\ud53c\uc544 문의글|||\u004d\u0075\u006e\u0070\u0069\u0061 Inquiry Post
 72936|||템페스트 고등학교 1부|||Tempest High School Part 1
 72942|||끝없는 아픔|||Endless Pain
 72948|||옅은 가식의 그 세계에서|||In That World of Faint Pretenses
@@ -90271,18 +90290,13 @@
 99971|||강남 큰손 이야기|||The Story of Gangnam's Big Shot
 99995|||정의의 이름으로|||In the Name of Justice
 99996|||my angle|||my angle
-106189|||내가\ubb38\ud53c\uc544에서글을쓰는것은|||
 121712|||1980|||
 129380|||1111111|||
-142811|||플레이 더 \ubb38\ud53c\uc544|||
-155276|||폴 인 러브 위드 \ubb38\ud53c\uc544|||
 165289|||438|||
 169643|||2,800,000|||
 176528|||8760|||
-18307|||\ubb38\ud53c\uc544 추천소설 모음집|||
 187018|||ㄻㅇㄻㄴㅇㄻㄴㅇㄹ|||
 193589|||9|||
-201970|||\ubb38\ud53c\uc544 아카데미 회장의 아들이되었다.|||
 204775|||14790|||
 205671|||ㅏㅓㅏㄷ|||
 209462|||11110|||
@@ -90308,7 +90322,6 @@
 28761|||000001|||
 289421|||57794|||
 301020|||01300930|||
-3063|||\ubb38\ud53c\uc544 개발일지|||
 312368|||12323112|||
 319132|||1%|||
 320323|||1231343346345643564363|||
@@ -90378,7 +90391,6 @@
 575548|||0100101010000101010|||
 585883|||23시59분60초|||
 588812|||7389|||
-591020|||연습장5135|||
 592002|||10시26분|||
 592010|||4095|||
 595765|||ㅌㅅㅌㅌㅌ|||
@@ -90387,22 +90399,10 @@
 603137|||1-1|||
 603183|||13-017|||
 603458|||2012|||
-605500|||시공간을 역습한 인간물약을 사야 함|||
 605986|||The Gate of Heroes(더게이트오브히어로즈)|||
 606176|||52|||
 608033|||Axiom(공리)|||
 608414|||번학무사 (番學武士)|||
-608746|||밤의 경계선에서, 너와 나|||
-609580|||교수님 잘 지내시죠. 저는 박물관 관장이 되었습니다.|||
 610021|||2035|||
-610119|||오해는 됐고 목이나 내놔라|||
-610163|||아포칼립스에서 생존하기 위한 나만의 법칙|||
-610731|||해와달 열린세계|||
-610985|||에이온 전기|||
 611861|||세자, 야림(野林)에서 눈을 뜨다|||
-612302|||내 출근길 최애는 그 카페 사장님|||
-612325|||아포칼립스 속 부활자|||
-612367|||내 뚝배기를 강타한 AI 칩|||
-612689|||이단심문관인데 세뇌 전문가로 착각 당했다.|||
 63401|||49|||
-72932|||\ubb38\ud53c\uc544 문의글|||
