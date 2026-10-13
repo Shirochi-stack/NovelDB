@@ -97569,6 +97569,7 @@
 1689637|||Less Blue|||Less Blue
 1689664|||[원피스]다같이 놀자 동네 한바퀴|||[One Piece] Let’s All Play Around the Neighborhood
 1689667|||[최애의 아이] 세이프|||[Oshi no Ko] Safe
+1689668|||[화산귀환] 귀래 完|||[Return of the Mount Hua Sect] Homecoming (Complete)
 1689671|||비술사가 너무해!|||The Secret Arts User Is Too Much!
 1689674|||천사와의 사랑의 결말은 지옥에서 계속된다.|||The Ending of Love with an Angel Continues in Hell
 1689675|||엔딩 후의 공작부인|||The Duchess After the Ending
@@ -145060,6 +145061,7 @@
 1889570|||이 가문의 미친놈은 나야|||I'm the Crazy One in This Family
 1889573|||인생 2회차 효자는 홈런왕|||A Dutiful Son in His Second Life Becomes a Home Run King
 1889574|||옆집 할아버지가 재벌이었다|||The Old Man Next Door Was a Chaebol
+1889576|||예고의 미술 천재가 되었다|||I Became a Art Prodigy at an Arts High School
 1889578|||회귀한 천재 닥터의 미국 정복기|||The Regressed Genius Doctor Conquers America
 1889592|||린린|||Linlin
 1889594|||[코난] 피차일반|||[Conan] We're Both the Same
@@ -146923,6 +146925,7 @@
 189415|||아스타니아전기|||Chronicles of Astania
 189428|||올리버 전기|||The Chronicles of Oliver
 18943|||바람 이야기|||A Tale of Wind
+1894327|||내가 죽이려던 남자가 살아 돌아왔다|||The Man I Tried to Kill Came Back to Life
 189437|||검은심장|||Black Heart
 189460|||알바생들|||The Part-Timers
 18947|||소녀를 위하여|||For the Girl
@@ -237102,7 +237105,6 @@
 1688298|||:)|||
 1688327|||.|||
 1688804|||흑막 영애님의 공략일기|||
-1689668|||[화산귀환] 귀래 完|||
 1691|||...|||
 1692409|||1718|||
 1693826|||.|||
@@ -237405,7 +237407,6 @@
 1886519|||ㆍ|||
 1887427|||.|||
 1888381|||병미인화살저도|||
-1889576|||예고의 미술 천재가 되었다|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
@@ -237436,7 +237437,6 @@
 1892954|||[작두/BL] 辰|||
 1893138|||합환(合歡)|||
 1893200|||3시 17분|||
-1894327|||내가 죽이려던 남자가 살아 돌아왔다|||
 193749|||200.|||
 198509|||6666666666|||
 20001|||득 <<得>>|||
