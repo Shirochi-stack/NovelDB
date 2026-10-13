@@ -21,123 +21,272 @@
 20|||(?)|||
 21|||->|||
 22|||.....|||
-23|||blog.\u006e\u0061\u0076\u0065\u0072.com|||blog.\u006e\u0061\u0076\u0065\u0072.com
-24|||​|||
-25|||﻿|||
-26|||1.|||
-27|||15+|||
-28|||3:1|||
-29|||51053;|||
-30|||????|||
-31|||?????|||
-32|||[]|||
-33|||·|||
-34|||×|||
-35|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Early Release
-36|||!!|||
-37|||!!!|||
-38|||\"|||
-39|||(???)|||
-40|||(_|||
-41|||***|||
-42|||+1|||
-43|||+@|||
-44|||--|||
-45|||-_-|||
-46|||....|||
-47|||.......|||
-48|||................|||
-49|||...~|||
-50|||0%|||
-51|||0.|||
-52|||01.|||
-53|||1%|||
-54|||1-1|||
-55|||100%|||
-56|||11.|||
-57|||19+|||
-58|||2+2=5|||
-59|||2-8|||
-60|||2.|||
-61|||3-1|||
-62|||30%|||
-63|||4.3|||
-64|||4.5|||
-65|||45461;|||
-66|||4858-9715|||
-67|||5%|||
-68|||5.18|||
-69|||50%|||
-70|||50524;|||
-71|||50751;&|||
-72|||50751;~|||
-73|||51053;??|||
-74|||51760;|||
-75|||53192;|||
-76|||53349;|||
-77|||54643;|||
-78|||5@|||
-79|||70%|||
-80|||7:1|||
-81|||8.15|||
-82|||95%|||
-83|||978-89-993-9450-8|||
-84|||979-11-03-31840-6|||
-85|||979-11-6600-303-5|||
-86|||::|||
-87|||;|||
-88|||;;|||
-89|||======|||
-90|||=>|||
-91|||>.<7|||
-92|||>_<|||
-93|||?!?!?!?|||
-94|||?....|||
-95|||??????|||
-96|||?????????????????|||
-97|||[-]|||
-98|||^^*|||
-99|||_|||
-100|||_)|||
-101|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.\u006e\u0061\u0076\u0065\u0072.com
-102|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com
-103|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.\u006a\u006f\u0061\u0072\u0061.com
-104|||\u007c서리\u007c||||Seori|
-105|||~?|||
-106|||~~|||
-107|||¿?|||
-108|||ᯣ_ᯣ|||
-109|||…|||
-110|||■※□¿¤|||
-111|||■■■■■|||
-112|||□□□|||
-113|||●|||
-114|||☁️☁️☁️|||
-115|||★|||
-116|||★★|||
-117|||♃|||
-118|||♡|||
-119|||♡♡|||
-120|||♥|||
-121|||♥♥♥♪|||
-122|||✅|||
-123|||》|||
-124|||공략기|||
-125|||공략중|||
-126|||\ub178\ubca8\ud53c\uc544공식|||Official npia
-127|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel. Sorcery Novel. Magic. Sorcery. Novel. Original Fiction. jara Novel. Fantasy Magic Academy
-128|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Wuxia. Wuxia Fiction. New Wuxia. Wuxia Novel. New Wuxia Novel. Genre Fiction. Jianghu. Murim. Action. Novel. jara Wuxia. jara New Wuxia.
-129|||살인\u007c|||Murder\u007c
-130|||재상남주|||Chancellor Male Lead
-131|||\uc870\uc544\ub77c_투베도전|||jara_Top 100 Challenge
-132|||\uc870\uc544\ub77c공모전|||jara Contest
-133|||\uc870\uc544\ub77c세계관|||jara Universe
-134|||\uc870\uc544\ub77c소설|||jara Novel
-135|||\uc870\uc544\ub77c신입사원|||jara New Hire
-136|||\uc870\uc544\ub77c여|||jara Female
-137|||\uc870\uc544\ub77c연재소설|||jara Serialized Novel
-138|||\uc870\uc544\ub77c의|||jara's
-139|||\uc870\uc544\ub77c첫작|||jara First Work
-140|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
-141|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Everyone Around Them Is a rbooks Gong
-142|||／|||
+23|||blog.\u006e\u0061\u0076\u0065\u0072.com|||blog.nweb.com
+24|||×|||
+25|||​|||
+26|||﻿|||
+27|||1.|||
+28|||15+|||
+29|||3:1|||
+30|||51053;|||
+31|||????|||
+32|||?????|||
+33|||TS말포이|||TS Malfoy
+34|||[]|||
+35|||·|||
+36|||동양오컬트|||Eastern Occult
+37|||망자전용|||For the Dead
+38|||어반SF|||Urban SF
+39|||유신지사|||Restorationist
+40|||\uc870\uc544\ub77c단독선공개|||jara Exclusive First Release
+41|||!!|||
+42|||!!!|||
+43|||\"|||
+44|||(???)|||
+45|||(_|||
+46|||***|||
+47|||+1|||
+48|||+@|||
+49|||--|||
+50|||-_-|||
+51|||....|||
+52|||.......|||
+53|||................|||
+54|||...~|||
+55|||0%|||
+56|||0.|||
+57|||01.|||
+58|||1%|||
+59|||1-1|||
+60|||100%|||
+61|||11.|||
+62|||19+|||
+63|||2+2=5|||
+64|||2-8|||
+65|||2.|||
+66|||3-1|||
+67|||30%|||
+68|||4.3|||
+69|||4.5|||
+70|||45461;|||
+71|||4858-9715|||
+72|||5%|||
+73|||5.18|||
+74|||50%|||
+75|||50524;|||
+76|||50751;&|||
+77|||50751;~|||
+78|||51053;??|||
+79|||51760;|||
+80|||53192;|||
+81|||53349;|||
+82|||54643;|||
+83|||5@|||
+84|||70%|||
+85|||7:1|||
+86|||8.15|||
+87|||95%|||
+88|||978-89-993-9450-8|||
+89|||979-11-03-31840-6|||
+90|||979-11-6600-303-5|||
+91|||::|||
+92|||;|||
+93|||;;|||
+94|||======|||
+95|||=>|||
+96|||>.<7|||
+97|||>_<|||
+98|||?!?!?!?|||
+99|||?....|||
+100|||??????|||
+101|||?????????????????|||
+102|||AI생성|||AI-Generated
+103|||GUN法|||GUN Law
+104|||NOTORIETY|||NOTORIETY
+105|||TSTS|||TSTS
+106|||TS론|||TS Theory
+107|||TS스승|||TS Mentor
+108|||[-]|||
+109|||^^*|||
+110|||_|||
+111|||_)|||
+112|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
+113|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
+114|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
+115|||\u007c서리\u007c|||\u007cFrost\u007c
+116|||~?|||
+117|||~~|||
+118|||¿?|||
+119|||Романтика|||Romance
+120|||Фантастика|||Fantasy
+121|||драма|||Drama
+122|||ᯣ_ᯣ|||
+123|||…|||
+124|||■※□¿¤|||
+125|||■■■■■|||
+126|||□□□|||
+127|||●|||
+128|||☁️☁️☁️|||
+129|||★|||
+130|||★★|||
+131|||♃|||
+132|||♡|||
+133|||♡♡|||
+134|||♥|||
+135|||♥♥♥♪|||
+136|||✅|||
+137|||》|||
+138|||가상역사판타지|||Alternate History Fantasy
+139|||가짜TS|||Fake TS
+140|||가짜공포|||Fake Horror
+141|||가짜괴이|||Fake Supernatural
+142|||감자대왕|||Potato King
+143|||거짓신화|||False Mythology
+144|||건물경영|||Building Management
+145|||검은머리전이자|||Black-Haired Transmigrator
+146|||게임LIKE|||Game-Like
+147|||게임하다가|||While Playing a Game
+148|||계발자|||Developer
+149|||고교스포츠|||High School Sports
+150|||고양이환생|||Cat Reincarnation
+151|||공덕|||Merit
+152|||공략기|||
+153|||공략중|||
+154|||공모전포기|||Contest Abandoned
+155|||공수병|||Hydrophobia
+156|||공중항모|||Aircraft Carrier
+157|||공책게임|||Notebook Game
+158|||괴이교|||Cult of the Strange
+159|||군대판타지|||Military Fantasy
+160|||권력협상|||Power Negotiation
+161|||근데암컷주인공은나옴|||But There Is a Female MC
+162|||근육다정남|||Muscular Sweetheart
+163|||근친인가|||Incest?
+164|||나데나데일까|||Is It Fluff?
+165|||나름정통|||Fairly Traditional
+166|||낙오자|||Loser
+167|||남극의눈물|||Tears of Antarctica
+168|||노맨스몰루|||No Romance, I Guess
+169|||\ub178\ubca8\ud53c\uc544공식|||Official npia
+170|||느릭전개|||Slow Pacing
+171|||다크호러|||Dark Horror
+172|||단매|||One-Hit Kill
+173|||단편완결|||Complete Short Story
+174|||당직|||On Duty
+175|||대리결투|||Proxy Duel
+176|||던브|||DunB
+177|||두근두근어드벤처|||Heart-Pounding Adventure
+178|||라폴리탄괴담|||Liminal Horror
+179|||로건|||Logan
+180|||림컴로보토미|||Limbus Company, Lobotomy
+181|||마법사의돌|||The Sorcerer's Stone
+182|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel. Sorcery Novel. Magic. Sorcery. Novel. Personal Fiction. jara Novel. Fantasy Magic Academy
+183|||맨션공포|||Mansion Horror
+184|||먹먹|||Heartbreaking
+185|||멸망한세계|||Ruined World
+186|||명명백백한정판|||Clearly Limited Edition
+187|||몇몇TS|||Some TS
+188|||모든신화|||All Mythologies
+189|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Wuxia. Wuxia Novel. New Wuxia. Wuxia Fiction. New Wuxia Fiction. Genre Fiction. Jianghu. Murim. Action. Novel. jara Wuxia. jara New Wuxia.
+190|||미스터리주인공|||Mystery Protagonist
+191|||미친기사|||Mad Knight
+192|||바이킹대학이있었나|||Was There a Viking University?
+193|||반사|||Reflection
+194|||뱀서류|||Vampire Survivors-Like
+195|||벤처|||Venture
+196|||분기|||Branching
+197|||블랙마켓|||Black Market
+198|||비밀노트|||Secret Notebook
+199|||뿌뿌|||Ppuppu
+200|||사신소년기반|||Based on Death's Game
+201|||살인\u007c|||Murder\u007c
+202|||상경|||Moving to the Capital
+203|||선도잠재력|||Cultivation Potential
+204|||선물옵션|||Futures and Options
+205|||선인으로살아간다는건|||Life as an Immortal
+206|||소설씁니다|||I Write Novels
+207|||소소한코믹|||Light Comedy
+208|||순애기사|||True Love Knight
+209|||순애방해|||Love Obstruction
+210|||스케일업|||Scale-Up
+211|||습득녀|||Acquired Girl
+212|||시골남|||Country Boy
+213|||시보|||News Brief
+214|||시체아님|||Not a Corpse
+215|||신입수|||Newcomer Bottom
+216|||쏘리|||Sorry
+217|||쏘리쏘리|||Sorry Sorry
+218|||아우터플레인|||Outerplane
+219|||아톰펑크|||Atompunk
+220|||아파트공포|||Apartment Horror
+221|||악인사냥|||Villain Hunting
+222|||약후방주의|||Mildly NSFW
+223|||업적작|||Achievement Farming
+224|||에고무기|||Ego Weapon
+225|||에릭카트먼|||Eric Cartman
+226|||에테리얼|||Ethereal
+227|||여러차원|||Multiple Dimensions
+228|||여성연대|||Women Supporting Women
+229|||여우신령|||Fox Spirit
+230|||여자말포이|||Female Malfoy
+231|||연애요소X|||No Romance
+232|||열차등반|||Train Climbing
+233|||오버마인드|||Overmind
+234|||오푸스|||Opus
+235|||와캬헉깡메카|||Wakyaheokkkang Mecha
+236|||완결까지6편남음|||6 Chapters Left
+237|||용박이|||Dragon Furry
+238|||우주카지노|||Space Casino
+239|||위선붕괴|||Hypocrisy Crumbles
+240|||이별과사랑|||Parting and Love
+241|||이종족동거물|||Mixed-Race Cohabitation
+242|||인간아니야|||Not Human
+243|||인물서사|||Character-Driven
+244|||인외물아님|||Not Nonhuman
+245|||일기예보|||Weather Forecast
+246|||장인어른|||Father-in-Law
+247|||정보우위|||Information Advantage
+248|||정성들여쓴변태사극|||Meticulously Written Perverted Period Drama
+249|||제물신부|||Sacrificial Bride
+250|||조선시대판타지|||Joseon-Era Fantasy
+251|||\uc870\uc544\ub77c_투베도전|||jara_Today's Best Challenge
+252|||\uc870\uc544\ub77c공모전|||jara Contest
+253|||\uc870\uc544\ub77c세계관|||jara Universe
+254|||\uc870\uc544\ub77c소설|||jara Novel
+255|||\uc870\uc544\ub77c신입사원|||jara New Hire
+256|||\uc870\uc544\ub77c여|||jara Woman
+257|||\uc870\uc544\ub77c연재소설|||jara Serialized Novel
+258|||\uc870\uc544\ub77c의|||jara's
+259|||\uc870\uc544\ub77c첫작|||jara Debut
+260|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
+261|||죄와책임|||Sin and Responsibility
+262|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Everyone Around Him Is a rbooks Top
+263|||주인공TS안나옴|||MC Doesn't Become TS
+264|||주인공X말포이|||Protagonist × Malfoy
+265|||지구력먼치킨|||Endurance Overpowered MC
+266|||지하공포|||Underground Horror
+267|||채널물|||Channel Story
+268|||초식명|||Technique Names
+269|||치트템|||Cheat Item
+270|||크레타|||Creta
+271|||티어표|||Tier List
+272|||파생상품|||Derivatives
+273|||판초|||Poncho
+274|||판초우의|||Poncho Raincoat
+275|||평온추구|||Seeking Peace
+276|||포스트사이버펑크|||Post-Cyberpunk
+277|||퓨전코믹|||Fantasy Comedy
+278|||하드매직|||Hard Magic
+279|||하렘몰루|||Harem, I Guess
+280|||하이루|||Hi-Ru
+281|||해리X카밀라|||Harry × Camilla
+282|||허무한인생|||A Life of Nothingness
+283|||헌터물아님|||Not a Hunter Story
+284|||현대공포|||Modern Horror
+285|||혐관캐미|||Enemies-to-Lovers Chemistry
+286|||형제TS|||Sibling TS
+287|||화나서|||Out of Anger
+288|||확률능력|||Probability Ability
+289|||황제펭귄|||Emperor Penguin
+290|||회귀파괴|||Regression Breaker
+291|||／|||

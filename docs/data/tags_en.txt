@@ -1402,6 +1402,7 @@ AI보조|||AI Assistant
 AI비서|||AI Assistant
 AI사용|||AI Used
 AI삽화|||AI Illustrations
+AI생성|||AI-Generated
 AI설정|||AI Setting
 AI소설|||AI Novel
 AI스릴러|||AI Thriller
@@ -2562,6 +2563,7 @@ GUITAR|||Guitar
 GUMI|||GUMI
 GUN|||GUN
 GUNDAM|||Gundam
+GUN法|||GUN Law
 GUP|||GuP
 GV배우수|||GV Actor Bottom
 GX|||GX
@@ -3328,6 +3330,7 @@ NOC|||NOC
 NOCLIP|||No Clip
 NONTR|||No NTR
 NOT|||NOT
+NOTORIETY|||NOTORIETY
 NOVEL|||NOVEL
 NOX|||NOX
 NO개연성|||No Plausibility
@@ -4257,6 +4260,7 @@ TSF|||TSF
 TSK|||TSK
 TSOFT|||TSOFT
 TSP|||TSP
+TSTS|||TSTS
 TS​|||TS
 TS​​|||TS
 TS​​​|||TS
@@ -4280,6 +4284,8 @@ TS드리프트주의|||TS Drift Warning
 TS로리|||TS Loli
 TS로마니|||TS Romani
 TS로맨스코믹|||TS Romance Comedy
+TS론|||TS Theory
+TS말포이|||TS Malfoy
 TS물|||TS Story
 TS물.|||TS Story
 TS물X|||No TS
@@ -4292,6 +4298,7 @@ TS성녀|||TS Saintess
 TS세계|||TS World
 TS소설|||TS Novel
 TS수필안쓴다고욧|||No TS Essay
+TS스승|||TS Mentor
 TS스킨|||TS Skin
 TS스킨아님|||Not a TS Skin
 TS시킴|||Causes TS
@@ -7451,11 +7458,14 @@ z커리어우먼|||Z Career Woman
 μ’s|||μ's
 Гарем|||Harem
 Ранобэ|||Ranobe
+Романтика|||Romance
 Современная|||Modern
 Средневековье|||Medieval
 Фантазия|||Fantasy
+Фантастика|||Fantasy
 Яun|||Run
 гарем|||Harem
+драма|||Drama
 романский|||Romanesque
 современный|||Modern
 أصدقاء+رومانسية+حياة|||Friends + Romance + Life
@@ -17187,6 +17197,7 @@ z커리어우먼|||Z Career Woman
 가상여주|||Fictional Female Lead
 가상역사|||Alt History
 가상역사물|||Alternate History
+가상역사판타지|||Alternate History Fantasy
 가상연애|||Virtual Romance
 가상왕조|||Fictional Dynasty
 가상의|||Fictional
@@ -17499,10 +17510,13 @@ z커리어우먼|||Z Career Woman
 가질수|||Can Have
 가짜|||Fake
 가짜?|||Fake?
+가짜TS|||Fake TS
 가짜_남색가|||Fake Sodomite
 가짜결혼|||Fake Marriage
+가짜공포|||Fake Horror
 가짜과학자|||Fake Scientist
 가짜광기|||Fake Madness
+가짜괴이|||Fake Supernatural
 가짜구원자|||False Savior
 가짜내시|||Fake Eunuch
 가짜딸|||Fake Daughter
@@ -17908,6 +17922,7 @@ z커리어우먼|||Z Career Woman
 감자|||Potato
 감자공|||Potato Top
 감자꽃v|||Potato Flower V
+감자대왕|||Potato King
 감자도리|||Potato Dori
 감자모트|||Potato Motte
 감자물이다|||Potato Story
@@ -19097,6 +19112,7 @@ z커리어우먼|||Z Career Woman
 거짓말쟁이와|||With a Liar
 거짓말탐지|||Lie Detection
 거짓말하면패널티|||Penalty for Lying
+거짓신화|||False Mythology
 거짓약혼|||Fake Engagement
 거짓웃음|||Fake Smile
 거짓으로|||Falsely
@@ -19178,6 +19194,7 @@ z커리어우먼|||Z Career Woman
 건맨|||Gunman
 건문제|||Gun Problem
 건물|||Building
+건물경영|||Building Management
 건물관리|||Building Management
 건물주|||Landlord
 건물주X세입자|||Landlord x Tenant
@@ -19451,6 +19468,7 @@ z커리어우먼|||Z Career Woman
 검은마법사|||Black Mage
 검은머리|||Black Hair
 검은머리미군대원수|||Black-Haired US Marshal
+검은머리전이자|||Black-Haired Transmigrator
 검은물|||Black Water
 검은바다|||Black Sea
 검은방|||Black Room
@@ -19697,6 +19715,7 @@ z커리어우먼|||Z Career Woman
 게임.해체술사.만능.먼치킨|||Game, Dismantler, All-Rounder, Overpowered MC
 게임4DW판타지환타지|||Game 4DW Fantasy
 게임BL|||Game BL
+게임LIKE|||Game-Like
 게임_시스템|||Game System
 게임bl|||Game BL
 게임가끔|||Occasional Game
@@ -19836,6 +19855,7 @@ z커리어우먼|||Z Career Woman
 게임퓨전소설|||Game Fusion Novel
 게임퓨전판타지|||Game Fusion Fantasy
 게임플레이|||Gameplay
+게임하다가|||While Playing a Game
 게임향첨가|||Game Vibe Added
 게임현실|||Game Reality
 게임현실화|||Game Becomes Reality
@@ -20368,6 +20388,7 @@ z커리어우먼|||Z Career Woman
 계모물|||Stepmother Story
 계몽|||Enlightenment
 계몽주의|||Enlightenment
+계발자|||Developer
 계백|||Gyebaek
 계산|||Calculation
 계산공|||Calculating Top
@@ -20514,6 +20535,7 @@ z커리어우먼|||Z Career Woman
 고교물|||High School Story
 고교생|||High School Student
 고교수위소설!|||High School Mature Fiction!
+고교스포츠|||High School Sports
 고교야구|||High School Baseball
 고교의|||Of High School
 고교학생일기|||High School Student Diary
@@ -20931,6 +20953,7 @@ z커리어우먼|||Z Career Woman
 고양이집사|||Cat Owner
 고양이처럼|||Like a Cat
 고양이판타지장편소설|||Long Cat Fantasy Novel
+고양이환생|||Cat Reincarnation
 고어|||Gore
 고어.|||Gore
 고어?|||Gore?
@@ -21405,6 +21428,7 @@ z커리어우먼|||Z Career Woman
 공대생물|||Engineering Student Story
 공대오빠|||Engineering Older Brother
 공대장|||Engineering Captain
+공덕|||Merit
 공덕후수|||Engineering Otaku Bottom
 공돌신|||Engineering God
 공돌이|||Engi Nerd
@@ -21463,6 +21487,7 @@ z커리어우먼|||Z Career Woman
 공모전|||Contest Entry
 공모전수상작|||Contest Winner
 공모전참여|||Contest Entry
+공모전포기|||Contest Abandoned
 공무|||Official Duties
 공무도하가|||Gongmudohaga
 공무원|||Civil Servant
@@ -21535,6 +21560,7 @@ z커리어우먼|||Z Career Woman
 공수구분없음|||No Top/Bottom Roles
 공수둘다굴림|||Both Top and Bottom Suffer
 공수변환가능수|||Switchable Bottom
+공수병|||Hydrophobia
 공수시점|||Top-Bottom Perspectives
 공수시점교차|||Alternating Top-Bottom Perspectives
 공수없음|||No Top or Bottom
@@ -21711,6 +21737,7 @@ z커리어우먼|||Z Career Woman
 공중전화|||Public Telephone
 공중정원|||Hanging Garden
 공중정원.독수리.기사.정통판타지.마도.기계.르네상스.중세.고대.|||Hanging Garden, Eagle, Knight, Traditional Fantasy, Magic, Machines, Renaissance, Medieval, Ancient
+공중항모|||Aircraft Carrier
 공쥐락나락했수|||The Top Toyed with the Bottom
 공쥬핑|||Gongjuping
 공지|||Notice
@@ -21721,6 +21748,7 @@ z커리어우먼|||Z Career Woman
 공진충|||Gongjinchung
 공찬|||Gongchan
 공책|||Notebook
+공책게임|||Notebook Game
 공처가|||Henpecked Husband
 공철호|||Gong Cheolho
 공청|||Gongcheong
@@ -22396,6 +22424,7 @@ z커리어우먼|||Z Career Woman
 괴이|||Anomaly
 괴이공|||Bizarre Top
 괴이관리국|||Anomaly Management Bureau
+괴이교|||Cult of the Strange
 괴이국|||Anomaly Bureau
 괴이남주|||Bizarre Male Lead
 괴이담|||Strange Tale
@@ -22993,6 +23022,7 @@ z커리어우먼|||Z Career Woman
 군대이야기|||Military Story
 군대전쟁|||Military Warfare
 군대조직문화|||Military Culture
+군대판타지|||Military Fantasy
 군대회귀|||Military Regression
 군도|||Archipelago
 군디컬코미디|||Gundical Comedy
@@ -23284,6 +23314,7 @@ z커리어우먼|||Z Career Woman
 권력찬탈|||Usurping Power
 권력처단|||Punishing the Powerful
 권력투쟁|||Power Struggle
+권력협상|||Power Negotiation
 권력형얀데레|||Powerful Yandere
 권리|||Rights
 권마|||Fist Demon
@@ -24281,6 +24312,7 @@ z커리어우먼|||Z Career Woman
 근데소없다|||But No Cow
 근데아에망한건아님|||Not AE Fail
 근데안감|||But Not Touching
+근데암컷주인공은나옴|||But There Is a Female MC
 근데여주한정친절|||But Kind Only to the Female Lead
 근데이제로판가오를곁들인|||But Served with Zero-Point Panache
 근데이제시스템창을곁들인|||But Served with a System Window
@@ -24331,6 +24363,7 @@ z커리어우먼|||Z Career Woman
 근육남|||Muscular Man
 근육남주|||Muscular Male Lead
 근육녀|||Muscular Girl
+근육다정남|||Muscular Sweetheart
 근육덩어리|||Muscle Hunk
 근육맨|||Muscle Man
 근육빵빵공|||Muscular Top
@@ -24367,6 +24400,7 @@ z커리어우먼|||Z Career Woman
 근친요소있음|||Incest Elements
 근친유사|||Incest-Like
 근친은아닌데아빠공|||Not Incest, but Dad Top
+근친인가|||Incest?
 근친인지아닌지|||Whether It’s Incest
 근친일수도|||Maybe Incest
 근친일지도|||Maybe Incest
@@ -26379,6 +26413,7 @@ z커리어우먼|||Z Career Woman
 나데나데물|||Headpat Story
 나데나데예정|||Petting Planned
 나데나데인가|||Petting Maybe
+나데나데일까|||Is It Fluff?
 나데나데조금|||Light Petting
 나데나데한방울|||Pet One Drop
 나데나데해줌|||Petting Provided
@@ -26526,6 +26561,7 @@ z커리어우먼|||Z Career Woman
 나름일상위주|||Daily Focus
 나름잘생겼수|||Handsome Bottom, Sort Of
 나름정의|||Somewhat Just
+나름정통|||Fairly Traditional
 나름치유물|||Healing Story, Sort Of
 나름할말은다하는수|||Outspoken Bottom, Sort Of
 나름해맑수|||Cheerful Bottom, Sort Of
@@ -26995,6 +27031,7 @@ z커리어우먼|||Z Career Woman
 낙엽따라서......|||Following the Fallen Leaves......
 낙오|||Straggler
 낙오무사|||Stranded Warrior
+낙오자|||Loser
 낙원|||Paradise
 낙원으로|||To Paradise
 낙원이란|||As for Paradise
@@ -27189,6 +27226,7 @@ z커리어우먼|||Z Career Woman
 남궁혈아|||Namgung Hyeora
 남궁훈|||Namgung Hun
 남극|||Antarctica
+남극의눈물|||Tears of Antarctica
 남기는|||Leaving Behind
 남기에만|||Only to Him
 남길승호|||Nam Gil-seung-ho
@@ -28830,6 +28868,7 @@ z커리어우먼|||Z Career Woman
 노맨스_지향|||No-Romance Oriented
 노맨스같은|||Like No Romance
 노맨스같은로맨스|||Romance That Feels Like No Romance
+노맨스몰루|||No Romance, I Guess
 노맨스에가까운백합|||Near No Romance Baekhap
 노맨스여주판|||No-Romance Heroine Fantasy
 노맨스예정|||No Romance Planned
@@ -29593,6 +29632,7 @@ z커리어우먼|||Z Career Woman
 느리게암타중|||Slow Dark Farm
 느리지만왕도적인전개|||Slow Royal Path
 느리지만확실하게|||Slow But Sure
+느릭전개|||Slow Pacing
 느린|||Slow
 느린TS|||Slow TS
 느린관계|||Slow-Build Relationship
@@ -30717,6 +30757,7 @@ z커리어우먼|||Z Career Woman
 다크함|||Darkness
 다크헌터|||Dark Hunter
 다크헤븐|||Dark Heaven
+다크호러|||Dark Horror
 다크히어로|||Dark Hero
 다크힐링|||Dark Healing
 다크힐링물|||Dark Healing
@@ -30829,6 +30870,7 @@ z커리어우먼|||Z Career Woman
 단련|||Training
 단마치|||Danmachi
 단맛|||Sweet Taste
+단매|||One-Hit Kill
 단맵단맵|||Sweet And Spicy
 단명헤어|||Short-Lived Hair
 단목전기|||Chronicle Of Danmok
@@ -30961,6 +31003,7 @@ z커리어우먼|||Z Career Woman
 단편연작|||Short Story Series
 단편연재|||Short Story Serialization
 단편예상|||Expected Short Story
+단편완결|||Complete Short Story
 단편으로|||As A Short Story
 단편이야기|||Short Story
 단편이었던것|||Was Short Story
@@ -31323,6 +31366,7 @@ z커리어우먼|||Z Career Woman
 당정소|||Dang Jeongso
 당주고죠|||Clan Head Gojo
 당죽시|||If You Die
+당직|||On Duty
 당찌|||Dangjji
 당차녀|||Spirited Woman
 당차수|||Bold Bottom
@@ -31491,6 +31535,7 @@ z커리어우먼|||Z Career Woman
 대륙최강|||Strongest On The Continent
 대륙통일|||Unification Of The Continent
 대리|||Proxy
+대리결투|||Proxy Duel
 대리남친|||Proxy Boyfriend
 대리만족|||Vicarious Satisfaction
 대리맞선|||Proxy Blind Date
@@ -32163,6 +32208,7 @@ z커리어우먼|||Z Career Woman
 던만치|||DanMachi
 던메모|||Denmemo
 던변추|||Dungeon Transformation
+던브|||DunB
 던속사|||Dungeon Quick Shot
 던전|||Dungeon
 던전&파이터|||Dungeon & Fighter
@@ -33637,6 +33683,7 @@ z커리어우먼|||Z Career Woman
 동양신화|||Eastern Myth
 동양여주|||Eastern Female Lead
 동양역사로맨스|||Eastern Historical Romance
+동양오컬트|||Eastern Occult
 동양용|||Eastern Dragon
 동양인|||Asian
 동양인수|||Asian Bottom
@@ -33891,6 +33938,7 @@ z커리어우먼|||Z Career Woman
 두근두근|||Heart Pounding
 두근두근나이트런|||Heart-Pounding Nightrun
 두근두근심쿵|||Heart-Pounding Flutter
+두근두근어드벤처|||Heart-Pounding Adventure
 두근두근연애물|||Heart-Pounding Romance
 두근요전기|||Heart-Pounding Chronicles
 두꺼비|||Toad
@@ -35494,6 +35542,7 @@ z커리어우먼|||Z Career Woman
 라파엘|||Raphael
 라파엘로|||Raffaello
 라파트|||Lafart
+라폴리탄괴담|||Liminal Horror
 라푼젤|||Rapunzel
 라프타리아|||Raphtalia
 라프텔|||Laftel
@@ -36228,6 +36277,7 @@ z커리어우먼|||Z Career Woman
 로?맨스|||Ro?mance
 로가|||Loga
 로가이온드|||Rogaiond
+로건|||Logan
 로건리|||Logan Lee
 로고스의|||Of Logos
 로그|||Log
@@ -37876,6 +37926,7 @@ z커리어우먼|||Z Career Woman
 림잡|||Rimjob
 림족|||Rim Tribe
 림컴|||Limbus Company
+림컴로보토미|||Limbus Company, Lobotomy
 립구|||Lipgu
 립스|||Lips
 립스틱|||Lipstick
@@ -38352,6 +38403,7 @@ z커리어우먼|||Z Career Woman
 마법사우월주의|||Mage Supremacy
 마법사의|||Wizard's
 마법사의도시|||City Of Mages
+마법사의돌|||The Sorcerer's Stone
 마법사의밤|||Wizard Night
 마법사의신부|||Magician's Bride
 마법사의약속|||Promise of Wizard
@@ -39631,6 +39683,7 @@ z커리어우먼|||Z Career Woman
 망자여주|||Dead Female Lead
 망자의|||Of The Dead
 망자의윤회|||Reincarnation Of The Dead
+망자전용|||For the Dead
 망작|||Failed Work
 망작복수극|||Revenge For A Bad Work
 망작의주인공|||MC of a Flop
@@ -39899,6 +39952,7 @@ z커리어우먼|||Z Career Woman
 맨들맨들|||Shiny
 맨발|||Barefoot
 맨서|||Mancer
+맨션공포|||Mansion Horror
 맨손|||Bare-Handed
 맨손격투|||Hand-to-Hand Combat
 맨손으로|||Bare-Handed
@@ -40046,6 +40100,7 @@ z커리어우먼|||Z Career Woman
 먹능|||Eating
 먹다|||Eat
 먹다.흡수하다.걸신|||Eat, Absorb, Gluttony
+먹먹|||Heartbreaking
 먹먹물|||Melancholy
 먹먹한스토리|||Heavy-Hearted Story
 먹먹함주의|||Emotional Warning
@@ -40722,6 +40777,7 @@ z커리어우먼|||Z Career Woman
 멸망전세계|||World Before Destruction
 멸망하였습니다.|||It Has Been Destroyed
 멸망한|||Ruined
+멸망한세계|||Ruined World
 멸망한세상|||Ruined World
 멸망할|||Will Be Destroyed
 멸망함|||Destroyed
@@ -40782,6 +40838,7 @@ z커리어우먼|||Z Career Woman
 명마|||Famous Horse
 명말|||Late Ming
 명명방방|||Name Name Defense
+명명백백한정판|||Clearly Limited Edition
 명문|||Prestigious Clan
 명문가|||Prestigious Family
 명문가공|||Aristocratic Top
@@ -40855,6 +40912,7 @@ z커리어우먼|||Z Career Woman
 명화대공|||Masterpiece Duke
 명희|||Myunghee
 몇|||How Many
+몇몇TS|||Some TS
 몇스푼?|||How Many Spoonfuls?
 몇회차|||What Round
 모|||Mo
@@ -40964,6 +41022,7 @@ z커리어우먼|||Z Career Woman
 모든루트|||All Routes
 모든시대|||All Eras
 모든시리즈예정|||All Series Planned
+모든신화|||All Mythologies
 모든어드벤트|||All Advent
 모든연예인|||All Celebrities
 모든욕망의집합|||Sum of All Desires
@@ -43410,6 +43469,7 @@ z커리어우먼|||Z Career Woman
 미스터리스릴러|||Mystery Thriller
 미스터리여주|||Mystery Heroine
 미스터리와|||Mystery and
+미스터리주인공|||Mystery Protagonist
 미스터리판타지|||Mystery Fantasy
 미스터리퍼즐|||Mystery Puzzle
 미스터리한|||Mysterious
@@ -43687,6 +43747,7 @@ z커리어우먼|||Z Career Woman
 미친공|||Crazy Top
 미친과학자|||Mad Scientist
 미친기린공|||Crazy Giraffe Gong
+미친기사|||Mad Knight
 미친남|||Crazy Man
 미친남주|||Crazy Male Lead
 미친넘|||Crazy Guy
@@ -44342,6 +44403,7 @@ z커리어우먼|||Z Career Woman
 바이크|||Bike
 바이클론즈|||Vyclones
 바이킹|||Viking
+바이킹대학이있었나|||Was There a Viking University?
 바이트|||Bite
 바이퍼|||Viper
 바이퍼다|||Viper
@@ -44665,6 +44727,7 @@ z커리어우먼|||Z Career Woman
 반복하지|||Don't Repeat
 반복회귀|||Repeated Regression
 반불사|||Half-Immortal
+반사|||Reflection
 반사광|||Reflected Light
 반사능력|||Reflection Ability
 반사회성장소설|||Antisocial Growth Novel
@@ -45775,6 +45838,7 @@ z커리어우먼|||Z Career Woman
 뱀남주|||Snake Male Lead
 뱀두마리나옴주|||Two Snakes Appear
 뱀부펑크|||Bamboo Punk
+뱀서류|||Vampire Survivors-Like
 뱀술|||Snake Liquor
 뱀시삼|||Baem Sisam
 뱀심|||Snake Heart
@@ -46365,6 +46429,7 @@ z커리어우먼|||Z Career Woman
 벤베크만|||Ben Beckman
 벤상|||Ben-Sang
 벤시|||Banshee
+벤처|||Venture
 벤처CEO|||Venture CEO
 벤처붐|||Venture Boom
 벤쳐|||Venture
@@ -47794,6 +47859,7 @@ z커리어우먼|||Z Career Woman
 북흑공|||Northern Black Top
 북흑남주|||Northern Scheming Male Lead
 북흥공|||Northern Heung Top
+분기|||Branching
 분기물|||Branch Story
 분기엔딩|||Branch Ending
 분기점|||Branch Point
@@ -48420,6 +48486,7 @@ z커리어우먼|||Z Career Woman
 블랙루트|||Black Route
 블랙리스트|||Blacklist
 블랙릴리스|||Black Lilith
+블랙마켓|||Black Market
 블랙매트릭스|||Black Matrix
 블랙메사|||Black Mesa
 블랙메일|||Blackmail
@@ -48775,6 +48842,7 @@ z커리어우먼|||Z Career Woman
 비밀남녀|||Secretive Man And Woman
 비밀남주|||Secretive Male Lead
 비밀녀|||Secretive Woman
+비밀노트|||Secret Notebook
 비밀능력|||Secret Ability
 비밀단체|||Secret Group
 비밀동거|||Secret Cohabitation
@@ -49738,6 +49806,7 @@ z커리어우먼|||Z Career Woman
 뿌르르|||Purr
 뿌리|||Root
 뿌링틀|||Bburinkle
+뿌뿌|||Ppuppu
 뿌뿌핑|||Ppu-Ppu Ping
 뿌셔뿌셔|||Smash Smash
 뿌요테트|||Puyo Puyo Tetris
@@ -50466,6 +50535,7 @@ z커리어우먼|||Z Career Woman
 사신방|||Reaper Room
 사신비행록|||Reaper Flight Chronicle
 사신소년|||Reaper Boy
+사신소년기반|||Based on Death's Game
 사신수|||Death Beast
 사신여주|||Reaper Heroine
 사신왕|||Reaper King
@@ -51621,6 +51691,7 @@ z커리어우먼|||Z Career Woman
 상견례문전박대상|||Rejected At The Family Meeting
 상견례프리패스상|||Family-Meeting-Approved Face
 상견환|||Meeting The In-Laws
+상경|||Moving to the Capital
 상경됨|||Moved To Seoul
 상경한지|||Since Moving To Seoul
 상고|||Appeal
@@ -53034,6 +53105,7 @@ z커리어우먼|||Z Career Woman
 선도부오빠|||Discipline Committee Older Brother
 선도부장|||Guidance Director
 선도수련|||Immortal Cultivation
+선도잠재력|||Cultivation Potential
 선동|||Inciting
 선동거|||Cohabitation First
 선동거후연애|||Sex First, Love Later
@@ -53054,6 +53126,7 @@ z커리어우먼|||Z Career Woman
 선무혁|||Seon Muhyeok
 선물|||Gift
 선물거래|||Futures Trading
+선물옵션|||Futures and Options
 선물하기|||Giving A Gift
 선물할게|||I'll Give You A Gift
 선미|||Sunmi
@@ -53155,6 +53228,7 @@ z커리어우먼|||Z Career Woman
 선이혼후사랑|||Divorce Before Love
 선이혼후연애|||Divorce First, Love Later
 선인|||Sage
+선인으로살아간다는건|||Life as an Immortal
 선인장|||Cactus
 선인장사이다|||Cactus Catharsis
 선인장수|||Cactus Bottom
@@ -55133,6 +55207,7 @@ z커리어우먼|||Z Career Woman
 소설속폭군되기|||Becoming A Tyrant In A Novel
 소설속흑막남주|||Villainous Male Lead In A Novel
 소설쓰지마|||Don't Write A Novel
+소설씁니다|||I Write Novels
 소설아님|||Not a Novel
 소설에서|||In The Novel
 소설여왕|||Novel Queen
@@ -55189,6 +55264,7 @@ z커리어우먼|||Z Career Woman
 소소한의뢰|||Small Request
 소소한일상|||Simple Daily Life
 소소한재미|||Small Fun
+소소한코믹|||Light Comedy
 소소한판타지로맨스|||Low-Key Fantasy Romance
 소소함|||Petty
 소속사|||Agency
@@ -56410,6 +56486,7 @@ z커리어우먼|||Z Career Woman
 순애같은하렘|||Pure Love Harem
 순애공|||Devoted Top
 순애공수|||Devoted Top and Bottom
+순애기사|||True Love Knight
 순애남|||Devoted Man
 순애남주|||Devoted Male Lead
 순애네토|||Pure Netori
@@ -56426,6 +56503,7 @@ z커리어우먼|||Z Career Woman
 순애맞을지도|||May Be Pure Love
 순애맞음|||Pure Love
 순애물|||Devoted Love
+순애방해|||Love Obstruction
 순애보|||Pure Love Guaranteed
 순애보공|||Devoted Top
 순애보공]|||Devoted Top
@@ -57164,6 +57242,7 @@ z커리어우먼|||Z Career Woman
 스케이트보드|||Skateboard
 스케이팅|||Skating
 스케일|||Scale
+스케일업|||Scale-Up
 스케일의|||Of Scale
 스케일이|||Scale
 스케일이큰|||Big Scale
@@ -57802,6 +57881,7 @@ z커리어우먼|||Z Career Woman
 습관성플러팅|||Habitual Flirting
 습니다|||Formal Speech
 습득|||Acquisition
+습득녀|||Acquired Girl
 습득력|||Learning Ability
 습수|||Seupsu
 습작|||Practice Work
@@ -57976,6 +58056,7 @@ z커리어우먼|||Z Career Woman
 시골공|||Countryside Top
 시골공방|||Country Workshop
 시골귀농|||Rural Farming
+시골남|||Country Boy
 시골녀|||Country Girl
 시골도토리수|||Country Acorn Bottom
 시골뜨기|||Country Bumpkin
@@ -58245,6 +58326,7 @@ z커리어우먼|||Z Career Woman
 시발롬|||Shit Rome
 시범작|||Test Work
 시베리아|||Siberia
+시보|||News Brief
 시본|||Sivon
 시부린|||Shiburin
 시부사와|||Shibusawa
@@ -58469,6 +58551,7 @@ z커리어우먼|||Z Career Woman
 시체사냥꾼|||Corpse Hunter
 시체성애|||Necrophilia
 시체수집|||Corpse Collection
+시체아님|||Not a Corpse
 시체애호|||Corpse Fetish
 시체처리|||Corpse Disposal
 시체흡수|||Corpse Absorption
@@ -59209,6 +59292,7 @@ z커리어우먼|||Z Career Woman
 신입사원|||New Employee
 신입사원A|||New Employee A
 신입생|||Freshman
+신입수|||Newcomer Bottom
 신입시생|||New Examinee
 신자유주의|||Neoliberalism
 신작|||New
@@ -60159,6 +60243,8 @@ z커리어우먼|||Z Career Woman
 쏘는|||Shooting
 쏘니도로|||Sonny Doro
 쏘로우오브쏘울|||Sorrow of Soul
+쏘리|||Sorry
+쏘리쏘리|||Sorry Sorry
 쏘삭쏘삭|||Whispering
 쏘시오패스|||Sociopath
 쏘우|||Saw
@@ -61261,6 +61347,7 @@ z커리어우먼|||Z Career Woman
 아우구스투스|||Augustus
 아우라|||Aura
 아우터갓|||Outer God
+아우터플레인|||Outerplane
 아우트라잇월드|||Outright World
 아우프지히트|||Aufsicht
 아울|||Owl
@@ -61789,6 +61876,7 @@ z커리어우먼|||Z Career Woman
 아토믹펑크|||Atomic Punk
 아토베|||Atobe
 아토지로|||Atojiro
+아톰펑크|||Atompunk
 아트|||Art
 아트로포스|||Atropos
 아트록스|||Atrox
@@ -61810,6 +61898,7 @@ z커리어우먼|||Z Career Woman
 아틸카|||Atilka
 아파트|||Apartment
 아파트값|||Apartment Prices
+아파트공포|||Apartment Horror
 아파트등반물|||Apartment Climbing
 아파트물|||Apartment Story
 아팠던|||Was Hurting
@@ -62173,6 +62262,7 @@ z커리어우먼|||Z Career Woman
 악이라|||As Evil
 악인|||Villain
 악인갱생|||Villain Rehabilitation
+악인사냥|||Villain Hunting
 악인주인공|||Villain Protagonist
 악인참|||Villain Slash
 악인처벌딱히없음|||No Particular Villain Punishment
@@ -64176,6 +64266,7 @@ z커리어우먼|||Z Career Woman
 약혼한사이|||Engaged Couple
 약회귀물|||Mild Regression Story
 약회귀요소|||Light Regression
+약후방주의|||Mildly NSFW
 약후피집|||Weak Fluff House
 약후회|||Soft Regret
 약후회공|||Slightly Regretful Top
@@ -64673,6 +64764,7 @@ z커리어우먼|||Z Career Woman
 어바다|||Eobada
 어바등|||The Earth Is Online
 어반|||Urban
+어반SF|||Urban SF
 어반다크판타지|||Urban Dark Fantasy
 어반로맨스|||Urban Romance
 어반물|||Urban Story
@@ -65199,6 +65291,7 @@ z커리어우먼|||Z Career Woman
 업앤다운타운|||Up And Down Town
 업어키운남주|||ML Raised By FL
 업적|||Achievement
+업적작|||Achievement Farming
 업타카|||Euptaka
 없공|||Absent Top
 없는|||None
@@ -65308,6 +65401,7 @@ z커리어우먼|||Z Career Woman
 에고|||Ego
 에고(Ego)|||Ego
 에고른|||Egor
+에고무기|||Ego Weapon
 에고소드|||Ego Sword
 에고웨펀|||Ego Weapon
 에고웨폰|||Ego Weapon
@@ -65455,6 +65549,7 @@ z커리어우먼|||Z Career Woman
 에릭×라울|||Eric X Raul
 에릭렌셔|||Erik Lensherr
 에릭카드맨|||Eric Cartman
+에릭카트먼|||Eric Cartman
 에린|||Erin
 에마|||Emma
 에마피|||EmaPi
@@ -65689,6 +65784,7 @@ z커리어우먼|||Z Career Woman
 에키드나|||Echidna
 에테르|||Aether
 에테르스피어|||Aether Sphere
+에테리얼|||Ethereal
 에토|||Eto
 에투|||Etu
 에트라마|||Etrama
@@ -66203,6 +66299,7 @@ z커리어우먼|||Z Career Woman
 여러작품패러디|||Multi Parodies
 여러장르|||Multi Genre
 여러장르짬뽕|||Genre Mashup
+여러차원|||Multiple Dimensions
 여러창작물|||Multiple Fanworks
 여러희로인|||Multiple Heroines
 여럿|||Several
@@ -66307,6 +66404,7 @@ z커리어우먼|||Z Career Woman
 여성시점|||Female POV
 여성심리|||Female Psychology
 여성여성해|||Feminine
+여성연대|||Women Supporting Women
 여성영웅|||Female Hero
 여성우월|||Female Superiority
 여성우정|||Female Friendship
@@ -66430,6 +66528,7 @@ z커리어우먼|||Z Career Woman
 여우수인|||Foxkin
 여우수인수|||Fox Beastman Bottom
 여우신|||Fox God
+여우신령|||Fox Spirit
 여우야|||Hey, Fox
 여우여주|||Foxlike Heroine
 여우와그림책|||The Fox And The Picture Book
@@ -66505,6 +66604,7 @@ z커리어우먼|||Z Career Woman
 여자마음ㅈ도모르남|||Man Who Knows Nothing About Women
 여자만|||Women Only
 여자많공|||Many Women Around Top
+여자말포이|||Female Malfoy
 여자맨발|||Woman's Barefoot
 여자발가락|||Woman's Toes
 여자발냄새|||Woman's Foot Smell
@@ -67635,6 +67735,7 @@ z커리어우먼|||Z Career Woman
 연애연습|||Dating Practice
 연애예능|||Romance Variety Show
 연애와결혼을동시에|||Romance And Marriage At Once
+연애요소X|||No Romance
 연애요소없음|||No Romance
 연애요소함유|||Contains Romance
 연애의|||Of Romance
@@ -68004,6 +68105,7 @@ z커리어우먼|||Z Career Woman
 열제|||Emperor Yeol
 열차|||Train
 열차덱|||Train Deck
+열차등반|||Train Climbing
 열차살인사건|||Train Murder Case
 열청일|||Yeol Cheong-il
 열폭공|||Jealous Top
@@ -69003,6 +69105,7 @@ z커리어우먼|||Z Career Woman
 오버로드패러디|||Overlord Parody
 오버로드팬픽|||Overlord Fanfic
 오버로드희망편|||Overlord Hope
+오버마인드|||Overmind
 오버맨|||Overman
 오버맨유니버스|||Overman Universe
 오버밸런스|||Overbalance
@@ -69326,6 +69429,7 @@ z커리어우먼|||Z Career Woman
 오페라의유령|||Phantom Opera
 오페라하우스|||Opera House
 오펜스|||Offense
+오푸스|||Opus
 오푸스5|||Opus 5
 오프|||Off
 오프닝|||Opening
@@ -69660,6 +69764,7 @@ z커리어우먼|||Z Career Woman
 와카사|||Wakasa
 와카신|||Wakashin
 와카토시|||Wakatoshi
+와캬헉깡메카|||Wakyaheokkkang Mecha
 와타|||Wata
 와타루|||Wataru
 와타모테|||WataMote
@@ -69678,6 +69783,7 @@ z커리어우먼|||Z Career Woman
 완결가능...?|||Can It Be Completed...?
 완결기원|||Praying for Completion
 완결까지|||To Completion
+완결까지6편남음|||6 Chapters Left
 완결까지힘내자아아아|||Finish Cheer
 완결됬다|||Completed
 완결목표|||Goal: Completion
@@ -70507,6 +70613,7 @@ z커리어우먼|||Z Career Woman
 용마법|||Dragon Magic
 용맹|||Valor
 용민|||Yongmin
+용박이|||Dragon Furry
 용백전기|||Yongbaek Chronicle
 용병|||Mercenary
 용병.|||Mercenary
@@ -71017,6 +71124,7 @@ z커리어우먼|||Z Career Woman
 우주창조|||Universe Creation
 우주최강이쁜여주|||Prettiest Heroine in the Universe
 우주최강존엄존예섹시제이슨|||Universe’s Most Dignified, Beautiful, Sexy Jason
+우주카지노|||Space Casino
 우주탐사|||Space Exploration
 우주탐험물|||Space Exploration
 우주태양게임전쟁|||Space Sun Game War
@@ -72131,6 +72239,7 @@ z커리어우먼|||Z Career Woman
 위상세계|||Phase World
 위선|||Hypocrisy
 위선공|||Hypocritical Top
+위선붕괴|||Hypocrisy Crumbles
 위선자|||Hypocrite
 위선자공|||Hypocrite Top
 위선적쓰레기|||Hypocritical Scumbag
@@ -72707,6 +72816,7 @@ z커리어우먼|||Z Career Woman
 유시타|||Yusita
 유시혁|||Yoo Sihyeok
 유신|||Yushin
+유신지사|||Restorationist
 유실물|||Lost Item
 유쓰|||Yusseu
 유아|||Child
@@ -74571,6 +74681,7 @@ z커리어우먼|||Z Career Woman
 이별|||Breakup
 이별-김재훈|||Farewell - Kim Jae-hoon
 이별.|||Breakup
+이별과사랑|||Parting and Love
 이별과시작|||Farewell and Beginning
 이별과재회|||Farewell and Reunion
 이별극복기|||Overcoming a Breakup
@@ -75181,6 +75292,7 @@ z커리어우먼|||Z Career Woman
 이종족간|||Interspecies
 이종족공존|||Multi-Species Coexistence
 이종족남주|||Nonhuman Male Lead
+이종족동거물|||Mixed-Race Cohabitation
 이종족들|||Other Races
 이종족로맨스|||Inter-Species Romance
 이종족물|||Other-Race Story
@@ -75601,6 +75713,7 @@ z커리어우먼|||Z Career Woman
 인간심리|||Human Psychology
 인간쓰레기|||Human Trash
 인간쓰레기죽이는여주|||Female Lead Who Kills Scumbags
+인간아니야|||Not Human
 인간아님|||Not Human
 인간아포칼립스|||Human Apocalypse
 인간애|||Human Affection
@@ -75823,6 +75936,7 @@ z커리어우먼|||Z Career Woman
 인물들이|||The Characters
 인물로|||As a Character
 인물많음주의보|||Warning: Many Characters
+인물서사|||Character-Driven
 인바디|||InBody
 인방|||Streamer
 인방맛첨가|||Streamer Flavor Added
@@ -76059,6 +76173,7 @@ z커리어우먼|||Z Career Woman
 인외마경|||Non-Human Demon Realm
 인외물|||Nonhuman
 인외물(늑대)|||Nonhuman Story (Wolf)
+인외물아님|||Not Nonhuman
 인외물약간|||Slight Non-Human
 인외미남공|||Handsome Nonhuman Top
 인외빙의|||Nonhuman Possession
@@ -76283,6 +76398,7 @@ z커리어우먼|||Z Career Woman
 일기는|||The Diary
 일기다|||It's a Diary
 일기시점|||Diary Perspective
+일기예보|||Weather Forecast
 일기일기|||Diary, Diary
 일기입니다.|||It's a Diary
 일기장|||Diary/Journal
@@ -78397,6 +78513,7 @@ z커리어우먼|||Z Career Woman
 장의사|||Doctor Zhang
 장인|||Artisan
 장인물|||Master Craftsman Story
+장인어른|||Father-in-Law
 장일소|||Jang Ilso
 장재혁|||Jang Jae-hyeok
 장정운|||Jang Jeong-un
@@ -80124,6 +80241,7 @@ z커리어우먼|||Z Career Woman
 정보상인|||Information Merchant
 정보생명체|||Info Lifeform
 정보요원|||Intelligence Agent
+정보우위|||Information Advantage
 정보원|||Informant
 정보원여주|||Female Lead Informant
 정보전|||Information Warfare
@@ -80196,6 +80314,7 @@ z커리어우먼|||Z Career Woman
 정설|||Established Theory
 정성|||Sincerity
 정성구|||Jeong Seong-gu
+정성들여쓴변태사극|||Meticulously Written Perverted Period Drama
 정성민|||Jung Seongmin
 정성우|||Jeong Seong-woo
 정세물|||Political World
@@ -80832,6 +80951,7 @@ z커리어우먼|||Z Career Woman
 제목추천좀|||Title Suggestions
 제물|||Offering
 제물수|||Sacrificial Bottom
+제물신부|||Sacrificial Bride
 제물여주|||Sacrificial Female Lead
 제미|||Jemi
 제미나이|||Gemini
@@ -81280,6 +81400,7 @@ z커리어우먼|||Z Career Woman
 조선시대로맨스|||Joseon-Era Romance
 조선시대로판|||Joseon Historical Romance Fantasy
 조선시대물|||Joseon-Era Story
+조선시대판타지|||Joseon-Era Fantasy
 조선시리즈|||Joseon Series
 조선아|||Joseon Ah
 조선야사|||Joseon Unofficial
@@ -81971,6 +82092,7 @@ z커리어우먼|||Z Career Woman
 죄와|||With Sin
 죄와벌|||Crime and Punishment
 죄와속죄|||Sin Atonement
+죄와책임|||Sin and Responsibility
 죄의|||Of Sin
 죄인|||Sinner
 죄인수|||Sinner Bottom
@@ -82254,6 +82376,8 @@ z커리어우먼|||Z Career Woman
 주인공TS|||Protagonist TS
 주인공TS가아님|||MC No TS
 주인공TS아님|||No TS Protagonist
+주인공TS안나옴|||MC Doesn't Become TS
+주인공X말포이|||Protagonist × Malfoy
 주인공]|||Protagonist]
 주인공][먼치킨X]|||Protagonist; No Overpowered MC
 주인공_러뷰어|||Protagonist Love Viewer
@@ -83050,6 +83174,7 @@ z커리어우먼|||Z Career Woman
 지구|||Earth
 지구공동설|||Hollow Earth Theory
 지구관광사업|||Earth Tourism Business
+지구력먼치킨|||Endurance Overpowered MC
 지구를|||The Earth
 지구리셋|||Earth Reset
 지구멸망|||World Destruction
@@ -83456,6 +83581,7 @@ z커리어우먼|||Z Career Woman
 지풒|||Jipup
 지하|||Underground
 지하12층|||12th Basement Floor
+지하공포|||Underground Horror
 지하국가|||Underground Nation
 지하군|||Jibaku Shounen
 지하군_2차창작|||Underground Army Fanwork
@@ -85096,6 +85222,7 @@ z커리어우먼|||Z Career Woman
 채나크|||Chaenak
 채너리|||Chaenori
 채널|||Channel
+채널물|||Channel Story
 채략가여주|||Strategist Heroine
 채령|||Chae-ryeong
 채리엇|||Chariot
@@ -86614,6 +86741,7 @@ z커리어우먼|||Z Career Woman
 초식녀|||Herbivore Woman
 초식동물|||Herbivore
 초식동물수|||Herbivore Bottom
+초식명|||Technique Names
 초식설명|||Herbivore Explanation
 초식여주|||Herbivore Heroine
 초신성|||Supernova
@@ -87745,6 +87873,7 @@ z커리어우먼|||Z Career Woman
 치트키|||Cheat
 치트키없음|||No Cheat
 치트키여주|||Cheat-Key Heroine
+치트템|||Cheat Item
 치트플레이어|||Cheat Player
 치프|||Chief
 치하야|||Chihaya
@@ -89761,6 +89890,7 @@ z커리어우먼|||Z Career Woman
 크레이지|||Crazy
 크레이지비|||Crazy B
 크레이티브|||Creative
+크레타|||Creta
 크레타섬|||Crete
 크레토스|||Kratos
 크레프트|||Kreft
@@ -92129,6 +92259,7 @@ z커리어우먼|||Z Career Woman
 티어문제국|||Tearmoon Empire
 티어문제국이야기|||Tearmoon Empire Story
 티어스오브더킹덤|||Tears of the Kingdom
+티어표|||Tier List
 티에나|||Tiena
 티에스|||TS
 티엔|||Tian
@@ -92322,6 +92453,7 @@ z커리어우먼|||Z Career Woman
 파사르|||Pasar
 파산|||Bankruptcy
 파생|||Derivative
+파생상품|||Derivatives
 파샾|||P Sharp
 파수꾼|||Watchman
 파수꾼공|||Watchman Top
@@ -92555,7 +92687,9 @@ z커리어우먼|||Z Career Woman
 판저|||Panzer
 판처|||Panzer
 판체스터|||Pan Chester
+판초|||Poncho
 판초법사|||Poncho Mage
+판초우의|||Poncho Raincoat
 판초우의마법사|||Poncho Wizard
 판초우의의마법사|||Poncho Wizard
 판카|||Panka
@@ -93509,6 +93643,7 @@ z커리어우먼|||Z Career Woman
 평양|||Pyongyang
 평온|||Serenity
 평온녀|||Serene Female Lead
+평온추구|||Seeking Peace
 평온한|||Peaceful
 평원태왕|||King of the Plains
 평정|||Calm
@@ -93685,6 +93820,7 @@ z커리어우먼|||Z Career Woman
 포스트|||Post
 포스트뉴클리어|||Post Nuclear
 포스트모더니즘|||Postmodernism
+포스트사이버펑크|||Post-Cyberpunk
 포스트아포칼립스|||Post-Apocalypse
 포스트아포칼립스.|||Post-Apocalypse
 포스트잇|||Post-it Note
@@ -94249,6 +94385,7 @@ z커리어우먼|||Z Career Woman
 퓨전장편판타지소설|||Fusion Epic Fantasy
 퓨전짬뽕로맨스판타지|||Fusion Mixed Romance Fantasy
 퓨전코미디|||Fusion Comedy
+퓨전코믹|||Fantasy Comedy
 퓨전파타지|||Fusion Fantasy
 퓨전판|||Fusion Version
 퓨전판타지|||Fusion Fantasy
@@ -95368,6 +95505,7 @@ z커리어우먼|||Z Career Woman
 하드SF지향|||Hard SF Aim
 하드sf|||Hard SF
 하드디스크|||Hard Disk
+하드매직|||Hard Magic
 하드모드|||Hard Mode
 하드물|||Hard Story
 하드백합|||Hardcore Yuri
@@ -95450,6 +95588,7 @@ z커리어우먼|||Z Career Woman
 하렘드리프트없음|||No Harem Drift
 하렘떡타지|||No Harem Sex
 하렘마|||Harem Ma
+하렘몰루|||Harem, I Guess
 하렘물|||Harem
 하렘물????|||Harem Story????
 하렘물로|||As a Harem Story
@@ -95738,6 +95877,7 @@ z커리어우먼|||Z Career Woman
 하이레이|||High Ray
 하이레프|||High Ref
 하이렌스|||Highrens
+하이루|||Hi-Ru
 하이마스터|||High Master
 하이바|||Haiba
 하이바라|||Haibara
@@ -96811,6 +96951,7 @@ z커리어우먼|||Z Career Woman
 해리|||Harry
 해리TS|||Harry TS
 해리X드라카|||Harry x Draca
+해리X카밀라|||Harry × Camilla
 해리ts|||Harry Genderbend
 해리가뱀파이어|||Harry Is a Vampire
 해리꽃길?|||Harry's Flower Path?
@@ -97345,6 +97486,7 @@ z커리어우먼|||Z Career Woman
 허무주의|||Nihilism
 허무한|||Empty
 허무한마음|||Empty Heart
+허무한인생|||A Life of Nothingness
 허무함|||Emptiness
 허무함.|||Emptiness
 허밍.|||Humming
@@ -97475,6 +97617,7 @@ z커리어우먼|||Z Career Woman
 헌터물.추방물|||Hunter Story. Exile Story
 헌터물?|||Hunter Story?
 헌터물맞을지도|||Maybe Hunter
+헌터물아님|||Not a Hunter Story
 헌터물은아님|||Not Hunter Story
 헌터물은아닙니다|||Not Hunter
 헌터물차원이동|||Hunter Story Dimension Travel
@@ -97784,6 +97927,7 @@ z커리어우먼|||Z Career Woman
 현대가상시대물|||Modern Alternate-Era Story
 현대각색|||Modern Adaptation
 현대계략물|||Modern Scheming Story
+현대공포|||Modern Horror
 현대과학|||Modern Science
 현대괴담|||Modern Ghost Story
 현대군|||Modern Military
@@ -98344,6 +98488,7 @@ z커리어우먼|||Z Career Woman
 혐관연관|||Enemy Relationship
 혐관연애|||Enemies-To-Lovers Romance
 혐관인듯아닌듯|||Almost Enemies
+혐관캐미|||Enemies-to-Lovers Chemistry
 혐생|||Hateful Life
 혐성|||Sex-Hating
 혐성공|||Bad-Natured Top
@@ -98431,6 +98576,7 @@ z커리어우먼|||Z Career Woman
 형제|||Brothers
 형제(?)싸움이|||Sibling(?) Fight
 형제?|||Siblings?
+형제TS|||Sibling TS
 형제간근친|||Incest Between Brothers
 형제간의우애|||Brotherly Bond
 형제공|||Brother Top
@@ -99034,6 +99180,7 @@ z커리어우먼|||Z Career Woman
 화끈한|||Fiery
 화끈함|||Fierceness
 화나면수섭수|||Bottom With An Angry Temper
+화나서|||Out of Anger
 화난|||Angry
 화남|||Anger
 화데|||Hwade
@@ -99189,6 +99336,7 @@ z커리어우먼|||Z Career Woman
 확고한|||Firm
 확대범수|||Expansionist Bottom
 확률|||Probability
+확률능력|||Probability Ability
 확률전투|||Probability-Based Combat
 확밀아|||Million Arthur
 확보격리보존|||Secure, Contain, Protect
@@ -99651,6 +99799,7 @@ z커리어우먼|||Z Career Woman
 황제인데|||He's The Emperor, But
 황제처단|||Emperor Execution
 황제친구|||The Emperor's Friend
+황제펭귄|||Emperor Penguin
 황제폐하|||His Imperial Majesty
 황제형부|||Emperor Brother-In-Law
 황족|||Imperial
@@ -99820,6 +99969,7 @@ z커리어우먼|||Z Career Woman
 회귀전|||Before Regression
 회귀전소심|||Timid Before Regression
 회귀조카|||Regressor's Niece/Nephew
+회귀파괴|||Regression Breaker
 회귀판타지|||Regression Fantasy
 회귀하니|||After Regression
 회귀하다|||Regress
