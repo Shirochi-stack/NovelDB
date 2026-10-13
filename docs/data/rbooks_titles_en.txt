@@ -8903,6 +8903,7 @@
 2336051248|||일단 악역이 맞긴 한데요 (15세 개정판)|||I Am Technically the Villain (15+ Edition)
 2336051363|||빙의자의 팔은 안으로 굽는다|||The Possessed Favor Their Own
 2336051432|||빙의자의 팔은 안으로 굽는다 (15세 개정판)|||The Possessed Favor Their Own (15+ Edition)
+2336051965|||직무 유기가 이렇게 무섭습니다|||Neglecting Your Duties Is This Scary
 2336052114|||엑스트라생존필수수칙|||Essential Rules for an Extra’s Survival
 2336052227|||엑스트라생존필수수칙 (15세 개정판)|||Essential Rules for an Extra’s Survival (15+ Revised Edition)
 2336052352|||가난한 척했더니 후견인이 집착한다|||I Pretended to Be Poor, and My Patron Became Obsessed With Me
@@ -12315,6 +12316,7 @@
 3403004214|||종말 서울의 EX급 해결사가 되었다|||I Became an EX-Rank Fixer in an End-Times Seoul
 3403004562|||왕자가 친구를 사귀는 방법|||How the Prince Makes Friends
 3403005388|||이 소설은 내 소설이 아니다|||This Novel Isn't My Novel
+3403006104|||B급 공무원과 말랑한 비상식량|||The B-Rank Civil Servant and His Squishy Emergency Rations
 3424000001|||피아니시모|||Pianissimo
 3433000550|||프로야구의 전설|||Legend of Professional Baseball
 3433000938|||용의 내조를 받고 있습니다|||I'm Supported by a Dragon
@@ -12813,6 +12815,7 @@
 3586126866|||1972년 바둑계 전설들이 기다리던 천재가 되었다|||I Became the Go Genius the Legends of 1972 Had Been Waiting For
 3586126990|||퓨전펑크 유일의 네크로맨서가 되었다|||I Became the Only Necromancer in Fusionpunk
 3586127112|||골렘군단으로 딸깍함|||Clicking My Way with a Golem Legion
+3586127559|||미국갔더니 마법사로 인생이 너무 쉬움|||Life Is Too Easy as a Wizard in America
 3589000001|||독사|||Viper
 3592000001|||까마귀는 반짝이는 것을 좋아해|||Crows Like Shiny Things
 3592000150|||직장내 불순교제|||Improper Office Romance
@@ -16588,6 +16591,7 @@
 425665097|||SSS급 행운빨로 국가권력급 각성자가 되었다|||I Became a Nation-Level Awakened with SSS-Rank Luck
 425665199|||개미 키우다 외신으로 오해 받았다|||Raising Ants Made Everyone Mistake Me for an Outer God
 425666351|||회사원이 천재 마법사임|||The Office Worker Is a Genius Mage
+425666977|||유부녀 공략 시스템 각성!|||The Married Woman Conquest System Awakens!
 425667092|||오픈마인드|||Open Mind
 425667296|||주식 천재는 투자가 너무 쉽다|||Investing Is Too Easy for the Stock Genius
 425667416|||AI 생성 능력 각성했더니 탑 등반이 너무 쉬움|||After Awakening AI Generation, Climbing the Tower Is Too Easy
@@ -18267,6 +18271,7 @@
 5576001320|||미래일기로 생존게임|||Survival Game with a Future Diary
 5576001567|||마교천하의 무한회귀자|||The Infinite Regressor of the Demonic World
 5576001774|||죽어서 축구의 신이 되는 방법|||How to Become the God of Soccer After You Die
+5576001974|||9급부터 북부대공까지|||From Ninth-Grade Civil Servant to Grand Duke of the North
 5581000001|||역전 던전|||Dungeon Reversal
 5581000002|||역전 던전 (15세 개정판)|||Dungeon Reversal (15+ Revised Edition)
 5602000001|||깊은 밤, 숲속의 야수|||The Beast in the Forest at Deep Night
@@ -19494,6 +19499,7 @@
 777038582|||낭왕무오|||The Wolf King Mu-o
 777038784|||용문쟁천|||The Dragon Gate Struggles Against Heaven
 777038934|||창천|||Azure Sky
+777039546|||공략자들|||The Conquerors
 777039812|||악인재생|||The Villain Reborn
 777040052|||방송의 대가|||Master of Broadcasting
 777040494|||개정판 \u007c 어쩌다 황제|||Revised Edition \u007c Accidental Emperor
@@ -21254,10 +21260,7 @@
 1190004304|||36.5|||
 120086367|||아카데미 청소부의 은밀한 공략|||
 2313000001|||던전 공략 LIVE|||
-2336051965|||직무 유기가 이렇게 무섭습니다|||
 2877000379|||공략은 전지적으로|||
-3403006104|||B급 공무원과 말랑한 비상식량|||
-3586127559|||미국갔더니 마법사로 인생이 너무 쉬움|||
 4178000348|||던전공략 특별회수반|||
 4186000571|||설계자의 공략방법|||
 4186010140|||초월급 엑스트라의 공략집|||
@@ -21266,8 +21269,5 @@
 425477852|||공략 천재가 되었다|||
 425606091|||1903|||
 425629250|||1973|||
-425666977|||유부녀 공략 시스템 각성!|||
 505027633|||현질로 소설 공략|||
-5576001974|||9급부터 북부대공까지|||
-777039546|||공략자들|||
 945008054|||40,41|||
