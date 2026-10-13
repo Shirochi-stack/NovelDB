@@ -29591,6 +29591,7 @@
 33356|||구름이 두둥실 흘러가듯이|||Like Clouds Drifting High
 333562|||전생이 도황이었다|||I Was the Pirate Emperor in My Past Life
 333564|||대나무숲 살인사건 [D]|||The Bamboo Grove Murder Case [D]
+333565|||현질로 소설 공략 [D]|||Pay to Win Your Way Through the Novel [D]
 333566|||검성, 돌아오다 [D]|||The Sword Saint Returns [D]
 333568|||재벌이 된 천재 과학자 [D]|||The Genius Scientist Became a Chaebol [D]
 333569|||전생검존 [D]|||Reincarnated Sword Sovereign [D]
@@ -85039,6 +85040,7 @@
 61176|||카카오 드라이버|||Kpage Driver
 6118|||사이킥 특수 전대 아스트레이(the psychic sp|||Psychic Special Force Astray
 61181|||무녀의 남자|||The Shamaness's Man
+611861|||세자, 야림(野林)에서 눈을 뜨다|||The Crown Prince Awakens in the Wilds
 6120|||외계도시백서|||White Paper of an Alien City
 61200|||강철의 천사 [E]|||Angel of Steel [E]
 61206|||생방송 BJ 오리취|||Live Broadcast BJ Orichwi
@@ -90328,7 +90330,6 @@
 332402|||2082|||
 332679|||11121212|||
 333510|||( )|||
-333565|||현질로 소설 공략 [D]|||
 350596|||000000000|||
 362816|||백룸 공략은 인테리어부터|||
 36332|||72%|||
@@ -90404,5 +90405,4 @@
 608033|||Axiom(공리)|||
 608414|||번학무사 (番學武士)|||
 610021|||2035|||
-611861|||세자, 야림(野林)에서 눈을 뜨다|||
 63401|||49|||
