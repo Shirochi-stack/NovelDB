@@ -55591,6 +55591,7 @@
 1440981|||특이점이 온 관계|||A Relationship at the Singularity
 1440985|||첫날밤에|||On the Wedding Night
 1440987|||디어 마이 엔젤|||Dear My Angel
+1441|||명 <命>|||Myeong <Life>
 14410|||앙르나헝로ㅓ|||Angre Nahangro
 1441002|||(단편)주문은 주무시는 것으로 하시겠습니까?|||[Short Story] Would You Like to Order Some Sleep?
 1441004|||워싱턴 키드 : 대한민국의 꿈|||Washington Kid: Korea's Dream
@@ -144661,6 +144662,7 @@
 1888513|||[해리포터] Change the history|||[Harry Potter] Change the history
 1888525|||[MCUx오버워치] 영웅은 죽지 않아요.|||[MCU × Overwatch] Heroes Never Die
 1888530|||죽어도 아깝지 않은 놈들|||Men Who Aren't Worth Saving
+1888531|||향귀|||Fragrant Ghost
 1888534|||화산진도|||Mount Hua's True Path
 1888538|||나의 아름다운 너에게|||To My Beautiful You
 1888539|||우연한 사고란 없다|||There Are No Accidental Accidents
@@ -145040,6 +145042,7 @@
 1889515|||마법소년은 여장이 취미라|||The Magical Boy Enjoys Cross-Dressing
 1889517|||[BL]웜홀 안까지 얀데레가 따라왔다.|||[BL] A Yandere Followed Me into the Wormhole
 1889518|||남매 둘이 로판에서 살아남기|||Two Siblings Survive in a Romance-Fantasy Novel
+1889522|||이 나라를 없앨 예정인데요|||I Plan to Destroy This Country
 1889524|||[하이큐/쿠농/도리벤/앙스타] 자급자족하는 캐릭터 드림 모음집|||[Haikyuu!!/Kuroko's Basketball/Tokyo Revengers/Ensemble Stars] Self-Sufficient Character Dreams Collection
 1889525|||신인인데 천만배우|||A Rookie, Yet a Ten-Million-Star Actor
 1889526|||[포겟몬/이누야샤BL] 당당한 꼬부기다.-(완)-|||[Pokémon/Inuyasha BL] I Am a Proud Squirtle. (Complete)
@@ -236835,7 +236838,6 @@
 1438633|||,|||
 1438922|||730|||
 14391|||....|||
-1441|||명 <命>|||
 1442447|||.|||
 1447680|||.|||
 1448235|||.|||
@@ -237407,8 +237409,6 @@
 1886519|||ㆍ|||
 1887427|||.|||
 1888381|||병미인화살저도|||
-1888531|||향귀|||
-1889522|||이 나라를 없앨 예정인데요|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
