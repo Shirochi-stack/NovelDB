@@ -1,4 +1,4 @@
-"""Translate untranslated titles/descriptions using an OpenAI-compatible API.
+"""Translate untranslated titles/descriptions using Claude or an OpenAI-compatible API.
 
 Simple, reliable translation script for CI/CD workflows.
 Uses requests directly with proper timeouts - no internal retry on bad results.
@@ -6,12 +6,14 @@ Accepts whatever the model returns and moves on.
 
 Environment:
     TRANSLATION_API_KEY       - preferred API key for any provider
+    ANTHROPIC_API_KEY         - fallback API key for Claude models
     DEEPSEEK_API_KEY          - fallback API key for DeepSeek
     OPENAI_API_KEY            - fallback API key
     GROK_API_KEY              - fallback API key for xAI/Grok
     XAI_API_KEY               - fallback API key for xAI/Grok
     TRANSLATION_API_BASE_URL  - OpenAI-compatible base URL; leave blank
-                               to infer from model/key name
+                               to infer from model/key name (Claude
+                               models use ANTHROPIC_BASE_URL instead)
     TRANSLATION_OUTPUT_TOKEN_LIMIT - API completion token limit
                                      (default: 16384)
     TRANSLATION_COMPRESSION_FACTOR - chunk divisor for output token limit
@@ -23,6 +25,7 @@ Usage:
 """
 
 import os, sys, json, time, argparse, requests, threading
+from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -33,7 +36,7 @@ _enc = tiktoken.get_encoding("cl100k_base")
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_MODEL = "claude-haiku-5-5"
 
 # API output cap and derived chunk size.
 DEFAULT_OUTPUT_TOKEN_LIMIT = 16_384
@@ -310,12 +313,20 @@ def infer_api_base_url(model):
     return DEFAULT_API_BASE_URL
 
 
+def is_claude_model(model):
+    """True for Claude models, which go through the Anthropic SDK."""
+    return "claude" in (model or "").lower()
+
+
 def model_key_order(model):
     """Return API-key env vars in provider-aware preference order."""
     hint = (model or "").lower()
     order = ["TRANSLATION_API_KEY"]
 
-    if "deepseek" in hint:
+    if is_claude_model(model):
+        order.append("ANTHROPIC_API_KEY")
+        return order
+    elif "deepseek" in hint:
         order.append("DEEPSEEK_API_KEY")
         return order
     elif "grok" in hint or "xai" in hint or "x-ai" in hint:
@@ -411,9 +422,48 @@ def uses_luna_parameters(model):
     return "luna" in (model or "").lower()
 
 
+@lru_cache(maxsize=None)
+def claude_client(api_key):
+    """Shared Anthropic client per key; the SDK client is thread-safe."""
+    import anthropic  # only Claude runs need the SDK installed
+    return anthropic.Anthropic(api_key=api_key, timeout=900.0)
+
+
+def call_claude(prompt, api_key, model, content_type="titles",
+                lang="korean", output_token_limit=None):
+    """Single Claude request. Streams so large output limits avoid HTTP timeouts."""
+    system_prompt = build_system_prompt(content_type, lang)
+    with claude_client(api_key).messages.stream(
+        model=model,
+        max_tokens=output_token_limit or DEFAULT_OUTPUT_TOKEN_LIMIT,
+        # Format-following translation needs little reasoning; low effort
+        # keeps thinking from eating the output budget.
+        output_config={"effort": "low"},
+        system=[{
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }],
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        message = stream.get_final_message()
+
+    if message.stop_reason == "refusal":
+        raise RuntimeError("Claude declined this chunk (stop_reason=refusal)")
+    if message.stop_reason == "max_tokens":
+        _tprint("    WARNING — hit output token limit; trailing rows may be missing")
+    usage = message.usage
+    _tprint(f"    Tokens: {usage.input_tokens} in "
+            f"({usage.cache_read_input_tokens or 0} cached), {usage.output_tokens} out")
+    return "".join(b.text for b in message.content if b.type == "text").strip()
+
+
 def call_api(prompt, api_key, model, api_url, content_type="titles",
              lang="korean", output_token_limit=None):
     """Single API call with proper timeout. No retries — accept what we get."""
+    if is_claude_model(model):
+        return call_claude(prompt, api_key, model, content_type, lang,
+                           output_token_limit)
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -475,7 +525,7 @@ def process_chunk(idx, chunk, total, lang, content_type, api_key, model,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Translate with an OpenAI-compatible chat API"
+        description="Translate with Claude or an OpenAI-compatible chat API"
     )
     parser.add_argument("input_file", help="Path to untranslated file")
     parser.add_argument("--lang", default="korean", choices=["korean", "chinese"])
@@ -487,7 +537,7 @@ def main():
         default=None,
         help=(
             "OpenAI-compatible base URL or full /chat/completions URL "
-            "(blank: infer from model/API-key name)"
+            "(blank: infer from model/API-key name; ignored for Claude models)"
         ),
     )
     parser.add_argument(
@@ -523,8 +573,11 @@ def main():
 
     model = args.model or os.environ.get("MODEL", DEFAULT_MODEL)
     api_key = resolve_api_key(args.api_key_env, model)
-    api_base_url = resolve_api_base_url(model, args.api_base_url)
-    api_url = normalize_chat_completions_url(api_base_url)
+    if is_claude_model(model):
+        api_url = os.environ.get("ANTHROPIC_BASE_URL") or "Anthropic Messages API"
+    else:
+        api_base_url = resolve_api_base_url(model, args.api_base_url)
+        api_url = normalize_chat_completions_url(api_base_url)
     output_token_limit = args.output_token_limit
     if output_token_limit is None:
         output_token_limit = env_int("TRANSLATION_OUTPUT_TOKEN_LIMIT")

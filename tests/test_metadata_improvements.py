@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -156,15 +157,47 @@ def test_continuation_report_requires_success_and_enabled_flag():
     assert not workflow.continuation_report("jara", report)["eligible"]
 
 
-def test_luna_payload_and_provider_keys(monkeypatch):
-    assert translator.DEFAULT_MODEL == "gpt-6-luna"
+def test_claude_default_and_provider_keys(monkeypatch):
+    assert translator.DEFAULT_MODEL == "claude-haiku-5-5"
+    assert translator.is_claude_model(translator.DEFAULT_MODEL)
     for key in translator.model_key_order(translator.DEFAULT_MODEL):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "wrong-provider")
+    with pytest.raises(SystemExit):
+        translator.resolve_api_key(model=translator.DEFAULT_MODEL)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fixture-anthropic")
+    assert translator.resolve_api_key(model=translator.DEFAULT_MODEL) == "fixture-anthropic"
+
+
+def test_claude_request_shape(monkeypatch):
+    calls = []
+    class Stream:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def get_final_message(self):
+            block = SimpleNamespace(type="text", text=" 1|||소설|||Novel \n")
+            usage = SimpleNamespace(input_tokens=10, output_tokens=5, cache_read_input_tokens=0)
+            return SimpleNamespace(stop_reason="end_turn", content=[block], usage=usage)
+    client = SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: calls.append(kw) or Stream()))
+    monkeypatch.setattr(translator, "claude_client", lambda key: client)
+    monkeypatch.setattr(translator.requests, "post", lambda *a, **k: pytest.fail("Claude must not use chat completions"))
+    out = translator.call_api("rows", "key", "claude-haiku-5-5", None, output_token_limit=8192)
+    assert out == "1|||소설|||Novel"
+    request = calls[0]
+    assert request["model"] == "claude-haiku-5-5" and request["max_tokens"] == 8192
+    assert request["output_config"] == {"effort": "low"}
+    assert "temperature" not in request and "thinking" not in request
+
+
+def test_luna_payload_and_provider_keys(monkeypatch):
+    model = "gpt-6-luna"
+    for key in translator.model_key_order(model):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "wrong-provider")
     with pytest.raises(SystemExit):
-        translator.resolve_api_key(model=translator.DEFAULT_MODEL)
+        translator.resolve_api_key(model=model)
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-openai")
-    assert translator.resolve_api_key(model=translator.DEFAULT_MODEL) == "fixture-openai"
+    assert translator.resolve_api_key(model=model) == "fixture-openai"
     sent = []
     class Response:
         def raise_for_status(self): pass
@@ -176,7 +209,7 @@ def test_luna_payload_and_provider_keys(monkeypatch):
     # The older Luna name is included deliberately: the payload branch used to
     # match one exact model, so an upgrade silently reverted to the wrong
     # completion parameters. Every Luna revision must keep this shape.
-    for model in (translator.DEFAULT_MODEL, "gpt-5.6-luna", "deepseek-v4-pro"):
+    for model in ("gpt-6-luna", "gpt-5.6-luna", "deepseek-v4-pro"):
         translator.call_api("title", "fixture", model, "https://example.test/chat/completions", output_token_limit=8192)
     luna, previous_luna, override = sent[0][1], sent[1][1], sent[2][1]
     for payload in (luna, previous_luna):
@@ -185,11 +218,13 @@ def test_luna_payload_and_provider_keys(monkeypatch):
     assert override["max_tokens"] == 8192 and override["temperature"] == 0.3
 
 
-def test_all_translation_workflows_have_luna_and_openai_secret():
+def test_all_translation_workflows_default_to_claude_with_secrets():
     root = Path(__file__).resolve().parents[1]
     for name in ("translate-npia-top", "translate-kpage", "translate-sfc", "translate-tags", "metadata-source-job"):
         content = (root / ".github" / "workflows" / f"{name}.yml").read_text(encoding="utf-8")
-        assert "gpt-6-luna" in content and "secrets.OPENAI_API_KEY" in content
+        assert "claude-haiku-5-5" in content and "gpt-6-luna" not in content
+        assert "secrets.ANTHROPIC_API_KEY" in content and "secrets.OPENAI_API_KEY" in content
+        assert "anthropic" in content.split("pip install", 1)[1].splitlines()[0]
         assert "deepseek-v4-pro" not in content
     for path in (root / ".github" / "workflows").glob("*.yml"):
         content = path.read_text(encoding="utf-8")

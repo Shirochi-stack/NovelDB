@@ -36,7 +36,7 @@ on:
         default: ''
       model:
         type: string
-        default: gpt-6-luna
+        default: claude-haiku-5-5
       output_token_limit:
         description: 'Max output tokens per translation request (blank = repository variable or 16384)'
         type: string
@@ -74,6 +74,7 @@ jobs:
       TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +85,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install metadata dependencies
-        run: python -m pip install requests beautifulsoup4 tiktoken "curl_cffi>=0.14.0,<0.15"
+        run: python -m pip install requests beautifulsoup4 tiktoken anthropic "curl_cffi>=0.14.0,<0.15"
       - name: Restore unpublished source progress
         if: inputs.operation != 'rankings'
         run: python scripts/metadata_recovery.py restore --source "$METADATA_SOURCE"
