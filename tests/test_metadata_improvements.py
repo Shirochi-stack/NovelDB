@@ -157,16 +157,17 @@ def test_continuation_report_requires_success_and_enabled_flag():
     assert not workflow.continuation_report("jara", report)["eligible"]
 
 
-def test_claude_default_and_provider_keys(monkeypatch):
-    assert translator.DEFAULT_MODEL == "claude-haiku-5-5"
-    assert translator.is_claude_model(translator.DEFAULT_MODEL)
-    for key in translator.model_key_order(translator.DEFAULT_MODEL):
+def test_claude_provider_keys(monkeypatch):
+    model = "claude-haiku-5-5"
+    assert translator.is_claude_model(model)
+    assert not translator.is_claude_model(translator.DEFAULT_MODEL)
+    for key in translator.model_key_order(model):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "wrong-provider")
     with pytest.raises(SystemExit):
-        translator.resolve_api_key(model=translator.DEFAULT_MODEL)
+        translator.resolve_api_key(model=model)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fixture-anthropic")
-    assert translator.resolve_api_key(model=translator.DEFAULT_MODEL) == "fixture-anthropic"
+    assert translator.resolve_api_key(model=model) == "fixture-anthropic"
 
 
 def test_claude_request_shape(monkeypatch):
@@ -190,7 +191,8 @@ def test_claude_request_shape(monkeypatch):
 
 
 def test_luna_payload_and_provider_keys(monkeypatch):
-    model = "gpt-6-luna"
+    assert translator.DEFAULT_MODEL == "gpt-6-luna"
+    model = translator.DEFAULT_MODEL
     for key in translator.model_key_order(model):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "wrong-provider")
@@ -218,11 +220,11 @@ def test_luna_payload_and_provider_keys(monkeypatch):
     assert override["max_tokens"] == 8192 and override["temperature"] == 0.3
 
 
-def test_all_translation_workflows_default_to_claude_with_secrets():
+def test_all_translation_workflows_default_to_luna_with_secrets():
     root = Path(__file__).resolve().parents[1]
     for name in ("translate-npia-top", "translate-kpage", "translate-sfc", "translate-tags", "metadata-source-job"):
         content = (root / ".github" / "workflows" / f"{name}.yml").read_text(encoding="utf-8")
-        assert "claude-haiku-5-5" in content and "gpt-6-luna" not in content
+        assert "gpt-6-luna" in content and "claude-haiku-5-5" not in content
         assert "secrets.ANTHROPIC_API_KEY" in content and "secrets.OPENAI_API_KEY" in content
         assert "anthropic" in content.split("pip install", 1)[1].splitlines()[0]
         assert "deepseek-v4-pro" not in content
