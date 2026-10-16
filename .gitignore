@@ -39,3 +39,7 @@ docs/data/jara_*_untranslated.txt
 docs/data/mpia_*_untranslated.txt
 docs/data/rbooks_*_untranslated.txt
 docs/data/nseries_*_untranslated.txt
+
+# GitLab disposable CI output
+/.gitlab-work/
+/artifacts/

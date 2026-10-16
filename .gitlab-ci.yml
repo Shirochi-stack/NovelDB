@@ -1,0 +1,276 @@
+workflow:
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "web"
+  - when: never
+stages:
+- check
+- work
+- publish
+variables:
+  GIT_DEPTH: '0'
+  CI_TASK:
+    value: policy
+    options:
+    - policy
+    - macos
+    - metadata
+    - legacy
+    - release-report
+    - release-apply
+    - pages
+    description: Explicit task; no automatic scraping, translation, schedule or release.
+  METADATA_SOURCE:
+    value: nweb
+    options:
+    - nweb
+    - jara
+    - mpia
+    - rbooks
+    - nseries
+    description: One metadata source.
+  METADATA_OPERATION:
+    value: build
+    options:
+    - build
+    - catalog
+    - rankings
+    - resume
+    - translate
+    description: Collection/rebuild or separately approved paid translation.
+  LEGACY_WORKFLOW:
+    value: update-rankings.yml
+    options:
+    - rescrape-npia.yml
+    - update-rankings.yml
+    - update-kpage.yml
+    - update-sfc.yml
+    - update-sfc-rankings.yml
+    - translate-npia-top.yml
+    - translate-kpage.yml
+    - translate-sfc.yml
+    - translate-tags.yml
+    description: Existing legacy data/translation script family.
+  METADATA_WORKERS: '4'
+  TRANSLATION_WORKERS: '4'
+  TRANSLATION_DELAY: '5'
+  MODEL: gpt-6-luna
+  TRANSLATION_OUTPUT_TOKEN_LIMIT: '16384'
+  TRANSLATION_COMPRESSION_FACTOR: '2.0'
+  TRANSLATION_APPROVED:
+    value: 'false'
+    options:
+    - 'false'
+    - 'true'
+    description: Expose manual paid translation on a protected ref.
+  MACOS_ADHOC_APPROVED:
+    value: 'false'
+    options:
+    - 'false'
+    - 'true'
+    description: Approve local ad-hoc signing performed by PyInstaller; no identity/certificate
+      used.
+  PUBLISH_ARTIFACTS:
+    value: 'false'
+    options:
+    - 'false'
+    - 'true'
+    description: Expose manual upload to an existing protected-tag release.
+  AUTOMATION_WRITE_APPROVED:
+    value: 'false'
+    options:
+    - 'false'
+    - 'true'
+    description: Expose manual GitLab metadata commit or release-text update on a
+      protected ref.
+  PAGES_APPROVED:
+    value: 'false'
+    options:
+    - 'false'
+    - 'true'
+    description: Expose manual deployment of committed docs to GitLab Pages.
+  RELEASE_TAG:
+    value: ''
+    description: One existing GitLab release tag for text policy review/application.
+default:
+  interruptible: true
+  before_script:
+  - python -m pip install -r .gitlab/requirements.txt
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+    - artifacts/
+verify-ci:
+  stage: check
+  tags:
+  - migration-linux-py311
+  script:
+  - python -B .gitlab/test_bridge.py
+  - python -B .gitlab/test_npia.py
+  - python -B .gitlab/test_release.py
+codename-policy:
+  stage: check
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/build.py policy
+macos-build:
+  stage: work
+  tags:
+  - migration-macos15-py311-$ARCH
+  script:
+  - python .gitlab/build.py macos --arch "$ARCH"
+  parallel:
+    matrix:
+    - ARCH:
+      - arm64
+      - x86_64
+  timeout: 6 hours
+  interruptible: false
+  manual_confirmation: Build both variants using disposable native macOS runners and
+    local ad-hoc signing?
+  rules:
+  - if: $CI_TASK == "macos" && $MACOS_ADHOC_APPROVED == "true" && $CI_COMMIT_REF_PROTECTED
+      == "true"
+    when: manual
+    allow_failure: false
+  - when: never
+metadata-work:
+  stage: work
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/build.py metadata --source "$METADATA_SOURCE" --operation "$METADATA_OPERATION"
+  timeout: 6 hours
+  resource_group: metadata-work
+  rules:
+  - if: $CI_TASK == "metadata" && $METADATA_OPERATION != "translate"
+  - when: never
+metadata-translate:
+  stage: work
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/build.py metadata --source "$METADATA_SOURCE" --operation translate
+  timeout: 6 hours
+  resource_group: metadata-work
+  interruptible: false
+  manual_confirmation: Run paid translation with the owner-provisioned credential
+    and selected limits?
+  rules:
+  - if: $CI_TASK == "metadata" && $METADATA_OPERATION == "translate" && $TRANSLATION_APPROVED
+      == "true" && $CI_COMMIT_REF_PROTECTED == "true"
+    when: manual
+    allow_failure: false
+  - when: never
+legacy-work:
+  stage: work
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/build.py legacy --workflow "$LEGACY_WORKFLOW"
+  timeout: 6 hours
+  resource_group: metadata-work
+  rules:
+  - if: $CI_TASK == "legacy" && $LEGACY_WORKFLOW !~ /^translate-/
+  - when: never
+legacy-translate:
+  stage: work
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/build.py legacy --workflow "$LEGACY_WORKFLOW"
+  timeout: 6 hours
+  resource_group: metadata-work
+  interruptible: false
+  manual_confirmation: Run paid translation with the owner-provisioned credential
+    and selected limits?
+  rules:
+  - if: $CI_TASK == "legacy" && $LEGACY_WORKFLOW =~ /^translate-/ && $TRANSLATION_APPROVED
+      == "true" && $CI_COMMIT_REF_PROTECTED == "true"
+    when: manual
+    allow_failure: false
+  - when: never
+publish-data:
+  stage: publish
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/data.py
+  resource_group: metadata-publication
+  interruptible: false
+  environment:
+    name: gitlab-metadata
+  manual_confirmation: Create one GitLab commit from complete verified data artifacts?
+  rules:
+  - if: ($CI_TASK == "metadata" || $CI_TASK == "legacy") && $AUTOMATION_WRITE_APPROVED
+      == "true" && $CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"
+    when: manual
+    allow_failure: false
+  - when: never
+publish-existing-release:
+  stage: publish
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/release.py
+  needs:
+  - macos-build
+  resource_group: release-publication
+  interruptible: false
+  environment:
+    name: gitlab-release
+  manual_confirmation: Upload both verified architecture/variant DMGs to this existing
+    GitLab release?
+  rules:
+  - if: $CI_TASK == "macos" && $MACOS_ADHOC_APPROVED == "true" && $PUBLISH_ARTIFACTS
+      == "true" && $CI_COMMIT_TAG && $CI_COMMIT_REF_PROTECTED == "true"
+    when: manual
+    allow_failure: false
+  - when: never
+release-policy-report:
+  stage: work
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/maintenance.py release-report
+  rules:
+  - if: $CI_TASK == "release-report"
+  - when: never
+release-policy-apply:
+  stage: work
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/maintenance.py release-apply
+  resource_group: release-publication
+  interruptible: false
+  environment:
+    name: gitlab-release
+  manual_confirmation: Normalize this existing release title, description and link
+    names using the codename policy?
+  rules:
+  - if: $CI_TASK == "release-apply" && $AUTOMATION_WRITE_APPROVED == "true" && $CI_COMMIT_REF_PROTECTED
+      == "true"
+    when: manual
+    allow_failure: false
+  - when: never
+deploy-pages:
+  stage: publish
+  tags:
+  - migration-linux-py311
+  script:
+  - python .gitlab/maintenance.py pages
+  pages:
+    publish: artifacts/site
+  resource_group: pages-publication
+  interruptible: false
+  environment:
+    name: gitlab-pages
+  manual_confirmation: Publish committed docs at this revision to GitLab Pages?
+  rules:
+  - if: $CI_TASK == "pages" && $PAGES_APPROVED == "true" && $CI_COMMIT_REF_PROTECTED
+      == "true"
+    when: manual
+    allow_failure: false
+  - when: never
