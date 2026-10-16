@@ -44,10 +44,10 @@ def verify_translation(path):
 def translate(runner, path, language, kind):
     if not runner.plan:
         gate(runner.env, 'TRANSLATION_APPROVED')
-        require(any(runner.env.get(k) for k in ('TRANSLATION_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'GROK_API_KEY', 'XAI_API_KEY')),
+        require(any(runner.env.get(k) for k in ('TRANSLATION_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'GROK_API_KEY', 'XAI_API_KEY')),
                 'Owner-provisioned protected/masked translation credential is required.')
     runner.command([sys.executable, 'scripts/translate_with_grok.py', path, '--lang', language, '--type', kind,
-                    '--model', runner.env.get('MODEL', 'gpt-6-luna'), '--workers', runner.env.get('TRANSLATION_WORKERS', '4'),
+                    '--model', runner.env.get('MODEL', 'claude-haiku-5-5'), '--workers', runner.env.get('TRANSLATION_WORKERS', '4'),
                     '--delay', runner.env.get('TRANSLATION_DELAY', '5')], label='Translate ' + kind)
     if not runner.plan:
         verify_translation(ROOT / path)
