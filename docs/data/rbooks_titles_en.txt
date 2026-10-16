@@ -2776,6 +2776,7 @@
 1561017617|||슬기로운 사이비 교주 라이프|||A Wise Cult Leader's Life
 1561017844|||한제국 건국사|||Founding the Han Empire
 1561018319|||탑 아이돌의 만렙 공략법|||The Max-Level Guide to Becoming a Top Idol
+1561018762|||미국에서 어촌생활 합니다|||Living the Fisherman’s Life in America
 1587000061|||또다시 너를|||You, Once Again
 1623000126|||열어요|||Open
 1623000193|||아니, 돼요|||No, It's Fine
@@ -3876,6 +3877,7 @@
 1824011840|||닳고 달은 아저씨|||The Worn-Out Uncle
 1824011900|||닳고 달은 아저씨(15세 개정판)|||The Worn-Out Uncle (Revised 15+ Edition)
 1824011961|||꽃집 아가씨와 갱스터|||The Florist and the Gangster
+1824012147|||매드 팻 보이프렌드|||Mad Fat Boyfriend
 1847000326|||뉴 에이지 : 전투의 신|||New Age: God of Battle
 1847000417|||묵시록의 기사|||Knight of the Apocalypse
 1847001061|||개정판 \u007c 잿빛 도시|||Revised Edition \u007c Ashen City
@@ -5794,6 +5796,7 @@
 2057342751|||30억 달러 당첨금 받고 계속 출근함|||I Won $3 Billion and Still Show Up for Work
 2057342966|||명가의 역대급 재능천재로 환생했다|||Reborn as the Greatest Prodigy of a Prestigious Family
 2057343922|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||My Ex-Wife and Former Company Go Under While I Live the American Dream
+2057344115|||쇼팽 콘체르토|||Chopin Concerto
 2065000061|||영업사원 김유빈|||Salesman Kim Yu-bin
 2065000225|||미티어 스트라이커|||Meteor Striker
 2065000386|||전능의 지배자|||Ruler of Omnipotence
@@ -6430,6 +6433,7 @@
 2065163519|||검사 김태백|||Prosecutor Kim Taebaek
 2065163733|||복수하는 김에 아이돌 탑 먹겠습니다|||I’ll Become the Top Idol While Getting Revenge
 2065164244|||각성 후 불사신이 되었다|||I Became Immortal After Awakening
+2065164812|||고아인데 재벌집 아들임|||I'm an Orphan, But I'm the Son of a Chaebol
 2067000093|||대협: 개천에서 용 나다|||The Great Hero: A Dragon Rises from a Small Stream
 2067000406|||면왕|||The Noodle King
 2067000767|||야도[野刀]|||Wild Sword
@@ -8025,6 +8029,7 @@
 2213018689|||어린 알파 외전 : 크리스마스 러트|||Young Alpha: Christmas Rut
 2213018769|||시골마피아 갱생일지|||The Country Mafia’s Redemption Journal
 2213019094|||약탈자들|||The Plunderers
+2213019499|||데카당트 스캔들|||Decadent Scandal
 2214000516|||천사의 송곳니|||The Angel’s Fang
 2236000157|||라 노떼 (la notte)|||La Notte
 2236000253|||술탄의 덫|||The Sultan’s Trap
@@ -8907,6 +8912,7 @@
 2336052114|||엑스트라생존필수수칙|||Essential Rules for an Extra’s Survival
 2336052227|||엑스트라생존필수수칙 (15세 개정판)|||Essential Rules for an Extra’s Survival (15+ Revised Edition)
 2336052352|||가난한 척했더니 후견인이 집착한다|||I Pretended to Be Poor, and My Patron Became Obsessed With Me
+2336052422|||가난한 척했더니 후견인이 집착한다 (15세 개정판)|||I Pretended to Be Poor, and My Patron Became Obsessed (15+ Version)
 2351000198|||배구 마에스트로|||Volleyball Maestro
 2351001414|||괴수 세계의 한의사|||The Oriental Doctor in the Monster World
 2351001673|||레이드 커맨더|||Raid Commander
@@ -12816,6 +12822,7 @@
 3586126990|||퓨전펑크 유일의 네크로맨서가 되었다|||I Became the Only Necromancer in Fusionpunk
 3586127112|||골렘군단으로 딸깍함|||Clicking My Way with a Golem Legion
 3586127559|||미국갔더니 마법사로 인생이 너무 쉬움|||Life Is Too Easy as a Wizard in America
+3586127700|||멸망 후 정령 농사로 꿀 빱니다|||After the Apocalypse, I’m Living the Good Life Farming Spirits
 3589000001|||독사|||Viper
 3592000001|||까마귀는 반짝이는 것을 좋아해|||Crows Like Shiny Things
 3592000150|||직장내 불순교제|||Improper Office Romance
@@ -16701,6 +16708,7 @@
 425690809|||13세기 러시아에 태어났더니 몽골이 침공한다|||I Was Born in 13th-Century Russia, and the Mongols Invaded
 425691025|||S급 타자가 낭만 대신 돈을 선택함|||An S-Rank Batter Chooses Money over Romance
 425691179|||재능을 뽑는 광전사가 되었다|||I Became a Berserker Who Extracts Talent
+425692069|||전생을 그리는 개발자|||The Developer Who Draws Reincarnation
 4267000001|||오르카 맨션(ORCA MANSION)|||ORCA MANSION
 4274000001|||윈터 헌팅|||Winter Hunting
 4287000267|||새벽달 이울다|||The Dawn Moon Wanes
@@ -17205,6 +17213,7 @@
 4544018874|||재앙급 특성 99개 각성했다|||I Awakened 99 Calamity-Level Traits
 4544019168|||천재 배우가 가면을 숨김|||The Genius Actor Hides His Mask
 4544019830|||남궁세가 데릴사위가 돌아왔다|||The Namgung Clan’s Son-in-Law Has Returned
+4544020955|||엔드 라인|||End Line
 4549000001|||낭만적 우주의 연애 대작전|||The Romantic Universe’s Grand Love Operation
 4549000141|||낭만적 우주의 연애 대작전 외전|||The Romantic Universe’s Grand Love Operation: Side Story
 4551000003|||불결한 단맛|||Unclean Sweetness
@@ -17768,6 +17777,7 @@
 5039017676|||마운드의 금태양|||The Golden Sun of the Mound
 5039017997|||녹림천하|||The Green Forest Under Heaven
 5039018312|||러시아 제국의 조선인 대원수|||The Korean Grand Marshal of the Russian Empire
+5039018653|||아기 빌리의 위대한 독일 제국|||Baby Billy’s Great German Empire
 5040000003|||어드밴티지(Advantage)|||Advantage
 5040000004|||어드밴티지(Advantage)(15세 개정판)|||Advantage (15+ Revised Edition)
 5040000389|||사카린|||Saccharin
@@ -18016,6 +18026,8 @@
 5136000171|||중독성(15세 개정판)|||Addictive (15+ Revised Edition)
 5139000001|||카르마|||Karma
 5139000002|||카르마(15세 개정판)|||Karma (15+ Revised Edition)
+5139000206|||백색의 밤|||White Night
+5139000207|||백색의 밤(15세 개정판)|||White Night (15+ Version)
 5140000001|||바이올렛 블룸|||Violet Bloom
 5140000112|||바이올렛 블룸 외전|||Violet Bloom: Side Story
 5144000001|||바른 생활 랭커|||The Model Ranker
@@ -19443,6 +19455,7 @@
 6345000002|||당신의 약혼자가 잠든 밤에(15세 개정판)|||The Night Your Fiancé Sleeps (15+ Edition)
 6351000001|||키스 앤 퍽(Kiss and Puck)|||Kiss and Puck
 6351000002|||키스 앤 퍽(Kiss and Puck)(15세 개정판)|||Kiss and Puck (15+ Revised Edition)
+6390000001|||민원인 살인 클럽|||The Complainant Murder Club
 669000147|||은밀한 연애|||A Secret Romance
 682000816|||오크 변호사|||The Orc Lawyer
 682001127|||마법탐정|||The Magic Detective
@@ -20393,6 +20406,7 @@
 809062412|||신혼집이 괴담 유령선이다 (15세 개정판)|||Our Newlywed Home Is a Horror Ghost Ship (15+ Revised Edition)
 809062759|||망돌 10년 덕질하기 vs 죽기|||Stanning a Failed Idol for 10 Years vs. Dying
 809062820|||망돌 10년 덕질하기 vs 죽기 (15세 개정판)|||Stanning a Failed Idol for 10 Years vs. Dying (Revised 15+ Edition)
+809063133|||우는 아이에게는 대디 베어를|||Give a Crying Child a Daddy Bear
 839000135|||후작 영애는 무위도식 하고 싶어|||The Marchioness's Daughter Wants to Live Idly
 839000223|||캣츠가든|||Cat's Garden
 839000614|||캣츠가든 외전|||Cat's Garden: Side Story
@@ -21247,6 +21261,7 @@
 945098528|||치트 쓴 광개토대왕이 북미까지 정벌함!|||Cheat-Enabled King Gwanggaeto Conquers North America!
 945098943|||굴러들어온 아저씨|||The Uncle Who Came Rolling In
 945099059|||굴러들어온 아저씨 (15세 개정판)|||The Uncle Who Came Rolling In (15+ Edition)
+945099267|||언럭키 스위치 (15세 개정판)|||Unlucky Switch (15+ Version)
 945099325|||언럭키 스위치|||Unlucky Switch
 961068701|||너의 마음이 보여 (15세 개정판)|||I Can See Your Heart (15+ Revised Edition)
 961068781|||너의 마음이 보여|||I Can See Your Heart
@@ -21259,15 +21274,8 @@
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
 120086367|||아카데미 청소부의 은밀한 공략|||
-1561018762|||미국에서 어촌생활 합니다|||
-1824012147|||매드 팻 보이프렌드|||
-2057344115|||쇼팽 콘체르토|||
-2065164812|||고아인데 재벌집 아들임|||
-2213019499|||데카당트 스캔들|||
 2313000001|||던전 공략 LIVE|||
-2336052422|||가난한 척했더니 후견인이 집착한다 (15세 개정판)|||
 2877000379|||공략은 전지적으로|||
-3586127700|||멸망 후 정령 농사로 꿀 빱니다|||
 4178000348|||던전공략 특별회수반|||
 4186000571|||설계자의 공략방법|||
 4186010140|||초월급 엑스트라의 공략집|||
@@ -21276,13 +21284,5 @@
 425477852|||공략 천재가 되었다|||
 425606091|||1903|||
 425629250|||1973|||
-425692069|||전생을 그리는 개발자|||
-4544020955|||엔드 라인|||
-5039018653|||아기 빌리의 위대한 독일 제국|||
 505027633|||현질로 소설 공략|||
-5139000206|||백색의 밤|||
-5139000207|||백색의 밤(15세 개정판)|||
-6390000001|||민원인 살인 클럽|||
-809063133|||우는 아이에게는 대디 베어를|||
 945008054|||40,41|||
-945099267|||언럭키 스위치 (15세 개정판)|||
