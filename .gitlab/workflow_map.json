@@ -1,0 +1,136 @@
+{
+  "rescrape-npia.yml": {
+    "source": "npia",
+    "job": "rescrape",
+    "steps": [
+      "Install dependencies",
+      "Rescrape Npia catalog (no auth, preserves R19 data)",
+      "Extract descriptions from full data",
+      "Gzip Npia descriptions",
+      "Chunk Npia descriptions",
+      "Re-chunk Npia data (with embedded translations)",
+      "Rebuild instant-load top rankings"
+    ]
+  },
+  "update-rankings.yml": {
+    "source": "npia",
+    "job": "update-rankings",
+    "steps": [
+      "Install dependencies",
+      "Update rankings (no auth required)",
+      "Gzip Npia descriptions",
+      "Chunk Npia descriptions",
+      "Re-chunk Npia data (with embedded translations)",
+      "Rebuild instant-load top rankings"
+    ]
+  },
+  "update-kpage.yml": {
+    "source": "kpage",
+    "job": "update-kpage",
+    "steps": [
+      "Migrate legacy descriptions to gzip",
+      "Install dependencies",
+      "Run Kpage scraper",
+      "Guard against accidental Kpage catalog shrink",
+      "Reconcile Kpage descriptions",
+      "Sync Kpage titles from novels JSON",
+      "Extract untranslated Kpage titles",
+      "Extract untranslated Kpage descriptions",
+      "Chunk Kpage descriptions",
+      "Re-chunk Kpage data with embedded translations"
+    ]
+  },
+  "update-sfc.yml": {
+    "source": "sfc",
+    "job": "update-sfc",
+    "steps": [
+      "Install dependencies",
+      "Run SFC scraper",
+      "Extract descriptions",
+      "Chunk SFC descriptions",
+      "Re-chunk SFC data (with embedded translations)",
+      "Build SFC top file"
+    ]
+  },
+  "update-sfc-rankings.yml": {
+    "source": "sfc",
+    "job": "update-sfc-rankings",
+    "steps": [
+      "Install dependencies",
+      "Scrape SFC rankings",
+      "Extract descriptions",
+      "Chunk SFC descriptions",
+      "Re-chunk SFC data (with embedded translations)",
+      "Build SFC top file"
+    ]
+  },
+  "translate-npia-top.yml": {
+    "source": "npia",
+    "job": "translate-npia-top",
+    "steps": [
+      "Install dependencies",
+      "Rebuild titles_en.txt from novels.json (adds new novels)",
+      "Extract untranslated Npia titles",
+      "Translate Npia titles",
+      "Merge translated Npia titles",
+      "Extract untranslated Npia descriptions",
+      "Translate Npia descriptions",
+      "Merge translated Npia descriptions",
+      "Rebuild instant-load top rankings",
+      "Gzip Npia descriptions",
+      "Chunk Npia descriptions",
+      "Re-chunk Npia data"
+    ]
+  },
+  "translate-kpage.yml": {
+    "source": "kpage",
+    "job": "translate-kpage",
+    "steps": [
+      "Migrate legacy descriptions to gzip",
+      "Install dependencies",
+      "Sync Kpage titles from novels JSON",
+      "Extract untranslated Kpage titles",
+      "Translate Kpage titles",
+      "Merge translated Kpage titles",
+      "Reconcile Kpage descriptions",
+      "Extract untranslated Kpage descriptions",
+      "Translate Kpage descriptions",
+      "Merge translated Kpage descriptions",
+      "Chunk Kpage descriptions",
+      "Re-chunk Kpage data with embedded translations"
+    ]
+  },
+  "translate-sfc.yml": {
+    "source": "sfc",
+    "job": "translate-sfc",
+    "steps": [
+      "Install dependencies",
+      "Sync SFC titles from novels JSON",
+      "Extract untranslated SFC titles",
+      "Translate SFC titles",
+      "Merge translated SFC titles",
+      "Reconcile SFC descriptions",
+      "Extract untranslated SFC descriptions",
+      "Translate SFC descriptions",
+      "Merge translated SFC descriptions",
+      "Gzip SFC descriptions",
+      "Chunk SFC descriptions",
+      "Extract untranslated SFC tags",
+      "Translate SFC tags",
+      "Merge translated SFC tags",
+      "Re-chunk SFC data (with embedded translations)",
+      "Build SFC top file"
+    ]
+  },
+  "translate-tags.yml": {
+    "source": "tags",
+    "job": "translate-tags",
+    "steps": [
+      "Install dependencies",
+      "Extract untranslated tags",
+      "Translate tags",
+      "Merge translated tags",
+      "Re-chunk Npia data"
+    ]
+  }
+}
