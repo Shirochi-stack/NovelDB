@@ -85016,8 +85016,11 @@
 610367|||보릿고개 2084|||The Lean Years of 2084
 610371|||내 머릿속의 비서|||The Secretary in My Head
 610373|||쫓겨난 스타트업 대표는 로드트립이나 하련다|||The Ousted Startup CEO Decides to Take a Road Trip
+610450|||2조 4천억 복권 당첨되었지만 공무원 계속 합니다|||I Won 2.4 Trillion Won in the Lottery, but I’m Staying a Civil Servant
+610537|||미국 경찰이 CIA 요원보다 유능함|||An American Cop Is More Competent Than a CIA Agent
 61057|||거력패왕 장철산|||Jang Cheol-san, the Mighty Overlord
 61060|||힘의 군주|||Lord of Power
+610602|||쫓겨난 경찰이 사법고시를 패스함|||The Fired Cop Passed the Bar Exam
 61066|||러브인더퓨처|||Love in the Future
 61072|||우주 유랑객|||Space Drifter
 61073|||무공으로 캐리한다|||I Carry with Martial Arts
@@ -90405,7 +90408,4 @@
 608033|||Axiom(공리)|||
 608414|||번학무사 (番學武士)|||
 610021|||2035|||
-610450|||2조 4천억 복권 당첨되었지만 공무원 계속 합니다|||
-610537|||미국 경찰이 CIA 요원보다 유능함|||
-610602|||쫓겨난 경찰이 사법고시를 패스함|||
 63401|||49|||
