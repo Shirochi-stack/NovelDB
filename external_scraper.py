@@ -3846,6 +3846,10 @@ class ExternalScraper:
 
     def _on_console(self, msg):
         """Forward JS console messages to Python logger."""
+        # Fenrir chapters come back through page.evaluate, so its page
+        # console (Cloudflare CSP blocks, styled console art) is only noise.
+        if self._rbooks_chrome and getattr(self, '_rbooks_site', '') == 'Fenrir':
+            return
         text = msg.text
         lowered = text.lower()
         # Rbooks emits these two known browser/analytics messages on every
