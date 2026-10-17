@@ -3848,7 +3848,7 @@ class ExternalScraper:
         """Forward JS console messages to Python logger."""
         # Fenrir chapters come back through page.evaluate, so its page
         # console (Cloudflare CSP blocks, styled console art) is only noise.
-        if self._rbooks_chrome and getattr(self, '_rbooks_site', '') == 'Fenrir':
+        if getattr(self, '_rbooks_chrome', False) and getattr(self, '_rbooks_site', '') == 'Fenrir':
             return
         text = msg.text
         lowered = text.lower()
@@ -18576,8 +18576,58 @@ async (ids) => {
                 node.decompose()
         return cls._FENRIR_INVISIBLE_CHARS.sub('', str(soup))
 
+    @classmethod
+    def _fenrir_document_blocks(cls, node):
+        """Decode reader document nodes while retaining paragraph boundaries."""
+        blocks, line = [], []
+
+        def flush():
+            text = cls._FENRIR_INVISIBLE_CHARS.sub('', ''.join(line)).strip()
+            line.clear()
+            if text:
+                blocks.append(('text', text))
+
+        def walk(item):
+            if not isinstance(item, dict):
+                return
+            kind = item.get('type')
+            boundary = kind in ('paragraph', 'heading', 'blockquote', 'listItem', 'codeBlock')
+            if boundary:
+                flush()
+            if kind == 'text':
+                line.append(item.get('text') or '')
+            elif kind == 'hardBreak':
+                flush()
+            elif kind == 'image':
+                flush()
+                src = (item.get('attrs') or {}).get('src') or ''
+                url = urllib.parse.urljoin(cls._FENRIR_ORIGIN + '/', src)
+                if src and url.startswith(('http://', 'https://')):
+                    blocks.append(('img', url))
+            for child in item.get('content') or []:
+                walk(child)
+            if boundary:
+                flush()
+
+        walk(node)
+        flush()
+        return blocks
+
     def _fenrir_build_chapter(self, payload, chapter_name):
         content = payload.get('content') or ''
+        document = content
+        if isinstance(content, str):
+            try:
+                document = json.loads(content)
+            except (ValueError, TypeError):
+                document = None
+        if isinstance(document, dict) and document.get('type') == 'doc':
+            blocks = self._fenrir_document_blocks(document)
+            if not blocks:
+                return None
+            return self._reader_chapter_result(blocks, chapter_name, 'fenrir-content')
+        if not isinstance(content, str):
+            return None
         if payload.get('content_format') == 'text':
             blocks = self._reader_plain_blocks(
                 self._FENRIR_INVISIBLE_CHARS.sub('', content)
@@ -18771,8 +18821,7 @@ async (items) => {
         """Let Fenrir's own reader mint a read token for this browser.
 
         The reader proves the visitor is human with Cloudflare Turnstile.
-        Usually that passes on its own; otherwise the window is shown so
-        the person can tick the check.
+        Keep the reader in the background while its automatic check runs.
         """
         try:
             self._page.goto(
@@ -18783,21 +18832,8 @@ async (items) => {
             return False
         if self._fenrir_wait_for_token(20):
             return True
-        user_data_dir = self._get_user_data_dir()
-        self.log(
-            '  [Fenrir] Fenrir Realm wants a human check. In the Chrome '
-            "window that just opened, tick \"Confirm you're human\"; the "
-            'download continues by itself.'
-        )
-        self._center_profile_browser_windows(
-            user_data_dir, timeout=5, focus=True
-        )
-        try:
-            self._page.bring_to_front()
-        except Exception:
-            pass
         ok = self._fenrir_wait_for_token(self._FENRIR_CHALLENGE_TIMEOUT)
-        self._park_chrome_windows_for_profile(user_data_dir)
+        self._hide_chrome_windows_for_profile(self._get_user_data_dir())
         if ok:
             self.log('  [Fenrir] Human check passed.')
         elif not self._stop_requested:
@@ -18809,12 +18845,19 @@ async (items) => {
         if not batch_info:
             return []
         slug = (self._book_data or {}).get('_fenrir_slug') or ''
-        first_url = batch_info[0].get('url', '')
+        results = [
+            {'_locked': True, '_lockReason': 'paid',
+             'chapterName': ch.get('fullName') or ch.get('name', '')}
+            if ch.get('isAccessible') is False and ch.get('isPaid') else None
+            for ch in batch_info
+        ]
+        pending = [i for i, result in enumerate(results) if result is None]
+        if not pending:
+            return results
+        first_url = batch_info[pending[0]].get('url', '')
         if not self._fenrir_page_ready(first_url):
-            return [None] * len(batch_info)
-
-        results = [None] * len(batch_info)
-        pending = list(range(len(batch_info)))
+            return results
+        self._hide_chrome_windows_for_profile(self._get_user_data_dir())
         unlocked = False
         for attempt in range(3):
             if not pending or self._stop_requested:

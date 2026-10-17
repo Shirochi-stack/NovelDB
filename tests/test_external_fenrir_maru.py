@@ -177,3 +177,51 @@ def test_fenrir_page_console_is_not_logged():
     scraper._rbooks_site = "Floo"
     scraper._on_console(Msg())
     assert messages
+
+
+def test_fenrir_serialized_document_renders_paragraphs_and_images():
+    import json
+    scraper, _ = make_scraper()
+    doc = {'type': 'doc', 'content': [
+        {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Chapter 91'}]},
+        {'type': 'paragraph', 'content': [
+            {'type': 'text', 'text': 'First <line>'},
+            {'type': 'hardBreak'}, {'type': 'text', 'text': 'Second line'}]},
+        {'type': 'image', 'attrs': {'src': '/image.png'}},
+        {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Last line'}]},
+    ]}
+    for content in (json.dumps(doc), doc):
+        result = scraper._fenrir_build_chapter(
+            {'content': content, 'content_format': 'text'}, 'Chapter 91')
+        assert result['contentText'] == 'First <line>\nSecond line\nLast line'
+        assert result['images'][0]['url'].endswith('/image.png')
+        assert '"type"' not in result['contentText']
+
+
+def test_fenrir_all_locked_batch_never_starts_browser(monkeypatch):
+    scraper, _ = make_scraper()
+    scraper._book_data = {'_fenrir': True, '_fenrir_slug': 'demo'}
+    monkeypatch.setattr(scraper, '_fenrir_page_ready',
+                        lambda url: (_ for _ in ()).throw(AssertionError('browser started')))
+    results = scraper._fenrir_parse_chapter_batch([
+        {'name': 'Chapter 100', 'isAccessible': False, 'isPaid': True}])
+    assert results == [{'_locked': True, '_lockReason': 'paid',
+                        'chapterName': 'Chapter 100'}]
+
+
+def test_fenrir_check_stays_hidden(monkeypatch):
+    scraper, messages = make_scraper()
+    calls = []
+    class Page:
+        def goto(self, *args, **kwargs):
+            pass
+        def bring_to_front(self):
+            raise AssertionError('reader was shown')
+    scraper._page = Page()
+    waits = iter([False, True])
+    monkeypatch.setattr(scraper, '_fenrir_wait_for_token', lambda seconds: next(waits))
+    monkeypatch.setattr(scraper, '_get_user_data_dir', lambda: 'profile')
+    monkeypatch.setattr(scraper, '_hide_chrome_windows_for_profile', calls.append)
+    assert scraper._fenrir_unlock_reader('https://example.com/chapter')
+    assert calls == ['profile']
+    assert not any('tick' in m or 'window that just opened' in m for m in messages)

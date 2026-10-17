@@ -1001,7 +1001,7 @@ class ExternalNovelDialog(tk.Toplevel):
             # accessible to this account. Purchased/rented rows are kept.
             # Mpia's free-only option excludes purchased paid chapters too.
             # Explicitly inaccessible Mpia rows never need a viewer request.
-            if skip_paid or is_mpia:
+            if skip_paid or is_mpia or is_fenrir:
                 skipped = 0
                 unavailable = 0
                 for i, ch in enumerate(selected):
@@ -1075,6 +1075,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     or is_mpia
                     or is_jara
                     or is_nweb_novel
+                    or is_fenrir
                 )
                 if not log_on_success:
                     for i in batch_indices:
