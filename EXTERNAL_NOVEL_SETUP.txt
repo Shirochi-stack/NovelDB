@@ -93,6 +93,24 @@ folder and persists across app restarts. The headless scraper reuses this
 data, so you stay authenticated without entering credentials again.
 
 
+FENRIR REALM
+------------
+Paste a series URL such as https://fenrirealm.com/series/<name>. The book
+and chapter list load directly. Chapter text is read in installed Chrome with
+the app's saved browser profile, because Fenrir Realm only serves chapters to
+a browser that has passed its "Confirm you're human" check. If that check
+appears, the Chrome window is brought forward; tick it and the download
+continues by itself. Paid chapters need a signed-in account that owns them:
+click Enter Browser, sign in, then close that window before downloading.
+
+
+MARUMARU
+--------
+Paste a novel URL such as https://marumaru105.com/novel/<id>. Any numbered
+marumaru domain works, including retired ones, because episodes come from the
+site's reader API. Point-purchase episodes and episodes the site is still
+processing are skipped.
+
 MPIA
 -------
 Both current and legacy novel URLs are supported, for example:

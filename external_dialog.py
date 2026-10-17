@@ -627,6 +627,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_floo(url)
+                        and not self._scraper.is_fenrir(url)
+                        and not self._scraper.is_maru(url)
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_npia(url)
                         and not self._scraper.is_rbooks(url)
@@ -859,6 +861,12 @@ class ExternalNovelDialog(tk.Toplevel):
             is_floo = bool(
                 self._book_data and self._book_data.get("_floo")
             )
+            is_fenrir = bool(
+                self._book_data and self._book_data.get("_fenrir")
+            )
+            is_maru = bool(
+                self._book_data and self._book_data.get("_maru")
+            )
             is_xiyuwx = bool(
                 self._book_data and self._book_data.get("_xiyuwx")
             )
@@ -878,6 +886,7 @@ class ExternalNovelDialog(tk.Toplevel):
                     and not is_kobo
                     and not is_global_npia
                     and not is_69shuba and not is_1qxs and not is_floo
+                    and not is_fenrir and not is_maru
                     and not is_xiyuwx
                     and not is_jara and not is_nweb_novel
                     and not (self._book_data and self._book_data.get('_qdn'))):
@@ -1496,6 +1505,7 @@ class ExternalNovelDialog(tk.Toplevel):
             )
         elif start_url and any((
             ExternalScraper.is_floo(start_url),
+            ExternalScraper.is_fenrir(start_url),
             ExternalScraper.is_qdn(start_url),
             ExternalScraper.is_rbooks(start_url),
             ExternalScraper.is_kobo(start_url),
@@ -1804,6 +1814,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_floo(url)
+                        and not self._scraper.is_fenrir(url)
+                        and not self._scraper.is_maru(url)
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_npia(url)
                         and not self._scraper.is_rbooks(url)
@@ -2089,6 +2101,8 @@ class ExternalNovelDialog(tk.Toplevel):
                         and not self._scraper.is_1qxs(url)
                         and not self._scraper.is_69shuba(url)
                         and not self._scraper.is_floo(url)
+                        and not self._scraper.is_fenrir(url)
+                        and not self._scraper.is_maru(url)
                         and not self._scraper.is_xiyuwx(url)
                         and not self._scraper.is_global_npia(url)
                         and not self._scraper.is_rbooks(url)

@@ -18356,6 +18356,643 @@ async (ids) => {
                 pass
         self._floo_pages = []
 
+    # ------------------------------------------------------------------
+    # Fenrir Realm
+    # ------------------------------------------------------------------
+    _FENRIR_ORIGIN = 'https://fenrirealm.com'
+    _FENRIR_HOSTS = frozenset(('fenrirealm.com', 'www.fenrirealm.com'))
+    # How long to wait for someone to tick Fenrir's human check.
+    _FENRIR_CHALLENGE_TIMEOUT = 300
+    # Fenrir's reader removes these off-screen junk blocks with CSS.
+    _FENRIR_HIDDEN_CSS = re.compile(
+        r'clip\s*:\s*rect\(\s*0|clip-path\s*:\s*inset\(\s*50%|'
+        r'display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?:px)?\b',
+        re.I,
+    )
+    _FENRIR_INVISIBLE_CHARS = re.compile(
+        '[­​-‏‪-‮⁠-⁤﻿]'
+    )
+
+    @classmethod
+    def _fenrir_url_parts(cls, url):
+        """Return ``(series_slug, chapter_slug)`` for a Fenrir Realm URL."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except (TypeError, ValueError):
+            return '', ''
+        if (parsed.hostname or '').lower() not in cls._FENRIR_HOSTS:
+            return '', ''
+        parts = [p for p in (parsed.path or '').split('/') if p]
+        if len(parts) < 2 or parts[0] != 'series':
+            return '', ''
+        return parts[1], (parts[2] if len(parts) > 2 else '')
+
+    @staticmethod
+    def is_fenrir(url):
+        return bool(ExternalScraper._fenrir_url_parts(url)[0])
+
+    def _fenrir_session(self):
+        import requests
+
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': self._KR_UA,
+            'Accept': 'application/json',
+            'Referer': self._FENRIR_ORIGIN + '/',
+        })
+        # Saved login cookies make bought chapters show as unlocked.
+        self._load_saved_site_cookies(
+            session.cookies, self._FENRIR_ORIGIN + '/', 'fenrirealm.com'
+        )
+        return session
+
+    @staticmethod
+    def _fenrir_chapter_slug(row):
+        number = row.get('number')
+        part = row.get('part')
+        slug = str(row.get('slug') or '').strip()
+        if not slug and number is not None:
+            slug = f'{number}.{part}' if part else str(number)
+        return slug
+
+    @staticmethod
+    def _fenrir_chapter_name(row):
+        name = re.sub(r'\s+', ' ', str(row.get('name') or '')).strip()
+        title = re.sub(r'\s+', ' ', str(row.get('title') or '')).strip()
+        if title and title.lower() not in name.lower():
+            name = f'{name} - {title}' if name else title
+        return name or f"Chapter {row.get('number', '')}".strip()
+
+    @staticmethod
+    def _fenrir_paid_locked(row):
+        """True when a chapter costs coins and this account has not got it."""
+        locked = row.get('locked') or {}
+        bought = row.get('bought') or {}
+        try:
+            price = float(locked.get('price') or 0)
+        except (TypeError, ValueError):
+            price = 0
+        return (
+            price > 0
+            and not locked.get('unlocked_at')
+            and not bought.get('bought_at')
+            and not row.get('bypass')
+        )
+
+    def _fenrir_parse_book(self, url):
+        self._stop_requested = False
+        slug, _ = self._fenrir_url_parts(url)
+        api = f'{self._FENRIR_ORIGIN}/api/new/v2/series/{slug}'
+        self.log(f'[Fenrir] Fetching series {slug}...')
+        try:
+            session = self._fenrir_session()
+            info_response = session.get(api, timeout=30)
+            info_response.raise_for_status()
+            info = info_response.json()
+            list_response = session.get(api + '/chapters', timeout=60)
+            list_response.raise_for_status()
+            rows = list_response.json()
+        except Exception as e:
+            self.log(f'ERROR: [Fenrir] Series request failed: {e}')
+            return None
+        if isinstance(rows, dict):
+            rows = rows.get('data') or rows.get('chapters') or []
+        if not isinstance(info, dict) or not isinstance(rows, list):
+            self.log('ERROR: [Fenrir] Unexpected series response.')
+            return None
+
+        rows = sorted(
+            (row for row in rows if isinstance(row, dict)),
+            key=lambda row: (
+                row.get('index') if isinstance(row.get('index'), int)
+                else 10 ** 9,
+                float(row.get('number') or 0),
+            ),
+        )
+        series_url = f'{self._FENRIR_ORIGIN}/series/{slug}'
+        chapters = []
+        for row in rows:
+            chapter_slug = self._fenrir_chapter_slug(row)
+            if not chapter_slug:
+                continue
+            paid = self._fenrir_paid_locked(row)
+            name = self._fenrir_chapter_name(row)
+            chapters.append({
+                'url': f'{series_url}/{chapter_slug}',
+                'name': name,
+                'fullName': name,
+                'isVIP': paid,
+                'isPaid': paid,
+                'isAccessible': not paid,
+                '_fenrirId': row.get('id'),
+                '_fenrirUuid': row.get('uuid'),
+            })
+        if not chapters:
+            self.log('ERROR: [Fenrir] No chapters found.')
+            return None
+
+        description_html = str(info.get('description') or '').strip()
+        description = '\n'.join(
+            value for kind, value in self._reader_html_blocks(
+                description_html, self._FENRIR_ORIGIN + '/'
+            ) if kind == 'text'
+        )
+        cover = str(info.get('cover') or '').strip()
+        if cover:
+            cover = urllib.parse.urljoin(self._FENRIR_ORIGIN + '/', cover)
+        user = info.get('user') or {}
+        tags = [
+            str(item.get('name')).strip()
+            for item in (info.get('tags') or [])
+            if isinstance(item, dict) and item.get('name')
+        ]
+        genres = [
+            str(item.get('name')).strip()
+            for item in (info.get('genres') or [])
+            if isinstance(item, dict) and item.get('name')
+        ]
+        paid_count = sum(1 for chapter in chapters if chapter['isPaid'])
+        data = {
+            'bookname': str(info.get('title') or slug).strip(),
+            'author': str(user.get('name') or user.get('username')
+                          or 'Unknown').strip(),
+            'coverUrl': cover,
+            'description': description,
+            'introduction': description,
+            'introductionHTML': description_html,
+            'tags': genres + [tag for tag in tags if tag not in genres],
+            'category': genres,
+            'status': str(info.get('status') or ''),
+            'bookUrl': series_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'en',
+            '_fenrir': True,
+            '_fenrir_slug': slug,
+        }
+        self._book_data = data
+        self._book_url = series_url
+        self.log(
+            f"[Fenrir] Book: {data['bookname']} by {data['author']} - "
+            f"{len(chapters)} chapters ({paid_count} locked paid)"
+        )
+        if paid_count:
+            self.log(
+                '[Fenrir] Paid chapters need a signed-in account that owns '
+                'them (Enter Browser, sign in, close the window).'
+            )
+        return data
+
+    @classmethod
+    def _fenrir_clean_html(cls, content):
+        """Drop Fenrir's hidden anti-copy blocks and invisible characters."""
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(content or '', 'html.parser')
+        hidden = set()
+        for style in soup.find_all('style'):
+            for selector, body in re.findall(
+                r'([^{}]+)\{([^{}]*)\}', style.get_text()
+            ):
+                if not cls._FENRIR_HIDDEN_CSS.search(body):
+                    continue
+                hidden.update(re.findall(r'\.([\w-]+)', selector))
+            style.decompose()
+        for node in soup.find_all(True):
+            if getattr(node, 'decomposed', False) or node.attrs is None:
+                continue
+            classes = set(node.get('class') or [])
+            inline = node.get('style') or ''
+            if (
+                classes & hidden
+                or node.get('aria-hidden') == 'true'
+                or node.has_attr('hidden')
+                or cls._FENRIR_HIDDEN_CSS.search(inline)
+            ):
+                node.decompose()
+        return cls._FENRIR_INVISIBLE_CHARS.sub('', str(soup))
+
+    def _fenrir_build_chapter(self, payload, chapter_name):
+        content = payload.get('content') or ''
+        if payload.get('content_format') == 'text':
+            blocks = self._reader_plain_blocks(
+                self._FENRIR_INVISIBLE_CHARS.sub('', content)
+            )
+        else:
+            blocks = self._reader_html_blocks(
+                self._fenrir_clean_html(content), self._FENRIR_ORIGIN + '/'
+            )
+        if not blocks:
+            return None
+        return self._reader_chapter_result(
+            blocks, chapter_name, 'fenrir-content'
+        )
+
+    # Runs in the Fenrir tab. Fetches chapters with the page's read-token
+    # cookie. Encrypted replies are decoded the same way the reader does.
+    _FENRIR_FETCH_JS = r"""
+async (items) => {
+  const fragShuffle = async (token, id, n) => {
+    if (n < 2) return n === 1 ? [0] : [];
+    const d = await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(`${token}:${id}:fr-frag-v1`));
+    const v = new DataView(d);
+    const s = Uint32Array.of(v.getUint32(0, true), v.getUint32(4, true),
+                             v.getUint32(8, true), v.getUint32(12, true));
+    const next = () => {
+      const t = s[0];
+      let r = (t ^ (t << 11)) >>> 0; r = (r ^ (r >>> 8)) >>> 0;
+      const c = s[3]; s[0] = s[1]; s[1] = s[2]; s[2] = c;
+      const f = (c ^ (c >>> 19) ^ r) >>> 0; s[3] = f; return f;
+    };
+    const order = Array.from({length: n}, (_, i) => i);
+    for (let b = n - 1; b > 0; b--) {
+      const w = next() % (b + 1); [order[b], order[w]] = [order[w], order[b]];
+    }
+    return order;
+  };
+  const decrypt = async (payload) => {
+    const tokenResp = await fetch('/api/read-token', {credentials: 'include'});
+    if (!tokenResp.ok) return null;
+    const tokenData = await tokenResp.json();
+    const token = tokenData && tokenData.active ? tokenData.token : null;
+    if (!token) return null;
+    let content = payload.content;
+    if (Array.isArray(content)) {
+      const order = await fragShuffle(token, payload.id, content.length);
+      const out = new Array(content.length);
+      for (let i = 0; i < content.length; i++) out[order[i]] = content[i];
+      content = out.join('');
+    }
+    const keyBytes = await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(`${token}:${payload.id}:fr-content-v1`));
+    const key = await crypto.subtle.importKey('raw', keyBytes,
+      {name: 'AES-GCM'}, false, ['decrypt']);
+    const raw = Uint8Array.from(atob(content), c => c.charCodeAt(0));
+    if (raw.length <= 28) return null;
+    const plain = await crypto.subtle.decrypt(
+      {name: 'AES-GCM', iv: raw.slice(0, 12)}, key, raw.slice(12));
+    return new TextDecoder().decode(plain);
+  };
+  // One at a time: the reader binds its read token to the chapter it
+  // registers last, so parallel requests lock each other out.
+  const fetchOne = async (item) => {
+    try {
+      if (item.chapterId) {
+        await fetch('/api/read-token', {
+          method: 'POST', credentials: 'include',
+          headers: {'Content-Type': 'application/json',
+                    Accept: 'application/json'},
+          body: JSON.stringify({chapter_id: String(item.chapterId)}),
+        }).catch(() => null);
+      }
+      const resp = await fetch(item.api, {credentials: 'include',
+                                          headers: {Accept: 'application/json'}});
+      if (!resp.ok) return {status: resp.status};
+      const payload = await resp.json();
+      if (payload.content_format === 'encrypted') {
+        const plain = await decrypt(payload).catch(() => null);
+        if (plain === null) return {status: resp.status, payload: {
+          ...payload, content: '', content_format: 'locked'}};
+        payload.content = plain;
+        payload.content_format = 'html';
+      }
+      return {status: resp.status, payload};
+    } catch (e) {
+      return {status: 0, error: String(e)};
+    }
+  };
+  const out = [];
+  for (const item of items) out.push(await fetchOne(item));
+  return out;
+}
+"""
+
+    def _fenrir_page_ready(self, start_url):
+        if not self._start_rbooks_browser(start_url, site='Fenrir'):
+            return False
+        try:
+            current = self._page.url or ''
+        except Exception:
+            current = ''
+        if not current.startswith(self._FENRIR_ORIGIN):
+            try:
+                self._page.goto(
+                    start_url, wait_until='domcontentloaded', timeout=45000
+                )
+            except Exception as e:
+                self.log(f'  [Fenrir] Reader page did not load: {e}')
+                return False
+        return True
+
+    def _fenrir_token_active(self):
+        try:
+            return bool(self._page.evaluate(
+                """async () => {
+                    const r = await fetch('/api/read-token',
+                                          {credentials: 'include'});
+                    if (!r.ok) return false;
+                    const j = await r.json();
+                    return !!(j && j.active);
+                }"""
+            ))
+        except Exception:
+            return False
+
+    def _fenrir_wait_for_token(self, seconds):
+        deadline = time.time() + seconds
+        while time.time() < deadline and not self._stop_requested:
+            if self._fenrir_token_active():
+                return True
+            try:
+                self._page.wait_for_timeout(1500)
+            except Exception:
+                time.sleep(1.5)
+        return False
+
+    def _fenrir_unlock_reader(self, chapter_url):
+        """Let Fenrir's own reader mint a read token for this browser.
+
+        The reader proves the visitor is human with Cloudflare Turnstile.
+        Usually that passes on its own; otherwise the window is shown so
+        the person can tick the check.
+        """
+        try:
+            self._page.goto(
+                chapter_url, wait_until='domcontentloaded', timeout=45000
+            )
+        except Exception as e:
+            self.log(f'  [Fenrir] Reader page did not load: {e}')
+            return False
+        if self._fenrir_wait_for_token(20):
+            return True
+        user_data_dir = self._get_user_data_dir()
+        self.log(
+            '  [Fenrir] Fenrir Realm wants a human check. In the Chrome '
+            "window that just opened, tick \"Confirm you're human\"; the "
+            'download continues by itself.'
+        )
+        self._center_profile_browser_windows(
+            user_data_dir, timeout=5, focus=True
+        )
+        try:
+            self._page.bring_to_front()
+        except Exception:
+            pass
+        ok = self._fenrir_wait_for_token(self._FENRIR_CHALLENGE_TIMEOUT)
+        self._park_chrome_windows_for_profile(user_data_dir)
+        if ok:
+            self.log('  [Fenrir] Human check passed.')
+        elif not self._stop_requested:
+            self.log('  [Fenrir] The human check was not completed in time.')
+        return ok
+
+    def _fenrir_parse_chapter_batch(self, batch_info, interval=0,
+                                    interval_max=None):
+        if not batch_info:
+            return []
+        slug = (self._book_data or {}).get('_fenrir_slug') or ''
+        first_url = batch_info[0].get('url', '')
+        if not self._fenrir_page_ready(first_url):
+            return [None] * len(batch_info)
+
+        results = [None] * len(batch_info)
+        pending = list(range(len(batch_info)))
+        unlocked = False
+        for attempt in range(3):
+            if not pending or self._stop_requested:
+                break
+            if not self._fenrir_token_active():
+                if unlocked or not self._fenrir_unlock_reader(
+                    batch_info[pending[0]].get('url', '')
+                ):
+                    break
+                unlocked = True
+            items = []
+            for index in pending:
+                chapter = batch_info[index]
+                chapter_slug = self._fenrir_url_parts(
+                    chapter.get('url', '')
+                )[1]
+                items.append({
+                    'api': (f'/api/new/v2/series/{slug}/'
+                            f'{urllib.parse.quote(chapter_slug)}'),
+                    'chapterId': (chapter.get('_fenrirUuid')
+                                  or chapter.get('_fenrirId')),
+                })
+            try:
+                replies = self._page.evaluate(self._FENRIR_FETCH_JS, items)
+            except Exception as e:
+                self.log(f'  [Fenrir] Chapter request failed: {e}')
+                break
+            retry = []
+            rate_limited = False
+            for index, reply in zip(pending, replies or []):
+                chapter = batch_info[index]
+                name = chapter.get('fullName') or chapter.get('name', '')
+                status = (reply or {}).get('status')
+                payload = (reply or {}).get('payload')
+                if status == 429:
+                    rate_limited = True
+                    retry.append(index)
+                    continue
+                if not isinstance(payload, dict):
+                    self.log(f'  [Fenrir] {name}: HTTP {status}')
+                    if status in (401, 403):
+                        retry.append(index)
+                    continue
+                if self._fenrir_paid_locked(payload):
+                    # Unowned paid chapters still carry a short teaser.
+                    results[index] = {
+                        '_locked': True,
+                        'chapterName': name,
+                        '_lockReason': 'paid',
+                    }
+                    continue
+                if payload.get('content_format') == 'locked' or not (
+                    payload.get('content')
+                ):
+                    retry.append(index)
+                    continue
+                result = self._fenrir_build_chapter(payload, name)
+                if result is None:
+                    self.log(f'  [Fenrir] Empty chapter: {name}')
+                results[index] = result
+            pending = retry
+            if pending and not self._stop_requested:
+                if rate_limited:
+                    self.log('  [Fenrir] Rate limited; waiting 30 s...')
+                    self._sleep_interval(30)
+                elif self._fenrir_token_active():
+                    # The token is fine, so these may be timed releases.
+                    break
+        self._sleep_interval(interval, interval_max)
+        return results
+
+    # ------------------------------------------------------------------
+    # Marumaru (marumaruNNN.com novels)
+    # ------------------------------------------------------------------
+    # The numbered domain keeps moving; the reader API host does not.
+    _MARU_API = 'https://api.storagewebtoon.store/api/v1/reader/A2'
+    _MARU_HOST = re.compile(r'^(?:www\.)?marumaru\d*\.[a-z]{2,}$', re.I)
+
+    @classmethod
+    def _maru_url_parts(cls, url):
+        """Return ``(work_id, episode_id)`` for a Marumaru novel URL."""
+        try:
+            parsed = urllib.parse.urlparse(url or '')
+        except (TypeError, ValueError):
+            return '', ''
+        if not cls._MARU_HOST.match(parsed.hostname or ''):
+            return '', ''
+        match = re.match(r'^/novel/(\d+)(?:/(\d+))?', parsed.path or '')
+        if not match:
+            return '', ''
+        return match.group(1), match.group(2) or ''
+
+    @staticmethod
+    def is_maru(url):
+        return bool(ExternalScraper._maru_url_parts(url)[0])
+
+    def _maru_get(self, path):
+        import requests
+
+        # No Referer: the API refuses retired marumaru domains but accepts
+        # requests that name no site at all.
+        response = requests.get(
+            f'{self._MARU_API}/{path.lstrip("/")}',
+            headers={'User-Agent': self._KR_UA, 'Accept': 'application/json'},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict) or data.get('ok') is False:
+            raise RuntimeError((data or {}).get('message') or 'bad reply')
+        return data
+
+    @staticmethod
+    def _maru_episode_name(title, work_title, number):
+        title = re.sub(r'\s+', ' ', str(title or '')).strip()
+        work_title = str(work_title or '').strip()
+        if work_title and title.startswith(work_title + ' '):
+            title = title[len(work_title):].strip()
+        return title or f'{number}화'
+
+    def _maru_parse_book(self, url):
+        self._stop_requested = False
+        work_id, _ = self._maru_url_parts(url)
+        parsed = urllib.parse.urlparse(url)
+        origin = f'{parsed.scheme or "https"}://{parsed.netloc}'
+        self.log(f'[Marumaru] Fetching novel {work_id}...')
+        try:
+            data = self._maru_get(f'works/{work_id}')
+        except Exception as e:
+            self.log(f'ERROR: [Marumaru] Novel request failed: {e}')
+            return None
+        item = data.get('item') or {}
+        episodes = [
+            row for row in (data.get('episodes') or [])
+            if isinstance(row, dict) and row.get('id') is not None
+        ]
+        episodes.sort(key=lambda row: (float(row.get('number') or 0),
+                                       int(row.get('id') or 0)))
+        title = str(item.get('title') or f'Marumaru {work_id}').strip()
+        book_url = f'{origin}/novel/{work_id}'
+        chapters = []
+        for row in episodes:
+            name = self._maru_episode_name(
+                row.get('title'), title, row.get('number')
+            )
+            ready = row.get('ready') is not False
+            chapters.append({
+                'url': f"{book_url}/{row['id']}",
+                'name': name,
+                'fullName': name,
+                'isVIP': False,
+                'isPaid': False,
+                'isAccessible': ready,
+                '_maruReady': ready,
+            })
+        if not chapters:
+            self.log('ERROR: [Marumaru] No episodes found.')
+            return None
+        synopsis = str(data.get('synopsis') or '').strip()
+        genres = [
+            value.strip()
+            for value in re.split(r'[,/]', str(item.get('genres') or ''))
+            if value.strip()
+        ]
+        result = {
+            'bookname': title,
+            'author': str(item.get('author') or '').strip() or 'Unknown',
+            'coverUrl': str(item.get('cover_url') or ''),
+            'description': synopsis,
+            'introduction': synopsis,
+            'introductionHTML': '<br/>\n'.join(
+                html.escape(line) for line in synopsis.split('\n')
+            ),
+            'tags': genres,
+            'category': genres,
+            'status': str(item.get('status') or ''),
+            'bookUrl': book_url,
+            'chapterCount': len(chapters),
+            'chapters': chapters,
+            'language': 'ko',
+            '_maru': True,
+            '_maru_origin': origin,
+            '_maru_work_id': work_id,
+        }
+        self._book_data = result
+        self._book_url = book_url
+        waiting = sum(1 for chapter in chapters if not chapter['_maruReady'])
+        self.log(
+            f'[Marumaru] Book: {title} by {result["author"]} - '
+            f'{len(chapters)} episodes'
+            + (f' ({waiting} still processing on the site)' if waiting else '')
+        )
+        return result
+
+    def _maru_parse_chapter(self, chapter_url, chapter_name):
+        _, episode_id = self._maru_url_parts(chapter_url)
+        if not episode_id:
+            self.log(f'  [Marumaru] Invalid episode URL: {chapter_url}')
+            return None
+        try:
+            data = self._maru_get(f'episodes/{episode_id}')
+        except Exception as e:
+            self.log(f'  [Marumaru] {chapter_name}: {e}')
+            return None
+        item = data.get('item') or {}
+        body = item.get('body') or []
+        if any(isinstance(b, dict) and b.get('kind') == 'paid' for b in body):
+            self.log(f'  [Marumaru] {chapter_name}: point-purchase episode, '
+                     'skipped.')
+            return {'_locked': True, 'chapterName': chapter_name,
+                    '_lockReason': 'paid'}
+        blocks = []
+        for part in body:
+            if not isinstance(part, dict):
+                continue
+            kind = part.get('kind')
+            if kind in ('narration', 'text') and part.get('text'):
+                blocks.extend(self._reader_plain_blocks(part['text']))
+            elif kind == 'image' and part.get('url'):
+                blocks.append(('img', str(part['url'])))
+        if not blocks:
+            if item.get('ready') is False or any(
+                isinstance(b, dict) and b.get('kind') == 'processing'
+                for b in body
+            ):
+                self.log(f'  [Marumaru] {chapter_name}: still processing on '
+                         'the site, skipped.')
+                return {'_locked': True, 'chapterName': chapter_name,
+                        '_lockReason': 'unavailable'}
+            self.log(f'  [Marumaru] Empty episode: {chapter_name}')
+            return None
+        return self._reader_chapter_result(
+            blocks, chapter_name, 'maru-content'
+        )
+
     def _kobo_parse_book(self, url):
         if not self._start_rbooks_browser(url, site='Kobo'):
             return None
@@ -18561,6 +19198,13 @@ async (ids) => {
         if self.is_floo(url):
             self.log('[Floo] Detected Floo book URL, using native scraper.')
             return self._floo_parse_book(url)
+        if self.is_fenrir(url):
+            self.log('[Fenrir] Detected Fenrir Realm URL, using native scraper.')
+            return self._fenrir_parse_book(url)
+        if self.is_maru(url):
+            self.log('[Marumaru] Detected Marumaru novel URL, using native '
+                     'scraper.')
+            return self._maru_parse_book(url)
         if self.is_1qxs(url):
             self.log(
                 '[1qxs] Detected 1qxs URL, using the direct HTTP scraper.'
@@ -18750,6 +19394,19 @@ async (ids) => {
             if not result or result.get('_locked'):
                 browser_result = self._floo_parse_chapters_browser([chapter_info])[0]
                 result = browser_result or result
+            self._sleep_interval(interval, interval_max)
+            return result
+
+        if self._book_data and self._book_data.get('_fenrir'):
+            return self._fenrir_parse_chapter_batch(
+                [chapter_info], interval, interval_max
+            )[0]
+
+        if self._book_data and self._book_data.get('_maru'):
+            result = self._maru_parse_chapter(
+                chapter_info.get('url', ''),
+                chapter_info.get('fullName') or chapter_info.get('name', ''),
+            )
             self._sleep_interval(interval, interval_max)
             return result
 
@@ -19039,6 +19696,36 @@ async (ids) => {
                         results[index] = result
                         report_success(index, result)
             return results
+
+        if self._book_data and self._book_data.get('_fenrir'):
+            # One page fetches the batch in order; Playwright stays on this
+            # thread.
+            results = self._fenrir_parse_chapter_batch(
+                batch_info, interval, interval_max
+            )
+            for index, result in enumerate(results):
+                report_success(index, result)
+            return results
+
+        if self._book_data and self._book_data.get('_maru'):
+            from concurrent.futures import ThreadPoolExecutor
+
+            def fetch_maru(item):
+                index, chapter = item
+                if index:
+                    time.sleep(self._random_interval_delay(
+                        interval, interval_max) * index)
+                if self._stop_requested:
+                    return None
+                result = self._maru_parse_chapter(
+                    chapter.get('url', ''),
+                    chapter.get('fullName') or chapter.get('name', ''),
+                )
+                report_success(index, result)
+                return result
+
+            with ThreadPoolExecutor(max_workers=max(1, len(batch_info))) as pool:
+                return list(pool.map(fetch_maru, enumerate(batch_info)))
 
         if self._book_data and self._book_data.get('_1qxs'):
             from concurrent.futures import ThreadPoolExecutor
