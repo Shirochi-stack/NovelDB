@@ -301,3 +301,27 @@ def test_mpia_output_images_reuse_scoped_browser_cookies(
             embedded = [name for name in archive.namelist() if name.endswith('.png')]
             assert len(embedded) == 2
             assert all(archive.read(name) == png for name in embedded)
+
+
+def test_native_reader_logs_only_99_completed_chapters():
+    chapters = [
+        {'name': f'Chapter {i + 1}', 'isVIP': i >= 99,
+         'isPaid': i >= 99, 'isAccessible': i < 99}
+        for i in range(166)
+    ]
+    fetched = []
+    def fetch(batch, interval=0, success_callback=None):
+        results = []
+        for index, chapter in enumerate(batch):
+            fetched.append(chapter['name'])
+            result = {'chapterName': chapter['name'], 'contentText': 'Body'}
+            success_callback(index, result)
+            results.append(result)
+        return results
+    dialog = make_download_dialog(
+        SimpleNamespace(_context=True, parse_chapter_batch=fetch), {'_fenrir': True})
+    ExternalNovelDialog._do_download(dialog, chapters, 0, 166, 0, num_threads=4)
+    logs = [call.args[0] for call in dialog._log.call_args_list]
+    assert len(fetched) == 99
+    assert len([line for line in logs if line.startswith('  [') and '/166]' in line]) == 99
+    assert any('99 succeeded' in line and '67 locked' in line for line in logs)
