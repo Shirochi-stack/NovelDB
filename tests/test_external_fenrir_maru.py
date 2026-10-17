@@ -270,3 +270,44 @@ def test_maru_embedded_error_is_not_saved_as_chapter(monkeypatch, content):
     monkeypatch.setattr(requests, 'get', lambda *args, **kwargs: response)
     assert scraper._maru_parse_chapter(
         'https://marumaru105.com/novel/48182/2187866', 'Chapter 300') is None
+
+
+@pytest.mark.parametrize('value, expected', [
+    ('7', 7), ('0', 0), (' 120 ', 120), (None, 30), ('', 30),
+    ('invalid', 30), ('-1', 30), ('NaN', 30), ('Infinity', 30), ('1.5', 30),
+    ('9' * 400, 30),
+    ('Thu, 01 Jan 1970 00:17:00 GMT', 20),
+    ('Thu, 01 Jan 1970 00:16:00 GMT', 0),
+])
+def test_fenrir_retry_after_delay(monkeypatch, value, expected):
+    monkeypatch.setattr('external_scraper.time.time', lambda: 1000)
+    assert ExternalScraper._fenrir_retry_delay(value) == expected
+
+
+@pytest.mark.parametrize('headers, expected', [
+    (['7', '12'], 12), ([None, '7'], 30), (['0', '0'], 0),
+])
+def test_fenrir_batch_respects_longest_retry_after(monkeypatch, headers, expected):
+    scraper, messages = make_scraper()
+    scraper._book_data = {'_fenrir': True, '_fenrir_slug': 'demo'}
+    replies = iter([
+        [{'status': 429, 'retryAfter': value} for value in headers],
+        [{'status': 200, 'payload': {'content': 'Body', 'content_format': 'text'}}
+         for _ in headers],
+    ])
+    class Page:
+        def evaluate(self, *args):
+            return next(replies)
+    scraper._page = Page()
+    monkeypatch.setattr(scraper, '_fenrir_page_ready', lambda url: True)
+    monkeypatch.setattr(scraper, '_fenrir_token_active', lambda: True)
+    monkeypatch.setattr(scraper, '_get_user_data_dir', lambda: 'profile')
+    monkeypatch.setattr(scraper, '_hide_chrome_windows_for_profile', lambda path: None)
+    sleeps = []
+    monkeypatch.setattr(scraper, '_sleep_interval', lambda delay, *args: sleeps.append(delay))
+    result = scraper._fenrir_parse_chapter_batch([
+        {'name': f'Chapter {i}', 'url': f'https://fenrirealm.com/series/demo/{i}'}
+        for i in range(len(headers))])
+    assert all(ch['contentText'] == 'Body' for ch in result)
+    assert sleeps == [expected, 0]
+    assert any(f'waiting {expected:g} s' in message for message in messages)

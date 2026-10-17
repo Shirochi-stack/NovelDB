@@ -18702,7 +18702,8 @@ async (items) => {
       }
       const resp = await fetch(item.api, {credentials: 'include',
                                           headers: {Accept: 'application/json'}});
-      if (!resp.ok) return {status: resp.status};
+      if (!resp.ok) return {status: resp.status,
+        retryAfter: resp.headers.get('Retry-After')};
       const payload = await resp.json();
       if (payload.content_format === 'encrypted') {
         const plain = await decrypt(payload).catch(() => null);
@@ -18840,6 +18841,30 @@ async (items) => {
             self.log('  [Fenrir] The human check was not completed in time.')
         return ok
 
+    @staticmethod
+    def _fenrir_retry_delay(value):
+        """Honor Retry-After seconds or an HTTP date; default to 30 seconds."""
+        from email.utils import parsedate_to_datetime
+
+        if not isinstance(value, str):
+            return 30.0
+        value = value.strip()
+        if re.fullmatch(r'[0-9]+', value):
+            try:
+                delay = float(value)
+                if delay < float('inf'):
+                    return delay
+            except ValueError:
+                pass
+            return 30.0
+        try:
+            date = parsedate_to_datetime(value)
+            if date.tzinfo is None:
+                return 30.0
+            return max(0.0, date.timestamp() - time.time())
+        except (ValueError, TypeError, OverflowError):
+            return 30.0
+
     def _fenrir_parse_chapter_batch(self, batch_info, interval=0,
                                     interval_max=None):
         if not batch_info:
@@ -18886,14 +18911,16 @@ async (items) => {
                 self.log(f'  [Fenrir] Chapter request failed: {e}')
                 break
             retry = []
-            rate_limited = False
+            retry_delays = []
             for index, reply in zip(pending, replies or []):
                 chapter = batch_info[index]
                 name = chapter.get('fullName') or chapter.get('name', '')
                 status = (reply or {}).get('status')
                 payload = (reply or {}).get('payload')
                 if status == 429:
-                    rate_limited = True
+                    retry_delays.append(self._fenrir_retry_delay(
+                        (reply or {}).get('retryAfter')
+                    ))
                     retry.append(index)
                     continue
                 if not isinstance(payload, dict):
@@ -18920,9 +18947,10 @@ async (items) => {
                 results[index] = result
             pending = retry
             if pending and not self._stop_requested:
-                if rate_limited:
-                    self.log('  [Fenrir] Rate limited; waiting 30 s...')
-                    self._sleep_interval(30)
+                if retry_delays:
+                    delay = max(retry_delays)
+                    self.log(f'  [Fenrir] Rate limited; waiting {delay:g} s...')
+                    self._sleep_interval(delay)
                 elif self._fenrir_token_active():
                     # The token is fine, so these may be timed releases.
                     break
