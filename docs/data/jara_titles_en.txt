@@ -46854,6 +46854,7 @@
 13826|||이세계의염라대왕|||The Yama King of Another World
 1382620|||구원자, 노예, 대적자, 황족|||Savior, Slave, Adversary, Royal
 1382643|||여고생, 세자의 호위되다.|||A High School Girl Becomes the Crown Prince's Guard.
+1382658|||[해리포터] 그리핀도르 트윈즈|||[Harry Potter] Gryffindor Twins
 1382662|||당신은 어떤 동물인가요?|||What Animal Are You?
 1382668|||[마마마/ts]크림힐트 그레트헨|||[Madoka Magica/TS] Kriemhild Gretchen
 138267|||SWORD OF PROMISE|||SWORD OF PROMISE
@@ -144678,6 +144679,7 @@
 1888577|||조연의 반격은 없다|||The Supporting Character Never Strikes Back
 1888598|||보스의 속사정|||The Boss's Hidden Circumstances
 1888600|||숙면의 조건|||The Conditions for a Good Night's Sleep
+1888602|||곧 망할 대기업의 오너 일가가 되었다|||I Became an Heir to a Conglomerate on the Brink of Collapse
 1888604|||배드? 배드!|||Bad? Bad!
 1888606|||46억년 : 내 신령님은 티라노|||4.6 Billion Years: My Spirit Is a T-Rex
 1888613|||[괴담출근] ♡두근두근 오싹오싹 회전초밥집 괴담♡|||[Working the Horror Shift] ♡Thump-Thump, Chilling Conveyor-Belt Sushi Restaurant Horror♡
@@ -144718,6 +144720,10 @@
 1888676|||베개 밑의 로지|||Rosie Under the Pillow
 1888677|||미소 플러팅|||Flirting with a Smile
 1888682|||시티 오브 뱅크|||City of Bank
+1888689|||초월급 풍수사가 전능의 힘으로 인생역전|||A Transcendent Feng Shui Master Turns His Life Around with Omnipotent Power
+1888690|||마왕 삼촌이 돌아왔다|||The Demon King Uncle Is Back
+1888692|||즉사기로 무한성장|||Infinite Growth with an Instant-Kill Skill
+1888694|||대지 마법사로 살아가는 법|||How to Live as an Earth Mage
 1888713|||경국지색, 이번 생엔 한류로 빛나리라!|||A Beauty That Topples Nations—This Life, I'll Shine Through Hallyu!
 1888724|||나는 오라버니의 이름을 입었다|||I Took My Older Brother's Name
 1888725|||투자 실패 후 국민 여가수의 남동생으로 회귀했다|||After My Investment Failed, I Regressed as the Nation's Favorite Singer's Little Brother
@@ -144924,6 +144930,7 @@
 1889201|||어른이와 어른아이|||The Adult and the Adult Child
 1889204|||400년 후, 너를 구하는 마지막 주술|||The Last Spell to Save You 400 Years Later
 1889206|||[원피스] 바다를 사랑한 별|||[One Piece] The Star Who Loved the Sea
+1889207|||대서양 횡단 중 아포칼립스가 터졌다|||The Apocalypse Hit While Crossing the Atlantic
 188921|||To Heart[투 하트]|||To Heart
 1889231|||거짓된 낙원의 중심에서|||At the Heart of a False Paradise
 1889232|||남주님, 좋은 말로 할 때 다치지 마세요.|||Male Lead, Don't Get Hurt While I'm Asking Nicely
@@ -145079,6 +145086,7 @@
 1889614|||폭군에게 사기계약당해 친구 된 사연|||How I Became Friends with a Tyrant After a Fraudulent Contract
 1889617|||저주 짝꿍을 찾습니다|||Looking for a Cursed Partner
 1889618|||호텔 윈터스|||Hotel Winters
+1889626|||자본주의 스트라이커|||The Capitalist Striker
 1889643|||대군마마, 입 좀 벌려주세요|||My Lord, Please Open Your Mouth
 1889644|||[해리포터] 그리핀도르의 리들|||[Harry Potter] Riddle of Gryffindor
 1889645|||조연은 복상사 엔딩을 피하고 싶다.|||The Supporting Character Wants to Avoid a Death by Ecstasy Ending
@@ -145101,6 +145109,7 @@
 1889766|||약점: 불순한 사정|||Weakness: Impure Circumstances
 1889805|||공매도 쳤더니 백악관에서 전화 옴|||I Shorted the Market and Got a Call from the White House
 1889806|||미친 용병단장이 연예계로 출근함|||A Crazy Mercenary Commander Goes to Work in Showbiz
+1889807|||초월자들의 창고지기가 되었다|||I Became the Storekeeper of Transcendents
 1889810|||선협에서 각성을 숨김|||Hiding My Awakening in a Xianxia World
 1889811|||마왕군에도 용사가 필요해요|||Even the Demon King's Army Needs a Hero
 1889812|||만화에서 돌아온 천재는 야구가 너무 쉽다|||The Genius Who Returned from a Manga Finds Baseball Too Easy
@@ -145110,6 +145119,14 @@
 1889816|||전능의 동자신을 주웠다|||I Picked Up an All-Powerful Child God
 1889817|||특성 뺏는 모험가가 되었다|||I Became an Adventurer Who Steals Traits
 1889818|||한국 축구 좋아하세요?|||Do You Like Korean Soccer?
+1889819|||나 홀로 힐링하며 산다|||I Live Alone and Heal
+1889821|||독일 고성 상속받았더니 힐링 숙소로 대박남|||I Inherited a German Castle and Turned It into a Hit Healing Retreat
+1889822|||빌보드 1위 프로듀서인 줄 모르고 기획사에서 쫓겨남|||My Agency Kicked Me Out, Not Knowing I Was a No. 1 Billboard Producer
+1889823|||세종은 명품을 입는다|||Sejong Wears Designer Brands
+1889824|||자본주의 주술사의 퇴마 라이프|||The Capitalist Shaman's Exorcism Life
+1889826|||코인부자 청년가장의 힐링 라이프|||A Young Breadwinner's Healing Life as a Crypto Millionaire
+1889827|||폐급 헌터가 세계관 최강 스탯을 숨김|||A F-Rank Hunter Hides the Strongest Stats in the World
+1889828|||회귀한 줄 모르고 국가가 나를 버렸다|||The Nation Abandoned Me, Not Knowing I Had Regressed
 1889847|||살인마 갤러리 보는 회사원|||An Office Worker Who Browses the Murderer Gallery
 1889848|||재벌 매니저는 조용히 살고 싶다|||The Conglomerate's Manager Wants to Live Quietly
 1889849|||분신술사의 미궁 공략법|||A Clone Mage's Guide to the Labyrinth
@@ -146922,8 +146939,12 @@
 1893784|||도망수가 도망을 안감|||The Bottom Who Never Runs Away
 189386|||실크로드|||Silk Road
 18939|||다크향 시 모음집..|||Collection of Dark Poems..
+1893979|||사이비 아니고 진짜 신인데요|||I'm Not a Cultist—I'm an Actual God
 1893991|||[해리포터] 저게 어떻게 후플푸프|||[Harry Potter] How Is That a Hufflepuff?
 1894|||Epistolae obscurorum virorum|||Epistolae obscurorum virorum
+1894013|||황세자의 순결한 오메가|||The Crown Prince's Chaste Omega
+1894024|||아포칼립스의 EX급 복덩이|||The Apocalypse's EX-Rank Lucky Charm
+1894039|||[괴담출근/주술회전] 저주에 걸려도 출근은 해야 하는구나|||[Working the Night Shift/Jujutsu Kaisen] Cursed or Not, I Still Have to Go to Work
 189413|||멸망|||Doom
 189415|||아스타니아전기|||Chronicles of Astania
 189428|||올리버 전기|||The Chronicles of Oliver
@@ -146935,10 +146956,12 @@
 189470|||착한아이|||The Good Child
 18948|||하프 드래곤|||Half Dragon
 189485|||불멸|||Immortality
+1894910|||왜 청혼을 안 해?|||Why Won't You Propose?
 1895|||그들만의 일기-1-|||Their Private Diary -1-
 18951|||천하무적 남근맨|||Invincible Phallic Man
 189510|||어지러운 봄날|||A Dizzy Spring Day
 18952|||이에타토레|||Iettatore
+1895240|||광대의 두남자|||The Clown's Two Men
 189527|||소시민의 자기인식|||A Commoner's Self-Awareness
 18953|||타계동화|||Fairy Tale of the Otherworld
 189530|||MagicaRess -마법소녀 랍니다!-|||MagicaRess - She's a Magical Girl! -
@@ -236764,7 +236787,6 @@
 1379684|||.|||
 1381773|||-|||
 13818|||ⓐⓝⓖⓔⓛ' ⓣⓞⓡⓨ|||
-1382658|||[해리포터] 그리핀도르 트윈즈|||
 1382863|||12|||
 1384935|||..|||
 1388755|||.|||
@@ -237410,22 +237432,6 @@
 1886519|||ㆍ|||
 1887427|||.|||
 1888381|||병미인화살저도|||
-1888602|||곧 망할 대기업의 오너 일가가 되었다|||
-1888689|||초월급 풍수사가 전능의 힘으로 인생역전|||
-1888690|||마왕 삼촌이 돌아왔다|||
-1888692|||즉사기로 무한성장|||
-1888694|||대지 마법사로 살아가는 법|||
-1889207|||대서양 횡단 중 아포칼립스가 터졌다|||
-1889626|||자본주의 스트라이커|||
-1889807|||초월자들의 창고지기가 되었다|||
-1889819|||나 홀로 힐링하며 산다|||
-1889821|||독일 고성 상속받았더니 힐링 숙소로 대박남|||
-1889822|||빌보드 1위 프로듀서인 줄 모르고 기획사에서 쫓겨남|||
-1889823|||세종은 명품을 입는다|||
-1889824|||자본주의 주술사의 퇴마 라이프|||
-1889826|||코인부자 청년가장의 힐링 라이프|||
-1889827|||폐급 헌터가 세계관 최강 스탯을 숨김|||
-1889828|||회귀한 줄 모르고 국가가 나를 버렸다|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
@@ -237456,12 +237462,6 @@
 1892954|||[작두/BL] 辰|||
 1893138|||합환(合歡)|||
 1893200|||3시 17분|||
-1893979|||사이비 아니고 진짜 신인데요|||
-1894013|||황세자의 순결한 오메가|||
-1894024|||아포칼립스의 EX급 복덩이|||
-1894039|||[괴담출근/주술회전] 저주에 걸려도 출근은 해야 하는구나|||
-1894910|||왜 청혼을 안 해?|||
-1895240|||광대의 두남자|||
 193749|||200.|||
 198509|||6666666666|||
 20001|||득 <<得>>|||

@@ -129,6 +129,7 @@ $유선이$|||$Yuseon$
 (약)판타지물|||Light Fantasy
 (약)피폐물|||Mild Angst
 (약)헌신수|||Slightly Devoted Bottom
+(약)헌터물|||Hunter Fiction
 (약)후회수|||Slightly Regretful Bottom
 (약간|||Slightly
 (약간의)코믹|||Slight Comedy
@@ -45956,6 +45957,7 @@ z커리어우먼|||Z Career Woman
 버그플레이|||Bug Play
 버금가는|||Comparable
 버기|||Buggy
+버기TS|||Buggy TS
 버기루트|||Buggy Route
 버기빙의물|||Buggy Possession Fic
 버기환생|||Buggy Reincarnation
@@ -66940,6 +66942,7 @@ z커리어우먼|||Z Career Woman
 여주발닦개|||FL's Footstool
 여주발닦개예정|||Future FL's Footstool
 여주발랄|||Lively FL
+여주버기|||Female Lead Buggy
 여주병맛|||Absurd FL
 여주보다|||More Than FL
 여주복수|||FL Revenge
@@ -90765,6 +90768,7 @@ z커리어우먼|||Z Career Woman
 타장르조금|||Other Genre Bit
 타장언급|||Other Pairings Mentioned
 타즈나죠|||Tazuna Jo
+타지|||Foreign Land
 타지마|||Tajima
 타짜|||Gambler
 타차원|||Other Dimension
@@ -101537,6 +101541,7 @@ z커리어우먼|||Z Career Woman
 힐링반킬링반|||Half Healing, Half Killing
 힐링방송스트리머|||Healing Streamer
 힐링복수|||Healing Revenge
+힐링사업가|||Healing Entrepreneur
 힐링서사|||Healing Narrative
 힐링선호|||Prefers Healing
 힐링성장|||Healing And Growth
