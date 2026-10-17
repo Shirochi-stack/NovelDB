@@ -159,3 +159,21 @@ def test_maru_book_and_episodes(monkeypatch):
     )
     assert paid == {"_locked": True, "chapterName": "3화",
                     "_lockReason": "paid"}
+
+
+def test_fenrir_page_console_is_not_logged():
+    scraper, messages = make_scraper()
+
+    class Msg:
+        type = "error"
+        text = ("Connecting to 'data:,' violates the following Content "
+                "Security Policy directive")
+
+    scraper._rbooks_chrome = True
+    scraper._rbooks_site = "Fenrir"
+    scraper._on_console(Msg())
+    assert messages == []
+
+    scraper._rbooks_site = "Floo"
+    scraper._on_console(Msg())
+    assert messages
