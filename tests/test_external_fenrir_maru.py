@@ -1,4 +1,5 @@
 import requests
+import pytest
 
 from external_scraper import ExternalScraper
 
@@ -225,3 +226,47 @@ def test_fenrir_check_stays_hidden(monkeypatch):
     assert scraper._fenrir_unlock_reader('https://example.com/chapter')
     assert calls == ['profile']
     assert not any('tick' in m or 'window that just opened' in m for m in messages)
+
+
+@pytest.mark.parametrize('number', ['1', '104', '105', '106', '9999'])
+def test_maru_requested_episode_accepts_changing_domain_numbers(number):
+    url = f'https://marumaru{number}.com/novel/48182/2187866'
+    assert ExternalScraper.is_maru(url)
+    assert ExternalScraper._maru_url_parts(url) == ('48182', '2187866')
+
+
+@pytest.mark.parametrize('number', ['105', '106', '9999'])
+def test_maru_embedded_text_uses_api_url_without_numbered_referer(monkeypatch, number):
+    scraper, _ = make_scraper()
+    monkeypatch.setattr(scraper, '_maru_get', lambda path: {
+        'ok': True, 'item': {'ready': True,
+                           'embed_url': 'https://peer.example/episode.xyz'}})
+    calls = []
+    def get(url, headers=None, timeout=None):
+        calls.append((url, headers))
+        class TextResponse:
+            content = '\ufeffFirst paragraph\nSecond paragraph'.encode('utf-8')
+            def raise_for_status(self):
+                pass
+        return TextResponse()
+    monkeypatch.setattr(requests, 'get', get)
+    result = scraper._maru_parse_chapter(
+        f'https://marumaru{number}.com/novel/48182/2187866', 'Chapter 300')
+    assert result['contentText'] == 'First paragraph\nSecond paragraph'
+    assert calls[0][0] == 'https://peer.example/episode.xyz'
+    assert 'Referer' not in calls[0][1]
+
+
+@pytest.mark.parametrize('content', [b'<html>Unavailable</html>', b'\xff'])
+def test_maru_embedded_error_is_not_saved_as_chapter(monkeypatch, content):
+    scraper, _ = make_scraper()
+    monkeypatch.setattr(scraper, '_maru_get', lambda path: {
+        'item': {'ready': True, 'embed_url': 'https://peer.example/episode.xyz'}})
+    class TextResponse:
+        def raise_for_status(self):
+            pass
+    response = TextResponse()
+    response.content = content
+    monkeypatch.setattr(requests, 'get', lambda *args, **kwargs: response)
+    assert scraper._maru_parse_chapter(
+        'https://marumaru105.com/novel/48182/2187866', 'Chapter 300') is None

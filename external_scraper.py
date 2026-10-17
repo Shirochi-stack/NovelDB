@@ -19078,6 +19078,27 @@ async (items) => {
                 blocks.extend(self._reader_plain_blocks(part['text']))
             elif kind == 'image' and part.get('url'):
                 blocks.append(('img', str(part['url'])))
+        if not blocks and item.get('embed_url') and item.get('ready') is not False:
+            import requests
+
+            embed_url = urllib.parse.urljoin(self._MARU_API, item['embed_url'])
+            if urllib.parse.urlparse(embed_url).scheme not in ('http', 'https'):
+                self.log(f'  [Marumaru] Invalid embedded reader URL: {chapter_name}')
+                return None
+            try:
+                response = requests.get(
+                    embed_url,
+                    headers={'User-Agent': self._KR_UA, 'Accept': 'text/plain'},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                text = response.content.decode('utf-8-sig')
+                if re.match(r'\s*<(?:!doctype|html|head|body)\b', text, re.I):
+                    raise ValueError('embedded reader returned an HTML page')
+                blocks = self._reader_plain_blocks(text)
+            except (requests.RequestException, UnicodeError, ValueError) as e:
+                self.log(f'  [Marumaru] Embedded reader failed: {e}')
+                return None
         if not blocks:
             if item.get('ready') is False or any(
                 isinstance(b, dict) and b.get('kind') == 'processing'
