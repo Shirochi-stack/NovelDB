@@ -18699,11 +18699,64 @@ async (items) => {
         except Exception:
             return False
 
+    # Clears the reader's own pop-ups: the cookie banner, notices, and any
+    # modal (such as a content warning) whose checkbox and continue button
+    # must be pressed. Reader setting switches outside modals are left alone.
+    _FENRIR_DISMISS_JS = r"""
+() => {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    const st = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden'
+      && st.display !== 'none';
+  };
+  const label = (el) => ((el.innerText || '') + ' '
+    + (el.getAttribute('aria-label') || '') + ' '
+    + (el.getAttribute('title') || '')).trim().toLowerCase();
+  const clicked = [];
+  const press = (el) => { el.click(); clicked.push(label(el).slice(0, 40)); };
+  const buttons = (root) => [...root.querySelectorAll(
+    'button, [role=button], input[type=button], input[type=submit]')]
+    .filter(visible);
+  for (const b of buttons(document)) {
+    const t = label(b);
+    if (t === 'essential only' || t.startsWith('dismiss notice')
+        || t === 'dismiss' || t === 'got it') press(b);
+  }
+  const modals = [...document.querySelectorAll(
+    '[role=dialog], [role=alertdialog], dialog[open], [aria-modal=true]')]
+    .filter(visible);
+  for (const modal of modals) {
+    for (const box of modal.querySelectorAll(
+        'input[type=checkbox], [role=checkbox]')) {
+      const on = box.checked || box.getAttribute('aria-checked') === 'true';
+      if (!on && visible(box)) { box.click(); clicked.push('checkbox'); }
+    }
+    const next = buttons(modal).find((b) => /^(continue|proceed|confirm|i understand|i agree|agree|accept|ok|okay|yes|read|start reading|continue reading)\b/
+      .test(label(b)) && !b.disabled);
+    const close = buttons(modal).find((b) => /^(close|dismiss|×|x)$/
+      .test(label(b)));
+    if (next) press(next); else if (close) press(close);
+  }
+  return clicked;
+}
+"""
+
+    def _fenrir_dismiss_popups(self):
+        try:
+            clicked = self._page.evaluate(self._FENRIR_DISMISS_JS) or []
+        except Exception:
+            return
+        if clicked:
+            self.log('  [Fenrir] Closed reader pop-up: '
+                     + ', '.join(c for c in clicked if c))
+
     def _fenrir_wait_for_token(self, seconds):
         deadline = time.time() + seconds
         while time.time() < deadline and not self._stop_requested:
             if self._fenrir_token_active():
                 return True
+            self._fenrir_dismiss_popups()
             try:
                 self._page.wait_for_timeout(1500)
             except Exception:
