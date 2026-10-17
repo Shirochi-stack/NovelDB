@@ -2868,6 +2868,7 @@
 1632013186|||남의 손만 타는 고양이 (15세 개정판)|||The Cat Who Only Lets Others Pet It (15+ Revised Edition)
 1632013814|||흑호 가문 허스키입니다만|||I’m a Husky from the Black Tiger Clan
 1632013880|||흑호 가문 허스키입니다만 (15세 개정판)|||I’m a Husky from the Black Tiger Clan (15+ Edition)
+1632014083|||GOTY를 싹쓸이하는 국가권력급 게임사|||A Nation-Power-Level Game Studio Sweeping the GOTYs
 1651000013|||출사 : 삼국지 촉서 제갈량전|||A Photographic Expedition: Three Kingdoms, Shu Annals—The Biography of Zhuge Liang
 1651000237|||우리집에 왕자님이 산다|||A Prince Lives in My House
 1668000543|||더 커플스 : 번역가와 문하생|||The Couples: Translator and Disciple
@@ -8030,6 +8031,7 @@
 2213018769|||시골마피아 갱생일지|||The Country Mafia’s Redemption Journal
 2213019094|||약탈자들|||The Plunderers
 2213019499|||데카당트 스캔들|||Decadent Scandal
+2213019569|||데카당트 스캔들 (15세 개정판)|||Decadent Scandal (15+ Revised Edition)
 2214000516|||천사의 송곳니|||The Angel’s Fang
 2236000157|||라 노떼 (la notte)|||La Notte
 2236000253|||술탄의 덫|||The Sultan’s Trap
@@ -16708,6 +16710,7 @@
 425690809|||13세기 러시아에 태어났더니 몽골이 침공한다|||I Was Born in 13th-Century Russia, and the Mongols Invaded
 425691025|||S급 타자가 낭만 대신 돈을 선택함|||An S-Rank Batter Chooses Money over Romance
 425691179|||재능을 뽑는 광전사가 되었다|||I Became a Berserker Who Extracts Talent
+425691734|||스위밍 인투 유어 트랩|||Swimming Into Your Trap
 425692069|||전생을 그리는 개발자|||The Developer Who Draws Reincarnation
 4267000001|||오르카 맨션(ORCA MANSION)|||ORCA MANSION
 4274000001|||윈터 헌팅|||Winter Hunting
@@ -18640,6 +18643,7 @@
 5958041718|||아이엠 이블|||I Am Evil
 5958042283|||미국 씹어먹는 야구 천재|||The Baseball Genius Who Dominates America
 5958043483|||역대급 좋소기업 성공기|||The Greatest Small Business Success Story
+5958043984|||흑도전생|||Reborn on the Black Path
 5959000001|||정치의 일기장|||The Political Diary
 5959000209|||40살까지 못 해본 남자|||The Man Who Has Never Done It by Forty
 5959000259|||회장님의 핵몽둥이|||The Chairman's Nuclear Club
@@ -21274,8 +21278,6 @@
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
 120086367|||아카데미 청소부의 은밀한 공략|||
-1632014083|||GOTY를 싹쓸이하는 국가권력급 게임사|||
-2213019569|||데카당트 스캔들 (15세 개정판)|||
 2313000001|||던전 공략 LIVE|||
 2877000379|||공략은 전지적으로|||
 4178000348|||던전공략 특별회수반|||
@@ -21286,7 +21288,5 @@
 425477852|||공략 천재가 되었다|||
 425606091|||1903|||
 425629250|||1973|||
-425691734|||스위밍 인투 유어 트랩|||
 505027633|||현질로 소설 공략|||
-5958043984|||흑도전생|||
 945008054|||40,41|||
