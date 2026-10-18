@@ -71354,6 +71354,7 @@
 1540371|||[히로하카/bl] 제목 추천해주세요!|||[My Hero Academia/BL] Please Suggest a Title!
 1540376|||Re:여왕님의 사랑이 무거워!|||Re: The Queen’s Love Is Heavy!
 1540389|||[해리포터] 단축키|||[Harry Potter] Shortcut
+1540394|||[퍼시잭슨] 독수리의 노래(A Song Of Aĕtŏs)|||[Percy Jackson] Song of the Eagle (A Song of Aĕtŏs)
 1540397|||어느날 갑자기|||All of a Sudden
 1540398|||과학이라 읽고 가학이라 불린다.|||Read as Science, Called Cruelty
 15404|||라인하그전기|||The Chronicles of Reinhag
@@ -145087,6 +145088,10 @@
 1889617|||저주 짝꿍을 찾습니다|||Looking for a Cursed Partner
 1889618|||호텔 윈터스|||Hotel Winters
 1889626|||자본주의 스트라이커|||The Capitalist Striker
+1889631|||은퇴한 헌터가 드래곤 하트를 얻음|||Retired Hunter Gets a Dragon Heart
+1889632|||배신당한 축구천재가 SSS급 공격수로 각성함|||Betrayed Soccer Prodigy Awakens as an SSS-Rank Striker
+1889633|||무한추출로 나 혼자 EX급|||Infinite Extraction Makes Me EX-Rank
+1889635|||천재 통역사가 되었다|||I Became a Genius Interpreter
 1889643|||대군마마, 입 좀 벌려주세요|||My Lord, Please Open Your Mouth
 1889644|||[해리포터] 그리핀도르의 리들|||[Harry Potter] Riddle of Gryffindor
 1889645|||조연은 복상사 엔딩을 피하고 싶다.|||The Supporting Character Wants to Avoid a Death by Ecstasy Ending
@@ -146946,6 +146951,7 @@
 1894024|||아포칼립스의 EX급 복덩이|||The Apocalypse's EX-Rank Lucky Charm
 1894039|||[괴담출근/주술회전] 저주에 걸려도 출근은 해야 하는구나|||[Working the Night Shift/Jujutsu Kaisen] Cursed or Not, I Still Have to Go to Work
 189413|||멸망|||Doom
+1894135|||천하제일검의 악역 스승이 되었다|||I Became the Villainous Master of the Greatest Sword Under Heaven
 189415|||아스타니아전기|||Chronicles of Astania
 189428|||올리버 전기|||The Chronicles of Oliver
 18943|||바람 이야기|||A Tale of Wind
@@ -194685,6 +194691,7 @@
 52168|||달의 꿈|||Dream of the Moon
 521682|||속삭이다 - 너의 하얀손에 입 맞추며|||Whisper - Kissing Your White Hand
 521686|||아르미그라|||Armigra
+5217|||ill아이유스lli|||illIUlli
 521715|||순수한 사랑|||Pure Love
 52173|||[월야환담+아린]赤月- 붉은 달|||[Moonlight Novels + Arin] Red Moon
 521738|||[BL]삼국지~조선전~|||[BL] Three Kingdoms: The Joseon Chronicle
@@ -236965,7 +236972,6 @@
 1537540|||-|||
 1538494|||.|||
 1539595|||...|||
-1540394|||[퍼시잭슨] 독수리의 노래(A Song Of Aĕtŏs)|||
 1540973|||26|||
 15412|||치키치키…乃…*|||
 154499|||「ＨａｒｍＯｎｙ」|||
@@ -237433,10 +237439,6 @@
 1886519|||ㆍ|||
 1887427|||.|||
 1888381|||병미인화살저도|||
-1889631|||은퇴한 헌터가 드래곤 하트를 얻음|||
-1889632|||배신당한 축구천재가 SSS급 공격수로 각성함|||
-1889633|||무한추출로 나 혼자 EX급|||
-1889635|||천재 통역사가 되었다|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
@@ -237467,7 +237469,6 @@
 1892954|||[작두/BL] 辰|||
 1893138|||합환(合歡)|||
 1893200|||3시 17분|||
-1894135|||천하제일검의 악역 스승이 되었다|||
 193749|||200.|||
 198509|||6666666666|||
 20001|||득 <<得>>|||
@@ -237597,7 +237598,6 @@
 515899|||ㅇㅇㅇㅇㅇㅇ|||
 51831|||- - - - - - - - - - - - - - -|||
 5209|||ⓛⓞⓥⓔ+ⓛⓞⓥⓔ|||
-5217|||ill아이유스lli|||
 521819|||1|||
 522242|||ㅁㄴㅇ|||
 5231|||『  독 毒  』|||
