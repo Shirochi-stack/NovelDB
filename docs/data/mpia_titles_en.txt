@@ -33654,6 +33654,7 @@
 362806|||인간이 되는 법|||How to Become Human
 36281|||환상과 신비|||Fantasy and Mystery
 362815|||조선의 독재자가 되었다|||I Became Joseon's Dictator
+362816|||백룸 공략은 인테리어부터|||Start with Interior Design When Tackling the Backrooms
 362817|||흑가|||The Black Family
 362818|||환생의 검|||Sword of Reincarnation
 362823|||회귀 후 최강 방산 재벌|||The Strongest Defense Chaebol After Regression
@@ -85022,6 +85023,7 @@
 61060|||힘의 군주|||Lord of Power
 610602|||쫓겨난 경찰이 사법고시를 패스함|||The Fired Cop Passed the Bar Exam
 61066|||러브인더퓨처|||Love in the Future
+610682|||해고당한 힐러가 차린 온천이 너무 잘됨|||The Fired Healer's Hot Spring Is a Huge Hit
 61072|||우주 유랑객|||Space Drifter
 61073|||무공으로 캐리한다|||I Carry with Martial Arts
 610731|||해와달 열린세계|||Sun and Moon: An Open World
@@ -90334,7 +90336,6 @@
 332679|||11121212|||
 333510|||( )|||
 350596|||000000000|||
-362816|||백룸 공략은 인테리어부터|||
 36332|||72%|||
 365849|||2323434|||
 374382|||98%|||
@@ -90408,5 +90409,4 @@
 608033|||Axiom(공리)|||
 608414|||번학무사 (番學武士)|||
 610021|||2035|||
-610682|||해고당한 힐러가 차린 온천이 너무 잘됨|||
 63401|||49|||
