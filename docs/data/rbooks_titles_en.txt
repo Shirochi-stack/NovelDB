@@ -3879,6 +3879,7 @@
 1824011900|||닳고 달은 아저씨(15세 개정판)|||The Worn-Out Uncle (Revised 15+ Edition)
 1824011961|||꽃집 아가씨와 갱스터|||The Florist and the Gangster
 1824012147|||매드 팻 보이프렌드|||Mad Fat Boyfriend
+1824012148|||매드 팻 보이프렌드(15세 개정판)|||Mad Fat Boyfriend (15+ Edition)
 1847000326|||뉴 에이지 : 전투의 신|||New Age: God of Battle
 1847000417|||묵시록의 기사|||Knight of the Apocalypse
 1847001061|||개정판 \u007c 잿빛 도시|||Revised Edition \u007c Ashen City
@@ -6434,6 +6435,7 @@
 2065163519|||검사 김태백|||Prosecutor Kim Taebaek
 2065163733|||복수하는 김에 아이돌 탑 먹겠습니다|||I’ll Become the Top Idol While Getting Revenge
 2065164244|||각성 후 불사신이 되었다|||I Became Immortal After Awakening
+2065164512|||감귤 천재 도련님으로 환생했다|||Reincarnated as a Tangerine Prodigy
 2065164812|||고아인데 재벌집 아들임|||I'm an Orphan, But I'm the Son of a Chaebol
 2067000093|||대협: 개천에서 용 나다|||The Great Hero: A Dragon Rises from a Small Stream
 2067000406|||면왕|||The Noodle King
@@ -7416,6 +7418,7 @@
 2107166886|||마제회귀전|||The Demon Emperor’s Regression
 2107167623|||사천당가의 회귀한 무신이 사는 법|||How the Regressed Martial God of the Sichuan Tang Clan Lives
 2107167902|||크툴루의 두 번째 촉수가 되었다|||I Became Cthulhu’s Second Tentacle
+2107168231|||약선요리로 무신의 제자가 되었다|||I Became the Martial God’s Disciple Through Medicinal Cooking
 211006759|||서울 아랑전|||The Seoul Arang Chronicle
 211008931|||저스트 더 투 오브 어스|||Just the Two of Us
 211009276|||내 집에 유령각시|||A Ghost Bride in My House
@@ -16711,6 +16714,7 @@
 425691025|||S급 타자가 낭만 대신 돈을 선택함|||An S-Rank Batter Chooses Money over Romance
 425691179|||재능을 뽑는 광전사가 되었다|||I Became a Berserker Who Extracts Talent
 425691734|||스위밍 인투 유어 트랩|||Swimming Into Your Trap
+425691809|||스위밍 인투 유어 트랩(15세 개정판)|||Swimming Into Your Trap (15+ Edition)
 425692069|||전생을 그리는 개발자|||The Developer Who Draws Reincarnation
 4267000001|||오르카 맨션(ORCA MANSION)|||ORCA MANSION
 4274000001|||윈터 헌팅|||Winter Hunting
@@ -19459,6 +19463,7 @@
 6345000002|||당신의 약혼자가 잠든 밤에(15세 개정판)|||The Night Your Fiancé Sleeps (15+ Edition)
 6351000001|||키스 앤 퍽(Kiss and Puck)|||Kiss and Puck
 6351000002|||키스 앤 퍽(Kiss and Puck)(15세 개정판)|||Kiss and Puck (15+ Revised Edition)
+6386000001|||무브 러브 다이브|||Move Love Dive
 6390000001|||민원인 살인 클럽|||The Complainant Murder Club
 669000147|||은밀한 연애|||A Secret Romance
 682000816|||오크 변호사|||The Orc Lawyer
@@ -21278,9 +21283,6 @@
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
 120086367|||아카데미 청소부의 은밀한 공략|||
-1824012148|||매드 팻 보이프렌드(15세 개정판)|||
-2065164512|||감귤 천재 도련님으로 환생했다|||
-2107168231|||약선요리로 무신의 제자가 되었다|||
 2313000001|||던전 공략 LIVE|||
 2877000379|||공략은 전지적으로|||
 4178000348|||던전공략 특별회수반|||
@@ -21291,7 +21293,5 @@
 425477852|||공략 천재가 되었다|||
 425606091|||1903|||
 425629250|||1973|||
-425691809|||스위밍 인투 유어 트랩(15세 개정판)|||
 505027633|||현질로 소설 공략|||
-6386000001|||무브 러브 다이브|||
 945008054|||40,41|||
