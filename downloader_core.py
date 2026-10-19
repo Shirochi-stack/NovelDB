@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
 from npia_author_catalog import author_id, iter_author_pages, matches_age
+from npia_intro_discovery import discover as discover_intro
 
 from npia_search_terms import (
     ALL_SEARCH_TERMS,
@@ -1203,6 +1204,13 @@ img { max-width: 100%; height: auto; }
                 _query_one(ci, ch)
                 time.sleep(delay)
 
+        for novel in discover_intro(self.auth.session, {}, max_requests=6, delay=max(2.0, delay),
+                                    stopped=lambda: self.stop_signal, log=self.log):
+            owner = author_id(novel)
+            if owner:
+                authors.add(owner)
+            if matches_age(novel, age_filter):
+                ids.add(str(novel["novel_no"]))
         self.log(f"Checking {len(authors)} public author catalogs...")
         for index, owner in enumerate(sorted(authors, key=int), 1):
             if self.stop_signal:
