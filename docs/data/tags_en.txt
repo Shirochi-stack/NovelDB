@@ -2232,6 +2232,7 @@ EVA|||EVA
 EVANGELION|||EVANGELION
 EVE|||EVE
 EVIL★TWIN|||Evil Twin
+EW|||EW
 EWL|||EWL
 EX|||EX
 EXA|||EXA
@@ -17626,6 +17627,7 @@ z커리어우먼|||Z Career Woman
 가짜TS|||Fake TS
 가짜_남색가|||Fake Sodomite
 가짜결혼|||Fake Marriage
+가짜계절|||Fake Season
 가짜공포|||Fake Horror
 가짜과학자|||Fake Scientist
 가짜광기|||Fake Madness
@@ -18880,6 +18882,7 @@ z커리어우먼|||Z Career Woman
 개수인|||Dog Beastkin
 개수작공|||Sleazy Top
 개신교|||Protestant
+개심|||Repentance
 개싸가지|||Rude Bastard
 개싸가지공|||Rude Bastard Top
 개싸가지남주|||Rude Bastard Male Lead
@@ -22406,6 +22409,7 @@ z커리어우먼|||Z Career Woman
 괴기담|||Strange Tale
 괴담|||Ghost Stories
 괴담BL|||Ghost Story BL
+괴담게이트|||Urban Legend Gate
 괴담네모|||Goedam Nemo
 괴담느낌|||Ghost-Story Vibes
 괴담동|||Horror Town
@@ -22548,6 +22552,7 @@ z커리어우먼|||Z Career Woman
 괴이국|||Anomaly Bureau
 괴이남주|||Bizarre Male Lead
 괴이담|||Strange Tale
+괴이록|||Tales of the Strange
 괴이물|||Weird Tale
 괴이물X|||No Bizarre Story
 괴이배틀물|||Mysterious Battle
@@ -39753,6 +39758,7 @@ z커리어우먼|||Z Career Woman
 망국|||Fallen Nation
 망국공녀|||Fallen Kingdom Duchess
 망국왕녀|||Fallen Kingdom Princess
+망국왕자남주|||Fallen Kingdom Prince Male Lead
 망국의왕자수|||Fallen Kingdom Prince Bottom
 망국의폭군|||Tyrant Of A Fallen Kingdom
 망국의폭군이되었다|||I Became The Tyrant Of A Fallen Kingdom
@@ -42661,6 +42667,7 @@ z커리어우먼|||Z Career Woman
 무표정녀|||Expressionless Woman
 무표정섹스|||Stoic Sex
 무표정한|||Expressionless
+무플보다악플이좋아요|||Bad Comments Are Better Than No Comments
 무하한|||No Limits
 무학관|||Muhak Academy
 무한|||Infinite
@@ -42705,6 +42712,7 @@ z커리어우먼|||Z Career Woman
 무한진화|||Infinite Evolution
 무한차원|||Infinite Dimension
 무한처녀노인학대순애|||Infinite Virgin Old Man Abuse Pure Love
+무한초밥전대|||Infinite Sushi Squadron
 무한코인|||Infinite Coins
 무한타임슬립|||Infinite Time Slip
 무한한사랑|||Infinite Love
@@ -43813,6 +43821,7 @@ z커리어우먼|||Z Career Woman
 미정이다|||Undecided
 미제|||Unsolved
 미제사건|||Unsolved Case
+미족|||Mi Tribe
 미주|||Miju
 미주리|||Missouri
 미주리.|||Missouri.
@@ -43890,6 +43899,7 @@ z커리어우먼|||Z Career Woman
 미친고블린|||Crazy Goblin
 미친고양이|||Crazy Cat
 미친공|||Crazy Top
+미친공돌이|||Crazy Engineer
 미친과학자|||Mad Scientist
 미친기린공|||Crazy Giraffe Gong
 미친기사|||Mad Knight
@@ -44420,6 +44430,7 @@ z커리어우먼|||Z Career Woman
 바른생활남|||Proper-Living Man
 바른수|||Upright Bottom
 바른청년수|||Upright Young Man Bottom
+바른치키이이인|||Proper Chickeeeen
 바리|||Bari
 바리:|||Bari:
 바리TS|||Bari TS
@@ -50597,6 +50608,7 @@ z커리어우먼|||Z Career Woman
 사상을|||Ideology
 사상의자유|||Thought Freedom
 사상자유|||Free Thought
+사상적응|||Ideological Adaptation
 사상최강|||Strongest in History
 사상최강의보안관|||Strongest Sheriff
 사상최강의샌드백|||The Strongest Punching Bag in History
@@ -52559,6 +52571,7 @@ z커리어우먼|||Z Career Woman
 생체전기|||Bio Electricity
 생체지팡이|||Living Wand
 생초|||Saengcho
+생태디스토피아|||Ecological Dystopia
 생태세상|||Eco World
 생텀|||Sanctum
 생필품의달인|||Master Of Essentials
@@ -52842,6 +52855,7 @@ z커리어우먼|||Z Career Woman
 서뱀프|||Seo Vamp
 서버|||Server
 서버닫아|||Server Shutdown
+서버렷|||Server Down
 서번트|||Servant
 서번트NTR|||Servant NTR
 서번트X|||No Servant
@@ -54122,6 +54136,7 @@ z커리어우먼|||Z Career Woman
 성장후먼치킨|||Growth Then Munchkin
 성장후재회|||Reunion After Growth
 성장히로인|||Growing Heroine
+성장히어로|||Growing Hero
 성장힐링|||Growth And Healing
 성장힐링물|||Growth And Healing Story
 성적|||Sexual
@@ -54170,6 +54185,7 @@ z커리어우먼|||Z Career Woman
 성좌인방물|||Constellation Streaming
 성좌주인공|||Constellation Protagonist
 성좌즈|||Constellations
+성좌체험|||Constellation Experience
 성좌히로인|||Constellation Heroine
 성주|||Castle Lord
 성준|||Seongjun
@@ -60881,6 +60897,7 @@ z커리어우먼|||Z Career Woman
 아라사|||Arasa
 아라사카|||Arasaka
 아라쉬|||Arash
+아라야|||Araya
 아라야금고에들어가|||Enter the Alaya Vault
 아라이|||Arai
 아라이아|||Araia
@@ -63723,6 +63740,7 @@ z커리어우먼|||Z Career Woman
 야미|||Yami
 야미진|||Yamijin
 야바위|||Yabawi
+야바코|||Yabako
 야반도주잼|||Fun Elopement
 야방|||Night Broadcast
 야부키|||Yabuki
@@ -64297,6 +64315,7 @@ z커리어우먼|||Z Career Woman
 약조교|||Light Train
 약조교물|||Mild Training Story
 약조직물|||Mild Organization Story
+약죠죠|||JoJo Lite
 약주술회전|||Drug Jujutsu Kaisen
 약주의|||Mild Alcohol
 약주접|||Mild Flattery
@@ -65378,6 +65397,7 @@ z커리어우먼|||Z Career Woman
 얼짱|||Cool Face
 얼짱공|||Ulzzang Top
 얼차|||Elcha
+얼척|||Absurdity
 얼천수|||Face Genius Bottom
 얼터너티브|||Alternative
 얼터라|||Alterra
@@ -66865,6 +66885,7 @@ z커리어우먼|||Z Career Woman
 여제|||Female Emperor
 여제)|||Empress
 여제물|||Empress
+여제사자여주|||Empress Protagonist
 여제와|||With The Empress
 여제자|||Female Disciple
 여존남비|||Female Supremacy
@@ -68258,6 +68279,7 @@ z커리어우먼|||Z Career Woman
 열심히살아가수|||Hardworking Bottom
 열심히살아보려하는인류애넘쳤던여주|||Humanitarian FL Trying To Live Diligently
 열심히수|||Hardworking Bottom
+열심히쓰겠습니다|||I’ll Write Hard
 열심히하겠습니다!|||I'll Do My Best!
 열아홉살|||Nineteen Years Old
 열애|||Passionate Love
@@ -68306,6 +68328,7 @@ z커리어우먼|||Z Career Woman
 열화|||Fierce Flame
 열화조교|||Intense Training
 열화카피능력|||Degraded Copy Power
+열화판|||Inferior Version
 염|||Yeom
 염국|||Yeom Kingdom
 염능력|||Fire Ability
@@ -68314,6 +68337,7 @@ z커리어우먼|||Z Career Woman
 염동술사|||Telekinesis User
 염라|||Yeomna
 염라(閻羅)|||Yama
+염라강림|||Yeomra Descends
 염라대왕|||Yama
 염라대왕!|||King Yama!
 염라와|||Yama And
@@ -68682,6 +68706,7 @@ z커리어우먼|||Z Career Woman
 영화기반|||Movie Based
 영화대사|||Movie Lines
 영화마녀|||The Witch Film
+영화문제|||Movie Problem
 영화배우|||Film Actor
 영화빙의|||Movie Possession
 영화어벤져스|||Avengers Film
@@ -69532,6 +69557,7 @@ z커리어우먼|||Z Career Woman
 오케스트라|||Orchestra
 오케이|||Okay
 오코|||Oko
+오쿠|||Oku
 오쿠기|||Okugi
 오쿠다|||Okuda
 오크|||Orc
@@ -74146,6 +74172,7 @@ z커리어우먼|||Z Career Woman
 의붓아들|||Stepson
 의붓언니|||Stepsister
 의붓여동생|||Stepsister
+의붓오빠|||Stepbrother
 의붓형제|||Step-Brothers
 의빈|||Royal Consort
 의빈성씨|||Consort Seong
@@ -75674,6 +75701,7 @@ z커리어우먼|||Z Career Woman
 이터널스|||Eternals
 이터널시티|||Eternal City
 이터니티|||Eternity
+이터턴|||Eternity
 이토|||Ito
 이토록|||This Much
 이토시|||Itoshi
@@ -76889,6 +76917,7 @@ z커리어우먼|||Z Career Woman
 일수도있고|||Maybe
 일수일공|||One Bottom, One Top
 일순|||One Flash
+일승천금|||A Single Victory Worth a Thousand Gold
 일시법|||Temporary Law
 일시적약피폐|||Temporary Light Ruin
 일식|||Eclipse
@@ -77041,6 +77070,7 @@ z커리어우먼|||Z Career Woman
 읽어주세요.|||Please Read
 읽어주세용|||Please Read
 읽어주시길(웃음)|||Please Read (Laughs)
+읽어주시면복받으셔요|||Read This and Be Blessed
 읽어줘요|||Please Read It
 읽었고버렸다|||Read and Dropped
 읽으라고|||Read It
@@ -78475,6 +78505,7 @@ z커리어우먼|||Z Career Woman
 잡입수사|||Undercover Investigation
 잡종|||Hybrid
 잡종태그|||Mixed Tags
+잡착|||Obsession
 잡착남|||Obsessive Man
 잡초|||Weed
 잡초수|||Weedlike Bottom
@@ -80816,6 +80847,7 @@ z커리어우먼|||Z Career Woman
 정치와법|||Politics and Law
 정치와암투|||Politics and Schemes
 정치음모|||Political Conspiracy
+정치이이이킨|||Political Hee-ro
 정치인|||Politician
 정치인x경찰|||Politician x Police Officer
 정치인수|||Politician Bottom
@@ -82309,6 +82341,7 @@ z커리어우먼|||Z Career Woman
 죠죠3부|||JoJo Part 3
 죠죠4부|||JoJo Part 4
 죠죠5부|||JoJo Part 5
+죠죠7부|||JoJo Part 7
 죠죠드림|||JoJo Dream
 죠죠러|||JoJo Fan
 죠죠리온|||JoJolion
@@ -82817,6 +82850,7 @@ z커리어우먼|||Z Career Woman
 주택|||Housing
 주토리|||Jutori
 주토피아|||Zootopia
+주파수|||Frequency
 주한|||Juhan
 주한지|||Juh Han-ji
 주헌|||Jooheon
@@ -86015,6 +86049,7 @@ z커리어우먼|||Z Career Woman
 천재지만|||A Genius, But
 천재지변|||Genius Disaster
 천재착각물|||Genius Misunderstanding
+천재투수|||Genius Pitcher
 천재포수|||Genius Catcher
 천재포수가선수도잘키움|||Genius Catcher Who Develops Players Well
 천재학교|||School of Geniuses
@@ -88401,6 +88436,7 @@ z커리어우먼|||Z Career Woman
 카드배틀|||Card Battle
 카드배틀물|||Card Battle
 카드뽑기|||Card Drawing
+카드수집|||Card Collection
 카드술사|||Card Mage
 카드시스템|||Card System
 카드여주|||Card Heroine
@@ -89309,6 +89345,7 @@ z커리어우먼|||Z Career Woman
 케투|||Ketu
 케프|||Kef
 케플러|||Kep1er
+켄간시리즈|||Kengan Series
 켄간아슈라|||Kengan Ashura
 켄도|||Kendo
 켄리아|||Kenriva
@@ -94250,6 +94287,7 @@ z커리어우먼|||Z Career Woman
 폭주상인|||Berserk Merchant
 폭주여|||Berserk Female
 폭주와절제|||Berserk and Restraint
+폭주족|||Biker Gang
 폭주천사|||Berserk Angel
 폭주폼|||Berserk Form
 폭주하는|||Going Berserk
@@ -95095,6 +95133,7 @@ z커리어우먼|||Z Career Woman
 피드백|||Feedback
 피드백많이필요해요|||Needs Lots of Feedback
 피드백부탁|||Feedback Request
+피드백부탁드립니다|||Feedback Appreciated
 피드백환영|||Feedback Welcome
 피들스틱|||Fiddlesticks
 피디|||PD
@@ -96701,6 +96740,7 @@ z커리어우먼|||Z Career Woman
 한번만|||Just Once
 한번만공|||Just-Once Top
 한번만들어와서맛좀보고가제발|||Please Come In Once and Give It a Try
+한번만봐주세요|||Please Give It a Look
 한번물면안놓는여주|||Tenacious Heroine
 한번시작한거|||Once Started
 한번씩피폐|||Occasional Abuse
@@ -96860,6 +96900,7 @@ z커리어우먼|||Z Career Woman
 한지조에|||Han Jijo-e
 한진|||Han Jin
 한진이|||Han Jin
+한집|||One House
 한집안|||One Family
 한쪽다리장애수|||One-Legged Disabled Bottom
 한쪽은괴물|||One Side Is a Monster
@@ -97489,6 +97530,7 @@ z커리어우먼|||Z Career Woman
 핸대로맨스|||Handae Romance
 핸더|||Hander
 핸더랜드|||Handerland
+핸도|||Hendo
 핸드|||Hand
 핸드메이드마법|||Handmade Magic
 핸드웨폰|||Hand Weapon
@@ -98344,6 +98386,7 @@ z커리어우먼|||Z Career Woman
 현상금|||Bounty
 현상금사냥꾼|||Bounty Hunter
 현상범|||Wanted Criminal
+현상적응|||Phenomenon Adaptation
 현새대|||Current Generation
 현생|||Modern Life
 현생.|||Real Life
@@ -101371,6 +101414,7 @@ z커리어우먼|||Z Career Woman
 히로엔도|||Hiro Endo
 히로익|||Heroic
 히로인|||Heroine
+히로인1명|||One Heroine
 히로인2명|||Two Heroines
 히로인3명|||Three Heroines
 히로인ALL처녀|||All Heroines Virgin
