@@ -221,6 +221,125 @@ class FixtureSite:
 
 async def wait_loaded(page):
     await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !document.querySelector('#resultCount').textContent.startsWith('Loading')")
+    # These existing scenarios exercise the complete catalog, rather than the
+    # lightweight landing rankings tested separately below.
+    if await page.locator('#loadFullCatalog').is_visible():
+        await page.locator('#loadFullCatalog').click()
+        await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !document.querySelector('#resultCount').textContent.startsWith('Loading')")
+
+
+def test_landing_top_100_stays_stable_and_search_loads_full_catalog():
+    class TopSite(FixtureSite):
+        async def route(self, route):
+            if urlsplit(route.request.url).path.endswith('/npia_top.json.gz'):
+                self.requests.append(route.request.url)
+                await route.fulfill(body=gzip.compress(json.dumps({
+                    'novels': [row('npia', ident) for ident in range(1, 101)],
+                    'descriptions': {str(ident): 'Full synopsis' for ident in range(1, 101)},
+                }).encode()), content_type='application/gzip')
+                return
+            await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={'width': 390, 'height': 844}, is_mobile=True)
+            site = TopSite()
+            await page.route('**/*', site.route)
+            await page.goto('http://metadata.test/')
+            await page.wait_for_function('document.querySelectorAll(".novel-card").length === 100')
+            cards = page.locator('.novel-card')
+            order = await cards.evaluate_all('(cards)=>cards.map(c=>c.dataset.novelId)')
+            await page.wait_for_timeout(800)
+            assert await cards.evaluate_all('(cards)=>cards.map(c=>c.dataset.novelId)') == order
+            assert not any('_chunk_' in url and not '_manifest' in url for url in site.requests)
+            assert await page.locator('#sourceSelect').input_value() == 'all'
+            assert await page.locator('#loadFullCatalog').is_visible()
+            await page.locator('#searchInput').fill('nweb')
+            await page.wait_for_function('document.querySelector("#resultCount").textContent.includes("3 novel(s)")')
+            assert any('nweb_chunk_0' in url for url in site.requests)
+            assert not await page.locator('#loadFullCatalog').is_visible()
+            assert await page.locator('.novel-card').count() == 3
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_synopsis_failure_has_retry_and_empty_shard_has_unavailable_message():
+    class SynopsisSite(FixtureSite):
+        attempts = 0
+        empty = False
+        async def route(self, route):
+            path = urlsplit(route.request.url).path
+            if path.endswith('/npia_top.json.gz'):
+                await route.fulfill(body=gzip.compress(json.dumps({'novels': [row('npia')]}).encode()), content_type='application/gzip')
+                return
+            if 'descriptions_shard_' in path:
+                self.attempts += 1
+                if self.attempts <= 2:
+                    await route.fulfill(status=503, body='Temporary failure')
+                else:
+                    await route.fulfill(body=gzip.compress(json.dumps({} if self.empty else {'7': 'Recovered synopsis'}).encode()), content_type='application/gzip')
+                return
+            await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = SynopsisSite()
+            await page.route('**/*', site.route)
+            await page.goto('http://metadata.test/')
+            await page.get_by_text('Loading synopsis…', exact=True).wait_for()
+            await page.get_by_role('button', name="Synopsis couldn't load. Tap to retry.").click()
+            await page.get_by_text('Recovered synopsis', exact=False).wait_for()
+            assert site.attempts == 3
+            site.empty = True
+            await page.reload()
+            await page.get_by_text('No synopsis available.', exact=True).wait_for()
+            assert await page.locator('.synopsis-status:visible').count() == 1
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_visible_synopsis_loads_while_full_catalog_is_still_pending():
+    async def scenario():
+        release = asyncio.Event()
+        class SlowSite(FixtureSite):
+            async def route(self, route):
+                path = urlsplit(route.request.url).path
+                if path.endswith('/npia_top.json.gz'):
+                    await route.fulfill(body=gzip.compress(json.dumps({'novels': [row('npia')]}).encode()), content_type='application/gzip')
+                    return
+                if '_chunk_' in path and not '_manifest' in path:
+                    await release.wait()
+                await super().route(route)
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route('**/*', SlowSite().route)
+            await page.goto('http://metadata.test/')
+            await page.locator('#loadFullCatalog').click()
+            await page.locator('.card-synopsis').wait_for()
+            assert 'Loading' in await page.locator('#resultCount').inner_text()
+            release.set()
+            await wait_loaded(page)
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_nonranking_saved_sort_loads_the_complete_catalog_without_preview():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = FixtureSite(many_npia=True)
+            await page.route('**/*', site.route)
+            await page.goto('http://metadata.test/#src=npia&sort=updated')
+            await page.wait_for_function('document.querySelector("#resultCount").textContent.includes("61 novel(s)")')
+            assert not await page.locator('#loadFullCatalog').is_visible()
+            assert await page.locator('#sortSelect').input_value() == 'updated'
+            await browser.close()
+    asyncio.run(scenario())
 
 
 def test_new_sources_r19_badges_audience_filter_and_reload(monkeypatch):
@@ -328,7 +447,7 @@ def test_metadata_frontend_browser_restores_page_after_small_top_bundle():
             page = await browser.new_page()
             site = FixtureSite(many_npia=True)
             await page.route("**/*", site.route)
-            await page.goto("http://metadata.test/#src=npia&page=2")
+            await page.goto("http://metadata.test/#src=npia&page=2&batch=30")
             await wait_loaded(page)
             assert "page 2 of 3" in await page.locator("#resultCount").inner_text()
             assert "page=2" in page.url
@@ -518,7 +637,7 @@ def test_description_preference_prevents_requests_and_persists():
             await page.goto("http://metadata.test/")
             await wait_loaded(page)
             assert not await page.locator('#loadDescriptions').is_checked()
-            assert not any('_top.json.gz' in url or 'descriptions_shard_' in url for url in site.requests)
+            assert not any('descriptions_shard_' in url for url in site.requests)
             assert await page.locator('.card-synopsis:visible').count() == 0
             await page.check('#loadDescriptions')
             await page.wait_for_selector('.card-synopsis')
@@ -529,7 +648,7 @@ def test_description_preference_prevents_requests_and_persists():
             await page.reload()
             await wait_loaded(page)
             assert not await page.locator('#loadDescriptions').is_checked()
-            assert not any('_top.json.gz' in url or 'descriptions_shard_' in url for url in site.requests)
+            assert not any('descriptions_shard_' in url for url in site.requests)
             await browser.close()
     asyncio.run(scenario())
 

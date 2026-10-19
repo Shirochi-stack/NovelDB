@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=16">
+    <link rel="stylesheet" href="style.css?v=17">
 </head>
 
 <body>
@@ -87,6 +87,7 @@
                 <div class="control-group">
                     <label>Per page</label>
                     <select id="batchSelect">
+                        <option value="100" selected>100</option>
                         <option value="30">30</option>
                         <option value="60">60</option>
                         <option value="120">120</option>
@@ -134,6 +135,7 @@
 
             <div class="status-bar">
                 <span id="resultCount">Loading...</span>
+                <button id="loadFullCatalog" class="page-btn" type="button" hidden>Load full catalog</button>
                 <details id="catalogDiagnostics" hidden style="margin-top: 0.5rem; overflow-wrap: anywhere">
                     <summary style="cursor: pointer">Catalog collection details</summary>
                     <ul></ul>
@@ -162,7 +164,7 @@
     </main>
 
     <script src="metadata-core.js?v=4"></script>
-    <script src="app.js?v=36"></script>
+    <script src="app.js?v=37"></script>
 </body>
 
 </html>
