@@ -221,16 +221,19 @@ class FixtureSite:
 
 async def wait_loaded(page):
     await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
-    # These existing scenarios exercise the complete catalog, rather than the
-    # lightweight landing rankings tested separately below.
-    if await page.locator('#loadFullCatalog').is_visible():
-        await page.locator('#loadFullCatalog').click()
-        await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
 
 
-def test_landing_top_100_stays_stable_and_search_loads_full_catalog():
+def test_landing_top_100_stays_stable_during_automatic_catalog_import():
     class TopSite(FixtureSite):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
         async def route(self, route):
+            path = urlsplit(route.request.url).path
+            if '_chunk_' in path and not '_manifest' in path:
+                self.started.set()
+                await self.release.wait()
             if urlsplit(route.request.url).path.endswith('/npia_top.json.gz'):
                 self.requests.append(route.request.url)
                 await route.fulfill(body=gzip.compress(json.dumps({
@@ -250,15 +253,21 @@ def test_landing_top_100_stays_stable_and_search_loads_full_catalog():
             await page.wait_for_function('document.querySelectorAll(".novel-card").length === 100')
             cards = page.locator('.novel-card')
             order = await cards.evaluate_all('(cards)=>cards.map(c=>c.dataset.novelId)')
+            await site.started.wait()
+            await page.evaluate("window.orderChanges=0;let previous=[...document.querySelectorAll('.novel-card')].map(c=>c.dataset.source+':'+c.dataset.novelId).join(',');new MutationObserver(()=>{const next=[...document.querySelectorAll('.novel-card')].map(c=>c.dataset.source+':'+c.dataset.novelId).join(',');if(next!==previous){orderChanges++;previous=next}}).observe(document.querySelector('#results'),{childList:true})")
             await page.wait_for_timeout(800)
             assert await cards.evaluate_all('(cards)=>cards.map(c=>c.dataset.novelId)') == order
-            assert not any('_chunk_' in url and not '_manifest' in url for url in site.requests)
             assert await page.locator('#sourceSelect').input_value() == 'all'
-            assert await page.locator('#loadFullCatalog').is_visible()
+            assert await page.locator('#loadFullCatalog').count() == 0
+            assert await page.evaluate('window.orderChanges') == 0
+            site.release.set()
+            await wait_loaded(page)
+            assert await page.locator('.novel-card').count() == 18
+            assert await page.evaluate('window.orderChanges') == 1
             await page.locator('#searchInput').fill('nweb')
             await page.wait_for_function('document.querySelector("#resultCount").textContent.includes("3 novel(s)")')
             assert any('nweb_chunk_0' in url for url in site.requests)
-            assert not await page.locator('#loadFullCatalog').is_visible()
+            assert await page.locator('#loadFullCatalog').count() == 0
             assert await page.locator('.novel-card').count() == 3
             await browser.close()
     asyncio.run(scenario())
@@ -288,7 +297,7 @@ def test_synopsis_failure_has_retry_and_empty_shard_has_unavailable_message():
             page = await browser.new_page()
             site = SynopsisSite()
             await page.route('**/*', site.route)
-            await page.goto('http://metadata.test/')
+            await page.goto('http://metadata.test/#src=npia')
             await page.get_by_text('Loading synopsis…', exact=True).wait_for()
             await page.get_by_role('button', name="Synopsis couldn't load. Tap to retry.").click()
             await page.get_by_text('Recovered synopsis', exact=False).wait_for()
@@ -318,9 +327,8 @@ def test_visible_synopsis_loads_while_full_catalog_is_still_pending():
             page = await browser.new_page()
             await page.route('**/*', SlowSite().route)
             await page.goto('http://metadata.test/')
-            await page.locator('#loadFullCatalog').click()
             await page.locator('.card-synopsis').wait_for()
-            assert 'Loading' in await page.locator('#resultCount').inner_text()
+            assert 'loading' in (await page.locator('#resultCount').inner_text()).lower()
             release.set()
             await wait_loaded(page)
             await browser.close()

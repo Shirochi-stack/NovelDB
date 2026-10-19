@@ -6133,7 +6133,9 @@
             return;
         }
         if (topPreview && needsFullCatalog()) {
+            if (options.resetPage !== false) { currentPage = 1; catalogRequestedPage = activeCatalogController ? 1 : null; }
             saveState();
+            if (activeCatalogController) return;
             loadSource(currentSource, true, true);
             return;
         }
@@ -6917,8 +6919,7 @@
                 workerRequests.clear(); catalogWorker?.terminate(); catalogWorker = null;
                 if (diskCatalog) {
                     diskCatalog = false; allNovels = filtered; topPreview = true;
-                    fullCatalogButton.hidden = false;
-                    resultCount.textContent = "Catalog search stopped. Load the full catalog to retry.";
+                    resultCount.textContent = "Catalog search stopped. Reload the page to retry.";
                 }
             };
         }
@@ -6956,14 +6957,11 @@
             if (focus) requestAnimationFrame(() => [...resultsEl.querySelectorAll('.novel-card')].find(c => c.dataset.novelId === focus.id && c.dataset.source === focus.source)?.scrollIntoView({block:"center",behavior:"smooth"}));
         } catch (error) {
             if (seq !== diskQuerySequence || error.name === "AbortError") return;
-            resultCount.textContent = "Catalog changed or search failed. Load the full catalog to retry.";
-            fullCatalogButton.hidden = false;
+            resultCount.textContent = "Catalog changed or search failed. Reload the page to retry.";
         }
     }
     let topPreview = false;
     let previewSort = "daily";
-    const fullCatalogButton = document.getElementById("loadFullCatalog");
-    fullCatalogButton.addEventListener("click", () => loadSource(currentSource, true, true));
 
     function needsFullCatalog() {
         return searchInput.value.trim() || activeAuthorFilter || andTags.size || orTags.size || excludeTags.size
@@ -7022,7 +7020,7 @@
     function catalogStatusSuffix() {
         const loading = [...catalogLoading.values()];
         const warnings = [...catalogWarnings];
-        return (topPreview ? " — Top 100 · search or load the full catalog for more" : "")
+        return (topPreview ? " — Top 100" : "")
             + (loading.length ? ` — loading ${loading.join(", ")}` : "")
             + (warnings.length ? ` — Partial results: ${warnings.join("; ")}` : "");
     }
@@ -7533,7 +7531,6 @@
         const isCurrent = () => !signal.aborted && activeCatalogController === controller;
         currentSource = source;
         topPreview = false;
-        fullCatalogButton.hidden = true;
         sourceSelect.value = source;
         updateSourceSortOptions();
         resetSynopsisRequests();
@@ -7590,8 +7587,8 @@
             }
             return novels;
         }
-        // A stable ranking bundle is sufficient for the landing page. The
-        // million-record catalog is fetched only when browsing/search needs it.
+        // Paint the ranking bundle once, then keep these cards in place while
+        // the complete catalog imports in the background.
         const previewSource = source === "all" ? "npia" : source;
         previewSort = sortSelect.value;
         if (!fullCatalog && !needsFullCatalog() && currentPage === 1
@@ -7609,15 +7606,12 @@
                     // Drop any previously retained full catalogs on returning
                     // to rankings, including on browsers without deviceMemory.
                     catalogState.clear();
+                    const requestedSources = selectedSources;
                     selectedSources = [previewSource];
                     addRecords(previewSource, top);
-                    catalogLoading.clear();
                     topPreview = true;
-                    fullCatalogButton.hidden = false;
-                    activeCatalogController = null;
                     publish();
-                    loadTagTranslations().then(() => { if (topPreview) buildTags(); });
-                    return;
+                    selectedSources = requestedSources;
                 }
             } catch (error) {
                 if (!isCurrent()) return;
@@ -7682,7 +7676,7 @@
             if (!successfulImports) throw new Error("No catalog could be imported");
             buildTags(); allNovels = []; filtered = [];
             addedRecords.clear(); removedRecords.clear();
-            diskCatalog = true; diskPageKey = "";
+            diskCatalog = true; topPreview = false; diskPageKey = "";
             if (catalogRequestedPage != null) currentPage = catalogRequestedPage;
             catalogRequestedPage = null; activeCatalogController = null;
             await queryDiskCatalog();
@@ -7694,8 +7688,7 @@
             allNovels = [...resultsEl.querySelectorAll('.novel-card')].map(c => c._record).filter(Boolean);
             filtered = allNovels; topPreview = allNovels.length > 0;
             diskTotal = 0; lastFilter = null; sortedKey = null;
-            resultCount.textContent = "Full catalog couldn't load. Check site storage/network access and try again.";
-            fullCatalogButton.hidden = false;
+            resultCount.textContent = "Full catalog couldn't load. Check site storage/network access and reload.";
             return;
         }
     }
