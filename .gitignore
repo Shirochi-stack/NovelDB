@@ -43,3 +43,6 @@ docs/data/nseries_*_untranslated.txt
 # GitLab disposable CI output
 /.gitlab-work/
 /artifacts/
+
+# Shared public author registry must remain available to rescrape workflows.
+!docs/data/npia_authors.json

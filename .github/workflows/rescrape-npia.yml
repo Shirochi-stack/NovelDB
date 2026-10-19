@@ -30,10 +30,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests beautifulsoup4
 
-      - name: Rescrape Npia catalog (no auth, preserves R19 data)
-        run: python scripts/rescrape_npia_noauth.py
+      - name: Rescrape Npia catalog and public R19 metadata (no auth)
+        run: python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-pages 200 --author-delay 2
 
       - name: Extract descriptions from full data
         run: python scripts/extract_descriptions.py
@@ -53,7 +53,11 @@ jobs:
       - name: Check for changes
         id: changes
         run: |
-          git diff --quiet docs/data/ && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+          if git diff --quiet docs/data/ && [ -z "$(git ls-files --others --exclude-standard -- docs/data/npia_public_state.json docs/data/npia_authors.json)" ]; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Commit and push
         if: steps.changes.outputs.changed == 'true'
@@ -61,7 +65,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           NOVEL_COUNT=$(python -c "import json; print(len(json.load(open('docs/data/novels.json'))))")
-          git add docs/data/novels.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_shard_*.json.gz docs/data/descriptions_shard_manifest.json docs/data/npia_chunk_*.json.gz docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz
+          git add docs/data/novels.json docs/data/npia_public_state.json docs/data/npia_authors.json docs/data/descriptions.txt docs/data/descriptions.txt.gz docs/data/descriptions_shard_*.json.gz docs/data/descriptions_shard_manifest.json docs/data/npia_chunk_*.json.gz docs/data/npia_chunk_manifest.json docs/data/npia_top.json.gz
           python scripts/codename_policy.py sanitize-data
+          python scripts/codename_policy.py check --commits
           git commit -m "🔄 Update Npia data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
           git push

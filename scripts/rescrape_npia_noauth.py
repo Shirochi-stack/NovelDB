@@ -18,8 +18,12 @@ Usage:
 
 try:
     from . import source_names
+    from .npia_public_metadata import enrich
+    from .metadata_common import atomic_json
 except ImportError:
     import source_names
+    from npia_public_metadata import enrich
+    from metadata_common import atomic_json
 
 
 import sys, os, json, time, re, argparse, requests
@@ -29,6 +33,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
 from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
+from npia_author_catalog import author_id, iter_author_pages
+import npia_author_registry as author_registry
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -102,13 +108,20 @@ def preserve_cover(fresh_cover, existing_site_cover="", existing_full_cover=""):
 def extract_novel(item):
     """Extract novel metadata dict from an API response item."""
     cover = pick_cover(item)
+    tags = item.get("novel_genre_arr") or item.get("novel_genre") or []
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except ValueError:
+            tags = []
     return {
         "id": item.get("novel_no"),
         "title": item.get("novel_name", ""),
         "synopsis": item.get("novel_story", ""),
         "author": item.get("writer_nick", ""),
         "cover": cover,
-        "tags": item.get("novel_genre_arr") or [],
+        "tags": tags if isinstance(tags, list) else [],
+        "author_id": author_id(item),
         "views": item.get("count_view", 0),
         "likes": item.get("count_good", 0),
         "chapters": item.get("count_book", 0),
@@ -225,6 +238,89 @@ def scrape_ranking(session, period, audience):
     return ranking
 
 
+def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, delay=2.0, now=None, existing=(), registry=None):
+    """Resume a bounded author sweep, retaining every completed metadata page."""
+    now = time.time() if now is None else now
+    pending = state.setdefault("author_pending", {})
+    checked = state.setdefault("author_checked", {})
+    compact = {str(row[0]): row for row in existing}
+    for novel in list(fresh.values()) + list(old_full.values()):
+        owner = author_id(novel)
+        if owner and owner not in pending and now - checked.get(owner, 0) >= 7 * 86400:
+            pending[owner] = 1
+    if registry is not None:
+        author_registry.observe(registry, list(old_full.values()) + list(fresh.values()), now)
+        for owner in registry["authors"]:
+            if owner not in pending and now - checked.get(owner, 0) >= 7 * 86400:
+                pending[owner] = 1
+    pages = updated = failed = completed = 0
+    for owner in list(pending):
+        if pages >= page_limit:
+            break
+        try:
+            for page, rows, more in iter_author_pages(session, owner, start_page=pending[owner],
+                                                     max_pages=page_limit - pages, delay=delay):
+                pages += 1
+                if registry is not None:
+                    entry = registry["authors"][owner]
+                    if page == 1:
+                        entry["catalog_novel_ids"] = []
+                    entry["catalog_status"] = "partial"
+                    entry["catalog_novel_ids"] = sorted(set(entry.get("catalog_novel_ids", [])) |
+                                                         {str(item["novel_no"]) for item in rows}, key=int)
+                    author_registry.observe(registry, rows, now)
+                for item in rows:
+                    nid = str(item["novel_no"])
+                    base = dict(old_full.get(nid) or {})
+                    row = compact.get(nid, [])
+                    for field, index in (("title", 1), ("author", 2), ("cover", 3), ("tags", 4),
+                                         ("views", 5), ("likes", 6), ("chapters", 7),
+                                         ("complete", 8), ("updated", 9), ("age", 11)):
+                        if len(row) > index:
+                            base.setdefault(field, row[index])
+                    base.update(fresh.get(nid, {}))
+                    patch = extract_novel(item)
+                    patch["author_id"] = owner
+                    # Missing fields are unknown, never erase previously known metadata.
+                    fields = {"novel_name": "title", "novel_story": "synopsis", "writer_nick": "author",
+                              "count_view": "views", "count_good": "likes", "count_book": "chapters",
+                              "is_complete": "complete", "novel_age": "age", "last_viewdate": "updated"}
+                    for wire, field in fields.items():
+                        if wire not in item or item[wire] is None or item[wire] == "":
+                            if field in base:
+                                patch[field] = base[field]
+                    for field in ("cover", "tags"):
+                        if not patch[field] and base.get(field):
+                            patch[field] = base[field]
+                    base.update(patch)
+                    fresh[nid] = base
+                    updated += 1
+                if more:
+                    pending[owner] = page + 1
+                else:
+                    del pending[owner]
+                    checked[owner] = now
+                    completed += 1
+                    if registry is not None:
+                        entry["catalog_status"] = "complete"
+                        entry["last_catalog_checked"] = now
+                        entry.pop("catalog_error", None)
+            print(f"Author catalogs: {completed} complete, {pages} pages, {updated} records updated", flush=True)
+        except Exception as exc:
+            pages += 1  # Failed requests also consume the run's request budget.
+            failed += 1
+            if registry is not None:
+                registry["authors"][owner]["catalog_status"] = "partial"
+                registry["authors"][owner]["catalog_error"] = type(exc).__name__
+            pending[owner] = pending.pop(owner)  # Retry after other queued authors next run.
+            print(f"Author {owner} PARTIAL; completed pages retained: {exc}", flush=True)
+            if "HTTP 429" in str(exc):
+                break
+    state["author_last_run"] = dict(pages=pages, updated=updated, completed=completed, failed=failed,
+                                    pending=len(pending))
+    return state
+
+
 def main():
     parser = argparse.ArgumentParser(description="Rescrape Npia catalog (no auth)")
     parser.add_argument("--dry-run", action="store_true",
@@ -235,11 +331,23 @@ def main():
                         help="Retries per search page")
     parser.add_argument("--search-delay", type=float, default=0.5,
                         help="Seconds to stagger parallel search submissions")
+    parser.add_argument("--r19-listing-pages", type=int, default=10)
+    parser.add_argument("--r19-detail-limit", type=int, default=200)
+    parser.add_argument("--r19-delay", type=float, default=2.0)
+    parser.add_argument("--author-pages", type=int, default=200,
+                        help="Maximum public author catalog requests per run; checkpoints resume next run")
+    parser.add_argument("--author-delay", type=float, default=2.0)
     args = parser.parse_args()
+    if min(args.r19_listing_pages, args.r19_detail_limit, args.r19_delay,
+           args.author_pages, args.author_delay) < 0:
+        parser.error("R19 request budgets and delay must be nonnegative")
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_path = os.path.join(base_dir, "docs", "data", "novels.json")
     full_path = os.path.join(base_dir, "docs", "data", "novels_full.json")
+    public_state_path = os.path.join(base_dir, "docs", "data", "npia_public_state.json")
+    registry_path = os.path.join(base_dir, "docs", "data", "npia_authors.json")
+    registry = author_registry.load(registry_path)
 
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -273,6 +381,8 @@ def main():
         f"\n--- Phase 2 complete: {len(fresh_novels)} total scraped novels "
         f"({sweep_total} raw sweep results, {sweep_new} new unique) ---\n"
     )
+    search_ids = set(fresh_novels)
+    author_registry.record_search(registry, fresh_novels.values())
 
     # ── Phase 3: Scrape rankings ─────────────────────────────────
     print("--- Scraping rankings ---")
@@ -320,6 +430,21 @@ def main():
                     old_full_lookup[oid] = entry
         except Exception as e:
             print(f"  Warning: Could not load old full data for cover preservation: {e}")
+
+    public_state = {}
+    author_registry.seed_catalog_names(registry, existing_data)
+    if os.path.exists(public_state_path):
+        with open(public_state_path, encoding="utf-8") as handle:
+            public_state = json.load(handle)
+    print("\n--- Refreshing public R19 metadata (no auth) ---", flush=True)
+    public_state = enrich(session, fresh_novels, existing_data, old_full_lookup, public_state,
+                          listing_pages=args.r19_listing_pages,
+                          detail_limit=args.r19_detail_limit, delay=args.r19_delay)
+    print("\n--- Checking public author catalogs (no auth) ---", flush=True)
+    public_state = enrich_author_catalogs(session, fresh_novels, old_full_lookup, public_state,
+                                          page_limit=args.author_pages, delay=args.author_delay,
+                                          existing=existing_data, registry=registry)
+    author_registry.report_coverage(registry, search_ids)
 
     # Build lookup: novel_id_str -> index in existing_data
     existing_lookup = {}
@@ -529,6 +654,8 @@ def main():
     with open(full_path, "w", encoding="utf-8") as f:
         source_names.dump(full_novels, f, ensure_ascii=False)
     print(f"Saved {full_path} ({os.path.getsize(full_path) / 1024 / 1024:.1f} MB)")
+    atomic_json(public_state_path, public_state)
+    author_registry.save(registry_path, registry)
 
 
 if __name__ == "__main__":

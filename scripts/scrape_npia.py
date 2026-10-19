@@ -22,6 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
 from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
+from npia_author_catalog import author_id
+import npia_author_registry as author_registry
+from scripts.rescrape_npia_noauth import enrich_author_catalogs
 
 from npia_auth import NpiaAuth
 from npia_search_terms import SEARCH_TAGS, SWEEP_CHARS
@@ -90,6 +93,7 @@ def extract_novel(item):
         "title": item.get("novel_name", ""),
         "synopsis": item.get("novel_story", ""),
         "author": item.get("writer_nick", ""),
+        "author_id": author_id(item),
         "cover": pick_cover(item),
         "tags": item.get("novel_genre_arr") or [],
         "views": item.get("count_view", 0),
@@ -290,7 +294,11 @@ def main():
                         help="Retries per search page")
     parser.add_argument("--search-delay", type=float, default=0.5,
                         help="Seconds to stagger parallel search submissions")
+    parser.add_argument("--author-pages", type=int, default=200)
+    parser.add_argument("--author-delay", type=float, default=2.0)
     args = parser.parse_args()
+    if min(args.author_pages, args.author_delay) < 0:
+        parser.error("Author request budgets and delay must be nonnegative")
 
     auth = NpiaAuth()
     with open('config.json', 'r') as f:
@@ -326,6 +334,19 @@ def main():
         f"({sweep_total} raw sweep results, {sweep_new} new unique) ---\n"
     )
 
+    registry_path = "docs/data/npia_authors.json"
+    state_path = "docs/data/npia_public_state.json"
+    registry = author_registry.load(registry_path)
+    author_registry.seed_catalog_names(registry, load_json_file("docs/data/novels.json", []))
+    author_registry.record_search(registry, novels_by_id.values())
+    search_ids = set(novels_by_id)
+    previous_full = {str(n["id"]): n for n in load_json_file("docs/data/novels_full.json", [])
+                     if isinstance(n, dict) and n.get("id") is not None}
+    public_state = load_json_file(state_path, {})
+    enrich_author_catalogs(auth.session, novels_by_id, previous_full, public_state,
+                          page_limit=args.author_pages, delay=args.author_delay,
+                          existing=load_json_file("docs/data/novels.json", []), registry=registry)
+    author_registry.report_coverage(registry, search_ids)
     novels = list(novels_by_id.values())
 
     # Phase 3: Scrape rankings per audience (all, adult, teen) × period (weekly, monthly, daily)
@@ -452,6 +473,8 @@ def main():
     print(f"\nFull: {len(novels)} novels -> {os.path.getsize(full_path) / 1024 / 1024:.1f} MB")
 
     write_json_file(opt_path, optimized, separators=(",", ":"))
+    write_json_file(state_path, public_state)
+    author_registry.save(registry_path, registry)
 
     print(f"Site: {len(optimized)} novels -> {os.path.getsize(opt_path) / 1024 / 1024:.1f} MB")
 
