@@ -32,8 +32,8 @@ def discover(session, state, *, max_requests=6, delay=2.0, stopped=lambda: False
             raise ValueError(f"public intro HTTP {response.status_code}")
         return response
 
-    try:
-        response = request("get", "/intro/megabox") if max_requests else None
+    def read_cards(path):
+        response = request("get", path)
         if response is None:
             return []
         soup = BeautifulSoup(response.text, "html.parser")
@@ -71,6 +71,20 @@ def discover(session, state, *, max_requests=6, delay=2.0, stopped=lambda: False
             if owner:
                 row["mem_no"] = owner
 
+        return initial_ids
+
+    # The default list has different seeds and no working pagination.
+    # Fetch it before campaign pagination can consume the shared request budget.
+    try:
+        read_cards("/intro")
+    except Exception as exc:
+        failures += 1
+        log(f"Public intro default PARTIAL; discoveries retained: {type(exc).__name__}: {exc}")
+
+    try:
+        initial_ids = read_cards("/intro/megabox")
+        if not initial_ids:
+            return list(found.values())
         excluded = list(dict.fromkeys(checkpoint.get("excluded_ids", []) + initial_ids))
         page = max(2, int(checkpoint.get("page", 2)))
         checkpoint.update(page=page, excluded_ids=excluded)
