@@ -319,3 +319,31 @@ Each catalog checkpoint now records its page size. Old or incompatible positions
 restart at page one, including cursor scans whose consumed-row checks depend on
 batch size. Collected records, translations and pending detail requests remain
 available. Checkpoints already using 100-record batches resume normally.
+
+
+## Mpia bulk search enrichment
+
+Catalog runs first collect anonymous search metadata for three verified broad
+terms: 판타지, 무협 and 로맨스. Responses contain up to 200 works with descriptions,
+tags, genres, authors, covers, episode counts, views and update dates. Each search
+is bounded to 200 pages. Search requires a term and is not complete catalog
+discovery; the public discovery list still runs afterward for uncovered works.
+Missing descriptions and failed search batches fall back to ordinary details.
+Repeated search pages are rejected while earlier successful batches survive.
+Completed search-page keys, including terminal-page markers, persist per scan
+so interrupted runs skip already merged batches without repeatedly querying EOF.
+
+Search observations never invent likes, favorites or other detail-only fields.
+Previously collected counters remain cached, and unknown counters remain unknown.
+Bulk timestamps do not replace successful full-detail timestamps. Recently bulk-
+enriched works avoid redundant detail requests, while normal monthly full-detail
+refreshes still fill missing fields and update cached counters. A batch-only work
+receives its first full detail refresh when its existing first-seen age reaches
+30 days. Changed catalog titles/authors and uncovered works retain detail checks.
+
+Discovery pages now request 100 records rather than 40, reducing catalog-page
+calls by about 60 percent. Legacy page positions restart at page zero after the
+batch-size change; collected records, translations and pending details survive.
+New 100-record checkpoints resume normally. Mpia request starts default to two
+seconds apart, including native rankings. Bulk lookup coverage does not establish
+an exhaustive catalog baseline by itself.

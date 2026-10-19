@@ -79,7 +79,7 @@ def test_catalog_uses_observed_novel_title_shape_and_pagination_only():
     assert page.next_page == 1
     assert page.records == [{"id": "603016", "title": "무림맹 묘지기", "author": "HADAL",
                             "canonical_url": "https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com/novel/detail/603016", "tier": None}]
-    assert client.calls[0][1]["size"] == 40
+    assert client.calls[0][1]["size"] == 100
     assert client.calls[0][1]["adultMode"] == "false"
     assert "views" not in page.records[0]
     client.response["result"]["hasNext"] = False
