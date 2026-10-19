@@ -6055,7 +6055,7 @@
 
     // === Rank helper: picks the right rank field based on audience ===
     function getRank(novel, type) {
-        return metadata.rankValue(novel, type, audienceSelect.value);
+        return metadata.rankValue(novel, type, audienceSelect.value, currentSource);
     }
 
     // === Filter & Sort ===
@@ -6070,7 +6070,7 @@
 
     function ensureSorted() {
         const options = sortOptions();
-        const key = `${options.sortBy}|${options.order}|${options.audience}`;
+        const key = `${options.sortBy}|${options.order}|${options.audience}|${options.defaultSource}`;
         if (sortedKey === key) return;
         metadata.sortRecords(allNovels, options);
         sortedKey = key;
@@ -6280,7 +6280,8 @@
                 || n.popularityRank || n.bestSellerRank || n.newBooksRank || n.bookmarksRank || n.jpRank || n.ticketRank
                 || Object.values(n.rankings || {})[0];
         }
-        const rankKey = sortBy.startsWith(`rank:${novelSource}:`) ? sortBy.slice(`rank:${novelSource}:`.length) : Object.keys(n.rankings || {})[0];
+        const rankKey = sortBy.startsWith(`rank:${novelSource}:`) ? sortBy.slice(`rank:${novelSource}:`.length)
+            : metadata.periodRank(n, sortBy)?.board || Object.keys(n.rankings || {})[0];
         const rankInfo = cfg.boards?.[rankKey];
         const rankTitle = rankInfo ? `${rankInfo.label}${rankInfo.observed_at ? ` — ${rankInfo.observed_at}` : ""}${rankInfo.stale ? " (last known ranking)" : ""}` : "";
         const rankBadge = displayRank ? `<span class="card-badge badge-rank" title="${escHtml(rankTitle)}">#${displayRank}</span>` : "";
@@ -6953,6 +6954,31 @@
             option.textContent = `${source === "nweb" ? "Nweb" : SOURCES[source].label}: ${label}${board.stale ? " *" : ""}`;
             option.title = `${board.label} — ${board.observed_at || "Unknown observation time"}${board.stale ? " (last known)" : ""}`;
         }
+        if (currentSource === source) updateSourceSortOptions();
+    }
+
+    function updateSourceSortOptions() {
+        const periods = metadata.supportedPeriods(currentSource);
+        for (const option of sortSelect.options) {
+            if (["daily", "weekly", "monthly"].includes(option.value)) {
+                option.disabled = !periods.includes(option.value);
+                const label = option.value[0].toUpperCase() + option.value.slice(1);
+                const grouped = ["nweb", "rbooks", "mpia"].includes(currentSource);
+                option.textContent = `${label} Rank${option.disabled ? " (unavailable)" : grouped ? " (by board)" : ""}`;
+                option.title = option.disabled ? "This period is not available for the selected source"
+                    : grouped ? "Uses the best position on the source's matching boards; badge details identify the board"
+                    : currentSource === "all" ? "Npia rankings take priority" : "Uses this source's rankings";
+            }
+            if (option.value.startsWith("rank:")) option.hidden = currentSource !== "all" && option.value.split(":")[1] !== currentSource;
+            if (option.value.startsWith("sfc_")) option.hidden = !["all", "sfc"].includes(currentSource);
+        }
+        const chosen = sortSelect.selectedOptions[0];
+        if (chosen?.disabled || chosen?.hidden) {
+            const native = Object.keys(SOURCES[currentSource]?.boards || {})[0];
+            sortSelect.value = periods[0] || (currentSource === "sfc" ? "sfc_popularity"
+                : native ? `rank:${currentSource}:${native}` : "updated");
+        }
+        sortedKey = null;
     }
 
     async function ensureSourceConfig(source) {
@@ -7539,6 +7565,7 @@
         const isCurrent = () => !signal.aborted && activeCatalogController === controller;
         currentSource = source;
         sourceSelect.value = source;
+        updateSourceSortOptions();
         lastCatalogProgressAt = performance.now();
         resetSynopsisRequests();
         coverObserver?.disconnect();
@@ -7808,7 +7835,10 @@
         const source = params.src && SOURCES[params.src] ? params.src : "all";
         sourceSelect.value = source;
         if (source !== currentSource) loadSource(source, true);
-        else applyFilters({ resetPage: false, saveState: false });
+        else {
+            updateSourceSortOptions();
+            applyFilters({ resetPage: false, saveState: false });
+        }
     }
 
     function restoreState() {

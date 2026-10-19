@@ -155,8 +155,34 @@
                 scale: key === "rating" ? nullableNumber(metrics.rating_scale) : null }));
     }
 
-    function rankValue(novel, type, audience) {
+    function periodBoard(source, key, period) {
+        if (source === "jara") return key === `all_${period === "daily" ? "today" : period}`;
+        if (source === "nweb") return new RegExp(`^best_\\d+_${period}_(free|paid)$`).test(key);
+        if (source === "rbooks") return new RegExp(`^\\d+_${period}$`).test(key);
+        if (source === "mpia") return period === "daily" && ["TODAY_BEST", "PLATINUM_TODAY_BEST"].includes(key);
+        return false;
+    }
+
+    function periodRank(novel, period) {
+        const entries = Object.entries(novel.rankings || {}).filter(([key, rank]) =>
+            periodBoard(novel.source, key, period) && Number.isInteger(rank) && rank > 0);
+        entries.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+        return entries.length ? { board: entries[0][0], rank: entries[0][1] } : null;
+    }
+
+    function supportedPeriods(source) {
+        return ({ all: ["daily", "weekly", "monthly"], npia: ["daily", "weekly", "monthly"],
+            nweb: ["daily", "weekly"], jara: ["daily", "weekly", "monthly"],
+            mpia: ["daily"], rbooks: ["weekly", "monthly"] })[source] || [];
+    }
+
+    function rankValue(novel, type, audience, selectedSource) {
         if (type.startsWith("rank:")) return nativeRank(novel, type);
+        if (["daily", "weekly", "monthly"].includes(type)) {
+            if (selectedSource === "all" && novel.source !== "npia") return 0;
+            const native = periodRank(novel, type);
+            if (native) return native.rank;
+        }
         if (type === "sfc_popularity") return novel.popularityRank || 0;
         if (type === "sfc_bestseller") return novel.bestSellerRank || 0;
         if (type === "sfc_newbooks") return novel.newBooksRank || 0;
@@ -164,11 +190,11 @@
         if (type === "sfc_jp") return novel.jpRank || 0;
         if (type === "sfc_ticket") return novel.ticketRank || 0;
         // all → all ranks; general → teen ranks; adult → adult ranks; r15 → all ranks.
-        if (audience === "adult") {
+        if (audience === "adult" && novel.source === "npia") {
             if (type === "weekly") return novel.weeklyRankAdult;
             if (type === "monthly") return novel.monthlyRankAdult;
             if (type === "daily") return novel.dailyRankAdult;
-        } else if (audience === "general") {
+        } else if (audience === "general" && novel.source === "npia") {
             if (type === "weekly") return novel.weeklyRankTeen;
             if (type === "monthly") return novel.monthlyRankTeen;
             if (type === "daily") return novel.dailyRankTeen;
@@ -206,6 +232,13 @@
             return [{ get: (novel) => nullableNumber(novel.metrics?.[metric]), dir, nullsLast: true }];
         }
         if (RANK_SORTS.has(sortBy)) {
+            if (["daily", "weekly", "monthly"].includes(sortBy) && defaultSource) {
+                return [
+                    { get: (novel) => rankValue(novel, sortBy, audience, defaultSource) || null, dir: -dir, nullsLast: true },
+                    { get: (novel) => defaultSource === "all" && novel.source === "npia" ? 0 : 1, dir: 1, nullsLast: false },
+                    { get: (novel) => novel.title, dir: 1, nullsLast: true, text: "collate" },
+                ];
+            }
             // Unranked novels sort after ranked ones, then the board's own
             // platform comes first, then views break remaining ties.
             const preferred = sortBy.startsWith("sfc_") ? "sfc" : "npia";
@@ -339,6 +372,6 @@
     }
 
     return { nullableNumber, identity, mergeRecords, safeHttpUrl, safeCoverUrl, parseRows, matchesStatus,
-        matchesAudience, compareNullable, nativeRank, rankValue, sortPlan, recordComparator, sortRecords,
+        matchesAudience, compareNullable, nativeRank, rankValue, periodRank, supportedPeriods, sortPlan, recordComparator, sortRecords,
         mergeSortedRecords, metricEntries, manifestConfig };
 });
