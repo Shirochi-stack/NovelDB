@@ -13,11 +13,13 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 try:
+    from .nweb_collection_policy import IncrementalPolicy
     from .metadata_common import (
         BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult,
         run_cli, source_date, utc_now,
     )
 except ImportError:  # Direct ``python scripts/scrape_nweb.py`` invocation.
+    from nweb_collection_policy import IncrementalPolicy
     from metadata_common import (
         BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult,
         run_cli, source_date, utc_now,
@@ -300,7 +302,62 @@ def parse_ranking(html, genre, period, observed_at):
     return results
 
 
-class NwebAdapter:
+def parse_bulk(payload, tier, key):
+    """Validate a public batch before exposing any of its records to the runner."""
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid Nweb bulk response")
+    keys = ("age10List", "age20List", "age30List", "age40List") if key == "age" else (key,)
+    records = {}
+    for list_key in keys:
+        rows = payload.get(list_key)
+        if not isinstance(rows, list):
+            raise ValueError("Missing Nweb bulk list")
+        for row in rows:
+            if (not isinstance(row, dict) or not re.fullmatch(r"[1-9]\d*", str(row.get("novelId", "")))
+                    or row.get("novelTypeCode") != tier.upper()
+                    or not isinstance(row.get("novelTitle"), str) or not row["novelTitle"].strip()):
+                raise ValueError("Invalid Nweb bulk identity")
+            if row.get("deleteYn") == "Y" or row.get("serviceStatusCode") not in (None, "Y"):
+                continue
+            synopsis = row.get("synopsisContent")
+            if not isinstance(synopsis, str) or not synopsis.strip():
+                continue  # The ordinary catalog/detail path can enrich this work.
+            ident = str(row["novelId"])
+            authors = row.get("authorNicknameList")
+            if not isinstance(authors, str):
+                raise ValueError("Invalid Nweb bulk author")
+            updated = row.get("volumeUpdateYmdt")
+            if updated:
+                try:
+                    updated = datetime.strptime(updated, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST).isoformat()
+                except (ValueError, TypeError):
+                    updated = None
+            genre = row.get("genreName")
+            genres = [genre] if isinstance(genre, str) and genre else []
+            keywords = row.get("hashtagList")
+            keywords = [v.lstrip("#") for v in keywords if isinstance(v, str)] if isinstance(keywords, list) else []
+            def count(name):
+                value = row.get(name)
+                return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value < float("inf") else None
+            cover = row.get("representImageUrl") or row.get("coverImageUrl")
+            cover = cover + ("&" if "?" in cover else "?") + "type=f280_224_2" if isinstance(cover, str) and cover else None
+            records[ident] = {
+                "id": ident, "title": row["novelTitle"].strip(), "author": authors,
+                "contributors": [{"name": authors, "role": "author"}] if authors else [],
+                "tier": tier, "canonical_url": f"{BASE}/{tier}/list?novelId={ident}",
+                "synopsis": synopsis.strip(), "genres": genres, "keywords": keywords,
+                "tags": list(dict.fromkeys(genres + keywords)), "cover": cover,
+                "episodes": count("totalVolumeCount"), "views": count("readCountSum"),
+                "likes": count("likeCount"), "complete": 1 if row.get("terminationYn") == "Y" else None,
+                "updated": updated,
+                "source_dates": {"updated": source_date(row["volumeUpdateYmdt"])} if updated else {},
+                "metrics": {"favorites": count("concernCount"), "rating": count("starScoreTotalAverage"),
+                            "rating_scale": 10},
+            }
+    return list(records.values())
+
+
+class NwebAdapter(IncrementalPolicy):
     source = "nweb"
     label = "Nweb"
     # Favorites and ratings come from every catalog page; only these listing
@@ -309,6 +366,26 @@ class NwebAdapter:
     detail_refresh_days = 90
     detail_version = 2  # Version 2 records the newest episode date.
     resolves_skipped_rows = True
+
+    def bulk_metadata(self, client, *, skip_keys=()):
+        skipped = set(skip_keys)
+        requests = [(tier, "age", "agePopularListJson", {"genderTypeCode": "ALL"})
+                    for tier in ("challenge", "best")]
+        requests += [("challenge", "challengeNovelRankingList", "genreRankingListJson", {"genre": genre})
+                     for genre in (*RANKING_GENRES, "111")]
+        requests += [("best", "costRankingList", "genreCostRankingListJson", {"genre": genre})
+                     for genre in RANKING_GENRES]
+        for tier, field, path, params in requests:
+            key = f"{tier}:{path}:{urlencode(params)}"
+            if key in skipped:
+                continue
+            try:
+                payload = client.get_json(f"{BASE}/{tier}/{path}", params=params)
+                yield key, parse_bulk(payload, tier, field), None
+            except BudgetExceeded:
+                raise
+            except (FetchError, ValueError, TypeError) as error:
+                yield key, [], f"Nweb bulk metadata failed ({type(error).__name__})"
 
     @staticmethod
     def is_allowed_url(url):
@@ -319,6 +396,12 @@ class NwebAdapter:
             return False
         if parsed.scheme != "https" or parsed.hostname != "novel.\u006e\u0061\u0076\u0065\u0072.com" or parsed.username is not None or port not in (None, 443):
             return False
+        if re.fullmatch(r"/(challenge|best)/agePopularListJson", parsed.path):
+            return not parsed.query or parse_qs(parsed.query, keep_blank_values=True) == {"genderTypeCode": ["ALL"]}
+        if re.fullmatch(r"/(challenge/genreRankingListJson|best/genreCostRankingListJson)", parsed.path):
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            return not parsed.query or (set(query) == {"genre"} and len(query["genre"]) == 1
+                                        and query["genre"][0] in {*RANKING_GENRES, "111"})
         if not re.fullmatch(r"/(challenge|best|webnovel)/(genre|genreMain|list|ranking)", parsed.path):
             return False
         return set(parse_qs(parsed.query, keep_blank_values=True)).issubset({"genre", "order", "finish", "page", "novelId", "periodType"})

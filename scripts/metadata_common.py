@@ -695,14 +695,52 @@ def run_source(adapter, args, *, client=None):
     try:
         if args.mode != "rankings":
             if not args.resume or progress.get("pass_complete") or progress.pop("pass_exhausted", False):
+                if args.mode == "catalog" and hasattr(adapter, "begin_catalog"):
+                    adapter.begin_catalog(state)
                 progress["partitions"] = {}
                 progress["pass_started_at"] = utc_now()
                 progress["scan_id"] = uuid4().hex
                 progress.pop("ranking_pass", None)
+                progress.pop("bulk_completed", None)
             progress["pass_complete"] = False
             progress["phase"] = "discovery"
             coverage["catalog"]["started"] = True
+            if args.mode == "catalog" and hasattr(adapter, "prepare_collection"):
+                adapter.prepare_collection(state)
             checkpoint(force=True)
+            if args.mode == "catalog" and hasattr(adapter, "bulk_metadata"):
+                completed = progress.setdefault("bulk_completed", [])
+                bulk = coverage.setdefault("bulk", {"successful_batches": 0, "records": 0, "errors": []})
+                for key, items, error in adapter.bulk_metadata(client, skip_keys=completed):
+                    if error:
+                        bulk["errors"].append({"batch": key, "error": error})
+                        log(error + "; continuing with ordinary catalog discovery")
+                        continue
+                    for item in items:
+                        old = state["records"].get(str(item["id"]), {})
+                        fingerprint = listing_fingerprint(item, detail_fields)
+                        # Batch responses may omit keywords; keep previously verified ones.
+                        if not item.get("keywords") and old.get("keywords"):
+                            item = {**item, "keywords": old["keywords"],
+                                    "tags": list(dict.fromkeys(item.get("genres", []) + old["keywords"]))}
+                        record = merge_record(state, item)
+                        record.update(detail_listing_fingerprint=fingerprint,
+                                      listing_fingerprint=fingerprint, detail_version=detail_policy["version"],
+                                      bulk_metadata_at=utc_now())
+                        refresh = needs_detail(record, fingerprint, **detail_policy)
+                        if hasattr(adapter, "detail_needed"):
+                            refresh = adapter.detail_needed(record, record, refresh)
+                        if refresh:
+                            pending[str(item["id"])] = None
+                        else:
+                            pending.pop(str(item["id"]), None)
+                        observed.add(str(item["id"]))
+                    completed.append(key)
+                    bulk["successful_batches"] += 1
+                    bulk["records"] += len(items)
+                    advanced(max(1, len(items)))
+                    checkpoint()
+                log(f"Bulk metadata: {bulk['records']} rows in {bulk['successful_batches']} batches")
             if args.mode == "catalog" and detail_policy["version"] is not None:
                 queued = queue_detail_version()
                 if queued:
@@ -776,6 +814,8 @@ def run_source(adapter, args, *, client=None):
                         checkpoint()
                         continue
                     page_signatures.add(signature)
+                    stop_window = bool(args.mode == "catalog" and hasattr(adapter, "observe_catalog_page")
+                                       and adapter.observe_catalog_page(state, partition, cursor, page, result))
                     before_count = len(state["records"])
                     for item, ident in zip(result.records, ids):
                         fingerprint = listing_fingerprint(item, detail_fields)
@@ -788,6 +828,8 @@ def run_source(adapter, args, *, client=None):
                             # re-requesting every work once.
                             old["detail_listing_fingerprint"] = fingerprint
                         refresh = needs_detail(old, fingerprint, **detail_policy)
+                        if hasattr(adapter, "detail_needed"):
+                            refresh = adapter.detail_needed(old, item, refresh)
                         enriched = bool(item.get("_detail_complete"))
                         observation = item
                         if not enriched and old.get("synopsis") and old.get("history", {}).get("last_success"):
@@ -827,6 +869,9 @@ def run_source(adapter, args, *, client=None):
                         cursor["overlap_checked_for"] = overlap_for
                     if result.next_page is None:
                         cursor["complete"] = True
+                    elif stop_window:
+                        cursor.update(complete=True, coverage_complete=False, stop_reason="unchanged_window")
+                        log(f"Catalog {key}: unchanged window reached; periodic full audit retains older coverage")
                     elif not isinstance(result.next_page, int) or result.next_page <= page:
                         cursor["error"] = "Non-advancing catalog pagination"
                         cursor["error_page"] = page
@@ -919,7 +964,15 @@ def run_source(adapter, args, *, client=None):
                                          else coverage.get("rankings_complete")) and not pending)
         coverage["has_complete_baseline"] = bool(previous_baseline or (coverage["complete"] and args.mode == "catalog"))
         if args.mode == "catalog":
-            progress["pass_complete"] = coverage["complete"]
+            settled = False
+            if hasattr(adapter, "finish_catalog_pass"):
+                settled = adapter.finish_catalog_pass(state, bool(
+                    not had_budget and not coverage["errors"] and not pending
+                    and coverage.get("rankings_complete")
+                    and progress.get("partitions")
+                    and all(c.get("complete") and not c.get("error") for c in progress["partitions"].values())
+                    and not catalog_coverage(progress["partitions"], state["records"])["skipped_rows"]))
+            progress["pass_complete"] = coverage["complete"] or settled
             finished = progress.get("partitions") or {}
             # Every partition finished, nothing was cut short or left pending,
             # this run scanned and enriched nothing and no board needs a retry,
@@ -993,7 +1046,7 @@ def resolve_args(adapter, argv=None):
     parser = make_parser(adapter)
     args = parser.parse_args(argv)
     sample = args.mode == "sample"
-    defaults = {"workers": 1 if sample else 4, "delay": 2.0 if sample else 0.5, "retries": 4,
+    defaults = {"workers": 1 if sample else 4, "delay": getattr(adapter, "default_delay", 2.0 if sample else 0.5), "retries": 4,
                 "max_runtime": 300 if sample else 18000, "max_pages": 2 if sample else None,
                 "max_details": 5 if sample else None, "max_requests": 20 if sample else None}
     for key, value in defaults.items():

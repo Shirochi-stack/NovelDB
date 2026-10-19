@@ -272,3 +272,35 @@ python scripts/metadata_pipeline.py run --source nseries --mode sample --output-
 ```
 
 Live validation used staging only; no production catalog or translation API was changed.
+
+
+## Nweb collection efficiency
+
+Nweb catalog runs now fetch public recommendation JSON batches before walking
+catalogs. The age-group responses contain overlapping lists, so records are
+merged by ID. Genre selections supply additional full synopses, authors, episode
+counts, update dates and counters. These endpoints expose selected works; they
+are not exhaustive catalogs. Failed batches fall back to ordinary catalog and
+detail collection. Successful batch keys are saved per scan and skipped on resume.
+Batch observations preserve existing keywords and do not claim a successful full
+HTML detail refresh when the batch did not load those fields.
+
+With a complete baseline, routine scans stop a partition after three consecutive
+pages whose listing fingerprints are unchanged. New IDs, changed rows and missing
+synopses reset that window. An overlap page read during resume is not counted
+twice. Such a pass retains the historical baseline, reports partial discovery,
+and finishes without repeatedly resuming an intentionally stopped partition.
+A full audit traverses every partition when due, 28 days after its previous
+successful audit; the first run without a baseline is always full. Existing
+baselines are adopted using the prior pass start as the initial audit anchor.
+The audit date advances only after a successful complete scan and enrichment.
+Older edits and tier changes can therefore wait until the next audit.
+
+Nweb request starts default to two seconds apart. Listing counters update without
+requesting a detail page. Existing full descriptions have a seven-day cooldown
+for episode-count or cover-only changes; title, author, completion and tier changes,
+missing descriptions, failures and parser-version changes retain prompt detail
+checks. Full details retain a 90-day refresh interval. Bulk-only works receive
+missing detail fields during a full audit; a batch timestamp never replaces the
+last successful full-detail timestamp. Other sources retain their existing pacing
+and collection policies.
