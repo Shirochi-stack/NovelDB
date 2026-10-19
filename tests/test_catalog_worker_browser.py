@@ -31,7 +31,9 @@ def test_worker_deep_pages_filters_literal_search_and_small_page_cache():
 
     class Site(FixtureSite):
         async def route(self, route):
-            if urlsplit(route.request.url).path == '/data/test_chunk.json.gz':
+            if urlsplit(route.request.url).path == '/':
+                await route.fulfill(body='<html><body>Worker test</body></html>',content_type='text/html')
+            elif urlsplit(route.request.url).path == '/data/test_chunk.json.gz':
                 await route.fulfill(body=gzip.compress(json.dumps({'novels': novels,
                     'translations': {'1': 'Translated special title'}}).encode()), content_type='application/gzip', headers={'etag': 'fixture-v1'})
             else:
@@ -91,7 +93,9 @@ def test_worker_cache_validator_refresh_and_failed_import_is_atomic():
         etag = 'v1'
         payload = {'novels': [row('npia', 7), row('npia', 8)]}
         async def route(self, route):
-            if urlsplit(route.request.url).path == '/data/test_chunk.json.gz':
+            if urlsplit(route.request.url).path == '/':
+                await route.fulfill(body='<html><body>Worker test</body></html>',content_type='text/html')
+            elif urlsplit(route.request.url).path == '/data/test_chunk.json.gz':
                 await route.fulfill(body=gzip.compress(json.dumps(self.payload).encode()), content_type='application/gzip', headers={'etag': self.etag})
             else:
                 await super().route(route)
@@ -123,7 +127,7 @@ def test_worker_cache_validator_refresh_and_failed_import_is_atomic():
     asyncio.run(scenario())
 
 
-def test_blocked_storage_keeps_top_cards_and_offers_retry():
+def test_blocked_storage_keeps_top_cards_and_explains_recovery():
     class BlockedSite(FixtureSite):
         async def route(self, route):
             if urlsplit(route.request.url).path == '/catalog-worker.js':
@@ -137,9 +141,8 @@ def test_blocked_storage_keeps_top_cards_and_offers_retry():
             page = await browser.new_page()
             await page.route('**/*',BlockedSite().route)
             await page.goto('http://metadata.test/')
-            await page.locator('#loadFullCatalog').click()
-            await page.get_by_text("Full catalog couldn't load. Check site storage/network access and try again.",exact=True).wait_for()
+            await page.get_by_text("Full catalog couldn't load. Check site storage/network access and reload.",exact=True).wait_for()
             assert await page.locator('.novel-card').count() == 1
-            assert await page.locator('#loadFullCatalog').is_visible()
+            assert await page.locator('#loadFullCatalog').count() == 0
             await browser.close()
     asyncio.run(scenario())
