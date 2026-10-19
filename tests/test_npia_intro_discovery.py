@@ -30,6 +30,8 @@ class Session:
 
     def get(self, url, **kwargs):
         self.gets.append(url)
+        if url.endswith("/intro"):
+            return response('<div class="intro-item" data-novel_no="2" data-novel_age="0"></div>')
         return response(HTML if url.endswith("/intro/megabox") else DETAIL)
 
     def post(self, url, **kwargs):
@@ -48,17 +50,17 @@ def test_public_discovery_resolves_initial_author_and_paginates():
     assert rows[0]["mem_no"] == "466"
     assert session.posts[0]["page"] == 2 and session.posts[1]["page"] == 3
     assert session.posts[0]["novel_no_arr[]"] == ["610", "1"]
-    assert state["intro"]["last_run"] == dict(requests=4, r19_novels=2, failed=0)
+    assert state["intro"]["last_run"] == dict(requests=5, r19_novels=2, failed=0)
 
 
 def test_budget_and_checkpoint_resume_without_refetching_author():
     state = {}
     first = Session([[dict(novel_no=99, novel_age=19, mem_no=88)]])
-    intro.discover(first, state, delay=0, max_requests=3)
+    intro.discover(first, state, delay=0, max_requests=4)
     assert state["intro"]["page"] == 3
     second = Session([[]])
     intro.discover(second, state, delay=0)
-    assert len(second.gets) == 1
+    assert len(second.gets) == 2
     assert second.posts[0]["page"] == 3 and "99" in second.posts[0]["novel_no_arr[]"]
 
 
@@ -143,4 +145,57 @@ def test_metadata_workflow_discovers_and_prioritizes_intro_authors(tmp_path, mon
     assert {n["id"] for n in novels} == {610, 99}
     assert all(n["synopsis"] == "Synopsis" for n in novels)
     checkpoint = json.loads((data / "npia_public_state.json").read_text(encoding="utf-8"))
-    assert checkpoint["intro"]["last_run"]["requests"] == 4
+    assert checkpoint["intro"]["last_run"]["requests"] == 5
+
+
+def test_default_list_discovers_another_author_within_shared_budget():
+    class DefaultSession(Session):
+        def get(self, url, **kwargs):
+            if url.endswith("/intro"):
+                self.gets.append(url)
+                return response(HTML.replace('610', '116'))
+            if url.endswith("/novel/116"):
+                self.gets.append(url)
+                return response(DETAIL.replace('610', '116').replace('466', '2063'))
+            return super().get(url, **kwargs)
+
+    session = DefaultSession([[dict(novel_no=99, novel_age=19, mem_no=88)], []])
+    state = {}
+    rows = intro.discover(session, state, delay=0)
+    assert {r["novel_no"] for r in rows} == {116, 610, 99}
+    assert next(r for r in rows if r["novel_no"] == 116)["mem_no"] == "2063"
+    assert state["intro"]["resolved_authors"]["116"] == "2063"
+    assert state["intro"]["last_run"]["requests"] == 6
+    assert all(p["cate"] == "megabox" for p in session.posts)
+
+
+def test_default_failure_does_not_block_campaign():
+    class BrokenDefault(Session):
+        def get(self, url, **kwargs):
+            if url.endswith("/intro"):
+                self.gets.append(url)
+                raise TimeoutError("default unavailable")
+            return super().get(url, **kwargs)
+
+    state = {}
+    rows = intro.discover(BrokenDefault([[]]), state, delay=0)
+    assert {r["novel_no"] for r in rows} == {610}
+    assert rows[0]["mem_no"] == "466"
+    assert state["intro"]["last_run"]["failed"] == 1
+
+
+def test_campaign_failure_retains_default_discovery():
+    class BrokenCampaign(Session):
+        def get(self, url, **kwargs):
+            if url.endswith("/intro"):
+                self.gets.append(url)
+                return response(HTML)
+            if url.endswith("/intro/megabox"):
+                self.gets.append(url)
+                raise TimeoutError("campaign unavailable")
+            return super().get(url, **kwargs)
+
+    state = {}
+    rows = intro.discover(BrokenCampaign([]), state, delay=0)
+    assert rows[0]["mem_no"] == "466"
+    assert state["intro"]["last_run"]["failed"] == 1
