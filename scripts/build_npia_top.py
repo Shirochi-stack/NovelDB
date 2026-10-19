@@ -10,8 +10,10 @@ Usage:
 
 try:
     from . import source_names
+    from .metadata_common import atomic_bytes
 except ImportError:
     import source_names
+    from metadata_common import atomic_bytes
 
 
 import json, gzip, os, sys
@@ -98,8 +100,9 @@ def main():
     # Write as gzipped JSON
     raw = source_names.dumps(output, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     gz = gzip.compress(raw, compresslevel=9, mtime=0)
-    with open(output_path, "wb") as f:
-        f.write(gz)
+    # Replace only after the complete gzip has been written and closed.
+    # This also avoids opening the existing output for in-place truncation.
+    atomic_bytes(output_path, gz)
 
     # Remove old uncompressed file if it exists
     old_path = os.path.join(base_dir, "npia_top.json")

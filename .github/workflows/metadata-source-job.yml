@@ -36,7 +36,7 @@ on:
         default: ''
       model:
         type: string
-        default: gpt-6-luna
+        default: claude-haiku-5-5
       output_token_limit:
         description: 'Max output tokens per translation request (blank = repository variable or 16384)'
         type: string
