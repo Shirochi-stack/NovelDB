@@ -12,6 +12,62 @@ DOCS = Path(__file__).resolve().parents[1] / "docs"
 SOURCES = ("npia", "kpage", "sfc", "nweb", "jara", "mpia", "rbooks", "nseries")
 
 
+def test_period_sort_uses_source_boards_and_all_sources_prioritizes_npia(monkeypatch):
+    boards = {
+        "nweb": {"daily": "best_102_daily_free", "weekly": "best_102_weekly_free"},
+        "jara": {"daily": "all_today", "weekly": "all_weekly", "monthly": "all_monthly"},
+        "rbooks": {"weekly": "1650_weekly", "monthly": "1650_monthly"},
+        "mpia": {"daily": "TODAY_BEST"},
+    }
+    original_row = row
+    def ranked_row(source, ident=7, known=False, completed=False):
+        result = original_row(source, ident, known, completed)
+        if source in boards:
+            result[5] = result[6] = 999999 if ident == 9 else 0
+            result[15] = {key: (1 if ident == (8 if period == "daily" else 7) else 9)
+                          for period, key in boards[source].items()} if ident != 9 else {}
+        return result
+    monkeypatch.setitem(globals(), "row", ranked_row)
+    class RankingSite(FixtureSite):
+        async def route(self, request):
+            name = urlsplit(request.request.url).path.rsplit("/", 1)[-1]
+            source = name.split("_", 1)[0]
+            if name.endswith("_chunk_manifest.json") and source in boards:
+                await request.fulfill(json={"format": "metadata-v1", "files": [f"{source}_chunk_0.json.gz"],
+                    "chunks": 1, "totalEntries": 3, "descriptionShardCount": 128,
+                    "descriptionShardPrefix": f"{source}_descriptions_shard_", "topUrl": None,
+                    "boards": {key: {"label": f"{source} {period} native board", "stale": False}
+                               for period, key in boards[source].items()}, "coverage": {"complete": True}})
+                return
+            await super().route(request)
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route("**/*", RankingSite().route)
+            for source in boards:
+                await page.goto(f"http://metadata.test/#src={source}")
+                await wait_loaded(page)
+                period = "weekly" if source == "rbooks" else "daily"
+                assert await page.locator("#sortSelect").input_value() == period
+                first = page.locator(".novel-card").first
+                ident = 8 if period == "daily" else 7
+                assert await first.locator(".card-title").inner_text() == f"{source} translated {ident}"
+                assert await first.locator(".badge-rank").inner_text() == "#1"
+                assert f"{source} {period} native board" in await first.locator(".badge-rank").get_attribute("title")
+                if source in ("nweb", "mpia"):
+                    assert await page.locator('#sortSelect option[value="monthly"]').is_disabled()
+                if source == "jara":
+                    await page.locator("#sortSelect").select_option("monthly")
+                    assert await page.locator(".novel-card").first.locator(".card-title").inner_text() == "jara translated 7"
+            await page.locator("#sourceSelect").select_option("all")
+            await wait_loaded(page)
+            await page.locator("#sortSelect").select_option("daily")
+            assert await page.locator(".novel-card").first.locator(".card-title").inner_text() == "npia translated 7"
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_sort_changes_update_url_refresh_and_browser_history():
     async def scenario():
         async with async_playwright() as playwright:

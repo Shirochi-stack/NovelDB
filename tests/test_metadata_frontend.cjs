@@ -191,3 +191,42 @@ test('covers normalize legacy protocols without corrupting absolute CDN URLs', (
     const [record] = core.parseRows([row(7, {3: '//cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com/cover.jpg'})], 'nweb', cfg);
     assert.equal(record.cover, 'https://cdn1.\u006d\u0075\u006e\u0070\u0069\u0061.com/cover.jpg');
 });
+
+
+test('period sorts read each source native boards instead of popularity counters', () => {
+    for (const [source, board, period] of [
+        ['jara', 'all_today', 'daily'], ['jara', 'all_weekly', 'weekly'], ['jara', 'all_monthly', 'monthly'],
+        ['nweb', 'best_102_daily_free', 'daily'], ['nweb', 'best_101_weekly_paid', 'weekly'],
+        ['rbooks', '1750_monthly', 'monthly'], ['rbooks', '1650_weekly', 'weekly'],
+        ['mpia', 'PLATINUM_TODAY_BEST', 'daily']]) {
+        const records = [
+            {id: 'popular', source, title: 'A', likes: 999999, views: 999999, rankings: {[board]: 8}},
+            {id: 'ranked', source, title: 'Z', likes: 0, views: 0, rankings: {[board]: 1}},
+            {id: 'unranked', source, title: 'B', likes: 9999999, views: 9999999, rankings: {}}];
+        core.sortRecords(records, {sortBy: period, defaultSource: source, order: 'desc'});
+        assert.deepEqual(records.map(r => r.id), ['ranked', 'popular', 'unranked']);
+        core.sortRecords(records, {sortBy: period, defaultSource: source, order: 'asc'});
+        assert.deepEqual(records.map(r => r.id), ['popular', 'ranked', 'unranked']);
+    }
+});
+
+test('period badge identifies its actual board and never borrows another period', () => {
+    const novel = {source: 'nweb', rankings: {best_101_weekly_free: 1, best_102_daily_free: 8, best_109_daily_paid: 3}};
+    assert.deepEqual(core.periodRank(novel, 'daily'), {board: 'best_109_daily_paid', rank: 3});
+    assert.equal(core.rankValue(novel, 'weekly', 'adult', 'nweb'), 1);
+    assert.equal(core.periodRank(novel, 'monthly'), null);
+    assert.deepEqual(core.supportedPeriods('rbooks'), ['weekly', 'monthly']);
+    assert.deepEqual(core.supportedPeriods('mpia'), ['daily']);
+    assert.deepEqual(core.supportedPeriods('nseries'), []);
+    assert.deepEqual(core.supportedPeriods('kpage'), []);
+});
+
+test('all sources prioritize npia period rankings over other native boards', () => {
+    const records = [
+        {id: 'other', source: 'jara', title: 'A', rankings: {all_today: 1}, views: 999999},
+        {id: 'npia', source: 'npia', title: 'Z', dailyRank: 80, dailyRankAdult: 7},
+        {id: 'unranked', source: 'npia', title: 'B'}];
+    core.sortRecords(records, {sortBy: 'daily', defaultSource: 'all', audience: 'adult'});
+    assert.deepEqual(records.map(r => r.id), ['npia', 'unranked', 'other']);
+    assert.equal(core.rankValue(records[2], 'daily', 'all', 'all'), 0);
+});
