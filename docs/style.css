@@ -1057,3 +1057,16 @@ a.card-cover-wrap.cover-ready {
 .description-toggle { display: inline-flex; align-items: center; gap: .5rem; margin-top: 1rem; color: var(--text-muted); cursor: pointer; }
 .descriptions-disabled .card-synopsis { display: none; }
 @media (max-width: 600px) { .sort-control { width: 100%; } }
+.synopsis-status {
+    color: var(--text-secondary, #a0a0b0);
+    font-size: .85rem;
+    margin-top: .6rem;
+}
+button.synopsis-status {
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: .35rem;
+    padding: .4rem;
+    cursor: pointer;
+    text-align: left;
+}

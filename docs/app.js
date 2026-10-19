@@ -5663,9 +5663,9 @@
     let displayCount = 30;
     let allTagGroups = [];   // display tag groups for the current source
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
-    let BATCH = 30;
+    let BATCH = 100;
     let currentPage = 1;
-    const BATCH_OPTIONS = new Set(["30", "60", "120", "250"]);
+    const BATCH_OPTIONS = new Set(["30", "60", "100", "120", "250"]);
 
     // === DOM refs ===
     const $ = (sel) => document.querySelector(sel);
@@ -5689,7 +5689,7 @@
     const audienceSelect = $("#audienceSelect");
 
     function setBatch(value) {
-        const normalized = BATCH_OPTIONS.has(String(value)) ? String(value) : "30";
+        const normalized = BATCH_OPTIONS.has(String(value)) ? String(value) : "100";
         batchSelect.value = normalized;
         BATCH = parseInt(normalized, 10);
         displayCount = BATCH;
@@ -6124,6 +6124,11 @@
     }
 
     function applyFilters(options = {}) {
+        if (topPreview && needsFullCatalog()) {
+            saveState();
+            loadSource(currentSource, true, true);
+            return;
+        }
         const resetPage = options.resetPage !== false;
         const fade = options.fade !== false;
         syncTagSelectionUi();
@@ -6328,7 +6333,7 @@
                 <div class="card-tags">${tagsHTML}</div>
                 <div class="card-stats">
                     ${statsHTML}
-                </div>${n.updated ? `<div class="card-updated">⏳ Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML}
+                </div>${n.updated ? `<div class="card-updated">⏳ Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML || (descriptionsEnabled ? '<div class="synopsis-status" role="status">Loading synopsis…</div>' : '')}
             </div>
         `;
 
@@ -6869,6 +6874,18 @@
     let catalogLoading = new Map();
     let catalogWarnings = new Set();
     let catalogDiagnosticRecords = new Map();
+    let topPreview = false;
+    let previewSort = "daily";
+    const fullCatalogButton = document.getElementById("loadFullCatalog");
+    fullCatalogButton.addEventListener("click", () => loadSource(currentSource, true, true));
+
+    function needsFullCatalog() {
+        return searchInput.value.trim() || activeAuthorFilter || andTags.size || orTags.size || excludeTags.size
+            || statusSelect.value !== "all" || audienceSelect.value !== "all"
+            || orderSelect.value !== "desc" || sortSelect.value !== previewSort
+            || !(["daily", "weekly", "monthly"].includes(sortSelect.value)
+                || sortSelect.value.startsWith("rank:") || sortSelect.value.startsWith("sfc_"));
+    }
 
     function catalogPartitionLabel(source, partition) {
         if (source !== "jara") return partition || "Catalog";
@@ -6919,7 +6936,8 @@
     function catalogStatusSuffix() {
         const loading = [...catalogLoading.values()];
         const warnings = [...catalogWarnings];
-        return (loading.length ? ` — loading ${loading.join(", ")}` : "")
+        return (topPreview ? " — Top 100 · search or load the full catalog for more" : "")
+            + (loading.length ? ` — loading ${loading.join(", ")}` : "")
             + (warnings.length ? ` — Partial results: ${warnings.join("; ")}` : "");
     }
 
@@ -7024,13 +7042,11 @@
         applyFilters();
     });
 
-    // Synopses come from deterministic per-source shards. Nothing is fetched
-    // while a catalog is still loading, and only after the visible results have
-    // settled; requests are grouped per shard and only the texts shown so far
-    // are cached, never whole shards.
+    // Visible synopses load independently of catalog discovery. Requests are
+    // grouped by shard; only requested texts are cached, never whole shards.
     const SYNOPSIS_CACHE_LIMIT = 2000;
     const SYNOPSIS_SETTLE_MS = 300;
-    const DESCRIPTION_LOAD_CONCURRENCY = 6;
+    const DESCRIPTION_LOAD_CONCURRENCY = 2;
     const synopsisCache = new Map();
     const descriptionShardPromises = new Map();
     const descriptionLoadQueue = [];
@@ -7112,6 +7128,7 @@
         const body = card.querySelector(".card-body");
         if (!descriptionsEnabled || !body || !synopsis) return;
         card._synopsis = synopsis;
+        body.querySelector(".synopsis-status")?.remove();
         const isMetadata = SOURCES[card.dataset.source]?.format === "metadata-v1";
         synopsis = normalizeSynopsis(synopsis, card.dataset.source);
         if (!synopsis) return;
@@ -7200,13 +7217,6 @@
         return promise;
     }
 
-    const CATALOG_STALL_MS = 15000;
-    function catalogBusy() {
-        // A catalog that has made no progress for a while (a stalled request)
-        // should not hold synopsis loading hostage for the sources already shown.
-        return activeCatalogController !== null && performance.now() - lastCatalogProgressAt < CATALOG_STALL_MS;
-    }
-
     function resetSynopsisRequests() {
         if (descriptionObserver) descriptionObserver.disconnect();
         pendingSynopsisCards.clear();
@@ -7232,11 +7242,6 @@
             pendingSynopsisCards.clear();
             return;
         }
-        if (catalogBusy()) {
-            // Catalog chunks own the network and the main thread until they finish.
-            scheduleSynopsisFlush(500);
-            return;
-        }
         const signal = descriptionController.signal;
         const groups = new Map();
         for (const card of pendingSynopsisCards) {
@@ -7256,14 +7261,21 @@
         pendingSynopsisCards.clear();
         for (const group of groups.values()) {
             loadDescriptionShard(group.sourceName, group.shard).then((descriptions) => {
-                if (!descriptionsEnabled || signal.aborted || !descriptions) return;
+                if (!descriptionsEnabled || signal.aborted) return;
                 for (const card of group.cards) {
                     if (!card.isConnected || card.dataset.source !== group.sourceName) continue;
+                    if (!descriptions) {
+                        setSynopsisStatus(card, "Synopsis couldn't load. Tap to retry.", true);
+                        continue;
+                    }
                     // An empty entry records that the shard has no text for this
                     // novel, so later renders do not fetch the shard again.
                     const synopsis = descriptions[card.dataset.novelId] || "";
                     rememberSynopsis(`${group.sourceName}:${card.dataset.novelId}`, synopsis);
-                    if (!synopsis) delete card.dataset.needsSynopsis;
+                    if (!synopsis) {
+                        delete card.dataset.needsSynopsis;
+                        setSynopsisStatus(card, "No synopsis available.");
+                    }
                     else if (card.dataset.needsSynopsis === "true") updateCardSynopsis(card, synopsis);
                 }
             });
@@ -7285,13 +7297,35 @@
         if (!descriptionsEnabled) return;
         const remaining = [];
         for (const card of resultsEl.querySelectorAll('.novel-card[data-needs-synopsis="true"]')) {
+            if (!SOURCES[card.dataset.source]?.descriptionShardCount) {
+                delete card.dataset.needsSynopsis;
+                setSynopsisStatus(card, "No synopsis available.");
+                continue;
+            }
             const cached = recallSynopsis(`${card.dataset.source}:${card.dataset.novelId}`);
             if (cached === undefined) remaining.push(card);
             else if (cached) updateCardSynopsis(card, cached);
-            else delete card.dataset.needsSynopsis;
+            else { delete card.dataset.needsSynopsis; setSynopsisStatus(card, "No synopsis available."); }
         }
         if (descriptionObserver) remaining.forEach((card) => descriptionObserver.observe(card));
         else remaining.slice(0, 12).forEach(queueCardSynopsis);
+    }
+
+    function setSynopsisStatus(card, text, retry = false) {
+        const body = card.querySelector(".card-body");
+        if (!body) return;
+        body.querySelector(".synopsis-status")?.remove();
+        const status = document.createElement(retry ? "button" : "div");
+        status.className = "synopsis-status";
+        status.textContent = text;
+        if (retry) {
+            status.type = "button";
+            status.addEventListener("click", () => {
+                status.textContent = "Loading synopsis…";
+                queueCardSynopsis(card);
+            });
+        } else status.setAttribute("role", "status");
+        body.appendChild(status);
     }
 
     let tagTranslationsPromise = null;
@@ -7339,7 +7373,7 @@
     // Catalog chunk downloads share one pool regardless of how many sources
     // are loading: a single source gets the full pool instead of two streams,
     // and "All Sources" no longer holds sixteen decompressed chunks in flight.
-    const CATALOG_FETCH_SLOTS = 6;
+    const CATALOG_FETCH_SLOTS = 2;
     let catalogFetchActive = 0;
     const catalogFetchWaiters = [];
 
@@ -7444,15 +7478,10 @@
     const catalogState = new Map(); // source -> { records, list, tags, complete, warnings, diagnostics }
     const addedRecords = new Set();
     const removedRecords = new Set();
-    const PUBLISH_MIN_INTERVAL_MS = 1200;
     let selectedSources = [];
     let retainAllSources = false;
     let allNovelsDirty = true;
     let tagsVersion = 0;
-    let publishTimer = null;
-    let lastPublishAt = 0;
-    let lastPublishCost = 0;
-    let lastCatalogProgressAt = 0;
     // Records for platforms outside the selection are retained only after an
     // "All Sources" load completed (that footprint was already reached), and
     // never on low-memory devices.
@@ -7481,7 +7510,6 @@
 
     function addRecords(name, incoming) {
         const state = sourceState(name);
-        lastCatalogProgressAt = performance.now();
         for (const novel of incoming) {
             const old = state.records.get(novel.id);
             if (old === novel) continue;
@@ -7491,36 +7519,15 @@
             state.records.set(novel.id, record);
             if (old) {
                 tagCountDelta(state.tags, old, -1);
-                if (!addedRecords.delete(old)) removedRecords.add(old);
+                if (!allNovelsDirty && !addedRecords.delete(old)) removedRecords.add(old);
             }
             tagCountDelta(state.tags, record, 1);
-            addedRecords.add(record);
+            if (!allNovelsDirty) addedRecords.add(record);
         }
         tagsVersion++;
     }
 
-    function clearPublishTimer() {
-        if (publishTimer !== null) {
-            clearTimeout(publishTimer);
-            publishTimer = null;
-        }
-    }
-
-    // Publishing merges new records into the sorted list, rebuilds the tag
-    // cloud and re-renders. While chunks arrive it runs at most every
-    // PUBLISH_MIN_INTERVAL_MS, or four times its own last cost, whichever is
-    // longer, so the page stays responsive during a load.
-    function schedulePublish() {
-        if (publishTimer !== null) return;
-        const wait = lastPublishAt
-            ? Math.max(PUBLISH_MIN_INTERVAL_MS, lastPublishCost * 4) - (performance.now() - lastPublishAt)
-            : 0;
-        publishTimer = setTimeout(() => { publishTimer = null; publish(); }, Math.max(0, wait));
-    }
-
     function publish() {
-        clearPublishTimer();
-        const started = performance.now();
         if (allNovelsDirty) {
             allNovels = [];
             // Registry order stays deterministic regardless of network completion order.
@@ -7551,24 +7558,23 @@
         }
         buildTags();
         applyFilters({ resetPage: false, fade: false });
-        lastPublishAt = performance.now();
-        lastPublishCost = lastPublishAt - started;
     }
 
-    async function loadSource(source, keepState = false) {
+    async function loadSource(source, keepState = false, fullCatalog = false) {
         if (source !== "all" && !SOURCES[source]) source = "all";
         if (activeCatalogController) activeCatalogController.abort();
-        clearPublishTimer();
         const controller = new AbortController();
         activeCatalogController = controller;
         const { signal } = controller;
         const isCurrent = () => !signal.aborted && activeCatalogController === controller;
         currentSource = source;
+        topPreview = false;
+        fullCatalogButton.hidden = true;
         sourceSelect.value = source;
         updateSourceSortOptions();
-        lastCatalogProgressAt = performance.now();
         resetSynopsisRequests();
         coverObserver?.disconnect();
+        if (fullCatalog) observeMissingSynopses();
         selectedSources = source === "all" ? Object.keys(SOURCES) : [source];
         for (const [name, state] of catalogState) {
             if (!state.complete || (!retainAllSources && !selectedSources.includes(name))) catalogState.delete(name);
@@ -7583,8 +7589,6 @@
         lastFilter = null;
         sortedKey = null;
         tagsVersion++;
-        lastPublishAt = 0;
-        lastPublishCost = 0;
         catalogWarnings = new Set();
         catalogDiagnosticRecords = new Map();
         catalogDiagnostics.open = false;
@@ -7601,7 +7605,7 @@
         renderCatalogDiagnostics();
         catalogLoading = new Map(pending.map((name) => [name, SOURCES[name].label]));
         if (pending.length) {
-            resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : escHtml(SOURCES[source].label)} database...</div>`;
+            if (!resultsEl.querySelector(".novel-card")) resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : escHtml(SOURCES[source].label)} database...</div>`;
             resultCount.textContent = `Loading metadata${catalogStatusSuffix()}`;
             for (const bar of paginationBars) bar.style.display = "none";
         }
@@ -7621,6 +7625,40 @@
                 if (descriptionsEnabled && data.descriptions?.[novel.id]) novel.synopsis = normalizeSynopsis(data.descriptions[novel.id], name);
             }
             return novels;
+        }
+        // A stable ranking bundle is sufficient for the landing page. The
+        // million-record catalog is fetched only when browsing/search needs it.
+        const previewSource = source === "all" ? "npia" : source;
+        previewSort = sortSelect.value;
+        if (!fullCatalog && !needsFullCatalog() && currentPage === 1
+                && parseHash(window.location.hash).catalog !== "full") {
+            try {
+                const cfg = await ensureSourceConfig(previewSource);
+                if (!isCurrent()) return;
+                updateSourceSortOptions();
+                previewSort = sortSelect.value;
+                if (cfg?.topUrl && !needsFullCatalog()) {
+                    const data = await fetchGzChunk(cfg.topUrl, signal);
+                    if (!isCurrent()) return;
+                    const top = applyEmbedded(data, previewSource, cfg);
+                    if (!top.length) throw new Error("Empty ranking bundle");
+                    // Drop any previously retained full catalogs on returning
+                    // to rankings, including on browsers without deviceMemory.
+                    catalogState.clear();
+                    selectedSources = [previewSource];
+                    addRecords(previewSource, top);
+                    catalogLoading.clear();
+                    topPreview = true;
+                    fullCatalogButton.hidden = false;
+                    activeCatalogController = null;
+                    publish();
+                    loadTagTranslations().then(() => { if (topPreview) buildTags(); });
+                    return;
+                }
+            } catch (error) {
+                if (!isCurrent()) return;
+                // Missing ranking bundles fall back to the complete catalog.
+            }
         }
         async function loadSingle(name) {
             const state = sourceState(name);
@@ -7664,7 +7702,6 @@
                         if (!isCurrent()) return;
                         const top = applyEmbedded(data, name, cfg);
                         addRecords(name, top);
-                        if (top.length) schedulePublish();
                     } catch (error) {
                         if (signal.aborted) throw error;
                         // A top bundle is optional; catalog chunks remain authoritative.
@@ -7677,14 +7714,16 @@
                         if (!isCurrent()) return;
                         addRecords(name, chunk);
                         catalogLoading.set(name, `${cfg.label} ${loaded}/${total}`);
-                        if (chunk.length) schedulePublish();
+                        resultCount.textContent = `Loading full catalog${catalogStatusSuffix()}`;
+                        // Keep the initial ranking cards stable until the
+                        // requested catalog has finished; avoid repeated sorts.
                     }, signal);
                 } else {
                     novels = parseNovels(await fetchWithProgress(cfg.dataUrl, signal), name, cfg);
                 }
                 if (!isCurrent()) return;
                 if (novels.partialFailure) warn(novels.partialFailure);
-                addRecords(name, novels);
+                if (!cfg.chunked) addRecords(name, novels);
                 if (novels.partialFailure) {
                     // Keep top-only rows; the source is loaded again on its next selection.
                     state.list = [...state.records.values()];
@@ -7713,7 +7752,7 @@
                 console.warn(`${name} metadata source failed:`, error);
                 warn(`${SOURCES[name].label} unavailable`);
             } finally {
-                if (isCurrent()) { catalogLoading.delete(name); schedulePublish(); }
+                if (isCurrent()) catalogLoading.delete(name);
             }
         }
 
@@ -7752,7 +7791,7 @@
         if (orderSelect.value !== "desc") state.order = orderSelect.value;
         if (statusSelect.value !== "all") state.status = statusSelect.value;
         if (audienceSelect.value !== "all") state.audience = audienceSelect.value;
-        if (batchSelect.value !== "30") state.batch = batchSelect.value;
+        if (batchSelect.value !== "100") state.batch = batchSelect.value;
         const savedPage = activeCatalogController && catalogRequestedPage != null ? catalogRequestedPage : currentPage;
         if (savedPage > 1) state.page = savedPage;
         if (sourceSelect.value !== "all") state.src = sourceSelect.value;
@@ -7791,7 +7830,7 @@
         orderSelect.value = params.order || "desc";
         statusSelect.value = params.status || "all";
         audienceSelect.value = params.audience || "all";
-        setBatch(params.batch || "30");
+        setBatch(params.batch || "100");
         currentPage = Math.max(1, parseInt(params.page, 10) || 1);
         if (activeCatalogController) catalogRequestedPage = currentPage;
         if (params.tmode) tagMode = params.tmode;
