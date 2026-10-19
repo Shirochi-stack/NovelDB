@@ -464,6 +464,7 @@ $유선이$|||$Yuseon$
 19금단편집|||19+ Short Story Collection
 19금로맨스|||18+ Romance
 19금로맨스가장|||19+ Romance Disguise
+19금멜로|||Adult Romance
 19금무협|||19+ Martial Arts
 19금사이코드라마|||Adult Psycho Drama
 19금성인|||19+ Adult
@@ -793,6 +794,7 @@ $유선이$|||$Yuseon$
 2부_셋쇼드림물|||Part 2: Sesshomaru Dream
 2부가벼운판타지|||Part 2 Light Fantasy
 2부는시리어스다수|||Part2 Serious Many
+2부는폴리아모리|||Part 2 Polyamory
 2부배틀물|||Part 2 Battle Story
 2부부터변이체등장|||Mutants from Part 2
 2부시작|||Part 2 Begins
@@ -1419,6 +1421,7 @@ AI일러스트|||AI Illustration
 AI전쟁|||AI War
 AI제작|||AI-Generated
 AI주인공|||AI MC
+AI창작|||AI-Written
 AI채팅|||AI Chat
 AI챗|||AI Chat
 AI팬픽|||AI Fanfiction
@@ -2392,6 +2395,7 @@ FUMO|||Fumo
 FURRY|||Furry
 FWB|||Friends with Benefits
 FWF|||FWF
+FX|||FX
 FYL|||FYL
 FZ|||FZ
 Fade|||Fade
@@ -3190,6 +3194,7 @@ MW|||MW
 MY|||My
 MYGO|||MYGO
 MZ|||MZ Generation
+MZ말투백발노인|||MZ Speech White-Haired Elder
 MZ여주|||MZ-Generation Heroine
 MaGic|||Magic
 Mabinogi|||Mabinogi
@@ -3285,6 +3290,7 @@ Mystery|||Mystery
 Mystique|||Mystique
 M∀LICE|||Malice
 M공|||M Top
+M남|||M Male
 M녀|||M Girl
 M블루|||M Blue
 M성향|||M Tendency
@@ -3387,6 +3393,7 @@ NTRS|||Netorase
 NTR是假的|||NTR Is Fake
 NTR綠帽男主|||NTR Cuckold MC
 NTR극혐|||NTR Hate
+NTR남TS|||NTR Male TS
 NTR냄새안나는순애|||No NTR Scent Pure Love
 NTR드리프트없음|||No NTR Drift
 NTR만없음|||No NTR Only
@@ -5933,7 +5940,6 @@ black|||Black
 blblblbl주의!!!|||BL Warning!!!
 bleach|||Bleach
 blog.nweb.com|||blog.nweb.com
-blog.nweb.com|||blog.nweb.com
 blood|||blood
 blood-c|||Blood-C
 bloodborne|||Bloodborne
@@ -5997,7 +6003,6 @@ cacher|||Cacher
 cadilet|||Cadilet
 cafe|||Cafe
 cafe.daum.net|||cafe.daum.net
-cafe.nweb.com|||cafe.nweb.com
 cafe.nweb.com|||cafe.nweb.com
 calamity|||Calamity
 caliopea|||Caliopea
@@ -6522,19 +6527,19 @@ izone|||IZ*ONE
 j|||J
 jaein13|||jaein13
 jakee|||Jakee
-jara|||Jara
-jaraBorn|||Jara Born
-jara_투베도전|||Jara Top-100 Challenge
-jara공모전|||Jara Contest
-jara단독선공개|||Jara Exclusive Preview
-jara세계관|||Jara Universe
-jara소설|||Jara Novel
-jara신입사원|||Jara New Employee
-jara여|||Jara Woman
-jara연재소설|||Jara Serialized Novel
-jara의|||Jara's
-jara첫작|||Jara First Work
-jara판타지소설|||Jara Fantasy Novel
+jara|||jara
+jaraBorn|||jara Born
+jara_투베도전|||jara Best Challenge
+jara공모전|||jara Contest
+jara단독선공개|||jara Exclusive Early Release
+jara세계관|||jara Universe
+jara소설|||jara Novel
+jara신입사원|||jara New Employee
+jara여|||jara Woman
+jara연재소설|||jara Serialized Novel
+jara의|||jara's
+jara첫작|||jara Debut
+jara판타지소설|||jara Fantasy Novel
 jarvis|||Jarvis
 jazz|||Jazz
 jengui|||Jengui
@@ -6756,7 +6761,7 @@ moon|||Moon
 moonlight|||Moonlight
 more|||More
 morepeace|||More Peace
-mpia|||Mpia
+mpia|||mpia
 mr.clean|||Mr. Clean
 mr.클린|||Mr. Clean
 mrnerd|||Mr. Nerd
@@ -6826,7 +6831,7 @@ no구원|||No Salvation
 no피폐|||No Angst
 npc|||NPC
 npc수|||NPC Bottom
-npia|||Nobelpia
+npia|||npia
 npia공식|||Npia Official
 nt|||NT
 ntl|||NTL
@@ -7277,7 +7282,6 @@ touhou|||Touhou
 tow|||Tow
 tower|||Tower
 tpfla077@nweb.com|||tpfla077@nweb.com
-tpfla077@nweb.com|||tpfla077@nweb.com
 travelers|||Travelers
 trek|||Trek
 tri|||Tri
@@ -7404,7 +7408,6 @@ wudf|||wudf
 www|||WWW
 www.cyworld.com|||www.cyworld.com
 www.google.co.kr|||www.google.co.kr
-www.jara.com|||www.jara.com
 www.jara.com|||www.jara.com
 www.pixiv.net|||www.pixiv.net
 x|||X
@@ -17775,6 +17778,7 @@ z커리어우먼|||Z Career Woman
 각자|||Each
 각자다른매력|||Different Charms
 각자의입장|||Each Perspective
+각정자|||Awakened
 각종|||Various
 각종권법|||Various Martial Arts
 각종성적태그|||Various Sex Tags
@@ -18499,6 +18503,7 @@ z커리어우먼|||Z Career Woman
 강제이주할|||Forced Migration
 강제이중생활|||Forced Double Life
 강제인싸공|||Forced Popular Top
+강제적선한외신|||Forced Saintly Outer God
 강제적여성화|||Forced Feminization
 강제절정|||Forced Orgasm
 강제주의|||Coercion Warning
@@ -19056,6 +19061,7 @@ z커리어우먼|||Z Career Woman
 갬블|||Gamble
 갬블러|||Gambler
 갬성|||Vibes
+갬퍼스|||Gamers
 갭모에|||Gap Moe
 갭모에수|||Gap-Moe Bottom
 갭모에여주|||Gap-Moe Female Lead
@@ -19347,6 +19353,7 @@ z커리어우먼|||Z Career Woman
 건실공|||Decent Top
 건실댕댕이|||Dependable Puppy
 건실수|||Dependable Bottom
+건실한먼치킨|||Sound Munchkin
 건실한청년|||Healthy Youth
 건어물|||Dried Fish
 건어물녀|||Dry Woman
@@ -20062,6 +20069,7 @@ z커리어우먼|||Z Career Woman
 겜판무|||Game Fantasy Martial Arts
 겜판물|||Game Fantasy
 겜판소|||Game Parody
+겜판향첨가|||Game Board Flavor
 겜포케|||Game Pokémon
 겜픽|||Game Fic
 겟|||Get
@@ -20298,6 +20306,7 @@ z커리어우먼|||Z Career Woman
 경락마사지|||Meridian Massage
 경력직|||Experienced
 경리|||Accounting Clerk
+경리과|||Accounting Department
 경마|||Horse Race
 경매|||Auction
 경매왕|||Auction King
@@ -21585,6 +21594,7 @@ z커리어우먼|||Z Career Woman
 공란|||Blank Space
 공략|||Conquest
 공략게임|||Strategy Game
+공략기|||Strategy Guide
 공략대상|||Love Interest
 공략법|||攻略 Guide
 공략본이라도줘|||At Least Give Me a Walkthrough
@@ -21592,6 +21602,7 @@ z커리어우먼|||Z Career Woman
 공략쉽지않다|||Hard to Win Over
 공략자|||Conqueror
 공략자들|||Conquerors
+공략중|||Walkthrough In Progress
 공략집|||Walkthrough
 공략캐|||Target Character
 공룡|||Dinosaur
@@ -21612,6 +21623,7 @@ z커리어우먼|||Z Career Woman
 공명첩|||Gongmyeong Certificate
 공모전|||Contest Entry
 공모전수상작|||Contest Winner
+공모전참가취소|||Contest Entry Withdrawn
 공모전참여|||Contest Entry
 공모전포기|||Contest Abandoned
 공무|||Official Duties
@@ -21919,6 +21931,7 @@ z커리어우먼|||Z Career Woman
 공포수위|||Horror Mature Rating
 공포스러운|||Horrifying
 공포썰아님|||Not a Horror Story
+공포아님|||Not Horror
 공포영화|||Horror Film
 공포와허기의던전|||Dungeon of Fear Hunger
 공포요소있음|||Horror Elements
@@ -22105,6 +22118,7 @@ z커리어우먼|||Z Career Woman
 과외|||Tutoring
 과외강사|||Private Tutor
 과외선생|||Private Tutor
+과위|||Overpowered
 과일|||Fruit
 과일모에화|||Fruit Moe
 과일주스|||Fruit Juice
@@ -22505,6 +22519,7 @@ z커리어우먼|||Z Career Woman
 괴물도|||Even Monsters
 괴물들|||Monsters
 괴물들이|||The Monsters
+괴물박이|||Monster Encounter
 괴물사냥꾼-괴물-사냥꾼|||Monster Hunter, Monster, Hunter
 괴물사변|||Kemono Jihen
 괴물수|||Monster Bottom
@@ -22734,6 +22749,7 @@ z커리어우먼|||Z Career Woman
 구다즈|||Gudaz
 구다즈남매|||Gudaz Siblings
 구다코|||Gudako
+구닥다리로봇|||Outdated Robot
 구닥다리여자|||Old-Fashioned Woman
 구단|||Club
 구단감독|||Club Director
@@ -22889,6 +22905,7 @@ z커리어우먼|||Z Career Woman
 구원서브|||Salvation Subplot
 구원서사|||Salvation Narrative
 구원서사물|||Salvation Narrative
+구원세뇌|||Salvation Brainwashing
 구원수|||Saved Bottom
 구원순애|||Salvation Pure
 구원아마도|||Salvation Maybe
@@ -22909,6 +22926,7 @@ z커리어우먼|||Z Career Woman
 구원튀일지도|||Salvation Skip
 구원튀튀ㅣㅣㅣ|||Salvation Runawayyyy
 구원하는|||Saving
+구원혹은타락|||Redemption or Fall
 구윈|||Guwin
 구음절맥|||Nine Pulse Meridians
 구인|||Recruiting
@@ -23305,6 +23323,7 @@ z커리어우먼|||Z Career Woman
 굴복수|||Submissive Bottom
 굴욕|||Humiliation
 굴욕여주|||Humiliated Female Lead
+굴욕의좆물구걸도게자|||Humiliation Begging
 굵다|||Thick
 굶주린|||Starving
 굶지마|||Don't Starve
@@ -23826,6 +23845,7 @@ z커리어우먼|||Z Career Woman
 규율|||Discipline
 규진|||Gyujin
 규칙|||Rules
+규칙공략|||Rule Exploitation
 규칙괴담|||Rules Horror
 규칙괴담물|||Rule-Based Horror
 규칙물|||Rule System
@@ -25813,6 +25833,7 @@ z커리어우먼|||Z Career Woman
 깃털|||Feather
 깃팬|||Git Fan
 깃펜|||Quill
+깅긴|||Gingin
 깅깅깅|||Ging Ging
 깅깅깅깅|||Ging Ging Quad
 깅깅깅깅깅|||Ging Ging Quint
@@ -27152,6 +27173,7 @@ z커리어우먼|||Z Career Woman
 나히카|||Nahika
 낙관주의|||Optimism
 낙랑|||Nangnang
+낙뢰|||Lightning Strike
 낙방서생|||Failed Scholar
 낙방학사(落榜學士)|||Failed Scholar
 낙서|||Doodle
@@ -27329,6 +27351,7 @@ z커리어우먼|||Z Career Woman
 낡은일기장같은|||Like an Old Diary
 남|||Man
 남->여|||Male -> Female
+남NTS|||Male NTS
 남감독생|||Male Trainee
 남겨진|||Left Behind
 남계인|||Nam Gyein
@@ -27507,6 +27530,7 @@ z커리어우먼|||Z Career Woman
 남성형|||Masculine Type
 남성형?!|||Masculine Type?!
 남성황후|||Male Empress
+남성희귀세계|||Male-Rare World
 남세혁|||Nam Sehyuk
 남소라|||Nam Sora
 남수|||Male Bottom
@@ -28264,6 +28288,7 @@ z커리어우먼|||Z Career Woman
 내용달라진거거의없음|||Almost Nothing In The Story Changed
 내용은|||As For The Story
 내용이|||The Content
+내용있음|||Has Content
 내용짧음|||Short Content
 내유외강|||Soft Inside, Strong Outside
 내유외강수|||Soft-Outside, Strong-Inside Bottom
@@ -29043,7 +29068,6 @@ z커리어우먼|||Z Career Woman
 노벨상|||Nobel Prize
 노벨의제자|||Nobel's Disciple
 노벨쨩|||Novel-chan
-npia|||npia
 노벰버|||November
 노병|||Old Soldier
 노병귀환|||Return Of The Old Soldier
@@ -29120,6 +29144,7 @@ npia|||npia
 노영우|||Noh Youngwoo
 노예|||Slave
 노예(?)수|||Slave(?) Bottom
+노예경매|||Slave Auction
 노예계약|||Slave Contract
 노예공|||Slave Top
 노예공X주인수|||Slave Top X Master Bottom
@@ -30421,6 +30446,7 @@ npia|||npia
 다보엣|||Daboet
 다보이는|||All Visible
 다부니|||Dabuni
+다부다처제|||Polygamy
 다분|||Dabun
 다분]|||Quite]
 다비|||Dabi
@@ -31243,6 +31269,7 @@ npia|||npia
 달달한로맨스|||Sweet Romance
 달달한로맨스판타지에|||Sweet Romance Fantasy
 달달한소설|||Sweet Novel
+달달한순애같은하렘|||Sweet Devoted Harem
 달달한연애|||Sweet Romance
 달달한이야기|||Sweet Story
 달달함|||Sweetness
@@ -34075,6 +34102,7 @@ npia|||npia
 두개이상등록|||Multiple Tags
 두구두구|||Drumroll
 두구멍|||Double Hole
+두구멍갱뱅|||Double Penetration Gangbang
 두근|||Thump
 두근거림|||Heartbeat
 두근두근|||Heart Pounding
@@ -35242,6 +35270,7 @@ npia|||npia
 똥강아지美|||Puppy Charm
 똥강아지수|||Puppy Bottom
 똥강아지여주|||Puppy Female Lead
+똥개|||Ttonggae
 똥겜|||Shit Game
 똥고발랄녀|||Lively Girl
 똥과|||Poop and
@@ -35959,6 +35988,7 @@ npia|||npia
 런치란다|||Runchiranda
 럼|||Rum
 럼로우드림|||Rumlow Dream
+럼준식|||Reom Junsik
 럽딥|||Love Deep
 럽딥연성|||Love Deep Fanwork
 럽라|||Love Live
@@ -36072,6 +36102,7 @@ npia|||npia
 레바테인|||Leviathan
 레버넌트|||Revenant
 레버넌트:|||Revenant:
+레버리지|||Leverage
 레벅|||Rebuck
 레번클로|||Ravenclaw
 레번트|||Revent
@@ -37912,6 +37943,7 @@ npia|||npia
 리즈|||Liz
 리즈시절|||Prime Years
 리진|||Rijin
+리진이야기|||Lijin Story
 리처드|||Richard
 리처드1세|||Richard I
 리처드오닐|||Richard O'Neill
@@ -38591,7 +38623,6 @@ npia|||npia
 마법소녀특수전아스카|||Magical Girl Special Ops Asuka
 마법소년|||Magic Boy
 마법소설|||Magic Novel
-마법소설.마술소설.마법.마술.소설.개인소설.jara소설.공상마법학교|||Magic Novel, Sorcery Novel, Magic, Sorcery, Novel, Original Novel, Jara Novel, Fantasy Magic School
 마법소설.마술소설.마법.마술.소설.개인소설.jara소설.공상마법학교|||Magic Novel. Sorcery Novel. Magic. Sorcery. Novel. Personal Novel. jara Novel. Fantasy Magic Academy
 마법소품|||Magical Items
 마법쇠퇴세계관|||Magic-Declining World
@@ -38682,6 +38713,7 @@ npia|||npia
 마사오미|||Masaomi
 마사유키|||Masayuki
 마사지|||Massage
+마사지샵|||Massage Shop
 마사필|||Masaphil
 마사하루|||Masaharu
 마살|||Masal
@@ -39277,6 +39309,7 @@ npia|||npia
 막내손주|||Youngest Grandchild
 막내아들|||Youngest Son
 막내온탑|||Youngest on Top
+막내주인공|||Youngest Protagonist
 막냇손자|||Youngest Grandson
 막노동|||Manual Labor
 막노동수|||Manual Labor Bottom
@@ -41359,6 +41392,7 @@ npia|||npia
 모솔녀|||Forever-Single Woman
 모솔루트|||Mosolute
 모솔수|||Virgin Bottom
+모솔아다|||Virgin
 모솔여주|||Forever-Single FL
 모솔이지만연애는하고싶어|||Forever Single but Wants Romance
 모솔탈출.|||Escape Being Forever Single.
@@ -41701,6 +41735,7 @@ npia|||npia
 몸|||Body
 몸vs머리|||Brawn vs. Brains
 몸값정산|||Price Settlement
+몸개그|||Physical Comedy
 몸걸마순공|||Body-First Mind-Second Gong
 몸교체|||Body Swap
 몸교체TS|||Body Swap TS
@@ -42227,6 +42262,7 @@ npia|||npia
 무림스웨디시|||Murim Swedish
 무림식당|||Wulin Restaurant
 무림쌍선.|||Wulin Twin Immortals.
+무림야사|||Martial World Chronicle
 무림에서|||In Wulin
 무림여행기|||Murim Travelogue
 무림인|||Murim Warrior
@@ -42744,7 +42780,6 @@ npia|||npia
 무협-범죄-수사-서문세가|||Wuxia-Crime-Investigation-Seomun Clan
 무협.|||Murim
 무협.로맨스|||Wuxia. Romance
-무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.jara무협.jara신무협.|||Wuxia. Wuxia Fiction. New Wuxia. Wuxia Novel. New Wuxia Novel. Genre Fiction. Jianghu. Wulin. Action. Novel. Jara Wuxia. Jara New Wuxia.
 무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.jara무협.jara신무협.|||Wuxia. Wuxia Fiction. New Wuxia. Wuxia Novel. New Wuxia Novel. Genre Fiction. Jianghu. Martial World. Action. Novel. jara Wuxia. jara New Wuxia.
 무협.역사.대체역사.퓨전|||Wuxia. History. Alternate History. Fusion
 무협.지존.|||Wuxia. Supreme Master.
@@ -42982,7 +43017,6 @@ npia|||npia
 문파전쟁|||Sect War
 문평|||Literature Average
 문풍당당|||Proudly Literary
-mpia|||mpia
 문학|||Literature
 문학.|||Literature
 문학가|||Literary Figure
@@ -43561,6 +43595,7 @@ mpia|||mpia
 미션스쿨|||Mission School
 미션여주|||Mission Heroine
 미션임파서블|||Mission: Impossible
+미션창|||Mission Window
 미셸|||Michelle
 미소|||Smile
 미소공|||Smiling Gong
@@ -43900,6 +43935,7 @@ mpia|||mpia
 미친AI|||Crazy AI
 미친_주인공|||Crazy_Protagonist
 미친ㄴ?|||Crazy Bitch?
+미친감독|||Mad Director
 미친개|||Mad Dog
 미친개공|||Mad Dog Top
 미친개남주|||Mad Dog ML
@@ -45029,6 +45065,7 @@ mpia|||mpia
 반좀비|||Half-Zombie
 반주령|||Half-Spirit
 반중|||Anti-China
+반줘팸순애|||Devoted Companion
 반즈|||Barnes
 반즈병장|||Sergeant Barnes
 반즈음|||Halfway
@@ -45646,6 +45683,7 @@ mpia|||mpia
 배틀변태|||Battle Pervert
 배틀부부|||Battle Couple
 배틀비드맨|||Battle Bead Man
+배틀섹스|||Battle Sex
 배틀스타|||Battle Star
 배틀스피리츠|||Battle Spirits
 배틀시티|||Battle City
@@ -46751,6 +46789,7 @@ mpia|||mpia
 변이종|||Mutant
 변이종생물|||Mutant Creature
 변이체|||Mutant
+변이타락|||Mutant Corruption
 변장|||Disguise
 변장녀|||Disguised Woman
 변장의귀재|||Master of Disguise
@@ -47324,6 +47363,7 @@ mpia|||mpia
 보호관계|||Protective Relationship
 보호물|||Protection
 보호법|||Protection Law
+보호본능|||Protective Instinct
 보호자|||Guardian
 보호자.형제물.|||Guardian. Sibling Fic
 보호자공|||Guardian Gong
@@ -49743,6 +49783,7 @@ mpia|||mpia
 빙화|||Ice Flower
 빙환|||Ice Ring
 빙환X|||No Possession Illusion
+빙환트|||Bing-hwan
 빙회환x|||No Ice Reincarnation
 빚|||Debt
 빚갚기|||Debt Repayment
@@ -51249,6 +51290,7 @@ mpia|||mpia
 사펑|||Safeng
 사펑2077|||Cyberpunk 2077
 사표|||Resignation Letter
+사피오섹슈얼|||Sapiosexual
 사필귀정|||Justice Prevails
 사하|||Saha
 사학12도|||Twelve Schools Of History
@@ -51549,6 +51591,7 @@ mpia|||mpia
 살아온|||Lived
 살아왔었다.|||Had Lived
 살아있는|||Alive
+살아있는불꽃|||Living Flame
 살아있는상태창|||Living Status Window
 살아있다|||Alive
 살았길래|||Because I Lived
@@ -52622,6 +52665,7 @@ mpia|||mpia
 생활지식|||Life Knowledge
 생활직|||Lifestyle Job
 생활코미디|||Slice-of-Life Comedy
+생활특허|||Lifestyle Patent
 생활판타지|||Everyday Fantasy
 생활형여주|||Everyday-Life Heroine
 생활형판타지|||Slice-Of-Life Fantasy
@@ -53894,6 +53938,7 @@ mpia|||mpia
 성물|||Holy Object
 성물전쟁|||Holy Relic War
 성미니|||Seongmini
+성반자|||Gender Reversal
 성배|||Holy Grail
 성배대전|||Holy Grail War
 성배전쟁|||Holy Grail War
@@ -54003,6 +54048,7 @@ mpia|||mpia
 성인기구|||Adult Toys
 성인까지|||Until Adulthood
 성인까지의|||Up To Adulthood
+성인대사|||Adult Dialogue
 성인동화|||Adult Fairy Tale
 성인드라마|||Adult Drama
 성인로맨스|||Adult Romance
@@ -54198,6 +54244,7 @@ mpia|||mpia
 성주|||Castle Lord
 성준|||Seongjun
 성준수|||Seong Junsoo
+성중독|||Sex Addiction
 성지|||Holy Land
 성지순례|||Pilgrimage
 성지순례글|||Pilgrimage Post
@@ -54828,6 +54875,7 @@ mpia|||mpia
 섹스레슬링|||Sex Wrestling
 섹스로강해짐|||Stronger via Sex
 섹스로이드|||Sexroid
+섹스로판|||Sex Romance Fantasy
 섹스를|||Sex And
 섹스리스|||Sexless
 섹스리스부부가되는법|||How To Become A Sexless Couple
@@ -56030,6 +56078,7 @@ mpia|||mpia
 쇼킹|||Shocking
 쇼타|||Shota
 쇼타남척자|||Shota Male Protagonist
+쇼타물|||Shota
 쇼타시로|||Shota Shiro
 쇼타아님|||Not Shota
 쇼타약간|||A Bit of Shota
@@ -56284,6 +56333,7 @@ mpia|||mpia
 수어사이드|||Suicide
 수어사이드스쿼드|||Suicide Squad
 수업|||Class
+수업물|||Classroom
 수업을|||Class
 수에게감기는공들|||Tops Falling for the Bottom
 수에게만|||Only To The Bottom
@@ -56872,6 +56922,7 @@ mpia|||mpia
 술식X|||No Incantations
 술식모방|||Technique Imitation
 술자리|||Drinking Party
+술장사|||Hostess Bar
 술쟁이|||Drunkard
 술좋아하는악녀|||Booze-Loving Villainess
 술주정|||Drunk Rant
@@ -56933,6 +56984,7 @@ mpia|||mpia
 숫자|||Numbers
 숫자놀이|||Number Game
 숫처녀|||Virgin Woman
+숫처녀히로인|||Virgin Heroine
 숭고한사랑|||Noble Love
 숭무이가|||Sungmu
 숭배|||Worship
@@ -57044,6 +57096,7 @@ mpia|||mpia
 슈로대L|||Shurodae L
 슈로이나|||Shurona
 슈뢰딩거의고양이|||Schrödinger's Cat
+슈뢰딩거의처녀|||Schrodinger's Virgin
 슈룬|||Shurun
 슈르|||Shur
 슈르바르|||Shurvar
@@ -57247,6 +57300,7 @@ mpia|||mpia
 스마트브레인|||Smart Brain
 스마트빅|||Smart Big
 스마트소설|||Smart Novel
+스마트워치|||Smartwatch
 스마트팜|||Smart Farm
 스마트폰|||Smartphone
 스마트폰과|||With Smartphone
@@ -57996,6 +58050,7 @@ mpia|||mpia
 슬레이어즈|||Slayers
 슬레이어즈.|||Slayers
 슬레져|||Sledger
+슬렌더|||Slender
 슬렌더맨|||Slenderman
 슬렌더패밀리좋아하나?|||Do You Like the Slender Family?
 슬렘|||Slem
@@ -58348,6 +58403,7 @@ mpia|||mpia
 시누이|||Sister-in-Law
 시니|||Sini
 시니스트라|||Sinistra
+시니시스타|||Cynic Star
 시니어|||Senior
 시니어들의스타트업|||Seniors' Startup
 시니컬|||Cynical
@@ -59114,6 +59170,7 @@ mpia|||mpia
 신뢰동의|||Trust Consent
 신뢰수|||Trusting Bottom
 신뢰의붕괴|||Trust Collapse
+신뢰할수없는화자|||Unreliable Narrator
 신뢰형로맨스|||Trust-Based Romance
 신룡|||Divine Dragon
 신룡의주인|||Master of the Divine Dragon
@@ -59620,6 +59677,7 @@ mpia|||mpia
 신하준|||Shin Hajun
 신학|||Theology
 신학교|||Seminary
+신항로개척시대|||Age of New Trade Routes
 신해량|||Shin Haeryang
 신혁|||Shin Hyeok
 신현|||Shin Hyeon
@@ -60247,6 +60305,7 @@ mpia|||mpia
 쌍망정|||Twin Fools
 쌍문동|||Ssangmun-dong
 쌍방|||Mutual
+쌍방TS|||Mutual TS
 쌍방_치유물|||Mutual Healing
 쌍방갑질|||Mutual Abuse of Power
 쌍방계략|||Mutual Scheming
@@ -62460,6 +62519,7 @@ mpia|||mpia
 악이라|||As Evil
 악인|||Villain
 악인갱생|||Villain Rehabilitation
+악인물|||Villain Protagonist
 악인사냥|||Villain Hunting
 악인주인공|||Villain Protagonist
 악인참|||Villain Slash
@@ -62655,6 +62715,7 @@ mpia|||mpia
 안정수|||Stable Bottom
 안정원|||An Jeongwon
 안정은|||Stability
+안정형|||Stable Type
 안정형공|||Stable Top
 안정형수|||Stable Bottom
 안정형여주|||Stable Female Lead
@@ -63474,6 +63535,7 @@ mpia|||mpia
 애증남|||Love-Hate Man
 애증로맨스|||Love-Hate Romance
 애증물|||Love-Hate
+애증복수|||Love-Hate Revenge
 애증순애|||Love-Hate Pure Love
 애증의관계|||Love-Hate Relationship
 애증하는|||Love-Hate
@@ -65996,6 +66058,7 @@ mpia|||mpia
 에틸란타|||Ethylanta
 에포칼립스|||Apocalypse
 에포크|||Epoch
+에프록토필리아|||Proctophilia
 에프엑스|||f(x)
 에프엑스.티아라|||f(x). Tiara
 에프원|||F1
@@ -66464,6 +66527,7 @@ mpia|||mpia
 여동생이세계판타지|||Younger Sister World Fantasy
 여동생이자누나|||Sister and Big Sis
 여동생친구|||Sis Friend
+여동생후타나리|||Sister Futanari
 여래아|||Yeoraeah
 여러|||Various
 여러가지|||Various
@@ -66568,6 +66632,7 @@ mpia|||mpia
 여비서|||Female Secretary
 여사니와|||Female Saniwa
 여사령관|||Female Commander
+여사장|||Female CEO
 여사제|||Priestess
 여사친|||Female Friend
 여사친빌런|||Female Friend Villain
@@ -66773,6 +66838,7 @@ mpia|||mpia
 여이매화|||Yeo Imhwa
 여인|||Woman
 여인과|||Woman And
+여인국|||Kingdom of Women
 여인들|||Women
 여인의|||Woman's
 여인이|||Woman
@@ -67319,6 +67385,7 @@ mpia|||mpia
 여체화.|||Genderbent
 여초|||Female Dominance
 여초딩|||Girl Elementary
+여초세계|||Female-Dominant World
 여초직장|||Female-Dominated Workplace
 여축|||Female Pig
 여친|||Girlfriend
@@ -67402,11 +67469,13 @@ mpia|||mpia
 역NTS|||Reverse NTS
 역TS|||Reverse TS
 역간|||Reverse Pussy
+역간물|||Reverse Content
 역감금|||Reverse Imprisonment
 역갑을|||Reverse Power Dynamic
 역갑질|||Counter-Bullying
 역강|||Reverse Gang
 역강간|||Reverse Assault
+역강간없음|||No Reverse Rape
 역강간조금|||Light Reverse Rape
 역갤|||History Gallery
 역갤러|||History Gallery User
@@ -68402,6 +68471,7 @@ mpia|||mpia
 엽혼|||Yeophon
 엿먹어라|||Screw You
 엿먹이기|||Getting Even
+엿보기|||Peeking
 였다가|||Was Then
 였던것|||Was
 였던남주|||ML Who Used To Be
@@ -69305,6 +69375,7 @@ mpia|||mpia
 오바나이|||Obanai
 오바람|||Oh Baram
 오바미츠|||Obamitsu
+오바콤|||Obacom
 오박사|||Professor Oh
 오방신|||Five Directional Gods
 오방신장|||Five Directional Deities
@@ -69674,6 +69745,8 @@ mpia|||mpia
 오피스연애|||Office Romance
 오피스코미디|||Office Comedy
 오피스텔|||Officetel
+오피스텔로맨스|||Officetel Romance
+오피스텔주민|||Officetel Resident
 오피스판타지|||Office Fantasy
 오필리아|||Ophelia
 오하대륙|||Oha Continent
@@ -69770,6 +69843,7 @@ mpia|||mpia
 온다|||Coming
 온다는|||Coming
 온달|||Ondal
+온달의재해석|||Ondal Reinterpretation
 온더로드|||On The Road
 온더볼|||On The Ball
 온더훅|||On the Hook
@@ -69826,6 +69900,7 @@ mpia|||mpia
 올뎅|||Oldeng
 올드|||Old
 올드가드|||The Old Guard
+올드보이들|||Old Boys
 올드월드|||Old World
 올드테일즈|||Old Tales
 올드한|||Old-Fashioned
@@ -70522,6 +70597,7 @@ mpia|||mpia
 외통수첫사랑|||Dead-End First Love
 외팔이|||One Arm
 외팔이선수|||One-Armed Athlete
+외행성|||Outer Planet
 외향적공|||Extroverted Top
 외형금태양|||Golden Sun Form
 외환|||Foreign Exchange
@@ -71336,6 +71412,7 @@ mpia|||mpia
 우주정복|||Space Conquest
 우주제국|||Space Empire
 우주창조|||Universe Creation
+우주최강|||Strongest in Universe
 우주최강이쁜여주|||Prettiest Heroine in the Universe
 우주최강존엄존예섹시제이슨|||Universe’s Most Dignified, Beautiful, Sexy Jason
 우주카지노|||Space Casino
@@ -72876,6 +72953,7 @@ mpia|||mpia
 유부남수(?)|||Married Man Bottom(?)
 유부녀|||Married Woman
 유부녀NTL|||Married Woman NTL
+유부녀O|||Married Woman
 유부녀x세상이처음|||Married Woman X New to the World
 유부녀가|||The Married Woman
 유부녀여주|||Married Woman Heroine
@@ -74006,6 +74084,7 @@ mpia|||mpia
 음양사|||Onmyoji
 음양술사|||Yin-Yang Mage
 음양오행|||Yin-Yang Elements
+음양합일|||Yin-Yang Union
 음어|||Sound Language
 음울|||Gloomy
 음울수|||Gloomy Bottom
@@ -75497,12 +75576,14 @@ mpia|||mpia
 이종간요소|||Interspecies Elements
 이종격투기|||Mixed Martial Arts
 이종과공생과|||Species and Symbiosis
+이종교미|||Interspecies
 이종교배|||Interspecies Breeding
 이종동맹|||Inter-species Alliance
 이종민|||Lee Jong-min
 이종사촌|||Step-Cousins
 이종석|||Lee Jongseok
 이종성교|||Interspecies Sex
+이종수태|||Interspecies Pregnancy
 이종연애|||Interspecies Romance
 이종장르교배|||Genre Crossbreed
 이종전쟁|||Interspecies War
@@ -77122,6 +77203,7 @@ mpia|||mpia
 임무성|||Im Mu-seong
 임무수행|||Mission Accomplishment
 임무형전개|||Mission Plot
+임보출|||Pregnancy
 임사홍|||Im Sa-hong
 임산부|||Pregnant
 임상실험|||Clinical Experiment
@@ -77144,6 +77226,7 @@ mpia|||mpia
 임신도망수|||Pregnant Runaway Bottom
 임신런|||Pregnancy Run
 임신물|||Pregnancy
+임신섹스|||Pregnancy Sex
 임신수|||Impregnation
 임신수.|||Pregnant Bottom
 임신수주의|||Pregnant Bottom Warning
@@ -77626,6 +77709,7 @@ mpia|||mpia
 자발적료나|||Voluntary Ryona
 자발적아싸|||Voluntary Loner
 자발적아싸수|||Voluntary Loner Bottom
+자발적암락|||Voluntary Fall
 자발적착각계|||Voluntary Misunderstanding
 자발적피폐수|||Voluntary Angst Bottom
 자베스|||Jabez
@@ -79491,6 +79575,7 @@ mpia|||mpia
 전기수|||Former Reader
 전기술사|||All Tech History
 전기양|||Electric Sheep
+전기차|||Electric Car
 전기톱|||Chainsaw
 전기톱맨|||Chainsaw Man
 전기활극|||Electric Action
@@ -79565,6 +79650,7 @@ mpia|||mpia
 전략시물레이션|||Strategy Simulation
 전략시뮬|||Strategy Sim
 전략시뮬레이션|||Strategy Simulation
+전략액션|||Strategic Action
 전략여주|||Strategist Female Lead
 전략의천재|||Strategic Genius
 전략이|||Strategy
@@ -80106,6 +80192,7 @@ mpia|||mpia
 절규|||Scream
 절단|||Dismember
 절대|||Absolute
+절대19금|||Strictly Adult
 절대BL|||Absolute BL
 절대XXX|||Absolutely XXX
 절대가련|||Absolutely Delicate
@@ -80554,6 +80641,7 @@ mpia|||mpia
 정수연.제시카.윤아.소녀시대.이성팬픽|||Jung Sooyeon; Jessica; Yoona; Girls' Generation; Het Fanfic
 정수정|||Jung Soojung
 정수호|||Jeong Su-ho
+정숙한|||Demure
 정순혁|||Jeong Sun-hyeok
 정승화|||Jeong Seung-hwa
 정승효|||Jung Seung-hyo
@@ -80916,6 +81004,7 @@ mpia|||mpia
 정통판타지스러운|||Classic Fantasy-Like
 정통판타지지향|||Classic Fantasy-Oriented
 정통판타지추구|||Orthodox Fantasy
+정통판타지호소인|||Traditional Fantasy Hosoin
 정통퓨전|||Classic Fusion
 정통학원판타지|||Classic Academy Fantasy
 정통환타지|||Classic Fantasy
@@ -81207,6 +81296,7 @@ mpia|||mpia
 제벌여주|||Chaebol Female Lead
 제법|||Quite
 제복|||Uniform
+제복물|||Uniform Content
 제복판타지|||Uniform Fantasy
 제브라|||Zebra
 제브라루트|||Zebra Route
@@ -81704,19 +81794,6 @@ mpia|||mpia
 조심하세요|||Be Careful
 조씨와원중|||Jo and Won-jung
 조씨이야기|||Jo's Story
-jara|||jara
-jaraBorn|||jara Born
-jara_투베도전|||jara Best Challenge
-jara공모전|||jara Contest
-jara단독선공개|||jara Exclusive Early Release
-jara세계관|||jara Universe
-jara소설|||jara Novel
-jara신입사원|||jara New Employee
-jara여|||jara Woman
-jara연재소설|||jara Serialized Novel
-jara의|||jara's
-jara첫작|||jara Debut
-jara판타지소설|||jara Fantasy Novel
 조아리|||Jo Ari
 조아미|||Jo Ami
 조안페레로|||Joan Ferrero
@@ -82480,7 +82557,6 @@ jara판타지소설|||jara Fantasy Novel
 주변만피폐|||Surroundings Only Ruined
 주변사람|||People Around Them
 주변사람들도|||People Around Them Too
-주변사람들이다rbooks공|||People Around Them; Rbooks Top
 주변사람들이다rbooks공|||Everyone Around Them Is a rbooks Top
 주변사람이적응안돼|||Can't Adjust to the People Around Me
 주변약피폐|||Side Character Mild Yandere
@@ -82726,6 +82802,7 @@ jara판타지소설|||jara Fantasy Novel
 주인공이_회귀도하고_환생도하고|||Protagonist Regresses and Reincarnates
 주인공이교관임|||MC Instructor
 주인공이나쁨|||Bad Protagonist
+주인공이네토라레|||Protagonist NTR
 주인공이네토라레함|||MC NTR
 주인공이다씹어먹음|||Protagonist Dominates Everything
 주인공이되고싶은여주|||Female Lead Wants to Be the Protagonist
@@ -85609,6 +85686,7 @@ jara판타지소설|||jara Fantasy Novel
 처남공|||Brother-in-Law Top
 처녀|||Virgin
 처녀.|||Virgin
+처녀ONLY|||Virgins Only
 처녀귀신|||Virgin Ghost
 처녀막리셋|||Virgin Reset
 처녀만하렘영입|||Virgin Harem Only
@@ -85628,6 +85706,7 @@ jara판타지소설|||jara Fantasy Novel
 처녀타락|||Virgin Fall
 처녀파티|||Virgin Party
 처녀히로인|||Virgin Heroine
+처녀히로인만|||Virgin Heroine Only
 처단|||Execution
 처단자|||Executioner
 처단하는|||Executing
@@ -85736,6 +85815,7 @@ jara판타지소설|||jara Fantasy Novel
 천공녀|||Sky Princess
 천공룡|||Sky Dragon
 천공섬|||Sky Island
+천공술|||Sky Art
 천공의|||Of the Sky
 천공의여왕.|||Queen of the Sky
 천공학원|||Sky Academy
@@ -86080,6 +86160,7 @@ jara판타지소설|||jara Fantasy Novel
 천재호소인|||Genius Advocate
 천재화가|||Genius Painter
 천재화가수|||Genius Painter Bottom
+천재화가여주|||Genius Painter Heroine
 천재히로인|||Genius Heroine
 천정|||Cheon Jeong
 천정검|||Heavenly Court Sword
@@ -86935,6 +87016,7 @@ jara판타지소설|||jara Fantasy Novel
 초반후타나리|||Early Futanari
 초반후회|||Early Regret
 초반후회남주구원여주|||Early Regret ML
+초반후회피폐향첨가|||Early Regret Ruined Flavor
 초반힐링|||Early Healing
 초반힐링물|||Early Healing Story
 초보|||Beginner
@@ -88217,6 +88299,7 @@ jara판타지소설|||jara Fantasy Novel
 친동생|||Blood Sibling
 친동생맞음|||Real Sis
 친동생아님|||Not a Biological Younger Sibling
+친딸|||Daughter
 친딸맞음|||True Daughtercon
 친목|||Socializing
 친밀도시스템|||Affinity System
@@ -88235,6 +88318,7 @@ jara판타지소설|||jara Fantasy Novel
 친세대이동|||Previous-Generation Time Travel
 친세데|||Chinseide
 친세해리|||Chinse Harry
+친아들|||Son
 친아빠성자|||Biological Father Saint
 친애물|||Affection Story
 친애하는|||Dear
@@ -88612,6 +88696,7 @@ jara판타지소설|||jara Fantasy Novel
 카비네스:|||Kaviness:
 카빈|||Carbine
 카사|||Casa
+카사공|||Kasagong
 카사네테토|||Kasane Teto
 카사노바|||Casanova
 카사노바남주(?)|||Casanova Hero(?)
@@ -88687,6 +88772,7 @@ jara판타지소설|||jara Fantasy Novel
 카요|||Kayo
 카요코|||Kayoko
 카우|||Cow
+카우걸|||Cowgirl
 카우보이|||Cowboy
 카운슬러|||Counselor
 카운슬링|||Counseling
@@ -90029,6 +90115,7 @@ jara판타지소설|||jara Fantasy Novel
 쿨워터수|||Cool-Water Bottom
 쿨찐|||Edgy Loner
 쿨타|||Coolta
+쿨타임|||Cooldown
 쿨하고싶수|||Bottom Wants to Be Cool
 쿨한|||Cool
 쿨한여주|||Cool Heroine
@@ -91216,6 +91303,7 @@ jara판타지소설|||jara Fantasy Novel
 태그사기|||Tag Bait
 태그추가예정|||Tags Pending
 태그추천받습니다|||Tag Recommendations Welcome
+태그추천받음|||Tag Requested
 태극|||Taegeuk
 태극검선|||Taeguk Sword Immortal
 태극권|||Tai Chi
@@ -91883,6 +91971,7 @@ jara판타지소설|||jara Fantasy Novel
 톱단창|||Saw Spear
 톱배우|||Top Actor
 톱배우남|||Top Actor Male
+톱배우남녀|||Top Actor Male and Female
 톱배우여주|||Top Actress FL
 톱스타|||Top Star
 톱스타공|||Top Star Top
@@ -93557,6 +93646,7 @@ jara판타지소설|||jara Fantasy Novel
 페데스트리언|||Pedestrian
 페도|||Lolicon
 페도소울|||Pedo Soul
+페디큐어|||Pedicure
 페라토|||Ferato
 페라홀|||Ferrahall
 페러디|||Parody
@@ -93769,6 +93859,7 @@ jara판타지소설|||jara Fantasy Novel
 펩티드|||Peptide
 펫|||Pet
 펫남주|||Pet Male Lead
+펫물|||Pet Content
 펫샵|||Pet Shop
 펫숍|||Pet Shop
 펫팸족|||Pet Parents
@@ -95370,6 +95461,7 @@ jara판타지소설|||jara Fantasy Novel
 피폐속의평화|||Peace Amidst Angst
 피폐속힐링|||Healing Amidst Angst
 피폐수|||Exhausted Bottom
+피폐순|||Pure Angst
 피폐순애|||Worn Pure Love
 피폐순애물|||Angsty Devoted Love
 피폐아닌피폐|||Not Abuse Abuse
@@ -95435,6 +95527,7 @@ jara판타지소설|||jara Fantasy Novel
 피피|||PP
 피피레|||Pipire
 피학|||Masochism
+피학성향|||Masochistic Tendencies
 피한울|||Pi Han-ul
 피해가는주인공|||Protagonist Who Avoids It
 피해자|||Victim
@@ -95794,6 +95887,7 @@ jara판타지소설|||jara Fantasy Novel
 하드코어얀데레|||Hardcore Yandere
 하드코어전투물|||Hardcore Combat
 하드코어텐션|||Hardcore Tension
+하드코어할수도도|||Hardcore
 하드코어할지도|||Possibly Hardcore
 하드코어헨리|||Hardcore Henry
 하드판타지|||Hard Fantasy
@@ -96071,6 +96165,7 @@ jara판타지소설|||jara Fantasy Novel
 하얀여우씨칭구|||White Fox Nickname
 하얀유화|||White Oil Painting
 하얀카페|||White Café
+하얀피부|||Pale Skin
 하양|||White
 하양윤|||Hayang Yun
 하양이ts|||Hayang TS
@@ -96376,6 +96471,7 @@ jara판타지소설|||jara Fantasy Novel
 하티퍼|||Hatyper
 하프|||Half
 하프드래곤|||Half-Dragon
+하프라이칸|||Half Lycan
 하프라이프|||Half-Life
 하프링|||Halfling
 하프물범여주|||Harbor Seal Female Lead
@@ -98805,6 +98901,7 @@ jara판타지소설|||jara Fantasy Novel
 협의|||Consultation
 협행|||Chivalry
 협회|||Guild
+협회물|||Association Content
 협회직원|||Association Staff
 형|||Brother
 형x제|||Brothers
@@ -100427,6 +100524,7 @@ jara판타지소설|||jara Fantasy Novel
 후|||After
 후TS|||Later TS
 후가쿠|||Fugaku
+후각|||Olfactory
 후각능력|||Olfactory Ability
 후견남주|||Guardian Male Lead
 후견인|||Guardian
@@ -100656,6 +100754,7 @@ jara판타지소설|||jara Fantasy Novel
 후크|||Hook
 후크선장|||Captain Hook
 후타|||Futa
+후타X여자|||Futa x Female
 후타X후타|||Futa x Futa
 후타나리|||Futanari
 후타나리공|||Futa Top
@@ -101462,6 +101561,7 @@ jara판타지소설|||jara Fantasy Novel
 히로인슈퍼디펜스|||Heroine Super Defense
 히로인아포칼립스|||Heroine Apocalypse
 히로인에빙의|||Heroine Possession
+히로인유기없음|||No Heroine Abandonment
 히로인육성|||Heroine Training
 히로인은|||The Heroine
 히로인을|||The Heroine
