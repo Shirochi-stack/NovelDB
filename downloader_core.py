@@ -8,6 +8,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
+from npia_author_catalog import author_id, iter_author_pages, matches_age
+
 from npia_search_terms import (
     ALL_SEARCH_TERMS,
     DEFAULT_SEARCH_QUERY_COUNT,
@@ -1069,6 +1071,7 @@ img { max-width: 100%; height: auto; }
             self.log("  Age filter: Adult only")
 
         ids = set()
+        authors = set()
         lock = threading.Lock()
         completed = [0]  # mutable counter for progress
 
@@ -1090,9 +1093,9 @@ img { max-width: 100%; height: auto; }
                 t.start()
 
                 page_novel_list = []
-                ROWS_PER_PAGE = 30000
+                ROWS_PER_PAGE = 15000
                 try:
-                    for pg in range(1, 21):  # up to 20 pages = 100k novels max
+                    for pg in range(1, 41):  # preserve the 600,000-result ceiling
                         params = {
                             "cmd": "novel_search",
                             "search_type": "all",
@@ -1102,7 +1105,7 @@ img { max-width: 100%; height: auto; }
                             "novel_type": "",
                             "start_count_book": "",
                             "end_count_book": "",
-                            "novel_age": age_filter,
+                            "novel_age": "" if age_filter == "19" else age_filter,
                             "start_days": "",
                             "sort_col": "last_viewdate",
                             "novel_genre": "",
@@ -1169,7 +1172,10 @@ img { max-width: 100%; height: auto; }
                     before = len(ids)
                     for novel in page_novel_list:
                         novel_id = str(novel.get("novel_no", ""))
-                        if novel_id:
+                        owner = author_id(novel)
+                        if owner:
+                            authors.add(owner)
+                        if novel_id and matches_age(novel, age_filter):
                             ids.add(novel_id)
                     new_count = len(ids) - before
                     completed[0] += 1
@@ -1196,6 +1202,25 @@ img { max-width: 100%; height: auto; }
                     break
                 _query_one(ci, ch)
                 time.sleep(delay)
+
+        self.log(f"Checking {len(authors)} public author catalogs...")
+        for index, owner in enumerate(sorted(authors, key=int), 1):
+            if self.stop_signal:
+                break
+            before = len(ids)
+            try:
+                for page, novels, more in iter_author_pages(
+                        self.auth.session, owner, delay=max(2.0, delay),
+                        stopped=lambda: self.stop_signal):
+                    for novel in novels:
+                        if matches_age(novel, age_filter):
+                            ids.add(str(novel["novel_no"]))
+                    self.log(f"  Author {index}/{len(authors)}, page {page}: {len(ids)} IDs total")
+                self.log(f"  Author {index}/{len(authors)}: {len(ids) - before} new IDs (total: {len(ids)})")
+            except Exception as exc:
+                self.log(f"  Author {index}/{len(authors)} PARTIAL: {len(ids) - before} new IDs retained; {exc}")
+                if "HTTP 429" in str(exc):
+                    break
 
         self.log(f"  {len(ids)} novel(s) retrieved total")
         return list(ids)
