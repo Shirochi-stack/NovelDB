@@ -21,8 +21,10 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
+from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
+
 from npia_auth import NpiaAuth
-from npia_search_terms import RETRYABLE_STATUS_CODES, SEARCH_TAGS, SWEEP_CHARS
+from npia_search_terms import SEARCH_TAGS, SWEEP_CHARS
 
 COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 IMAGE_COVER_PREFIX = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
@@ -100,34 +102,16 @@ def extract_novel(item):
 
 
 def get_json_with_retry(session, params, headers, retries, timeout=120):
-    last_error = None
-    for attempt in range(1, retries + 1):
-        try:
-            response = session.get(
-                "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel",
-                params=params,
-                headers=headers,
-                timeout=timeout,
-            )
-            if response.status_code in RETRYABLE_STATUS_CODES:
-                raise RuntimeError(f"HTTP {response.status_code}")
-            text = response.text.strip()
-            if not text:
-                return None
-            return response.json()
-        except Exception as exc:
-            last_error = exc
-            if attempt == retries:
-                break
-            time.sleep(min(2 ** (attempt - 1), 8))
-    raise last_error
+    return _search_json(session, params, headers, retries, timeout)
 
 
 def search_novels(session, search_val, headers, retries, search_type="all"):
     """Search Npia API for novels matching a term."""
     items = []
-    rows = 30000
-    for pg in range(1, 21):
+    rows = 15000
+    # Split the former 30,000-row pages in half to avoid server memory exhaustion.
+    # Forty pages retain the previous 600,000-result search ceiling.
+    for pg in range(1, 41):
         params = {
             "cmd": "novel_search",
             "search_type": search_type,
@@ -148,7 +132,10 @@ def search_novels(session, search_val, headers, retries, search_type="all"):
             "is_challenge": 0,
             "list_display": "grid",
         }
-        data = get_json_with_retry(session, params, headers, retries)
+        try:
+            data = get_json_with_retry(session, params, headers, retries)
+        except Exception as exc:
+            raise PartialSearchError(items, pg, exc) from exc
         if not data:
             break
         batch = data.get("list", [])
@@ -171,6 +158,10 @@ def fetch_terms(label, terms, loginkey, headers, workers, retries, delay):
                 items = future.result()
                 results[term] = items
                 print(f"{prefix} {len(items)} results", flush=True)
+            except PartialSearchError as exc:
+                results[term] = exc.items
+                state = "PARTIAL" if exc.items else "FAILED"
+                print(f"{prefix} {state}: retained {len(exc.items)} results; {exc}", flush=True)
             except Exception as exc:
                 results[term] = []
                 print(f"{prefix} ERROR after retries: {exc}", flush=True)

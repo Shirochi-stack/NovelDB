@@ -36,7 +36,7 @@ _enc = tiktoken.get_encoding("cl100k_base")
 DEFAULT_API_BASE_URL = "https://api.x.ai/v1"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_MODEL = "claude-haiku-5-5"
 
 # API output cap and derived chunk size.
 DEFAULT_OUTPUT_TOKEN_LIMIT = 16_384
