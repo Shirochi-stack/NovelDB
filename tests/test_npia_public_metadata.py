@@ -146,7 +146,7 @@ def test_workflow_scraper_integrates_public_metadata_and_checkpoint(tmp_path, mo
             return SimpleNamespace(status_code=200, text=detail() if url.endswith("/123") else "")
 
     monkeypatch.setattr(scraper.requests, "Session", AnonymousSession)
-    argv = ["scraper", "--r19-listing-pages", "0", "--r19-detail-limit", "1"]
+    argv = ["scraper", "--r19-listing-pages", "0", "--r19-detail-limit", "1", "--intro-requests", "0"]
     if dry_run:
         argv.append("--dry-run")
     monkeypatch.setattr(sys, "argv", argv)

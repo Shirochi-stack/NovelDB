@@ -34,6 +34,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
 from npia_author_catalog import author_id, iter_author_pages
+from npia_intro_discovery import discover as discover_intro
 import npia_author_registry as author_registry
 
 HEADERS = {
@@ -238,7 +239,7 @@ def scrape_ranking(session, period, audience):
     return ranking
 
 
-def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, delay=2.0, now=None, existing=(), registry=None):
+def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, delay=2.0, now=None, existing=(), registry=None, priority_authors=()):
     """Resume a bounded author sweep, retaining every completed metadata page."""
     now = time.time() if now is None else now
     pending = state.setdefault("author_pending", {})
@@ -253,6 +254,8 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
         for owner in registry["authors"]:
             if owner not in pending and now - checked.get(owner, 0) >= 7 * 86400:
                 pending[owner] = 1
+    pending = {**{owner: pending[owner] for owner in priority_authors if owner in pending}, **pending}
+    state["author_pending"] = pending
     pages = updated = failed = completed = 0
     for owner in list(pending):
         if pages >= page_limit:
@@ -337,9 +340,11 @@ def main():
     parser.add_argument("--author-pages", type=int, default=200,
                         help="Maximum public author catalog requests per run; checkpoints resume next run")
     parser.add_argument("--author-delay", type=float, default=2.0)
+    parser.add_argument("--intro-requests", type=int, default=6,
+                        help="Maximum requests for public R19 author discovery per run")
     args = parser.parse_args()
     if min(args.r19_listing_pages, args.r19_detail_limit, args.r19_delay,
-           args.author_pages, args.author_delay) < 0:
+           args.author_pages, args.author_delay, args.intro_requests) < 0:
         parser.error("R19 request budgets and delay must be nonnegative")
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -441,9 +446,13 @@ def main():
                           listing_pages=args.r19_listing_pages,
                           detail_limit=args.r19_detail_limit, delay=args.r19_delay)
     print("\n--- Checking public author catalogs (no auth) ---", flush=True)
+    intro_rows = discover_intro(session, public_state, max_requests=args.intro_requests,
+                                delay=args.author_delay)
+    intro_authors = author_registry.observe(registry, intro_rows)
     public_state = enrich_author_catalogs(session, fresh_novels, old_full_lookup, public_state,
                                           page_limit=args.author_pages, delay=args.author_delay,
-                                          existing=existing_data, registry=registry)
+                                          existing=existing_data, registry=registry,
+                                          priority_authors=sorted(intro_authors, key=int))
     author_registry.report_coverage(registry, search_ids)
 
     # Build lookup: novel_id_str -> index in existing_data

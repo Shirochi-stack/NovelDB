@@ -10,6 +10,11 @@ import downloader_core as core
 import npia_author_catalog as catalog
 
 
+@pytest.fixture(autouse=True)
+def isolate_public_intro(monkeypatch):
+    monkeypatch.setattr(core, "discover_intro", lambda *a, **kw: [])
+
+
 def novel(nid, age=19):
     return dict(novel_no=nid, mem_no=42, novel_age=age, novel_name=f"Title {nid}",
                 writer_nick="Writer", novel_story="Synopsis", novel_genre='["Tag"]')

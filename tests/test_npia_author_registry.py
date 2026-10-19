@@ -118,7 +118,7 @@ def test_authenticated_rescrape_updates_shared_registry_without_real_credentials
     session = SimpleNamespace(post=post, get=lambda *a, **k: SimpleNamespace(text="", status_code=200))
     monkeypatch.setattr(scraper, "NpiaAuth", lambda: SimpleNamespace(session=session, set_manual_key=lambda _: None))
     monkeypatch.setattr(scraper, "fetch_terms", lambda label, terms, *a: {terms[0]: [item(1, 42)]})
-    monkeypatch.setattr(sys, "argv", ["scraper", "--author-pages", "2", "--author-delay", "0"])
+    monkeypatch.setattr(sys, "argv", ["scraper", "--author-pages", "2", "--author-delay", "0", "--intro-requests", "0"])
     scraper.main()
     updated = registry.load(registry_path)
     assert set(updated["authors"]) == {"42", "43"}
@@ -145,7 +145,7 @@ def test_workflow_scraper_checks_registry_when_search_finds_nothing(tmp_path, mo
     session = SimpleNamespace(headers={}, post=post, get=lambda *a, **k: SimpleNamespace(text="", status_code=200))
     monkeypatch.setattr(scraper.requests, "Session", lambda: session)
     monkeypatch.setattr(sys, "argv", ["scraper", "--r19-listing-pages", "0", "--r19-detail-limit", "0",
-                                     "--author-pages", "1", "--author-delay", "0"])
+                                     "--author-pages", "1", "--author-delay", "0", "--intro-requests", "0"])
     scraper.main()
     result = registry.load(path)
     assert result["authors"]["42"]["catalog_status"] == "complete"

@@ -25,6 +25,7 @@ from npia_search_http import PartialSearchError, get_json_with_retry as _search_
 from npia_author_catalog import author_id
 import npia_author_registry as author_registry
 from scripts.rescrape_npia_noauth import enrich_author_catalogs
+from npia_intro_discovery import discover as discover_intro
 
 from npia_auth import NpiaAuth
 from npia_search_terms import SEARCH_TAGS, SWEEP_CHARS
@@ -296,8 +297,9 @@ def main():
                         help="Seconds to stagger parallel search submissions")
     parser.add_argument("--author-pages", type=int, default=200)
     parser.add_argument("--author-delay", type=float, default=2.0)
+    parser.add_argument("--intro-requests", type=int, default=6)
     args = parser.parse_args()
-    if min(args.author_pages, args.author_delay) < 0:
+    if min(args.author_pages, args.author_delay, args.intro_requests) < 0:
         parser.error("Author request budgets and delay must be nonnegative")
 
     auth = NpiaAuth()
@@ -343,9 +345,13 @@ def main():
     previous_full = {str(n["id"]): n for n in load_json_file("docs/data/novels_full.json", [])
                      if isinstance(n, dict) and n.get("id") is not None}
     public_state = load_json_file(state_path, {})
+    intro_rows = discover_intro(auth.session, public_state, max_requests=args.intro_requests,
+                                delay=args.author_delay)
+    intro_authors = author_registry.observe(registry, intro_rows)
     enrich_author_catalogs(auth.session, novels_by_id, previous_full, public_state,
                           page_limit=args.author_pages, delay=args.author_delay,
-                          existing=load_json_file("docs/data/novels.json", []), registry=registry)
+                          existing=load_json_file("docs/data/novels.json", []), registry=registry,
+                          priority_authors=sorted(intro_authors, key=int))
     author_registry.report_coverage(registry, search_ids)
     novels = list(novels_by_id.values())
 
