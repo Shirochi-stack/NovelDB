@@ -38335,6 +38335,7 @@
 389383|||문종이 화폐를 거부함|||King Munjong Rejects Currency
 38939|||템플러즈|||Templars
 389391|||환생했더니 대공의 셋째 아들|||I Reincarnated as the Grand Duke’s Third Son
+389397|||던전공략으로 무한성장|||Infinite Growth Through Dungeon Strategy
 389398|||재벌집 데릴사위가 운이 좋음|||The Chaebol Family’s Son-in-Law Is Lucky
 3894|||이계? 별거아니잖아?|||Another World? No Big Deal
 389406|||슬기로운 천마님의 감빵생활|||The Wise Heavenly Demon’s Prison Life
@@ -38513,6 +38514,7 @@
 390439|||프리드 마을에서의 소동|||Trouble in Freed Village
 390445|||리자드맨, 언더테이커의 딸|||Lizardman: The Undertaker’s Daughter
 390453|||실수로 미친놈을 빙의 시켰다|||I Accidentally Possessed a Madman
+39047|||공략왕의 생존비법|||The Strategy King's Survival Method
 390473|||엔트로피의 연금술사|||The Alchemist of Entropy
 390477|||초고교급 순정파 스트라이커|||The Ultra-High-School-Level Pure-Hearted Striker
 390480|||귀신 덕에 골프 치는 회사원|||The Office Worker Who Plays Golf Thanks to Ghosts
@@ -40732,6 +40734,7 @@
 405206|||매직 스트라이크 [D]|||Magic Strike [D]
 405207|||퇴직호위 [D]|||The Retired Escort [D]
 405208|||기공술사 [D]|||The Qi Arts Master [D]
+405213|||디펜스게임에 빙의 했는데 탑공략으로 바뀌었다|||Possessed in a Defense Game, Now It's a Tower Strategy Game
 405234|||우니베르줌|||Universum
 40524|||무한의 침묵|||Infinite Silence
 405241|||중세 불꽃의 기사로 살아남기|||Surviving as a Medieval Knight of Flame
@@ -41923,6 +41926,7 @@
 413501|||업적을 다시 쓰는 엑스트라|||The Extra Who Rewrites Achievements
 413503|||귀환했더니 세상이 게임이다|||I Returned to Find the World Is a Game
 413504|||무룡전(武龍傳)|||Legend of the Martial Dragon
+413511|||아마겟돈 여신공략전|||Armageddon: The Goddess Conquest War
 413514|||어느 날 집사가 고양이 말을 하기 시작했다.|||One Day, the Butler Started Speaking Cat
 413515|||우주선으로 1980|||1980 by Spaceship
 413516|||인연의 기적|||The Miracle of Fate
@@ -43487,6 +43491,7 @@
 42129|||Rewind|||Rewind
 421292|||셀데의 신부|||Bride of Selde
 421300|||성좌의 집착일지|||The Constellation's Obsession Diary
+421301|||던전 엔 공략자: 반지하의 마왕|||Dungeon N Strategist: Demon King of the Semi-Basement
 421302|||적벽, 용을 삼킨 거북|||Red Cliffs: The Turtle That Swallowed a Dragon
 421314|||망나니 검사가 악당을 잘 잡음|||The Bratty Prosecutor Is Great at Catching Villains
 421316|||지하소년|||The Underground Boy
@@ -44939,6 +44944,7 @@
 429884|||톱스타가 사랑하는 괴물 천재 작가|||The Monster Genius Writer Loved by a Top Star
 429885|||즐거운 힙투비: 마지막 하이크란트 이야기|||Joyful Hiptubi: The Last Tale of Hykland
 429888|||생존게임 속 고인물이 살아가는 법 [D]|||How a Veteran Gamer Lives in a Survival Game [D]
+42989|||공략왕 in 던전|||Strategy King in the Dungeon
 429892|||은퇴 첫날 성검을 얻었다 [D]|||I Obtained the Holy Sword on My First Day of Retirement [D]
 429898|||심 봤다! 초능력으로 인생 역전|||I Found Ginseng! Turning My Life Around with Superpowers
 429900|||리치가 연기를 잘함 [D]|||The Lich Is Great at Acting [D]
@@ -49370,6 +49376,7 @@
 458328|||옥탑방 세계수 [D]|||The World Tree on the Rooftop
 458329|||검 잡으면 시간이 느려짐 [D]|||Time Slows When I Hold a Sword [D]
 458330|||겨우 강해졌는데 회귀해버림 [D]|||I Finally Got Strong, Then Regresed [D]
+45834|||게이트 공략왕|||Gate Strategy King
 458369|||멸망한 도시에서 깨어났다(The Road to You)|||I Awoke in a Ruined City (The Road to You)
 458371|||괴이 세상 속 빌런의 2회차|||The Villain’s Second Life in a Strange World
 458372|||주식으로 퇴사한다더니, 아직 출근 중입니다|||I Said I’d Quit with Stocks, but I’m Still Going to Work
@@ -50372,6 +50379,7 @@
 46465|||레이드 콜렉터|||Raid Collector
 464655|||최강 지존|||The Strongest Supreme
 464656|||공존이냐? 배신이냐? 그것이 문제다.|||Coexistence or Betrayal? That Is the Question
+46467|||공략왕의 생존비법 [E]|||The Strategy King's Survival Method [E]
 46468|||낭만이 사라진 필드 [E]|||The Field Where Romance Disappeared [E]
 464687|||마계에서는 일개 슬라임이었던 내가 인기 여캠 BJ?!|||I Was Just a Slime in the Demon Realm, but Now I’m a Popular Female BJ?!
 464692|||태양의 조각|||A Piece of the Sun
@@ -53395,6 +53403,7 @@
 480338|||RVD: 착각계 엑스트라는 각성한다|||RVD: The Misunderstood Extra Awakens
 480339|||네이비맨 : 킬 슈트의 탄생|||Navyman: Birth of the Kill Suit
 480341|||과학고 신입생의 마법 세계 생존기|||A Science High School Freshman’s Survival in a Magical World
+480353|||망상충의 지하 공략전|||Delusion Worm's Underground Conquest War
 480359|||노가다 헌터인데 왜 내가 도시 짓냐|||I’m a Laborer Hunter, So Why Am I Building a City?
 48036|||메리크리스마스, 지선|||Merry Christmas, Jiseon
 480360|||투명한 히어로|||The Transparent Hero
@@ -55639,6 +55648,7 @@
 489734|||후문신의|||The God of the Back Door
 48974|||수라장도|||Asura's Battlefield
 489740|||백수 가장, 황태자 전생했는데 나라 망함|||Jobless Breadwinner Reincarnated as a Crown Prince, but the Country Is Doomed
+489744|||초월급 엑스트라의 공략집 [D]|||Transcendent-Class Extra's Strategy Guide [D]
 489745|||예술고 음악천재는 환생한 파가니니 [D]|||The Arts High School Musical Genius Is Reincarnated Paganini [D]
 489746|||귀신 보는 배우님 [D]|||The Actor Who Sees Ghosts [D]
 489747|||천재 바이올리니스트로 돌아왔다 [D]|||I Returned as a Genius Violinist [D]
@@ -81134,6 +81144,7 @@
 602747|||서울시 중구 황학동 1940|||1940, Hwanghak-dong, Jung-gu, Seoul
 602749|||좀비 훈련사인데 제가 좀비입니다|||I'm a Zombie Trainer, but I'm a Zombie
 602751|||주인공만 묻고 떠블로 성장함|||I Ask the Protagonist and Grow Double
+602754|||The great sentinel (센티넬)|||The Great Sentinel
 602755|||대한민국 수출품목 1위는 과일이다|||South Korea's Top Export Is Fruit
 602758|||마왕x소녀|||Demon King x Girl
 602759|||접었던 게임에서 돈이 계속 들어온다|||Money Keeps Coming from a Game I Quit
@@ -82798,6 +82809,7 @@
 605981|||양자역학 천재는 매국 빌런 데이터 소각이 개껌임.|||For a Quantum Physics Prodigy, Erasing Traitor Villain Data Is a Piece of Cake
 605984|||인벤토리 능력으로 탑 등반합니다|||I Climb the Tower with My Inventory Skill
 605985|||해고당한 서 사원의 푸드트럭에 손님의 취향이 보임|||Fired Employee Seo Can See Customers' Tastes at His Food Truck
+605986|||The Gate of Heroes(더게이트오브히어로즈)|||The Gate of Heroes
 605988|||외딴 섬에 귀양간 선비가 원예를 잘함|||The Scholar Exiled to a Remote Island Is Great at Gardening
 60599|||The Galaxy Stream|||The Galaxy Stream
 605990|||사이비종교의 제물|||Sacrifice to a Cult
@@ -83906,6 +83918,7 @@
 608030|||우리의 계절은 천천히|||Our Seasons Pass Slowly
 608031|||해고 당하고 냥줍한 길고양이가 전설급 마수였다|||The Stray Cat I Took In After Getting Fired Was a Legendary Beast
 608032|||경성 벤데타|||Gyeongseong Vendetta
+608033|||Axiom(공리)|||Axiom
 608037|||AI 세계에서 나만 상태창이 보임|||I’m the Only One with a Status Window in an AI World
 608039|||탑 정복해줬더니 해고당했다|||I Conquered the Tower, and They Fired Me
 608040|||회귀는 나 혼자 하는 줄 알았지|||I Thought I Was the Only One Who Regressed
@@ -84102,6 +84115,7 @@
 608404|||해고당한 남궁 팀장이 거래처를 다 가져감|||The Fired Team Leader Namgung Takes All the Clients
 608409|||무한환류|||Infinite Cycle
 608410|||퀀텀 워리어는 양자역학으로 세상을 살린다|||The Quantum Warrior Saves the World with Quantum Mechanics
+608414|||번학무사 (番學武士)|||Beonhak Musa (Scholar Warrior)
 608416|||잘린 던전 제작사 차장, 이제 던전을 평가한다|||The Fired Deputy Manager of a Dungeon Company Now Reviews Dungeons
 608419|||잔금 : 외줄|||Balance Due: Tightrope
 608425|||우리 독이 여기있네|||Our Poison Is Right Here
@@ -90341,9 +90355,6 @@
 374382|||98%|||
 38284|||36.5|||
 386435|||090523|||
-389397|||던전공략으로 무한성장|||
-39047|||공략왕의 생존비법|||
-405213|||디펜스게임에 빙의 했는데 탑공략으로 바뀌었다|||
 406271|||ㅁㅁㅁㅁㅁㅁㅁ|||
 406468|||11112222|||
 406928|||549|||
@@ -90351,22 +90362,15 @@
 408987|||20240416-5|||
 410591|||121231|||
 411134|||111232|||
-413511|||아마겟돈 여신공략전|||
-421301|||던전 엔 공략자: 반지하의 마왕|||
 421553|||ㄹㄷㄹㄷㄹㄷㄷㄹㄷㄹㄹㄷㄹㄹ|||
 424364|||ㅎㅎㄱㄱㄱ|||
-42989|||공략왕 in 던전|||
 431628|||5264|||
 435491|||240924|||
 435686|||20240925-13!|||
 435826|||20240926-8|||
-45834|||게이트 공략왕|||
-46467|||공략왕의 생존비법 [E]|||
 476128|||20250508|||
-480353|||망상충의 지하 공략전|||
 48039|||40,41|||
 481225|||31|||
-489744|||초월급 엑스트라의 공략집 [D]|||
 491596|||0313|||
 492465|||11222322|||
 496866|||6.6.6|||
@@ -90400,13 +90404,9 @@
 592010|||4095|||
 595765|||ㅌㅅㅌㅌㅌ|||
 596700|||.............................|||
-602754|||The great sentinel (센티넬)|||
 603137|||1-1|||
 603183|||13-017|||
 603458|||2012|||
-605986|||The Gate of Heroes(더게이트오브히어로즈)|||
 606176|||52|||
-608033|||Axiom(공리)|||
-608414|||번학무사 (番學武士)|||
 610021|||2035|||
 63401|||49|||
