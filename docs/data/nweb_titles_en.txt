@@ -74803,6 +74803,7 @@
 13987|||아이돌 힐링치료사|||Idol Healing Therapist
 139874|||Buen Camino|||Buen Camino
 139879|||햇빛밖의 아이들|||Children Beyond the Sunlight
+13988|||あい♥You&Me|||Ai ♥ You&Me
 139886|||burningheart|||Burning Heart
 13989|||자유낙하|||Free Fall
 139892|||잊혀진 자들의 노래  : - 당신의 전쟁 -|||Song of the Forgotten: Your War
@@ -245886,7 +245887,6 @@
 132455|||.|||
 132978|||3|||
 13467|||♧♣♧♣♧♣♧♣♧♣♧♣♧♣♧♣♧♣♧♣♧♣♧|||
-13988|||あい♥You&Me|||
 141369|||19 & 20|||
 142077|||3%|||
 143855|||2050...|||
