@@ -10,7 +10,7 @@ on:
         default: catalog
         options: [catalog, build, resume]
       workers:
-        description: Concurrent catalog and detail workers (1–16; host pacing remains 0.5s)
+        description: Concurrent catalog and detail workers (1–16; host pacing remains 2s)
         type: number
         default: 4
       auto_continue:

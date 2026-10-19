@@ -267,6 +267,10 @@ python scripts/metadata_pipeline.py run --source rbooks --mode sample --output-d
 
 Series uses the common prepare/translate/build/promote stages, compressed synopsis shards, and the existing Audience → Adult Only (19+) filter. `Update Nseries Metadata` collects weekly on Friday at 08:00 UTC and offers manual catalog/build/resume. The shared translation workflow accepts `nseries`. No native Series ranking board was verified, so catalog sorting is not presented as a ranking. Sources that explicitly lack ranking support can complete catalog collection without fabricated ranking data.
 
+The Nseries collector also matches the public mobile `/novel/categoryProductMoreList.series` JSON batches to desktop catalog IDs. Each catalog page costs two requests for 25 works: HTML supplies synopsis previews and dates, while JSON adds exact age grades and rating counts. The mobile route uses zero-based `start` offsets; `countPerPage=100` still returns 25 works. Its `synopsis` values were empty in live tests, so this collector does not claim full descriptions from that route. JSON headers and the public catalog referer apply only to the mobile host. Failed or shifted optional batches retain the HTML records and enrich matching IDs only.
+
+Known R19 works do not trigger individual detail requests requiring age verification; existing full descriptions and public previews remain available. Non-adult full descriptions still use individual requests when their metadata changes or the 90-day refresh expires. With a complete baseline, incremental passes stop a genre after three unchanged pages. A complete catalog audit remains due every 28 days; failed or budget-limited runs do not advance that deadline, and resumptions retain the same scan. Incremental coverage remains explicitly partial while preserving the complete baseline. The default per-host request interval is two seconds.
+
 ```powershell
 python scripts/metadata_pipeline.py run --source nseries --mode sample --output-dir .cache/nseries-sample --state-dir .cache/nseries-state
 ```
