@@ -6124,6 +6124,14 @@
     }
 
     function applyFilters(options = {}) {
+        if (diskCatalog) {
+            if (options.resetPage !== false) { currentPage = 1; catalogRequestedPage = null; }
+            diskFocus = null;
+            syncTagSelectionUi();
+            queryDiskCatalog();
+            if (options.saveState !== false) saveState();
+            return;
+        }
         if (topPreview && needsFullCatalog()) {
             saveState();
             loadSource(currentSource, true, true);
@@ -6346,6 +6354,11 @@
 
         // Helper: filter, jump to card's page, scroll to it
         function filterAndFocusCard(novelId, novelSource) {
+            if (diskCatalog) {
+                const card = [...resultsEl.querySelectorAll('.novel-card')].find(c => c.dataset.novelId === String(novelId) && c.dataset.source === novelSource);
+                if (card?._record) { diskFocus = card._record; diskPageKey = ""; queryDiskCatalog(); }
+                return;
+            }
             const idx = filtered.findIndex((f) => f.id === novelId && (f.source || currentSource) === novelSource);
             if (idx >= 0) {
                 currentPage = Math.floor(idx / BATCH) + 1;
@@ -6523,14 +6536,16 @@
     }
 
     function render(fade = false) {
+        if (diskCatalog && diskPageKey !== diskQueryKey()) { queryDiskCatalog(); return; }
         function doRender() {
-            const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
+            const total = diskCatalog ? diskTotal : filtered.length;
+            const totalPages = Math.max(1, Math.ceil(total / BATCH));
             if (currentPage > totalPages) currentPage = totalPages;
 
-            const start = (currentPage - 1) * BATCH;
+            const start = diskCatalog ? 0 : (currentPage - 1) * BATCH;
             const end = Math.min(start + BATCH, filtered.length);
 
-            resultCount.textContent = `${filtered.length.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}${catalogStatusSuffix()}`;
+            resultCount.textContent = `${total.toLocaleString()} novel(s) found — page ${currentPage} of ${totalPages}${catalogStatusSuffix()}`;
 
             const existing = new Map(Array.from(resultsEl.querySelectorAll(".novel-card"),
                 card => [`${card.dataset.source}:${card.dataset.novelId}`, card]));
@@ -6727,7 +6742,7 @@
             }
         });
         bar.querySelector(".next-page").addEventListener("click", () => {
-            const totalPages = Math.ceil(filtered.length / BATCH);
+            const totalPages = Math.ceil((diskCatalog ? diskTotal : filtered.length) / BATCH);
             if (currentPage < totalPages) {
                 currentPage++;
                 if (activeCatalogController) catalogRequestedPage = currentPage;
@@ -6740,7 +6755,7 @@
         const goBtn = bar.querySelector(".go-page");
         const pageInput = bar.querySelector(".page-input");
         function jumpToPage() {
-            const totalPages = Math.max(1, Math.ceil(filtered.length / BATCH));
+            const totalPages = Math.max(1, Math.ceil((diskCatalog ? diskTotal : filtered.length) / BATCH));
             const val = parseInt(pageInput.value);
             if (val >= 1 && val <= totalPages) {
                 currentPage = val;
@@ -6874,6 +6889,77 @@
     let catalogLoading = new Map();
     let catalogWarnings = new Set();
     let catalogDiagnosticRecords = new Map();
+    let catalogWorker = null, workerSequence = 0, diskCatalog = false, diskTotal = 0, diskPageKey = "";
+    let diskQuerySequence = 0;
+    let diskFocus = null, tagDictionaryVersion = "";
+    const workerRequests = new Map();
+    function closeCatalogWorker() {
+        catalogWorker?.terminate(); catalogWorker = null;
+        for (const {reject} of workerRequests.values()) reject(new DOMException("Source changed", "AbortError"));
+        workerRequests.clear(); diskCatalog = false; diskPageKey = ""; diskFocus = null; diskQuerySequence++;
+    }
+    function workerRequest(type, value, progress) {
+        if (!catalogWorker) {
+            const worker = new Worker("catalog-worker.js?v=1");
+            catalogWorker = worker;
+            worker.onmessage = ({data}) => {
+                if (catalogWorker !== worker) return;
+                const pending = workerRequests.get(data.id);
+                if (!pending) return;
+                if (data.progress) { pending.progress?.(data.progress); return; }
+                workerRequests.delete(data.id);
+                if (data.error) { const error = new Error(data.error.message); error.name = data.error.name; pending.reject(error); }
+                else pending.resolve(data.result);
+            };
+            worker.onerror = () => {
+                if (catalogWorker !== worker) return;
+                for (const {reject} of workerRequests.values()) reject(new Error("Catalog worker could not load"));
+                workerRequests.clear(); catalogWorker?.terminate(); catalogWorker = null;
+                if (diskCatalog) {
+                    diskCatalog = false; allNovels = filtered; topPreview = true;
+                    fullCatalogButton.hidden = false;
+                    resultCount.textContent = "Catalog search stopped. Load the full catalog to retry.";
+                }
+            };
+        }
+        const id = ++workerSequence;
+        return new Promise((resolve,reject) => {
+            workerRequests.set(id,{resolve,reject,progress});
+            try { catalogWorker.postMessage({id,type,value}); }
+            catch (error) { workerRequests.delete(id); reject(error); }
+        });
+    }
+    function diskQuery() {
+        const spellings = tags => [...tags].map(tag => {
+            const group = allTagGroups.find(g => g.key === tagMatchKey(tag));
+            return group ? [...group.originals.keys()] : [String(tag).trim()];
+        });
+        return { sources:selectedSources, text:activeAuthorFilter ? "" : searchInput.value.trim().toLowerCase(),
+            author:activeAuthorFilter, status:statusSelect.value, audience:audienceSelect.value,
+            and:spellings(andTags), or:spellings(orTags), exclude:spellings(excludeTags),
+            sort:sortOptions(), page:currentPage, size:BATCH, focus:diskFocus };
+    }
+    function diskQueryKey() { return JSON.stringify(diskQuery()); }
+    async function queryDiskCatalog() {
+        const query = diskQuery(), key = JSON.stringify(query);
+        if (diskPageKey === key) { render(false); return; }
+        const seq = ++diskQuerySequence;
+        resultCount.textContent = "Searching catalog…";
+        try {
+            const result = await workerRequest("query",query);
+            if (!diskCatalog || seq !== diskQuerySequence) return;
+            diskTotal = result.total; currentPage = result.page;
+            const focus = diskFocus; diskFocus = null;
+            filtered = result.rows; allNovels = [];
+            diskPageKey = diskQueryKey();
+            render(false);
+            if (focus) requestAnimationFrame(() => [...resultsEl.querySelectorAll('.novel-card')].find(c => c.dataset.novelId === focus.id && c.dataset.source === focus.source)?.scrollIntoView({block:"center",behavior:"smooth"}));
+        } catch (error) {
+            if (seq !== diskQuerySequence || error.name === "AbortError") return;
+            resultCount.textContent = "Catalog changed or search failed. Load the full catalog to retry.";
+            fullCatalogButton.hidden = false;
+        }
+    }
     let topPreview = false;
     let previewSort = "daily";
     const fullCatalogButton = document.getElementById("loadFullCatalog");
@@ -7005,7 +7091,7 @@
         if (!cfg.manifestUrl) return cfg;
         if (!cfg.manifestPromise) {
             cfg.manifestPromise = (async () => {
-                const response = await fetch(versionedDataUrl(cfg.manifestUrl));
+                const response = await fetch(versionedDataUrl(cfg.manifestUrl), {cache:"no-cache"});
                 const option = Array.from(sourceSelect.options).find((item) => item.value === source);
                 if (response.status === 404) {
                     cfg.available = false;
@@ -7053,35 +7139,6 @@
     const pendingSynopsisCards = new Set();
     let synopsisFlushTimer = null;
     let activeDescriptionLoads = 0;
-
-    async function fetchWithProgress(url, signal) {
-        const resp = await fetch(url, { signal });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-        const contentLength = resp.headers.get("content-length");
-        if (contentLength && resp.body) {
-            const total = parseInt(contentLength);
-            const reader = resp.body.getReader();
-            const chunks = [];
-            let received = 0;
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                received += value.length;
-                const mb = (received / 1024 / 1024).toFixed(1);
-                const totalMb = (total / 1024 / 1024).toFixed(1);
-                const pct = Math.round((received / total) * 100);
-                if (!signal?.aborted) resultCount.textContent = `Downloading... ${mb}/${totalMb} MB (${pct}%)`;
-            }
-            const blob = new Blob(chunks);
-            const text = await blob.text();
-            if (!signal?.aborted) resultCount.textContent = `Parsing ${(received / 1024 / 1024).toFixed(1)} MB...`;
-            return JSON.parse(text);
-        } else {
-            return await resp.json();
-        }
-    }
 
     /** Fetch a .gz text file and decompress it client-side. */
     async function fetchGzText(url, signal) {
@@ -7370,100 +7427,6 @@
         return tagTranslationsPromise;
     }
 
-    // Catalog chunk downloads share one pool regardless of how many sources
-    // are loading: a single source gets the full pool instead of two streams,
-    // and "All Sources" no longer holds sixteen decompressed chunks in flight.
-    const CATALOG_FETCH_SLOTS = 2;
-    let catalogFetchActive = 0;
-    const catalogFetchWaiters = [];
-
-    function acquireCatalogFetchSlot() {
-        if (catalogFetchActive < CATALOG_FETCH_SLOTS) {
-            catalogFetchActive++;
-            return Promise.resolve();
-        }
-        return new Promise((resolve) => catalogFetchWaiters.push(resolve));
-    }
-
-    function releaseCatalogFetchSlot() {
-        const next = catalogFetchWaiters.shift();
-        if (next) next();
-        else catalogFetchActive--;
-    }
-
-    /**
-     * Load a chunked+gzipped source progressively.
-     * Fires onChunkLoaded after each chunk so the UI can update.
-     */
-    async function fetchChunkedSource(cfg, sourceName, onChunkLoaded, signal) {
-        signal = signal || (activeCatalogController && activeCatalogController.signal);
-        const { chunkCount, chunkPrefix, chunkFiles } = cfg;
-        let loaded = 0;
-        let failed = 0;
-        let nextChunk = 0;
-        const results = Array.from({ length: chunkCount }, () => []);
-
-        async function fetchChunk(url) {
-            await acquireCatalogFetchSlot();
-            try {
-                if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
-                return await fetchGzChunkWithRetry(url, 2, signal);
-            } finally {
-                releaseCatalogFetchSlot();
-            }
-        }
-
-        async function loadNextChunks() {
-            while (nextChunk < chunkCount) {
-                const index = nextChunk++;
-                const url = chunkFiles ? chunkFiles[index] : `${chunkPrefix}${index}.json.gz`;
-                try {
-                    const raw = await fetchChunk(url);
-                    if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
-                    loaded++;
-                    let novelsData, translations, descriptions;
-                    if (raw && !Array.isArray(raw) && raw.novels) {
-                        novelsData = raw.novels;
-                        translations = raw.translations || {};
-                        descriptions = raw.descriptions || {};
-                    } else {
-                        novelsData = raw;
-                        translations = {};
-                        descriptions = {};
-                    }
-                    const novels = parseNovels(novelsData, sourceName, cfg);
-                    for (const novel of novels) {
-                        const id = String(novel.id);
-                        if (translations[id]) novel.titleEn = translations[id];
-                        if (descriptionsEnabled && descriptions[id]) novel.synopsis = normalizeSynopsis(descriptions[id], sourceName);
-                    }
-                    results[index] = novels;
-                    if (onChunkLoaded) onChunkLoaded(novels, loaded, chunkCount);
-                } catch (err) {
-                    if (err && err.name === "AbortError") throw err;
-                    failed++;
-                    console.warn(`Skipping ${sourceName} chunk ${index + 1}/${chunkCount}:`, err);
-                }
-            }
-        }
-
-        const concurrency = Math.min(CATALOG_FETCH_SLOTS, chunkCount);
-        await Promise.all(Array.from({ length: concurrency }, () => loadNextChunks()));
-        const novels = [];
-        for (const chunk of results) {
-            for (const novel of chunk) novels.push(novel);
-        }
-        if (novels.length === 0 && failed > 0) {
-            throw new Error(`Failed to load ${sourceName} chunks (${failed}/${chunkCount})`);
-        }
-        if (failed > 0) novels.partialFailure = `${cfg.label}: ${failed}/${chunkCount} chunks unavailable`;
-        if (cfg.totalEntries != null && novels.length !== cfg.totalEntries) {
-            novels.partialFailure = `${cfg.label}: loaded ${novels.length.toLocaleString()} of ${cfg.totalEntries.toLocaleString()} records`;
-        }
-        return novels;
-    }
-
-
     function parseNovels(raw, sourceName, cfg) {
         return metadata.parseRows(raw, sourceName, cfg);
     }
@@ -7563,6 +7526,7 @@
     async function loadSource(source, keepState = false, fullCatalog = false) {
         if (source !== "all" && !SOURCES[source]) source = "all";
         if (activeCatalogController) activeCatalogController.abort();
+        closeCatalogWorker();
         const controller = new AbortController();
         activeCatalogController = controller;
         const { signal } = controller;
@@ -7603,8 +7567,8 @@
             if (state.diagnostics) catalogDiagnosticRecords.set(name, state.diagnostics);
         }
         renderCatalogDiagnostics();
-        catalogLoading = new Map(pending.map((name) => [name, SOURCES[name].label]));
-        if (pending.length) {
+        catalogLoading = new Map(selectedSources.map((name) => [name, SOURCES[name].label]));
+        if (selectedSources.length) {
             if (!resultsEl.querySelector(".novel-card")) resultsEl.innerHTML = `<div class="loading-spinner">Loading ${source === "all" ? "all sources" : escHtml(SOURCES[source].label)} database...</div>`;
             resultCount.textContent = `Loading metadata${catalogStatusSuffix()}`;
             for (const bar of paginationBars) bar.style.display = "none";
@@ -7660,126 +7624,79 @@
                 // Missing ranking bundles fall back to the complete catalog.
             }
         }
-        async function loadSingle(name) {
+        // Full catalogs are imported and queried exclusively by the worker.
+        // The interface retains tag summaries and the current result page.
+        let successfulImports = 0;
+        async function loadDiskSource(name) {
             const state = sourceState(name);
-            const warn = (message) => { catalogWarnings.add(message); state.warnings.push(message); };
-            try {
-                const cfg = await ensureSourceConfig(name);
+            const warn = message => { catalogWarnings.add(message); state.warnings.push(message); };
+            const cfg = await ensureSourceConfig(name);
+            if (!isCurrent() || !cfg) return;
+            const coverage = cfg.coverage || {}, catalog = coverage.catalog;
+            if (catalog) {
+                const errors = catalog.errors || [], skippedRows = catalog.skipped_rows || [];
+                if (errors.length || skippedRows.length) {
+                    state.diagnostics = {label:cfg.label,errors,skippedRows}; catalogDiagnosticRecords.set(name,state.diagnostics); renderCatalogDiagnostics();
+                    warn(`${cfg.label}: ${[errors.length ? `${errors.length} catalog scan${errors.length === 1 ? "" : "s"} stopped` : "", skippedRows.length ? `${skippedRows.length} invalid catalog row${skippedRows.length === 1 ? "" : "s"} skipped` : ""].filter(Boolean).join("; ")}`);
+                } else if (!catalog.started && !catalog.has_complete_baseline) warn(`${cfg.label}: Rankings collected; catalog pending`);
+                else if (!catalog.discovery_complete) warn(`${cfg.label}: Catalog collection in progress`);
+                else if (coverage.enrichment?.pending) warn(`${cfg.label}: Details pending`);
+            } else if (coverage.complete === false) warn(`${cfg.label}: Catalog collection in progress`);
+            if (coverage.publication?.awaiting_synopsis && !coverage.enrichment?.complete) warn(`${cfg.label}: ${Number(coverage.publication.awaiting_synopsis).toLocaleString()} novels awaiting synopsis`);
+            const absolute = url => new URL(versionedDataUrl(url), location.href).href;
+            const {manifestPromise, ...wireCfg} = cfg;
+            const workerCfg = {...wireCfg,tagVersion:tagDictionaryVersion,chunkFiles:cfg.chunkFiles?.map(absolute),
+                chunkPrefix:cfg.chunkPrefix ? absolute(cfg.chunkPrefix).split("?")[0] : null,
+                dataUrl:cfg.dataUrl ? absolute(cfg.dataUrl) : null};
+            const info = await workerRequest("import",{source:name,cfg:workerCfg,tagLabels:TAG_MAP},({loaded,total}) => {
                 if (!isCurrent()) return;
-                if (!cfg) {
-                    if (source !== "all") warn(`${SOURCES[name].label} metadata has not been published`);
-                    return;
-                }
-                const coverage = cfg.coverage || {};
-                const catalog = coverage.catalog;
-                let notice = "";
-                if (catalog) {
-                    const errors = Array.isArray(catalog.errors) ? catalog.errors : [];
-                    const skippedRows = Array.isArray(catalog.skipped_rows) ? catalog.skipped_rows : [];
-                    if (errors.length || skippedRows.length) {
-                        state.diagnostics = { label: cfg.label, errors, skippedRows };
-                        catalogDiagnosticRecords.set(name, state.diagnostics);
-                        renderCatalogDiagnostics();
-                    }
-                    if (!catalog.started && !catalog.has_complete_baseline) notice = "Rankings collected; catalog pending";
-                    else if (errors.length || skippedRows.length) notice = [
-                        errors.length ? `${errors.length} catalog scan${errors.length === 1 ? "" : "s"} stopped` : "",
-                        skippedRows.length ? `${skippedRows.length} invalid catalog row${skippedRows.length === 1 ? "" : "s"} skipped` : "",
-                    ].filter(Boolean).join("; ");
-                    else if (!catalog.discovery_complete) notice = "Catalog collection in progress";
-                    else if (coverage.enrichment?.pending) notice = "Details pending";
-                } else if (!coverage.has_complete_baseline && coverage.mode === "rankings") {
-                    notice = "Rankings collected; catalog pending";
-                } else if (coverage.complete === false) notice = "Catalog collection in progress";
-                if (coverage.publication?.awaiting_synopsis && !coverage.enrichment?.complete) {
-                    notice = `${Number(coverage.publication.awaiting_synopsis).toLocaleString()} novels awaiting synopsis`;
-                }
-                if (notice) warn(`${cfg.label}: ${notice}`);
-                // Small top bundles remain the first visible results for existing sources.
-                if (descriptionsEnabled && cfg.topUrl) {
-                    try {
-                        const data = await fetchGzChunk(cfg.topUrl, AbortSignal.any([signal, descriptionController.signal]));
-                        if (!isCurrent()) return;
-                        const top = applyEmbedded(data, name, cfg);
-                        addRecords(name, top);
-                    } catch (error) {
-                        if (signal.aborted) throw error;
-                        // A top bundle is optional; catalog chunks remain authoritative.
-                    }
-                }
-                if (!isCurrent()) return;
-                let novels;
-                if (cfg.chunked) {
-                    novels = await fetchChunkedSource(cfg, name, (chunk, loaded, total) => {
-                        if (!isCurrent()) return;
-                        addRecords(name, chunk);
-                        catalogLoading.set(name, `${cfg.label} ${loaded}/${total}`);
-                        resultCount.textContent = `Loading full catalog${catalogStatusSuffix()}`;
-                        // Keep the initial ranking cards stable until the
-                        // requested catalog has finished; avoid repeated sorts.
-                    }, signal);
-                } else {
-                    novels = parseNovels(await fetchWithProgress(cfg.dataUrl, signal), name, cfg);
-                }
-                if (!isCurrent()) return;
-                if (novels.partialFailure) warn(novels.partialFailure);
-                if (!cfg.chunked) addRecords(name, novels);
-                if (novels.partialFailure) {
-                    // Keep top-only rows; the source is loaded again on its next selection.
-                    state.list = [...state.records.values()];
-                } else {
-                    // The retained list follows the catalog's own (chunk index) order,
-                    // not network arrival order, so tie order is reproducible; rows
-                    // that only came from an old top bundle are stale.
-                    const list = [];
-                    for (const novel of novels) {
-                        const record = state.records.get(novel.id);
-                        if (!record) continue;
-                        list.push(record);
-                        state.records.delete(novel.id);
-                    }
-                    for (const stale of state.records.values()) {
-                        tagCountDelta(state.tags, stale, -1);
-                        if (!addedRecords.delete(stale)) removedRecords.add(stale);
-                    }
-                    if (state.records.size) tagsVersion++;
-                    state.list = list;
-                    state.complete = true;
-                }
-                state.records = null;
-            } catch (error) {
-                if (!isCurrent() || error?.name === "AbortError") return;
-                console.warn(`${name} metadata source failed:`, error);
-                warn(`${SOURCES[name].label} unavailable`);
-            } finally {
-                if (isCurrent()) catalogLoading.delete(name);
+                catalogLoading.set(name,`${cfg.label} ${loaded}/${total}`);
+                resultCount.textContent = `Loading full catalog${catalogStatusSuffix()}`;
+            });
+            if (!isCurrent()) return;
+            successfulImports++;
+            state.tags.clear();
+            for (const [key,count,originals] of info.groups) {
+                const tag = originals[0][0];
+                state.tags.set(key,{key,tag,label:displayTagLabel(tag),count,originals:new Map(originals)});
             }
+            for (const message of info.warnings) warn(message);
+            state.records = null; state.list = []; state.complete = true;
+            tagsVersion++; catalogLoading.delete(name);
         }
-
         try {
+            if (typeof Worker === "undefined" || !window.indexedDB) throw new Error("Browser storage is unavailable");
             await loadTagTranslations();
             if (!isCurrent()) return;
-            if (pending.length) await Promise.all(pending.map(loadSingle));
-            if (!isCurrent()) return;
-            if (catalogRequestedPage != null) currentPage = catalogRequestedPage;
-            catalogRequestedPage = null;
-            // Rebuild once from the record registry so tie order is canonical
-            // (registry order, then catalog order) rather than arrival order.
-            allNovelsDirty = true;
-            publish();
-            if (!allNovels.length) {
-                resultsEl.innerHTML = `<div class="loading-spinner" style="animation:none">${catalogWarnings.size
-                    ? escHtml([...catalogWarnings].join("; ")) : "No novels found."}</div>`;
+            let tagHash = 2166136261;
+            for (const c of JSON.stringify(TAG_MAP)) tagHash = Math.imul(tagHash ^ c.charCodeAt(0),16777619);
+            tagDictionaryVersion = String(tagHash >>> 0);
+            // No retained full catalogs or source maps in the interface.
+            catalogState.clear();
+            for (const name of selectedSources) {
+                try { await loadDiskSource(name); }
+                catch (error) { if (!isCurrent() || error.name === "AbortError") return; catalogWarnings.add(`${SOURCES[name].label} unavailable: ${error.message}`); catalogLoading.delete(name); }
+                finally { if (isCurrent()) catalogLoading.delete(name); }
             }
-            activeCatalogController = null;
-            if (source === "all" && RETAIN_LOADED_SOURCES) retainAllSources = true;
+            if (!isCurrent()) return;
+            if (!successfulImports) throw new Error("No catalog could be imported");
+            buildTags(); allNovels = []; filtered = [];
+            addedRecords.clear(); removedRecords.clear();
+            diskCatalog = true; diskPageKey = "";
+            if (catalogRequestedPage != null) currentPage = catalogRequestedPage;
+            catalogRequestedPage = null; activeCatalogController = null;
+            await queryDiskCatalog();
+            return;
         } catch (error) {
-            if (!isCurrent() || error?.name === "AbortError") return;
-            catalogLoading.clear();
-            catalogWarnings.add("Metadata could not be loaded");
-            allNovelsDirty = true;
-            publish();
-            activeCatalogController = null;
+            if (!isCurrent()) return;
+            activeCatalogController = null; catalogLoading.clear();
+            closeCatalogWorker();
+            allNovels = [...resultsEl.querySelectorAll('.novel-card')].map(c => c._record).filter(Boolean);
+            filtered = allNovels; topPreview = allNovels.length > 0;
+            diskTotal = 0; lastFilter = null; sortedKey = null;
+            resultCount.textContent = "Full catalog couldn't load. Check site storage/network access and try again.";
+            fullCatalogButton.hidden = false;
+            return;
         }
     }
     // === State persistence via URL hash ===

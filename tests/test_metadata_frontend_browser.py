@@ -166,7 +166,7 @@ class FixtureSite:
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
-        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/style.css"):
+        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/style.css"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
             await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
@@ -220,12 +220,12 @@ class FixtureSite:
 
 
 async def wait_loaded(page):
-    await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !document.querySelector('#resultCount').textContent.startsWith('Loading')")
+    await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
     # These existing scenarios exercise the complete catalog, rather than the
     # lightweight landing rankings tested separately below.
     if await page.locator('#loadFullCatalog').is_visible():
         await page.locator('#loadFullCatalog').click()
-        await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !document.querySelector('#resultCount').textContent.startsWith('Loading')")
+        await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
 
 
 def test_landing_top_100_stays_stable_and_search_loads_full_catalog():
@@ -470,7 +470,7 @@ def test_metadata_frontend_browser_missing_manifest_failure_and_cancellation():
             await page.select_option("#sourceSelect", "kpage")
             await wait_loaded(page)
             await page.wait_for_timeout(550)
-            assert await page.locator(".novel-card").count() == 1
+            assert await page.locator(".novel-card").count() == 1, await page.locator('#resultCount').inner_text()
             assert await page.locator(".novel-card").get_attribute("data-source") == "kpage"
             await page.select_option("#sourceSelect", "all")
             await wait_loaded(page)
