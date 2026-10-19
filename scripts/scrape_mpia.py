@@ -25,6 +25,11 @@ ORIGIN = "https://www.\u006d\u0075\u006e\u0070\u0069\u0061.com"
 CATALOG_URL = ORIGIN + "/api/v1/pc/remocon/novels"
 DETAIL_URL = ORIGIN + "/api/v1/pc/novel-detail/{}"
 RANKING_URL = ORIGIN + "/api/v1/main/best24"
+SEARCH_URL = ORIGIN + "/api/v1/main/search"
+CATALOG_BATCH_SIZE = 100
+SEARCH_BATCH_SIZE = 200
+SEARCH_MAX_PAGES = 200
+SEARCH_QUERIES = ("판타지", "무협", "로맨스")
 KOREA = timezone(timedelta(hours=9))
 BOARDS = (
     ("TODAY_BEST", "Free web novels: Today Best"),
@@ -137,9 +142,113 @@ def fetch_failure(error):
     return MetadataResult(status=status, record=None, reason=str(error))
 
 
+def normalize_search(item):
+    """Only fields explicitly supplied by the anonymous search response."""
+    if not isinstance(item, dict):
+        raise ValueError("Invalid Mpia search row")
+    novel_id = numeric_id(item.get("novelId"))
+    title = item.get("title")
+    if not novel_id or not isinstance(title, str) or not title.strip():
+        raise ValueError("Mpia search row lacks ID/title")
+    synopsis = item.get("story")
+    author = item.get("author")
+    if not isinstance(synopsis, str) or not synopsis.strip() or not isinstance(author, str) or not author.strip():
+        return None  # Ordinary discovery/detail collection still covers this ID.
+    genres = labels([item.get("mainGenre"), item.get("subGenre")])
+    keywords = labels(item.get("tag"))
+    contributors = [{"name": author.strip(), "role": "author"}]
+    illustrator = item.get("illustrator")
+    if isinstance(illustrator, str) and illustrator.strip():
+        contributors.append({"name": illustrator.strip(), "role": "illustrator"})
+    updated = item.get("updateAt")
+    return {
+        "id": novel_id, "title": title.strip(), "author": author.strip(), "contributors": contributors,
+        "synopsis": synopsis.strip(), "cover": item.get("coverUrl") or None,
+        "genres": genres, "keywords": keywords, "tags": list(dict.fromkeys(genres + keywords)),
+        "views": number(item.get("viewCount")), "episodes": number(item.get("entryCount")),
+        "complete": flag(item.get("finished")),
+        "age": (19 if item["adult"] else 0) if isinstance(item.get("adult"), bool) else None,
+        "updated": updated or None, "source_dates": {"updated": source_date(updated)} if updated else {},
+        "canonical_url": ORIGIN + "/novel/detail/" + novel_id,
+        "tier": "ebook" if item.get("ebook") is True else None,
+        "source_group": item.get("groupName") or None,
+    }
+
+
 class MpiaAdapter:
     source = "mpia"
     label = "Mpia"
+    detail_fields = ("title", "author")  # The public discovery list only carries these fields.
+    detail_refresh_days = 30
+    default_delay = 2.0
+
+    def bulk_metadata(self, client, *, skip_keys=()):
+        completed = set(skip_keys)
+        for query in SEARCH_QUERIES:
+            seen = set()
+            for page in range(SEARCH_MAX_PAGES):
+                key = f"search:{query}:{SEARCH_BATCH_SIZE}:{page}"
+                if key + ":end" in completed:
+                    break
+                if key in completed:
+                    continue
+                try:
+                    result = result_of(client.get_json(SEARCH_URL, params={
+                        "query": query, "tab": "ALL", "page": page,
+                        "size": SEARCH_BATCH_SIZE, "adultMode": "false",
+                    }))
+                    items, more = result.get("searchNovelTabDtos"), result.get("hasNext")
+                    if (not isinstance(items, list) or not isinstance(more, bool)
+                            or len(items) > SEARCH_BATCH_SIZE or (not items and more)):
+                        raise ValueError("Invalid Mpia search pagination")
+                    records, ids = [], set()
+                    for item in items:
+                        record = normalize_search(item)
+                        ident = numeric_id(item.get("novelId"))
+                        if ident in seen or ident in ids:
+                            raise ValueError("Mpia search repeated a novel across pages")
+                        ids.add(ident)
+                        if record is not None:
+                            records.append(record)
+                    seen.update(ids)
+                    yield key if more else key + ":end", records, None
+                    if not more:
+                        break
+                except BudgetExceeded:
+                    raise
+                except (FetchError, ValueError, TypeError, KeyError) as error:
+                    yield key, [], f"Mpia bulk search failed ({type(error).__name__}); query page {page}"
+                    break
+
+    def detail_needed(self, old, item, default):
+        if not old.get("bulk_metadata_at") or not old.get("synopsis"):
+            return default
+        if any(old.get(k) != item.get(k) for k in self.detail_fields):
+            return True
+        try:
+            now = datetime.now(timezone.utc)
+            # A bulk response never advances the full-detail timestamp. Missing
+            # detail-only fields are collected on the ordinary monthly refresh.
+            history = old.get("history", {})
+            last = history.get("last_success") or history.get("first_seen")
+            last = datetime.fromisoformat(last.replace("Z", "+00:00"))
+            bulk = datetime.fromisoformat(old["bulk_metadata_at"].replace("Z", "+00:00"))
+            if (now - last).total_seconds() >= self.detail_refresh_days * 86400:
+                return True
+            if (now - bulk).total_seconds() < 7 * 86400:
+                return False
+        except (AttributeError, TypeError, ValueError):
+            pass
+        return default
+
+    def prepare_catalog(self, state, partitions):
+        cursors = state["progress"].setdefault("partitions", {})
+        for partition in partitions:
+            cursor = cursors.setdefault(partition["key"], {})
+            if cursor.get("page_size") != partition["page_size"]:
+                cursor.clear()
+                cursor.update(next_page=partition["start_page"], complete=False,
+                              page_size=partition["page_size"])
 
     @staticmethod
     def is_allowed_url(url):
@@ -155,22 +264,32 @@ class MpiaAdapter:
             "novelType", "gradeType", "serialStatus", "genreCode", "contestOnly",
             "adultOnly", "keyword", "order", "adultMode", "page", "size", "sort",
             "section", "startDateTime", "endDateTime",
+            "query", "tab",
         }):
             return False
+        if parts.path == "/api/v1/main/search":
+            query = parse_qs(parts.query, keep_blank_values=True)
+            return not parts.query or (set(query).issubset({"query", "tab", "page", "size", "adultMode"})
+                and all(len(values) == 1 for values in query.values())
+                and query.get("query", [""])[0] in SEARCH_QUERIES
+                and query.get("tab") == ["ALL"] and query.get("adultMode") == ["false"]
+                and query.get("size") == [str(SEARCH_BATCH_SIZE)]
+                and query.get("page", [""])[0].isdigit()
+                and int(query["page"][0]) < SEARCH_MAX_PAGES)
         return parts.path in ("/api/v1/pc/remocon/novels", "/api/v1/main/best24") or bool(
             re.fullmatch(r"/(?:api/v1/pc/novel-detail|novel/detail)/[0-9]+", parts.path)
         )
 
     def partitions(self, client):
         return [{"key": "all-public", "tier": "all", "start_page": 0,
-                 "adult_mode": False}]
+                 "adult_mode": False, "page_size": CATALOG_BATCH_SIZE}]
 
     def fetch_page(self, client, partition, page):
         payload = client.get_json(CATALOG_URL, params={
             "novelType": "ALL", "gradeType": "", "serialStatus": "",
             "genreCode": "ALL", "contestOnly": "false", "adultOnly": "false",
             "keyword": "", "order": "UPDATED_AT", "adultMode": "false",
-            "page": page, "size": 40, "sort": "",
+            "page": page, "size": partition.get("page_size", CATALOG_BATCH_SIZE), "sort": "",
         })
         result = result_of(payload)
         items = result.get("items")
