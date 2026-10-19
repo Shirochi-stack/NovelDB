@@ -4,17 +4,24 @@ Series product IDs are a separate source from Nweb IDs. Public
 catalog previews are retained when full metadata requires age verification.
 """
 import re
+import math
 from urllib.parse import parse_qs, urlsplit
 
+import requests
 from bs4 import BeautifulSoup
 
 try:
-    from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, run_cli, source_date
+    from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, log_progress, run_cli, source_date
+    from .nseries_collection_policy import CollectionPolicy
 except ImportError:
-    from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, run_cli, source_date
+    from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, log_progress, run_cli, source_date
+    from nseries_collection_policy import CollectionPolicy
 
 BASE = "https://series.\u006e\u0061\u0076\u0065\u0072.com"
 CATALOG = BASE + "/novel/categoryProductList.series"
+MOBILE = "https://m.series.\u006e\u0061\u0076\u0065\u0072.com"
+CATALOG_JSON = MOBILE + "/novel/categoryProductMoreList.series"
+PAGE_SIZE = 25  # Larger countPerPage values are ignored by the public route.
 GENRES = {"201": "로맨스", "207": "로판", "202": "판타지", "208": "현판",
           "206": "무협", "203": "미스터리", "205": "라이트노벨", "209": "BL"}
 
@@ -72,7 +79,46 @@ def parse_catalog(html, partition, page):
     return CatalogPage(records, min(higher) if higher else None)
 
 
-class NseriesAdapter:
+def parse_catalog_metadata(payload):
+    """Only metadata matched to desktop catalog IDs will be used."""
+    rows = payload.get("productList") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or len(rows) > PAGE_SIZE:
+        raise ValueError("Malformed Nseries metadata batch")
+    result = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Malformed Nseries metadata row")
+        ident = str(row.get("productNo", ""))
+        if (not re.fullmatch(r"[1-9][0-9]*", ident) or ident in result
+                or row.get("productTypeCode") != "NOVEL"):
+            raise ValueError("Invalid or duplicate Nseries metadata identity")
+        grade = row.get("seeingGradeTypeCode")
+        age = {"G0": 0, "G12": 12, "G15": 15, "G18": 18, "G19": 19}.get(grade)
+        count = row.get("starScoreEvaluatorCount")
+        rating = row.get("starScore")
+        metrics = {}
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            metrics["rating_count"] = count
+        if (isinstance(rating, (int, float)) and not isinstance(rating, bool)
+                and math.isfinite(rating) and 0 <= rating <= 10):
+            metrics.update(rating=rating, rating_scale=10)
+        result[ident] = {"age": age, "metrics": metrics}
+    return result
+
+
+class CatalogSession(requests.Session):
+    def prepare_request(self, request):
+        prepared = super().prepare_request(request)
+        if urlsplit(prepared.url).hostname == urlsplit(MOBILE).hostname:
+            # JSON negotiation applies to the mobile route only. Sending a
+            # mobile user agent to the desktop host causes a catalog redirect.
+            prepared.headers.update({"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
+                                     "X-Requested-With": "XMLHttpRequest", "Accept": "application/json",
+                                     "Referer": MOBILE + "/novel/categoryProductList.series"})
+        return prepared
+
+
+class NseriesAdapter(CollectionPolicy):
     source = "nseries"
     label = "Nseries"
     supports_rankings = False  # Catalog sort order is not a native ranking board.
@@ -82,14 +128,35 @@ class NseriesAdapter:
     detail_refresh_days = 90
 
     @staticmethod
+    def create_session():
+        session = CatalogSession()
+        session.trust_env = False
+        session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; PublicMetadata/1.0)"})
+        return session
+
+    @staticmethod
     def is_allowed_url(url):
         try:
             p = urlsplit(url)
-            if p.scheme != "https" or p.hostname != "series.\u006e\u0061\u0076\u0065\u0072.com" or p.username or p.port not in (None, 443):
+            if p.scheme != "https" or p.username is not None or p.port not in (None, 443) or p.fragment:
                 return False
         except ValueError:
             return False
-        keys = set(parse_qs(p.query, keep_blank_values=True))
+        query = parse_qs(p.query, keep_blank_values=True)
+        keys = set(query)
+        if p.hostname == "m.series.\u006e\u0061\u0076\u0065\u0072.com":
+            if p.path != "/novel/categoryProductMoreList.series":
+                return False
+            if not p.query:
+                return True
+            return (keys == {"categoryTypeCode", "genreCode", "orderTypeCode", "isFreePassChecked", "start", "countPerPage"}
+                    and query["categoryTypeCode"] == ["genre"] and query["genreCode"] in [[g] for g in GENRES]
+                    and query["orderTypeCode"] == ["new"] and query["isFreePassChecked"] == ["false"]
+                    and query["countPerPage"] == [str(PAGE_SIZE)] and len(query["start"]) == 1
+                    and re.fullmatch(r"0|[1-9][0-9]*", query["start"][0]) is not None
+                    and int(query["start"][0]) % PAGE_SIZE == 0)
+        if p.hostname != "series.\u006e\u0061\u0076\u0065\u0072.com":
+            return False
         if p.path == "/novel/categoryProductList.series":
             return keys <= {"categoryTypeCode", "genreCode", "orderTypeCode", "page"}
         return p.path == "/novel/detail.series" and keys <= {"productNo"}
@@ -101,13 +168,42 @@ class NseriesAdapter:
         try:
             html = client.get_text(CATALOG, params={"categoryTypeCode": "genre", "genreCode": partition["genre"],
                 "orderTypeCode": "new", "page": page})
-            return parse_catalog(html, partition, page)
+            result = parse_catalog(html, partition, page)
+            if not result.complete or result.error:
+                return result
+            metadata = {}
+            try:
+                metadata = parse_catalog_metadata(client.get_json(CATALOG_JSON, params={
+                    "categoryTypeCode": "genre", "genreCode": partition["genre"], "orderTypeCode": "new",
+                    "isFreePassChecked": "false", "start": (page - 1) * PAGE_SIZE, "countPerPage": PAGE_SIZE}))
+            except BudgetExceeded:
+                # Preserve this already collected page; the next primary request
+                # observes the budget and checkpoints the advancing cursor.
+                pass
+            except (FetchError, ValueError, TypeError) as error:
+                log_progress(self.source, f"Optional metadata batch {partition['genre']} page {page}: {type(error).__name__}; keeping catalog records")
+            if metadata:
+                missing = sum(record["id"] not in metadata for record in result.records)
+                if missing:
+                    log_progress(self.source, f"Optional metadata batch {partition['genre']} page {page}: {missing} unmatched catalog IDs; keeping catalog records")
+            for record in result.records:
+                extra = metadata.get(record["id"])
+                record["nseries_batch_complete"] = extra is not None
+                if extra:
+                    # A public R19 badge cannot be downgraded by a shifting batch.
+                    if record["age"] != 19 and extra["age"] is not None:
+                        record["age"] = extra["age"]
+                    record["metrics"].update(extra["metrics"])
+                record["nseries_catalog_fingerprint"] = self.catalog_fingerprint(record)
+            return result
         except BudgetExceeded:
             raise
         except (FetchError, ValueError) as error:
             return CatalogPage([], None, False, f"Nseries {partition['genre']} page {page}: {error}")
 
     def detail(self, client, record):
+        if record.get("age") == 19:
+            return MetadataResult("restricted", reason="Nseries R19 details require age verification; retaining public catalog metadata")
         try:
             html = client.get_text(BASE + "/novel/detail.series", params={"productNo": record["id"]})
         except BudgetExceeded:
