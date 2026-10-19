@@ -304,3 +304,18 @@ checks. Full details retain a 90-day refresh interval. Bulk-only works receive
 missing detail fields during a full audit; a batch timestamp never replaces the
 last successful full-detail timestamp. Other sources retain their existing pacing
 and collection policies.
+
+
+## Jara catalog batch size
+
+Jara catalog collection requests 100 records per response for all public stores,
+latest/finished lists and supplementary categories. The public API clamps larger
+requests to 100. This reduces catalog-page requests by about 80 percent compared
+with the previous 20-record batches; detail requests and bootstrap overhead are
+separate. Introductions truncated at 1,000 raw characters still require detail
+metadata, using the existing completeness checks.
+
+Each catalog checkpoint now records its page size. Old or incompatible positions
+restart at page one, including cursor scans whose consumed-row checks depend on
+batch size. Collected records, translations and pending detail requests remain
+available. Checkpoints already using 100-record batches resume normally.

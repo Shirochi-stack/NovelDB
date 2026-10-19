@@ -28,6 +28,7 @@ API = "https://api.\u006a\u006f\u0061\u0072\u0061.com"
 CATALOG_PATHS = {"latest": "/v2/book/latest_book", "finished": "/v2/book/finish_book"}
 API_PATHS = set(CATALOG_PATHS.values()) | {"/v1/book/detail.joa", "/v2/book/best_book"}
 STORES = {"series": "Free publication", "nobless": "Noblesse", "premium": "Premium"}
+CATALOG_BATCH_SIZE = 100
 RESTRICTION = re.compile(r"성인\s*인증이?\s*필요|본인\s*인증이?\s*필요|로그인이?\s*필요")
 
 
@@ -287,18 +288,33 @@ class JaraAdapter:
     def partitions(self, client):
         self._bootstrap(client)
         partitions = [{"key": f"{store}:{catalog}", "tier": store, "start_page": 1,
-                       "store": store, "catalog": catalog, "page_size": 20}
+                       "store": store, "catalog": catalog, "page_size": CATALOG_BATCH_SIZE}
                       for store in STORES for catalog in CATALOG_PATHS]
         # Anonymous category responses verified on 2026-09-14. These supplement
         # the all-genre catalog; latest lists use the same public cursor protocol.
         supplemental = [{"key": f"series:latest:category:{code}", "tier": "series", "start_page": 1,
-                         "store": "series", "catalog": "latest", "page_size": 20, "category": code}
+                         "store": "series", "catalog": "latest", "page_size": CATALOG_BATCH_SIZE, "category": code}
                         for code in ("22", "9")]  # Romance fantasy and parody.
         partitions = partitions[:1] + supplemental + partitions[1:]
         for partition in partitions:
             if partition["catalog"] == "latest":
                 partition["pagination"] = "jara-cursor-v1"
         return partitions
+
+    def prepare_catalog(self, state, partitions):
+        # Numbered page 10 at size 20 is not page 10 at size 100. Restart
+        # legacy positions, including cursor scans whose consumed-row checks
+        # depend on page size. Collected records and pending details survive.
+        cursors = state["progress"].setdefault("partitions", {})
+        for partition in partitions:
+            cursor = cursors.setdefault(partition["key"], {})
+            size = partition.get("page_size", CATALOG_BATCH_SIZE)
+            mode = partition.get("pagination")
+            if cursor.get("page_size") != size or cursor.get("pagination") != mode:
+                cursor.clear()
+                cursor.update(next_page=partition["start_page"], complete=False, page_size=size)
+                if mode:
+                    cursor.update(pagination=mode, cursor_point="")
 
     def _confirm_cursor_end(self, client, partition, params, rows, reason):
         """One more request must return no IDs beyond the batch that looked like the end."""
@@ -317,7 +333,7 @@ class JaraAdapter:
             cursor_mode = partition.get("pagination") == "jara-cursor-v1"
             params = {
                 "category": partition.get("category", "0"), "store": partition["store"], "orderby": "redate",
-                "page": 1 if cursor_mode else page, "offset": partition.get("page_size", 20),
+                "page": 1 if cursor_mode else page, "offset": partition.get("page_size", CATALOG_BATCH_SIZE),
             }
             if cursor_mode:
                 params.update(use_cursor_pagination="y", cursor_point=partition.get("cursor_point", ""))

@@ -15,6 +15,117 @@ FIXTURES = Path(__file__).parent / "fixtures" / "metadata" / "jara"
 PARTITION = {"tier": "series", "store": "series", "catalog": "latest", "page_size": 2}
 
 
+def test_all_public_catalog_partitions_request_100_records():
+    adapter = JaraAdapter()
+    partitions = adapter.partitions(FakeClient())
+    assert len(partitions) == 8 and all(p["page_size"] == 100 for p in partitions)
+
+
+def test_checkpoint_size_migration_preserves_metadata_but_restarts_positions():
+    adapter = JaraAdapter()
+    partitions = adapter.partitions(FakeClient())
+    records = {"412770": {"id": "412770", "synopsis": "Already collected", "translations": {"title": "Saved"}}}
+    state = {"records": records, "progress": {"pending_details": ["412770"], "partitions": {
+        p["key"]: {"next_page": 48, "complete": True, "cursor_point": "old-cursor",
+                   "pagination": p.get("pagination"), "last_page": 47,
+                   "last_page_signature": "old", "error": "old error"} for p in partitions}}}
+    adapter.prepare_catalog(state, partitions)
+    assert state["records"] is records and state["progress"]["pending_details"] == ["412770"]
+    for partition in partitions:
+        cursor = state["progress"]["partitions"][partition["key"]]
+        assert cursor["next_page"] == 1 and not cursor["complete"] and cursor["page_size"] == 100
+        assert "last_page_signature" not in cursor and "error" not in cursor
+        if partition.get("pagination"):
+            assert cursor["pagination"] == "jara-cursor-v1" and cursor["cursor_point"] == ""
+        else:
+            assert "cursor_point" not in cursor
+
+
+def test_matching_100_record_checkpoint_resumes_without_reset():
+    adapter = JaraAdapter()
+    partitions = adapter.partitions(FakeClient())
+    state = {"progress": {}}
+    adapter.prepare_catalog(state, partitions)
+    for cursor in state["progress"]["partitions"].values():
+        cursor.update(next_page=42, last_page=41, last_page_signature="signature", complete=True)
+        if cursor.get("pagination"):
+            cursor["cursor_point"] = "verified-cursor"
+    previous = copy.deepcopy(state)
+    adapter.prepare_catalog(state, partitions)
+    assert state == previous
+
+
+def test_new_batch_size_advances_cursor_and_retains_truncated_synopsis_followup():
+    base = fixture("catalog.json")["data"]["list"][0]
+    def response(url, params):
+        assert params["offset"] == 100 and params["page"] == 1
+        start = 100 if params.get("cursor_point") else 0
+        rows = [{**copy.deepcopy(base), "book_code": 1000 + i,
+                 "intro": "x" * (1000 if i % 100 == 0 else 120)} for i in range(start, start + 100)]
+        return {"status": 1, "offset": 100, "total_cnt": 1000,
+                "cursor_point": f"cursor-{start+100}", "data": {"list": rows}}
+    adapter = JaraAdapter()
+    client = FakeClient(response)
+    partition = adapter.partitions(client)[0]
+    first = adapter.fetch_page(client, partition, 1)
+    second = adapter.fetch_page(client, {**partition, "cursor_point": first.next_cursor}, 2)
+    assert first.complete and second.complete
+    assert len(first.records) == len(second.records) == 100
+    assert len({r["id"] for r in first.records + second.records}) == 200
+    assert not first.records[0]["_detail_complete"]
+    assert all(r["_detail_complete"] for r in first.records[1:])
+    assert first.next_page == 2 and second.next_page == 3
+
+
+def test_new_batch_size_finished_pages_use_100_record_offsets():
+    base = fixture("catalog.json")["data"]["list"][0]
+    def response(url, params):
+        assert params["offset"] == 100
+        start = (params["page"] - 1) * 100
+        return {"status": 1, "page": params["page"], "offset": 100, "total_cnt": 200,
+                "data": {"list": [{**base, "book_code": 1000+i} for i in range(start, start+100)]}}
+    adapter = JaraAdapter()
+    client = FakeClient(response)
+    partition = next(p for p in adapter.partitions(client) if p["catalog"] == "finished")
+    first = adapter.fetch_page(client, partition, 1)
+    second = adapter.fetch_page(client, partition, 2)
+    assert first.complete and second.complete and second.next_page is None
+    assert len({r["id"] for r in first.records + second.records}) == 200
+
+
+def test_runner_migrates_old_cursor_once_then_resumes_new_batches(tmp_path, monkeypatch):
+    from scripts import metadata_common as common
+    from test_metadata_common import Client
+    monkeypatch.setattr(common, "ROOT", tmp_path / "workspace")
+    class Adapter(JaraAdapter):
+        supports_rankings = False
+        def partitions(self, client):
+            return [{"key": "series:latest", "tier": "series", "store": "series", "catalog": "latest",
+                     "page_size": 100, "start_page": 1, "pagination": "jara-cursor-v1"}]
+        def fetch_page(self, client, partition, page):
+            client.requests += 1
+            rows = [{"id": str(i), "title": "Title", "synopsis": "Full", "_detail_complete": True}
+                    for i in range((page-1)*100+1, page*100+1)]
+            return common.CatalogPage(rows, page+1 if page < 3 else None, next_cursor=f"cursor-{page}")
+        def detail(self, client, record):
+            pytest.fail("Complete listing metadata should not need a detail request")
+    adapter = Adapter()
+    state = common.load_state("jara", tmp_path / "state")
+    state["records"]["9999"] = {"id": "9999", "title": "Historical", "synopsis": "Saved"}
+    state["progress"]["partitions"] = {"series:latest": {"next_page": 50, "complete": False,
+        "pagination": "jara-cursor-v1", "cursor_point": "old-20-record-position"}}
+    common.save_state(state, tmp_path / "state")
+    argv = ["--mode", "catalog", "--resume", "--workers", "1", "--output-dir", str(tmp_path / "stage"),
+            "--state-dir", str(tmp_path / "state")]
+    common.run_source(adapter, common.resolve_args(adapter, argv + ["--max-pages", "1"]), client=Client())
+    state = common.load_state("jara", tmp_path / "state")
+    cursor = state["progress"]["partitions"]["series:latest"]
+    assert cursor["page_size"] == 100 and cursor["next_page"] == 2 and cursor["cursor_point"] == "cursor-1"
+    report = common.run_source(Adapter(), common.resolve_args(adapter, argv), client=Client())
+    assert report["coverage"]["complete"] and report["records"] == 301
+    assert common.load_state("jara", tmp_path / "state")["records"]["9999"]["synopsis"] == "Saved"
+
+
 def test_adult_verification_response_marks_age_without_fabricating_synopsis():
     result = parse_detail({"status": 0, "message": "본 작품은 성인 콘텐츠가 포함되어 있습니다. 인증을 위해 로그인 후 이용하시기 바랍니다."},
                           {"id": "976754", "title": "Known title"})
