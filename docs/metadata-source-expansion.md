@@ -6,6 +6,14 @@ The initial implementation preserved all 457 then-existing files in `docs/data`.
 
 ## Scope and commands
 
+### Browser catalog storage
+
+The landing page uses the small Top 100 bundle. Full browsing uses `catalog-worker.js` and IndexedDB: each published chunk is imported atomically into 512-record search blocks and separate card-detail blocks. Search blocks omit covers, links and synopses, and dictionary-encode repeated authors and tags. Only tag summaries and the requested result page reach the interface; the worker caches at most three pages. Substring search, source-qualified IDs, tag aliases, AND/OR/exclusion filters, audience/status filters and native ranking comparators are preserved.
+
+Queries scan one search block at a time. Ordinary pages use a bounded selection heap; deep pages use disk-backed merge sorting with a fixed merge fan-in. Temporary runs have separate per-query namespaces, so different tabs cannot overwrite each other's sorting work. Runs are cleared after completed or cancelled queries; abandoned runs older than a day are removed on worker startup. Source changes terminate obsolete work. ETag/Last-Modified validators reuse committed chunks; failed refreshes preserve the last saved chunk with an explicit warning. Storage failures retain landing cards and offer retry instead of silently loading the complete database into RAM. Clearing or browser eviction of site storage causes a fresh import.
+
+A local Chromium mobile-viewport benchmark with 1,115,766 records measured approximately 28 MiB retained JavaScript heap across the page and worker combined, versus the earlier approximately 618 MiB full-catalog baseline. Browser storage used approximately 280 MB. Renderer private working memory was approximately 254 MiB after a cold import and 105 MiB after a cached reload; these figures exclude shared browser/GPU processes and are not measurements from a physical phone. The first full import and deep-page queries incur disk work; later imports validate and reuse saved data.
+
 Collectors retrieve public titles, authors, synopses, cover URLs, genres/tags, completion, available statistics and official destinations. Account and age-verification gates are skipped. Images remain URLs. Identity is `(source, numeric-string ID)`; automatic matching of moved novels is outside this implementation.
 
 Nweb covers Challenge, Best and Series Edition on `Source URL`. Series storefront links can be outbound purchase destinations, but that separate storefront is not crawled.
