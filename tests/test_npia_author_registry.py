@@ -196,3 +196,62 @@ def test_workflow_scraper_checks_registry_when_search_finds_nothing(tmp_path, mo
     assert result["authors"]["42"]["catalog_status"] == "complete"
     assert result["coverage"]["known_authors_missing_from_search"] == ["42"]
     assert json.loads((data / "novels.json").read_text(encoding="utf-8"))[0][0] == 2
+
+
+def test_workflow_continuation_persists_progress_and_preserves_catalog(tmp_path, monkeypatch):
+    scraper = load_scraper('rescrape_npia_noauth')
+    data = tmp_path / 'docs' / 'data'
+    saved = {'version': 1, 'authors': {}}
+    registry.observe(saved, [dict(id=n, author_id=str(n), author=f'Author {n}')
+                            for n in (1, 2)], now=1)
+    registry.save(data / 'npia_authors.json', saved)
+    # A retained row absent from search must not be tagged deleted by a continuation,
+    # even for a tiny catalog below the partial-search deletion guard threshold.
+    retained = [99, 'Saved', 'Saved author', 'cover', [], 100, 10, 5, 0, 'date', 0, 0] + [7]*8
+    (data / 'novels.json').write_text(json.dumps([retained]), encoding='utf-8')
+    monkeypatch.setattr(scraper, '__file__', str(tmp_path / 'scripts' / 'rescrape_npia_noauth.py'))
+    monkeypatch.setattr(scraper, 'fetch_terms', lambda *a: {})
+    monkeypatch.setattr(scraper, 'scrape_ranking', lambda *a: {})
+    calls = []
+    def post(*args, **kwargs):
+        owner = kwargs['data']['mem_no']
+        calls.append(owner)
+        item = dict(novel_no=int(owner), mem_no=int(owner), novel_age=19,
+                    novel_name='Recovered', novel_story=f'Synopsis {owner}')
+        return SimpleNamespace(status_code=200, json=lambda: dict(status=200, result=dict(novel=[item], allCount=1)))
+    session = SimpleNamespace(headers={}, post=post, get=lambda *a, **k: SimpleNamespace(text='', status_code=200))
+    monkeypatch.setattr(scraper.requests, 'Session', lambda: session)
+    decision_path = tmp_path / 'continuation.json'
+    argv = ['scraper', '--r19-listing-pages', '0', '--r19-detail-limit', '0', '--author-pages', '1',
+            '--author-delay', '0', '--intro-requests', '0', '--author-continuation-file', str(decision_path)]
+    monkeypatch.setattr(sys, 'argv', argv)
+    scraper.main()
+    decision = json.loads(decision_path.read_text(encoding='utf-8'))
+    assert decision['continuation_required'] and decision['remaining'] == 1
+    # Simulate a new runner without the ignored full metadata file.
+    (data / 'novels_full.json').unlink()
+    after_first = json.loads((data / 'novels.json').read_text(encoding='utf-8'))
+    for row in after_first:
+        row[4] = []
+    (data / 'novels.json').write_text(json.dumps(after_first), encoding='utf-8')
+    def unexpected(*args, **kwargs):
+        pytest.fail('Continuation repeated the initial discovery phase')
+    monkeypatch.setattr(scraper, 'fetch_terms', unexpected)
+    monkeypatch.setattr(scraper, 'collect_rankings', unexpected)
+    monkeypatch.setattr(scraper, 'enrich', unexpected)
+    monkeypatch.setattr(scraper, 'discover_intro', unexpected)
+    monkeypatch.setattr(sys, 'argv', argv + ['--author-sweep-id', decision['id']])
+    scraper.main()
+    completed = json.loads(decision_path.read_text(encoding='utf-8'))
+    assert completed['id'] == decision['id'] and completed['complete']
+    assert completed['remaining'] == 0 and not completed['continuation_required']
+    assert calls == ['1', '2']
+    rows = {row[0]: row for row in json.loads((data / 'novels.json').read_text(encoding='utf-8'))}
+    assert set(rows) == {1, 2, 99}
+    assert rows[99][4] == [] and rows[99][12:] == [7]*8
+    assert rows[1][1] == 'Recovered'
+    # Stale continuation requests cannot reset or start a different sweep.
+    monkeypatch.setattr(sys, 'argv', argv + ['--author-sweep-id', 'stale'])
+    with pytest.raises(SystemExit):
+        scraper.main()
+    assert calls == ['1', '2']
