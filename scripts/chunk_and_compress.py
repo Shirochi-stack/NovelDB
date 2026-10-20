@@ -261,6 +261,13 @@ def main():
     with open(manifest_path, "w", encoding="utf-8") as f:
         source_names.dump(manifest, f, indent=2)
     print(f"Manifest: {manifest_path}")
+    source = prefix.removesuffix('_chunk')
+    if source in ('npia', 'kpage', 'sfc'):
+        try:
+            from .build_catalog_preview import build as build_preview
+        except ImportError:
+            from build_catalog_preview import build as build_preview
+        build_preview(source, output_dir)
 
 
 if __name__ == "__main__":

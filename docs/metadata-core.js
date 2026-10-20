@@ -274,7 +274,7 @@
                 }
                 let result;
                 if (key.text === "collate") {
-                    if (!collator) collator = new Intl.Collator();
+                    if (!collator) collator = new Intl.Collator('en');
                     result = collator.compare(String(va), String(vb));
                 } else if (key.text === "plain") {
                     const sa = String(va);
@@ -355,8 +355,11 @@
         const hashes = manifest.chunkHashes;
         if (hashes != null && (!Array.isArray(hashes) || hashes.length !== manifest.files.length
                 || hashes.some(hash => typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash)))) throw new Error(`Invalid ${source} chunk hashes`);
+        if (manifest.previewUrl != null && (manifest.previewUrl !== `${source}_chunk_preview.json.gz`
+                || !/^[a-f0-9]{64}$/.test(manifest.previewHash || ''))) throw new Error(`Invalid ${source} preview`);
         return { chunked:true, chunkFiles:manifest.files.map(file => `data/${file}`), chunkCount:manifest.chunks,
-            totalEntries:manifest.totalEntries, chunkHashes:hashes || null };
+            totalEntries:manifest.totalEntries, chunkHashes:hashes || null,
+            previewUrl:manifest.previewUrl ? `data/${manifest.previewUrl}` : null,previewHash:manifest.previewHash || null };
     }
 
     function manifestConfig(manifest, source) {

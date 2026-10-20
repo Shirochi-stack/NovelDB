@@ -231,7 +231,7 @@ class FixtureSite:
 
 
 async def wait_loaded(page):
-    await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
+    await page.wait_for_function("document.body.dataset.catalogReady==='true' && !document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
 
 
 def test_startup_loads_only_the_complete_npia_catalog_once():

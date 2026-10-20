@@ -1128,6 +1128,8 @@ button.synopsis-status {
     border-radius: 1rem;
     background: rgba(139, 92, 246, .18);
 }
+#catalogLoadStatus { margin-top: .35rem; min-height: 1.2em; color: var(--text-muted); font-size: .8rem; }
+#catalogLoadStatus[hidden] { display: block; visibility: hidden; }
 .synopsis-progress::before {
     content: "";
     display: block;

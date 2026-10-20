@@ -441,7 +441,11 @@ def build(source, output_dir, state_dir):
         "coverage": state.get("coverage", {}),
     })
     common().atomic_json(manifest_path, manifest)
-    return manifest
+    try:
+        from .build_catalog_preview import build as build_preview
+    except ImportError:
+        from build_catalog_preview import build as build_preview
+    return build_preview(source, output_dir)
 
 
 def read_gzip_json(path):
@@ -537,6 +541,17 @@ def validate_artifacts(source, output_dir):
         raise ValueError("Top translations or synopses have unknown IDs")
     required = [f"{source}_novels.json", f"{source}_titles_en.txt", f"{source}_descriptions.txt",
                 f"{source}_descriptions.txt.gz", *files, *expected_shards, top_name]
+    if manifest.get('previewUrl'):
+        preview_name = f'{source}_chunk_preview.json.gz'
+        if manifest['previewUrl'] != preview_name:
+            raise ValueError('Invalid preview artifact path')
+        preview_path = output_dir / preview_name
+        if hashlib.sha256(preview_path.read_bytes()).hexdigest() != manifest.get('previewHash'):
+            raise ValueError('Preview hash disagrees with manifest')
+        preview = read_gzip_json(preview_path)
+        if preview.get('source') != source or preview.get('chunkHashes') != hashes or preview.get('total') != len(rows):
+            raise ValueError('Preview does not match its source catalog')
+        required.append(preview_name)
     for name in required:
         path = output_dir / name
         if not path.is_file() or path.resolve().parent != output_dir:
