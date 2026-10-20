@@ -180,8 +180,8 @@ def test_mobile_details_and_settings_fit_small_phones_without_outer_scrolling():
                     author:'Example author',complete:0,age:0,updated:'2026-10-20 12:34:56',views:9803195,likes:621028,chapters:146,
                     dailyRank:1,weeklyRank:2,monthlyRank:3,tags:['Fantasy','Crafting','Blacksmith','Obsession']
                 });
-                window.NovelDetailsData=card=>new Promise(resolve=>{window.finishDetails=()=>resolve({
-                    ...card._record,synopsis:'A long synopsis. '.repeat(250),metrics:{extra:'Additional metadata'}
+                window.NovelDetailsData=card=>new Promise(resolve=>{window.finishDetails=(long=false)=>resolve({
+                    ...card._record,synopsis:long ? 'A long synopsis. '.repeat(250) : 'A short synopsis, visible together with the metadata.',metrics:{extra:'Additional metadata'}
                 });});
             }''')
             for width,height in [(320,568),(360,640),(390,844),(430,932)]:
@@ -209,30 +209,34 @@ def test_mobile_details_and_settings_fit_small_phones_without_outer_scrolling():
                 for field in ('author','source','id','complete','age','updated','views','likes','chapters'):
                     assert await dialog.locator(f'[data-field={field}]').is_visible()
                 assert await dialog.get_by_role('link',name='Open novel').is_visible()
-                await dialog.get_by_role('tab',name='Synopsis').click()
+                assert await dialog.get_by_role('tab').count()==0
+                assert await dialog.get_by_role('tablist').count()==0
                 await page.evaluate('finishDetails()')
-                await page.wait_for_function('document.querySelector("[data-field=synopsis]").textContent.length>3000')
-                assert await dialog.get_by_role('tab',name='Synopsis').get_attribute('aria-selected')=='true'
+                await page.wait_for_function('document.querySelector("[data-field=synopsis]").textContent.startsWith("A short synopsis")')
                 assert await dialog.locator('[data-field=synopsis]').is_visible()
-                await fits()
-                assert await dialog.locator('#detailsPanel-synopsis').evaluate('el=>el.scrollHeight>el.clientHeight')
-                await dialog.get_by_role('tab',name='Synopsis').focus();await page.keyboard.press('ArrowRight')
-                assert await dialog.get_by_role('tab',name='More').get_attribute('aria-selected')=='true'
                 assert 'Additional metadata' in await dialog.locator('[data-field=metrics]').inner_text()
-                await page.keyboard.press('Home')
-                assert await dialog.get_by_role('tab',name='Info').get_attribute('aria-selected')=='true'
                 assert await dialog.get_by_role('link',name='Open novel').is_visible()
                 await fits()
+                assert await dialog.evaluate('el=>el.getBoundingClientRect().height<600')
                 await page.screenshot(path=f'artifacts/compact-details-{width}.png')
-                # Rotation/desktop expansion exposes every section without hiding metadata.
+                # Rotation keeps the same metadata visible in the desktop layout.
                 if width==390:
                     await page.set_viewport_size({'width':1200,'height':900})
                     assert await dialog.locator('[data-field=synopsis]').is_visible()
                     assert await dialog.locator('[data-field=metrics]').is_visible()
-                    assert not await dialog.get_by_role('tab',name='Info').is_visible()
+                    assert await dialog.get_by_role('tab').count()==0
                     await page.set_viewport_size({'width':width,'height':height});await fits()
                 await page.get_by_role('button',name='Close Details').click()
                 assert await badge.evaluate('b=>b===document.activeElement')
+            # Unusually long text stays available without expanding the dialog off-screen.
+            await page.set_viewport_size({'width':390,'height':640})
+            await page.locator('.cover-details').first.click();await page.evaluate('finishDetails(true)')
+            await page.wait_for_function('document.querySelector("[data-field=synopsis]").textContent.length>3000')
+            synopsis=page.locator('[data-field=synopsis]')
+            assert await synopsis.is_visible()
+            assert await synopsis.evaluate('el=>el.scrollHeight>el.clientHeight && el.clientHeight<=150')
+            await fits()
+            await page.get_by_role('button',name='Close Details').click()
             await browser.close()
     asyncio.run(scenario())
 
