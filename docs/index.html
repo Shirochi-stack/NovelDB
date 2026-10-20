@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=26">
+    <link rel="stylesheet" href="style.css?v=27">
 </head>
 
 <body>
@@ -108,8 +108,11 @@
 
             <div class="site-settings">
                 <label class="description-toggle"><input type="checkbox" id="loadDescriptions" checked> Load Synopsis</label>
-                <label class="description-toggle" title="Use smaller cover images to save memory. Turn off to display original-resolution covers."><input type="checkbox" id="lowResCovers" checked> Lower-resolution covers</label>
-                <button type="button" id="clearCache" class="clear-btn" title="Clear downloaded catalog and synopsis caches, then reload. Your settings are kept.">Clear cache</button>
+                <div class="image-compression">
+                    <label class="description-toggle" title="Use smaller WebP card images. Turn off to display the original images."><input type="checkbox" id="lowResCovers" checked> Image Compression</label>
+                    <label class="compression-quality" title="WebP quality: 20 makes smaller files; 100 keeps the most detail.">Quality <input type="range" id="imageQuality" aria-label="WebP quality" min="20" max="100" step="1" value="72"><output id="imageQualityValue" for="imageQuality">72%</output></label>
+                </div>
+                <button type="button" id="clearCache" class="clear-btn" title="Clear unused downloaded data. The current page and your settings are kept.">Clear cache</button>
                 <span id="cacheStatus" role="status"></span>
             </div>
 
@@ -171,10 +174,10 @@
 
     <script src="metadata-core.js?v=9"></script>
     <script src="source-picker.js?v=1"></script>
-    <script src="cover-loader.js?v=5"></script>
-    <script src="cover-save.js?v=1"></script>
+    <script src="cover-loader.js?v=6"></script>
+    <script src="cover-save.js?v=2"></script>
     <script src="site-tools.js?v=5"></script>
-    <script src="app.js?v=54"></script>
+    <script src="app.js?v=55"></script>
 </body>
 
 </html>
