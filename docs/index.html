@@ -5,17 +5,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NovelDB — Browse & Filter Web Novels</title>
+    <link rel="icon" href="halgakos.ico?v=1" type="image/x-icon">
     <meta name="description" content="Search novel metadata across Npia, Kpage, SFC, Nweb, Jara, Mpia, and Rbooks, and find official publication pages.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=17">
+    <link rel="stylesheet" href="style.css?v=18">
 </head>
 
 <body>
     <header>
         <div class="header-inner">
-            <h1>📚 NovelDB</h1>
+            <h1><img class="brand-icon" src="halgakos.ico" alt="" width="40" height="40">NovelDB</h1>
             <p class="subtitle">Browse & filter web novels across platforms</p>
         </div>
     </header>
@@ -32,8 +33,8 @@
                     <input type="text" id="searchInput" placeholder="Search by title, author, or ID..."
                         autocomplete="off">
                 </div>
-                <div class="control-group">
-                    <label>Source</label>
+                <div class="control-group source-control">
+                    <label for="sourceSelect">Source</label>
                     <select id="sourceSelect">
                         <option value="all" selected>All Sources</option>
                         <option value="npia">Npia</option>
@@ -163,7 +164,9 @@
     </main>
 
     <script src="metadata-core.js?v=5"></script>
-    <script src="app.js?v=42"></script>
+    <script src="source-picker.js?v=1"></script>
+    <script src="cover-loader.js?v=1"></script>
+    <script src="app.js?v=43"></script>
 </body>
 
 </html>

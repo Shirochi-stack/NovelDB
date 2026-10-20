@@ -6215,24 +6215,11 @@
     }
 
     function attachCoverHandlers(img, fallbackSrc) {
-        img.addEventListener("load", () => markCoverReady(img));
-        img.addEventListener("error", () => {
-            if (!img.isConnected) return;
-            // Most cover CDNs accept requests without an external Referer.
-            // Retry once using the normal policy for hosts that require one,
-            // and for transient network failures. Never loop on a broken URL.
-            if (!img.dataset.retried) {
-                img.dataset.retried = "true";
-                img.referrerPolicy = "strict-origin-when-cross-origin";
-                img.removeAttribute("src");
-                img.src = img.dataset.src;
-            } else if (fallbackSrc && img.getAttribute("src") !== fallbackSrc) {
-                img.referrerPolicy = "no-referrer";
-                img.src = fallbackSrc;
-            } else {
-                showMissingCover(img);
-            }
-        });
+        img._coverFallback = fallbackSrc;
+    }
+
+    function loadCardCover(img) {
+        window.NovelCovers.load(img,{fallback:img._coverFallback,ready:markCoverReady,missing:showMissingCover});
     }
 
     const coverObserver = typeof IntersectionObserver === "undefined" ? null
@@ -6241,7 +6228,7 @@
                 if (!entry.isIntersecting) continue;
                 const img = entry.target;
                 coverObserver.unobserve(img);
-                if (img.isConnected && !img.getAttribute("src")) img.src = img.dataset.src;
+                if (img.isConnected && !img.getAttribute("src")) loadCardCover(img);
             }
         }, { rootMargin: "300px 0px" });
 
@@ -6249,9 +6236,10 @@
         // Reset subscriptions after pagination/filter changes so detached cards
         // are released and callbacks cannot start obsolete image requests.
         coverObserver?.disconnect();
+        window.NovelCovers.prune();
         for (const img of resultsEl.querySelectorAll("img.card-cover[data-src]:not([src])")) {
             if (coverObserver) coverObserver.observe(img);
-            else img.src = img.dataset.src;
+            else loadCardCover(img);
         }
     }
 
@@ -7538,6 +7526,7 @@
         currentSource = source;
         topPreview = false;
         sourceSelect.value = source;
+        window.NovelSourcePicker?.sync();
         updateSourceSortOptions();
         resetSynopsisRequests();
         coverObserver?.disconnect();

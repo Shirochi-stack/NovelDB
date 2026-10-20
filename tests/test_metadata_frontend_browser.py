@@ -2,10 +2,12 @@
 import asyncio
 import gzip
 import json
+import io
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from playwright.async_api import async_playwright
+from PIL import Image
 
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
@@ -166,10 +168,14 @@ class FixtureSite:
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
-        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/style.css"):
+        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/source-picker.js", "/cover-loader.js", "/style.css"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
             await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
+            return
+        if path == '/halgakos.ico' or path.startswith('/icons/'):
+            name = path.lstrip('/')
+            await route.fulfill(body=(DOCS/name).read_bytes(),content_type='image/png' if name.endswith('.png') else 'image/x-icon')
             return
         name = path.rsplit("/", 1)[-1]
         if name == "tags_en.txt.gz":
@@ -593,6 +599,152 @@ def test_failed_npia_default_cover_settles_to_visible_placeholder():
             await missing.wait_for()
             assert len(requests) == 3  # primary, one retry, default cover
             assert await missing.evaluate('el => getComputedStyle(el).opacity') == '1'
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_large_covers_use_small_decodes_and_release_full_size_images():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            for fmt in ['JPEG','PNG','WEBP','EXIF']:
+                output = io.BytesIO()
+                exif = Image.Exif()
+                if fmt == 'EXIF': exif[274] = 6
+                Image.new('RGB',(1600,2400),'#8040c0').save(output,format='JPEG' if fmt == 'EXIF' else fmt,exif=exif)
+                page = await browser.new_page(viewport={'width':390,'height':844},device_scale_factor=2,is_mobile=True)
+                await page.add_init_script("""window.bitmapCalls=[];window.closedBitmaps=0;
+                    const originalBitmap=window.createImageBitmap,originalClose=ImageBitmap.prototype.close;
+                    window.createImageBitmap=(image,options)=>{bitmapCalls.push(options);return originalBitmap(image,options)};
+                    ImageBitmap.prototype.close=function(){closedBitmaps++;return originalClose.call(this)};""")
+                site = FixtureSite(covers=True)
+                async def route(request):
+                    if urlsplit(request.request.url).hostname == 'covers.test':
+                        await request.fulfill(body=output.getvalue(),content_type='image/'+fmt.lower(),headers={'access-control-allow-origin':'*'})
+                    else:
+                        await site.route(request)
+                await page.route('**/*',route)
+                await page.goto('https://metadata.test/#src=npia')
+                await wait_loaded(page)
+                cover = page.locator('canvas.card-cover.loaded')
+                await cover.wait_for()
+                size = await cover.evaluate('c=>({width:c.width,height:c.height})')
+                assert size['width'] <= 480 and size['height'] <= 720
+                assert abs(size['width']/size['height']-(1.5 if fmt == 'EXIF' else 2/3)) < .01
+                assert size['width']*size['height'] <= 1600*2400/10
+                assert await page.locator('img.card-cover').count() == 0
+                calls = await page.evaluate('bitmapCalls')
+                assert calls and all(c['resizeWidth'] <= 480 for c in calls)
+                assert await page.evaluate('closedBitmaps') == len(calls)
+                await cover.evaluate('c=>window.savedCoverCanvas=c')
+                await page.locator('#statusSelect').select_option('ongoing')
+                await wait_loaded(page)
+                assert await page.evaluate('savedCoverCanvas===document.querySelector("canvas.card-cover")')
+                await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_cover_resize_fallback_handles_blocked_cors_and_older_decoders():
+    output = io.BytesIO()
+    Image.new('RGB',(1600,2400),'#4080c0').save(output,format='JPEG')
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            for bitmap_supported in [True,False]:
+                page = await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
+                if not bitmap_supported:
+                    await page.add_init_script('window.createImageBitmap=undefined')
+                site = FixtureSite(covers=True)
+                async def route(request):
+                    if urlsplit(request.request.url).hostname == 'covers.test':
+                        await request.fulfill(body=output.getvalue(),content_type='image/jpeg',
+                            headers={'access-control-allow-origin':'https://different.test'})
+                    else:
+                        await site.route(request)
+                await page.route('**/*',route)
+                await page.goto('https://metadata.test/#src=npia')
+                await wait_loaded(page)
+                cover = page.locator('canvas.card-cover.loaded')
+                await cover.wait_for()
+                assert await cover.evaluate('c=>c.width<=480&&c.height<=720')
+                assert await page.locator('img.card-cover').count() == 0
+                assert await cover.evaluate("c=>{try{c.toDataURL();return false}catch(e){return e.name==='SecurityError'}}")
+                await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_source_menu_icons_keyboard_history_and_site_icon():
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
+            await page.route('**/*',FixtureSite(missing={'jara'}).route)
+            await page.goto('http://metadata.test/')
+            await wait_loaded(page)
+            assert await page.locator('link[rel="icon"]').get_attribute('href') == 'halgakos.ico?v=1'
+            await page.wait_for_function('document.querySelector(".brand-icon").naturalWidth>0')
+            button = page.locator('#sourcePickerButton')
+            await button.click()
+            menu = page.get_by_role('listbox',name='Sources')
+            assert await menu.get_by_role('option').count() == 9
+            await page.wait_for_function('[...document.querySelectorAll(".source-picker-option img")].every(i=>i.complete&&i.naturalWidth>0)')
+            assert await menu.get_by_role('option',name='Jara',exact=True).is_disabled()
+            await menu.get_by_role('option',name='Nweb',exact=True).click()
+            await wait_loaded(page)
+            assert await button.inner_text() == 'Nweb'
+            assert await page.locator('#sourceSelect').input_value() == 'nweb'
+            await button.focus()
+            await page.keyboard.press('ArrowDown')
+            await page.keyboard.press('Home')
+            await page.keyboard.press('ArrowDown')
+            await page.keyboard.press('Enter')
+            await wait_loaded(page)
+            assert await button.inner_text() == 'Npia'
+            assert 'src=npia' in page.url
+            await page.go_back()
+            await page.wait_for_function('document.querySelector("#sourcePickerButton").textContent==="Nweb"')
+            await button.click()
+            await page.keyboard.press('Escape')
+            assert await button.get_attribute('aria-expanded') == 'false'
+            assert await button.evaluate('b=>b===document.activeElement')
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_cover_downloads_are_bounded_and_cancel_when_source_changes():
+    output = io.BytesIO()
+    Image.new('RGB',(1600,2400),'#4080c0').save(output,format='JPEG')
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={'width':1440,'height':1000})
+            await page.add_init_script("""window.activeCoverFetches=0;window.peakCoverFetches=0;window.cancelledCoverFetches=0;
+                const originalFetch=window.fetch;
+                window.fetch=async(...args)=>{
+                    if(!String(args[0]).includes('covers.test'))return originalFetch(...args);
+                    activeCoverFetches++;peakCoverFetches=Math.max(peakCoverFetches,activeCoverFetches);
+                    try{return await originalFetch(...args)}catch(e){if(e.name==='AbortError')cancelledCoverFetches++;throw e}
+                    finally{activeCoverFetches--}
+                };""")
+            site = FixtureSite(covers=True,many_npia=True)
+            async def route(request):
+                if urlsplit(request.request.url).hostname == 'covers.test':
+                    await asyncio.sleep(.3)
+                    await request.fulfill(body=output.getvalue(),content_type='image/jpeg',headers={'access-control-allow-origin':'*'})
+                else:
+                    await site.route(request)
+            await page.route('**/*',route)
+            await page.goto('https://metadata.test/#src=npia')
+            await page.wait_for_function('activeCoverFetches===2')
+            await page.locator('#sourceSelect').select_option('nweb')
+            await wait_loaded(page)
+            await page.wait_for_function('document.querySelectorAll("canvas.card-cover.loaded").length===3')
+            assert await page.evaluate('peakCoverFetches') == 2
+            assert await page.evaluate('cancelledCoverFetches') > 0
+            assert await page.locator('.novel-card[data-source="npia"]').count() == 0
+            assert await page.locator('.novel-card[data-source="nweb"]').count() == 3
             await browser.close()
     asyncio.run(scenario())
 

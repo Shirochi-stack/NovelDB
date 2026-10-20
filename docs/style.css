@@ -49,6 +49,10 @@ header {
 }
 
 .header-inner h1 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
     font-size: 2rem;
     font-weight: 700;
     background: linear-gradient(135deg, #c8b8ff, #7c5cfc, #5c8cfc);
@@ -56,6 +60,8 @@ header {
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
+
+.brand-icon { object-fit: contain; flex-shrink: 0; }
 
 .subtitle {
     color: var(--text-secondary);
@@ -141,7 +147,7 @@ main {
     font-weight: 500;
 }
 
-.control-group select {
+.control-group select, .source-picker-button {
     padding: 0.75rem 2rem 0.75rem 0.75rem;
     background: var(--bg-input);
     border: 1px solid var(--border);
@@ -158,9 +164,54 @@ main {
     transition: border-color 0.2s;
 }
 
-.control-group select:focus {
+.control-group select:focus, .source-picker-button:focus-visible {
     border-color: var(--accent);
 }
+
+.source-control { position: relative; }
+.source-select-native {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0 !important;
+    opacity: 0;
+    pointer-events: none;
+}
+.source-picker-button { display: flex; align-items: center; gap: 0.5rem; min-width: 158px; text-align: left; }
+.source-picker-button img, .source-picker-option img { object-fit: contain; flex-shrink: 0; border-radius: 3px; }
+.source-picker-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
+    width: max(100%, 190px);
+    max-height: min(65vh, 420px);
+    overflow-y: auto;
+    padding: 0.35rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+}
+.source-picker-menu[hidden] { display: none; }
+.source-picker-option {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.65rem 0.7rem;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.9rem;
+    text-align: left;
+    cursor: pointer;
+}
+.source-picker-option:hover, .source-picker-option:focus-visible { background: var(--bg-card-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
+.source-picker-option[aria-selected="true"] { background: var(--accent-glow); }
+.source-picker-option:disabled { opacity: 0.4; cursor: default; }
 
 /* === Tag Section === */
 .tag-section {
