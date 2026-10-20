@@ -30,7 +30,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests beautifulsoup4
 
       - name: Update rankings (no auth required)
         run: python scripts/update_rankings_noauth.py

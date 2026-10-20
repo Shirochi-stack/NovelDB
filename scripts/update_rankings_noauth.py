@@ -5,7 +5,8 @@ Also captures novel synopses from the API and merges them into descriptions.txt.
 Scrapes top100 pages for each audience (all, adult, teen) × each period.
 Also rescrapes full metadata (cover, title, views, etc.) for all ranked novels
 so that data stays fresh.
-R19 pages require auth and may fail in CI — existing R19 ranks are preserved.
+Only the three adult ranking boards require account authentication. Public
+board failures preserve that period alone and are never labeled auth failures.
 
 Data indices:
   [0] id  [1] title  [2] author  [3] cover  [4] tags  [5] views  [6] likes
@@ -20,8 +21,10 @@ Usage:
 
 try:
     from . import source_names
+    from .npia_rankings import scrape_ranking, collect_rankings, patch_ranks
 except ImportError:
     import source_names
+    from npia_rankings import scrape_ranking, collect_rankings, patch_ranks
 
 
 import sys, os, json, re, time
@@ -38,32 +41,6 @@ HEADERS = {
 }
 
 COVER_PREFIX = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
-
-AUDIENCES = [
-    ("all/plus",   "all",   10, 12, 13),
-    ("adult/plus", "adult", 14, 15, 16),
-    ("teen/plus",  "teen",  17, 18, 19),
-]
-
-PERIODS = [
-    ("weekly", "weekly"),
-    ("month",  "monthly"),
-    ("today",  "daily"),
-]
-
-
-def scrape_ranking(session, period, audience):
-    """Scrape top100 for a given period and audience."""
-    url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/top100/all/{period}/view/{audience}"
-    r = session.get(url, timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"HTTP {r.status_code} for {url}")
-    rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
-    ranking = {}
-    for pos, nid in enumerate(rank_ids[:100], 1):
-        ranking[nid] = pos
-    return ranking
-
 
 def pick_cover(item):
     """Pick the best cover URL from a Npia API response."""
@@ -209,37 +186,7 @@ def main():
     print("  Using generated Npia session key; no username/password required")
 
     # Phase 1: Scrape rankings
-    rankings = {}
-    failed_audiences = set()
-    public_failures = []
-
-    for audience_url, audience_label, _, _, _ in AUDIENCES:
-        for period_url, period_label in PERIODS:
-            label = f"{period_label} {audience_label}"
-            print(f"Scraping {label}...")
-            try:
-                ranking = scrape_ranking(session, period_url, audience_url)
-            except Exception as e:
-                print(f"  WARNING: Failed: {e}")
-                ranking = {}
-            if len(ranking) == 0:
-                if audience_url == "adult/plus":
-                    print(f"  (R19 may require authentication - preserving existing ranks)")
-                else:
-                    print(f"  ERROR: public ranking returned no novels")
-                    public_failures.append(label)
-                failed_audiences.add(audience_url)
-            else:
-                print(f"  Got {len(ranking)} ranked novels")
-            rankings[(audience_url, period_url)] = ranking
-
-    if public_failures:
-        print("ERROR: Could not fetch required public rankings: "
-              + ", ".join(public_failures))
-        sys.exit(1)
-
-    if "adult/plus" in failed_audiences:
-        print("\nR19 (adult) pages unavailable - existing adult ranks will be preserved")
+    rankings = collect_rankings(session, fetch=scrape_ranking, log=lambda message: print(message, flush=True))
 
     # Collect all unique ranked novel IDs
     all_ranked_ids = set()
@@ -285,17 +232,7 @@ def main():
             novel[11] = f["age"]
 
         # Update rankings
-        changed = False
-        for audience_url, _, idx_weekly, idx_monthly, idx_daily in AUDIENCES:
-            # Skip this audience if it failed (preserve existing ranks)
-            if audience_url in failed_audiences:
-                continue
-
-            for period_url, idx in [("weekly", idx_weekly), ("month", idx_monthly), ("today", idx_daily)]:
-                new_rank = rankings.get((audience_url, period_url), {}).get(nid, 0)
-                if novel[idx] != new_rank:
-                    novel[idx] = new_rank
-                    changed = True
+        changed = bool(patch_ranks(novel, rankings))
 
         if changed or nid in fresh_data:
             updated += 1

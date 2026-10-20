@@ -8,8 +8,8 @@ Merge strategy:
   - New novels not in existing data -> append
   - Existing novels NOT found in fresh scrape -> keep as-is
 
-Also scrapes public top100 rankings. For audiences that fail (adult/R19),
-existing ranks are preserved.
+Also scrapes all six public top100 boards. Failed periods and the three
+authenticated adult boards retain their existing ranks independently.
 
 Usage:
     python scripts/rescrape_npia_noauth.py
@@ -20,10 +20,12 @@ try:
     from . import source_names
     from .npia_public_metadata import enrich
     from .metadata_common import atomic_json
+    from .npia_rankings import scrape_ranking, collect_rankings, patch_ranks
 except ImportError:
     import source_names
     from npia_public_metadata import enrich
     from metadata_common import atomic_json
+    from npia_rankings import scrape_ranking, collect_rankings, patch_ranks
 
 
 import sys, os, json, time, re, argparse, requests
@@ -54,19 +56,6 @@ IMAGE_COVER_PREFIX = "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\
 DELETED_TAG = "deleted"
 PLACEHOLDER_COVER_PARTS = ("readycover", "adult_cover_img")
 from npia_search_terms import SEARCH_TAGS, SWEEP_CHARS
-
-AUDIENCES = [
-    ("all/plus",   "all",   10, 12, 13),
-    ("adult/plus", "adult", 14, 15, 16),
-    ("teen/plus",  "teen",  17, 18, 19),
-]
-
-PERIODS = [
-    ("weekly", "weekly"),
-    ("month",  "monthly"),
-    ("today",  "daily"),
-]
-
 
 def pick_cover(item):
     """Pick the best cover URL from a Npia API response."""
@@ -226,19 +215,6 @@ def merge_term_results(terms, results, fresh_novels):
     return raw_count, len(fresh_novels) - before
 
 
-def scrape_ranking(session, period, audience):
-    """Scrape top100 for a given period and audience."""
-    url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/top100/all/{period}/view/{audience}"
-    r = session.get(url, timeout=30)
-    if r.status_code != 200:
-        return {}
-    rank_ids = list(dict.fromkeys(re.findall(r'/novel/(\d+)', r.text)))
-    ranking = {}
-    for pos, nid in enumerate(rank_ids[:100], 1):
-        ranking[nid] = pos
-    return ranking
-
-
 def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, delay=2.0, now=None, existing=(), registry=None, priority_authors=()):
     """Resume a bounded author sweep, retaining every completed metadata page."""
     now = time.time() if now is None else now
@@ -391,27 +367,7 @@ def main():
 
     # ── Phase 3: Scrape rankings ─────────────────────────────────
     print("--- Scraping rankings ---")
-    rankings = {}
-    failed_audiences = set()
-
-    for audience_url, audience_label, _, _, _ in AUDIENCES:
-        for period_url, period_label in PERIODS:
-            label = f"{period_label} {audience_label}"
-            print(f"Scraping {label}...", end=" ", flush=True)
-            try:
-                ranking = scrape_ranking(session, period_url, audience_url)
-            except Exception as e:
-                print(f"WARNING: Failed: {e}")
-                ranking = {}
-            if len(ranking) == 0:
-                print("(may require auth — skipping)")
-                failed_audiences.add(audience_url)
-            else:
-                print(f"{len(ranking)} novels")
-            rankings[(audience_url, period_url)] = ranking
-
-    if "adult/plus" in failed_audiences:
-        print("\nR19 (adult) ranking pages unavailable — existing adult ranks will be preserved")
+    rankings = collect_rankings(session, fetch=scrape_ranking, log=lambda message: print(message, flush=True))
 
     # ── Phase 4: Merge into existing data ────────────────────────
     print(f"\n--- Merging into existing data ---")
@@ -597,20 +553,7 @@ def main():
                 stats["preserved_other"] += 1
 
     # ── Phase 5: Patch rankings ──────────────────────────────────
-    rank_changes = 0
-    for novel in existing_data:
-        nid = str(novel[0])
-        while len(novel) < 20:
-            novel.append(0)
-
-        for audience_url, _, idx_weekly, idx_monthly, idx_daily in AUDIENCES:
-            if audience_url in failed_audiences:
-                continue
-            for period_url, idx in [("weekly", idx_weekly), ("month", idx_monthly), ("today", idx_daily)]:
-                new_rank = rankings.get((audience_url, period_url), {}).get(nid, 0)
-                if novel[idx] != new_rank:
-                    novel[idx] = new_rank
-                    rank_changes += 1
+    rank_changes = sum(patch_ranks(novel, rankings) for novel in existing_data)
 
     # ── Summary ──────────────────────────────────────────────────
     print(f"\n{'='*50}")
