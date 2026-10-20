@@ -6679,11 +6679,7 @@
         activeAuthorFilter = null;
         authorFilterRestoreState = null;
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(()=>{
-            if(searchInput.value.trim() && currentSource!=='all') {
-                currentPage=1; loadSource('all',true); saveState();
-            } else applyFilters();
-        },200);
+        searchTimer = setTimeout(applyFilters,200);
     });
 
     sortSelect.addEventListener("change", () => { updateSourceSortOptions(); applyFilters(); });
@@ -7974,7 +7970,7 @@
         }
 
         updateActiveTagsSummary();
-        const source = params.q && !params.author ? "all" : params.src === "all" || SOURCES[params.src] ? params.src : "npia";
+        const source = params.src === "all" || SOURCES[params.src] ? params.src : "npia";
         sourceSelect.value = source;
         if (source !== currentSource) loadSource(source, true);
         else {
@@ -8009,7 +8005,7 @@
     }
 
     const savedParams = restoreState();
-    const initialSource = searchInput.value.trim() && !activeAuthorFilter ? 'all' : sourceSelect.value;
+    const initialSource = sourceSelect.value;
     const hasRestoredState = savedParams && Object.keys(savedParams).length > 0;
 
     // Source change listener

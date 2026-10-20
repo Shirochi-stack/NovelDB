@@ -85,7 +85,7 @@ def test_all_sources_ranking_preview_ignores_stalled_other_manifests_and_tags(pr
     asyncio.run(scenario())
 
 
-def test_text_search_switches_to_all_sources_and_runs_before_remaining_imports_finish():
+def test_all_sources_search_runs_before_remaining_imports_finish():
     async def scenario():
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -102,6 +102,7 @@ def test_text_search_switches_to_all_sources_and_runs_before_remaining_imports_f
                 await page.goto('https://metadata.test/')
                 await wait_loaded(page)
                 hold = True
+                await page.select_option('#sourceSelect','all')
                 await page.locator('#searchInput').fill('nweb translated')
                 await page.wait_for_function('document.querySelector("#sourceSelect").value==="all"')
                 await page.wait_for_function('document.querySelectorAll(".novel-card").length===3 && document.querySelector(".novel-card")?.dataset.source==="nweb"')
@@ -110,6 +111,45 @@ def test_text_search_switches_to_all_sources_and_runs_before_remaining_imports_f
                 assert await page.locator('.novel-card').count() == 3
             finally:
                 release.set(); await browser.close()
+    asyncio.run(scenario())
+
+
+def test_search_keeps_selected_source_on_input_reload_and_history():
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page()
+            await page.route('**/*',FixtureSite().route)
+            await page.goto('https://metadata.test/#src=nweb');await wait_loaded(page)
+            await page.locator('#searchInput').fill('7')
+            await page.wait_for_function('document.querySelectorAll(".novel-card").length===1 && document.querySelector(".novel-card")?.dataset.novelId==="7"')
+            assert await page.locator('#sourceSelect').input_value()=='nweb'
+            assert await page.locator('.novel-card').get_attribute('data-source')=='nweb'
+            await page.reload();await wait_loaded(page)
+            assert await page.locator('#sourceSelect').input_value()=='nweb'
+            assert await page.locator('#searchInput').input_value()=='7'
+            assert await page.locator('.novel-card').count()==1
+            await page.select_option('#sourceSelect','all');await wait_loaded(page)
+            assert await page.locator('.novel-card').count()==8
+            await page.locator('#searchInput').fill('8')
+            await page.wait_for_function('document.querySelectorAll(".novel-card").length===5')
+            assert await page.locator('#sourceSelect').input_value()=='all'
+            await page.select_option('#sourceSelect','sfc');await wait_loaded(page)
+            assert await page.locator('.novel-card').count()==0
+            await page.locator('#searchInput').fill('7')
+            await page.wait_for_function('document.querySelectorAll(".novel-card").length===1')
+            assert await page.locator('#sourceSelect').input_value()=='sfc'
+            assert await page.locator('.novel-card').get_attribute('data-source')=='sfc'
+            await page.go_back()
+            await page.wait_for_function('document.querySelector("#searchInput").value==="8" && !document.querySelector(".novel-card")')
+            assert await page.locator('#sourceSelect').input_value()=='sfc'
+            await page.go_forward()
+            await page.wait_for_function('document.querySelector("#searchInput").value==="7" && document.querySelectorAll(".novel-card").length===1')
+            assert await page.locator('#sourceSelect').input_value()=='sfc'
+            await page.locator('#searchInput').fill('')
+            await page.wait_for_function('!location.hash.includes("q=")')
+            assert await page.locator('#sourceSelect').input_value()=='sfc'
+            await browser.close()
     asyncio.run(scenario())
 
 

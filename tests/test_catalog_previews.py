@@ -235,14 +235,14 @@ def test_bad_preview_falls_back_to_catalog_and_saved_filters_skip_preview(previe
     async def scenario():
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            for suffix,broken,count in [('',True,30),('#src=npia&q=original%200042',False,8),('#src=npia&page=12',False,20)]:
+            for suffix,broken,count in [('',True,30),('#src=npia&q=original%200042',False,1),('#src=all&q=original%200042',False,8),('#src=npia&page=12',False,20)]:
                 page = await browser.new_page()
                 await page.route('**/*',PreviewSite(previews,broken_preview=broken).route)
                 await page.goto('https://metadata.test/'+suffix)
                 await wait_loaded(page)
                 assert await page.locator('.novel-card').count()==count
-                if count==8:
-                    assert await page.locator('#sourceSelect').input_value()=='all'
+                if count in (1,8):
+                    assert await page.locator('#sourceSelect').input_value()==('all' if count==8 else 'npia')
                     assert set(await page.locator('.novel-card').evaluate_all('(cards)=>cards.map(c=>c.dataset.novelId)'))=={'42'}
                 await page.close()
             await browser.close()
