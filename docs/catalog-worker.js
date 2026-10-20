@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=6");
+importScripts("catalog-import.js?v=7");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -8,9 +8,10 @@ const revisions = new Map();
 const readySources = new Map();
 let savedPages;
 let parserPool;
+let importLabels={},importLabelVersion;
 const totals = new Map();
-function createParserPool() {
-    const slots = Array.from({length:PARSERS},()=>({worker:null,job:null})), queue = [];
+function createParserPool(size=PARSERS) {
+    const slots = Array.from({length:size},()=>({worker:null,job:null})), queue = [];
     let sequence = 0, closed = false;
     function finish(slot,error,result) {
         const job = slot.job; slot.job = null;
@@ -26,9 +27,14 @@ function createParserPool() {
             if (slot.job || !queue.length) continue;
             if (!slot.worker) {
                 try {
-                    const worker = slot.worker = new Worker('catalog-parser.js?v=6');
+                    const worker = slot.worker = new Worker('catalog-parser.js?v=7');
                     worker.onmessage = ({data}) => {
                         if (closed || slot.worker !== worker || data.id !== slot.job?.id) return;
+                        if(data.tags) {
+                            const labels=slot.job.value.labels || {};
+                            worker.postMessage({id:data.id,kind:'labels',labels:Object.fromEntries(data.tags.map(tag=>[tag,labels[tag] || tag]))});
+                            return;
+                        }
                         finish(slot,data.error ? Object.assign(new Error(data.error.message),{name:data.error.name}) : null,data.result);
                     };
                     worker.onerror = event => {
@@ -40,7 +46,12 @@ function createParserPool() {
             }
             slot.job = queue.shift();
             slot.timer=setTimeout(()=>finish(slot,new Error('Catalog parser timed out')),45000);
-            try { slot.worker.postMessage({id:slot.job.id,...slot.job.value},[slot.job.value.compressed]); }
+            try {
+                // Each chunk requests only its distinct tags. Do not clone the
+                // complete translation dictionary into every parser isolate.
+                const {labels,...value}=slot.job.value;
+                slot.worker.postMessage({id:slot.job.id,...value},[value.compressed]);
+            }
             catch (error) { finish(slot,error); }
         }
     }
@@ -85,7 +96,7 @@ async function importSource(source, cfg, progress, labels, recovered=false) {
     async function download(chunk) {
         let old;
         try {
-            old = await get("meta", [source, chunk]);
+            old = await get("meta", [source, chunk,'compact']) || await get("meta", [source, chunk]);
             const url = files[chunk];
             // Plain HTTP preview servers may lack the checksum API. They keep
             // the original per-file validation path instead of failing to load.
@@ -318,19 +329,40 @@ async function executeQuery(q, token) {
     check();
     const rows = new Array(chosen.length), groups = new Map();
     chosen.forEach((entry, position) => {
-        const identity = JSON.stringify(entry[2]);
+        const identity = JSON.stringify(entry[2].slice(0,2));
         if (!groups.has(identity)) groups.set(identity,[]);
         groups.get(identity).push({entry,position});
     });
-    for (const group of groups.values()) {
-        const key = group[0].entry[2], block = await get("cards", key);
-        for (const {entry,position} of group) {
-            const n = M.parseRows([block.rows[entry[3]]], key[0], configs.get(key[0]))[0];
-            if (block.titles[entry[3]]) n.titleEn = block.titles[entry[3]];
-            n._catalogOrdinal = entry[1];
-            rows[position] = n;
+    const readers=createParserPool(2);
+    try {
+        // Decode a chunk once for all selected card rows, in short-lived
+        // readers. Only the result page returns to the persistent query worker.
+        const pending=[...groups.values()];let next=0;
+        async function readNext() {
+            while(next<pending.length) {
+                check();const group=pending[next++],key=group[0].entry[2];
+                const first=await rawGet('cards',key);
+                if(first?.ids) {
+                    const payload=await rawGet('cards',[key[0],key[1],'payload','compact']);
+                    const positions=group.map(({entry})=>entry[2][2]*BLOCK+entry[3]);
+                    const selected=payload.compressed.byteLength<131072
+                        ? await selectCardRows(payload.compressed,payload.gzip,positions,key[0],configs.get(key[0]))
+                        : await readers.parse({source:key[0],cfg:configs.get(key[0]),compressed:payload.compressed,gzip:payload.gzip,positions});
+                    group.forEach(({entry,position},i)=>{selected[i]._catalogOrdinal=entry[1];rows[position]=selected[i];});
+                } else {
+                    // Older disk catalogs remain usable without re-importing.
+                    let block=first,blockId=key[2];
+                    for(const {entry,position} of group) {
+                        if(blockId!==entry[2][2]) {block=await get('cards',entry[2]);blockId=entry[2][2];}
+                        const n=M.parseRows([block.rows[entry[3]]],key[0],configs.get(key[0]))[0];
+                        if(block.titles[entry[3]]) n.titleEn=block.titles[entry[3]];
+                        n._catalogOrdinal=entry[1];rows[position]=n;
+                    }
+                }
+            }
         }
-    }
+        await Promise.all([readNext(),readNext()]);
+    } finally {readers.close();}
     const result = { rows, total:count, page };
     pages.set(cacheKey,result); while (pages.size > PAGE_CACHE) pages.delete(pages.keys().next().value);
     // A few exact result pages avoid a million-row rescan after reopening.
@@ -352,17 +384,28 @@ self.onmessage = ({data}) => {
     serial = serial.catch(() => {}).then(async () => {
         try {
             let result;
-            if (type === "import" || type === "activate") {
+            if(type==='checkpoint') {
+                // The page keeps this small registry while this worker's heap
+                // and open storage connection are released between requests.
+                result={configs:[...configs],blocks:[...blocks],revisions:[...revisions],totals:[...totals],readySources:[...readySources]};
+            } else if(type==='resume') {
+                for(const name of ['configs','blocks','revisions','totals','readySources']) {
+                    const target={configs,blocks,revisions,totals,readySources}[name];
+                    for(const [key,entry] of value[name] || []) target.set(key,entry);
+                }
+            } else if (type === "import" || type === "activate") {
                 // The application includes the dictionary version in cfg.
                 // Avoid retaining a duplicate dictionary string per source.
                 const signature = JSON.stringify(value.cfg);
                 const saved = readySources.get(value.source);
+                if(value.tagLabels) {importLabels=value.tagLabels;importLabelVersion=value.cfg.tagVersion;}
+                else if(importLabelVersion!==value.cfg.tagVersion) {importLabels={};importLabelVersion=value.cfg.tagVersion;}
                 // Source changes reuse the existing disk index and its small
                 // summary. Explicit imports still validate upstream changes.
                 if (type === "activate" && saved?.signature === signature) result = {...saved.result,reused:true};
                 else {
                     readySources.delete(value.source);
-                    result = await importSource(value.source,value.cfg,progress => self.postMessage({id,progress}),value.tagLabels || {});
+                    result = await importSource(value.source,value.cfg,progress => self.postMessage({id,progress}),importLabels);
                     // A partial import stays usable on disk, but the next
                     // activation must retry its unavailable chunks.
                     if (!result.warnings.length) readySources.set(value.source,{signature,result});

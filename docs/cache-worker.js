@@ -12,7 +12,7 @@ self.onmessage = async ({data}) => {
             req.onerror = ()=>{clearTimeout(timer);reject(req.error);};
         });
         const visible = new Set(data.visible.map(n=>`${n.source}:${n.id}`));
-        const kept = new Set(), encoder = new TextEncoder();
+        const kept = new Set(), keptChunks=new Set(), encoder = new TextEncoder();
         let bytes = 0, entries = 0;
         await new Promise((resolve,reject)=>{
             const tx = db.transaction(['cards','index','meta','runs'],'readwrite');
@@ -26,11 +26,13 @@ self.onmessage = async ({data}) => {
                     const cursor = req.result;
                     if(!cursor) {next?.();return;}
                     const key = JSON.stringify(cursor.key), value = cursor.value;
-                    const keep = name==='cards' ? value.rows?.some(row=>visible.has(`${cursor.key[0]}:${row[0]}`))
+                    const chunk=JSON.stringify(cursor.key.slice(0,2));
+                    const keep = name==='cards' ? cursor.key[2]==='payload' ? keptChunks.has(chunk)
+                        : value.rows?.some(row=>visible.has(`${cursor.key[0]}:${row[0]}`)) || value.ids?.some(id=>visible.has(`${cursor.key[0]}:${id}`))
                         : name==='index' && kept.has(key);
-                    if(keep) kept.add(key);
+                    if(keep) {kept.add(key);if(name==='cards') keptChunks.add(chunk);}
                     else {
-                        bytes += encoder.encode(key).byteLength + encoder.encode(JSON.stringify(value) || '').byteLength;
+                        bytes += encoder.encode(key).byteLength + encoder.encode(JSON.stringify(value) || '').byteLength + (value?.compressed?.byteLength || 0);
                         entries++; cursor.delete();
                     }
                     cursor.continue();

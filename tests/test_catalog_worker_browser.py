@@ -111,6 +111,14 @@ def test_worker_cache_validator_refresh_and_failed_import_is_atomic():
             await page.evaluate(BOOT)
             command = "rpc('import',{source:'npia',cfg:{format:'array',chunked:true,chunkFiles:['http://metadata.test/data/test_chunk.json.gz']}})"
             assert (await page.evaluate(command))['total'] == 2
+            worker = next(w for w in page.workers if 'catalog-worker' in w.url)
+            shape=await worker.evaluate("""async()=>{
+                const card=await rawGet('cards',['npia',0,0,'compact']);
+                const payload=await rawGet('cards',['npia',0,'payload','compact']);
+                const index=await get('index',['npia',0,0,'compact']);
+                return {ids:card.ids,expanded:!!card.rows,bytes:payload.compressed.byteLength,packed:Array.isArray(index.entries[0][5])};
+            }""")
+            assert shape['ids']==['7','8'] and not shape['expanded'] and shape['bytes']>0 and shape['packed']
             site.payload = {'novels': [None]}
             # Identical validators reuse the committed index without parsing the body.
             assert (await page.evaluate(command))['total'] == 2
@@ -122,7 +130,7 @@ def test_worker_cache_validator_refresh_and_failed_import_is_atomic():
             fallback = await page.evaluate(command)
             assert fallback['total'] == 1 and fallback['warnings']
             worker = next(w for w in page.workers if 'catalog-worker' in w.url)
-            stored = await worker.evaluate("get('cards',['npia',0,0])")
+            stored = await worker.evaluate("get('cards',['npia',0,0,'compact'])")
             assert len(stored['rows']) == 1 and stored['rows'][0][0] == 42
             # Partial results are usable, but activation must retry the failed
             # refresh instead of memoizing its warning for the whole session.
@@ -130,8 +138,66 @@ def test_worker_cache_validator_refresh_and_failed_import_is_atomic():
             site.payload = {'novels': [row('npia', 43)]}
             recovered = await page.evaluate(command.replace("rpc('import'", "rpc('activate'"))
             assert recovered['total'] == 1 and not recovered['warnings']
-            stored = await worker.evaluate("get('cards',['npia',0,0])")
+            stored = await worker.evaluate("get('cards',['npia',0,0,'compact'])")
             assert stored['rows'][0][0] == 43
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_legacy_disk_blocks_and_checkpoint_resume_need_no_catalog_download():
+    class Site(FixtureSite):
+        downloads=0
+        etag='unchanged'
+        novels=[row('npia',7),row('npia',8)]
+        async def route(self,route):
+            path=urlsplit(route.request.url).path
+            if path=='/':
+                await route.fulfill(body='<html><body>Worker compatibility</body></html>',content_type='text/html')
+            elif path=='/data/old.json.gz':
+                self.downloads+=1
+                await route.fulfill(body=gzip.compress(json.dumps({'novels':self.novels}).encode()),content_type='application/gzip',headers={'etag':self.etag})
+            else:await super().route(route)
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page();site=Site()
+            await page.route('**/*',site.route);await page.goto('https://metadata.test/');await page.evaluate(BOOT)
+            cfg={'format':'array','chunked':True,'chunkFiles':['https://metadata.test/data/old.json.gz'],'tagVersion':'tags'}
+            await page.evaluate("cfg=>rpc('activate',{source:'npia',cfg,tagLabels:{Fantasy:'Fantasy'}})",cfg)
+            worker=next(w for w in page.workers if 'catalog-worker' in w.url)
+            await worker.evaluate("""async()=>{
+                const key=['npia',0,0],compact=[...key,'compact'];
+                const index=await get('index',compact),cards=await get('cards',compact),meta=await get('meta',['npia',0,'compact']);
+                for(const entry of index.entries) {
+                    const value=unpack(entry,index,'npia');
+                    for(const field of ['id','title','titleEn','author','tags','source']) delete value[field];
+                    entry[5]=value;
+                }
+                const tx=(await db()).transaction(['index','cards','meta'],'readwrite'),done=transaction(tx);
+                tx.objectStore('index').put(index,key);tx.objectStore('cards').put(cards,key);
+                tx.objectStore('index').delete(compact);tx.objectStore('cards').delete(compact);
+                tx.objectStore('cards').delete(['npia',0,'payload','compact']);
+                tx.objectStore('meta').put({...meta,keys:[key]},['npia',0]);tx.objectStore('meta').delete(['npia',0,'compact']);
+                await done;blocks.set('npia',[key]);
+            }""")
+            await page.evaluate("async()=>{window.savedRegistry=await rpc('checkpoint',null);testWorker.terminate()}")
+            await page.evaluate(BOOT)
+            await page.evaluate("rpc('resume',savedRegistry)")
+            reused=await page.evaluate("cfg=>rpc('activate',{source:'npia',cfg})",cfg)
+            assert reused['reused'] and site.downloads==1
+            query=dict(sources=['npia'],text='',status='all',audience='all',page=1,size=30,
+                       sort=dict(sortBy='views',order='desc',defaultSource='npia'))
+            result=await page.evaluate("q=>rpc('query',q)",query)
+            assert result['total']==2 and {n['id'] for n in result['rows']}=={'7','8'}
+            assert site.downloads==1
+            # A fresh compact import must leave an older tab's blocks intact.
+            site.etag='updated';site.novels=[row('npia',42)]
+            await page.evaluate("cfg=>rpc('import',{source:'npia',cfg})",cfg)
+            worker=next(w for w in page.workers if 'catalog-worker' in w.url)
+            assert await worker.evaluate("(async()=> (await get('cards',['npia',0,0])).rows.map(r=>r[0]))()") == [7,8]
+            assert await worker.evaluate("(async()=> (await get('cards',['npia',0,0,'compact'])).rows.map(r=>r[0]))()") == [42]
+            result=await page.evaluate("q=>rpc('query',q)",query)
+            assert result['total']==1 and result['rows'][0]['id']=='42'
             await browser.close()
     asyncio.run(scenario())
 
@@ -192,7 +258,7 @@ def test_eight_downloads_and_four_parsers_are_bounded_and_cleaned_up():
                 if chunk < 8:
                     await self.release_downloads.wait()
                 if chunk == 8:
-                    saved = await self.worker.evaluate("get('cards',['npia',0,0])")
+                    saved = await self.worker.evaluate("get('cards',['npia',0,0,'compact'])")
                     self.ninth_saw_committed_first = saved['rows'][0][0] == 1
                 # A failed prefetched download must preserve other chunks.
                 if chunk == 2:
@@ -242,7 +308,7 @@ def test_eight_downloads_and_four_parsers_are_bounded_and_cleaned_up():
             assert len(site.started) == 11
             assert len(site.parsing) == 9
             assert await site.worker.evaluate("get('meta',['npia',2])") is None
-            assert (await site.worker.evaluate("get('cards',['npia',9,0])"))['rows'][0][0] == 10
+            assert (await site.worker.evaluate("get('cards',['npia',9,0,'compact'])"))['rows'][0][0] == 10
             output = await page.evaluate("rpc('query',{sources:['npia'],sort:{sortBy:'views'},page:1,size:100})")
             assert [item['id'] for item in output['rows']] == [str(i+1) for i in range(10) if i != 2]
             await asyncio.sleep(.05)

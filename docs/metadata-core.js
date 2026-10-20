@@ -375,6 +375,27 @@
         return merged;
     }
 
+    function compactPreview(bundle,source,cfg,profile=null) {
+        if(![1,2].includes(bundle.version) || bundle.source!==source || bundle.total!==cfg.totalEntries || bundle.limit!==300
+                || JSON.stringify(bundle.chunkHashes)!==JSON.stringify(cfg.chunkHashes)
+                || !Array.isArray(bundle.novels) || !Array.isArray(bundle.ordinals) || bundle.ordinals.length!==bundle.novels.length
+                || bundle.ordinals.some(i=>!Number.isSafeInteger(i) || i<0 || i>=bundle.total) || !bundle.profiles || !bundle.translations
+                || Object.values(bundle.profiles).some(p=>!Array.isArray(p) || p.length>300 || p.some(i=>!Number.isInteger(i) || !bundle.novels[i]))) throw new Error('Invalid preview');
+        let profiles=bundle.profiles;
+        if(profile) {
+            const key=JSON.stringify(profile),legacy=profile[1]==='desc' ? profile[0] : null;
+            const rows=profiles[key] || (bundle.version===1 ? profiles[legacy] : null);
+            if(!rows) throw new Error('Preview sort unavailable');
+            profiles={[key]:rows};
+        }
+        const positions=[...new Set(Object.values(profiles).flat())],indices=new Map(positions.map((old,i)=>[old,i]));
+        const novels=positions.map(i=>bundle.novels[i]);
+        parseRows(novels,source,cfg);
+        return {...bundle,novels,ordinals:positions.map(i=>bundle.ordinals[i]),
+            profiles:Object.fromEntries(Object.entries(profiles).map(([key,rows])=>[key,rows.map(i=>indices.get(i))])),
+            translations:Object.fromEntries(novels.map(row=>[String(row[0]),bundle.translations[String(row[0])] || '']))};
+    }
+
     function catalogManifestConfig(manifest, source) {
         if (!manifest || !Array.isArray(manifest.files) || manifest.chunks !== manifest.files.length
                 || !Number.isInteger(manifest.totalEntries) || manifest.totalEntries < 0
@@ -418,5 +439,5 @@
 
     return { nullableNumber, identity, mergeRecords, safeHttpUrl, safeCoverUrl, parseRows, matchesStatus,
         matchesAudience, compareNullable, nativeRank, rankValue, periodRank, supportedPeriods, sortPlan, recordComparator, sortRecords,
-        mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig, previewSorts, resolveSourceSort };
+        mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig, previewSorts, resolveSourceSort, compactPreview };
 });
