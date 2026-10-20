@@ -4670,6 +4670,7 @@
 2036107353|||퓨전펑크에서 마법사로 사는 법|||How to Live as a Mage in Fusionpunk
 2036107742|||2회차 광고의 신이 영화를 찍으면|||When the God of Advertising Makes a Movie in His Second Life
 2036108197|||차원여행자의 경제학개론|||Introduction to Economics for the Dimension Traveler
+2036108399|||흑도검선|||Black Blade Immortal
 2037000040|||거울에 비친 왕관|||The Crown in the Mirror
 204000323|||길티 플레져|||Guilty Pleasure
 204000542|||광안(외전)|||Gwang-an (Side Story)
@@ -6440,6 +6441,7 @@
 2065164244|||각성 후 불사신이 되었다|||I Became Immortal After Awakening
 2065164512|||감귤 천재 도련님으로 환생했다|||Reincarnated as a Tangerine Prodigy
 2065164812|||고아인데 재벌집 아들임|||I'm an Orphan, But I'm the Son of a Chaebol
+2065165030|||대통령을 죽였다|||I Killed the President
 2067000093|||대협: 개천에서 용 나다|||The Great Hero: A Dragon Rises from a Small Stream
 2067000406|||면왕|||The Noodle King
 2067000767|||야도[野刀]|||Wild Sword
@@ -7634,6 +7636,7 @@
 2152001719|||짝사랑은 친절하지 않았다|||Unrequited Love Wasn’t Kind
 2152001838|||저스트 콜 온 미(Just call on me)|||Just Call on Me
 2152001914|||나의 품에서 꽃이 되길|||I Hope You Bloom in My Arms
+2152002010|||너의 다정함은 공평하다|||Your Kindness Is Fair to All
 2155001350|||디멘션 - 게임의 왕|||Dimension: King of the Game
 2155001603|||기담항설|||Strange Tales
 2155002621|||코트 위의 지배자|||Ruler of the Court
@@ -8924,6 +8927,7 @@
 2336052227|||엑스트라생존필수수칙 (15세 개정판)|||Essential Rules for an Extra’s Survival (15+ Revised Edition)
 2336052352|||가난한 척했더니 후견인이 집착한다|||I Pretended to Be Poor, and My Patron Became Obsessed With Me
 2336052422|||가난한 척했더니 후견인이 집착한다 (15세 개정판)|||I Pretended to Be Poor, and My Patron Became Obsessed (15+ Version)
+2336052848|||심해 납치|||Deep Sea Abduction
 2351000198|||배구 마에스트로|||Volleyball Maestro
 2351001414|||괴수 세계의 한의사|||The Oriental Doctor in the Monster World
 2351001673|||레이드 커맨더|||Raid Commander
@@ -11284,6 +11288,7 @@
 3170055686|||재앙급 괴수 테이머의 회귀|||The Calamity-Class Beast Tamer's Regression
 3170055906|||회귀한 성기사는 대악마의 특성을 얻었다|||The Regressed Holy Knight Gained the Traits of an Archdemon
 3170056186|||점창파 낙양지부|||Luyang Branch of the Jeomchang Sect
+3170056458|||키메라|||Chimera
 3171000550|||입술 아래 송곳니|||Fangs Beneath the Lips
 3171000951|||아포칼립스에서 AI를 주웠다|||I Picked Up an AI in the Apocalypse
 3175000004|||럭키 펀치|||Lucky Punch
@@ -17298,6 +17303,7 @@
 4610007145|||교화한 몬스터로 영지 디펜스|||Domain Defense with Reformed Monsters
 4610007595|||한양 이방인 - 공대생, 조선을 개조하다|||A Stranger in Hanyang: An Engineering Student Rebuilds Joseon
 4610007841|||몽중인 - 꿈속의 암살자|||Dreamer - Assassin in a Dream
+4610008013|||만년 짐꾼은 모든걸 잡아먹는다|||The Ten-Thousand-Year Porter Devours Everything
 4611000001|||체대생 김상|||Kim Sang, the Physical Education Major
 4621000226|||개정판 \u007c 진혼기|||Revised Edition \u007c The Soul-Requiem Chronicles
 4621000474|||반월당의 기묘한 이야기|||The Strange Tales of Banwoldang
@@ -19478,6 +19484,7 @@
 6351000001|||키스 앤 퍽(Kiss and Puck)|||Kiss and Puck
 6351000002|||키스 앤 퍽(Kiss and Puck)(15세 개정판)|||Kiss and Puck (15+ Revised Edition)
 6386000001|||무브 러브 다이브|||Move Love Dive
+6386000002|||무브 러브 다이브(15세 개정판)|||Move Love Dive (15+ Revised Edition)
 6390000001|||민원인 살인 클럽|||The Complainant Murder Club
 669000147|||은밀한 연애|||A Secret Romance
 682000816|||오크 변호사|||The Orc Lawyer
@@ -21297,13 +21304,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-2036108399|||흑도검선|||
-2065165030|||대통령을 죽였다|||
-2152002010|||너의 다정함은 공평하다|||
-2336052848|||심해 납치|||
-3170056458|||키메라|||
 425606091|||1903|||
 425629250|||1973|||
-4610008013|||만년 짐꾼은 모든걸 잡아먹는다|||
-6386000002|||무브 러브 다이브(15세 개정판)|||
 945008054|||40,41|||
