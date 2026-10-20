@@ -4,8 +4,10 @@
     const MAX_WIDTH = 320, MAX_HEIGHT = 480, CONCURRENCY = 2;
     const queue = [], active = new Map(), blockedOrigins = new Set();
     const objectUrls = new Map(), recoverable = new WeakMap();
-    let lowResolution = true;
-    try {lowResolution=localStorage.getItem('noveldb.lowResCovers') !== 'false';} catch (_) {}
+    let lowResolution = true, quality=72;
+    try {lowResolution=localStorage.getItem('noveldb.lowResCovers') !== 'false';quality=Number(localStorage.getItem('noveldb.imageQuality') || 72);} catch (_) {}
+    const clampQuality=value=>Number.isFinite(Number(value)) ? Math.min(100,Math.max(20,Math.round(Number(value)))) : 72;
+    quality=clampQuality(quality);
     function widthFor(img) {
         return Math.max(1,Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,1.5))));
     }
@@ -25,7 +27,7 @@
         // Encoded thumbnails survive page suspension and discarded drawing
         // buffers. The browser can decode the small image again on return.
         let blob;
-        try { blob = await new Promise(resolve => canvas.toBlob(resolve,'image/webp',0.72)); }
+        try { blob = await new Promise(resolve => canvas.toBlob(resolve,'image/webp',quality/100)); }
         catch (_) { /* Display-only cross-origin images taint the canvas. */ }
         if (blob?.type !== 'image/webp') blob = null;
         if (!img.isConnected) return;
@@ -181,9 +183,20 @@
     }
     window.NovelCovers = {
         get lowResolutionEnabled() { return lowResolution; },
+        get quality() {return quality;},
+        setQuality(value) {
+            const next=clampQuality(value);
+            if(next===quality) return;
+            quality=next;
+            try {localStorage.setItem('noveldb.imageQuality',String(quality));} catch (_) {}
+            if(lowResolution) this.refresh();
+        },
         setLowResolution(enabled) {
             lowResolution = !!enabled;
             try {localStorage.setItem('noveldb.lowResCovers',String(lowResolution));} catch (_) {}
+            this.refresh();
+        },
+        refresh() {
             // Decode behind the current image, then swap in one paint. Never
             // remove a visible cover while its replacement is still loading.
             for (const stage of document.querySelectorAll('.cover-replacement')) stage.remove();

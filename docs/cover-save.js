@@ -1,140 +1,221 @@
-/* Original-resolution WebP downloads are separate from retained thumbnails. */
+/* Original image downloads and a full metadata dialog, independent of card compression. */
 (function () {
     'use strict';
-    let current = null, contextCover = null, noticeTimer;
-    const menu = document.createElement('div');
-    menu.className = 'cover-save-menu'; menu.hidden = true;
-    menu.setAttribute('role','menu'); menu.setAttribute('aria-label','Cover image');
-    const save = document.createElement('button'), original = document.createElement('a');
-    save.type = 'button'; save.textContent = 'Save original WebP'; save.setAttribute('role','menuitem');
-    original.textContent = 'Open original image'; original.setAttribute('role','menuitem');
-    original.target = '_blank'; original.rel = 'noopener'; original.referrerPolicy = 'no-referrer';
-    menu.append(save,original); document.body.append(menu);
-    const notice = document.createElement('div');
-    notice.className = 'cover-save-notice'; notice.hidden = true; notice.setAttribute('role','status');
-    document.body.append(notice);
-    function message(text, url = '') {
-        clearTimeout(noticeTimer); notice.replaceChildren(document.createTextNode(text)); notice.hidden = false;
-        if (url) {
-            const link = document.createElement('a');
-            link.textContent = 'Open original image'; link.href = url;
-            link.target = '_blank'; link.rel = 'noopener'; link.referrerPolicy = 'no-referrer';
-            notice.append(' ',link);
+    let current=null, contextCard=null, noticeTimer, viewController=null, viewSequence=0, returnFocus=null;
+    const menu=document.createElement('div');
+    menu.className='cover-save-menu';menu.hidden=true;
+    menu.setAttribute('role','menu');menu.setAttribute('aria-label','Cover image');
+    const save=document.createElement('button'), details=document.createElement('button');
+    for(const button of [save,details]) {button.type='button';button.setAttribute('role','menuitem');}
+    save.textContent='Download Image';details.textContent='View Details';
+    menu.append(save,details);document.body.append(menu);
+    const notice=document.createElement('div');
+    notice.className='cover-save-notice';notice.hidden=true;notice.setAttribute('role','status');document.body.append(notice);
+    function message(text,card) {
+        clearTimeout(noticeTimer);notice.replaceChildren(document.createTextNode(text));notice.hidden=false;
+        if(card) {
+            const button=document.createElement('button');button.type='button';button.textContent='View Details';
+            button.addEventListener('click',()=>{notice.hidden=true;openDetails(card);});notice.append(' ',button);
         }
-        noticeTimer = setTimeout(()=>{notice.hidden=true;notice.replaceChildren();},url ? 20000 : 6000);
+        noticeTimer=setTimeout(()=>{notice.hidden=true;notice.replaceChildren();},card ? 15000 : 6000);
     }
-    function originalUrl(cover) {
-        const url = new URL(cover.dataset.originalSrc || cover.dataset.src,location.href);
-        if (!['https:','http:'].includes(url.protocol) || url.username || url.password) throw new Error('Original image is unavailable.');
+    function originalUrl(card) {
+        const cover=card?.querySelector('.card-cover[data-src]');
+        const value=cover?.dataset.originalSrc || cover?.dataset.src || card?._record?.cover;
+        if(!value) throw new Error('Original image is unavailable.');
+        const url=new URL(value,location.href);
+        if(!['https:','http:'].includes(url.protocol) || url.username || url.password) throw new Error('Original image is unavailable.');
         return url.href;
     }
     async function readOriginal(url,signal) {
         let failure;
-        for (const referrerPolicy of ['no-referrer','strict-origin-when-cross-origin']) {
+        for(const referrerPolicy of ['no-referrer','strict-origin-when-cross-origin']) {
+            const controller=new AbortController(), abort=()=>controller.abort(signal.reason);
+            signal.addEventListener('abort',abort,{once:true});if(signal.aborted) abort();
+            const timer=setTimeout(()=>controller.abort(new Error('Image download timed out')),15000);
             try {
-                const response = await fetch(url,{mode:'cors',credentials:'omit',referrerPolicy,signal});
-                if (!response.ok) {await response.body?.cancel();throw new Error(`Image HTTP ${response.status}`);}
+                const response=await fetch(url,{mode:'cors',credentials:'omit',referrerPolicy,signal:controller.signal});
+                if(!response.ok) {await response.body?.cancel();throw new Error(`Image HTTP ${response.status}`);}
                 return await response.blob();
-            } catch (error) {if (signal.aborted) throw error;failure=error;}
+            } catch(error) {if(signal.aborted) throw error;failure=error;}
+            finally {clearTimeout(timer);signal.removeEventListener('abort',abort);}
         }
         throw failure;
     }
-    async function webpKind(blob) {
-        const bytes = new Uint8Array(await blob.arrayBuffer()), data = new DataView(bytes.buffer);
-        const tag = at => String.fromCharCode(...bytes.subarray(at,at+4));
-        if (bytes.length<12 || tag(0)!=='RIFF' || tag(8)!=='WEBP') return '';
-        for (let at=12;at+8<=bytes.length;) {
-            const kind=tag(at),size=data.getUint32(at+4,true);
-            if (at+8+size>bytes.length) break;
-            if (kind==='VP8L') return 'lossless';
-            if (kind==='VP8 ') return 'lossy';
-            if (kind==='ANIM') return 'animated';
-            at+=8+size+(size%2);
+    async function imageType(blob) {
+        // URLs and Content-Disposition can use private file extensions; inspect
+        // the original bytes rather than assuming the URL's suffix is a format.
+        const bytes=new Uint8Array(await blob.slice(0,4096).arrayBuffer());
+        const text=new TextDecoder().decode(bytes), tag=(at,length)=>String.fromCharCode(...bytes.subarray(at,at+length));
+        if(tag(0,8)==='\x89PNG\r\n\x1a\n') return ['png','image/png'];
+        if(bytes[0]===255 && bytes[1]===216 && bytes[2]===255) return ['jpg','image/jpeg'];
+        if(['GIF87a','GIF89a'].includes(tag(0,6))) return ['gif','image/gif'];
+        if(tag(0,4)==='RIFF' && tag(8,4)==='WEBP') return ['webp','image/webp'];
+        if(tag(4,4)==='ftyp') {
+            const brands=tag(8,56);
+            if(/avif|avis/.test(brands)) return ['avif','image/avif'];
+            if(/heic|heix|hevc|hevx/.test(brands)) return ['heic','image/heic'];
         }
-        return 'webp';
+        if(tag(0,2)==='BM') return ['bmp','image/bmp'];
+        if(bytes[0]===0 && bytes[1]===0 && bytes[2]===1 && bytes[3]===0) return ['ico','image/x-icon'];
+        if(/^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg(?:\s|>)/i.test(text)) return ['svg','image/svg+xml'];
+        throw new Error('The server did not return a supported image.');
     }
-    async function encodeOriginal(blob,signal) {
-        // Keep existing WebP bytes, animation and metadata unchanged.
-        if (await webpKind(blob)) return new Blob([blob],{type:'image/webp'});
-        let bitmap, image, url, canvas;
+    async function downloadImage(url,signal) {
         try {
-            if (typeof createImageBitmap==='function') {
-                try {bitmap=await createImageBitmap(blob);} catch (_) { /* Some browsers only decode SVG through an image element. */ }
-            }
-            if (!bitmap) {
-                image=new Image(); url=URL.createObjectURL(blob); image.src=url;
-                await image.decode();
-            }
-            if (signal.aborted) throw new DOMException('Save cancelled','AbortError');
-            const pixels=bitmap || image;
-            canvas=document.createElement('canvas');
-            canvas.width=pixels.naturalWidth || pixels.width;
-            canvas.height=pixels.naturalHeight || pixels.height;
-            const context=canvas.getContext('2d');
-            if (!context) throw new Error('Image conversion is unavailable.');
-            context.drawImage(pixels,0,0);
-            const encoded=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',1));
-            if (!encoded || await webpKind(encoded)!=='lossless') throw new Error('This browser cannot export lossless WebP.');
-            return encoded;
-        } finally {
-            bitmap?.close();
-            if (image) image.removeAttribute('src');
-            if (url) URL.revokeObjectURL(url);
-            if (canvas) canvas.width=canvas.height=0;
+            const blob=await readOriginal(url,signal);
+            return {blob,format:await imageType(blob),helper:false};
+        } catch(error) {
+            if(signal.aborted) throw error;
+            // Static hosting cannot read a CDN response without CORS. Ask the
+            // public image helper for a lossless WebP at its original size,
+            // including every animation frame. Never submit a local address.
+            const source=new URL(url), host=source.hostname;
+            if(host==='localhost' || host.endsWith('.localhost') || !host.includes('.')
+                    || /^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':')) throw error;
+            const helper=new URL('https://\u0077\u0073\u0072\u0076.\u006e\u006c/');
+            helper.search=new URLSearchParams({url,output:'webp',ll:'1',n:'-1'});
+            message('Preparing full-resolution image through an image helper…');
+            const blob=await readOriginal(helper.href,signal), format=await imageType(blob);
+            if(format[0]!=='webp' || !await losslessWebp(blob)) throw new Error('The image helper did not return a lossless WebP image.');
+            return {blob,format,helper:true};
         }
     }
-    async function download(cover) {
-        if (!cover) return;
-        if (current) {message('A cover is being prepared. Please wait.');return;}
+    async function losslessWebp(blob) {
+        const bytes=new Uint8Array(await blob.arrayBuffer()), data=new DataView(bytes.buffer);
+        const tag=at=>String.fromCharCode(...bytes.subarray(at,at+4));
+        function scan(start,end) {
+            let frames=0;
+            for(let at=start;at+8<=end;) {
+                const kind=tag(at),size=data.getUint32(at+4,true),next=at+8+size;
+                if(next>end || kind==='VP8 ') return -1;
+                if(kind==='VP8L') frames++;
+                else if(kind==='ANMF') {
+                    const nested=scan(at+24,next);
+                    if(nested<1) return -1;
+                    frames+=nested;
+                }
+                at=next+(size%2);
+            }
+            return frames;
+        }
+        return scan(12,bytes.length)>0;
+    }
+    async function download(card) {
+        if(!card) return;
+        if(current) {message('An image download is being prepared.');return;}
         let url;
-        try {url=originalUrl(cover);} catch (error) {message(error.message);return;}
+        try {url=originalUrl(card);} catch(error) {message(error.message);return;}
         const controller=current=new AbortController();
-        const card=cover.closest('.novel-card'), button=card?.querySelector('.cover-save');
-        if (button) {button.disabled=true;button.setAttribute('aria-busy','true');}
-        message('Preparing original-resolution WebP…');
+        const button=card.querySelector('.cover-save');
+        if(button) {button.disabled=true;button.setAttribute('aria-busy','true');}
+        message('Preparing image download…');
         try {
-            const encoded=await encodeOriginal(await readOriginal(url,controller.signal),controller.signal);
-            const href=URL.createObjectURL(encoded), link=document.createElement('a');
-            const name=`${card?.dataset.source || 'cover'}-${card?.dataset.novelId || 'image'}`.replace(/[^a-zA-Z0-9_-]/g,'_');
-            link.href=href;link.download=`${name}.webp`;link.hidden=true;
+            const result=await downloadImage(url,controller.signal), [extension,type]=result.format;
+            const blob=new Blob([result.blob],{type}), href=URL.createObjectURL(blob), link=document.createElement('a');
+            const name=`${card.dataset.source || 'cover'}-${card.dataset.novelId || 'image'}`.replace(/[^a-zA-Z0-9_-]/g,'_');
+            link.href=href;link.download=`${name}.${extension}`;link.hidden=true;
             document.body.append(link);link.click();link.remove();
-            setTimeout(()=>URL.revokeObjectURL(href),60000);
-            message('Original-resolution WebP download started.');
-        } catch (error) {
-            message(error instanceof TypeError ? 'This image host blocks browser conversion. You can open the original instead.'
-                : `${error.message} You can open the original instead.`,url);
+            setTimeout(()=>URL.revokeObjectURL(href),30000);
+            message(result.helper ? 'Full-resolution WebP download started using the image helper.' : 'Image download started.');
+        } catch(error) {
+            message(error instanceof TypeError ? 'This image host blocks direct browser downloads. You can still view the original in Details.' : error.message,card);
         } finally {
-            if (button) {button.disabled=false;button.removeAttribute('aria-busy');}
-            current=null;
+            if(button) {button.disabled=false;button.removeAttribute('aria-busy');}current=null;
         }
     }
-    function closeMenu() {menu.hidden=true;contextCover=null;}
+    const dialog=document.createElement('dialog');dialog.className='novel-details';dialog.setAttribute('aria-labelledby','novelDetailsTitle');
+    const header=document.createElement('div');header.className='novel-details-header';
+    const title=document.createElement('h2');title.id='novelDetailsTitle';
+    const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Close Details');
+    header.append(title,close);
+    const body=document.createElement('div');body.className='novel-details-body';
+    const figure=document.createElement('figure');figure.className='novel-details-image';
+    const image=document.createElement('img');image.alt='Original cover';image.referrerPolicy='no-referrer';
+    const imageStatus=document.createElement('figcaption');imageStatus.setAttribute('role','status');
+    const detailDownload=document.createElement('button');detailDownload.type='button';detailDownload.className='page-btn';detailDownload.textContent='Download Image';
+    figure.append(image,imageStatus,detailDownload);
+    const fields=document.createElement('dl');fields.className='novel-details-fields';body.append(figure,fields);
+    dialog.append(header,body);document.body.append(dialog);
+    let detailCard=null;
+    const labels={title:'Original title',titleEn:'Translated title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
+        metadataV1:'Metadata format v1',synopsis:'Synopsis',id:'ID',cover:'Cover URL'};
+    function renderMetadata(record) {
+        fields.replaceChildren();
+        const priority=['source','id','titleEn','title','author','synopsis','tags'];
+        const keys=[...new Set([...priority,...Object.keys(record)])].filter(key=>key in record && !key.startsWith('_'));
+        for(const key of keys) {
+            const term=document.createElement('dt'), definition=document.createElement('dd'), value=record[key];
+            term.textContent=labels[key] || key.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+            if(typeof value==='string' && /^(https?):\/\//.test(value)) {
+                const link=document.createElement('a');link.href=value;link.textContent=value;link.target='_blank';link.rel='noopener';definition.append(link);
+            } else definition.textContent=value==null || value==='' ? 'Not available' : typeof value==='boolean' ? (value ? 'Yes' : 'No')
+                : Array.isArray(value) && value.every(v=>typeof v!=='object') ? value.join(', ')
+                : typeof value==='object' ? JSON.stringify(value,null,2) : String(value);
+            definition.dataset.field=key;fields.append(term,definition);
+        }
+    }
+    async function openDetails(card) {
+        if(!card) return;
+        closeMenu();viewController?.abort();viewController=new AbortController();
+        const signal=viewController.signal, sequence=++viewSequence;
+        detailCard=card;returnFocus=card.querySelector('.cover-details') || card.querySelector('a');
+        title.textContent=card._record?.titleEn || card._record?.title || 'Novel details';
+        renderMetadata({...card._record,synopsis:card._synopsis || card._record?.synopsis || 'Loading synopsis…'});
+        image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
+        imageStatus.textContent='Loading original image…';
+        let attempt=0, imageTimer;
+        const finishImage=text=>{clearTimeout(imageTimer);imageStatus.textContent=text;};
+        image.onload=()=>finishImage(`Original image · ${image.naturalWidth} × ${image.naturalHeight}`);
+        image.onerror=()=>{
+            if(signal.aborted) return;
+            if(!attempt++) {image.referrerPolicy='strict-origin-when-cross-origin';image.src=originalUrl(card);}
+            else {image.hidden=true;finishImage('The original image could not load.');}
+        };
+        signal.addEventListener('abort',()=>{clearTimeout(imageTimer);image.onload=image.onerror=null;image.removeAttribute('src');},{once:true});
+        try {
+            image.referrerPolicy='no-referrer';image.src=originalUrl(card);
+            imageTimer=setTimeout(()=>{image.removeAttribute('src');image.hidden=true;finishImage('The original image did not load in time. Reopen Details to retry.');},20000);
+        } catch(error) {image.hidden=true;detailDownload.disabled=true;finishImage(error.message);}
+        if(!dialog.open) dialog.showModal();
+        close.focus({preventScroll:true});
+        try {
+            const record=await window.NovelDetailsData?.(card,signal);
+            if(record && !signal.aborted && sequence===viewSequence) renderMetadata(record);
+        } catch(error) {
+            if(!signal.aborted && sequence===viewSequence) {const synopsis=fields.querySelector('[data-field="synopsis"]');if(synopsis)synopsis.textContent='Synopsis could not load. Reopen Details to retry.';}
+        }
+    }
+    close.addEventListener('click',()=>dialog.close());
+    dialog.addEventListener('close',()=>{viewSequence++;viewController?.abort();viewController=null;detailCard=null;fields.replaceChildren();returnFocus?.focus({preventScroll:true});returnFocus=null;});
+    dialog.addEventListener('click',event=>{
+        const rect=dialog.getBoundingClientRect();
+        if(event.target===dialog && (event.clientX<rect.left || event.clientX>rect.right || event.clientY<rect.top || event.clientY>rect.bottom)) dialog.close();
+    });
+    detailDownload.addEventListener('click',()=>download(detailCard));
+    function closeMenu() {menu.hidden=true;contextCard=null;}
     document.addEventListener('contextmenu',event=>{
-        const wrap=event.target.closest?.('.card-cover-wrap'), cover=wrap?.querySelector('.card-cover[data-src]');
-        if (!cover) return;
-        event.preventDefault();contextCover=cover;
-        try {original.href=originalUrl(cover);} catch (_) {return;}
+        const wrap=event.target.closest?.('.card-cover-wrap'), card=wrap?.closest('.novel-card');
+        if(!card) return;
+        event.preventDefault();contextCard=card;
+        try {originalUrl(card);save.disabled=false;} catch(_) {save.disabled=true;}
         menu.hidden=false;menu.style.left='0px';menu.style.top='0px';
-        const rect=wrap.getBoundingClientRect();
-        const x=event.clientX || rect.left+rect.width/2, y=event.clientY || rect.top+rect.height/2;
+        const rect=wrap.getBoundingClientRect(), x=event.clientX || rect.left+rect.width/2, y=event.clientY || rect.top+rect.height/2;
         menu.style.left=`${Math.max(8,Math.min(x,innerWidth-menu.offsetWidth-8))}px`;
         menu.style.top=`${Math.max(8,Math.min(y,innerHeight-menu.offsetHeight-8))}px`;
-        save.focus({preventScroll:true});
+        (save.disabled ? details : save).focus({preventScroll:true});
     });
     document.addEventListener('click',event=>{
-        const button=event.target.closest?.('.cover-save');
-        if (button) {event.preventDefault();download(button.closest('.novel-card')?.querySelector('.card-cover[data-src]'));}
+        const button=event.target.closest?.('.cover-save,.cover-details');
+        if(button) {event.preventDefault();const card=button.closest('.novel-card');button.classList.contains('cover-save') ? download(card) : openDetails(card);}
     });
-    save.addEventListener('click',()=>{const cover=contextCover;closeMenu();download(cover);});
-    original.addEventListener('click',closeMenu);
-    document.addEventListener('pointerdown',event=>{if (!menu.contains(event.target)) closeMenu();});
+    save.addEventListener('click',()=>{const card=contextCard;closeMenu();download(card);});
+    details.addEventListener('click',()=>{const card=contextCard;closeMenu();openDetails(card);});
+    document.addEventListener('pointerdown',event=>{if(!menu.contains(event.target)) closeMenu();});
     document.addEventListener('keydown',event=>{
-        if (menu.hidden) return;
-        if (event.key==='Escape' || event.key==='Tab') {const cover=contextCover;closeMenu();cover?.closest('a')?.focus();return;}
-        if (['ArrowUp','ArrowDown'].includes(event.key)) {
-            event.preventDefault();(document.activeElement===save ? original : save).focus();
-        }
+        if(menu.hidden) return;
+        if(event.key==='Escape' || event.key==='Tab') {const card=contextCard;closeMenu();card?.querySelector('a')?.focus();return;}
+        if(['ArrowUp','ArrowDown'].includes(event.key)) {event.preventDefault();(document.activeElement===save ? details : save).focus();}
     });
-    window.addEventListener('resize',closeMenu);
-    document.addEventListener('wheel',closeMenu,{passive:true});
+    window.addEventListener('resize',closeMenu);document.addEventListener('wheel',closeMenu,{passive:true});
 })();

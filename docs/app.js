@@ -6296,7 +6296,7 @@
                 ${coverHTML}
                 ${ageBadge}
                 ${badgeHTML}
-            </a>${coverSrc ? '<button type="button" class="cover-save" aria-label="Save original cover as WebP" title="Save original-resolution WebP">↓</button>' : ''}</div>
+            </a>${coverSrc ? '<button type="button" class="cover-save" aria-label="Download Image" title="Download Image">↓</button>' : ''}<button type="button" class="cover-details" aria-label="View Details" title="View Details">ⓘ</button></div>
             <div class="card-body">
                 <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
                 ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
@@ -7286,8 +7286,21 @@
         if(descriptionsEnabled) observeMissingSynopses();
     });
     const lowResToggle = document.getElementById('lowResCovers');
+    const qualitySlider=document.getElementById('imageQuality'), qualityValue=document.getElementById('imageQualityValue');
+    let qualityTimer;
     lowResToggle.checked = window.NovelCovers.lowResolutionEnabled;
+    qualitySlider.value=String(window.NovelCovers.quality);qualitySlider.disabled=!lowResToggle.checked;
+    qualityValue.value=`${qualitySlider.value}%`;
+    qualitySlider.addEventListener('input',()=>{
+        qualityValue.value=`${qualitySlider.value}%`;
+        clearTimeout(qualityTimer);
+        qualityTimer=setTimeout(()=>window.NovelCovers.setQuality(qualitySlider.value),120);
+    });
+    qualitySlider.addEventListener('change',()=>{
+        clearTimeout(qualityTimer);window.NovelCovers.setQuality(qualitySlider.value);
+    });
     lowResToggle.addEventListener('change', () => {
+        qualitySlider.disabled=!lowResToggle.checked;
         window.NovelCovers.setLowResolution(lowResToggle.checked);
         observeCovers();
     });
@@ -7381,7 +7394,7 @@
         clearTimeout(synopsisIdleTimer); synopsisIdleTimer = null;
         if (!synopsisWorker) {
             try {
-                const worker = synopsisWorker = new Worker('synopsis-worker.js?v=1');
+                const worker = synopsisWorker = new Worker('synopsis-worker.js?v=2');
                 worker.onmessage = ({data}) => {
                     if (synopsisWorker !== worker) return;
                     const job = synopsisJobs.get(data.id);
@@ -7840,6 +7853,38 @@
             return;
         }
     }
+    window.NovelDetailsData=async (card,signal)=>{
+        const record=card._record || {}, source=record.source || card.dataset.source, cfg=SOURCES[source];
+        const metadata=Object.fromEntries(Object.entries(record).filter(([key])=>!key.startsWith('_')));
+        metadata.canonicalUrl ||= cfg?.linkPrefix ? `${cfg.linkPrefix}${record.id}` : null;
+        const cached=recallSynopsis(`${source}:${record.id}`);
+        metadata.synopsis=card._synopsis || record.synopsis || cached || '';
+        if(!metadata.synopsis && cached===undefined && cfg?.descriptionShardCount && cfg.descriptionShardPrefix) {
+            const shard=descriptionShardIndex(record.id,cfg.descriptionShardCount);
+            const url=`${cfg.descriptionShardPrefix}${String(shard).padStart(3,'0')}.json.gz`;
+            const result=await new Promise(resolve=>{
+                let worker, timer;
+                const finish=value=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);worker?.terminate();resolve(value);};
+                const abort=()=>finish(null);
+                if(signal?.aborted) {finish(null);return;}
+                try {
+                    worker=new Worker('synopsis-worker.js?v=2');
+                    signal?.addEventListener('abort',abort,{once:true});
+                    timer=setTimeout(abort,35000);
+                    worker.onmessage=({data})=>finish(data.error ? null : data.result);
+                    worker.onerror=()=>finish(null);
+                    worker.postMessage({id:1,url:new URL(versionedDataUrl(url),location.href).href,ids:[String(record.id)]});
+                } catch(_) {finish(null);}
+            });
+            if(result===null) metadata.synopsis='Synopsis could not load. Close and reopen details to retry.';
+            else {
+                metadata.synopsis=normalizeSynopsis(result[String(record.id)] || '',source);
+                rememberSynopsis(`${source}:${record.id}`,metadata.synopsis);
+            }
+        }
+        return metadata;
+    };
+
     // === State persistence via URL hash ===
     function saveState() {
         const state = {};
