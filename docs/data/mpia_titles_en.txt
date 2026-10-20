@@ -10150,6 +10150,7 @@
 18695|||어퍼-진 프로젝트|||Upper-Zin Project
 18697|||비 포 문라이즈 . 달이 뜨기 전에|||Before Moonrise
 187|||신선탕|||Immortal Soup
+187018|||ㄻㅇㄻㄴㅇㄻㄴㅇㄹ|||mmㅇmmnㅇmmnㅇr
 187028|||폭풍의 한반도.|||The Korean Peninsula in the Storm
 18703|||하패기행(昰悖奇行)|||The Strange Travels of Hap-hae
 18708|||신들의......|||Of the Gods......
@@ -12375,6 +12376,7 @@
 205654|||골 !|||Goal!
 205656|||천마지몽天魔之夢|||The Heavenly Demon’s Dream
 20567|||piece 2106年|||piece 2106
+205671|||ㅏㅓㅏㄷ|||hmmmmmm
 205684|||초패왕과 불비불명의 선인|||The Overlord and the Nameless Immortal
 205691|||고서와 십자가와 열쇠의 악마|||The Demon of the Ancient Book, Cross, and Key
 205701|||100가지 소원 [D]|||One Hundred Wishes [D]
@@ -85075,6 +85077,7 @@
 610142|||넉아웃 존|||Knockout Zone
 610143|||선조들의 A.S 위인 호출 서비스|||Ancestors’ A.S. Great Figure Summoning Service
 610144|||국가권력급 귀환자의 힐링 식탁|||The Healing Table of a National-Authority-Class Returnee
+610145|||친한 형이 자기 아내를 나에게 맡겼다|||My Close Friend Entrusted His Wife to Me
 610146|||이세계엔 정치인이 없었다|||There Were No Politicians in Another World
 610148|||유전자가 너무 잘남|||My Genes Are Too Good
 610152|||창궐이후, 살아남는 법|||How to Survive After the Outbreak
@@ -85869,6 +85872,7 @@
 612076|||14억 중국인이 좀비가 되었다|||1.4 Billion Chinese Became Zombies
 61208|||조선무인전 : 멸검(滅劒)|||Joseon Martial Artist Chronicles: Sword Annihilation
 612080|||버림받은 천마가 힘을 숨기고 탑등반한다.|||The Abandoned Heavenly Demon Hides His Power and Climbs the Tower.
+612087|||잔영: 殘影|||Janyeong: Afterimage
 612089|||F급 해체공은 몬스터의 영혼을 먹는다|||The F-Rank Demolition Worker Eats Monster Souls
 612091|||국정원에 천마가 들어왔다|||A Heavenly Demon Joined the National Intelligence Service
 612093|||나 혼자 베트남 방플 잡았더니 해고당함|||Solo Caught the Vietnam Bang Flight, Then Got Fired
@@ -86051,6 +86055,7 @@
 612484|||털어드려요 강냉이치과 : 전직 두목이 발치를 너무 잘함|||Gangnaeng Dental Clinic: The Former Boss Is Too Good at Tooth Extraction
 612488|||회춘한 마탑의 원로는 이제 쉬고 싶다.|||The Rejuvenated Elder of the Magic Tower Now Wants to Rest.
 612490|||좌천된 팀장이 버려진 탑 1층에서 힐링함|||The Demoted Team Leader Heals on the First Floor of an Abandoned Tower
+612491|||불후 마선 (不朽 魔仙)|||Bulhu Maseon (Immortal Demon Immortal)
 612492|||수선명가의 장남은 부적을 그린다|||The Eldest Son of an Immortal Cultivation Clan Draws Talismans
 612496|||제주에 유배된 남자 홍랑을 만나다.|||Meeting Hong-rang, the Man Exiled to Jeju.
 612497|||초월급 빌런의 범죄자 공략법 [D]|||A Transcendent-Class Villain's Criminal Strategy Guide [D]
@@ -92458,10 +92463,8 @@
 165289|||438|||
 169643|||2,800,000|||
 176528|||8760|||
-187018|||ㄻㅇㄻㄴㅇㄻㄴㅇㄹ|||
 193589|||9|||
 204775|||14790|||
-205671|||ㅏㅓㅏㄷ|||
 209462|||11110|||
 209751|||4 44|||
 211643|||ㅇㅇㅇㅇㅈㅂㅇㅂㅂㅈㅇㅂ|||
@@ -92552,7 +92555,5 @@
 603458|||2012|||
 606176|||52|||
 610021|||2035|||
-612087|||잔영: 殘影|||
-612491|||불후 마선 (不朽 魔仙)|||
 614203|||2048년|||
 63401|||49|||
