@@ -552,6 +552,14 @@ def validate_artifacts(source, output_dir):
         if preview.get('source') != source or preview.get('chunkHashes') != hashes or preview.get('total') != len(rows):
             raise ValueError('Preview does not match its source catalog')
         required.append(preview_name)
+    if manifest.get('previewSortsUrl'):
+        name = f'{source}_chunk_preview_sorts.json.gz'
+        if manifest['previewSortsUrl'] != name or hashlib.sha256((output_dir/name).read_bytes()).hexdigest() != manifest.get('previewSortsHash'):
+            raise ValueError('Invalid sort preview artifact')
+        preview = read_gzip_json(output_dir/name)
+        if preview.get('version') != 2 or preview.get('source') != source or preview.get('chunkHashes') != hashes or preview.get('total') != len(rows):
+            raise ValueError('Sort previews do not match their source catalog')
+        required.append(name)
     for name in required:
         path = output_dir / name
         if not path.is_file() or path.resolve().parent != output_dir:

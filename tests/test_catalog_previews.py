@@ -10,7 +10,7 @@ import pytest
 from playwright.async_api import async_playwright
 
 from scripts.build_catalog_preview import build
-from test_metadata_frontend_browser import FixtureSite, SOURCES, row, wait_loaded
+from test_metadata_frontend_browser import DOCS, FixtureSite, SOURCES, row, wait_loaded
 
 
 @pytest.fixture(scope='module')
@@ -25,8 +25,16 @@ def previews(tmp_path_factory):
         novels = []
         for i in range(1,351):
             item = row(source,i,True,i%2==0)
-            item[1] = f'{source} original {i:04}'
+            source_index=SOURCES.index(source)
+            item[1] = f'{chr(65+(i+source_index)%26)} {source} original {i:04}'
+            item[5]=(i*17+source_index*113)%811 if source in ('npia','kpage','sfc') or i%13 else None
+            item[6]=(i*3+source_index*11)%79 if source in ('npia','kpage','sfc') or i%11 else None
+            item[7]=i%57
             item[9] = f'2026-10-{i%28+1:02}'
+            if source not in ('npia','kpage','sfc'):
+                item[14].update(rating=((i*7+source_index)%51)/10 if i%5 else None,
+                    downloads=(i*31+source_index*999)%10000,favorites=(i*19)%1000,
+                    recommendations=(i*13+source_index)%211)
             if source=='npia':
                 item[13] = i if i<=100 else 0
                 item[10] = 351-i if i>250 else 0
@@ -67,6 +75,14 @@ class PreviewSite(FixtureSite):
 
     async def route(self,route):
         name = urlsplit(route.request.url).path.rsplit('/',1)[-1]
+        if name=='app.js':
+            script=(DOCS/'app.js').read_text(encoding='utf-8')
+            hook='''window.testCombinedPreview=(sortBy,order)=>{
+                const q=diskQuery();q.sort={...q.sort,sortBy,order};q.page=1;q.size=300;
+                const r=previewResult(q);return r ? {ids:r.rows.map(n=>n.source+':'+n.id),ordinals:r.rows.map(n=>n._catalogOrdinal)} : null;
+            };'''
+            await route.fulfill(body=script.replace('// === State persistence via URL hash ===',hook+'\n// === State persistence via URL hash ==='),content_type='text/javascript')
+            return
         file = self.directory/name
         if file.is_file():
             if '_preview' in name:self.preview_requests.append(name)
@@ -94,16 +110,34 @@ def test_generated_previews_match_full_worker_order_for_every_profile(previews):
             await wait_loaded(page)
             worker = next(w for w in page.workers if 'catalog-worker' in w.url)
             for source in SOURCES:
-                bundle = json.loads(gzip.decompress((previews/f'{source}_chunk_preview.json.gz').read_bytes()))
+                bundle = json.loads(gzip.decompress((previews/f'{source}_chunk_preview_sorts.json.gz').read_bytes()))
                 assert 'descriptions' not in bundle
                 if source=='sfc':assert all(not r[17] for r in bundle['novels'])
-                for sort,positions in bundle['profiles'].items():
+                for key,positions in bundle['profiles'].items():
+                    sort,order=json.loads(key)
                     options = dict(sources=[source],text='',author=None,status='all',audience='all',
                         **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=300,
-                        sort=dict(sortBy=sort,order='desc',audience='all',defaultSource=source))
+                        sort=dict(sortBy=sort,order=order,audience='all',defaultSource=source))
                     actual = await worker.evaluate('q=>query(q,latestQuery)',options)
                     assert [n['id'] for n in actual['rows']] == [str(bundle['novels'][i][0]) for i in positions],(source,sort)
                     assert [n['_catalogOrdinal'] for n in actual['rows']] == [bundle['ordinals'][i] for i in positions]
+            # Compare combined previews against a complete scan for every
+            # exposed sort, including foreign boards, metrics and both orders.
+            await page.wait_for_function("testCombinedPreview('views','asc')!==null")
+            board_map={source:json.loads((previews/f'{source}_chunk_manifest.json').read_text(encoding='utf-8')).get('boards',{}) for source in SOURCES}
+            sorts=await page.evaluate("boards=>NovelMetadata.previewSorts('all',boards)",board_map)
+            enabled=await page.locator('#sortSelect option').evaluate_all('opts=>opts.filter(o=>!o.disabled&&!o.hidden).map(o=>o.value)')
+            assert set(enabled).issubset(sorts)
+            for sort in sorts:
+                for order in ['desc','asc']:
+                    options=dict(sources=list(SOURCES),text='',author=None,status='all',audience='all',
+                        **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=300,
+                        sort=dict(sortBy=sort,order=order,audience='all',defaultSource='all'))
+                    expected=await worker.evaluate('q=>query(q,latestQuery)',options)
+                    actual=await page.evaluate('([sort,order])=>testCombinedPreview(sort,order)',[sort,order])
+                    assert actual is not None,(sort,order)
+                    assert actual['ids']==[f"{n['source']}:{n['id']}" for n in expected['rows']],(sort,order)
+                    assert actual['ordinals']==[n['_catalogOrdinal'] for n in expected['rows']],(sort,order)
             await browser.close()
     asyncio.run(scenario())
 
@@ -151,6 +185,42 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
             assert await page.evaluate('searchFlashes')==0
             assert len(site.chunk_requests)==downloads
             assert len(site.preview_requests)==len(set(site.preview_requests))
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
+    cases=[('npia','likes','desc'),('npia','title','asc'),('sfc','chapters','asc'),
+           ('nweb','rank:nweb:best_102_daily_free','asc'),('rbooks','metric:rating','asc'),
+           ('all','views','desc'),('all','title','asc'),('all','sfc_popularity','asc'),
+           ('all','rank:jara:all_today','desc')]
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            for source,sort,order in cases:
+                page=await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
+                site=PreviewSite(previews,blocked=True)
+                await page.route('**/*',site.route)
+                await page.goto(f'https://metadata.test/#src={source}&sort={sort}&order={order}')
+                await page.wait_for_function("document.querySelectorAll('.novel-card').length===100")
+                assert await page.locator('body').get_attribute('data-catalog-ready')=='false'
+                shown=[]
+                for number in (1,2,3):
+                    if number>1:
+                        await page.locator('#paginationBottom .page-input').fill(str(number))
+                        await page.locator('#paginationBottom .go-page').click()
+                    shown.extend(await page.locator('.novel-card').evaluate_all("cs=>cs.map(c=>c.dataset.source+':'+c.dataset.novelId)"))
+                await page.evaluate('''window.lockedCards=[...document.querySelectorAll('.novel-card')];window.changes=0;
+                    new MutationObserver(()=>changes++).observe(document.querySelector('#results'),{childList:true})''')
+                site.release.set();await wait_loaded(page)
+                assert await page.evaluate('changes===0&&lockedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])'),(source,sort,order)
+                worker=next(w for w in page.workers if 'catalog-worker' in w.url)
+                query=dict(sources=list(SOURCES) if source=='all' else [source],text='',author=None,status='all',audience='all',
+                    **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=300,
+                    sort=dict(sortBy=sort,order=order,audience='all',defaultSource=source))
+                expected=await worker.evaluate('q=>query(q,latestQuery)',query)
+                assert shown==[f"{n['source']}:{n['id']}" for n in expected['rows']],(source,sort,order)
+                await page.close()
             await browser.close()
     asyncio.run(scenario())
 
