@@ -176,6 +176,17 @@
             mpia: ["daily"], rbooks: ["weekly", "monthly"] })[source] || [];
     }
 
+    function previewSorts(source, boards = {}) {
+        const sorts = [...supportedPeriods(source), 'likes', 'views', 'chapters',
+            'metric:favorites', 'metric:recommendations', 'metric:rating', 'metric:downloads', 'updated', 'title'];
+        if (source === 'sfc' || source === 'all') sorts.push('sfc_popularity', 'sfc_bestseller',
+            'sfc_newbooks', 'sfc_bookmarks', 'sfc_jp', 'sfc_ticket');
+        if (source === 'all') {
+            for (const [name, values] of Object.entries(boards)) for (const key of Object.keys(values || {})) sorts.push(`rank:${name}:${key}`);
+        } else for (const key of Object.keys(boards)) sorts.push(`rank:${source}:${key}`);
+        return sorts;
+    }
+
     function rankValue(novel, type, audience, selectedSource) {
         if (type.startsWith("rank:")) return nativeRank(novel, type);
         if (["daily", "weekly", "monthly"].includes(type)) {
@@ -357,9 +368,12 @@
                 || hashes.some(hash => typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash)))) throw new Error(`Invalid ${source} chunk hashes`);
         if (manifest.previewUrl != null && (manifest.previewUrl !== `${source}_chunk_preview.json.gz`
                 || !/^[a-f0-9]{64}$/.test(manifest.previewHash || ''))) throw new Error(`Invalid ${source} preview`);
+        if (manifest.previewSortsUrl != null && (manifest.previewSortsUrl !== `${source}_chunk_preview_sorts.json.gz`
+                || !/^[a-f0-9]{64}$/.test(manifest.previewSortsHash || ''))) throw new Error(`Invalid ${source} sort previews`);
         return { chunked:true, chunkFiles:manifest.files.map(file => `data/${file}`), chunkCount:manifest.chunks,
             totalEntries:manifest.totalEntries, chunkHashes:hashes || null,
-            previewUrl:manifest.previewUrl ? `data/${manifest.previewUrl}` : null,previewHash:manifest.previewHash || null };
+            previewUrl:manifest.previewUrl ? `data/${manifest.previewUrl}` : null,previewHash:manifest.previewHash || null,
+            previewSortsUrl:manifest.previewSortsUrl ? `data/${manifest.previewSortsUrl}` : null,previewSortsHash:manifest.previewSortsHash || null };
     }
 
     function manifestConfig(manifest, source) {
@@ -387,5 +401,5 @@
 
     return { nullableNumber, identity, mergeRecords, safeHttpUrl, safeCoverUrl, parseRows, matchesStatus,
         matchesAudience, compareNullable, nativeRank, rankValue, periodRank, supportedPeriods, sortPlan, recordComparator, sortRecords,
-        mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig };
+        mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig, previewSorts };
 });

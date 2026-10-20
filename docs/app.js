@@ -6862,33 +6862,78 @@
         resultPages.set(key,{result,preview,sources:[...selectedSources]});
         while (resultPages.size>24) resultPages.delete(resultPages.keys().next().value);
     }
-    function previewResult(query) {
-        if (query.text || query.author || query.focus || query.status!=='all' || query.audience!=='all'
-                || query.and.length || query.or.length || query.exclude.length || query.sort.order!=='desc') return null;
-        const source = currentSource==='all' ? 'npia' : currentSource;
-        if (currentSource==='all' && !['daily','weekly','monthly'].includes(query.sort.sortBy)) return null;
-        const bundle = previewBundles.get(source), cfg = SOURCES[source];
-        const profile = bundle?.profiles[query.sort.sortBy];
-        const total = selectedSources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
-        const page = Math.min(query.page,Math.max(1,Math.ceil(total/query.size))), start = (page-1)*query.size;
-        if (!profile || Math.min(page*query.size,total)>profile.length) return null;
-        const positions = profile.slice(start,start+query.size);
-        const rows = metadata.parseRows(positions.map(index=>bundle.novels[index]),source,cfg);
-        rows.forEach((row,index)=>{
-            row.titleEn = bundle.translations[row.id] || '';
-            row._catalogOrdinal = bundle.ordinals[positions[index]];
-        });
-        return {rows,total,page};
+    function previewEligible(query) {
+        return !query.text && !query.author && !query.focus && query.status==='all' && query.audience==='all'
+            && !query.and.length && !query.or.length && !query.exclude.length;
     }
-    async function loadPreviewBundle(source,cfg,signal,priority='high') {
+    function sourcePreviewSort(source,query) {
+        const sort=query.sort.sortBy,order=query.sort.order;
+        if (query.sort.defaultSource!=='all') return [sort,order];
+        if (['daily','weekly','monthly'].includes(sort) && source!=='npia') return ['title','asc'];
+        if ((sort.startsWith('sfc_') && source!=='sfc')
+                || (sort.startsWith('rank:') && sort.split(':')[1]!==source)) return ['views','desc'];
+        return [sort,order];
+    }
+    function previewSources(query) {
+        if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)
+                && (SOURCES.npia.totalEntries || 0)>=Math.min(query.page*query.size,300)) return ['npia'];
+        return query.sources.filter(source=>SOURCES[source].available!==false);
+    }
+    function previewResult(query) {
+        if (!previewEligible(query)) return null;
+        const total=query.sources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
+        const page=Math.min(query.page,Math.max(1,Math.ceil(total/query.size))),start=(page-1)*query.size;
+        if (Math.min(page*query.size,total)>300) return null;
+        const rows=[];
+        let offset=0;
+        const needed=previewSources(query);
+        for (const source of query.sources) {
+            const cfg=SOURCES[source],bundle=previewBundles.get(source);
+            if (needed.includes(source) && cfg.totalEntries!==0) {
+                const [sort,order]=sourcePreviewSort(source,query);
+                const profile=bundle?.profiles[JSON.stringify([sort,order])]
+                    || (bundle?.version===1 && order==='desc' ? bundle.profiles[sort] : null);
+                if (!profile) return null;
+                const parsed=metadata.parseRows(profile.map(index=>bundle.novels[index]),source,cfg);
+                parsed.forEach((row,index)=>{
+                    row.titleEn=bundle.translations[row.id] || '';
+                    row._catalogOrdinal=offset+bundle.ordinals[profile[index]];
+                });
+                rows.push(...parsed);
+            }
+            offset+=cfg.totalEntries || 0;
+        }
+        // Each source contributes its first 300 under the combined comparator.
+        // No record outside those prefixes can enter the combined first 300.
+        metadata.sortRecords(rows,query.sort);
+        return {rows:rows.slice(start,start+query.size),total,page};
+    }
+    async function loadQueryPreview(query,signal) {
+        if (!previewEligible(query)) return;
+        if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)) await ensureSourceConfig('npia');
+        await Promise.all(previewSources(query).map(async source=>{
+            const cfg=await ensureSourceConfig(source);
+            const [sort,order]=sourcePreviewSort(source,query);
+            const primary=metadata.supportedPeriods(source);
+            if (!primary.length) {
+                if (source==='sfc') primary.push(...metadata.previewSorts(source).filter(value=>value.startsWith('sfc_')));
+                else primary.push(Object.keys(cfg?.boards || {}).length ? `rank:${source}:${Object.keys(cfg.boards)[0]}` : 'updated');
+            }
+            await loadPreviewBundle(source,cfg,signal,'high',order==='asc' || !primary.includes(sort));
+        }));
+    }
+    async function loadPreviewBundle(source,cfg,signal,priority='high',allSorts=false) {
         if (!cfg?.previewUrl) return;
-        const signature = cfg.previewHash;
+        const expanded=allSorts && cfg.previewSortsUrl;
+        const url=expanded ? cfg.previewSortsUrl : cfg.previewUrl;
+        const signature=expanded ? cfg.previewSortsHash : cfg.previewHash;
+        if (previewBundles.get(source)?._signature===cfg.previewSortsHash && cfg.previewSortsHash) return;
         if (previewBundles.get(source)?._signature!==signature) {
             const key = `${source}:${signature}`;
             if (previewRequests.get(key)?._signal?.aborted) previewRequests.delete(key);
             if (!previewRequests.has(key)) {
                 const pending = (async()=>{
-                    const response = await fetch(`${versionedDataUrl(cfg.previewUrl)}&preview=${signature}`,{signal,priority});
+                    const response = await fetch(`${versionedDataUrl(url)}&preview=${signature}`,{signal,priority});
                     if (!response.ok) throw new Error('Preview unavailable');
                     const compressed = await response.arrayBuffer();
                     if (crypto.subtle) {
@@ -6897,14 +6942,16 @@
                     }
                     const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
                     const bundle = JSON.parse(await new Response(stream).text());
-                    if (bundle.version!==1 || bundle.source!==source || bundle.total!==cfg.totalEntries || bundle.limit!==300
+                    if (![1,2].includes(bundle.version) || bundle.source!==source || bundle.total!==cfg.totalEntries || bundle.limit!==300
                             || JSON.stringify(bundle.chunkHashes)!==JSON.stringify(cfg.chunkHashes)
                             || !Array.isArray(bundle.novels) || !Array.isArray(bundle.ordinals) || bundle.ordinals.length!==bundle.novels.length
                             || bundle.ordinals.some(i=>!Number.isSafeInteger(i) || i<0 || i>=bundle.total) || !bundle.profiles || !bundle.translations
                             || Object.values(bundle.profiles).some(p=>!Array.isArray(p) || p.length>300 || p.some(i=>!Number.isInteger(i) || !bundle.novels[i]))) throw new Error('Invalid preview');
                     metadata.parseRows(bundle.novels,source,cfg);
                     bundle._signature = signature;
-                    previewBundles.set(source,bundle);
+                    // A slower default response must not replace an expanded
+                    // bundle that has already finished warming.
+                    if (bundle.version===2 || !cfg.previewSortsHash || previewBundles.get(source)?._signature!==cfg.previewSortsHash) previewBundles.set(source,bundle);
                 })().finally(()=>{if (previewRequests.get(key)===pending) previewRequests.delete(key);});
                 pending._signal = signal;
                 previewRequests.set(key,pending);
@@ -6917,12 +6964,13 @@
         if (previewWarmup) return;
         previewWarmup = true;
         const start = () => {
-            const names = Object.keys(SOURCES);
+            const jobs=Object.keys(SOURCES).flatMap(source=>[{source,allSorts:false}]);
+            jobs.push(...Object.keys(SOURCES).map(source=>({source,allSorts:true})));
             let position = 0;
             async function next() {
-                while (position<names.length) {
-                    const name = names[position++];
-                    try {await loadPreviewBundle(name,await ensureSourceConfig(name),undefined,'low');}
+                while (position<jobs.length) {
+                    const {source,allSorts}=jobs[position++];
+                    try {await loadPreviewBundle(source,await ensureSourceConfig(source),undefined,'low',allSorts);}
                     catch (_) { /* A missing preview never blocks the catalog. */ }
                 }
             }
@@ -6932,10 +6980,12 @@
         else setTimeout(start,50);
     }
     async function showSourcePreview(isCurrent,signal) {
-        const source = currentSource==='all' ? 'npia' : currentSource;
-        const cfg = await ensureSourceConfig(source);
-        if (!isCurrent()) return;
-        await loadPreviewBundle(source,cfg,signal);
+        let key;
+        do {
+            key=diskQueryKey();
+            await loadQueryPreview(diskQuery(),signal);
+            if (!isCurrent()) return;
+        } while (key!==diskQueryKey());
         if (!isCurrent()) return;
         const result = previewResult(diskQuery());
         if (result) {
@@ -6951,7 +7001,7 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=6");
+            const worker = new Worker("catalog-worker.js?v=7");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
@@ -6995,7 +7045,17 @@
         if (diskPageKey === key) { render(false); return; }
         const seq = ++diskQuerySequence;
         const cached = resultPages.get(key);
-        const immediate = cached?.result || previewResult(query);
+        let immediate=cached?.result || previewResult(query);
+        if (!immediate && previewEligible(query)) {
+            if (!activeCatalogController) {
+                catalogLoadStatus.hidden=false;catalogLoadStatus.textContent='Loading preview…';
+            }
+            try {await loadQueryPreview(query,activeCatalogController?.signal);}
+            catch (_) { /* The complete index remains the recovery path. */ }
+            if (seq!==diskQuerySequence || key!==diskQueryKey()) return;
+            if (!activeCatalogController) catalogLoadStatus.hidden=true;
+            immediate=previewResult(query);
+        }
         if (immediate) {
             rememberPage(key,immediate,cached?.preview ?? true);
             diskTotal = immediate.total; currentPage = immediate.page; filtered = immediate.rows; allNovels = [];

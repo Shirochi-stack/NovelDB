@@ -1,6 +1,6 @@
 /* Parse and index one downloaded chunk at a time in each pool worker. */
 "use strict";
-importScripts("catalog-import.js?v=2");
+importScripts("catalog-import.js?v=3");
 self.onmessage = async ({data}) => {
     const {id,source,cfg,compressed,old,fingerprint,labels} = data;
     try {
