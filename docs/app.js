@@ -6581,7 +6581,6 @@
         }
         // Incremental updates preserve existing cards; no grid-wide fade or delayed rebuild.
         doRender();
-        window.NovelSiteTools?.painted(diskQueryKey());
     }
 
     function buildPageRange(current, total) {
@@ -6677,7 +6676,6 @@
     searchInput.addEventListener("input", () => {
         activeAuthorFilter = null;
         authorFilterRestoreState = null;
-        window.NovelSiteTools?.begin(diskQueryKey());
         clearTimeout(searchTimer);
         searchTimer = setTimeout(applyFilters, 200);
     });
@@ -6963,7 +6961,7 @@
             await previewRequests.get(key);
         }
     }
-    let previewWarmup = false, cacheClearing = false, firstCatalogView = true;
+    let previewWarmup = false, cacheClearing = false;
     const previewWarmController = new AbortController();
     function warmSourcePreviews() {
         if (previewWarmup || cacheClearing) return;
@@ -7048,7 +7046,6 @@
     async function queryDiskCatalog() {
         if (cacheClearing) return;
         const query = diskQuery(), key = JSON.stringify(query);
-        window.NovelSiteTools?.begin(key);
         if (diskPageKey === key) { render(false); return; }
         const seq = ++diskQuerySequence;
         const cached = resultPages.get(key);
@@ -7641,8 +7638,6 @@
 
     async function loadSource(source, keepState = false) {
         if (cacheClearing) return;
-        const viewStarted = firstCatalogView ? 0 : performance.now();
-        firstCatalogView = false;
         if (source !== "all" && !SOURCES[source]) source = "all";
         // Terminate only unfinished imports. Completed source indexes remain
         // on disk; keep their worker registry across source changes.
@@ -7690,7 +7685,6 @@
             currentPage = 1;
         }
         catalogRequestedPage = keepState ? currentPage : null;
-        const timingToken = window.NovelSiteTools?.sourceStarted(source,diskQueryKey(),viewStarted);
         // Completed pages appear synchronously on a return visit. A first
         // visit races its small preview against the complete disk import.
         if (resultPages.has(diskQueryKey())) {
@@ -7766,11 +7760,9 @@
             const page = resultPages.get(diskQueryKey());
             if (page?.preview) page.result.total = selectedSources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
             await queryDiskCatalog();
-            window.NovelSiteTools?.catalogReady(timingToken);
             return;
         } catch (error) {
             if (!isCurrent()) return;
-            window.NovelSiteTools?.catalogFailed(timingToken);
             activeCatalogController = null; catalogLoading.clear();
             catalogLoadStatus.hidden = true;
             if (diskCatalog && diskPageKey) {

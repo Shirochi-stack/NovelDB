@@ -62,14 +62,11 @@ header {
 }
 
 .brand-icon { object-fit: contain; flex-shrink: 0; }
-.brand-row { display: flex; align-items: center; justify-content: center; gap: .8rem; flex-wrap: wrap; }
-.memory-usage { color: var(--text-secondary); font-size: .75rem; font-weight: 400; font-variant-numeric: tabular-nums; }
 .site-settings { display: flex; align-items: center; flex-wrap: wrap; gap: .8rem 1.2rem; margin-top: 1rem; }
 .site-settings .description-toggle { margin-top: 0; }
 .site-settings .clear-btn { margin-left: 0; color: var(--text-secondary); }
 .site-settings .clear-btn:disabled { cursor: wait; opacity: .65; }
 #cacheStatus { color: var(--text-secondary); font-size: .8rem; }
-#viewTiming { font-variant-numeric: tabular-nums; }
 
 .subtitle {
     color: var(--text-secondary);
