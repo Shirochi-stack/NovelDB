@@ -124,11 +124,19 @@ def test_worker_cache_validator_refresh_and_failed_import_is_atomic():
             worker = next(w for w in page.workers if 'catalog-worker' in w.url)
             stored = await worker.evaluate("get('cards',['npia',0,0])")
             assert len(stored['rows']) == 1 and stored['rows'][0][0] == 42
+            # Partial results are usable, but activation must retry the failed
+            # refresh instead of memoizing its warning for the whole session.
+            site.etag = 'v4'
+            site.payload = {'novels': [row('npia', 43)]}
+            recovered = await page.evaluate(command.replace("rpc('import'", "rpc('activate'"))
+            assert recovered['total'] == 1 and not recovered['warnings']
+            stored = await worker.evaluate("get('cards',['npia',0,0])")
+            assert stored['rows'][0][0] == 43
             await browser.close()
     asyncio.run(scenario())
 
 
-def test_blocked_storage_keeps_top_cards_and_explains_recovery():
+def test_blocked_storage_explains_recovery_without_ranking_preview():
     class BlockedSite(FixtureSite):
         async def route(self, route):
             if urlsplit(route.request.url).path == '/catalog-worker.js':
@@ -143,7 +151,7 @@ def test_blocked_storage_keeps_top_cards_and_explains_recovery():
             await page.route('**/*',BlockedSite().route)
             await page.goto('http://metadata.test/')
             await page.get_by_text("Full catalog couldn't load. Check site storage/network access and reload.",exact=True).wait_for()
-            assert await page.locator('.novel-card').count() == 1
+            assert await page.locator('.novel-card').count() == 0
             assert await page.locator('#loadFullCatalog').count() == 0
             await browser.close()
     asyncio.run(scenario())

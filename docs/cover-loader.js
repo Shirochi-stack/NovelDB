@@ -3,10 +3,11 @@
     'use strict';
     const MAX_WIDTH = 480, MAX_HEIGHT = 720, CONCURRENCY = 2;
     const queue = [], active = new Map(), blockedOrigins = new Set();
+    const objectUrls = new Map(), recoverable = new WeakMap();
     function widthFor(img) {
         return Math.max(1,Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,2))));
     }
-    function drawThumbnail(img, image) {
+    async function drawThumbnail(img, image) {
         if (!img.isConnected) return;
         const width = image.naturalWidth || image.width, height = image.naturalHeight || image.height;
         const scale = Math.min(1,widthFor(img)/width,MAX_HEIGHT/height);
@@ -19,9 +20,44 @@
         if (!context) throw new Error('Cover canvas unavailable');
         context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
         context.drawImage(image,0,0,canvas.width,canvas.height);
+        // Encoded thumbnails survive page suspension and discarded drawing
+        // buffers. The browser can decode the small image again on return.
+        let blob;
+        try { blob = await new Promise(resolve => canvas.toBlob(resolve,'image/webp',0.85)); }
+        catch (_) { /* Display-only cross-origin images taint the canvas. */ }
+        if (!img.isConnected) return;
+        if (blob) {
+            const thumbnail = document.createElement('img'), url = URL.createObjectURL(blob);
+            thumbnail.className = img.className; thumbnail.dataset.src = img.dataset.src;
+            thumbnail.alt = img.alt || ''; thumbnail.decoding = 'async';
+            thumbnail.src = url;
+            objectUrls.set(thumbnail,url);
+            img.replaceWith(thumbnail); img.removeAttribute('src');
+            return thumbnail;
+        }
+        recoverable.set(canvas,{...img._coverOptions,src:img.dataset.src,alt:img.alt});
+        canvas.addEventListener('contextlost',event=>event.preventDefault());
+        canvas.addEventListener('contextrestored',()=>restoreCanvas(canvas));
         img.replaceWith(canvas); img.removeAttribute('src');
         return canvas;
     }
+    function restoreCanvas(canvas) {
+        const job = recoverable.get(canvas);
+        if (!job || !canvas.isConnected) return;
+        const img = document.createElement('img');
+        img.className = canvas.className.replace(/\bloaded\b/g,'');
+        img.dataset.src = job.src; img.alt = job.alt || '';
+        canvas.replaceWith(img);
+        window.NovelCovers.load(img,job);
+    }
+    function restoreCovers() {
+        if (document.visibilityState === 'hidden') return;
+        // Only the CORS-restricted fallback retains a canvas. Rebuild these
+        // bounded thumbnails after mobile tab suspension or history restore.
+        for (const canvas of document.querySelectorAll('canvas.card-cover')) restoreCanvas(canvas);
+    }
+    document.addEventListener('visibilitychange',restoreCovers);
+    window.addEventListener('pageshow',restoreCovers);
     function nativeImage(img,url,policy,signal) {
         return new Promise((resolve,reject)=>{
             const clean = () => {img.onload = img.onerror = null; signal.removeEventListener('abort',abort);};
@@ -81,15 +117,19 @@
                         bitmap = await createImageBitmap(blob,{resizeWidth:Math.max(1,Math.round(size[0]*scale)),
                             resizeQuality:'high'});
                         if (signal.aborted) throw new DOMException('Cover cancelled','AbortError');
-                        return drawThumbnail(img,bitmap);
+                        return await drawThumbnail(img,bitmap);
                     }
                 } catch (error) {
                     if (signal.aborted) throw error;
                     // Vector images and older decoders can use the display path.
                 } finally {bitmap?.close();}
                 const objectUrl = URL.createObjectURL(blob);
-                try {return await displayNative(img,objectUrl,policy,signal);}
-                finally {URL.revokeObjectURL(objectUrl);}
+                let cover;
+                try {
+                    cover = await displayNative(img,objectUrl,policy,signal);
+                    if (cover === img) objectUrls.set(img,objectUrl);
+                    return cover;
+                } finally {if (cover !== img) URL.revokeObjectURL(objectUrl);}
             }
         }
         // Drawing a cross-origin image is allowed even when canvas readback is
@@ -120,9 +160,11 @@
     window.NovelCovers = {
         load(img,options) {
             if (img._coverQueued || !img.isConnected) return;
+            img._coverOptions = options;
             img._coverQueued = true; queue.push({img,...options}); pump();
         },
         prune() {
+            for (const [img,url] of objectUrls) if (!img.isConnected) {URL.revokeObjectURL(url);objectUrls.delete(img);}
             for (let i=queue.length-1;i>=0;i--) if (!queue[i].img.isConnected) {queue[i].img._coverQueued=false;queue.splice(i,1);}
             for (const [img,controller] of active) if (!img.isConnected) controller.abort();
         },

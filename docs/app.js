@@ -5719,39 +5719,8 @@
     }
 
     // === Build tag chips ===
-    // Tag counts are maintained incrementally per source while catalogs load
-    // (tagCountDelta), so publishing never re-scans every record's tags.
+    // Workers count tags while indexing; the interface merges only summaries.
     const TAG_COLLATOR = new Intl.Collator();
-
-    function tagCountDelta(groups, novel, delta) {
-        const tags = novel.tags;
-        if (!tags || !tags.length) return;
-        // Runs once per record per load, so a Set here would mean ~1M
-        // short-lived allocations. Records carry a handful of tags, where a
-        // linear scan of an array beats hashing and leaves nothing to collect.
-        let seen = null;
-        for (const rawTag of tags) {
-            const tag = typeof rawTag === "string" ? rawTag.trim() : String(rawTag || "").trim();
-            if (!tag) continue;
-            const key = tagMatchKey(tag);
-            if (tags.length > 1) {
-                if (!seen) seen = [];
-                else if (seen.indexOf(key) !== -1) continue;
-                seen.push(key);
-            }
-            let group = groups.get(key);
-            if (!group) {
-                if (delta < 0) continue;
-                group = { key, tag, label: displayTagLabel(tag), count: 0, originals: new Map() };
-                groups.set(key, group);
-            }
-            group.count += delta;
-            const seenCount = (group.originals.get(tag) || 0) + delta;
-            if (seenCount > 0) group.originals.set(tag, seenCount);
-            else group.originals.delete(tag);
-            if (group.count <= 0) groups.delete(key);
-        }
-    }
 
     function mergedTagGroups(sources) {
         const merged = new Map();
@@ -6132,11 +6101,9 @@
             if (options.saveState !== false) saveState();
             return;
         }
-        if (topPreview && needsFullCatalog()) {
-            if (options.resetPage !== false) { currentPage = 1; catalogRequestedPage = activeCatalogController ? 1 : null; }
-            saveState();
-            if (activeCatalogController) return;
-            loadSource(currentSource, true, true);
+        if (activeCatalogController) {
+            if (options.resetPage !== false) {currentPage = 1; catalogRequestedPage = 1;}
+            if (options.saveState !== false) saveState();
             return;
         }
         const resetPage = options.resetPage !== false;
@@ -6893,7 +6860,7 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=4");
+            const worker = new Worker("catalog-worker.js?v=5");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
@@ -6909,7 +6876,7 @@
                 for (const {reject} of workerRequests.values()) reject(new Error("Catalog worker could not load"));
                 workerRequests.clear(); catalogWorker?.terminate(); catalogWorker = null;
                 if (diskCatalog) {
-                    diskCatalog = false; allNovels = filtered; topPreview = true;
+                    diskCatalog = false; allNovels = filtered;
                     resultCount.textContent = "Catalog search stopped. Reload the page to retry.";
                 }
             };
@@ -6951,17 +6918,6 @@
             resultCount.textContent = "Catalog changed or search failed. Reload the page to retry.";
         }
     }
-    let topPreview = false;
-    let previewSort = "daily";
-
-    function needsFullCatalog() {
-        return searchInput.value.trim() || activeAuthorFilter || andTags.size || orTags.size || excludeTags.size
-            || statusSelect.value !== "all" || audienceSelect.value !== "all"
-            || orderSelect.value !== "desc" || sortSelect.value !== previewSort
-            || !(["daily", "weekly", "monthly"].includes(sortSelect.value)
-                || sortSelect.value.startsWith("rank:") || sortSelect.value.startsWith("sfc_"));
-    }
-
     function catalogPartitionLabel(source, partition) {
         if (source !== "jara") return partition || "Catalog";
         const [store, catalog, category, code] = String(partition || "").split(":");
@@ -7011,8 +6967,7 @@
     function catalogStatusSuffix() {
         const loading = [...catalogLoading.values()];
         const warnings = [...catalogWarnings];
-        return (topPreview ? " — Top 100" : "")
-            + (loading.length ? ` — loading ${loading.join(", ")}` : "")
+        return (loading.length ? ` — loading ${loading.join(", ")}` : "")
             + (warnings.length ? ` — Partial results: ${warnings.join("; ")}` : "");
     }
 
@@ -7419,145 +7374,46 @@
         return tagTranslationsPromise;
     }
 
-    function parseNovels(raw, sourceName, cfg) {
-        return metadata.parseRows(raw, sourceName, cfg);
-    }
-
-    // Title translations are embedded in catalog chunks; descriptions load only near the viewport.
-
-    // === Catalog records ===
-    // Parsed records are kept per source so switching between "All Sources"
-    // and one platform never re-downloads or re-parses a catalog. Sources
-    // outside the selection are only retained once an "All Sources" load has
-    // completed, so memory never exceeds the footprint that view already had.
-    const catalogState = new Map(); // source -> { records, list, tags, complete, warnings, diagnostics }
-    const addedRecords = new Set();
-    const removedRecords = new Set();
+    // Only source summaries and the current page stay in the interface.
+    // Full records and search indexes remain in IndexedDB.
+    const catalogState = new Map();
     let selectedSources = [];
-    let retainAllSources = false;
-    let allNovelsDirty = true;
     let tagsVersion = 0;
-    // Records for platforms outside the selection are retained only after an
-    // "All Sources" load completed (that footprint was already reached), and
-    // never on low-memory devices.
-    const RETAIN_LOADED_SOURCES = !(typeof navigator !== "undefined"
-        && Number.isFinite(navigator.deviceMemory) && navigator.deviceMemory < 4);
-
-    // While a source loads, its records live in a Map keyed by ID so top
-    // bundles and chunks can merge; a finished source keeps only a plain array,
-    // which costs a few megabytes instead of tens for a million entries.
     function sourceState(name) {
-        let state = catalogState.get(name);
-        if (!state) {
-            state = { records: new Map(), list: null, tags: new Map(), complete: false, warnings: [], diagnostics: null };
-            catalogState.set(name, state);
-        }
-        if (!state.records) {
-            state.records = new Map((state.list || []).map((novel) => [novel.id, novel]));
-            state.list = null;
-        }
-        return state;
+        if (!catalogState.has(name)) catalogState.set(name,{tags:new Map(),warnings:[],diagnostics:null});
+        return catalogState.get(name);
     }
 
-    function sourceRecords(state) {
-        return state.list || state.records.values();
-    }
-
-    function addRecords(name, incoming) {
-        const state = sourceState(name);
-        for (const novel of incoming) {
-            const old = state.records.get(novel.id);
-            if (old === novel) continue;
-            const record = old ? { ...old, ...novel,
-                titleEn: novel.titleEn || old.titleEn,
-                synopsis: novel.synopsis || old.synopsis } : novel;
-            state.records.set(novel.id, record);
-            if (old) {
-                tagCountDelta(state.tags, old, -1);
-                if (!allNovelsDirty && !addedRecords.delete(old)) removedRecords.add(old);
-            }
-            tagCountDelta(state.tags, record, 1);
-            if (!allNovelsDirty) addedRecords.add(record);
-        }
-        tagsVersion++;
-    }
-
-    function publish() {
-        if (allNovelsDirty) {
-            allNovels = [];
-            // Registry order stays deterministic regardless of network completion order.
-            for (const name of selectedSources) {
-                const state = catalogState.get(name);
-                if (state) for (const novel of sourceRecords(state)) allNovels.push(novel);
-            }
-            addedRecords.clear();
-            removedRecords.clear();
-            sortedKey = null;
-            allNovelsDirty = false;
-            ensureSorted();
-        } else {
-            ensureSorted();
-            if (removedRecords.size) {
-                allNovels = allNovels.filter((novel) => !removedRecords.has(novel));
-                removedRecords.clear();
-                lastFilter = null;
-            }
-            if (addedRecords.size) {
-                const batch = [...addedRecords];
-                addedRecords.clear();
-                const options = sortOptions();
-                metadata.sortRecords(batch, options);
-                allNovels = metadata.mergeSortedRecords(allNovels, batch, metadata.recordComparator(options));
-                lastFilter = null;
-            }
-        }
-        buildTags();
-        applyFilters({ resetPage: false, fade: false });
-    }
-
-    async function loadSource(source, keepState = false, fullCatalog = false) {
+    async function loadSource(source, keepState = false) {
         if (source !== "all" && !SOURCES[source]) source = "all";
-        if (activeCatalogController) activeCatalogController.abort();
-        closeCatalogWorker();
+        // Terminate only unfinished imports. Completed source indexes remain
+        // on disk; keep their worker registry across source changes.
+        if (activeCatalogController) {
+            activeCatalogController.abort();
+            closeCatalogWorker();
+        }
+        diskCatalog = false; diskPageKey = ""; diskFocus = null; diskQuerySequence++;
         const controller = new AbortController();
         activeCatalogController = controller;
         const { signal } = controller;
         const isCurrent = () => !signal.aborted && activeCatalogController === controller;
         currentSource = source;
-        topPreview = false;
         sourceSelect.value = source;
         window.NovelSourcePicker?.sync();
         updateSourceSortOptions();
         resetSynopsisRequests();
         coverObserver?.disconnect();
-        if (fullCatalog) observeMissingSynopses();
         selectedSources = source === "all" ? Object.keys(SOURCES) : [source];
-        for (const [name, state] of catalogState) {
-            if (!state.complete || (!retainAllSources && !selectedSources.includes(name))) catalogState.delete(name);
-        }
         allNovels = [];
         filtered = [];
         allTagGroups = [];
         top80Tags.clear();
-        allNovelsDirty = true;
-        addedRecords.clear();
-        removedRecords.clear();
         lastFilter = null;
         sortedKey = null;
         tagsVersion++;
         catalogWarnings = new Set();
         catalogDiagnosticRecords = new Map();
         catalogDiagnostics.open = false;
-        const pending = [];
-        for (const name of selectedSources) {
-            const state = catalogState.get(name);
-            if (!state?.complete) {
-                pending.push(name);
-                continue;
-            }
-            for (const warning of state.warnings) catalogWarnings.add(warning);
-            if (state.diagnostics) catalogDiagnosticRecords.set(name, state.diagnostics);
-        }
         renderCatalogDiagnostics();
         catalogLoading = new Map(selectedSources.map((name) => [name, SOURCES[name].label]));
         if (selectedSources.length) {
@@ -7574,45 +7430,6 @@
         }
         catalogRequestedPage = keepState ? currentPage : null;
 
-        function applyEmbedded(data, name, cfg) {
-            const novels = parseNovels(data.novels || data, name, cfg);
-            for (const novel of novels) {
-                if (data.translations?.[novel.id]) novel.titleEn = String(data.translations[novel.id]);
-                if (descriptionsEnabled && data.descriptions?.[novel.id]) novel.synopsis = normalizeSynopsis(data.descriptions[novel.id], name);
-            }
-            return novels;
-        }
-        // Paint the ranking bundle once, then keep these cards in place while
-        // the complete catalog imports in the background.
-        const previewSource = source === "all" ? "npia" : source;
-        previewSort = sortSelect.value;
-        if (!fullCatalog && !needsFullCatalog() && currentPage === 1
-                && parseHash(window.location.hash).catalog !== "full") {
-            try {
-                const cfg = await ensureSourceConfig(previewSource);
-                if (!isCurrent()) return;
-                updateSourceSortOptions();
-                previewSort = sortSelect.value;
-                if (cfg?.topUrl && !needsFullCatalog()) {
-                    const data = await fetchGzChunk(cfg.topUrl, signal);
-                    if (!isCurrent()) return;
-                    const top = applyEmbedded(data, previewSource, cfg);
-                    if (!top.length) throw new Error("Empty ranking bundle");
-                    // Drop any previously retained full catalogs on returning
-                    // to rankings, including on browsers without deviceMemory.
-                    catalogState.clear();
-                    const requestedSources = selectedSources;
-                    selectedSources = [previewSource];
-                    addRecords(previewSource, top);
-                    topPreview = true;
-                    publish();
-                    selectedSources = requestedSources;
-                }
-            } catch (error) {
-                if (!isCurrent()) return;
-                // Missing ranking bundles fall back to the complete catalog.
-            }
-        }
         // Full catalogs are imported and queried exclusively by the worker.
         // The interface retains tag summaries and the current result page.
         let successfulImports = 0;
@@ -7637,7 +7454,7 @@
             const workerCfg = {...wireCfg,tagVersion:tagDictionaryVersion,chunkFiles:cfg.chunkFiles?.map(absolute),
                 chunkPrefix:cfg.chunkPrefix ? absolute(cfg.chunkPrefix).split("?")[0] : null,
                 dataUrl:cfg.dataUrl ? absolute(cfg.dataUrl) : null};
-            const info = await workerRequest("import",{source:name,cfg:workerCfg,tagLabels:TAG_MAP},({loaded,total}) => {
+            const info = await workerRequest("activate",{source:name,cfg:workerCfg,tagLabels:TAG_MAP},({loaded,total}) => {
                 if (!isCurrent()) return;
                 catalogLoading.set(name,`${cfg.label} ${loaded}/${total}`);
                 resultCount.textContent = `Loading full catalog${catalogStatusSuffix()}`;
@@ -7650,7 +7467,6 @@
                 state.tags.set(key,{key,tag,label:displayTagLabel(tag),count,originals:new Map(originals)});
             }
             for (const message of info.warnings) warn(message);
-            state.records = null; state.list = []; state.complete = true;
             tagsVersion++; catalogLoading.delete(name);
         }
         try {
@@ -7670,8 +7486,7 @@
             if (!isCurrent()) return;
             if (!successfulImports) throw new Error("No catalog could be imported");
             buildTags(); allNovels = []; filtered = [];
-            addedRecords.clear(); removedRecords.clear();
-            diskCatalog = true; topPreview = false; diskPageKey = "";
+            diskCatalog = true; diskPageKey = "";
             if (catalogRequestedPage != null) currentPage = catalogRequestedPage;
             catalogRequestedPage = null; activeCatalogController = null;
             await queryDiskCatalog();
@@ -7681,7 +7496,7 @@
             activeCatalogController = null; catalogLoading.clear();
             closeCatalogWorker();
             allNovels = [...resultsEl.querySelectorAll('.novel-card')].map(c => c._record).filter(Boolean);
-            filtered = allNovels; topPreview = allNovels.length > 0;
+            filtered = allNovels;
             diskTotal = 0; lastFilter = null; sortedKey = null;
             resultCount.textContent = "Full catalog couldn't load. Check site storage/network access and reload.";
             return;
@@ -7699,7 +7514,7 @@
         if (batchSelect.value !== "100") state.batch = batchSelect.value;
         const savedPage = activeCatalogController && catalogRequestedPage != null ? catalogRequestedPage : currentPage;
         if (savedPage > 1) state.page = savedPage;
-        if (sourceSelect.value !== "all") state.src = sourceSelect.value;
+        if (sourceSelect.value !== "npia") state.src = sourceSelect.value;
         if (andTags.size > 0) state.tags = [...andTags].join(",");
         if (orTags.size > 0) state.ortags = [...orTags].join(",");
         if (excludeTags.size > 0) state.xtags = [...excludeTags].join(",");
@@ -7776,7 +7591,7 @@
         }
 
         updateActiveTagsSummary();
-        const source = params.src && SOURCES[params.src] ? params.src : "all";
+        const source = params.src === "all" || SOURCES[params.src] ? params.src : "npia";
         sourceSelect.value = source;
         if (source !== currentSource) loadSource(source, true);
         else {
@@ -7802,7 +7617,7 @@
         if (params.audience) audienceSelect.value = params.audience;
         if (params.batch) setBatch(params.batch);
         if (params.page) currentPage = Math.max(1, parseInt(params.page, 10) || 1);
-        if (params.src && SOURCES[params.src]) sourceSelect.value = params.src;
+        if (params.src === "all" || SOURCES[params.src]) sourceSelect.value = params.src;
 
         for (const tag of (params.tags || "").split(",").filter(Boolean)) andTags.add(tag);
         for (const tag of (params.ortags || "").split(",").filter(Boolean)) orTags.add(tag);

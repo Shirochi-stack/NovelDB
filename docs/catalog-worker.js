@@ -5,6 +5,7 @@ const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS 
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
 const revisions = new Map();
+const readySources = new Map();
 let savedPages;
 let parserPool;
 const totals = new Map();
@@ -315,7 +316,23 @@ self.onmessage = ({data}) => {
     if (type === "query") latestQuery = id;
     serial = serial.catch(() => {}).then(async () => {
         try {
-            const result = type === "import" ? await importSource(value.source,value.cfg,progress => self.postMessage({id,progress}),value.tagLabels || {}) : await query(value,id);
+            let result;
+            if (type === "import" || type === "activate") {
+                // The application includes the dictionary version in cfg.
+                // Avoid retaining a duplicate dictionary string per source.
+                const signature = JSON.stringify(value.cfg);
+                const saved = readySources.get(value.source);
+                // Source changes reuse the existing disk index and its small
+                // summary. Explicit imports still validate upstream changes.
+                if (type === "activate" && saved?.signature === signature) result = saved.result;
+                else {
+                    readySources.delete(value.source);
+                    result = await importSource(value.source,value.cfg,progress => self.postMessage({id,progress}),value.tagLabels || {});
+                    // A partial import stays usable on disk, but the next
+                    // activation must retry its unavailable chunks.
+                    if (!result.warnings.length) readySources.set(value.source,{signature,result});
+                }
+            } else result = await query(value,id);
             self.postMessage({id,result});
         } catch (error) { self.postMessage({id,error:{name:error.name,message:error.message}}); }
     });
