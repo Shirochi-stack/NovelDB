@@ -135,14 +135,43 @@
     const imageStatus=document.createElement('figcaption');imageStatus.setAttribute('role','status');
     const detailDownload=document.createElement('button');detailDownload.type='button';detailDownload.className='page-btn';detailDownload.textContent='Download Image';
     figure.append(image,imageStatus,detailDownload);
-    const fields=document.createElement('dl');fields.className='novel-details-fields';body.append(figure,fields);
+    const fields=document.createElement('div');fields.className='novel-details-fields';
+    const facts=document.createElement('dl');facts.className='novel-details-facts';
+    const tabs=document.createElement('div');tabs.className='novel-details-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Novel details');
+    const panels=document.createElement('div');panels.className='novel-details-panels';
+    const detailPanels=new Map(), detailTabs=new Map();
+    function selectDetailsTab(name,focus=false) {
+        for(const [key,tab] of detailTabs) {
+            const active=key===name;
+            tab.setAttribute('aria-selected',String(active));tab.tabIndex=active ? 0 : -1;
+            detailPanels.get(key).classList.toggle('active',active);
+            if(active && focus) tab.focus({preventScroll:true});
+        }
+    }
+    for(const [name,label] of [['info','Info'],['synopsis','Synopsis'],['more','More']]) {
+        const tab=document.createElement('button');tab.type='button';tab.textContent=label;tab.id=`detailsTab-${name}`;
+        tab.setAttribute('role','tab');tab.setAttribute('aria-controls',`detailsPanel-${name}`);
+        const panel=document.createElement('dl');panel.className='novel-details-panel';panel.id=`detailsPanel-${name}`;
+        panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panel.tabIndex=0;
+        detailTabs.set(name,tab);detailPanels.set(name,panel);tabs.append(tab);panels.append(panel);
+        tab.addEventListener('click',()=>selectDetailsTab(name));
+        tab.addEventListener('keydown',event=>{
+            const names=[...detailTabs.keys()],index=names.indexOf(name);
+            const next=event.key==='Home' ? 0 : event.key==='End' ? names.length-1
+                : event.key==='ArrowRight' ? (index+1)%names.length : event.key==='ArrowLeft' ? (index+names.length-1)%names.length : -1;
+            if(next<0) return;
+            event.preventDefault();selectDetailsTab(names[next],true);
+        });
+    }
+    function clearMetadata() {facts.replaceChildren();for(const panel of detailPanels.values()) panel.replaceChildren();}
+    fields.append(facts,tabs,panels);body.append(figure,fields);
     dialog.append(header,body);document.body.append(dialog);
     let detailCard=null;
     const labels={title:'Original title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
         synopsis:'Synopsis',id:'ID',complete:'Complete',age:'Age',metrics:'Other details',rankings:'Rankings'};
     const fieldLabel=key=>labels[key] || key.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
     function renderMetadata(record) {
-        fields.replaceChildren();
+        clearMetadata();
         const adult=window.NovelMetadata.matchesAudience(record,'adult');
         const teen=window.NovelMetadata.matchesAudience(record,'r15');
         const rankEntries=[];
@@ -183,7 +212,10 @@
                 definition.append(pairs);
             } else definition.textContent=value==null || value==='' ? 'Not available' : typeof value==='boolean' ? (value ? 'Yes' : 'No')
                 : Array.isArray(value) ? value.join(', ') : typeof value==='number' ? value.toLocaleString('en') : String(value);
-            group.append(term,definition);fields.append(group);
+            group.style.order=priority.includes(key) ? priority.indexOf(key) : priority.length;
+            const target=['author','source','id','complete','age','updated','views','likes','chapters','tier'].includes(key) ? facts
+                : detailPanels.get(key==='synopsis' ? 'synopsis' : ['title','canonicalUrl','tags','rankings'].includes(key) ? 'info' : 'more');
+            group.append(term,definition);target.append(group);
         }
         const priority=['title','canonicalUrl','author','source','id','complete','age','updated','views','likes','chapters','tier','synopsis','tags'];
         for(const key of new Set([...priority,...Object.keys(record)])) {
@@ -200,6 +232,8 @@
         closeMenu();viewController?.abort();viewController=new AbortController();
         const signal=viewController.signal, sequence=++viewSequence;
         detailCard=card;returnFocus=card.querySelector('.cover-details') || card.querySelector('a');
+        selectDetailsTab('info');
+        for(const panel of detailPanels.values()) panel.scrollTop=0;
         title.textContent=card._record?.titleEn || card._record?.title || 'Novel details';
         title.dataset.field=card._record?.titleEn ? 'titleEn' : 'title';
         renderMetadata({...card._record,canonicalUrl:card._record?.canonicalUrl || card.querySelector('.card-cover-wrap')?.href,synopsis:card._synopsis || card._record?.synopsis || 'Loading synopsis…'});
@@ -222,13 +256,14 @@
         close.focus({preventScroll:true});
         try {
             const record=await window.NovelDetailsData?.(card,signal);
-            if(record && !signal.aborted && sequence===viewSequence) renderMetadata(record);
+            if(record && !signal.aborted && sequence===viewSequence) renderMetadata({...record,
+                canonicalUrl:record.canonicalUrl || card._record?.canonicalUrl || card.querySelector('.card-cover-wrap')?.href});
         } catch(error) {
             if(!signal.aborted && sequence===viewSequence) {const synopsis=fields.querySelector('[data-field="synopsis"]');if(synopsis)synopsis.textContent='Synopsis could not load. Reopen Details to retry.';}
         }
     }
     close.addEventListener('click',()=>dialog.close());
-    dialog.addEventListener('close',()=>{viewSequence++;viewController?.abort();viewController=null;detailCard=null;fields.replaceChildren();returnFocus?.focus({preventScroll:true});returnFocus=null;});
+    dialog.addEventListener('close',()=>{viewSequence++;viewController?.abort();viewController=null;detailCard=null;clearMetadata();returnFocus?.focus({preventScroll:true});returnFocus=null;});
     dialog.addEventListener('click',event=>{
         const rect=dialog.getBoundingClientRect();
         if(event.target===dialog && (event.clientX<rect.left || event.clientX>rect.right || event.clientY<rect.top || event.clientY>rect.bottom)) dialog.close();

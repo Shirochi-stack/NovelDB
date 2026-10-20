@@ -160,6 +160,83 @@ def test_details_show_all_available_fields_and_original_image_without_enabling_c
     asyncio.run(scenario())
 
 
+def test_mobile_details_and_settings_fit_small_phones_without_outer_scrolling():
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
+            site=FixtureSite(covers=True);data=image_bytes('PNG')
+            async def route(r):
+                if urlsplit(r.request.url).hostname=='covers.test':
+                    await r.fulfill(body=data,content_type='image/png',headers={'access-control-allow-origin':'*'})
+                else:await site.route(r)
+            await page.route('**/*',route)
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            await page.evaluate('''()=>{
+                const card=document.querySelector('.novel-card');
+                Object.assign(card._record,{
+                    titleEn:'I Became the Blacksmith the Top Rankers Are Obsessed Over',
+                    title:'A long original title with several words to check mobile wrapping',
+                    author:'Example author',complete:0,age:0,updated:'2026-10-20 12:34:56',views:9803195,likes:621028,chapters:146,
+                    dailyRank:1,weeklyRank:2,monthlyRank:3,tags:['Fantasy','Crafting','Blacksmith','Obsession']
+                });
+                window.NovelDetailsData=card=>new Promise(resolve=>{window.finishDetails=()=>resolve({
+                    ...card._record,synopsis:'A long synopsis. '.repeat(250),metrics:{extra:'Additional metadata'}
+                });});
+            }''')
+            for width,height in [(320,568),(360,640),(390,844),(430,932)]:
+                await page.set_viewport_size({'width':width,'height':height})
+                await page.evaluate('scrollTo({top:0,behavior:"instant"})')
+                assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                assert await page.locator('.site-settings').evaluate('el=>el.getBoundingClientRect().height<140')
+                assert await page.locator('.search-row').evaluate('el=>el.getBoundingClientRect().height<230')
+                positions=await page.locator('#sourcePickerButton,#sortSelect').evaluate_all('nodes=>nodes.map(n=>n.getBoundingClientRect().top)')
+                assert abs(positions[0]-positions[1])<2
+                if width in (320,390):await page.screenshot(path=f'artifacts/compact-settings-{width}.png')
+                badge=page.locator('.cover-details').first
+                assert await badge.evaluate('el=>el.offsetWidth===32 && el.offsetHeight===32 && el.querySelector("img").width===22')
+                await badge.click()
+                dialog=page.get_by_role('dialog')
+                await page.wait_for_function('document.querySelector(".novel-details-image img").naturalWidth===800')
+                async def fits():
+                    assert await dialog.evaluate('''d=>{
+                        const r=d.getBoundingClientRect(),b=d.querySelector('.novel-details-body');
+                        return r.top>=0 && r.bottom<=innerHeight && r.right<=innerWidth
+                            && d.scrollHeight<=d.clientHeight && d.scrollWidth<=d.clientWidth
+                            && b.scrollHeight<=b.clientHeight;
+                    }''')
+                await fits()
+                for field in ('author','source','id','complete','age','updated','views','likes','chapters'):
+                    assert await dialog.locator(f'[data-field={field}]').is_visible()
+                assert await dialog.get_by_role('link',name='Open novel').is_visible()
+                await dialog.get_by_role('tab',name='Synopsis').click()
+                await page.evaluate('finishDetails()')
+                await page.wait_for_function('document.querySelector("[data-field=synopsis]").textContent.length>3000')
+                assert await dialog.get_by_role('tab',name='Synopsis').get_attribute('aria-selected')=='true'
+                assert await dialog.locator('[data-field=synopsis]').is_visible()
+                await fits()
+                assert await dialog.locator('#detailsPanel-synopsis').evaluate('el=>el.scrollHeight>el.clientHeight')
+                await dialog.get_by_role('tab',name='Synopsis').focus();await page.keyboard.press('ArrowRight')
+                assert await dialog.get_by_role('tab',name='More').get_attribute('aria-selected')=='true'
+                assert 'Additional metadata' in await dialog.locator('[data-field=metrics]').inner_text()
+                await page.keyboard.press('Home')
+                assert await dialog.get_by_role('tab',name='Info').get_attribute('aria-selected')=='true'
+                assert await dialog.get_by_role('link',name='Open novel').is_visible()
+                await fits()
+                await page.screenshot(path=f'artifacts/compact-details-{width}.png')
+                # Rotation/desktop expansion exposes every section without hiding metadata.
+                if width==390:
+                    await page.set_viewport_size({'width':1200,'height':900})
+                    assert await dialog.locator('[data-field=synopsis]').is_visible()
+                    assert await dialog.locator('[data-field=metrics]').is_visible()
+                    assert not await dialog.get_by_role('tab',name='Info').is_visible()
+                    await page.set_viewport_size({'width':width,'height':height});await fits()
+                await page.get_by_role('button',name='Close Details').click()
+                assert await badge.evaluate('b=>b===document.activeElement')
+            await browser.close()
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize('readable',[True,False])
 def test_resolution_and_webp_quality_are_independent_without_flicker_and_persist(readable):
     async def scenario():
