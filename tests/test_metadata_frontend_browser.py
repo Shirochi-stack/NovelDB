@@ -1,6 +1,7 @@
 """Real browser checks; every request is fulfilled by local in-memory fixtures."""
 import asyncio
 import gzip
+import hashlib
 import json
 import io
 from pathlib import Path
@@ -80,7 +81,7 @@ def test_sort_changes_update_url_refresh_and_browser_history():
             await wait_loaded(page)
             assert await page.locator('#sortSelect').input_value() == 'updated'
             await page.locator('#sortSelect').select_option('daily')
-            assert 'sort=' not in page.url and 'src=npia' in page.url
+            assert 'sort=' not in page.url and 'src=' not in page.url
             await page.reload()
             await wait_loaded(page)
             assert await page.locator('#sortSelect').input_value() == 'daily'
@@ -233,10 +234,10 @@ async def wait_loaded(page):
     await page.wait_for_function("!document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
 
 
-def test_landing_top_100_stays_stable_during_automatic_catalog_import():
-    class TopSite(FixtureSite):
+def test_startup_loads_only_the_complete_npia_catalog_once():
+    class SlowSite(FixtureSite):
         def __init__(self):
-            super().__init__()
+            super().__init__(many_npia=True)
             self.started = asyncio.Event()
             self.release = asyncio.Event()
         async def route(self, route):
@@ -244,41 +245,104 @@ def test_landing_top_100_stays_stable_during_automatic_catalog_import():
             if '_chunk_' in path and not '_manifest' in path:
                 self.started.set()
                 await self.release.wait()
-            if urlsplit(route.request.url).path.endswith('/npia_top.json.gz'):
-                self.requests.append(route.request.url)
-                await route.fulfill(body=gzip.compress(json.dumps({
-                    'novels': [row('npia', ident) for ident in range(1, 101)],
-                    'descriptions': {str(ident): 'Full synopsis' for ident in range(1, 101)},
-                }).encode()), content_type='application/gzip')
-                return
             await super().route(route)
 
     async def scenario():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
-            page = await browser.new_page(viewport={'width': 390, 'height': 844}, is_mobile=True)
-            site = TopSite()
-            await page.route('**/*', site.route)
+            page = await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
+            site = SlowSite()
+            await page.route('**/*',site.route)
             await page.goto('http://metadata.test/')
-            await page.wait_for_function('document.querySelectorAll(".novel-card").length === 100')
-            cards = page.locator('.novel-card')
-            order = await cards.evaluate_all('(cards)=>cards.map(c=>c.dataset.novelId)')
             await site.started.wait()
-            await page.evaluate("window.orderChanges=0;let previous=[...document.querySelectorAll('.novel-card')].map(c=>c.dataset.source+':'+c.dataset.novelId).join(',');new MutationObserver(()=>{const next=[...document.querySelectorAll('.novel-card')].map(c=>c.dataset.source+':'+c.dataset.novelId).join(',');if(next!==previous){orderChanges++;previous=next}}).observe(document.querySelector('#results'),{childList:true})")
-            await page.wait_for_timeout(800)
-            assert await cards.evaluate_all('(cards)=>cards.map(c=>c.dataset.novelId)') == order
-            assert await page.locator('#sourceSelect').input_value() == 'all'
-            assert await page.locator('#loadFullCatalog').count() == 0
-            assert await page.evaluate('window.orderChanges') == 0
+            assert await page.locator('#sourceSelect').input_value() == 'npia'
+            assert await page.locator('.novel-card').count() == 0
+            assert not any('_top.json' in url for url in site.requests)
+            await page.evaluate("window.cardChanges=0;new MutationObserver(()=>cardChanges++).observe(document.querySelector('#results'),{childList:true})")
+            # Filter changes during loading apply to the final complete result.
+            await page.locator('#searchInput').fill('npia')
             site.release.set()
             await wait_loaded(page)
-            assert await page.locator('.novel-card').count() == 18
-            assert await page.evaluate('window.orderChanges') == 1
-            await page.locator('#searchInput').fill('nweb')
-            await page.wait_for_function('document.querySelector("#resultCount").textContent.includes("3 novel(s)")')
-            assert any('nweb_chunk_0' in url for url in site.requests)
+            assert await page.locator('.novel-card').count() == 61
+            assert await page.evaluate('cardChanges') == 1
+            chunks = [url for url in site.requests if '_chunk_' in url and '_manifest' not in url]
+            assert len(chunks) == 1 and 'npia_chunk_0' in chunks[0]
             assert await page.locator('#loadFullCatalog').count() == 0
-            assert await page.locator('.novel-card').count() == 3
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_source_switches_reuse_worker_and_reload_reuses_disk_until_hash_changes():
+    class HashedSite(FixtureSite):
+        def __init__(self):
+            super().__init__()
+            self.bodies = {}
+            self.downloads = []
+            for source in SOURCES:
+                novels = [row(source)] if source in ('npia','kpage','sfc') else [row(source),row(source,8,True,True),row(source,9,True)]
+                self.bodies[source] = gzip.compress(json.dumps({'novels':novels}).encode(),mtime=0)
+
+        async def route(self, route):
+            name = urlsplit(route.request.url).path.rsplit('/',1)[-1]
+            source = name.split('_',1)[0]
+            if source in SOURCES and name.endswith('_chunk_manifest.json'):
+                manifest = {'files':[f'{source}_chunk_0.json.gz'],'chunks':1,
+                    'chunkHashes':[hashlib.sha256(self.bodies[source]).hexdigest()],
+                    'totalEntries':1 if source in ('npia','kpage','sfc') else 3}
+                if source not in ('npia','kpage','sfc'):
+                    manifest.update(format='metadata-v1',topUrl=None,coverage={'complete':True},
+                        descriptionShardCount=128,descriptionShardPrefix=f'{source}_descriptions_shard_')
+                await route.fulfill(json=manifest)
+            elif source in SOURCES and '_chunk_' in name:
+                self.downloads.append(source)
+                await route.fulfill(body=self.bodies[source],content_type='application/gzip')
+            else:
+                await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
+            site = HashedSite()
+            await context.route('**/*',site.route)
+            await page.goto('https://metadata.test/')
+            await wait_loaded(page)
+            assert site.downloads == ['npia']
+            worker = next(w for w in page.workers if 'catalog-worker' in w.url)
+            await worker.evaluate('()=>{self.sessionMarker=42;self.importProgress=0;const post=self.postMessage.bind(self);self.postMessage=data=>{if(data.progress)importProgress++;post(data)}}')
+            await page.locator('#sourceSelect').select_option('all')
+            await wait_loaded(page)
+            assert site.downloads == list(SOURCES)
+            assert await page.locator('.novel-card').count() == 18
+            progress = await worker.evaluate('importProgress')
+            for source in ['nweb','all','npia','all']:
+                await page.locator('#sourceSelect').select_option(source)
+                await wait_loaded(page)
+                assert await worker.evaluate('sessionMarker') == 42
+            assert await worker.evaluate('importProgress') == progress
+            assert site.downloads == list(SOURCES)
+            assert '#src=all' in page.url
+            await page.reload()
+            await wait_loaded(page)
+            assert await page.locator('#sourceSelect').input_value() == 'all'
+            assert await page.locator('.novel-card').count() == 18
+            assert site.downloads == list(SOURCES)
+            assert not any('catalog-parser' in w.url for w in page.workers)
+            # Reopening the page in the same profile also uses the disk index.
+            await page.close()
+            page = await context.new_page()
+            await page.goto('https://metadata.test/#src=all')
+            await wait_loaded(page)
+            assert site.downloads == list(SOURCES)
+            # An upstream manifest change invalidates only its changed chunk.
+            changed = row('npia',42)
+            site.bodies['npia'] = gzip.compress(json.dumps({'novels':[changed]}).encode(),mtime=0)
+            await page.reload()
+            await wait_loaded(page)
+            assert site.downloads == [*SOURCES,'npia']
+            assert await page.locator('.novel-card[data-source="npia"]').get_attribute('data-novel-id') == '42'
+            assert not any('_top.json' in url for url in site.requests)
             await browser.close()
     asyncio.run(scenario())
 
@@ -319,30 +383,6 @@ def test_synopsis_failure_has_retry_and_empty_shard_has_unavailable_message():
             await browser.close()
     asyncio.run(scenario())
 
-
-def test_visible_synopsis_loads_while_full_catalog_is_still_pending():
-    async def scenario():
-        release = asyncio.Event()
-        class SlowSite(FixtureSite):
-            async def route(self, route):
-                path = urlsplit(route.request.url).path
-                if path.endswith('/npia_top.json.gz'):
-                    await route.fulfill(body=gzip.compress(json.dumps({'novels': [row('npia')]}).encode()), content_type='application/gzip')
-                    return
-                if '_chunk_' in path and not '_manifest' in path:
-                    await release.wait()
-                await super().route(route)
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.route('**/*', SlowSite().route)
-            await page.goto('http://metadata.test/')
-            await page.locator('.card-synopsis').wait_for()
-            assert 'loading' in (await page.locator('#resultCount').inner_text()).lower()
-            release.set()
-            await wait_loaded(page)
-            await browser.close()
-    asyncio.run(scenario())
 
 
 def test_nonranking_saved_sort_loads_the_complete_catalog_without_preview():
@@ -418,7 +458,7 @@ def test_metadata_frontend_browser_all_sources_filters_links_and_hash():
             page.on("pageerror", lambda error: errors.append(str(error)))
             site = FixtureSite()
             await page.route("**/*", site.route)
-            await page.goto("http://metadata.test/")
+            await page.goto("http://metadata.test/#src=all")
             await wait_loaded(page)
             assert await page.locator(".novel-card").count() == 18
             identities = await page.locator(".novel-card").evaluate_all("cards => cards.map(c => c.dataset.source + ':' + c.dataset.novelId)")
@@ -458,7 +498,7 @@ def test_metadata_frontend_browser_all_sources_filters_links_and_hash():
     asyncio.run(scenario())
 
 
-def test_metadata_frontend_browser_restores_page_after_small_top_bundle():
+def test_metadata_frontend_browser_restores_page_from_complete_catalog():
     async def scenario():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
@@ -607,11 +647,14 @@ def test_large_covers_use_small_decodes_and_release_full_size_images():
     async def scenario():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
-            for fmt in ['JPEG','PNG','WEBP','EXIF']:
+            for fmt in ['JPEG','PNG','WEBP','EXIF','SVG']:
                 output = io.BytesIO()
                 exif = Image.Exif()
                 if fmt == 'EXIF': exif[274] = 6
-                Image.new('RGB',(1600,2400),'#8040c0').save(output,format='JPEG' if fmt == 'EXIF' else fmt,exif=exif)
+                if fmt == 'SVG':
+                    output.write(b'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="150"><rect width="100" height="150" fill="purple"/></svg>')
+                else:
+                    Image.new('RGB',(1600,2400),'#8040c0').save(output,format='JPEG' if fmt == 'EXIF' else fmt,exif=exif)
                 page = await browser.new_page(viewport={'width':390,'height':844},device_scale_factor=2,is_mobile=True)
                 await page.add_init_script("""window.bitmapCalls=[];window.closedBitmaps=0;
                     const originalBitmap=window.createImageBitmap,originalClose=ImageBitmap.prototype.close;
@@ -620,26 +663,37 @@ def test_large_covers_use_small_decodes_and_release_full_size_images():
                 site = FixtureSite(covers=True)
                 async def route(request):
                     if urlsplit(request.request.url).hostname == 'covers.test':
-                        await request.fulfill(body=output.getvalue(),content_type='image/'+fmt.lower(),headers={'access-control-allow-origin':'*'})
+                        await request.fulfill(body=output.getvalue(),content_type='image/svg+xml' if fmt == 'SVG' else 'image/'+fmt.lower(),headers={'access-control-allow-origin':'*'})
                     else:
                         await site.route(request)
                 await page.route('**/*',route)
                 await page.goto('https://metadata.test/#src=npia')
                 await wait_loaded(page)
-                cover = page.locator('canvas.card-cover.loaded')
+                cover = page.locator('img.card-cover.loaded')
                 await cover.wait_for()
-                size = await cover.evaluate('c=>({width:c.width,height:c.height})')
+                await cover.evaluate('c=>c.decode()')
+                size = await cover.evaluate('c=>({width:c.naturalWidth,height:c.naturalHeight})')
                 assert size['width'] <= 480 and size['height'] <= 720
                 assert abs(size['width']/size['height']-(1.5 if fmt == 'EXIF' else 2/3)) < .01
                 assert size['width']*size['height'] <= 1600*2400/10
-                assert await page.locator('img.card-cover').count() == 0
+                assert await page.locator('canvas.card-cover').count() == 0
                 calls = await page.evaluate('bitmapCalls')
-                assert calls and all(c['resizeWidth'] <= 480 for c in calls)
+                assert (not calls) if fmt == 'SVG' else (calls and all(c['resizeWidth'] <= 480 for c in calls))
                 assert await page.evaluate('closedBitmaps') == len(calls)
                 await cover.evaluate('c=>window.savedCoverCanvas=c')
                 await page.locator('#statusSelect').select_option('ongoing')
                 await wait_loaded(page)
-                assert await page.evaluate('savedCoverCanvas===document.querySelector("canvas.card-cover")')
+                assert await page.evaluate('savedCoverCanvas===document.querySelector("img.card-cover")')
+                await page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));document.dispatchEvent(new Event('visibilitychange'))")
+                assert await cover.evaluate('c=>c.complete&&c.naturalWidth>0&&c.src.startsWith("blob:")')
+                # Draw the ordinary thumbnail into a fresh canvas to prove the
+                # retained encoded image still contains the expected pixels.
+                assert await cover.evaluate("c=>{const a=document.createElement('canvas');a.width=a.height=1;const x=a.getContext('2d');x.drawImage(c,0,0,1,1);return x.getImageData(0,0,1,1).data[3]===255}")
+                url = await cover.get_attribute('src')
+                await page.locator('#statusSelect').select_option('complete')
+                await wait_loaded(page)
+                assert await page.locator('.novel-card').count() == 0
+                assert await page.evaluate("async url=>{try{await fetch(url);return false}catch(_){return true}}",url)
                 await page.close()
             await browser.close()
     asyncio.run(scenario())
@@ -670,6 +724,19 @@ def test_cover_resize_fallback_handles_blocked_cors_and_older_decoders():
                 assert await cover.evaluate('c=>c.width<=480&&c.height<=720')
                 assert await page.locator('img.card-cover').count() == 0
                 assert await cover.evaluate("c=>{try{c.toDataURL();return false}catch(e){return e.name==='SecurityError'}}")
+                # Simulate a discarded mobile drawing buffer and returning
+                # through both tab visibility and back/forward restoration.
+                for event in ['visibilitychange','pageshow','contextrestored']:
+                    await cover.evaluate('c=>{window.oldCanvas=c;c.width=c.width}')
+                    if event == 'contextrestored':
+                        await cover.dispatch_event(event)
+                    elif event == 'visibilitychange':
+                        await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+                    else:
+                        await page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))")
+                    await page.wait_for_function("document.querySelector('canvas.card-cover.loaded') !== oldCanvas && !!document.querySelector('canvas.card-cover.loaded')")
+                    cover = page.locator('canvas.card-cover.loaded')
+                    assert await cover.evaluate('c=>c.width>0&&c.width<=480&&c.height<=720')
                 await page.close()
             await browser.close()
     asyncio.run(scenario())
@@ -702,7 +769,7 @@ def test_source_menu_icons_keyboard_history_and_site_icon():
             await page.keyboard.press('Enter')
             await wait_loaded(page)
             assert await button.inner_text() == 'Npia'
-            assert 'src=npia' in page.url
+            assert 'src=' not in page.url
             await page.go_back()
             await page.wait_for_function('document.querySelector("#sourcePickerButton").textContent==="Nweb"')
             await button.click()
@@ -740,7 +807,7 @@ def test_cover_downloads_are_bounded_and_cancel_when_source_changes():
             await page.wait_for_function('activeCoverFetches===2')
             await page.locator('#sourceSelect').select_option('nweb')
             await wait_loaded(page)
-            await page.wait_for_function('document.querySelectorAll("canvas.card-cover.loaded").length===3')
+            await page.wait_for_function('document.querySelectorAll("img.card-cover.loaded").length===3')
             assert await page.evaluate('peakCoverFetches') == 2
             assert await page.evaluate('cancelledCoverFetches') > 0
             assert await page.locator('.novel-card[data-source="npia"]').count() == 0
