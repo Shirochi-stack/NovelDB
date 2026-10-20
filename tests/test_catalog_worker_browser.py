@@ -148,15 +148,15 @@ def test_blocked_storage_keeps_top_cards_and_explains_recovery():
     asyncio.run(scenario())
 
 
-def test_downloads_overlap_but_only_one_compressed_chunk_waits_ahead():
+def test_four_downloads_overlap_with_bounded_prefetch_and_sequential_imports():
     class Site(FixtureSite):
         def __init__(self):
             super().__init__()
             self.release_first = asyncio.Event()
-            self.first_two = asyncio.Event()
+            self.first_four = asyncio.Event()
             self.started = []
             self.worker = None
-            self.third_saw_committed_first = False
+            self.fifth_saw_committed_first = False
 
         async def route(self, route):
             path = urlsplit(route.request.url).path
@@ -165,13 +165,13 @@ def test_downloads_overlap_but_only_one_compressed_chunk_waits_ahead():
             elif path.startswith('/data/overlap_'):
                 chunk = int(path.split('_')[-1].split('.')[0])
                 self.started.append(chunk)
-                if len(self.started) == 2:
-                    self.first_two.set()
+                if len(self.started) == 4:
+                    self.first_four.set()
                 if chunk == 0:
                     await self.release_first.wait()
-                if chunk == 2:
+                if chunk == 4:
                     saved = await self.worker.evaluate("get('cards',['npia',0,0])")
-                    self.third_saw_committed_first = saved['rows'][0][0] == 1
+                    self.fifth_saw_committed_first = saved['rows'][0][0] == 1
                 # A failed prefetched download must preserve other chunks.
                 if chunk == 2:
                     await route.abort('failed')
@@ -192,21 +192,21 @@ def test_downloads_overlap_but_only_one_compressed_chunk_waits_ahead():
                 await page.evaluate(BOOT)
             site.worker = await worker_event.value
             pending = asyncio.create_task(page.evaluate("""rpc('import',{source:'npia',cfg:{format:'array',chunked:true,
-                chunkFiles:[0,1,2,3].map(i=>`http://metadata.test/data/overlap_${i}.json.gz`)}})"""))
-            await asyncio.wait_for(site.first_two.wait(), 5)
-            assert sorted(site.started) == [0, 1]
+                chunkFiles:[0,1,2,3,4,5].map(i=>`http://metadata.test/data/overlap_${i}.json.gz`)}})"""))
+            await asyncio.wait_for(site.first_four.wait(), 5)
+            assert sorted(site.started) == [0, 1, 2, 3]
             # Hold the first response: no unbounded downloading or early parsing.
             await asyncio.sleep(.1)
-            assert sorted(site.started) == [0, 1]
-            assert await site.worker.evaluate("get('meta',['npia',0])") is None
-            assert await site.worker.evaluate("get('meta',['npia',1])") is None
+            assert sorted(site.started) == [0, 1, 2, 3]
+            for chunk in range(4):
+                assert await site.worker.evaluate("chunk=>get('meta',['npia',chunk])", chunk) is None
             site.release_first.set()
             result = await pending
-            assert result['total'] == 3 and len(result['warnings']) == 1
-            assert site.third_saw_committed_first
-            assert sorted(site.started) == [0, 1, 2, 3]
+            assert result['total'] == 5 and len(result['warnings']) == 1
+            assert site.fifth_saw_committed_first
+            assert sorted(site.started) == [0, 1, 2, 3, 4, 5]
             assert await site.worker.evaluate("get('meta',['npia',2])") is None
-            assert (await site.worker.evaluate("get('cards',['npia',3,0])"))['rows'][0][0] == 4
+            assert (await site.worker.evaluate("get('cards',['npia',5,0])"))['rows'][0][0] == 6
             await browser.close()
     asyncio.run(scenario())
 
@@ -218,14 +218,14 @@ def test_storage_failure_aborts_the_prefetched_download():
             if path == '/':
                 await route.fulfill(body='<html><body>Worker test</body></html>', content_type='text/html')
             elif path == '/catalog-worker.js':
-                prefix = """
-                    self.prefetchState={started:false,aborted:false};
+                prefix = r"""
+                    self.prefetchState={started:[],aborted:[]};
                     const originalFetch=self.fetch.bind(self);
                     self.fetch=(url,options)=>{
-                        if(String(url).endsWith('cancel_1.json')) {
-                            prefetchState.started=true;
+                        if(/cancel_[123]\.json$/.test(String(url))) {
+                            prefetchState.started.push(String(url));
                             return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>{
-                                prefetchState.aborted=true;reject(new DOMException('Cancelled','AbortError'));
+                                prefetchState.aborted.push(String(url));reject(new DOMException('Cancelled','AbortError'));
                             },{once:true}));
                         }
                         if(String(url).endsWith('cancel_0.json')) return new Promise(resolve=>setTimeout(()=>
@@ -249,9 +249,11 @@ def test_storage_failure_aborts_the_prefetched_download():
                 await page.evaluate(BOOT)
             worker = await worker_event.value
             error = await page.evaluate("""rpc('import',{source:'npia',cfg:{format:'array',chunked:true,
-                chunkFiles:[0,1].map(i=>`http://metadata.test/data/cancel_${i}.json`)}}).then(()=>null,e=>e.message)""")
+                chunkFiles:[0,1,2,3].map(i=>`http://metadata.test/data/cancel_${i}.json`)}}).then(()=>null,e=>e.message)""")
             assert error == 'Disk full'
-            assert await worker.evaluate('prefetchState') == {'started': True, 'aborted': True}
+            state = await worker.evaluate('prefetchState')
+            expected = [f'http://metadata.test/data/cancel_{i}.json' for i in range(1, 4)]
+            assert sorted(state['started']) == sorted(state['aborted']) == expected
             assert await worker.evaluate("get('meta',['npia',0])") is None
             await browser.close()
     asyncio.run(scenario())
