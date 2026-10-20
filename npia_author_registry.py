@@ -47,6 +47,63 @@ def observe(registry, novels, now=None):
     return observed
 
 
+def plan_r19_requests(registry, rows, full=(), *, checked=None, now=None):
+    """Prioritize public catalogs using evidence; names are candidates, not identities."""
+    now = time.time() if now is None else now
+    checked = checked or {}
+    adults = {str(row[0]): row[2] for row in rows if len(row) > 11 and str(row[11]) == '19'}
+    confirmed = {}
+    for novel in full:
+        if str(novel.get('age')) == '19':
+            nid = str(novel.get('id', ''))
+            if nid.isdigit():
+                adults[nid] = novel.get('author', '')
+                owner = author_id(novel)
+                if owner:
+                    confirmed[nid] = owner
+    names = {}
+    for nid, name in adults.items():
+        if name:
+            names.setdefault(name, set()).add(nid)
+    targets = {}
+    for owner, entry in registry.get('authors', {}).items():
+        known = set(entry.get('novel_ids', [])) & adults.keys()
+        for nid in known:
+            confirmed[nid] = owner
+        candidates = set(known)
+        for name in set(entry.get('names', []) + [entry.get('name', '')]):
+            named = names.get(name, set())
+            if entry.get('catalog_status') == 'complete':
+                # A completed catalog can disprove a name match. Unmatched
+                # novels must fall back to a detail lookup, not get stranded.
+                named = named & set(entry.get('catalog_novel_ids', []))
+            candidates.update(named)
+        if candidates:
+            targets[owner] = candidates
+    for nid, owner in confirmed.items():
+        targets.setdefault(owner, set()).add(nid)
+    candidate_ids = set().union(*targets.values()) if targets else set()
+    groups = {}
+    for nid, name in adults.items():
+        if nid not in candidate_ids and now - checked.get(nid, 0) >= 7 * 86400:
+            groups.setdefault(name or f'id:{nid}', []).append(nid)
+    # One detail resolves an author candidate for the whole name group. The
+    # subsequent public catalog, never the name match, verifies membership.
+    details = []
+    for ids in sorted(groups.values(), key=lambda ids: (-len(ids), min(checked.get(n, 0) for n in ids), min(map(int, ids)))):
+        details.append(min(ids, key=lambda n: (checked.get(n, 0), int(n))))
+    def author_priority(owner):
+        entry = registry.get('authors', {}).get(owner, {})
+        last = entry.get('last_catalog_checked', 0)
+        # Backfill unchecked authors before refreshing already covered ones.
+        # A prolific author must not consume the same budget every week.
+        return (bool(entry.get('catalog_error')), bool(last), last, -len(targets[owner]), int(owner))
+    authors = sorted(targets, key=author_priority)
+    return dict(detail_ids=details, authors=authors, r19_total=len(adults),
+                confirmed_ids=len(confirmed), candidate_ids=len(candidate_ids),
+                unresolved_groups=len(groups))
+
+
 def seed_catalog_names(registry, rows):
     """Keep legacy names without inventing IDs or treating names as unique identities."""
     assigned = {nid for entry in registry["authors"].values() for nid in entry["novel_ids"]}

@@ -33,7 +33,7 @@ jobs:
         run: pip install requests beautifulsoup4
 
       - name: Rescrape Npia catalog and public R19 metadata (no auth)
-        run: python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-pages 200 --author-delay 2 --intro-requests 6
+        run: python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-pages 200 --author-page-size 100 --author-delay 2 --intro-requests 6
 
       - name: Extract descriptions from full data
         run: python scripts/extract_descriptions.py

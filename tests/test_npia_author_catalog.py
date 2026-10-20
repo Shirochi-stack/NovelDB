@@ -57,6 +57,47 @@ def test_repeated_page_and_author_mismatch_are_rejected():
         list(catalog.iter_author_pages(Session([page([novel(1)])]), 43, delay=0))
 
 
+def test_hundred_row_batches_collect_106_records_in_two_calls():
+    first = [novel(n) for n in range(1, 101)]
+    last = [novel(n) for n in range(101, 107)]
+    session = Session([page(first, 106), page(last, 106)])
+    pages = list(catalog.iter_author_pages(session, 42, page_size=100, delay=0))
+    assert sum(len(rows) for _, rows, _ in pages) == 106
+    assert len(session.posts) == 2
+    assert [p['paging[curPage]'] for p in session.posts] == [1, 2]
+    assert all(p['paging[rowCount]'] == 100 for p in session.posts)
+
+
+def test_larger_batch_migration_resumes_before_old_offset_without_skipping():
+    scraper = scraper_module()
+    session = Session([page([novel(n) for n in range(101, 201)], 220)])
+    state = {'author_pending': {'42': 8}, 'author_page_size': 20}
+    scraper.enrich_author_catalogs(session, {}, {}, state, page_limit=1, page_size=100,
+                                   delay=0, now=1_000_000)
+    assert session.posts[0]['paging[curPage]'] == 2
+    assert state['author_pending']['42'] == 3 and state['author_page_size'] == 100
+
+
+def test_r19_targets_precede_general_queue_and_reserve_general_exploration():
+    scraper = scraper_module()
+    authors = {str(n): {'name': f'Author {n}', 'names': [f'Author {n}'], 'novel_ids': []}
+               for n in range(1, 8)}
+    existing = [[n, 'Title', f'Author {n}'] + [0]*8 + [19] for n in range(2, 8)]
+    calls = []
+    def post(url, **kwargs):
+        owner = kwargs['data']['mem_no'];calls.append(owner)
+        row = dict(novel_no=int(owner), mem_no=int(owner), novel_age=19, novel_name='Title')
+        return SimpleNamespace(status_code=200, json=lambda: dict(status=200, result=page([row])))
+    state = {'author_pending': {str(n): 1 for n in range(1, 8)}}
+    scraper.enrich_author_catalogs(SimpleNamespace(post=post), {}, {}, state,
+                                   registry={'authors': authors}, existing=existing,
+                                   page_limit=5, page_size=100, delay=0, now=1_000_000)
+    assert calls == ['2', '3', '4', '5', '1']
+    assert state['author_last_run']['targeted_pages'] == 4
+    assert state['author_last_run']['r19_unique'] == 5
+    assert state['author_last_run']['r19_new'] == 1
+
+
 def test_cancellation_during_delay_makes_no_request():
     session = Session([])
     flag = [False]

@@ -22,10 +22,12 @@ def matches_age(item, age_filter=""):
 
 
 def iter_author_pages(session, author, *, start_page=1, max_pages=None, delay=2.0,
-                      stopped=lambda: False, sleep=time.sleep):
+                      stopped=lambda: False, sleep=time.sleep, page_size=20):
     """Yield validated pages; callers retain each page before requesting the next."""
     if not str(author).isdigit() or int(author) <= 0:
         raise ValueError("invalid author ID")
+    if not isinstance(page_size, int) or not 1 <= page_size <= 100:
+        raise ValueError('author page size must be between 1 and 100')
     page = start_page
     signatures = set()
     requests_made = 0
@@ -39,7 +41,7 @@ def iter_author_pages(session, author, *, start_page=1, max_pages=None, delay=2.
             return
         response = session.post(AUTHOR_URL, data={
             "mode": "get_member_writer_novel", "mem_no": str(author),
-            "paging[rowCount]": 20, "paging[curPage]": page,
+            "paging[rowCount]": page_size, "paging[curPage]": page,
             "paging[order]": "date", "paging[sort][date]": 1,
         }, timeout=30, allow_redirects=False)
         requests_made += 1
@@ -63,10 +65,10 @@ def iter_author_pages(session, author, *, start_page=1, max_pages=None, delay=2.
         if rows and signature in signatures:
             raise ValueError("author catalog repeated a page")
         signatures.add(signature)
-        if not rows and (page - 1) * 20 < total:
+        if not rows and (page - 1) * page_size < total:
             raise ValueError("author catalog returned an incomplete page")
-        more = page * 20 < total
-        if more and len(rows) < 20:
+        more = page * page_size < total
+        if more and len(rows) < page_size:
             raise ValueError("author catalog returned an incomplete page")
         yield page, rows, more
         if not more:

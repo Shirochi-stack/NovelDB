@@ -124,6 +124,13 @@ def test_old_r19_rows_receive_reserved_refresh_budget():
     assert state["pending"] == ["13"]
 
 
+def test_planned_details_resolve_only_selected_unknown_authors():
+    session = Session({'/novel/10': detail(10)})
+    state = public.enrich(session, {}, [row(1), row(10), row(11)], {}, {},
+                          listing_pages=0, detail_limit=200, detail_ids=['10'], now=1_000_000)
+    assert session.calls == ['/novel/10'] and state['last_run']['updated'] == 1
+
+
 def test_repeated_listing_page_stops_instead_of_looping():
     html = '<a href="/novel/123">A</a>'
     session = Session({"/plus/adult/new/1/": html, "/plus/adult/new/2/": html})

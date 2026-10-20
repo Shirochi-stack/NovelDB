@@ -215,11 +215,18 @@ def merge_term_results(terms, results, fresh_novels):
     return raw_count, len(fresh_novels) - before
 
 
-def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, delay=2.0, now=None, existing=(), registry=None, priority_authors=()):
+def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, delay=2.0, now=None, existing=(), registry=None, priority_authors=(), page_size=20):
     """Resume a bounded author sweep, retaining every completed metadata page."""
     now = time.time() if now is None else now
     pending = state.setdefault("author_pending", {})
     checked = state.setdefault("author_checked", {})
+    previous_size = state.get('author_page_size', 20)
+    if previous_size != page_size:
+        # Resume at or before the old offset; changing batch sizes must never
+        # skip records from a partially collected author.
+        for owner, page in pending.items():
+            pending[owner] = ((page - 1) * previous_size) // page_size + 1
+    state['author_page_size'] = page_size
     compact = {str(row[0]): row for row in existing}
     for novel in list(fresh.values()) + list(old_full.values()):
         owner = author_id(novel)
@@ -230,15 +237,36 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
         for owner in registry["authors"]:
             if owner not in pending and now - checked.get(owner, 0) >= 7 * 86400:
                 pending[owner] = 1
-    pending = {**{owner: pending[owner] for owner in priority_authors if owner in pending}, **pending}
+    plan = author_registry.plan_r19_requests(registry or {}, existing,
+                                           list(old_full.values()) + list(fresh.values()), now=now)
+    priority = list(dict.fromkeys(list(priority_authors) + plan['authors']))
+    pending = {**{owner: pending[owner] for owner in priority if owner in pending}, **pending}
     state["author_pending"] = pending
     pages = updated = failed = completed = 0
-    for owner in list(pending):
+    targeted = [owner for owner in priority if owner in pending]
+    targeted_set = set(targeted)
+    ordinary = [owner for owner in pending if owner not in targeted_set]
+    targeted_budget = page_limit - max(1, page_limit // 5) if targeted and ordinary and page_limit > 1 else page_limit
+    targeted_pages = 0
+    seen, r19_seen, failed_owners = set(), set(), set()
+    r19_hits = 0
+    earlier_r19 = {nid for nid, novel in fresh.items() if str(novel.get('age')) == '19'}
+    # Leave 20% for general discovery, then spend any unused allowance on R19.
+    tasks = [(owner, True, False) for owner in targeted] + [(owner, False, False) for owner in ordinary] + [(owner, True, True) for owner in targeted]
+    for owner, is_targeted, refill in tasks:
         if pages >= page_limit:
             break
+        if owner not in pending or owner in failed_owners:
+            continue
+        allowance = page_limit - pages
+        if is_targeted and not refill:
+            allowance = min(allowance, targeted_budget - targeted_pages)
+        if allowance <= 0:
+            continue
+        before_pages = pages
         try:
             for page, rows, more in iter_author_pages(session, owner, start_page=pending[owner],
-                                                     max_pages=page_limit - pages, delay=delay):
+                                                     max_pages=allowance, delay=delay, page_size=page_size):
                 pages += 1
                 if registry is not None:
                     entry = registry["authors"][owner]
@@ -274,6 +302,10 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
                     base.update(patch)
                     fresh[nid] = base
                     updated += 1
+                    seen.add(nid)
+                    if str(base.get('age')) == '19':
+                        r19_hits += 1
+                        r19_seen.add(nid)
                 if more:
                     pending[owner] = page + 1
                 else:
@@ -288,6 +320,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
         except Exception as exc:
             pages += 1  # Failed requests also consume the run's request budget.
             failed += 1
+            failed_owners.add(owner)
             if registry is not None:
                 registry["authors"][owner]["catalog_status"] = "partial"
                 registry["authors"][owner]["catalog_error"] = type(exc).__name__
@@ -295,8 +328,15 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
             print(f"Author {owner} PARTIAL; completed pages retained: {exc}", flush=True)
             if "HTTP 429" in str(exc):
                 break
+        finally:
+            if is_targeted:
+                targeted_pages += pages - before_pages
     state["author_last_run"] = dict(pages=pages, updated=updated, completed=completed, failed=failed,
-                                    pending=len(pending))
+                                    pending=len(pending), unique_updated=len(seen), r19_hits=r19_hits,
+                                    r19_unique=len(r19_seen), r19_new=len(r19_seen - compact.keys() - old_full.keys()),
+                                    r19_already_refreshed=len(r19_seen & earlier_r19), targeted_pages=targeted_pages)
+    print(f"Author R19 metadata: {len(r19_seen)} unique, {r19_hits} hits, "
+          f"{state['author_last_run']['r19_new']} new IDs; {targeted_pages}/{pages} requests targeted R19", flush=True)
     return state
 
 
@@ -316,12 +356,16 @@ def main():
     parser.add_argument("--author-pages", type=int, default=200,
                         help="Maximum public author catalog requests per run; checkpoints resume next run")
     parser.add_argument("--author-delay", type=float, default=2.0)
+    parser.add_argument('--author-page-size', type=int, default=100,
+                        help='Novels per public author request (1-100)')
     parser.add_argument("--intro-requests", type=int, default=6,
                         help="Maximum requests for public R19 author discovery per run")
     args = parser.parse_args()
     if min(args.r19_listing_pages, args.r19_detail_limit, args.r19_delay,
            args.author_pages, args.author_delay, args.intro_requests) < 0:
         parser.error("R19 request budgets and delay must be nonnegative")
+    if not 1 <= args.author_page_size <= 100:
+        parser.error('Author page size must be between 1 and 100')
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_path = os.path.join(base_dir, "docs", "data", "novels.json")
@@ -398,9 +442,13 @@ def main():
         with open(public_state_path, encoding="utf-8") as handle:
             public_state = json.load(handle)
     print("\n--- Refreshing public R19 metadata (no auth) ---", flush=True)
+    plan = author_registry.plan_r19_requests(registry, existing_data, old_full_lookup.values(),
+                                           checked=public_state.get('checked', {}))
+    print(f"R19 request plan: {plan['confirmed_ids']}/{plan['r19_total']} verified author mappings; "
+          f"{len(plan['authors'])} candidate authors; {plan['unresolved_groups']} unresolved author groups", flush=True)
     public_state = enrich(session, fresh_novels, existing_data, old_full_lookup, public_state,
                           listing_pages=args.r19_listing_pages,
-                          detail_limit=args.r19_detail_limit, delay=args.r19_delay)
+                          detail_limit=args.r19_detail_limit, delay=args.r19_delay, detail_ids=plan['detail_ids'])
     print("\n--- Checking public author catalogs (no auth) ---", flush=True)
     intro_rows = discover_intro(session, public_state, max_requests=args.intro_requests,
                                 delay=args.author_delay)
@@ -408,7 +456,7 @@ def main():
     public_state = enrich_author_catalogs(session, fresh_novels, old_full_lookup, public_state,
                                           page_limit=args.author_pages, delay=args.author_delay,
                                           existing=existing_data, registry=registry,
-                                          priority_authors=sorted(intro_authors, key=int))
+                                          priority_authors=sorted(intro_authors, key=int), page_size=args.author_page_size)
     author_registry.report_coverage(registry, search_ids)
 
     # Build lookup: novel_id_str -> index in existing_data
