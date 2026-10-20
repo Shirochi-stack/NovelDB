@@ -36,6 +36,8 @@
             thumbnail._coverOptions = img._coverOptions; thumbnail._coverFallback = img._coverFallback;
             thumbnail.src = url;
             objectUrls.set(thumbnail,url);
+            await thumbnail.decode().catch(()=>{});
+            if (!img.isConnected) { URL.revokeObjectURL(url); objectUrls.delete(thumbnail); return; }
             img.replaceWith(thumbnail); img.removeAttribute('src');
             return thumbnail;
         }
@@ -48,11 +50,24 @@
     function restoreCanvas(canvas) {
         const job = recoverable.get(canvas);
         if (!job || !canvas.isConnected) return;
+        replaceCover(canvas,job);
+    }
+    function replaceCover(cover,options) {
         const img = document.createElement('img');
-        img.className = canvas.className.replace(/\bloaded\b/g,'');
-        img.dataset.src = job.src; img.alt = job.alt || '';
-        canvas.replaceWith(img);
-        window.NovelCovers.load(img,job);
+        img.className = 'card-cover'; img.dataset.src = cover.dataset.src;
+        img.alt = cover.alt || options.alt || ''; img.decoding = 'async';
+        img._coverFallback = options.fallback || cover._coverFallback;
+        const stage = document.createElement('span');
+        stage.className = 'cover-replacement';
+        stage.style.cssText = 'position:absolute;inset:0;visibility:hidden;pointer-events:none';
+        stage.appendChild(img); cover.parentElement?.appendChild(stage);
+        window.NovelCovers.load(img,{...options,ready:replacement=>{
+            if (!cover.isConnected || !stage.isConnected) {stage.remove();return;}
+            cover.replaceWith(replacement); stage.remove();
+            replacement._coverOptions = options;
+            if(recoverable.has(replacement)) recoverable.set(replacement,{...options,src:img.dataset.src,alt:img.alt});
+            options.ready(replacement); window.NovelCovers.prune();
+        },missing:()=>{stage.remove();window.NovelCovers.prune();}});
     }
     function restoreCovers() {
         if (document.visibilityState === 'hidden') return;
@@ -169,16 +184,13 @@
         setLowResolution(enabled) {
             lowResolution = !!enabled;
             try {localStorage.setItem('noveldb.lowResCovers',String(lowResolution));} catch (_) {}
-            // Requeue visible covers through the same bounded loader. Cards
-            // and their synopses keep their current positions and contents.
+            // Decode behind the current image, then swap in one paint. Never
+            // remove a visible cover while its replacement is still loading.
+            for (const stage of document.querySelectorAll('.cover-replacement')) stage.remove();
             for (const cover of document.querySelectorAll('.card-cover[data-src]')) {
                 const options = cover._coverOptions || recoverable.get(cover);
-                const img = document.createElement('img');
-                img.className = 'card-cover'; img.dataset.src = cover.dataset.src;
-                img.alt = cover.alt || ''; img.decoding = 'async';
-                img._coverFallback = options?.fallback || cover._coverFallback;
-                cover.parentElement?.classList.remove('cover-ready');
-                cover.replaceWith(img);
+                if (!options) continue;
+                replaceCover(cover,options);
             }
             this.prune();
         },

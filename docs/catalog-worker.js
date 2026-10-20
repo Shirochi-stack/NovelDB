@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=5");
+importScripts("catalog-import.js?v=6");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -14,6 +14,7 @@ function createParserPool() {
     let sequence = 0, closed = false;
     function finish(slot,error,result) {
         const job = slot.job; slot.job = null;
+        clearTimeout(slot.timer);
         // Release this chunk's heap before the slot takes another chunk.
         slot.worker?.terminate(); slot.worker = null;
         if (job) error ? job.reject(error) : job.resolve(result);
@@ -25,7 +26,7 @@ function createParserPool() {
             if (slot.job || !queue.length) continue;
             if (!slot.worker) {
                 try {
-                    const worker = slot.worker = new Worker('catalog-parser.js?v=5');
+                    const worker = slot.worker = new Worker('catalog-parser.js?v=6');
                     worker.onmessage = ({data}) => {
                         if (closed || slot.worker !== worker || data.id !== slot.job?.id) return;
                         finish(slot,data.error ? Object.assign(new Error(data.error.message),{name:data.error.name}) : null,data.result);
@@ -38,6 +39,7 @@ function createParserPool() {
                 } catch (error) { for (const job of queue.splice(0)) job.reject(error); return; }
             }
             slot.job = queue.shift();
+            slot.timer=setTimeout(()=>finish(slot,new Error('Catalog parser timed out')),45000);
             try { slot.worker.postMessage({id:slot.job.id,...slot.job.value},[slot.job.value.compressed]); }
             catch (error) { finish(slot,error); }
         }
@@ -51,7 +53,7 @@ function createParserPool() {
             closed = true;
             const error = new DOMException('Import cancelled','AbortError');
             for (const job of queue.splice(0)) job.reject(error);
-            for (const slot of slots) { slot.worker?.terminate(); slot.job?.reject(error); slot.worker = slot.job = null; }
+            for (const slot of slots) { clearTimeout(slot.timer); slot.worker?.terminate(); slot.job?.reject(error); slot.worker = slot.job = null; }
         },
     };
 }
@@ -65,7 +67,7 @@ async function clearRuns() {
     await done;
 }
 
-async function importSource(source, cfg, progress, labels) {
+async function importSource(source, cfg, progress, labels, recovered=false) {
     if (!runsReset) {
         const tx = (await db()).transaction("runs","readwrite"), done = transaction(tx);
         tx.objectStore("runs").delete(IDBKeyRange.upperBound([Date.now()-86400000]));
@@ -76,6 +78,7 @@ async function importSource(source, cfg, progress, labels) {
     const keys = [], fingerprints = [], counts = new Map();
     let total = 0;
     const warnings = [];
+    let changedManifest=false, failed=0, saved=0;
     // At most eight chunks are in flight; four parser workers consume their
     // compressed buffers. Results are merged in source order, not finish order.
     const downloads = new Map(), controller = new AbortController();
@@ -92,19 +95,32 @@ async function importSource(source, cfg, progress, labels) {
             // The freshly fetched manifest identifies unchanged content without
             // revalidating or downloading each catalog chunk on repeat visits.
             if (hashedFingerprint && old?.fingerprint === hashedFingerprint) return { old, info: old };
-            const response = await fetch(url, { cache: "no-cache", signal: controller.signal });
-            if (!response.ok) { await response.body?.cancel(); throw new Error(`HTTP ${response.status}`); }
-            const validator = response.headers.get("etag") || response.headers.get("last-modified");
-            const fingerprint = hashedFingerprint || signature(validator || crypto.getRandomValues(new Uint32Array(4)).join("-"));
-            if (!hash && validator && old?.fingerprint === fingerprint) {
-                await response.body?.cancel();
-                return { old, info: old };
-            }
-            const compressed = await response.arrayBuffer();
-            if (hash) {
-                const digest = await crypto.subtle.digest("SHA-256",compressed);
-                const actual = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2,"0")).join("");
-                if (actual !== hash) throw new Error("Catalog chunk does not match its manifest");
+            let compressed, fingerprint;
+            for(let attempt=0;attempt<2;attempt++) {
+                const timed=new AbortController(), abort=()=>timed.abort(controller.signal.reason);
+                controller.signal.addEventListener('abort',abort,{once:true});
+                if(controller.signal.aborted) abort();
+                const timer=setTimeout(()=>timed.abort(new Error('Catalog download timed out')),20000);
+                try {
+                    const requestUrl=new URL(url,self.location.href);
+                    if(hash) requestUrl.searchParams.set('chunk',hash);
+                    if(attempt) requestUrl.searchParams.set('retry',String(Date.now()));
+                    const response=await fetch(requestUrl,{cache:attempt || recovered ? 'no-store' : 'no-cache',signal:timed.signal});
+                    if(!response.ok) {await response.body?.cancel();throw new Error(`HTTP ${response.status}`);}
+                    const validator=response.headers.get('etag') || response.headers.get('last-modified');
+                    fingerprint=hashedFingerprint || signature(validator || crypto.getRandomValues(new Uint32Array(4)).join('-'));
+                    if(!hash && validator && old?.fingerprint===fingerprint) {
+                        await response.body?.cancel();return {old,info:old};
+                    }
+                    compressed=await response.arrayBuffer();
+                    if(hash) {
+                        const digest=await crypto.subtle.digest('SHA-256',compressed);
+                        const actual=[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+                        if(actual!==hash) throw Object.assign(new Error('Catalog chunk does not match its manifest'),{name:'CatalogChangedError'});
+                    }
+                    break;
+                } catch(error) {if(controller.signal.aborted || attempt) throw error;}
+                finally {clearTimeout(timer);controller.signal.removeEventListener('abort',abort);}
             }
             if (!parserPool) parserPool = createParserPool();
             const info = await parserPool.parse({source,cfg:{...cfg,chunk},old,fingerprint,compressed,labels});
@@ -127,7 +143,9 @@ async function importSource(source, cfg, progress, labels) {
                 combineGroups(counts, info.groups);
             } catch (error) {
                 if (["QuotaExceededError", "SecurityError", "InvalidStateError"].includes(error.name)) throw error;
-                warnings.push(`${source}: chunk ${chunk + 1}/${files.length} unavailable (${error.message})`);
+                failed++;
+                if(error.name==='CatalogChangedError') changedManifest=true;
+                console.warn(`${source}: chunk ${chunk+1}/${files.length}: ${error.message}`);
                 if (old) {
                     // A failed refresh must not discard a committed earlier chunk.
                     keys.push(...old.keys); total += old.total;
@@ -135,7 +153,7 @@ async function importSource(source, cfg, progress, labels) {
                     if (JSON.parse(old.fingerprint).at(-1) !== (cfg.tagVersion ?? null)) {
                         for (const key of old.keys) countTags(await get("index",key),labels,counts);
                     } else combineGroups(counts,old.groups);
-                    warnings.push(`${source}: using last saved chunk ${chunk + 1}`);
+                    saved++;
                 }
             }
             progress({ source, loaded: chunk + 1, total: files.length });
@@ -147,7 +165,31 @@ async function importSource(source, cfg, progress, labels) {
         // Release parsed-chunk heaps between sources, including on failures.
         parserPool?.close(); parserPool = null;
     }
-    if (!keys.length && warnings.length) throw new Error(`No ${source} catalog chunks available: ${warnings.join("; ")}`);
+    if(changedManifest && cfg.manifestUrl && !recovered) {
+        progress({source,loaded:0,total:files.length,recovering:true});
+        try {
+            const url=new URL(cfg.manifestUrl,self.location.href);
+            url.searchParams.set('refresh',String(Date.now()));
+            const timed=new AbortController(), timer=setTimeout(()=>timed.abort(new Error('Manifest refresh timed out')),15000);
+            let manifest;
+            try {
+                const response=await fetch(url,{cache:'no-store',signal:timed.signal});
+                if(!response.ok) throw new Error(`HTTP ${response.status}`);
+                manifest=await response.json();
+            } finally {clearTimeout(timer);}
+            const fresh=cfg.format==='metadata-v1' ? M.manifestConfig(manifest,source) : M.catalogManifestConfig(manifest,source);
+            const absolute=value=>{
+                const target=new URL(value.replace(/^data\//,''),url);
+                target.search=new URL(files[0],self.location.href).search;
+                return target.href;
+            };
+            const next={...cfg,...fresh,chunkFiles:fresh.chunkFiles.map(absolute)};
+            const result=await importSource(source,next,progress,labels,true);
+            return {...result,refreshed:fresh};
+        } catch(error) {console.warn(`${source}: manifest recovery: ${error.message}`);}
+    }
+    if(failed) warnings.push(`${source}: ${failed} chunk refresh${failed===1 ? '' : 'es'} failed; ${saved} saved chunk${saved===1 ? '' : 's'} retained`);
+    if (!keys.length && failed) throw new Error(`No ${source} catalog chunks available`);
     if (cfg.totalEntries != null && total !== cfg.totalEntries) warnings.push(`${source}: loaded ${total} of ${cfg.totalEntries} records`);
     blocks.set(source, keys); pages.clear();
     revisions.set(source,JSON.stringify(fingerprints));

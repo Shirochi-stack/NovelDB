@@ -9,14 +9,18 @@ function request(req) { return new Promise((resolve, reject) => { req.onsuccess 
 function transaction(tx) { return new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = tx.onerror = () => reject(tx.error || new Error("Catalog storage transaction failed")); }); }
 async function db() {
     if (!database) database = new Promise((resolve, reject) => {
+        let expired=false;
+        const timer=setTimeout(()=>{expired=true;database=null;reject(new Error('Catalog storage did not open in time'));},8000);
         const req = indexedDB.open("noveldb-catalog-v1", 1);
         req.onupgradeneeded = () => { for (const store of ["meta", "index", "cards", "runs"]) req.result.createObjectStore(store); };
         req.onsuccess = () => {
+            clearTimeout(timer);
+            if(expired) {req.result.close();return;}
             req.result.onversionchange = () => { req.result.close(); database = null; };
             resolve(req.result);
         };
-        req.onerror = () => reject(req.error);
-        req.onblocked = () => reject(new Error("Catalog storage is blocked by another tab"));
+        req.onerror = () => {clearTimeout(timer);database=null;reject(req.error);};
+        req.onblocked = () => {clearTimeout(timer);expired=true;database=null;reject(new Error("Catalog storage is blocked by another tab"));};
     });
     return database;
 }
