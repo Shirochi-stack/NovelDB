@@ -9,7 +9,7 @@ import pytest
 from PIL import Image, ImageDraw
 from playwright.async_api import async_playwright
 
-from test_metadata_frontend_browser import FixtureSite, row, wait_loaded
+from test_metadata_frontend_browser import FixtureSite, SOURCES, row, wait_loaded
 
 
 def image_bytes(fmt):
@@ -20,6 +20,40 @@ def image_bytes(fmt):
             draw.rectangle((x,y,x+19,y+19),fill=(x%256,y%256,(x+y)%256))
     stream=io.BytesIO(); image.save(stream,format=fmt)
     return stream.getvalue()
+
+
+def test_source_logo_is_the_only_transparent_badge_and_opens_details_for_each_source():
+    async def scenario():
+        icons={'npia':'npia.png','kpage':'kpage.png','sfc':'sfc.ico','nweb':'nweb.png',
+               'jara':'jara.ico','mpia':'mpia.ico','rbooks':'rbooks.png','nseries':'nseries.png'}
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
+            await page.route('**/*',FixtureSite().route)
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            for source in SOURCES:
+                if source!='npia':
+                    await page.select_option('#sourceSelect',source);await wait_loaded(page)
+                card=page.locator('.novel-card').first;badge=card.locator('.cover-details')
+                assert await card.locator('.cover-save').count()==0
+                assert await card.locator('.card-cover-area button').count()==1
+                assert await badge.locator('img').get_attribute('src')==f'icons/{icons[source]}'
+                assert await badge.evaluate('b=>getComputedStyle(b).backgroundColor==="rgba(0, 0, 0, 0)" && getComputedStyle(b).borderTopWidth==="0px"')
+                await badge.click()
+                dialog=page.get_by_role('dialog');await dialog.wait_for()
+                assert await dialog.locator('[data-field=source]').inner_text()==source
+                assert await dialog.get_by_role('button',name='Download Image').is_visible()
+                if source=='npia':
+                    await page.get_by_role('button',name='Close Details').click()
+                    await badge.focus();await page.keyboard.press('Enter');await dialog.wait_for()
+                await page.get_by_role('button',name='Close Details').click()
+            await page.select_option('#sourceSelect','all');await wait_loaded(page)
+            for card in await page.locator('.novel-card').all():
+                source=await card.get_attribute('data-source')
+                assert await card.locator('.cover-details img').get_attribute('src')==f'icons/{icons[source]}'
+            await page.locator('.novel-card').first.screenshot(path='artifacts/source-logo-badge.png')
+            await browser.close()
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize('fmt,context_menu',[('PNG',False),('JPEG',True),('WEBP',False),('GIF',True),('AVIF',False)])
@@ -56,7 +90,9 @@ def test_original_download_keeps_original_dimensions_and_pixels_while_display_is
                 assert await page.get_by_role('menu',name='Cover image').evaluate('menu=>{const r=menu.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}')
                 assert await page.get_by_role('menuitem').all_text_contents()==['Download Image','View Details']
                 button=page.get_by_role('menuitem',name='Download Image')
-            else: button=page.get_by_role('button',name='Download Image')
+            else:
+                await page.get_by_role('button',name='View Details').click()
+                button=page.get_by_role('dialog').get_by_role('button',name='Download Image')
             async with page.expect_download() as event: await button.click()
             download=await event.value
             extension={'PNG':'png','JPEG':'jpg','WEBP':'webp','GIF':'gif','AVIF':'avif'}[fmt]
@@ -235,14 +271,18 @@ def test_blocked_host_keeps_small_canvas_and_displays_original_inside_details():
             await wait_loaded(page)
             await page.locator('canvas.card-cover.loaded').wait_for()
             assert await page.locator('canvas.card-cover.loaded').evaluate('c=>c.width<=320&&c.height<=480')
-            await page.get_by_role('button',name='Download Image').click()
+            await page.locator('.card-cover-wrap').click(button='right',position={'x':10,'y':10})
+            await page.get_by_role('menuitem',name='Download Image').click()
             await page.wait_for_function("document.querySelector('.cover-save-notice').textContent.includes('Image HTTP 503')")
             await page.locator('.cover-save-notice').get_by_role('button',name='View Details').click()
             await page.wait_for_function('document.querySelector(".novel-details-image img")?.naturalWidth===800')
             assert await page.get_by_role('dialog').is_visible()
+            await page.get_by_role('dialog').get_by_role('button',name='Download Image').click()
+            await page.wait_for_function('document.querySelector(".cover-save-notice")?.closest("dialog") && document.querySelector(".cover-save-notice").textContent.includes("Image HTTP 503")')
+            assert await page.locator('.cover-save-notice').is_visible()
             await page.get_by_role('button',name='Close Details').click()
             assert not downloads
-            assert await page.get_by_role('button',name='Download Image').is_enabled()
+            assert await page.get_by_role('button',name='View Details').is_enabled()
             await browser.close()
     asyncio.run(scenario())
 
@@ -271,8 +311,9 @@ def test_blocked_image_host_downloads_original_size_lossless_webp_through_helper
             await page.route('**/*',route)
             await page.goto('https://metadata.test/');await wait_loaded(page)
             await page.locator('canvas.card-cover.loaded').wait_for()
+            await page.locator('.card-cover-wrap').click(button='right',position={'x':10,'y':10})
             async with page.expect_download() as event:
-                await page.get_by_role('button',name='Download Image').click()
+                await page.get_by_role('menuitem',name='Download Image').click()
             download=await event.value
             assert download.suggested_filename=='npia-7.webp'
             output=tmp_path/'original.webp';await download.save_as(output)

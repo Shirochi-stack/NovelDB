@@ -52,5 +52,5 @@
     new MutationObserver(sync).observe(select,{subtree:true,attributes:true,childList:true,characterData:true});
     select.classList.add('source-select-native');select.tabIndex=-1;select.setAttribute('aria-hidden','true');
     host.querySelector('label').htmlFor=button.id;host.append(button,menu);sync();
-    window.NovelSourcePicker={sync};
+    window.NovelSourcePicker={sync,iconFor:source=>icons[source] || icons.all};
 })();
