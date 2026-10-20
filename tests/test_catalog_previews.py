@@ -150,7 +150,7 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
             site = PreviewSite(previews,blocked=True)
             await page.route('**/*',site.route)
             await page.goto('https://metadata.test/')
-            await page.wait_for_function("document.querySelectorAll('.novel-card').length===100")
+            await page.wait_for_function("document.querySelectorAll('.novel-card').length===30")
             assert await page.locator('body').get_attribute('data-catalog-ready') == 'false'
             assert not site.release.is_set()
             bundle = json.loads(gzip.decompress((previews/'npia_chunk_preview.json.gz').read_bytes()))
@@ -161,7 +161,7 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
                     if number>1:
                         await page.locator('#paginationBottom .page-input').fill(str(number))
                         await page.locator('#paginationBottom .go-page').click()
-                    expected = [str(bundle['novels'][i][0]) for i in bundle['profiles'][sort][(number-1)*100:number*100]]
+                    expected = [str(bundle['novels'][i][0]) for i in bundle['profiles'][sort][(number-1)*30:number*30]]
                     assert await page.locator('.novel-card').evaluate_all('cs=>cs.map(c=>c.dataset.novelId)') == expected
                 await page.select_option('#sortSelect','daily' if sort!='daily' else 'weekly')
             await page.evaluate('''window.lockedCards=[...document.querySelectorAll('.novel-card')];window.cardMutations=0;
@@ -169,10 +169,10 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
             site.release.set()
             await wait_loaded(page)
             assert await page.evaluate('cardMutations===0&&lockedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])')
-            assert await page.locator('.novel-card').count()==100
-            await page.locator('#paginationBottom .page-input').fill('4')
+            assert await page.locator('.novel-card').count()==30
+            await page.locator('#paginationBottom .page-input').fill('11')
             await page.locator('#paginationBottom .go-page').click()
-            await page.wait_for_function("document.querySelectorAll('.novel-card').length===50")
+            await page.wait_for_function("document.querySelectorAll('.novel-card').length===30")
             # Warm each source, then monitor the existing status during returns.
             for source in ['sfc','nweb','all']:
                 await page.select_option('#sourceSelect',source);await wait_loaded(page)
@@ -180,7 +180,7 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
             await page.evaluate('''window.searchFlashes=0;new MutationObserver(()=>{if(document.querySelector('#resultCount').textContent.includes('Searching catalog'))searchFlashes++}).observe(document.querySelector('#resultCount'),{childList:true})''')
             for source in ['npia','sfc','nweb','all']:
                 await page.select_option('#sourceSelect',source)
-                assert await page.locator('.novel-card').count()==100
+                assert await page.locator('.novel-card').count()==30
                 await wait_loaded(page)
             assert await page.evaluate('searchFlashes')==0
             assert len(site.chunk_requests)==downloads
@@ -205,8 +205,8 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
                 page=await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
                 site=PreviewSite(previews,blocked=True)
                 await page.route('**/*',site.route)
-                await page.goto(f'https://metadata.test/#src={source}&sort={sort}&order={order}')
-                await page.wait_for_function("document.querySelectorAll('.novel-card').length===100")
+                await page.goto(f'https://metadata.test/#src={source}&sort={sort}&order={order}&batch=90')
+                await page.wait_for_function("document.querySelectorAll('.novel-card').length===90")
                 assert await page.locator('body').get_attribute('data-catalog-ready')=='false'
                 assert await page.locator('#sortSelect').input_value()==sort
                 shown=[]
@@ -222,7 +222,7 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
                 worker=next(w for w in page.workers if 'catalog-worker' in w.url)
                 effective=await page.evaluate('([sort,source])=>NovelMetadata.resolveSourceSort(sort,source)',[sort,source])
                 query=dict(sources=list(SOURCES) if source=='all' else [source],text='',author=None,status='all',audience='all',
-                    **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=300,
+                    **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=270,
                     sort=dict(sortBy=effective,order=order,audience='all',defaultSource=source))
                 expected=await worker.evaluate('q=>query(q,latestQuery)',query)
                 assert shown==[f"{n['source']}:{n['id']}" for n in expected['rows']],(source,sort,order)
@@ -235,7 +235,7 @@ def test_bad_preview_falls_back_to_catalog_and_saved_filters_skip_preview(previe
     async def scenario():
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            for suffix,broken,count in [('',True,100),('#src=npia&q=original%200042',False,1),('#src=npia&page=4',False,50)]:
+            for suffix,broken,count in [('',True,30),('#src=npia&q=original%200042',False,1),('#src=npia&page=12',False,20)]:
                 page = await browser.new_page()
                 await page.route('**/*',PreviewSite(previews,broken_preview=broken).route)
                 await page.goto('https://metadata.test/'+suffix)
@@ -243,5 +243,49 @@ def test_bad_preview_falls_back_to_catalog_and_saved_filters_skip_preview(previe
                 assert await page.locator('.novel-card').count()==count
                 if count==1:assert await page.locator('.novel-card').get_attribute('data-novel-id')=='42'
                 await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_combined_ranking_continues_by_likes_after_top_100_and_page_sizes_are_ordered(previews):
+    expected=[]
+    for source in SOURCES:
+        manifest=json.loads((previews/f'{source}_chunk_manifest.json').read_text(encoding='utf-8'))
+        for file in manifest['files']:
+            for item in json.loads(gzip.decompress((previews/file).read_bytes()))['novels']:
+                expected.append((source,item))
+    expected.sort(key=lambda pair:((pair[1][13] if pair[0]=='npia' else 0) or 10**9,
+        pair[1][6] is None,-pair[1][6] if pair[1][6] is not None else 0))
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page()
+            site=PreviewSite(previews,blocked=True)
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/#src=all')
+            await page.wait_for_function("document.querySelectorAll('.novel-card').length===30")
+            assert await page.locator('#batchSelect').input_value()=='30'
+            assert await page.locator('#batchSelect option').evaluate_all('opts=>opts.map(o=>o.value)')==['30','60','90','120','250']
+            # Page four at the default size crosses the actual rank boundary.
+            await page.locator('#paginationBottom .page-input').fill('4')
+            await page.locator('#paginationBottom .go-page').click()
+            await page.wait_for_function("document.querySelector('#resultCount').textContent.includes('page 4 of')")
+            ids=await page.locator('.novel-card').evaluate_all("cs=>cs.map(c=>c.dataset.source+':'+c.dataset.novelId)")
+            assert ids==[f'{s}:{item[0]}' for s,item in expected[90:120]]
+            assert ids[:10]==[f'npia:{i}' for i in range(91,101)]
+            await page.select_option('#batchSelect','90')
+            await page.locator('#paginationBottom .page-input').fill('2')
+            await page.locator('#paginationBottom .go-page').click()
+            await page.wait_for_function("document.querySelector('#resultCount').textContent.includes('page 2 of')")
+            shown=await page.locator('.novel-card').evaluate_all("cs=>cs.map(c=>c.dataset.source+':'+c.dataset.novelId)")
+            assert shown==[f'{s}:{item[0]}' for s,item in expected[90:180]]
+            await page.evaluate('window.savedCards=[...document.querySelectorAll(".novel-card")]')
+            site.release.set();await wait_loaded(page)
+            assert await page.evaluate('savedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])')
+            # Old bookmarks requesting 100 migrate to the replacement option.
+            await page.goto('https://metadata.test/#src=all&batch=100&page=2')
+            await wait_loaded(page)
+            assert await page.locator('#batchSelect').input_value()=='90'
+            assert await page.locator('.novel-card').evaluate_all("cs=>cs.map(c=>c.dataset.source+':'+c.dataset.novelId)")==shown
             await browser.close()
     asyncio.run(scenario())

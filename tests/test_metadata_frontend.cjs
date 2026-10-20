@@ -248,10 +248,10 @@ test('period badge identifies its actual board and never borrows another period'
 
 test('all sources prioritize npia period rankings over other native boards', () => {
     const records = [
-        {id: 'other', source: 'jara', title: 'A', rankings: {all_today: 1}, views: 999999},
+        {id: 'other', source: 'jara', title: 'A', rankings: {all_today: 1}, views: 999999, likes: 900},
         {id: 'npia', source: 'npia', title: 'Z', dailyRank: 80, dailyRankAdult: 7},
-        {id: 'unranked', source: 'npia', title: 'B'}];
+        {id: 'unranked', source: 'npia', title: 'B', likes: 50}];
     core.sortRecords(records, {sortBy: 'daily', defaultSource: 'all', audience: 'adult'});
-    assert.deepEqual(records.map(r => r.id), ['npia', 'unranked', 'other']);
-    assert.equal(core.rankValue(records[2], 'daily', 'all', 'all'), 0);
+    assert.deepEqual(records.map(r => r.id), ['npia', 'other', 'unranked']);
+    assert.equal(core.rankValue(records[1], 'daily', 'all', 'all'), 0);
 });

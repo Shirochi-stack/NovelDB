@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=4");
+importScripts("catalog-import.js?v=5");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -25,7 +25,7 @@ function createParserPool() {
             if (slot.job || !queue.length) continue;
             if (!slot.worker) {
                 try {
-                    const worker = slot.worker = new Worker('catalog-parser.js?v=4');
+                    const worker = slot.worker = new Worker('catalog-parser.js?v=5');
                     worker.onmessage = ({data}) => {
                         if (closed || slot.worker !== worker || data.id !== slot.job?.id) return;
                         finish(slot,data.error ? Object.assign(new Error(data.error.message),{name:data.error.name}) : null,data.result);
@@ -224,7 +224,7 @@ async function executeQuery(q, token) {
     check();
     const cacheKey = JSON.stringify(q);
     if (pages.has(cacheKey)) { const value = pages.get(cacheKey); pages.delete(cacheKey); pages.set(cacheKey, value); return value; }
-    const revision = JSON.stringify([2,q.sources.map(source => [source,revisions.get(source)])]);
+    const revision = JSON.stringify([3,q.sources.map(source => [source,revisions.get(source)])]);
     if (!savedPages) savedPages = await get("meta",["saved-pages"]) || [];
     const saved = savedPages.find(page => page.key === cacheKey && page.revision === revision);
     check();
@@ -240,15 +240,7 @@ async function executeQuery(q, token) {
     }
     let count = 0, seq = 0, beforeFocus = 0, focusFound = false;
     const focus = q.focus ? [plan.map(k => k.get(q.focus)),q.focus._catalogOrdinal] : null;
-    // In the combined period ranking every npia row precedes other sources.
-    // Once npia alone fills the requested page, the other sources contribute
-    // only their known totals; searches and filters still scan all sources.
-    const npiaFirst = q.sort?.defaultSource === 'all' && ['daily','weekly','monthly'].includes(q.sort.sortBy)
-        && q.sources.includes('npia') && wanted <= (totals.get('npia') || 0)
-        && !q.text && !q.author && !q.focus && (!q.status || q.status === 'all')
-        && (!q.audience || q.audience === 'all') && !q.and.length && !q.or.length && !q.exclude.length;
     for (const source of q.sources) {
-        if (npiaFirst && source !== 'npia') { count += totals.get(source) || 0; seq += totals.get(source) || 0; continue; }
         for (const key of blocks.get(source) || []) {
             check(); const block = await get("index", key), matching = [];
             for (let i = 0; i < block.entries.length; i++, seq++) {

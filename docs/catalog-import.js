@@ -1,6 +1,6 @@
 /* Shared catalog indexing and atomic chunk storage for import workers. */
 "use strict";
-importScripts("metadata-core.js?v=7");
+importScripts("metadata-core.js?v=9");
 const M = self.NovelMetadata;
 const BLOCK = 512;
 let database;

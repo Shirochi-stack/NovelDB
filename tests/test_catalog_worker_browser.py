@@ -389,7 +389,7 @@ def test_manifest_hashes_restore_pages_without_downloads_or_scans_and_invalidate
     asyncio.run(scenario())
 
 
-def test_combined_rankings_skip_other_indexes_only_when_npia_fills_the_page():
+def test_combined_rankings_include_all_sources_by_likes_after_npia_ranks():
     novels = []
     for i in range(180):
         item = row('npia',i+1)
@@ -397,6 +397,7 @@ def test_combined_rankings_skip_other_indexes_only_when_npia_fills_the_page():
         item[13] = i//10+1 if i % 10 == 0 else 0
         novels.append(item)
     other = [row('nweb',i+1,known=True) for i in range(30)]
+    for i,item in enumerate(other): item[6] = 1000-i
     class Site(FixtureSite):
         async def route(self, route):
             path = urlsplit(route.request.url).path
@@ -421,13 +422,13 @@ def test_combined_rankings_skip_other_indexes_only_when_npia_fills_the_page():
             options = {'sources':['nweb','npia'],'text':'','status':'all','audience':'all',
                 'sort':{'sortBy':'daily','order':'desc','defaultSource':'all'},'page':1,'size':100}
             result = await page.evaluate("q=>rpc('query',q)",options)
-            expected = sorted(enumerate(novels),key=lambda pair:(pair[1][13] or 10**9,pair[1][1]))[:100]
+            combined = [('nweb',i,item) for i,item in enumerate(other)]+[('npia',30+i,item) for i,item in enumerate(novels)]
+            expected = sorted(combined,key=lambda entry:((entry[2][13] if entry[0]=='npia' else 0) or 10**9,-entry[2][6],entry[1]))[:100]
             assert result['total'] == 210
-            assert [(item['id'],item['_catalogOrdinal']) for item in result['rows']] == [(str(item[0]),30+i) for i,item in expected]
-            assert set(await worker.evaluate('readSources')) == {'npia'}
-            # Pages reaching the next source and filtered queries need its index.
+            assert [(item['source'],item['id'],item['_catalogOrdinal']) for item in result['rows']] == [(source,str(item[0]),i) for source,i,item in expected]
+            assert set(await worker.evaluate('readSources')) == {'npia','nweb'}
             all_rows = await page.evaluate("q=>rpc('query',q)",{**options,'size':250})
-            assert len(all_rows['rows']) == 210 and all_rows['rows'][-1]['source'] == 'nweb'
+            assert len(all_rows['rows']) == 210 and all_rows['rows'][-1]['source'] == 'npia'
             assert 'nweb' in await worker.evaluate('readSources')
             await worker.evaluate('readSources.length=0')
             filtered = await page.evaluate("q=>rpc('query',q)",{**options,'text':'nweb'})
