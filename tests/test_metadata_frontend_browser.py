@@ -169,7 +169,7 @@ class FixtureSite:
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
-        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/source-picker.js", "/cover-loader.js", "/style.css"):
+        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/source-picker.js", "/cover-loader.js", "/style.css"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
             await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
@@ -383,6 +383,140 @@ def test_synopsis_failure_has_retry_and_empty_shard_has_unavailable_message():
             await browser.close()
     asyncio.run(scenario())
 
+
+
+def test_startup_downloads_tag_dictionaries_together_without_overwriting_primary_labels():
+    class ParallelTagsSite(FixtureSite):
+        def __init__(self):
+            super().__init__()
+            self.extra_started = asyncio.Event()
+        async def route(self,route):
+            path = urlsplit(route.request.url).path
+            if path.endswith('/tags_extra.json.gz'):
+                self.extra_started.set()
+            if path.endswith('/tags_en.txt.gz'):
+                await asyncio.wait_for(self.extra_started.wait(),5)
+            await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = ParallelTagsSite()
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/#src=nweb')
+            await wait_loaded(page)
+            assert site.extra_started.is_set()
+            assert await page.locator('.card-tag').first.inner_text() == 'Fantasy'
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_catalog_renders_before_synopses_and_loading_bars_fill_without_card_changes():
+    class DelayedSite(FixtureSite):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+            self.active = self.peak = 0
+
+        async def route(self, route):
+            path = urlsplit(route.request.url).path
+            if 'descriptions_shard_' in path:
+                self.started.set()
+                self.active += 1
+                self.peak = max(self.peak,self.active)
+                await self.release.wait()
+                source = next((s for s in SOURCES if f'/{s}_descriptions' in path),'npia')
+                payload = {str(i):f'{source} loaded synopsis {i}' for i in (7,8,9)}
+                payload.update({str(i):'UNUSED_SHARD_TEXT'*100 for i in range(1000,1100)})
+                await route.fulfill(body=gzip.compress(json.dumps(payload).encode()),content_type='application/gzip')
+                self.active -= 1
+                return
+            await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            for source,width in [('npia',390),('all',1440),('nweb',390)]:
+                page = await browser.new_page(viewport={'width':width,'height':844},is_mobile=width==390)
+                site = DelayedSite()
+                await page.add_init_script('''window.synopsisParses=0;window.synopsisReplies=[];window.synopsisStarts=[];window.synopsisStops=0;
+                    const parse=JSON.parse;JSON.parse=function(text,...rest){if(typeof text==='string'&&text.includes('UNUSED_SHARD_TEXT'))synopsisParses++;return parse.call(this,text,...rest)};
+                    const OriginalWorker=window.Worker;
+                    window.Worker=class extends OriginalWorker{constructor(url,...args){super(url,...args);this.isSynopsis=String(url).includes('synopsis-worker');if(this.isSynopsis){
+                        synopsisStarts.push(document.querySelectorAll('.novel-card').length);
+                        this.addEventListener('message',({data})=>{if(data.result)synopsisReplies.push(Object.keys(data.result))});
+                    }}terminate(){if(this.isSynopsis)synopsisStops++;super.terminate()}};''')
+                await page.route('**/*',site.route)
+                await page.goto(f'https://metadata.test/#src={source}')
+                await wait_loaded(page)
+                assert await page.locator('.novel-card').count() == (18 if source=='all' else 3 if source=='nweb' else 1)
+                first = page.locator('.novel-card').first
+                section = first.locator('.card-synopsis')
+                await section.scroll_into_view_if_needed()
+                await asyncio.wait_for(site.started.wait(),5)
+                assert await section.get_attribute('aria-busy') == 'true'
+                bar = section.get_by_role('progressbar',name='Loading synopsis')
+                assert await bar.is_visible()
+                assert await bar.get_attribute('aria-valuenow') is None
+                await page.evaluate('()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+                before = await first.bounding_box()
+                section_before = await section.bounding_box()
+                await page.evaluate('''window.savedCards=[...document.querySelectorAll('.novel-card')];window.cardChanges=0;
+                    new MutationObserver(()=>cardChanges++).observe(document.querySelector('#results'),{childList:true})''')
+                if source == 'npia':
+                    Path('artifacts/synopsis-ui').mkdir(parents=True,exist_ok=True)
+                    await first.screenshot(path='artifacts/synopsis-ui/loading-mobile.png')
+                site.release.set()
+                await page.wait_for_function("document.querySelector('.novel-card .card-synopsis')?.textContent.includes('loaded synopsis')")
+                assert await section.get_attribute('aria-busy') == 'false'
+                assert await section.get_by_role('progressbar').count() == 0
+                assert await page.evaluate('cardChanges===0&&savedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])')
+                after = await first.bounding_box()
+                section_after = await section.bounding_box()
+                assert abs(before['height']-after['height']) < 1
+                assert abs(section_before['height']-section_after['height']) < 1
+                assert await page.evaluate('synopsisParses') == 0
+                assert await page.evaluate('synopsisStarts.every(count=>count>0)')
+                assert await page.evaluate('synopsisReplies.length>0&&synopsisReplies.flat().every(id=>["7","8","9"].includes(id))')
+                assert site.peak <= 2
+                if source == 'npia':
+                    await first.screenshot(path='artifacts/synopsis-ui/loaded-mobile.png')
+                    await page.wait_for_function('synopsisStops>0')
+                await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_synopsis_worker_failure_is_retryable_without_blocking_catalog():
+    class WorkerSite(FixtureSite):
+        script_broken = True
+        async def route(self,route):
+            if self.script_broken and urlsplit(route.request.url).path == '/synopsis-worker.js':
+                await route.fulfill(body="throw new Error('Worker fixture failure')",content_type='text/javascript')
+                return
+            await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = WorkerSite()
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/')
+            await wait_loaded(page)
+            await page.locator('.card-synopsis').scroll_into_view_if_needed()
+            retry = page.get_by_role('button',name="Synopsis couldn't load. Tap to retry.")
+            await retry.wait_for()
+            assert await page.locator('.novel-card').count() == 1
+            assert await page.get_by_role('progressbar').count() == 0
+            site.script_broken = False
+            await retry.click()
+            await page.wait_for_function("document.querySelector('.card-synopsis')?.textContent.includes('npia synopsis 7')")
+            assert await page.locator('.card-synopsis').get_attribute('aria-busy') == 'false'
+            await browser.close()
+    asyncio.run(scenario())
 
 
 def test_nonranking_saved_sort_loads_the_complete_catalog_without_preview():
@@ -871,7 +1005,7 @@ def test_description_preference_prevents_requests_and_persists():
             assert not any('descriptions_shard_' in url for url in site.requests)
             assert await page.locator('.card-synopsis:visible').count() == 0
             await page.check('#loadDescriptions')
-            await page.wait_for_selector('.card-synopsis')
+            await page.wait_for_selector('.card-synopsis[aria-busy="false"]')
             assert any('descriptions_shard_' in url for url in site.requests)
             await page.uncheck('#loadDescriptions')
             assert await page.evaluate("localStorage.getItem('noveldb.loadDescriptions')") == 'false'
@@ -897,7 +1031,7 @@ def test_disabling_descriptions_ignores_delayed_shard_responses():
             await page.wait_for_timeout(600)
             assert await page.locator('.card-synopsis').count() == 0
             await page.check('#loadDescriptions')
-            await page.wait_for_selector('.card-synopsis')
+            await page.wait_for_selector('.card-synopsis[aria-busy="false"]')
             await browser.close()
     asyncio.run(scenario())
 
@@ -1019,7 +1153,7 @@ def test_compact_metrics_and_synopsis_fill_remaining_card_space():
                 await page.route("**/*", site.route)
                 await page.goto("http://metadata.test/#src=jara")
                 await wait_loaded(page)
-                await page.wait_for_selector('.card-synopsis')
+                await page.wait_for_selector('.card-synopsis[aria-busy="false"]')
                 assert await page.get_by_label('Load Synopsis', exact=True).is_checked()
                 known = page.locator('.novel-card[data-novel-id="8"]')
                 for label, icon in [('Views', '👁'), ('Episodes', '📄'), ('Favorites', '❤'), ('Recommendations', '👍')]:

@@ -6271,8 +6271,10 @@
             : isR19 ? `<span class="badge-r19" title="Adult Only (19+)" aria-label="Rated 19+">19+</span>`
             : "";
 
-        const synopsisHTML = descriptionsEnabled && savedSynopsis ? `
-                <div class="card-synopsis"><span class="synopsis-label">${n.metrics?.synopsis_is_preview ? "Synopsis preview:" : "Synopsis:"}</span> ${escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</div>` : "";
+        const synopsisHTML = descriptionsEnabled ? `
+                <div class="card-synopsis" aria-busy="${!savedSynopsis}"><span class="synopsis-label">${n.metrics?.synopsis_is_preview ? "Synopsis preview:" : "Synopsis:"}</span> ${savedSynopsis
+                    ? escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')
+                    : synopsisLoadingHTML()}</div>` : "";
         if (!savedSynopsis) card.dataset.needsSynopsis = "true";
         else delete card.dataset.needsSynopsis;
         const statsHTML = n.metadataV1
@@ -6298,7 +6300,7 @@
                 <div class="card-tags">${tagsHTML}</div>
                 <div class="card-stats">
                     ${statsHTML}
-                </div>${n.updated ? `<div class="card-updated">⏳ Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML || (descriptionsEnabled ? '<div class="synopsis-status" role="status">Loading synopsis…</div>' : '')}
+                </div>${n.updated ? `<div class="card-updated">⏳ Updated: ${fmtDate(n.updated)}</div>` : ""}${synopsisHTML}
             </div>
         `;
 
@@ -7067,11 +7069,7 @@
         descriptionsEnabled = descriptionToggle.checked;
         try { localStorage.setItem("noveldb.loadDescriptions", String(descriptionsEnabled)); } catch (_) {}
         document.body.classList.toggle("descriptions-disabled", !descriptionsEnabled);
-        descriptionController.abort();
-        descriptionController = new AbortController();
-        resetSynopsisRequests();
-        for (const entry of descriptionLoadQueue.splice(0)) entry.resolve(null);
-        descriptionShardPromises.clear();
+        cancelDescriptionLoads();
         applyFilters();
     });
 
@@ -7086,6 +7084,53 @@
     const pendingSynopsisCards = new Set();
     let synopsisFlushTimer = null;
     let activeDescriptionLoads = 0;
+    let synopsisWorker = null, synopsisSequence = 0, synopsisIdleTimer = null;
+    const synopsisJobs = new Map();
+
+    function stopSynopsisWorker() {
+        clearTimeout(synopsisIdleTimer); synopsisIdleTimer = null;
+        synopsisWorker?.terminate(); synopsisWorker = null;
+        for (const {resolve} of synopsisJobs.values()) resolve(null);
+        synopsisJobs.clear();
+    }
+
+    function cancelDescriptionLoads() {
+        descriptionController.abort();
+        descriptionController = new AbortController();
+        stopSynopsisWorker();
+        resetSynopsisRequests();
+        for (const entry of descriptionLoadQueue.splice(0)) entry.resolve(null);
+        descriptionShardPromises.clear();
+    }
+
+    function requestSynopses(url, ids) {
+        clearTimeout(synopsisIdleTimer); synopsisIdleTimer = null;
+        if (!synopsisWorker) {
+            try {
+                const worker = synopsisWorker = new Worker('synopsis-worker.js?v=1');
+                worker.onmessage = ({data}) => {
+                    if (synopsisWorker !== worker) return;
+                    const job = synopsisJobs.get(data.id);
+                    if (!job) return;
+                    synopsisJobs.delete(data.id);
+                    job.resolve(data.error ? null : data.result);
+                    if (!synopsisJobs.size) synopsisIdleTimer = setTimeout(()=>{
+                        if (synopsisWorker === worker && !synopsisJobs.size) stopSynopsisWorker();
+                    },2000);
+                };
+                worker.onerror = event => {
+                    if (synopsisWorker !== worker) return;
+                    event.preventDefault(); stopSynopsisWorker();
+                };
+            } catch (_) { stopSynopsisWorker(); return Promise.resolve(null); }
+        }
+        const id = ++synopsisSequence;
+        return new Promise(resolve=>{
+            synopsisJobs.set(id,{resolve});
+            try {synopsisWorker.postMessage({id,url:new URL(versionedDataUrl(url),location.href).href,ids});}
+            catch (_) {synopsisJobs.delete(id);resolve(null);}
+        });
+    }
 
     /** Fetch a .gz text file and decompress it client-side. */
     async function fetchGzText(url, signal) {
@@ -7102,22 +7147,6 @@
     /** Fetch a .json.gz file, decompress client-side, parse JSON */
     async function fetchGzChunk(url, signal) {
         return JSON.parse(await fetchGzText(url, signal));
-    }
-
-    async function fetchGzChunkWithRetry(url, attempts = 2, signal) {
-        let lastErr;
-        for (let attempt = 1; attempt <= attempts; attempt++) {
-            try {
-                return await fetchGzChunk(url, signal);
-            } catch (err) {
-                if (err && err.name === "AbortError") throw err;
-                lastErr = err;
-                if (attempt < attempts) {
-                    await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
-                }
-            }
-        }
-        throw lastErr;
     }
 
     function normalizeSynopsis(text, sourceName) {
@@ -7143,6 +7172,7 @@
             body.appendChild(synopsisEl);
         }
         synopsisEl.innerHTML = `<span class="synopsis-label">${card.dataset.synopsisPreview === "true" ? "Synopsis preview:" : "Synopsis:"}</span> ${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}`;
+        synopsisEl.setAttribute('aria-busy','false');
         delete card.dataset.needsSynopsis;
     }
 
@@ -7197,20 +7227,20 @@
         return synopsis;
     }
 
-    function loadDescriptionShard(sourceName, shard) {
+    function loadDescriptionShard(sourceName, shard, ids) {
         if (!descriptionsEnabled) return Promise.resolve(null);
         const signal = descriptionController.signal;
         const cfg = SOURCES[sourceName];
         if (!cfg || !cfg.descriptionShardCount || !cfg.descriptionShardPrefix) {
             return Promise.resolve(null);
         }
-        const key = `${sourceName}:${shard}`;
+        const key = JSON.stringify([sourceName,shard,ids.slice().sort()]);
         if (descriptionShardPromises.has(key)) return descriptionShardPromises.get(key);
 
         const url = `${cfg.descriptionShardPrefix}${String(shard).padStart(3, "0")}.json.gz`;
-        // Resolves to the shard's ID → synopsis object, or null when the load
+        // Resolves to requested ID → synopsis texts, or null when the load
         // failed or was cancelled so callers never treat a failure as "missing".
-        const promise = scheduleDescriptionLoad(() => signal.aborted ? null : fetchGzChunkWithRetry(url, 2, signal))
+        const promise = scheduleDescriptionLoad(() => signal.aborted ? null : requestSynopses(url,ids))
             .then((descriptions) => (signal.aborted || !descriptionsEnabled || !descriptions || typeof descriptions !== "object" ? null : descriptions))
             .catch((err) => {
                 if (err?.name !== "AbortError") console.warn(`Failed to load synopsis shard ${url}:`, err);
@@ -7264,7 +7294,7 @@
         }
         pendingSynopsisCards.clear();
         for (const group of groups.values()) {
-            loadDescriptionShard(group.sourceName, group.shard).then((descriptions) => {
+            loadDescriptionShard(group.sourceName, group.shard,group.cards.map(card=>card.dataset.novelId)).then((descriptions) => {
                 if (!descriptionsEnabled || signal.aborted) return;
                 for (const card of group.cards) {
                     if (!card.isConnected || card.dataset.source !== group.sourceName) continue;
@@ -7274,7 +7304,7 @@
                     }
                     // An empty entry records that the shard has no text for this
                     // novel, so later renders do not fetch the shard again.
-                    const synopsis = descriptions[card.dataset.novelId] || "";
+                    const synopsis = normalizeSynopsis(descriptions[card.dataset.novelId] || "",group.sourceName);
                     rememberSynopsis(`${group.sourceName}:${card.dataset.novelId}`, synopsis);
                     if (!synopsis) {
                         delete card.dataset.needsSynopsis;
@@ -7315,61 +7345,60 @@
         else remaining.slice(0, 12).forEach(queueCardSynopsis);
     }
 
-    function setSynopsisStatus(card, text, retry = false) {
+    function synopsisLoadingHTML() {
+        return '<div class="synopsis-status" role="status"><span>Loading synopsis…</span><div class="synopsis-progress" role="progressbar" aria-label="Loading synopsis"></div></div>';
+    }
+
+    function setSynopsisStatus(card, text, retry = false, loading = false) {
         const body = card.querySelector(".card-body");
         if (!body) return;
-        body.querySelector(".synopsis-status")?.remove();
+        let section = body.querySelector('.card-synopsis');
+        if (!section) {
+            section = document.createElement('div'); section.className = 'card-synopsis'; body.appendChild(section);
+        }
+        section.setAttribute('aria-busy',String(loading));
+        section.innerHTML = `<span class="synopsis-label">${card.dataset.synopsisPreview === 'true' ? 'Synopsis preview:' : 'Synopsis:'}</span>`;
+        if (loading) {section.insertAdjacentHTML('beforeend',synopsisLoadingHTML());return;}
         const status = document.createElement(retry ? "button" : "div");
         status.className = "synopsis-status";
         status.textContent = text;
         if (retry) {
             status.type = "button";
             status.addEventListener("click", () => {
-                status.textContent = "Loading synopsis…";
+                setSynopsisStatus(card,"Loading synopsis…",false,true);
                 queueCardSynopsis(card);
             });
         } else status.setAttribute("role", "status");
-        body.appendChild(status);
+        section.appendChild(status);
     }
 
     let tagTranslationsPromise = null;
     async function loadTagTranslations() {
         if (!tagTranslationsPromise) {
-            tagTranslationsPromise = fetchGzText("data/tags_en.txt.gz")
-                .then((text) => {
-                    let loaded = 0;
-                    for (const line of text.split(/\r?\n/)) {
-                        if (!line || !line.includes("|||")) continue;
-                        const parts = line.split("|||");
-                        const tag = (parts[0] || "").trim();
-                        const translation = (parts[1] || "").trim();
-                        if (tag && translation) {
-                            TAG_MAP[tag] = translation;
-                            loaded++;
+            // Independent files download together; supplemental labels still
+            // apply after the primary dictionary, so they cannot overwrite it.
+            tagTranslationsPromise = Promise.all([
+                fetchGzText("data/tags_en.txt.gz").catch(error=>{
+                    console.warn("Tag translations unavailable; using bundled fallback",error);return "";
+                }),
+                fetchGzChunk("data/tags_extra.json.gz").catch(()=>null),
+            ]).then(([text,extra])=>{
+                let loaded = 0;
+                for (const line of text.split(/\r?\n/)) {
+                    if (!line || !line.includes("|||")) continue;
+                    const parts = line.split("|||"), tag = (parts[0] || "").trim(), translation = (parts[1] || "").trim();
+                    if (tag && translation) {TAG_MAP[tag] = translation;loaded++;}
+                }
+                if (extra && typeof extra === "object" && !Array.isArray(extra)) {
+                    for (const [tag,translation] of Object.entries(extra)) {
+                        if (tag && typeof translation === "string" && translation && !Object.prototype.hasOwnProperty.call(TAG_MAP,tag)) {
+                            Object.defineProperty(TAG_MAP,tag,{value:translation,enumerable:true,writable:true,configurable:true});loaded++;
                         }
                     }
-                    return loaded;
-                })
-                .catch((err) => {
-                    console.warn("Failed to load gzipped tag translations; using bundled fallback", err);
-                    return 0;
-                })
-                .then(async (loaded) => {
-                    try {
-                        const extra = await fetchGzChunk("data/tags_extra.json.gz");
-                        if (extra && typeof extra === "object" && !Array.isArray(extra)) {
-                            for (const [tag, translation] of Object.entries(extra)) {
-                                if (tag && typeof translation === "string" && translation
-                                    && !Object.prototype.hasOwnProperty.call(TAG_MAP, tag)) {
-                                    Object.defineProperty(TAG_MAP, tag, { value: translation, enumerable: true, writable: true, configurable: true });
-                                    loaded++;
-                                }
-                            }
-                        }
-                    } catch (_) { /* Supplemental tag translations are optional. */ }
-                    TAG_KEY_CACHE.clear();
-                    return loaded;
-                });
+                }
+                TAG_KEY_CACHE.clear();
+                return loaded;
+            });
         }
         return tagTranslationsPromise;
     }
@@ -7401,7 +7430,7 @@
         sourceSelect.value = source;
         window.NovelSourcePicker?.sync();
         updateSourceSortOptions();
-        resetSynopsisRequests();
+        cancelDescriptionLoads();
         coverObserver?.disconnect();
         selectedSources = source === "all" ? Object.keys(SOURCES) : [source];
         allNovels = [];
