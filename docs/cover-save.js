@@ -12,7 +12,7 @@
     const notice=document.createElement('div');
     notice.className='cover-save-notice';notice.hidden=true;notice.setAttribute('role','status');document.body.append(notice);
     function message(text,card) {
-        clearTimeout(noticeTimer);notice.replaceChildren(document.createTextNode(text));notice.hidden=false;
+        clearTimeout(noticeTimer);(dialog.open ? dialog : document.body).append(notice);notice.replaceChildren(document.createTextNode(text));notice.hidden=false;
         if(card) {
             const button=document.createElement('button');button.type='button';button.textContent='View Details';
             button.addEventListener('click',()=>{notice.hidden=true;openDetails(card);});notice.append(' ',button);
@@ -107,7 +107,7 @@
         let url;
         try {url=originalUrl(card);} catch(error) {message(error.message);return;}
         const controller=current=new AbortController();
-        const button=card.querySelector('.cover-save');
+        const button=dialog.open && detailCard===card ? detailDownload : null;
         if(button) {button.disabled=true;button.setAttribute('aria-busy','true');}
         message('Preparing image download…');
         try {
@@ -247,8 +247,8 @@
         (save.disabled ? details : save).focus({preventScroll:true});
     });
     document.addEventListener('click',event=>{
-        const button=event.target.closest?.('.cover-save,.cover-details');
-        if(button) {event.preventDefault();const card=button.closest('.novel-card');button.classList.contains('cover-save') ? download(card) : openDetails(card);}
+        const button=event.target.closest?.('.cover-details');
+        if(button) {event.preventDefault();openDetails(button.closest('.novel-card'));}
     });
     save.addEventListener('click',()=>{const card=contextCard;closeMenu();download(card);});
     details.addEventListener('click',()=>{const card=contextCard;closeMenu();openDetails(card);});

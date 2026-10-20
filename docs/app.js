@@ -6296,7 +6296,7 @@
                 ${coverHTML}
                 ${ageBadge}
                 ${badgeHTML}
-            </a>${coverSrc ? '<button type="button" class="cover-save" aria-label="Download Image" title="Download Image">↓</button>' : ''}<button type="button" class="cover-details" aria-label="View Details" title="View Details">ⓘ</button></div>
+            </a><button type="button" class="cover-details" aria-label="View Details" title="${escHtml(cfg.label)} — View Details"><img src="${escHtml(window.NovelSourcePicker.iconFor(novelSource))}" alt="${escHtml(cfg.label)} logo" width="32" height="32"></button></div>
             <div class="card-body">
                 <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
                 ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
