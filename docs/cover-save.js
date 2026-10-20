@@ -134,12 +134,15 @@
     const image=document.createElement('img');image.alt='Original cover';image.referrerPolicy='no-referrer';
     const imageStatus=document.createElement('figcaption');imageStatus.setAttribute('role','status');
     const detailDownload=document.createElement('button');detailDownload.type='button';detailDownload.className='page-btn';detailDownload.textContent='Download Image';
-    figure.append(image,imageStatus,detailDownload);
+    figure.append(image,imageStatus);
+    const detailNovel=document.createElement('a');detailNovel.textContent='Open novel ↗';detailNovel.dataset.field='canonicalUrl';
+    detailNovel.target='_blank';detailNovel.rel='noopener';detailNovel.hidden=true;
+    const actions=document.createElement('div');actions.className='novel-details-actions';actions.append(detailDownload,detailNovel);
     const fields=document.createElement('div');fields.className='novel-details-fields';
     const facts=document.createElement('dl');facts.className='novel-details-facts';
     const content=document.createElement('dl');content.className='novel-details-content';
-    function clearMetadata() {facts.replaceChildren();content.replaceChildren();}
-    fields.append(facts,content);body.append(figure,fields);
+    function clearMetadata() {facts.replaceChildren();content.replaceChildren();detailNovel.hidden=true;detailNovel.removeAttribute('href');}
+    fields.append(facts,content);body.append(figure,actions,fields);
     dialog.append(header,body);document.body.append(dialog);
     let detailCard=null;
     const labels={title:'Original title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
@@ -159,13 +162,17 @@
             if(value>0 && relevantRank(key)) rankEntries.push([key,value]);
         }
         function add(key,value,wide=false) {
+            if(key==='canonicalUrl') {
+                if(/^https?:\/\//i.test(String(value))) {detailNovel.href=value;detailNovel.hidden=false;}
+                return;
+            }
             const group=document.createElement('div'),term=document.createElement('dt'),definition=document.createElement('dd');
             group.className='novel-details-field'+(wide ? ' details-wide' : '');
             if(['title','canonicalUrl','synopsis','tags','rankings'].includes(key)) group.classList.add(`details-${key}`);
             term.textContent=fieldLabel(key);definition.dataset.field=key;
-            if(key==='canonicalUrl' || key==='purchaseUrl') {
+            if(key==='purchaseUrl') {
                 if(!/^https?:\/\//i.test(String(value))) return;
-                const link=document.createElement('a');link.href=value;link.textContent=key==='canonicalUrl' ? 'Open novel ↗' : 'Purchase ↗';
+                const link=document.createElement('a');link.href=value;link.textContent='Purchase ↗';
                 link.target='_blank';link.rel='noopener';definition.append(link);
             } else if(key==='age') definition.textContent=value==null ? 'Not available' : adult ? '19+' : teen ? '15+' : Number(value)===0 ? 'General' : Number(value)>0 ? `${value}+` : 'Not available';
             else if(key==='complete') definition.textContent=value==null ? 'Not available' : [true,1,'1'].includes(value) ? 'Yes' : 'No';
