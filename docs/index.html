@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=34">
+    <link rel="stylesheet" href="style.css?v=35">
 </head>
 
 <body>
@@ -154,20 +154,20 @@
         </section>
 
         <!-- Results -->
-        <div id="paginationTop" class="pagination" style="display:none">
+        <div id="paginationTop" class="pagination" role="navigation" aria-label="Top page navigation" style="display:none">
             <button class="page-btn prev-page">← Prev</button>
             <div class="page-numbers"></div>
-            <div class="page-jump"><input type="number" class="page-input" min="1" placeholder="#"><button
+            <div class="page-jump"><input type="number" class="page-input" min="1" inputmode="numeric" aria-label="Page number" placeholder="#"><button
                     class="page-btn go-page">Go</button></div>
             <button class="page-btn next-page">Next →</button>
         </div>
         <section id="results" class="results-grid"></section>
 
         <!-- Pagination -->
-        <div id="paginationBottom" class="pagination" style="display:none">
+        <div id="paginationBottom" class="pagination" role="navigation" aria-label="Bottom page navigation" style="display:none">
             <button class="page-btn prev-page">← Prev</button>
             <div class="page-numbers"></div>
-            <div class="page-jump"><input type="number" class="page-input" min="1" placeholder="#"><button
+            <div class="page-jump"><input type="number" class="page-input" min="1" inputmode="numeric" aria-label="Page number" placeholder="#"><button
                     class="page-btn go-page">Go</button></div>
             <button class="page-btn next-page">Next →</button>
         </div>
@@ -178,7 +178,7 @@
     <script src="cover-loader.js?v=8"></script>
     <script src="cover-save.js?v=7"></script>
     <script src="site-tools.js?v=6"></script>
-    <script src="app.js?v=59"></script>
+    <script src="app.js?v=60"></script>
 </body>
 
 </html>
