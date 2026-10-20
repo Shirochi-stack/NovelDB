@@ -264,8 +264,7 @@
             if (["daily", "weekly", "monthly"].includes(sortBy) && defaultSource) {
                 return [
                     { get: (novel) => rankValue(novel, sortBy, audience, defaultSource) || null, dir: -dir, nullsLast: true },
-                    { get: (novel) => defaultSource === "all" && novel.source === "npia" ? 0 : 1, dir: 1, nullsLast: false },
-                    { get: (novel) => novel.title, dir: 1, nullsLast: true, text: "collate" },
+                    { get: (novel) => novel.likes, dir, nullsLast: true },
                 ];
             }
             // Unranked novels sort after ranked ones, then the board's own

@@ -1,4 +1,4 @@
-// Use the browser's comparator to publish exact first-three-page previews.
+// Use the browser's comparator to publish exact catalog preview prefixes.
 const fs = require('node:fs'), path = require('node:path'), zlib = require('node:zlib');
 const M = require('../docs/metadata-core.js');
 const [source,directory] = process.argv.slice(2);

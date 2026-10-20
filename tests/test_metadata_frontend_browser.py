@@ -319,7 +319,7 @@ def test_startup_loads_only_the_complete_npia_catalog_once():
             await page.locator('#searchInput').fill('npia')
             site.release.set()
             await wait_loaded(page)
-            assert await page.locator('.novel-card').count() == 61
+            assert await page.locator('.novel-card').count() == 30
             assert await page.evaluate('cardChanges') == 1
             chunks = [url for url in site.requests if '_chunk_' in url and '_manifest' not in url]
             assert len(chunks) == 1 and 'npia_chunk_0' in chunks[0]

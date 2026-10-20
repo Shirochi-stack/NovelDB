@@ -108,7 +108,7 @@ def test_cache_can_clear_mid_import(previews):
             site = PreviewSite(previews,blocked=True)
             await page.route('**/*',site.route)
             await page.goto('https://metadata.test/')
-            await page.wait_for_function("document.querySelectorAll('.novel-card').length===100")
+            await page.wait_for_function("document.querySelectorAll('.novel-card').length===30")
             assert await page.locator('#viewTiming').count()==0
             assert await page.locator('#memoryUsage').count()==0
             assert await page.locator('body').get_attribute('data-catalog-ready')=='false'

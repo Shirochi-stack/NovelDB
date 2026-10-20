@@ -5663,9 +5663,9 @@
     let displayCount = 30;
     let allTagGroups = [];   // display tag groups for the current source
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
-    let BATCH = 100;
+    let BATCH = 30;
     let currentPage = 1;
-    const BATCH_OPTIONS = new Set(["30", "60", "100", "120", "250"]);
+    const BATCH_OPTIONS = new Set(["30", "60", "90", "120", "250"]);
 
     // === DOM refs ===
     const $ = (sel) => document.querySelector(sel);
@@ -5690,7 +5690,8 @@
     const audienceSelect = $("#audienceSelect");
 
     function setBatch(value) {
-        const normalized = BATCH_OPTIONS.has(String(value)) ? String(value) : "100";
+        const requested = String(value) === "100" ? "90" : String(value);
+        const normalized = BATCH_OPTIONS.has(requested) ? requested : "30";
         batchSelect.value = normalized;
         BATCH = parseInt(normalized, 10);
         displayCount = BATCH;
@@ -6871,14 +6872,27 @@
     function sourcePreviewSort(source,query) {
         const sort=query.sort.sortBy,order=query.sort.order;
         if (query.sort.defaultSource!=='all') return [sort,order];
-        if (['daily','weekly','monthly'].includes(sort) && source!=='npia') return ['title','asc'];
+        if (['daily','weekly','monthly'].includes(sort) && source!=='npia') return ['likes',order];
         if ((sort.startsWith('sfc_') && source!=='sfc')
                 || (sort.startsWith('rank:') && sort.split(':')[1]!==source)) return ['views','desc'];
         return [sort,order];
     }
     function previewSources(query) {
-        if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)
-                && (SOURCES.npia.totalEntries || 0)>=Math.min(query.page*query.size,300)) return ['npia'];
+        if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)) {
+            const bundle=previewBundles.get('npia'), cfg=SOURCES.npia;
+            const profileKey=JSON.stringify([query.sort.sortBy,query.sort.order]);
+            const profile=bundle?.profiles[profileKey]
+                || (bundle?.version===1 && query.sort.order==='desc' ? bundle.profiles[query.sort.sortBy] : null);
+            if (profile) {
+                bundle._rankCounts ||= new Map();
+                if (!bundle._rankCounts.has(profileKey)) {
+                    const ranked=metadata.parseRows(profile.map(index=>bundle.novels[index]),'npia',cfg)
+                        .filter(novel=>metadata.rankValue(novel,query.sort.sortBy,'all','all')>0).length;
+                    bundle._rankCounts.set(profileKey,ranked);
+                }
+                if (bundle._rankCounts.get(profileKey)>=Math.min(query.page*query.size,300)) return ['npia'];
+            }
+        }
         return query.sources.filter(source=>SOURCES[source].available!==false);
     }
     function previewResult(query) {
@@ -6912,7 +6926,10 @@
     }
     async function loadQueryPreview(query,signal) {
         if (!previewEligible(query)) return;
-        if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)) await ensureSourceConfig('npia');
+        if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)) {
+            const cfg=await ensureSourceConfig('npia');
+            await loadPreviewBundle('npia',cfg,signal,'high',query.sort.order==='asc');
+        }
         await Promise.all(previewSources(query).map(async source=>{
             const cfg=await ensureSourceConfig(source);
             const [sort,order]=sourcePreviewSort(source,query);
@@ -7004,7 +7021,7 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=8");
+            const worker = new Worker("catalog-worker.js?v=9");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
@@ -7191,7 +7208,7 @@
                 option.textContent = `${label} Rank${fallback ? ` (uses ${effectiveLabel})` : grouped ? " (by board)" : ""}`;
                 option.title = fallback ? `Uses ${effectiveLabel} for this source; your selected sort is kept when switching sources`
                     : grouped ? "Uses the best position on the source's matching boards; badge details identify the board"
-                    : currentSource === "all" ? "Npia rankings take priority" : "Uses this source's rankings";
+                    : currentSource === "all" ? "Npia rankings first, then most liked" : "Uses this source's rankings";
             }
             if (option.value.startsWith("rank:")) option.hidden = !option.selected && currentSource !== "all" && option.value.split(":")[1] !== currentSource;
             if (option.value.startsWith("sfc_")) option.hidden = !option.selected && !["all", "sfc"].includes(currentSource);
@@ -7786,7 +7803,7 @@
         if (orderSelect.value !== "desc") state.order = orderSelect.value;
         if (statusSelect.value !== "all") state.status = statusSelect.value;
         if (audienceSelect.value !== "all") state.audience = audienceSelect.value;
-        if (batchSelect.value !== "100") state.batch = batchSelect.value;
+        if (batchSelect.value !== "30") state.batch = batchSelect.value;
         const savedPage = activeCatalogController && catalogRequestedPage != null ? catalogRequestedPage : currentPage;
         if (savedPage > 1) state.page = savedPage;
         if (sourceSelect.value !== "npia") state.src = sourceSelect.value;
@@ -7825,7 +7842,7 @@
         orderSelect.value = params.order || "desc";
         statusSelect.value = params.status || "all";
         audienceSelect.value = params.audience || "all";
-        setBatch(params.batch || "100");
+        setBatch(params.batch || "30");
         currentPage = Math.max(1, parseInt(params.page, 10) || 1);
         if (activeCatalogController) catalogRequestedPage = currentPage;
         if (params.tmode) tagMode = params.tmode;
