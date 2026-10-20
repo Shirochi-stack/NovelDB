@@ -52,14 +52,19 @@ def test_period_sort_uses_source_boards_and_all_sources_prioritizes_npia(monkeyp
                 await page.goto(f"http://metadata.test/#src={source}")
                 await wait_loaded(page)
                 period = "weekly" if source == "rbooks" else "daily"
-                assert await page.locator("#sortSelect").input_value() == period
+                assert await page.locator("#sortSelect").input_value() == "daily"
                 first = page.locator(".novel-card").first
                 ident = 8 if period == "daily" else 7
                 assert await first.locator(".card-title").inner_text() == f"{source} translated {ident}"
                 assert await first.locator(".badge-rank").inner_text() == "#1"
                 assert f"{source} {period} native board" in await first.locator(".badge-rank").get_attribute("title")
                 if source in ("nweb", "mpia"):
-                    assert await page.locator('#sortSelect option[value="monthly"]').is_disabled()
+                    assert await page.locator('#sortSelect option[value="monthly"]').is_enabled()
+                    await page.locator('#sortSelect').select_option('monthly')
+                    expected_period = 'weekly' if source == 'nweb' else 'daily'
+                    await page.wait_for_function('(period)=>document.querySelector(".badge-rank")?.title.includes(period)', arg=expected_period)
+                    assert await page.locator('#sortSelect').input_value() == 'monthly'
+                    assert 'uses' in await page.locator('#sortSelect option[value="monthly"]').inner_text()
                 if source == "jara":
                     await page.locator("#sortSelect").select_option("monthly")
                     assert await page.locator(".novel-card").first.locator(".card-title").inner_text() == "jara translated 7"
@@ -67,6 +72,57 @@ def test_period_sort_uses_source_boards_and_all_sources_prioritizes_npia(monkeyp
             await wait_loaded(page)
             await page.locator("#sortSelect").select_option("daily")
             assert await page.locator(".novel-card").first.locator(".card-title").inner_text() == "npia translated 7"
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_source_switch_keeps_requested_sort_and_explains_fallback(monkeypatch):
+    original_row = row
+    def rated_row(source, ident=7, known=False, completed=False):
+        result = original_row(source, ident, known, completed)
+        if source == 'nseries':
+            result[14]['rating'] = {7:4,8:6,9:9}[ident]
+        return result
+    monkeypatch.setitem(globals(), 'row', rated_row)
+    async def scenario():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route('**/*', FixtureSite().route)
+            await page.goto('https://metadata.test/#sort=monthly')
+            await wait_loaded(page)
+            for source, fallback in [('rbooks','Monthly Rank'),('nweb','Weekly Rank'),('mpia','Daily Rank'),
+                                     ('sfc','SFC: Popularity'),('kpage','Views'),('nseries','Rating'),('npia','Monthly Rank'),('all','Monthly Rank')]:
+                await page.select_option('#sourceSelect', source)
+                await wait_loaded(page)
+                assert await page.locator('#sortSelect').input_value() == 'monthly'
+                assert await page.locator('#sortSelect option[value="monthly"]').is_enabled()
+                assert 'unavailable' not in await page.locator('#sortSelect').inner_text()
+                if source not in ('rbooks','npia','all'):
+                    assert fallback in await page.locator('#sortSelect').get_attribute('title')
+                if source == 'nseries':
+                    assert await page.locator('.novel-card').first.get_attribute('data-novel-id') == '9'
+                assert 'sort=monthly' in page.url
+            await page.select_option('#sourceSelect','sfc')
+            await wait_loaded(page)
+            await page.select_option('#sortSelect','sfc_popularity')
+            await page.select_option('#sourceSelect','npia')
+            await wait_loaded(page)
+            assert await page.locator('#sortSelect').input_value() == 'sfc_popularity'
+            assert await page.locator('#sortSelect option[value="sfc_popularity"]').evaluate('option=>!option.hidden')
+            await page.select_option('#sourceSelect','nweb')
+            await wait_loaded(page)
+            await page.select_option('#sortSelect','rank:nweb:native')
+            await page.select_option('#sourceSelect','nseries')
+            await wait_loaded(page)
+            assert await page.locator('#sortSelect').input_value() == 'rank:nweb:native'
+            assert await page.locator('.novel-card').first.get_attribute('data-novel-id') == '9'
+            await page.reload()
+            await wait_loaded(page)
+            assert await page.locator('#sortSelect').input_value() == 'rank:nweb:native'
+            await page.select_option('#sourceSelect','nweb')
+            await wait_loaded(page)
+            assert await page.locator('#sortSelect').input_value() == 'rank:nweb:native'
             await browser.close()
     asyncio.run(scenario())
 
