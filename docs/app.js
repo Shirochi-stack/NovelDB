@@ -6857,10 +6857,13 @@
     let catalogWarnings = new Set();
     let catalogDiagnosticRecords = new Map();
     let catalogWorker = null, workerSequence = 0, diskCatalog = false, diskTotal = 0, diskPageKey = "";
+    let catalogCheckpoint = null, catalogIdleTimer = null, catalogWorkerTagVersion = null;
     let diskQuerySequence = 0;
     let diskFocus = null, tagDictionaryVersion = "";
     const workerRequests = new Map();
     const previewBundles = new Map(), previewRequests = new Map(), resultPages = new Map();
+    const previewProfiles = new Map();
+    const previewDiskWrites = new Map();
     function rememberPage(key,result,preview=false) {
         resultPages.delete(key);
         resultPages.set(key,{result,preview,sources:[...selectedSources]});
@@ -6929,7 +6932,7 @@
         if (!previewEligible(query)) return;
         if (query.sort.defaultSource==='all' && ['daily','weekly','monthly'].includes(query.sort.sortBy)) {
             const cfg=await ensureSourceConfig('npia');
-            await loadPreviewBundle('npia',cfg,signal,'high',query.sort.order==='asc');
+            await loadPreviewBundle('npia',cfg,signal,'high',query.sort.order==='asc',[query.sort.sortBy,query.sort.order]);
         }
         await Promise.all(previewSources(query).map(async source=>{
             const cfg=await ensureSourceConfig(source);
@@ -6939,39 +6942,74 @@
                 if (source==='sfc') primary.push(...metadata.previewSorts(source).filter(value=>value.startsWith('sfc_')));
                 else primary.push(Object.keys(cfg?.boards || {}).length ? `rank:${source}:${Object.keys(cfg.boards)[0]}` : 'updated');
             }
-            await loadPreviewBundle(source,cfg,signal,'high',order==='asc' || !primary.includes(sort));
+            await loadPreviewBundle(source,cfg,signal,'high',order==='asc' || !primary.includes(sort),[sort,order]);
         }));
     }
-    async function loadPreviewBundle(source,cfg,signal,priority='high',allSorts=false) {
+    async function loadPreviewBundle(source,cfg,signal,priority='high',allSorts=false,profile=null,cacheOnly=false) {
         if (!cfg?.previewUrl) return;
         const expanded=allSorts && cfg.previewSortsUrl;
         const url=expanded ? cfg.previewSortsUrl : cfg.previewUrl;
         const signature=expanded ? cfg.previewSortsHash : cfg.previewHash;
-        if (previewBundles.get(source)?._signature===cfg.previewSortsHash && cfg.previewSortsHash) return;
-        if (previewBundles.get(source)?._signature!==signature) {
-            const key = `${source}:${signature}`;
+        const profileKey=JSON.stringify([source,signature,profile]);
+        const current=previewBundles.get(source),requested=profile && JSON.stringify(profile);
+        if(!cacheOnly && current?._signature===signature && (!profile || current.profiles[requested]
+                || (current.version===1 && profile[1]==='desc' && current.profiles[profile[0]]))) return;
+        if(!cacheOnly && previewProfiles.has(profileKey)) {
+            const bundle=previewProfiles.get(profileKey);
+            previewProfiles.delete(profileKey);previewProfiles.set(profileKey,bundle);
+            previewBundles.set(source,bundle);return;
+        }
+        {
+            const key = `${profileKey}:${cacheOnly}`;
             if (previewRequests.get(key)?._signal?.aborted) previewRequests.delete(key);
             if (!previewRequests.has(key)) {
+                const other=[...previewRequests.values()].find(p=>p._source===source && p._signature===signature && p._cacheOnly!==cacheOnly && !p._signal?.aborted);
+                if(other) {try {await other;} catch(_) {} if(cacheOnly) return;}
                 const pending = (async()=>{
-                    const compressed = await window.NovelSiteTools.read(`${versionedDataUrl(url)}&preview=${signature}`,{signal,priority,cache:'no-cache'});
-                    if (crypto.subtle) {
-                        const digest = await crypto.subtle.digest('SHA-256',compressed);
-                        if ([...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')!==signature) throw new Error('Preview checksum mismatch');
+                    let bundle;
+                    const target=new URL(`${versionedDataUrl(url)}&preview=${signature}`,location.href).href;
+                    await previewDiskWrites.get(target);
+                    if(!expanded && !cacheOnly) {
+                        // The tiny primary preview stays on the direct startup
+                        // path. Expanded sort catalogs are decoded off-thread.
+                        let cache,cached;
+                        try {cache=await caches.open('noveldb-previews-v1');cached=await cache.match(target);} catch(_) {}
+                        let compressed;
+                        for(let attempt=0;attempt<2;attempt++) {
+                            compressed=!attempt && cached ? await cached.arrayBuffer()
+                                : await window.NovelSiteTools.read(target,{signal,priority,cache:attempt?'no-store':'force-cache'});
+                            if(!crypto.subtle || [...new Uint8Array(await crypto.subtle.digest('SHA-256',compressed))].map(b=>b.toString(16).padStart(2,'0')).join('')===signature) break;
+                            if(attempt) throw new Error('Preview checksum mismatch');
+                        }
+                        if(cache && !signal?.aborted) {
+                            const writing=cache.put(target,new Response(compressed)).catch(()=>{}).finally(()=>{if(previewDiskWrites.get(target)===writing) previewDiskWrites.delete(target);});
+                            previewDiskWrites.set(target,writing);
+                        }
+                        const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
+                        bundle={...metadata.compactPreview(JSON.parse(await new Response(stream).text()),source,cfg),_signature:signature};
+                    } else bundle=await new Promise((resolve,reject)=>{
+                        const worker=new Worker('preview-worker.js?v=1');
+                        const finish=(error,result)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);worker.terminate();error?reject(error):resolve(result);};
+                        const abort=()=>finish(new DOMException('Preview cancelled','AbortError'));
+                        const timer=setTimeout(()=>finish(new Error('Preview timed out')),20000);
+                        signal?.addEventListener('abort',abort,{once:true});
+                        if(signal?.aborted) {abort();return;}
+                        worker.onmessage=({data})=>finish(data.error ? new Error(data.error) : null,data.result);
+                        worker.onerror=()=>finish(new Error('Preview worker could not load'));
+                        const {manifestPromise,...wireCfg}=cfg;
+                        worker.postMessage({source,cfg:wireCfg,url:target,signature,profile,cacheOnly});
+                    });
+                    if(!bundle) return;
+                    previewProfiles.set(profileKey,bundle);
+                    for(const key of Object.keys(bundle.profiles)) {
+                        const selection=key.startsWith('[') ? JSON.parse(key) : [key,'desc'];
+                        previewProfiles.set(JSON.stringify([source,signature,selection]),bundle);
                     }
-                    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
-                    const bundle = JSON.parse(await new Response(stream).text());
-                    if (![1,2].includes(bundle.version) || bundle.source!==source || bundle.total!==cfg.totalEntries || bundle.limit!==300
-                            || JSON.stringify(bundle.chunkHashes)!==JSON.stringify(cfg.chunkHashes)
-                            || !Array.isArray(bundle.novels) || !Array.isArray(bundle.ordinals) || bundle.ordinals.length!==bundle.novels.length
-                            || bundle.ordinals.some(i=>!Number.isSafeInteger(i) || i<0 || i>=bundle.total) || !bundle.profiles || !bundle.translations
-                            || Object.values(bundle.profiles).some(p=>!Array.isArray(p) || p.length>300 || p.some(i=>!Number.isInteger(i) || !bundle.novels[i]))) throw new Error('Invalid preview');
-                    metadata.parseRows(bundle.novels,source,cfg);
-                    bundle._signature = signature;
-                    // A slower default response must not replace an expanded
-                    // bundle that has already finished warming.
-                    if (bundle.version===2 || !cfg.previewSortsHash || previewBundles.get(source)?._signature!==cfg.previewSortsHash) previewBundles.set(source,bundle);
+                    while(previewProfiles.size>24) previewProfiles.delete(previewProfiles.keys().next().value);
+                    previewBundles.set(source,bundle);
                 })().finally(()=>{if (previewRequests.get(key)===pending) previewRequests.delete(key);});
                 pending._signal = signal;
+                pending._source=source;pending._signature=signature;pending._cacheOnly=cacheOnly;
                 previewRequests.set(key,pending);
             }
             await previewRequests.get(key);
@@ -6989,7 +7027,7 @@
             async function next() {
                 while (position<jobs.length && !cacheClearing) {
                     const {source,allSorts}=jobs[position++];
-                    try {await loadPreviewBundle(source,await ensureSourceConfig(source),previewWarmController.signal,'low',allSorts);}
+                    try {await loadPreviewBundle(source,await ensureSourceConfig(source),previewWarmController.signal,'low',allSorts,null,true);}
                     catch (_) { /* A missing preview never blocks the catalog. */ }
                 }
             }
@@ -7014,14 +7052,32 @@
         }
     }
     function closeCatalogWorker() {
+        clearTimeout(catalogIdleTimer);catalogCheckpoint=null;
         catalogWorker?.terminate(); catalogWorker = null;
         for (const {reject} of workerRequests.values()) reject(new DOMException("Source changed", "AbortError"));
         workerRequests.clear(); diskCatalog = false; diskPageKey = ""; diskFocus = null; diskQuerySequence++;
     }
+    function scheduleCatalogIdle() {
+        clearTimeout(catalogIdleTimer);
+        if(!catalogWorker || workerRequests.size || activeCatalogController || cacheClearing) return;
+        catalogIdleTimer=setTimeout(async()=>{
+            if(!catalogWorker || workerRequests.size || activeCatalogController || cacheClearing) return;
+            const worker=catalogWorker;
+            try {
+                const checkpoint=await workerRequest('checkpoint',null);
+                if(catalogWorker!==worker || workerRequests.size || activeCatalogController || cacheClearing) return;
+                catalogCheckpoint=checkpoint;
+                clearTimeout(catalogIdleTimer);
+                worker.terminate();catalogWorker=null;
+            } catch(_) { /* Idle cleanup never changes the current page. */ }
+        },250);
+    }
     function workerRequest(type, value, progress) {
+        clearTimeout(catalogIdleTimer);
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=10");
+            const worker = new Worker("catalog-worker.js?v=11");
             catalogWorker = worker;
+            catalogWorkerTagVersion=null;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
                 const pending = workerRequests.get(data.id);
@@ -7031,7 +7087,12 @@
                 workerRequests.delete(data.id);
                 if (data.error) { const error = new Error(data.error.message); error.name = data.error.name; pending.reject(error); }
                 else pending.resolve(data.result);
+                scheduleCatalogIdle();
             };
+            if(catalogCheckpoint) {
+                worker.postMessage({id:0,type:'resume',value:catalogCheckpoint});
+                catalogCheckpoint=null;
+            }
             worker.onerror = () => {
                 if (catalogWorker !== worker) return;
                 for (const {reject} of workerRequests.values()) reject(new Error("Catalog worker could not load"));
@@ -7050,7 +7111,14 @@
                     closeCatalogWorker();
                 },120000);}};
             pending.touch();workerRequests.set(id,pending);
-            try { catalogWorker.postMessage({id,type,value}); }
+            try {
+                let wireValue=value;
+                if(value?.tagLabels) {
+                    if(catalogWorkerTagVersion===value.cfg.tagVersion) wireValue={...value,tagLabels:undefined};
+                    else catalogWorkerTagVersion=value.cfg.tagVersion;
+                }
+                catalogWorker.postMessage({id,type,value:wireValue});
+            }
             catch (error) { workerRequests.delete(id); pending.reject(error); }
         });
     }
@@ -7073,8 +7141,7 @@
         const seq = ++diskQuerySequence;
         const cached = resultPages.get(key);
         let immediate=cached?.result || previewResult(query);
-        if (!immediate && previewEligible(query) && query.page*query.size<=300
-                && document.body.dataset.catalogReady!=='true') {
+        if (!immediate && previewEligible(query) && query.page*query.size<=300) {
             if (!activeCatalogController) {
                 catalogLoadStatus.hidden=false;catalogLoadStatus.textContent='Loading preview…';
             }
@@ -7317,7 +7384,7 @@
         diskCatalog=!!currentKey; diskPageKey=currentKey;
         resultPages.clear();
         if(currentKey) rememberPage(currentKey,currentResult,true);
-        previewBundles.clear(); previewRequests.clear(); catalogState.clear();
+        previewBundles.clear(); previewProfiles.clear(); previewRequests.clear(); catalogState.clear();
         catalogLoading.clear(); document.body.dataset.catalogReady='false'; catalogLoadStatus.hidden=true;
         // Visible DOM nodes, decoded covers and synopses remain intact.
     }
@@ -7834,6 +7901,7 @@
             const page = resultPages.get(diskQueryKey());
             if (page?.preview) page.result.total = selectedSources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
             await queryDiskCatalog();
+            scheduleCatalogIdle();
             return;
         } catch (error) {
             if (!isCurrent()) return;

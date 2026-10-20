@@ -225,7 +225,7 @@ class FixtureSite:
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
-        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/source-picker.js", "/cover-loader.js", "/cover-save.js", "/site-tools.js", "/cache-worker.js", "/style.css"):
+        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/preview-worker.js", "/source-picker.js", "/cover-loader.js", "/cover-save.js", "/site-tools.js", "/cache-worker.js", "/style.css"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
             await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
@@ -365,18 +365,23 @@ def test_source_switches_reuse_worker_and_reload_reuses_disk_until_hash_changes(
             await page.goto('https://metadata.test/')
             await wait_loaded(page)
             assert site.downloads == ['npia']
-            worker = next(w for w in page.workers if 'catalog-worker' in w.url)
-            await worker.evaluate('()=>{self.sessionMarker=42;self.importProgress=0;const post=self.postMessage.bind(self);self.postMessage=data=>{if(data.progress)importProgress++;post(data)}}')
+            async def parked():
+                for _ in range(200):
+                    if not any('catalog-worker' in w.url for w in page.workers):return
+                    await asyncio.sleep(.025)
+                raise AssertionError('Idle catalog worker did not release its heap')
+            await parked()
             await page.locator('#sourceSelect').select_option('all')
             await wait_loaded(page)
             assert site.downloads == list(SOURCES)
             assert await page.locator('.novel-card').count() == 18
-            progress = await worker.evaluate('importProgress')
+            await page.evaluate('window.idleCards=[...document.querySelectorAll(".novel-card")]')
+            await parked()
+            assert await page.evaluate('idleCards.every((card,i)=>card===document.querySelectorAll(".novel-card")[i])')
             for source in ['nweb','all','npia','all']:
                 await page.locator('#sourceSelect').select_option(source)
                 await wait_loaded(page)
-                assert await worker.evaluate('sessionMarker') == 42
-            assert await worker.evaluate('importProgress') == progress
+                await parked()
             assert site.downloads == list(SOURCES)
             assert '#src=all' in page.url
             await page.reload()

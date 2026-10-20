@@ -93,12 +93,13 @@ def test_clear_cache_preserves_visible_page_and_other_apps_reports_size_with_ope
             state = await page.evaluate('''async()=>{
                 const db=await new Promise(resolve=>{const r=indexedDB.open('noveldb-catalog-v1');r.onsuccess=()=>resolve(r.result)});
                 const sentinel=await new Promise(resolve=>{const r=db.transaction('meta').objectStore('meta').get('sentinel');r.onsuccess=()=>resolve(r.result??null)});db.close();
-                const retained=await new Promise(resolve=>{const r=heldCacheDb.transaction('cards').objectStore('cards').get(['npia',0,0]);r.onsuccess=()=>resolve(!!r.result)});
+                const retained=await new Promise(resolve=>{const r=heldCacheDb.transaction('cards').objectStore('cards').get(['npia',0,0,'compact']);r.onsuccess=()=>resolve(!!r.result)});
+                const payload=await new Promise(resolve=>{const r=heldCacheDb.transaction('cards').objectStore('cards').get(['npia',0,'payload','compact']);r.onsuccess=()=>resolve(!!r.result?.compressed)});
                 const removed=await new Promise(resolve=>{const r=heldCacheDb.transaction('cards').objectStore('cards').get(['npia',999,0]);r.onsuccess=()=>resolve(!r.result)});
-                return {sentinel,retained,removed,caches:await caches.keys(),dbs:(await indexedDB.databases()).map(d=>d.name),other:localStorage.getItem('other-app')};
+                return {sentinel,retained,payload,removed,caches:await caches.keys(),dbs:(await indexedDB.databases()).map(d=>d.name),other:localStorage.getItem('other-app')};
             }''')
             assert state['sentinel'] is None
-            assert state['retained'] and state['removed']
+            assert state['retained'] and state['payload'] and state['removed']
             assert 'noveldb-test' not in state['caches']
             assert 'other-app' in state['caches'] and 'other-app' in state['dbs'] and state['other']=='keep'
             assert not await page.locator('#lowResCovers').is_checked()

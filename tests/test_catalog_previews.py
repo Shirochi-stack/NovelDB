@@ -77,8 +77,11 @@ class PreviewSite(FixtureSite):
         name = urlsplit(route.request.url).path.rsplit('/',1)[-1]
         if name=='app.js':
             script=(DOCS/'app.js').read_text(encoding='utf-8')
-            hook='''window.testCombinedPreview=(sortBy,order)=>{
+            hook='''window.testCatalogQuery=q=>workerRequest('query',q);
+            window.testPreviewStats=()=>({rows:[...previewBundles.values()].reduce((n,b)=>n+b.novels.length,0),profiles:new Set(previewProfiles.values()).size,pending:previewRequests.size});
+            window.testCombinedPreview=async(sortBy,order)=>{
                 const q=diskQuery();q.sort={...q.sort,sortBy,order};q.page=1;q.size=300;
+                await loadQueryPreview(q);
                 const r=previewResult(q);return r ? {ids:r.rows.map(n=>n.source+':'+n.id),ordinals:r.rows.map(n=>n._catalogOrdinal)} : null;
             };'''
             await route.fulfill(body=script.replace('// === State persistence via URL hash ===',hook+'\n// === State persistence via URL hash ==='),content_type='text/javascript')
@@ -108,7 +111,6 @@ def test_generated_previews_match_full_worker_order_for_every_profile(previews):
             await page.route('**/*',site.route)
             await page.goto('https://metadata.test/#src=all')
             await wait_loaded(page)
-            worker = next(w for w in page.workers if 'catalog-worker' in w.url)
             for source in SOURCES:
                 bundle = json.loads(gzip.decompress((previews/f'{source}_chunk_preview_sorts.json.gz').read_bytes()))
                 assert 'descriptions' not in bundle
@@ -118,12 +120,12 @@ def test_generated_previews_match_full_worker_order_for_every_profile(previews):
                     options = dict(sources=[source],text='',author=None,status='all',audience='all',
                         **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=300,
                         sort=dict(sortBy=sort,order=order,audience='all',defaultSource=source))
-                    actual = await worker.evaluate('q=>query(q,latestQuery)',options)
+                    actual = await page.evaluate('q=>testCatalogQuery(q)',options)
                     assert [n['id'] for n in actual['rows']] == [str(bundle['novels'][i][0]) for i in positions],(source,sort)
                     assert [n['_catalogOrdinal'] for n in actual['rows']] == [bundle['ordinals'][i] for i in positions]
             # Compare combined previews against a complete scan for every
             # exposed sort, including foreign boards, metrics and both orders.
-            await page.wait_for_function("testCombinedPreview('views','asc')!==null")
+            assert await page.evaluate("async()=>await testCombinedPreview('views','asc')!==null")
             board_map={source:json.loads((previews/f'{source}_chunk_manifest.json').read_text(encoding='utf-8')).get('boards',{}) for source in SOURCES}
             sorts=await page.evaluate("boards=>NovelMetadata.previewSorts('all',boards)",board_map)
             enabled=await page.locator('#sortSelect option').evaluate_all('opts=>opts.filter(o=>!o.disabled&&!o.hidden).map(o=>o.value)')
@@ -133,11 +135,42 @@ def test_generated_previews_match_full_worker_order_for_every_profile(previews):
                     options=dict(sources=list(SOURCES),text='',author=None,status='all',audience='all',
                         **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=300,
                         sort=dict(sortBy=sort,order=order,audience='all',defaultSource='all'))
-                    expected=await worker.evaluate('q=>query(q,latestQuery)',options)
+                    expected=await page.evaluate('q=>testCatalogQuery(q)',options)
                     actual=await page.evaluate('([sort,order])=>testCombinedPreview(sort,order)',[sort,order])
                     assert actual is not None,(sort,order)
                     assert actual['ids']==[f"{n['source']}:{n['id']}" for n in expected['rows']],(sort,order)
                     assert actual['ordinals']==[n['_catalogOrdinal'] for n in expected['rows']],(sort,order)
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_unused_previews_warm_on_disk_without_expanding_or_replacing_cards(previews):
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page();site=PreviewSite(previews)
+            await page.route('**/*',site.route);await page.goto('https://metadata.test/')
+            await wait_loaded(page)
+            await page.evaluate('window.savedCards=[...document.querySelectorAll(".novel-card")]')
+            await page.evaluate("""async()=>{
+                for(let i=0;i<200;i++) {
+                    const cache=await caches.open('noveldb-previews-v1');
+                    if((await cache.keys()).length===16 && testPreviewStats().pending===0) return;
+                    await new Promise(resolve=>setTimeout(resolve,25));
+                }
+                throw new Error('Preview warming did not finish');
+            }""")
+            stats=await page.evaluate('testPreviewStats()')
+            assert stats['rows']<=900 and stats['profiles']==1
+            assert await page.evaluate('savedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])')
+            requests=len(site.preview_requests)
+            await page.select_option('#sortSelect','views')
+            bundle=json.loads(gzip.decompress((previews/'npia_chunk_preview_sorts.json.gz').read_bytes()))
+            first=str(bundle['novels'][bundle['profiles'][json.dumps(['views','desc'],separators=(',',':'))][0]][0])
+            await page.wait_for_function('(id)=>document.querySelector(".novel-card")?.dataset.novelId===id',arg=first)
+            assert len(site.preview_requests)==requests  # Expanded sort bytes came from disk.
+            stats=await page.evaluate('testPreviewStats()')
+            assert stats['rows']==300 and stats['profiles']==2
             await browser.close()
     asyncio.run(scenario())
 
@@ -219,12 +252,11 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
                     new MutationObserver(()=>changes++).observe(document.querySelector('#results'),{childList:true})''')
                 site.release.set();await wait_loaded(page)
                 assert await page.evaluate('changes===0&&lockedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])'),(source,sort,order)
-                worker=next(w for w in page.workers if 'catalog-worker' in w.url)
                 effective=await page.evaluate('([sort,source])=>NovelMetadata.resolveSourceSort(sort,source)',[sort,source])
                 query=dict(sources=list(SOURCES) if source=='all' else [source],text='',author=None,status='all',audience='all',
                     **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=270,
                     sort=dict(sortBy=effective,order=order,audience='all',defaultSource=source))
-                expected=await worker.evaluate('q=>query(q,latestQuery)',query)
+                expected=await page.evaluate('q=>testCatalogQuery(q)',query)
                 assert shown==[f"{n['source']}:{n['id']}" for n in expected['rows']],(source,sort,order)
                 await page.close()
             await browser.close()

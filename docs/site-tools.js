@@ -16,7 +16,7 @@
     }
     async function clearCache(visible=[]) {
         const result=await new Promise((resolve,reject)=>{
-            const worker=new Worker('cache-worker.js?v=1');
+            const worker=new Worker('cache-worker.js?v=2');
             const timer=setTimeout(()=>{worker.terminate();reject(new Error('Cache cleanup timed out; current page kept'));},40000);
             const finish=(error,result)=>{clearTimeout(timer);worker.terminate();error?reject(error):resolve(result);};
             worker.onmessage=({data})=>{if(data.error)finish(new Error(data.error));else if(data.result)finish(null,data.result);};
