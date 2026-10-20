@@ -72,7 +72,7 @@ def parse_detail(html, nid):
 
 
 def enrich(session, fresh, existing, old_full, state, *, listing_pages=10,
-           detail_limit=200, delay=2.0, now=None, sleep=time.sleep):
+           detail_limit=200, delay=2.0, now=None, sleep=time.sleep, detail_ids=None):
     now = time.time() if now is None else now
     checked = state.setdefault("checked", {})
     pending = list(dict.fromkeys(str(n) for n in state.get("pending", []) if str(n).isdigit()))
@@ -130,6 +130,9 @@ def enrich(session, fresh, existing, old_full, state, *, listing_pages=10,
     refresh = [nid for nid in known_ids if due(nid)][:detail_limit // 4]
     candidates = list(dict.fromkeys(refresh + [nid for nid in pending if due(nid)] +
                                     [nid for nid in known_ids if due(nid)]))[:detail_limit]
+    if detail_ids is not None:
+        candidates = list(dict.fromkeys([nid for nid in pending if due(nid)] +
+                                        [str(nid) for nid in detail_ids if due(str(nid))]))[:detail_limit]
     for nid in candidates:
         try:
             patch = parse_detail(fetch(f"/novel/{nid}"), nid)

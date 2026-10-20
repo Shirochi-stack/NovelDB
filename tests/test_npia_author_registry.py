@@ -43,6 +43,51 @@ def test_legacy_names_are_retained_without_guessing_or_merging_author_ids():
     assert report["unresolved_names_missing_from_search"] == ["Missing name"]
 
 
+def test_r19_plan_targets_name_candidates_without_assigning_author_identities():
+    data = {'authors': {'10': {'name': 'General', 'names': ['General'], 'novel_ids': ['10']},
+                        '42': {'name': 'Same', 'names': ['Same'], 'novel_ids': ['2']},
+                        '43': {'name': 'Same', 'names': ['Same'], 'novel_ids': ['3']}}}
+    rows = [[1, 'Title', 'Same'] + [0]*8 + [19],
+            [2, 'General', 'Same'] + [0]*8 + [0],
+            [4, 'Other', 'Unknown'] + [0]*8 + [19],
+            [5, 'Other again', 'Unknown'] + [0]*8 + [19],
+            [6, 'One more', 'Unknown'] + [0]*8 + [19]]
+    before = json.dumps(data, sort_keys=True)
+    plan = registry.plan_r19_requests(data, rows, now=1_000_000)
+    assert plan['authors'] == ['42', '43']
+    assert plan['detail_ids'] == ['4']
+    assert plan['confirmed_ids'] == 0 and plan['unresolved_groups'] == 1
+    assert json.dumps(data, sort_keys=True) == before
+
+
+def test_r19_plan_reuses_confirmed_authors_and_resolves_larger_unknown_groups_first():
+    data = {'authors': {'42': {'name': 'Known', 'names': ['Known'], 'novel_ids': ['1']}}}
+    rows = [[nid, 'Title', name] + [0]*8 + [19]
+            for nid, name in [(1, 'Renamed'), (2, 'Small'), (3, 'Large'), (4, 'Large')]]
+    plan = registry.plan_r19_requests(data, rows, now=1_000_000)
+    assert plan['authors'] == ['42'] and plan['detail_ids'] == ['3', '2']
+    assert plan['confirmed_ids'] == 1
+
+
+def test_unchecked_r19_authors_are_backfilled_before_repeating_prolific_authors():
+    data = {'authors': {
+        '42': {'name': 'Many', 'novel_ids': ['1', '2', '3'], 'last_catalog_checked': 10},
+        '43': {'name': 'One', 'novel_ids': ['4']},
+    }}
+    rows = [[nid, 'Title', name] + [0]*8 + [19]
+            for nid, name in [(1, 'Many'), (2, 'Many'), (3, 'Many'), (4, 'One')]]
+    assert registry.plan_r19_requests(data, rows, now=1_000_000)['authors'] == ['43', '42']
+
+
+def test_disproved_name_candidate_falls_back_to_detail_resolution():
+    data = {'authors': {'42': {'name': 'Same', 'novel_ids': ['2'],
+                               'catalog_novel_ids': ['2'], 'catalog_status': 'complete',
+                               'last_catalog_checked': 10}}}
+    rows = [[1, 'Title', 'Same'] + [0]*8 + [19]]
+    plan = registry.plan_r19_requests(data, rows, now=1_000_000)
+    assert plan['authors'] == [] and plan['detail_ids'] == ['1']
+
+
 def test_atomic_registry_failure_preserves_previous_file(tmp_path, monkeypatch):
     path = tmp_path / "authors.json"
     registry.save(path, {"version": 1, "authors": {}})
