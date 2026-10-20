@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=1");
+importScripts("catalog-import.js?v=2");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -25,7 +25,7 @@ function createParserPool() {
             if (slot.job || !queue.length) continue;
             if (!slot.worker) {
                 try {
-                    const worker = slot.worker = new Worker('catalog-parser.js?v=1');
+                    const worker = slot.worker = new Worker('catalog-parser.js?v=2');
                     worker.onmessage = ({data}) => {
                         if (closed || slot.worker !== worker || data.id !== slot.job?.id) return;
                         finish(slot,data.error ? Object.assign(new Error(data.error.message),{name:data.error.name}) : null,data.result);
@@ -162,7 +162,7 @@ function matches(n, q) {
     return (!q.and.length || q.and.every(has)) && (!q.or.length || q.or.some(has)) && !q.exclude.some(has);
 }
 function compareKeys(plan) {
-    const collator = new Intl.Collator();
+    const collator = new Intl.Collator('en');
     return (a, b) => {
         for (let i = 0; i < plan.length; i++) {
             const k = plan[i], x = a[0][i], y = b[0][i];
@@ -224,7 +224,7 @@ async function executeQuery(q, token) {
     check();
     const cacheKey = JSON.stringify(q);
     if (pages.has(cacheKey)) { const value = pages.get(cacheKey); pages.delete(cacheKey); pages.set(cacheKey, value); return value; }
-    const revision = JSON.stringify([1,q.sources.map(source => [source,revisions.get(source)])]);
+    const revision = JSON.stringify([2,q.sources.map(source => [source,revisions.get(source)])]);
     if (!savedPages) savedPages = await get("meta",["saved-pages"]) || [];
     const saved = savedPages.find(page => page.key === cacheKey && page.revision === revision);
     check();
@@ -313,7 +313,8 @@ async function executeQuery(q, token) {
 }
 self.onmessage = ({data}) => {
     const {id, type, value} = data;
-    if (type === "query") latestQuery = id;
+    // A source switch must stop an obsolete scan before its activation runs.
+    if (type === "query" || type === "activate") latestQuery = id;
     serial = serial.catch(() => {}).then(async () => {
         try {
             let result;
@@ -324,7 +325,7 @@ self.onmessage = ({data}) => {
                 const saved = readySources.get(value.source);
                 // Source changes reuse the existing disk index and its small
                 // summary. Explicit imports still validate upstream changes.
-                if (type === "activate" && saved?.signature === signature) result = saved.result;
+                if (type === "activate" && saved?.signature === signature) result = {...saved.result,reused:true};
                 else {
                     readySources.delete(value.source);
                     result = await importSource(value.source,value.cfg,progress => self.postMessage({id,progress}),value.tagLabels || {});

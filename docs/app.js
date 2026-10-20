@@ -5676,6 +5676,7 @@
     const excludeTagContainer = $("#excludeTagContainer");
     const resultsEl = $("#results");
     const resultCount = $("#resultCount");
+    const catalogLoadStatus = $("#catalogLoadStatus");
     const catalogDiagnostics = $("#catalogDiagnostics");
     const paginationBars = [$("#paginationTop"), $("#paginationBottom")];
     const tagModeAnd = $("#tagModeAnd");
@@ -6855,6 +6856,94 @@
     let diskQuerySequence = 0;
     let diskFocus = null, tagDictionaryVersion = "";
     const workerRequests = new Map();
+    const previewBundles = new Map(), previewRequests = new Map(), resultPages = new Map();
+    function rememberPage(key,result,preview=false) {
+        resultPages.delete(key);
+        resultPages.set(key,{result,preview,sources:[...selectedSources]});
+        while (resultPages.size>24) resultPages.delete(resultPages.keys().next().value);
+    }
+    function previewResult(query) {
+        if (query.text || query.author || query.focus || query.status!=='all' || query.audience!=='all'
+                || query.and.length || query.or.length || query.exclude.length || query.sort.order!=='desc') return null;
+        const source = currentSource==='all' ? 'npia' : currentSource;
+        if (currentSource==='all' && !['daily','weekly','monthly'].includes(query.sort.sortBy)) return null;
+        const bundle = previewBundles.get(source), cfg = SOURCES[source];
+        const profile = bundle?.profiles[query.sort.sortBy];
+        const total = selectedSources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
+        const page = Math.min(query.page,Math.max(1,Math.ceil(total/query.size))), start = (page-1)*query.size;
+        if (!profile || Math.min(page*query.size,total)>profile.length) return null;
+        const positions = profile.slice(start,start+query.size);
+        const rows = metadata.parseRows(positions.map(index=>bundle.novels[index]),source,cfg);
+        rows.forEach((row,index)=>{
+            row.titleEn = bundle.translations[row.id] || '';
+            row._catalogOrdinal = bundle.ordinals[positions[index]];
+        });
+        return {rows,total,page};
+    }
+    async function loadPreviewBundle(source,cfg,signal,priority='high') {
+        if (!cfg?.previewUrl) return;
+        const signature = cfg.previewHash;
+        if (previewBundles.get(source)?._signature!==signature) {
+            const key = `${source}:${signature}`;
+            if (previewRequests.get(key)?._signal?.aborted) previewRequests.delete(key);
+            if (!previewRequests.has(key)) {
+                const pending = (async()=>{
+                    const response = await fetch(`${versionedDataUrl(cfg.previewUrl)}&preview=${signature}`,{signal,priority});
+                    if (!response.ok) throw new Error('Preview unavailable');
+                    const compressed = await response.arrayBuffer();
+                    if (crypto.subtle) {
+                        const digest = await crypto.subtle.digest('SHA-256',compressed);
+                        if ([...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')!==signature) throw new Error('Preview checksum mismatch');
+                    }
+                    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
+                    const bundle = JSON.parse(await new Response(stream).text());
+                    if (bundle.version!==1 || bundle.source!==source || bundle.total!==cfg.totalEntries || bundle.limit!==300
+                            || JSON.stringify(bundle.chunkHashes)!==JSON.stringify(cfg.chunkHashes)
+                            || !Array.isArray(bundle.novels) || !Array.isArray(bundle.ordinals) || bundle.ordinals.length!==bundle.novels.length
+                            || bundle.ordinals.some(i=>!Number.isSafeInteger(i) || i<0 || i>=bundle.total) || !bundle.profiles || !bundle.translations
+                            || Object.values(bundle.profiles).some(p=>!Array.isArray(p) || p.length>300 || p.some(i=>!Number.isInteger(i) || !bundle.novels[i]))) throw new Error('Invalid preview');
+                    metadata.parseRows(bundle.novels,source,cfg);
+                    bundle._signature = signature;
+                    previewBundles.set(source,bundle);
+                })().finally(()=>{if (previewRequests.get(key)===pending) previewRequests.delete(key);});
+                pending._signal = signal;
+                previewRequests.set(key,pending);
+            }
+            await previewRequests.get(key);
+        }
+    }
+    let previewWarmup = false;
+    function warmSourcePreviews() {
+        if (previewWarmup) return;
+        previewWarmup = true;
+        const start = () => {
+            const names = Object.keys(SOURCES);
+            let position = 0;
+            async function next() {
+                while (position<names.length) {
+                    const name = names[position++];
+                    try {await loadPreviewBundle(name,await ensureSourceConfig(name),undefined,'low');}
+                    catch (_) { /* A missing preview never blocks the catalog. */ }
+                }
+            }
+            Promise.all([next(),next()]);
+        };
+        if (window.requestIdleCallback) requestIdleCallback(start,{timeout:2000});
+        else setTimeout(start,50);
+    }
+    async function showSourcePreview(isCurrent,signal) {
+        const source = currentSource==='all' ? 'npia' : currentSource;
+        const cfg = await ensureSourceConfig(source);
+        if (!isCurrent()) return;
+        await loadPreviewBundle(source,cfg,signal);
+        if (!isCurrent()) return;
+        const result = previewResult(diskQuery());
+        if (result) {
+            diskCatalog = true;
+            rememberPage(diskQueryKey(),result,true);
+            await queryDiskCatalog();
+        }
+    }
     function closeCatalogWorker() {
         catalogWorker?.terminate(); catalogWorker = null;
         for (const {reject} of workerRequests.values()) reject(new DOMException("Source changed", "AbortError"));
@@ -6862,7 +6951,7 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=5");
+            const worker = new Worker("catalog-worker.js?v=6");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
@@ -6905,20 +6994,38 @@
         const query = diskQuery(), key = JSON.stringify(query);
         if (diskPageKey === key) { render(false); return; }
         const seq = ++diskQuerySequence;
-        resultCount.textContent = "Searching catalog…";
+        const cached = resultPages.get(key);
+        const immediate = cached?.result || previewResult(query);
+        if (immediate) {
+            rememberPage(key,immediate,cached?.preview ?? true);
+            diskTotal = immediate.total; currentPage = immediate.page; filtered = immediate.rows; allNovels = [];
+            diskPageKey = diskQueryKey(); render(false); warmSourcePreviews(); return;
+        }
+        if (activeCatalogController) {
+            catalogLoadStatus.hidden = false; catalogLoadStatus.textContent = 'Loading the full catalog for this view…';
+            return;
+        }
+        if (document.body.dataset.catalogReady!=='true') {
+            resultCount.textContent = 'Full catalog unavailable. Reload to search this view.';
+            return;
+        }
+        const waiting = setTimeout(()=>{
+            if (seq===diskQuerySequence) resultCount.textContent = 'Searching catalog…';
+        },180);
         try {
             const result = await workerRequest("query",query);
             if (!diskCatalog || seq !== diskQuerySequence) return;
+            rememberPage(key,result);
             diskTotal = result.total; currentPage = result.page;
             const focus = diskFocus; diskFocus = null;
             filtered = result.rows; allNovels = [];
             diskPageKey = diskQueryKey();
-            render(false);
+            render(false); warmSourcePreviews();
             if (focus) requestAnimationFrame(() => [...resultsEl.querySelectorAll('.novel-card')].find(c => c.dataset.novelId === focus.id && c.dataset.source === focus.source)?.scrollIntoView({block:"center",behavior:"smooth"}));
         } catch (error) {
             if (seq !== diskQuerySequence || error.name === "AbortError") return;
             resultCount.textContent = "Catalog changed or search failed. Reload the page to retry.";
-        }
+        } finally {clearTimeout(waiting);}
     }
     function catalogPartitionLabel(source, partition) {
         if (source !== "jara") return partition || "Catalog";
@@ -6969,7 +7076,7 @@
     function catalogStatusSuffix() {
         const loading = [...catalogLoading.values()];
         const warnings = [...catalogWarnings];
-        return (loading.length ? ` — loading ${loading.join(", ")}` : "")
+        return (loading.length && !diskPageKey ? ` — loading ${loading.join(", ")}` : "")
             + (warnings.length ? ` — Partial results: ${warnings.join("; ")}` : "");
     }
 
@@ -7427,6 +7534,9 @@
         const { signal } = controller;
         const isCurrent = () => !signal.aborted && activeCatalogController === controller;
         currentSource = source;
+        document.body.dataset.catalogReady = 'false';
+        catalogLoadStatus.hidden = false;
+        catalogLoadStatus.textContent = 'Loading the full catalog in the background…';
         sourceSelect.value = source;
         window.NovelSourcePicker?.sync();
         updateSourceSortOptions();
@@ -7458,6 +7568,12 @@
             currentPage = 1;
         }
         catalogRequestedPage = keepState ? currentPage : null;
+        // Completed pages appear synchronously on a return visit. A first
+        // visit races its small preview against the complete disk import.
+        if (resultPages.has(diskQueryKey())) {
+            diskCatalog = true;
+            queryDiskCatalog();
+        } else showSourcePreview(isCurrent,signal).catch(()=>{});
 
         // Full catalogs are imported and queried exclusively by the worker.
         // The interface retains tag summaries and the current result page.
@@ -7486,10 +7602,15 @@
             const info = await workerRequest("activate",{source:name,cfg:workerCfg,tagLabels:TAG_MAP},({loaded,total}) => {
                 if (!isCurrent()) return;
                 catalogLoading.set(name,`${cfg.label} ${loaded}/${total}`);
-                resultCount.textContent = `Loading full catalog${catalogStatusSuffix()}`;
+                if (!diskPageKey) resultCount.textContent = `Loading full catalog${catalogStatusSuffix()}`;
+                catalogLoadStatus.textContent = `Loading ${cfg.label} ${loaded}/${total} in the background…`;
             });
             if (!isCurrent()) return;
             successfulImports++;
+            if (!info.reused) {
+                for (const [key,page] of resultPages) if (!page.preview && page.sources.includes(name)) resultPages.delete(key);
+            }
+            if (cfg.totalEntries == null) cfg.totalEntries = info.total;
             state.tags.clear();
             for (const [key,count,originals] of info.groups) {
                 const tag = originals[0][0];
@@ -7518,11 +7639,19 @@
             diskCatalog = true; diskPageKey = "";
             if (catalogRequestedPage != null) currentPage = catalogRequestedPage;
             catalogRequestedPage = null; activeCatalogController = null;
+            document.body.dataset.catalogReady = 'true'; catalogLoadStatus.hidden = true;
+            const page = resultPages.get(diskQueryKey());
+            if (page?.preview) page.result.total = selectedSources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
             await queryDiskCatalog();
             return;
         } catch (error) {
             if (!isCurrent()) return;
             activeCatalogController = null; catalogLoading.clear();
+            catalogLoadStatus.hidden = true;
+            if (diskCatalog && diskPageKey) {
+                resultCount.textContent = 'Preview available. Full catalog could not load; reload to retry.';
+                return;
+            }
             closeCatalogWorker();
             allNovels = [...resultsEl.querySelectorAll('.novel-card')].map(c => c._record).filter(Boolean);
             filtered = allNovels;
