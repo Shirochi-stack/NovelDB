@@ -150,7 +150,7 @@ def test_later_run_checks_newest_page_and_continues_backfill():
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
-def test_workflow_scraper_integrates_public_metadata_and_checkpoint(tmp_path, monkeypatch, dry_run):
+def test_workflow_scraper_integrates_public_metadata_and_checkpoint(tmp_path, monkeypatch, capsys, dry_run):
     class Output(io.StringIO):
         def reconfigure(self, **kwargs):
             pass
@@ -181,6 +181,9 @@ def test_workflow_scraper_integrates_public_metadata_and_checkpoint(tmp_path, mo
         argv.append("--dry-run")
     monkeypatch.setattr(sys, "argv", argv)
     scraper.main()
+    output = capsys.readouterr().out
+    assert 'R19 refreshed (unique):  1' in output
+    assert 'R19 new IDs:             0' in output
     if dry_run:
         assert catalog.read_bytes() == before
         assert not (data / "npia_public_state.json").exists()
