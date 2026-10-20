@@ -161,7 +161,7 @@ def test_details_show_all_available_fields_and_original_image_without_enabling_c
 
 
 @pytest.mark.parametrize('readable',[True,False])
-def test_quality_slider_changes_pixels_and_webp_bytes_without_flicker_and_persists(readable):
+def test_resolution_and_webp_quality_are_independent_without_flicker_and_persist(readable):
     async def scenario():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
@@ -174,42 +174,73 @@ def test_quality_slider_changes_pixels_and_webp_bytes_without_flicker_and_persis
             await page.route('**/*',route)
             await page.goto('https://metadata.test/');await wait_loaded(page)
             await page.locator('.card-cover.loaded').wait_for()
-            assert 'Image Compression' in await page.locator('.image-compression').inner_text()
-            assert await page.locator('#imageQuality').get_attribute('min')=='20'
-            assert await page.locator('#imageQuality').get_attribute('max')=='100'
-            assert await page.locator('.image-compression').evaluate('el=>{const a=el.children[0].getBoundingClientRect(),b=el.children[1].getBoundingClientRect();return Math.abs((a.top+a.bottom-b.top-b.bottom)/2)<4}')
+            for ident in ('imageResolution','imageQuality'):
+                assert await page.locator('#'+ident).get_attribute('min')=='20'
+                assert await page.locator('#'+ident).get_attribute('max')=='100'
+            assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
             await page.evaluate('window.originalCard=document.querySelector(".novel-card")')
-            sizes=[];pixels=[]
-            for quality in (20,50,100):
-                await page.evaluate('''quality=>{
-                    window.oldCover=document.querySelector('.card-cover.loaded');
-                    const slider=document.querySelector('#imageQuality');slider.value=quality;
+            async def adjust(ident,value):
+                await page.evaluate('''({ident,value})=>{
+                    window.oldCover=document.querySelector('.card-cover-wrap > .card-cover.loaded');
+                    const slider=document.getElementById(ident);slider.value=value;
                     slider.dispatchEvent(new Event('input',{bubbles:true}));slider.dispatchEvent(new Event('change',{bubbles:true}));
                     if(!oldCover.isConnected || getComputedStyle(oldCover).opacity!=='1') throw new Error('Cover blanked');
-                }''',quality)
+                }''',{'ident':ident,'value':value})
                 await page.wait_for_function('document.querySelector(".card-cover-wrap > .card-cover.loaded")!==oldCover && !document.querySelector(".cover-replacement")')
-                info=await page.locator('.card-cover-wrap > .card-cover.loaded').evaluate('''async img=>{
+                assert await page.locator('#'+ident+'Value').inner_text()==f'{value}%'
+                assert await page.evaluate('originalCard===document.querySelector(".novel-card")')
+                return await page.locator('.card-cover-wrap > .card-cover.loaded').evaluate('''async img=>{
                     const info={width:img.naturalWidth||img.width,height:img.naturalHeight||img.height};
                     if(img.tagName==='IMG') {const blob=await(await fetch(img.src)).blob();info.size=blob.size;info.type=blob.type;}
                     return info;
                 }''')
-                assert info['width']<=320*quality/100 and info['height']<=480*quality/100
+            pixels=[]
+            for resolution in (20,50,100):
+                info=await adjust('imageResolution',resolution)
+                assert info['width']<=320*resolution/100 and info['height']<=480*resolution/100
                 pixels.append(info['width']*info['height'])
+                assert await page.locator('#imageQuality').input_value()=='72'
+            assert pixels[0]<pixels[1]<pixels[2] and pixels[0]<pixels[2]*.05
+            sizes=[]
+            for quality in (20,50,100):
+                info=await adjust('imageQuality',quality)
+                assert info['width']*info['height']==pixels[2]
+                assert await page.locator('#imageResolution').input_value()=='100'
                 if readable:
                     assert info['type']=='image/webp';sizes.append(info['size'])
-                assert await page.locator('#imageQualityValue').inner_text()==f'{quality}%'
-                assert await page.evaluate('originalCard===document.querySelector(".novel-card")')
-            assert pixels[0]<pixels[1]<pixels[2]
-            assert pixels[0]<pixels[2]*.05  # Roughly 4% of the decoded pixels at 20 vs 100.
             if readable: assert sizes[0]<sizes[1]<sizes[2]
-            await page.reload();await wait_loaded(page)
+            await adjust('imageResolution',50)
             assert await page.locator('#imageQuality').input_value()=='100'
-            assert await page.locator('#imageQualityValue').inner_text()=='100%'
+            await page.locator('.image-compression').screenshot(path=f'artifacts/separate-image-sliders-{readable}.png')
+            await page.reload();await wait_loaded(page)
+            assert await page.locator('#imageResolution').input_value()=='50'
+            assert await page.locator('#imageQuality').input_value()=='100'
             await page.locator('#lowResCovers').uncheck()
-            assert await page.locator('#imageQuality').is_disabled()
+            for ident in ('imageResolution','imageQuality'):assert await page.locator('#'+ident).is_disabled()
             await page.reload();await wait_loaded(page)
             assert not await page.locator('#lowResCovers').is_checked()
-            assert await page.locator('#imageQuality').is_disabled()
+            for ident in ('imageResolution','imageQuality'):assert await page.locator('#'+ident).is_disabled()
+            await page.wait_for_function('document.querySelector(".card-cover.loaded")?.naturalWidth===800')
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_combined_slider_preferences_migrate_once_without_recoupling_on_reload():
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page()
+            await page.route('**/*',FixtureSite().route)
+            await page.add_init_script('''if(!localStorage.getItem('migrationSeeded')) {
+                localStorage.setItem('noveldb.imageQuality','35');localStorage.setItem('migrationSeeded','true');
+            }''')
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            assert await page.locator('#imageResolution').input_value()=='35'
+            assert await page.locator('#imageQuality').input_value()=='35'
+            await page.locator('#imageQuality').evaluate("slider=>{slider.value=85;slider.dispatchEvent(new Event('input',{bubbles:true}));slider.dispatchEvent(new Event('change',{bubbles:true}));}")
+            await page.reload();await wait_loaded(page)
+            assert await page.locator('#imageResolution').input_value()=='35'
+            assert await page.locator('#imageQuality').input_value()=='85'
             await browser.close()
     asyncio.run(scenario())
 
