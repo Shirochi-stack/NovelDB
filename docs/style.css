@@ -508,17 +508,23 @@ main {
 .novel-details-image img { display: block; width: 100%; height: auto; }
 .novel-details-image img[hidden] { display: none; }
 .novel-details-image figcaption { color: var(--text-secondary); font-size: .8rem; margin: .5rem 0; }
-.novel-details-fields { min-width: 0; }
-.novel-details-fields dt { color: var(--text-secondary); font-size: .8rem; margin-top: .7rem; }
-.novel-details-fields dt:first-child { margin-top: 0; }
+.novel-details-fields { min-width: 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .65rem 1rem; align-content: start; }
+.novel-details-field { min-width: 0; }
+.novel-details-field.details-wide { grid-column: 1 / -1; }
+.novel-details-fields dt { color: var(--text-secondary); font-size: .75rem; margin: 0; }
 .novel-details-fields dd { margin: .15rem 0 0; font-size: .9rem; overflow-wrap: anywhere; white-space: pre-wrap; }
 .novel-details-fields a { color: var(--accent-hover); }
+.novel-details-fields .details-properties { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: .2rem .7rem; }
+.novel-details-fields .details-properties dd { margin: 0; }
+.details-rank { display: inline-block; padding: .15rem .45rem; margin: .15rem .35rem .15rem 0; border: 1px solid var(--border); border-radius: .35rem; font-size: .8rem; }
+
 @media (max-width: 650px) {
     .image-compression { width: 100%; flex-wrap: nowrap; gap: .5rem; }
     .image-compression .description-toggle { flex: none; white-space: nowrap; font-size: .85rem; }
     .compression-quality { flex: 1; min-width: 0; font-size: .75rem; }
     .compression-quality input { flex: 1; min-width: 40px; width: 100%; }
     .novel-details-body { grid-template-columns: minmax(0,1fr); }
+    .novel-details-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .novel-details { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); }
 }
 a.card-cover-wrap {

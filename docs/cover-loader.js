@@ -9,12 +9,14 @@
     const clampQuality=value=>Number.isFinite(Number(value)) ? Math.min(100,Math.max(20,Math.round(Number(value)))) : 72;
     quality=clampQuality(quality);
     function widthFor(img) {
-        return Math.max(1,Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,1.5))));
+        const width=Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,1.5)));
+        return Math.max(1,Math.floor(width*quality/100));
     }
+    const heightFor=()=>Math.max(1,Math.floor(MAX_HEIGHT*quality/100));
     async function drawThumbnail(img, image) {
         if (!img.isConnected) return;
         const width = image.naturalWidth || image.width, height = image.naturalHeight || image.height;
-        const scale = Math.min(1,widthFor(img)/width,MAX_HEIGHT/height);
+        const scale = Math.min(1,widthFor(img)/width,heightFor()/height);
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1,Math.round(width*scale)); canvas.height = Math.max(1,Math.round(height*scale));
         canvas.className = img.className;
@@ -137,7 +139,7 @@
                 let bitmap;
                 try {
                     if (size?.[0] > 0 && size?.[1] > 0) {
-                        const scale = Math.min(1,widthFor(img)/size[0],MAX_HEIGHT/size[1]);
+                        const scale = Math.min(1,widthFor(img)/size[0],heightFor()/size[1]);
                         bitmap = await createImageBitmap(blob,{resizeWidth:Math.max(1,Math.round(size[0]*scale)),
                             resizeQuality:'high'});
                         if (signal.aborted) throw new DOMException('Cover cancelled','AbortError');

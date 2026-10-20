@@ -38,6 +38,7 @@ def test_original_download_keeps_original_dimensions_and_pixels_while_display_is
                     await r.fulfill(body=gzip.compress(json.dumps({'novels':[novel]}).encode()),content_type='application/gzip')
                 else: await site.route(r)
             await page.route('**/*',route)
+            await page.add_init_script("localStorage.setItem('noveldb.imageQuality','20')")
             await page.goto('https://metadata.test/')
             await wait_loaded(page)
             cover=page.locator('img.card-cover.loaded');await cover.wait_for()
@@ -45,7 +46,7 @@ def test_original_download_keeps_original_dimensions_and_pixels_while_display_is
                 const blob=await (await fetch(img.src)).blob();
                 return {width:img.naturalWidth,height:img.naturalHeight,type:blob.type,size:blob.size};
             }''')
-            assert thumbnail['width']<=320 and thumbnail['height']<=480
+            assert thumbnail['width']<=64 and thumbnail['height']<=96
             assert thumbnail['type']=='image/webp'
             await page.evaluate('window.savedCard=document.querySelector(".novel-card");window.savedCover=document.querySelector("img.card-cover")')
             if context_menu:
@@ -82,15 +83,17 @@ def test_details_show_all_available_fields_and_original_image_without_enabling_c
                     await r.fulfill(body=data,content_type='application/octet-stream',headers={'content-disposition':'attachment; filename=original.orifile','access-control-allow-origin':'*'})
                 else:await site.route(r)
             await page.route('**/*',route)
-            await page.add_init_script("localStorage.setItem('noveldb.loadDescriptions','false')")
+            await page.add_init_script("localStorage.setItem('noveldb.loadDescriptions','false');localStorage.setItem('noveldb.imageQuality','20')")
             await page.goto('https://metadata.test/#src=nweb');await wait_loaded(page)
             card=page.locator('.novel-card').first
             await card.locator('.card-cover.loaded').wait_for()
+            assert await card.locator('.card-cover.loaded').evaluate('img=>img.naturalWidth<=64 && img.naturalHeight<=96')
             await card.evaluate('''card=>{
                 window.originalCard=card;window.originalCover=card.querySelector('.card-cover');
                 card._record.metrics.test_zero=0;card._record.metrics.test_false=false;
                 card._record.metrics.test_html='<img src=x onerror="window.injected=true">';
-                window.metadataKeys=Object.keys(card._record).filter(key=>!key.startsWith('_'));
+                window.metadataKeys=Object.keys(card._record).filter(key=>!key.startsWith('_') && !['metadataV1','cover'].includes(key)
+                        && (['age','complete'].includes(key) || (card._record[key]!=null && card._record[key]!=='' && (typeof card._record[key]!=='object' || Object.keys(card._record[key]).length))));
             }''')
             await card.locator('.card-cover-wrap').click(button='right',position={'x':10,'y':10})
             await page.get_by_role('menuitem',name='View Details').click()
@@ -98,15 +101,19 @@ def test_details_show_all_available_fields_and_original_image_without_enabling_c
             await page.wait_for_function('document.querySelector(".novel-details-image img")?.naturalWidth===800')
             await page.wait_for_function('document.querySelector("[data-field=synopsis]")?.textContent.includes("nweb synopsis")')
             assert await page.evaluate('metadataKeys.every(key=>document.querySelector(`[data-field="${key}"]`))')
-            assert 'test_zero' in await dialog.locator('[data-field=metrics]').inner_text()
+            assert 'Test zero' in await dialog.locator('[data-field=metrics]').inner_text()
             assert '<img src=x' in await dialog.locator('[data-field=metrics]').inner_text()
             assert await dialog.locator('[data-field=metrics] img').count()==0
             assert not await page.evaluate('!!window.injected')
+            positions=await dialog.locator('[data-field=author],[data-field=source]').evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().top)')
+            assert abs(positions[0]-positions[1])<2
             assert not await page.locator('#loadDescriptions').is_checked()
             assert await page.locator('.novel-card .card-synopsis').count()==0
             assert await dialog.evaluate('d=>d.scrollWidth<=d.clientWidth && d.getBoundingClientRect().right<=innerWidth')
             await page.screenshot(path='artifacts/image-details-mobile.png')
             await page.set_viewport_size({'width':1200,'height':900})
+            positions=await dialog.locator('[data-field=complete],[data-field=age]').evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().top)')
+            assert abs(positions[0]-positions[1])<2
             await page.screenshot(path='artifacts/image-details-desktop.png')
             await page.keyboard.press('Escape')
             assert not await dialog.is_visible()
@@ -117,7 +124,8 @@ def test_details_show_all_available_fields_and_original_image_without_enabling_c
     asyncio.run(scenario())
 
 
-def test_quality_slider_changes_webp_bytes_without_flicker_and_persists():
+@pytest.mark.parametrize('readable',[True,False])
+def test_quality_slider_changes_pixels_and_webp_bytes_without_flicker_and_persists(readable):
     async def scenario():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
@@ -125,7 +133,7 @@ def test_quality_slider_changes_webp_bytes_without_flicker_and_persists():
             data=image_bytes('PNG');site=FixtureSite(covers=True)
             async def route(r):
                 if urlsplit(r.request.url).hostname=='covers.test':
-                    await r.fulfill(body=data,content_type='image/png',headers={'access-control-allow-origin':'*'})
+                    await r.fulfill(body=data,content_type='image/png',headers={'access-control-allow-origin':'*' if readable else 'https://different.test'})
                 else:await site.route(r)
             await page.route('**/*',route)
             await page.goto('https://metadata.test/');await wait_loaded(page)
@@ -135,8 +143,8 @@ def test_quality_slider_changes_webp_bytes_without_flicker_and_persists():
             assert await page.locator('#imageQuality').get_attribute('max')=='100'
             assert await page.locator('.image-compression').evaluate('el=>{const a=el.children[0].getBoundingClientRect(),b=el.children[1].getBoundingClientRect();return Math.abs((a.top+a.bottom-b.top-b.bottom)/2)<4}')
             await page.evaluate('window.originalCard=document.querySelector(".novel-card")')
-            sizes=[]
-            for quality in (20,100):
+            sizes=[];pixels=[]
+            for quality in (20,50,100):
                 await page.evaluate('''quality=>{
                     window.oldCover=document.querySelector('.card-cover.loaded');
                     const slider=document.querySelector('#imageQuality');slider.value=quality;
@@ -144,12 +152,20 @@ def test_quality_slider_changes_webp_bytes_without_flicker_and_persists():
                     if(!oldCover.isConnected || getComputedStyle(oldCover).opacity!=='1') throw new Error('Cover blanked');
                 }''',quality)
                 await page.wait_for_function('document.querySelector(".card-cover-wrap > .card-cover.loaded")!==oldCover && !document.querySelector(".cover-replacement")')
-                info=await page.locator('img.card-cover.loaded').evaluate('''async img=>{const blob=await(await fetch(img.src)).blob();return {size:blob.size,type:blob.type,width:img.naturalWidth}}''')
-                assert info['type']=='image/webp' and info['width']<=320
-                sizes.append(info['size'])
+                info=await page.locator('.card-cover-wrap > .card-cover.loaded').evaluate('''async img=>{
+                    const info={width:img.naturalWidth||img.width,height:img.naturalHeight||img.height};
+                    if(img.tagName==='IMG') {const blob=await(await fetch(img.src)).blob();info.size=blob.size;info.type=blob.type;}
+                    return info;
+                }''')
+                assert info['width']<=320*quality/100 and info['height']<=480*quality/100
+                pixels.append(info['width']*info['height'])
+                if readable:
+                    assert info['type']=='image/webp';sizes.append(info['size'])
                 assert await page.locator('#imageQualityValue').inner_text()==f'{quality}%'
                 assert await page.evaluate('originalCard===document.querySelector(".novel-card")')
-            assert sizes[0]<sizes[1]
+            assert pixels[0]<pixels[1]<pixels[2]
+            assert pixels[0]<pixels[2]*.05  # Roughly 4% of the decoded pixels at 20 vs 100.
+            if readable: assert sizes[0]<sizes[1]<sizes[2]
             await page.reload();await wait_loaded(page)
             assert await page.locator('#imageQuality').input_value()=='100'
             assert await page.locator('#imageQualityValue').inner_text()=='100%'
@@ -158,6 +174,44 @@ def test_quality_slider_changes_webp_bytes_without_flicker_and_persists():
             await page.reload();await wait_loaded(page)
             assert not await page.locator('#lowResCovers').is_checked()
             assert await page.locator('#imageQuality').is_disabled()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('age,expected,adult,teen',[(0,'General',False,False),(19,'19+',True,False),(15,'15+',False,True)])
+def test_details_compact_facts_hide_irrelevant_ranks_and_cover_url(age,expected,adult,teen):
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':1200,'height':900})
+            await page.route('**/*',FixtureSite().route)
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            await page.locator('.novel-card').evaluate('''(card,age)=>{
+                Object.assign(card._record,{age,complete:0,dailyRank:1,weeklyRank:2,monthlyRank:0,
+                    dailyRankAdult:3,weeklyRankAdult:4,monthlyRankAdult:0,
+                    dailyRankTeen:5,weeklyRankTeen:6,monthlyRankTeen:0});
+            }''',age)
+            await page.get_by_role('button',name='View Details').click()
+            dialog=page.get_by_role('dialog')
+            await dialog.wait_for()
+            assert await dialog.locator('[data-field=complete]').inner_text()=='No'
+            assert await dialog.locator('[data-field=age]').inner_text()==expected
+            assert await dialog.locator('[data-field=cover]').count()==0
+            assert await dialog.locator('[data-field=metadataV1]').count()==0
+            link=dialog.get_by_role('link',name='Open novel')
+            assert await link.get_attribute('href')==await page.locator('.card-cover-wrap').get_attribute('href')
+            assert await dialog.locator('[data-field=dailyRankAdult]').count()==int(adult)
+            assert await dialog.locator('[data-field=weeklyRankAdult]').count()==int(adult)
+            assert await dialog.locator('[data-field=dailyRankTeen]').count()==int(teen)
+            assert await dialog.locator('[data-field=weeklyRankTeen]').count()==int(teen)
+            assert await dialog.locator('[data-field=monthlyRank]').count()==0
+            assert await dialog.locator('[data-field=monthlyRankAdult]').count()==0
+            assert await dialog.locator('[data-field=monthlyRankTeen]').count()==0
+            assert await dialog.locator('[data-field=rankings]').inner_text()
+            positions=await dialog.locator('[data-field=source],[data-field=id]').evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().top)')
+            assert abs(positions[0]-positions[1])<2
+            assert await dialog.locator('.novel-details-fields').evaluate('el=>el.getBoundingClientRect().height<650')
+            await page.get_by_role('button',name='Close Details').click()
             await browser.close()
     asyncio.run(scenario())
 
