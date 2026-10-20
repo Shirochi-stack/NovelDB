@@ -2,7 +2,7 @@
 "use strict";
 importScripts("metadata-core.js?v=4");
 const M = self.NovelMetadata;
-const BLOCK = 512, PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16;
+const BLOCK = 512, PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 4;
 let database, serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
 let runSerial = 0;
@@ -84,7 +84,7 @@ async function importSource(source, cfg, progress, labels) {
     const keys = [], counts = new Map();
     let total = 0;
     const warnings = [];
-    // Keep one compressed download ahead of the chunk being imported. Only
+    // Keep up to three compressed downloads ahead of the chunk being imported. Only
     // the current chunk is decompressed, parsed and written to the database.
     const downloads = new Map(), controller = new AbortController();
     async function download(chunk) {
@@ -104,7 +104,7 @@ async function importSource(source, cfg, progress, labels) {
         } catch (error) { return { old, error }; }
     }
     const schedule = chunk => { if (chunk < files.length) downloads.set(chunk, download(chunk)); };
-    schedule(0); schedule(1);
+    for (let chunk = 0; chunk < DOWNLOADS; chunk++) schedule(chunk);
     try {
         for (let chunk = 0; chunk < files.length; chunk++) {
             const url = files[chunk];
@@ -158,7 +158,7 @@ async function importSource(source, cfg, progress, labels) {
                 }
             }
             progress({ source, loaded: chunk + 1, total: files.length });
-            schedule(chunk + 2);
+            schedule(chunk + DOWNLOADS);
         }
     } finally {
         controller.abort();

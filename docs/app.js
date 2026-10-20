@@ -6902,7 +6902,7 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=2");
+            const worker = new Worker("catalog-worker.js?v=3");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
