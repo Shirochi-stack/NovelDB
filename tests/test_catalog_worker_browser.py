@@ -1,6 +1,7 @@
 """Real IndexedDB/worker tests for bounded queries and persistent imports."""
 import asyncio
 import gzip
+import hashlib
 import json
 from urllib.parse import urlsplit
 
@@ -148,35 +149,50 @@ def test_blocked_storage_keeps_top_cards_and_explains_recovery():
     asyncio.run(scenario())
 
 
-def test_four_downloads_overlap_with_bounded_prefetch_and_sequential_imports():
+def test_eight_downloads_and_four_parsers_are_bounded_and_cleaned_up():
     class Site(FixtureSite):
         def __init__(self):
             super().__init__()
-            self.release_first = asyncio.Event()
-            self.first_four = asyncio.Event()
+            self.release_downloads = asyncio.Event()
+            self.first_eight = asyncio.Event()
+            self.release_parsers = asyncio.Event()
+            self.first_four_parsers = asyncio.Event()
             self.started = []
+            self.parsing = []
             self.worker = None
-            self.fifth_saw_committed_first = False
+            self.ninth_saw_committed_first = False
 
         async def route(self, route):
             path = urlsplit(route.request.url).path
             if path == '/':
                 await route.fulfill(body='<html><body>Worker test</body></html>', content_type='text/html')
+            elif path == '/catalog-parser.js':
+                suffix = """\nconst actualImport=importChunk;importChunk=async(...args)=>{
+                    await fetch('/parser-gate?chunk='+args[1].chunk);return actualImport(...args)};"""
+                await route.fulfill(body=(DOCS/'catalog-parser.js').read_text(encoding='utf-8')+suffix,content_type='text/javascript')
+            elif path == '/parser-gate':
+                self.parsing.append(route.request.url)
+                if len(self.parsing) == 4:
+                    self.first_four_parsers.set()
+                await self.release_parsers.wait()
+                await route.fulfill(body='ok')
             elif path.startswith('/data/overlap_'):
                 chunk = int(path.split('_')[-1].split('.')[0])
                 self.started.append(chunk)
-                if len(self.started) == 4:
-                    self.first_four.set()
-                if chunk == 0:
-                    await self.release_first.wait()
-                if chunk == 4:
+                if len(self.started) == 8:
+                    self.first_eight.set()
+                if chunk < 8:
+                    await self.release_downloads.wait()
+                if chunk == 8:
                     saved = await self.worker.evaluate("get('cards',['npia',0,0])")
-                    self.fifth_saw_committed_first = saved['rows'][0][0] == 1
+                    self.ninth_saw_committed_first = saved['rows'][0][0] == 1
                 # A failed prefetched download must preserve other chunks.
                 if chunk == 2:
                     await route.abort('failed')
                 else:
-                    await route.fulfill(body=gzip.compress(json.dumps({'novels': [row('npia', chunk + 1)]}).encode()),
+                    item = row('npia',chunk + 1)
+                    item[4] = ['판타지']
+                    await route.fulfill(body=gzip.compress(json.dumps({'novels': [item]}).encode()),
                                         content_type='application/gzip')
             else:
                 await super().route(route)
@@ -191,22 +207,37 @@ def test_four_downloads_overlap_with_bounded_prefetch_and_sequential_imports():
             async with page.expect_worker() as worker_event:
                 await page.evaluate(BOOT)
             site.worker = await worker_event.value
-            pending = asyncio.create_task(page.evaluate("""rpc('import',{source:'npia',cfg:{format:'array',chunked:true,
-                chunkFiles:[0,1,2,3,4,5].map(i=>`http://metadata.test/data/overlap_${i}.json.gz`)}})"""))
-            await asyncio.wait_for(site.first_four.wait(), 5)
-            assert sorted(site.started) == [0, 1, 2, 3]
+            pending = asyncio.create_task(page.evaluate("""rpc('import',{source:'npia',tagLabels:{'판타지':'Fantasy'},cfg:{format:'array',chunked:true,tagVersion:'v1',
+                chunkFiles:Array.from({length:10},(_,i)=>`http://metadata.test/data/overlap_${i}.json.gz`)}})"""))
+            await asyncio.wait_for(site.first_eight.wait(), 5)
+            assert sorted(site.started) == list(range(8))
             # Hold the first response: no unbounded downloading or early parsing.
             await asyncio.sleep(.1)
-            assert sorted(site.started) == [0, 1, 2, 3]
-            for chunk in range(4):
+            assert sorted(site.started) == list(range(8))
+            for chunk in range(8):
                 assert await site.worker.evaluate("chunk=>get('meta',['npia',chunk])", chunk) is None
-            site.release_first.set()
+            site.release_downloads.set()
+            await asyncio.wait_for(site.first_four_parsers.wait(),5)
+            await asyncio.sleep(.1)
+            assert len(site.parsing) == 4
+            assert sorted(site.started) == list(range(8))
+            cdp = await browser.new_browser_cdp_session()
+            targets = (await cdp.send('Target.getTargets'))['targetInfos']
+            assert len([t for t in targets if t['type']=='worker' and '/catalog-parser.js' in t['url']]) == 4
+            site.release_parsers.set()
             result = await pending
-            assert result['total'] == 5 and len(result['warnings']) == 1
-            assert site.fifth_saw_committed_first
-            assert sorted(site.started) == [0, 1, 2, 3, 4, 5]
+            assert result['total'] == 9 and len(result['warnings']) == 1
+            assert result['groups'] == [['label:fantasy',9,[['판타지',9]]]]
+            assert site.ninth_saw_committed_first
+            assert sorted(site.started) == list(range(10))
+            assert len(site.parsing) == 9
             assert await site.worker.evaluate("get('meta',['npia',2])") is None
-            assert (await site.worker.evaluate("get('cards',['npia',5,0])"))['rows'][0][0] == 6
+            assert (await site.worker.evaluate("get('cards',['npia',9,0])"))['rows'][0][0] == 10
+            output = await page.evaluate("rpc('query',{sources:['npia'],sort:{sortBy:'views'},page:1,size:100})")
+            assert [item['id'] for item in output['rows']] == [str(i+1) for i in range(10) if i != 2]
+            await asyncio.sleep(.05)
+            targets = (await cdp.send('Target.getTargets'))['targetInfos']
+            assert not [t for t in targets if t['type']=='worker' and '/catalog-parser.js' in t['url']]
             await browser.close()
     asyncio.run(scenario())
 
@@ -222,20 +253,22 @@ def test_storage_failure_aborts_the_prefetched_download():
                     self.prefetchState={started:[],aborted:[]};
                     const originalFetch=self.fetch.bind(self);
                     self.fetch=(url,options)=>{
-                        if(/cancel_[123]\.json$/.test(String(url))) {
+                        if(/cancel_[1-7]\.json$/.test(String(url))) {
                             prefetchState.started.push(String(url));
                             return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>{
                                 prefetchState.aborted.push(String(url));reject(new DOMException('Cancelled','AbortError'));
                             },{once:true}));
                         }
                         if(String(url).endsWith('cancel_0.json')) return new Promise(resolve=>setTimeout(()=>
-                            resolve(new Response(JSON.stringify({novels:[[1]]}))),30));
+                            resolve(new Response(JSON.stringify({novels:[[1,'Title']]}))),30));
                         return originalFetch(url,options);
                     };
                 """
-                suffix = "\nself.NovelMetadata.parseRows=()=>{throw new DOMException('Disk full','QuotaExceededError')};"
-                await route.fulfill(body=prefix+(DOCS/'catalog-worker.js').read_text(encoding='utf-8')+suffix,
+                await route.fulfill(body=prefix+(DOCS/'catalog-worker.js').read_text(encoding='utf-8'),
                                     content_type='text/javascript')
+            elif path == '/catalog-parser.js':
+                suffix = "\nIDBObjectStore.prototype.put=function(){throw new DOMException('Disk full','QuotaExceededError')};"
+                await route.fulfill(body=(DOCS/'catalog-parser.js').read_text(encoding='utf-8')+suffix,content_type='text/javascript')
             else:
                 await super().route(route)
 
@@ -249,11 +282,147 @@ def test_storage_failure_aborts_the_prefetched_download():
                 await page.evaluate(BOOT)
             worker = await worker_event.value
             error = await page.evaluate("""rpc('import',{source:'npia',cfg:{format:'array',chunked:true,
-                chunkFiles:[0,1,2,3].map(i=>`http://metadata.test/data/cancel_${i}.json`)}}).then(()=>null,e=>e.message)""")
+                chunkFiles:Array.from({length:8},(_,i)=>`http://metadata.test/data/cancel_${i}.json`)}}).then(()=>null,e=>e.message)""")
             assert error == 'Disk full'
             state = await worker.evaluate('prefetchState')
-            expected = [f'http://metadata.test/data/cancel_{i}.json' for i in range(1, 4)]
+            expected = [f'http://metadata.test/data/cancel_{i}.json' for i in range(1, 8)]
             assert sorted(state['started']) == sorted(state['aborted']) == expected
             assert await worker.evaluate("get('meta',['npia',0])") is None
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_manifest_hashes_restore_pages_without_downloads_or_scans_and_invalidate_changes():
+    class Site(FixtureSite):
+        def __init__(self):
+            super().__init__()
+            self.title = 'First title'
+            self.downloads = 0
+
+        def payload(self):
+            item = row('npia', 42)
+            item[1] = self.title
+            return gzip.compress(json.dumps({'novels': [item]}).encode(),mtime=0)
+
+        def config(self):
+            return {'format':'array','chunked':True,'chunkFiles':['https://metadata.test/data/cache.json.gz'],
+                    'chunkHashes':[hashlib.sha256(self.payload()).hexdigest()]}
+
+        async def route(self, route):
+            path = urlsplit(route.request.url).path
+            if path == '/':
+                await route.fulfill(body='<html><body>Worker test</body></html>',content_type='text/html')
+            elif path == '/data/cache.json.gz':
+                self.downloads += 1
+                await route.fulfill(body=self.payload(),content_type='application/gzip')
+            else:
+                await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = Site()
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/')
+            async with page.expect_worker() as worker_event:
+                await page.evaluate(BOOT)
+            worker = await worker_event.value
+            options = {'sources':['npia'],'text':'','status':'all','audience':'all',
+                       'sort':{'sortBy':'views','order':'desc'},'page':1,'size':100}
+            async def load(cfg):
+                return await page.evaluate("cfg=>rpc('import',{source:'npia',cfg})",cfg)
+            await load(site.config())
+            first = await page.evaluate("q=>rpc('query',q)",options)
+            assert first['rows'][0]['title'] == 'First title'
+            assert site.downloads == 1
+            await page.evaluate('testWorker.terminate()')
+            async with page.expect_worker() as worker_event:
+                await page.evaluate(BOOT)
+            worker = await worker_event.value
+            await worker.evaluate("() => {self.indexReads=0;const originalGet=get;get=(store,key)=>{if(store==='index')indexReads++;return originalGet(store,key)}}")
+            await load(site.config())
+            assert site.downloads == 1
+            assert await page.evaluate("q=>rpc('query',q)",options) == first
+            assert await worker.evaluate('indexReads') == 0
+            # A changed filter cannot borrow a cached unfiltered result.
+            empty = await page.evaluate("q=>rpc('query',q)",{**options,'text':'not present'})
+            assert empty['total'] == 0 and await worker.evaluate('indexReads') > 0
+            site.title = 'Changed title'
+            await load(site.config())
+            changed = await page.evaluate("q=>rpc('query',q)",options)
+            assert changed['rows'][0]['title'] == 'Changed title' and site.downloads == 2
+            # A mixed deployment must retain the last committed chunk and page.
+            fallback = await load({**site.config(),'chunkHashes':['f'*64]})
+            assert fallback['total'] == 1 and fallback['warnings']
+            assert (await page.evaluate("q=>rpc('query',q)",options)) == changed
+            # Changing parser settings invalidates the persistent page, too.
+            before = await worker.evaluate('indexReads')
+            await load({**site.config(),'coverPrefix':'https://covers.test/'})
+            await page.evaluate("q=>rpc('query',q)",options)
+            assert await worker.evaluate('indexReads') > before
+            assert len(await worker.evaluate('get("meta",["saved-pages"])')) <= 3
+            await worker.evaluate("""() => {const originalPut=IDBObjectStore.prototype.put;
+                IDBObjectStore.prototype.put=function(value,key){
+                    if(Array.isArray(key)&&key[0]==='saved-pages')throw new DOMException('Full','QuotaExceededError');
+                    return originalPut.call(this,value,key);
+                }}""")
+            # Optional page-cache writes must not stop an otherwise usable query.
+            result = await page.evaluate("q=>rpc('query',q)",{**options,'text':'Changed'})
+            assert result['total'] == 1
+            await worker.evaluate("() => {Object.defineProperty(crypto,'subtle',{value:undefined})}")
+            # HTTP previews without checksums or validators must never reuse
+            # result pages after a newly downloaded body changes.
+            for title in ['Unvalidated title one','Unvalidated title two']:
+                site.title = title
+                assert (await load(site.config()))['total'] == 1
+                assert (await page.evaluate("q=>rpc('query',q)",options))['rows'][0]['title'] == title
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_combined_rankings_skip_other_indexes_only_when_npia_fills_the_page():
+    novels = []
+    for i in range(180):
+        item = row('npia',i+1)
+        item[1] = f'Title {179-i:03d}'
+        item[13] = i//10+1 if i % 10 == 0 else 0
+        novels.append(item)
+    other = [row('nweb',i+1,known=True) for i in range(30)]
+    class Site(FixtureSite):
+        async def route(self, route):
+            path = urlsplit(route.request.url).path
+            if path == '/':
+                await route.fulfill(body='<html><body>Worker test</body></html>',content_type='text/html')
+            elif path.startswith('/data/rank_'):
+                await route.fulfill(body=gzip.compress(json.dumps({'novels':novels if 'npia' in path else other}).encode()),content_type='application/gzip')
+            else:
+                await super().route(route)
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route('**/*',Site().route)
+            await page.goto('http://metadata.test/')
+            async with page.expect_worker() as event:
+                await page.evaluate(BOOT)
+            worker = await event.value
+            for source,fmt in [('nweb','metadata-v1'),('npia','array')]:
+                await page.evaluate("v=>rpc('import',v)",{'source':source,'cfg':{'format':fmt,'dataUrl':f'http://metadata.test/data/rank_{source}.json.gz'}})
+            await worker.evaluate("() => {self.readSources=[];const originalGet=get;get=(store,key)=>{if(store==='index')readSources.push(key[0]);return originalGet(store,key)}}")
+            options = {'sources':['nweb','npia'],'text':'','status':'all','audience':'all',
+                'sort':{'sortBy':'daily','order':'desc','defaultSource':'all'},'page':1,'size':100}
+            result = await page.evaluate("q=>rpc('query',q)",options)
+            expected = sorted(enumerate(novels),key=lambda pair:(pair[1][13] or 10**9,pair[1][1]))[:100]
+            assert result['total'] == 210
+            assert [(item['id'],item['_catalogOrdinal']) for item in result['rows']] == [(str(item[0]),30+i) for i,item in expected]
+            assert set(await worker.evaluate('readSources')) == {'npia'}
+            # Pages reaching the next source and filtered queries need its index.
+            all_rows = await page.evaluate("q=>rpc('query',q)",{**options,'size':250})
+            assert len(all_rows['rows']) == 210 and all_rows['rows'][-1]['source'] == 'nweb'
+            assert 'nweb' in await worker.evaluate('readSources')
+            await worker.evaluate('readSources.length=0')
+            filtered = await page.evaluate("q=>rpc('query',q)",{**options,'text':'nweb'})
+            assert filtered['total'] == 30 and set(await worker.evaluate('readSources')) == {'nweb','npia'}
             await browser.close()
     asyncio.run(scenario())

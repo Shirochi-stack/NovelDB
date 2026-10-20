@@ -166,7 +166,7 @@ class FixtureSite:
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
-        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/style.css"):
+        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/style.css"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
             await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
@@ -182,6 +182,10 @@ class FixtureSite:
         if name.endswith("_chunk_manifest.json"):
             if source in self.missing:
                 await route.fulfill(status=404, body="Not published")
+                return
+            if source in ('npia', 'kpage', 'sfc'):
+                await route.fulfill(json={'files': [f'{source}_chunk_0.json.gz'], 'chunks': 1,
+                    'totalEntries': 61 if self.many_npia and source == 'npia' else 1, 'embedded': True})
                 return
             manifest = {"format": "metadata-v1", "files": [f"{source}_chunk_0.json.gz"],
                         "chunks": 1, "totalEntries": 3, "descriptionShardCount": 128,

@@ -18,7 +18,7 @@ except ImportError:
     import source_names
 
 
-import json, gzip, os, sys, argparse, math, stat, time
+import json, gzip, os, sys, argparse, math, stat, time, hashlib
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -200,6 +200,7 @@ def main():
     total_gz = 0
     total_raw = 0
     chunk_files = []
+    chunk_hashes = []
 
     for i in range(args.chunks):
         start = i * chunk_size
@@ -242,6 +243,7 @@ def main():
         total_raw += len(raw)
         total_gz += len(gz)
         chunk_files.append(filename)
+        chunk_hashes.append(hashlib.sha256(gz).hexdigest())
         print(f"  [{i}] {len(chunk)} entries, {len(raw)/1024/1024:.1f} MB raw → {len(gz)/1024/1024:.2f} MB gz  ({filepath})")
 
     print(f"\nTotal: {total_raw/1024/1024:.1f} MB raw → {total_gz/1024/1024:.1f} MB gz ({len(chunk_files)} files)")
@@ -253,6 +255,7 @@ def main():
         "totalEntries": total,
         "files": chunk_files,
         "embedded": bool(embed),
+        "chunkHashes": chunk_hashes,
     }
     manifest_path = os.path.join(output_dir, f"{prefix}_manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:

@@ -1,10 +1,59 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("metadata-core.js?v=4");
-const M = self.NovelMetadata;
-const BLOCK = 512, PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 4;
-let database, serial = Promise.resolve(), latestQuery = 0;
+importScripts("catalog-import.js?v=1");
+const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
+let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
+const revisions = new Map();
+let savedPages;
+let parserPool;
+const totals = new Map();
+function createParserPool() {
+    const slots = Array.from({length:PARSERS},()=>({worker:null,job:null})), queue = [];
+    let sequence = 0, closed = false;
+    function finish(slot,error,result) {
+        const job = slot.job; slot.job = null;
+        // Release this chunk's heap before the slot takes another chunk.
+        slot.worker?.terminate(); slot.worker = null;
+        if (job) error ? job.reject(error) : job.resolve(result);
+        pump();
+    }
+    function pump() {
+        if (closed) return;
+        for (const slot of slots) {
+            if (slot.job || !queue.length) continue;
+            if (!slot.worker) {
+                try {
+                    const worker = slot.worker = new Worker('catalog-parser.js?v=1');
+                    worker.onmessage = ({data}) => {
+                        if (closed || slot.worker !== worker || data.id !== slot.job?.id) return;
+                        finish(slot,data.error ? Object.assign(new Error(data.error.message),{name:data.error.name}) : null,data.result);
+                    };
+                    worker.onerror = event => {
+                        if (closed || slot.worker !== worker) return;
+                        event.preventDefault(); worker.terminate(); slot.worker = null;
+                        finish(slot,new Error('Catalog parser could not load'));
+                    };
+                } catch (error) { for (const job of queue.splice(0)) job.reject(error); return; }
+            }
+            slot.job = queue.shift();
+            try { slot.worker.postMessage({id:slot.job.id,...slot.job.value},[slot.job.value.compressed]); }
+            catch (error) { finish(slot,error); }
+        }
+    }
+    return {
+        parse(value) { return new Promise((resolve,reject)=>{
+            if (closed) { reject(new DOMException('Import cancelled','AbortError')); return; }
+            queue.push({id:++sequence,value,resolve,reject}); pump();
+        }); },
+        close() {
+            closed = true;
+            const error = new DOMException('Import cancelled','AbortError');
+            for (const job of queue.splice(0)) job.reject(error);
+            for (const slot of slots) { slot.worker?.terminate(); slot.job?.reject(error); slot.worker = slot.job = null; }
+        },
+    };
+}
 let runSerial = 0;
 let runsReset = false;
 let runNamespace = [Date.now(),crypto.getRandomValues(new Uint32Array(4)).join("-")];
@@ -15,64 +64,6 @@ async function clearRuns() {
     await done;
 }
 
-function request(req) { return new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); }
-function transaction(tx) { return new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = tx.onerror = () => reject(tx.error || new Error("Catalog storage transaction failed")); }); }
-async function db() {
-    if (!database) database = new Promise((resolve, reject) => {
-        const req = indexedDB.open("noveldb-catalog-v1", 1);
-        req.onupgradeneeded = () => { for (const store of ["meta", "index", "cards", "runs"]) req.result.createObjectStore(store); };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-        req.onblocked = () => reject(new Error("Catalog storage is blocked by another tab"));
-    });
-    return database;
-}
-async function get(store, key) { return request((await db()).transaction(store).objectStore(store).get(key)); }
-
-// Authors and tags repeat extensively inside each block. Search blocks omit
-// covers, links and synopses; the original rows live in a separate disk store.
-function pack(rows, translations, source, cfg) {
-    const authors = [], tags = [], authorIds = new Map(), tagIds = new Map();
-    const intern = (text, values, ids) => { if (!ids.has(text)) { ids.set(text, values.length); values.push(text); } return ids.get(text); };
-    const entries = M.parseRows(rows, source, cfg).map(n => {
-        const author = intern(n.author, authors, authorIds);
-        const tagList = n.tags.map(t => intern(t.trim(), tags, tagIds));
-        const title = n.title, id = n.id;
-        delete n.cover; delete n.canonicalUrl; delete n.purchaseUrl; delete n.synopsis; delete n.tier;
-        delete n.title; delete n.id; delete n.author; delete n.tags; delete n.source;
-        return [id, title, String(translations[id] || ""), author, tagList, n];
-    });
-    return { authors, tags, entries };
-}
-function unpack(entry, block, source) {
-    return { ...entry[5], id: entry[0], title: entry[1], titleEn: entry[2], author: block.authors[entry[3]],
-        tags: entry[4].map(t => block.tags[t]), source };
-}
-function tagKey(tag, labels) {
-    const normalize = s => String(s || "").trim().toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9\u3131-\uD79D\u4E00-\u9FFF]+/g, "");
-    const raw = tag.trim().toLowerCase(), label = normalize(labels[tag] || tag);
-    if (["하렘", "后宫", "гарем"].includes(raw) || label === "harem") return "group:harem";
-    if (["백합", "百合", "橘味", "gl"].includes(raw) || ["yurigl", "glyuri", "girlslove"].includes(label)) return "group:yuri-gl";
-    return `label:${label || normalize(tag)}`;
-}
-function combineGroups(target, groups) {
-    for (const [key,count,originals] of groups) {
-        if (!target.has(key)) target.set(key,{count:0,originals:new Map()});
-        const group = target.get(key); group.count += count;
-        for (const [tag,n] of originals) group.originals.set(tag,(group.originals.get(tag)||0)+n);
-    }
-}
-function serializeGroups(groups) { return [...groups].map(([key,g]) => [key,g.count,[...g.originals]]); }
-function countTags(index, labels, groups) {
-    for (const entry of index.entries) {
-        const seen = new Set();
-        for (const id of entry[4]) {
-            const tag = index.tags[id], key = tagKey(tag,labels);
-            if (seen.has(key)) continue; seen.add(key);
-            combineGroups(groups,[[key,1,[[tag,1]]]]);
-        }
-    }
-}
 async function importSource(source, cfg, progress, labels) {
     if (!runsReset) {
         const tx = (await db()).transaction("runs","readwrite"), done = transaction(tx);
@@ -81,76 +72,65 @@ async function importSource(source, cfg, progress, labels) {
     }
     configs.set(source, cfg);
     const files = cfg.chunked ? cfg.chunkFiles || Array.from({length: cfg.chunkCount}, (_, i) => `${cfg.chunkPrefix}${i}.json.gz`) : [cfg.dataUrl];
-    const keys = [], counts = new Map();
+    const keys = [], fingerprints = [], counts = new Map();
     let total = 0;
     const warnings = [];
-    // Keep up to three compressed downloads ahead of the chunk being imported. Only
-    // the current chunk is decompressed, parsed and written to the database.
+    // At most eight chunks are in flight; four parser workers consume their
+    // compressed buffers. Results are merged in source order, not finish order.
     const downloads = new Map(), controller = new AbortController();
     async function download(chunk) {
         let old;
         try {
             old = await get("meta", [source, chunk]);
             const url = files[chunk];
+            // Plain HTTP preview servers may lack the checksum API. They keep
+            // the original per-file validation path instead of failing to load.
+            const hash = crypto.subtle ? cfg.chunkHashes?.[chunk] : null;
+            const signature = version => JSON.stringify([3,url, version, cfg.format, cfg.coverPrefix, cfg.linkHosts,cfg.purchaseHosts,cfg.sfcRanks,cfg.tagVersion]);
+            const hashedFingerprint = hash ? signature(hash) : null;
+            // The freshly fetched manifest identifies unchanged content without
+            // revalidating or downloading each catalog chunk on repeat visits.
+            if (hashedFingerprint && old?.fingerprint === hashedFingerprint) return { old, info: old };
             const response = await fetch(url, { cache: "no-cache", signal: controller.signal });
             if (!response.ok) { await response.body?.cancel(); throw new Error(`HTTP ${response.status}`); }
             const validator = response.headers.get("etag") || response.headers.get("last-modified");
-            const fingerprint = JSON.stringify([2,url, validator, cfg.format, cfg.coverPrefix, cfg.linkHosts,cfg.tagVersion]);
-            if (validator && old?.fingerprint === fingerprint) {
+            const fingerprint = hashedFingerprint || signature(validator || crypto.getRandomValues(new Uint32Array(4)).join("-"));
+            if (!hash && validator && old?.fingerprint === fingerprint) {
                 await response.body?.cancel();
                 return { old, info: old };
             }
-            return { old, fingerprint, compressed: await response.arrayBuffer() };
+            const compressed = await response.arrayBuffer();
+            if (hash) {
+                const digest = await crypto.subtle.digest("SHA-256",compressed);
+                const actual = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2,"0")).join("");
+                if (actual !== hash) throw new Error("Catalog chunk does not match its manifest");
+            }
+            if (!parserPool) parserPool = createParserPool();
+            const info = await parserPool.parse({source,cfg:{...cfg,chunk},old,fingerprint,compressed,labels});
+            return { old, info };
         } catch (error) { return { old, error }; }
     }
     const schedule = chunk => { if (chunk < files.length) downloads.set(chunk, download(chunk)); };
     for (let chunk = 0; chunk < DOWNLOADS; chunk++) schedule(chunk);
     try {
         for (let chunk = 0; chunk < files.length; chunk++) {
-            const url = files[chunk];
             let old;
             try {
                 const downloaded = await downloads.get(chunk);
                 downloads.delete(chunk);
                 old = downloaded.old;
                 if (downloaded.error) throw downloaded.error;
-                let info = downloaded.info;
-                if (!info) {
-                    const { fingerprint } = downloaded;
-                    let stream = new Blob([downloaded.compressed]).stream();
-                    downloaded.compressed = null;
-                    if (url.split("?")[0].endsWith(".gz")) stream = stream.pipeThrough(new DecompressionStream("gzip"));
-                    const raw = JSON.parse(await new Response(stream).text());
-                    const rows = raw.novels || raw;
-                    if (!Array.isArray(rows)) throw new Error("Invalid catalog array");
-                    const translations = raw.translations || {}, chunkKeys = [], chunkTags = new Map();
-                    // Each published chunk is committed atomically with its validator.
-                    const tx = (await db()).transaction(["index", "cards", "meta"], "readwrite");
-                    const done = transaction(tx);
-                    try {
-                        if (old) for (const key of old.keys) { tx.objectStore("index").delete(key); tx.objectStore("cards").delete(key); }
-                        for (let start = 0; start < rows.length; start += BLOCK) {
-                            const slice = rows.slice(start, start + BLOCK), key = [source, chunk, start / BLOCK];
-                            const index = pack(slice, translations, source, cfg);
-                            const titles = slice.map(r => String(translations[String(r[0])] || ""));
-                            countTags(index,labels,chunkTags);
-                            tx.objectStore("index").put(index, key);
-                            tx.objectStore("cards").put({ rows: slice, titles }, key);
-                            chunkKeys.push(key);
-                        }
-                        info = { fingerprint, keys: chunkKeys, total: rows.length, groups: serializeGroups(chunkTags) };
-                        tx.objectStore("meta").put(info, [source, chunk]);
-                    } catch (error) { tx.abort(); await done.catch(() => {}); throw error; }
-                    await done;
-                }
+                const info = downloaded.info;
                 keys.push(...info.keys); total += info.total;
+                fingerprints.push(info.fingerprint);
                 combineGroups(counts, info.groups);
             } catch (error) {
                 if (["QuotaExceededError", "SecurityError", "InvalidStateError"].includes(error.name)) throw error;
-                warnings.push(`${source}: chunk ${chunk + 1}/${files.length} unavailable`);
+                warnings.push(`${source}: chunk ${chunk + 1}/${files.length} unavailable (${error.message})`);
                 if (old) {
                     // A failed refresh must not discard a committed earlier chunk.
                     keys.push(...old.keys); total += old.total;
+                    fingerprints.push(old.fingerprint);
                     if (JSON.parse(old.fingerprint).at(-1) !== (cfg.tagVersion ?? null)) {
                         for (const key of old.keys) countTags(await get("index",key),labels,counts);
                     } else combineGroups(counts,old.groups);
@@ -163,10 +143,14 @@ async function importSource(source, cfg, progress, labels) {
     } finally {
         controller.abort();
         downloads.clear();
+        // Release parsed-chunk heaps between sources, including on failures.
+        parserPool?.close(); parserPool = null;
     }
-    if (!keys.length && warnings.length) throw new Error(`No ${source} catalog chunks available`);
+    if (!keys.length && warnings.length) throw new Error(`No ${source} catalog chunks available: ${warnings.join("; ")}`);
     if (cfg.totalEntries != null && total !== cfg.totalEntries) warnings.push(`${source}: loaded ${total} of ${cfg.totalEntries} records`);
     blocks.set(source, keys); pages.clear();
+    revisions.set(source,JSON.stringify(fingerprints));
+    totals.set(source,total);
     return { total, groups: serializeGroups(counts), warnings };
 }
 function matches(n, q) {
@@ -230,6 +214,7 @@ async function mergeRuns(runs, compare, check) {
     await done; return output;
 }
 async function query(q, token) {
+    parserPool?.close(); parserPool = null;
     try { return await executeQuery(q,token); }
     finally { if (q.page*q.size > HEAP_LIMIT) await clearRuns(); }
 }
@@ -238,6 +223,11 @@ async function executeQuery(q, token) {
     check();
     const cacheKey = JSON.stringify(q);
     if (pages.has(cacheKey)) { const value = pages.get(cacheKey); pages.delete(cacheKey); pages.set(cacheKey, value); return value; }
+    const revision = JSON.stringify([1,q.sources.map(source => [source,revisions.get(source)])]);
+    if (!savedPages) savedPages = await get("meta",["saved-pages"]) || [];
+    const saved = savedPages.find(page => page.key === cacheKey && page.revision === revision);
+    check();
+    if (saved) { pages.set(cacheKey,saved.result); while (pages.size > PAGE_CACHE) pages.delete(pages.keys().next().value); return saved.result; }
     q = {...q, and:q.and || [], or:q.or || [], exclude:q.exclude || []};
     if (q.text) q.matcher = new RegExp(q.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "iu");
     const plan = M.sortPlan(q.sort), compare = compareKeys(plan), reverse = (a,b) => -compare(a,b);
@@ -249,22 +239,32 @@ async function executeQuery(q, token) {
     }
     let count = 0, seq = 0, beforeFocus = 0, focusFound = false;
     const focus = q.focus ? [plan.map(k => k.get(q.focus)),q.focus._catalogOrdinal] : null;
-    for (const source of q.sources) for (const key of blocks.get(source) || []) {
-        check(); const block = await get("index", key), matching = [];
-        for (let i = 0; i < block.entries.length; i++, seq++) {
-            const n = unpack(block.entries[i], block, source);
-            if (!matches(n, q)) continue;
-            count++;
-            const entry = [plan.map(k => k.get(n)), seq, key, i];
-            if (focus) {
-                if (compare(entry,focus) < 0) beforeFocus++;
-                if (n.id === q.focus.id && n.source === q.focus.source) focusFound = true;
+    // In the combined period ranking every npia row precedes other sources.
+    // Once npia alone fills the requested page, the other sources contribute
+    // only their known totals; searches and filters still scan all sources.
+    const npiaFirst = q.sort?.defaultSource === 'all' && ['daily','weekly','monthly'].includes(q.sort.sortBy)
+        && q.sources.includes('npia') && wanted <= (totals.get('npia') || 0)
+        && !q.text && !q.author && !q.focus && (!q.status || q.status === 'all')
+        && (!q.audience || q.audience === 'all') && !q.and.length && !q.or.length && !q.exclude.length;
+    for (const source of q.sources) {
+        if (npiaFirst && source !== 'npia') { count += totals.get(source) || 0; seq += totals.get(source) || 0; continue; }
+        for (const key of blocks.get(source) || []) {
+            check(); const block = await get("index", key), matching = [];
+            for (let i = 0; i < block.entries.length; i++, seq++) {
+                const n = unpack(block.entries[i], block, source);
+                if (!matches(n, q)) continue;
+                count++;
+                const entry = [plan.map(k => k.get(n)), seq, key, i];
+                if (focus) {
+                    if (compare(entry,focus) < 0) beforeFocus++;
+                    if (n.id === q.focus.id && n.source === q.focus.source) focusFound = true;
+                }
+                if (deep) matching.push(entry);
+                else if (heap.length < wanted) heapPush(heap, entry, reverse);
+                else if (compare(entry, heap[0]) < 0) { heapPop(heap, reverse); heapPush(heap, entry, reverse); }
             }
-            if (deep) matching.push(entry);
-            else if (heap.length < wanted) heapPush(heap, entry, reverse);
-            else if (compare(entry, heap[0]) < 0) { heapPop(heap, reverse); heapPush(heap, entry, reverse); }
+            if (matching.length) { matching.sort(compare); runs.push(await saveRun(matching)); }
         }
-        if (matching.length) { matching.sort(compare); runs.push(await saveRun(matching)); }
     }
     check();
     if (focusFound && Math.floor(beforeFocus/q.size)+1 !== q.page) return query({...q,page:Math.floor(beforeFocus/q.size)+1,focus:null},token);
@@ -298,6 +298,16 @@ async function executeQuery(q, token) {
     }
     const result = { rows, total:count, page };
     pages.set(cacheKey,result); while (pages.size > PAGE_CACHE) pages.delete(pages.keys().next().value);
+    // A few exact result pages avoid a million-row rescan after reopening.
+    // Content fingerprints and the complete query protect against stale hits.
+    savedPages = savedPages.filter(page => page.key !== cacheKey);
+    savedPages.push({key:cacheKey,revision,result});
+    while (savedPages.length > PAGE_CACHE) savedPages.shift();
+    try {
+        const tx = (await db()).transaction("meta","readwrite"), done = transaction(tx);
+        tx.objectStore("meta").put(savedPages,["saved-pages"]);
+        await done;
+    } catch (_) { /* Result caching is optional when site storage is full. */ }
     return result;
 }
 self.onmessage = ({data}) => {
