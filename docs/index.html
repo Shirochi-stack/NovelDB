@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=21">
+    <link rel="stylesheet" href="style.css?v=22">
 </head>
 
 <body>
@@ -18,7 +18,7 @@
         <div class="header-inner">
             <div class="brand-row">
                 <h1><img class="brand-icon" src="halgakos.ico" alt="" width="40" height="40">NovelDB</h1>
-                <output id="memoryUsage" class="memory-usage" aria-live="off" title="This browser does not expose a memory measurement">RAM: unavailable</output>
+                <output id="memoryUsage" class="memory-usage" aria-live="off" title="Exact total tab RAM is not exposed to webpages. Use browser or operating-system tools to include image buffers and native allocations.">Total RAM: unavailable</output>
             </div>
             <p class="subtitle">Browse & filter web novels across platforms</p>
         </div>
@@ -143,7 +143,7 @@
             </div>
 
             <div class="status-bar">
-                <span id="resultCount">Loading...</span><span id="viewTiming" hidden title="Time until these results are ready to display, including catalog loading and rendering. Covers and synopses load separately."></span>
+                <span id="resultCount">Loading...</span><span id="viewTiming" hidden title="Results: time until the selected results render. Catalog: time until the full selected catalog is ready to search. Both reset on source change. Covers and synopses load separately."></span>
                 <div id="catalogLoadStatus" role="status" hidden></div>
                 <details id="catalogDiagnostics" hidden style="margin-top: 0.5rem; overflow-wrap: anywhere">
                     <summary style="cursor: pointer">Catalog collection details</summary>
@@ -175,8 +175,8 @@
     <script src="metadata-core.js?v=8"></script>
     <script src="source-picker.js?v=1"></script>
     <script src="cover-loader.js?v=3"></script>
-    <script src="site-tools.js?v=1"></script>
-    <script src="app.js?v=49"></script>
+    <script src="site-tools.js?v=2"></script>
+    <script src="app.js?v=50"></script>
 </body>
 
 </html>

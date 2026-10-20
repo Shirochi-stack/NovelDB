@@ -108,15 +108,16 @@ def test_preview_timing_stays_fixed_when_background_import_finishes_and_cache_ca
             site = PreviewSite(previews,blocked=True)
             await page.route('**/*',site.route)
             await page.goto('https://metadata.test/')
-            await page.locator('#viewTiming').wait_for(state='visible')
-            elapsed = await page.locator('#viewTiming').inner_text()
-            assert elapsed.strip().endswith('ms')
+            await page.wait_for_function("document.querySelector('#viewTiming').dataset.elapsedMs!==''")
+            elapsed = await page.locator('#viewTiming').get_attribute('data-elapsed-ms')
             assert await page.locator('body').get_attribute('data-catalog-ready')=='false'
             site.release.set(); await wait_loaded(page)
-            assert await page.locator('#viewTiming').inner_text()==elapsed
+            await page.wait_for_function("document.querySelector('#viewTiming').dataset.catalogMs!==''")
+            assert await page.locator('#viewTiming').get_attribute('data-elapsed-ms')==elapsed
+            assert int(await page.locator('#viewTiming').get_attribute('data-catalog-ms'))>=int(elapsed)
             await page.locator('#searchInput').fill('original 0042')
             await page.wait_for_function("document.querySelectorAll('.novel-card').length===1")
-            await page.locator('#viewTiming').wait_for(state='visible')
+            await page.wait_for_function("document.querySelector('#viewTiming').dataset.elapsedMs!==''")
             assert int(await page.locator('#viewTiming').get_attribute('data-elapsed-ms'))>=200
             await page.locator('#searchInput').fill('')
             await page.wait_for_function("document.querySelectorAll('.novel-card').length===100")
@@ -128,5 +129,54 @@ def test_preview_timing_stays_fixed_when_background_import_finishes_and_cache_ca
                 await page.locator('#clearCache').click()
             await page.wait_for_function("document.querySelector('.novel-card')?.dataset.source==='sfc'")
             site.release.set(); await wait_loaded(page)
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_source_picker_restarts_timing_and_separates_slow_catalog_loading_from_cached_results(previews):
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page()
+            site=PreviewSite(previews,blocked=True)
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/')
+            await page.wait_for_function("document.querySelector('#viewTiming').dataset.elapsedMs!==''")
+            await asyncio.sleep(.35)
+            site.release.set();await wait_loaded(page)
+            await page.wait_for_function("document.querySelector('#viewTiming').dataset.catalogMs!==''")
+            assert int(await page.locator('#viewTiming').get_attribute('data-catalog-ms'))>=350
+            await page.evaluate('''()=>{
+                document.querySelector('#sourceSelect').addEventListener('change',()=>window.sourceStartedAt=performance.now(),true);
+                new MutationObserver(()=>{
+                    const timing=document.querySelector('#viewTiming');
+                    if(timing.dataset.elapsedMs!=='') window.lastTiming={elapsed:Number(timing.dataset.elapsedMs),
+                        source:timing.dataset.source,ended:performance.now(),started:window.sourceStartedAt};
+                }).observe(document.querySelector('#viewTiming'),{childList:true});
+            }''')
+            site.release.clear()
+            await page.locator('#sourcePickerButton').click()
+            await page.get_by_role('option',name='SFC',exact=True).click()
+            await page.wait_for_function("window.lastTiming?.source==='sfc'")
+            timing=await page.evaluate('lastTiming')
+            assert abs((timing['ended']-timing['started'])-timing['elapsed'])<80
+            assert await page.locator('#viewTiming').get_attribute('data-catalog-ms')==''
+            assert 'Catalog: loading' in await page.locator('#viewTiming').inner_text()
+            await asyncio.sleep(.35)
+            site.release.set();await wait_loaded(page)
+            await page.wait_for_function("document.querySelector('#viewTiming').dataset.catalogMs!==''")
+            assert int(await page.locator('#viewTiming').get_attribute('data-catalog-ms'))>=350
+            assert int(await page.locator('#viewTiming').get_attribute('data-elapsed-ms'))==timing['elapsed']
+            await page.locator('#sourcePickerButton').click()
+            await page.get_by_role('option',name='Npia',exact=True).click()
+            await wait_loaded(page)
+            await page.wait_for_function("document.querySelector('#viewTiming').dataset.source==='npia'&&document.querySelector('#viewTiming').dataset.catalogMs!==''")
+            returned=await page.evaluate('lastTiming')
+            assert returned['source']=='npia'
+            # Both cached source-switch readings start at this activation,
+            # rather than retaining the earlier deliberately delayed import.
+            catalog=int(await page.locator('#viewTiming').get_attribute('data-catalog-ms'))
+            assert abs((returned['ended']-returned['started'])-catalog)<80
+            assert await page.locator('#memoryUsage').inner_text()=='Total RAM: unavailable'
             await browser.close()
     asyncio.run(scenario())

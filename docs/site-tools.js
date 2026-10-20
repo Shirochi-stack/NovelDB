@@ -3,47 +3,75 @@
     'use strict';
     const timing = document.getElementById('viewTiming');
     const memory = document.getElementById('memoryUsage');
-    let view = null, memoryPending = false, nextPageMemory = 0;
+    let view = null, catalog = null, memoryPending = false, nextPageMemory = 0;
+
+    function updateTiming() {
+        const results = view?.elapsed == null ? 'loading…' : `${view.elapsed} ms`;
+        const full = catalog?.failed ? 'failed' : catalog?.elapsed == null ? 'loading…' : `${catalog.elapsed} ms`;
+        timing.textContent = ` — Results: ${results}${catalog ? ` · Catalog: ${full}` : ''}`;
+        timing.hidden = false;
+        timing.dataset.elapsedMs = view?.elapsed == null ? '' : String(view.elapsed);
+        timing.dataset.catalogMs = catalog?.elapsed == null ? '' : String(catalog.elapsed);
+        timing.dataset.source = catalog?.source || '';
+    }
+    function afterPaint(callback) {
+        // A task after the next animation frame observes the first paint
+        // opportunity without adding a whole second frame to the reading.
+        requestAnimationFrame(() => setTimeout(callback,0));
+    }
 
     function begin(key, started = performance.now()) {
         if (view?.key === key) return;
-        view = {key,started,done:false,queued:false};
-        timing.hidden = true;
+        view = {key,started,elapsed:null,queued:false};
+        updateTiming();
+    }
+    function sourceStarted(source,key,started = performance.now()) {
+        catalog = {source,started,elapsed:null,failed:false};
+        // Source activations are new measurements even if their query keys
+        // happen to match the previous view (reloads and repeated selections).
+        view = null;
+        begin(key,started);
+        sampleMemory();
+        return catalog;
+    }
+    function catalogReady(token) {
+        afterPaint(() => {
+            if (catalog !== token || token.elapsed != null || token.failed) return;
+            token.elapsed = Math.round(Math.max(0,performance.now()-token.started));
+            updateTiming();
+            sampleMemory();
+        });
+    }
+    function catalogFailed(token) {
+        if (catalog !== token) return;
+        token.failed = true;
+        updateTiming();
     }
     function painted(key) {
         const current = view;
-        if (!current || current.key !== key || current.done || current.queued) return;
+        if (!current || current.key !== key || current.elapsed != null || current.queued) return;
         current.queued = true;
-        // The second frame includes the browser's first opportunity to paint
-        // the cards. Background imports must not replace this measurement.
-        requestAnimationFrame(() => requestAnimationFrame(() => {
+        afterPaint(() => {
             if (view !== current) return;
-            current.done = true;
-            const elapsed = Math.round(Math.max(0,performance.now()-current.started));
-            timing.textContent = ` — ${elapsed} ms`;
-            timing.dataset.elapsedMs = String(elapsed);
-            timing.hidden = false;
-        }));
+            current.elapsed = Math.round(Math.max(0,performance.now()-current.started));
+            updateTiming();
+        });
     }
-    function showMemory(bytes, page) {
+    function showMemory(bytes) {
         if (!Number.isFinite(bytes) || bytes < 0) return false;
-        memory.textContent = `${page ? 'RAM' : 'RAM (JS)'}: ${(bytes/1048576).toFixed(1)} MB`;
-        memory.title = page ? 'Browser estimate of page memory, including workers; not the total browser process or GPU memory'
-            : 'Approximate JavaScript heap reported by this browser. Images, native memory and separate worker heaps may be excluded; this is not total tab RAM.';
-        memory.dataset.scope = page ? 'page' : 'js-heap';
+        memory.textContent = `Page RAM (est.): ${(bytes/1048576).toFixed(1)} MB`;
+        memory.title = 'Browser estimate including page JavaScript, DOM and workers. Some allocations may be excluded; exact total tab RAM requires browser or operating-system tools.';
+        memory.dataset.scope = 'page-estimate';
         return true;
     }
     async function sampleMemory() {
         if (document.visibilityState === 'hidden') return;
-        if (memory.dataset.scope !== 'page') {
-            try {showMemory(performance.memory?.usedJSHeapSize,false);} catch (_) {}
-        }
         if (memoryPending || performance.now() < nextPageMemory || !window.crossOriginIsolated
                 || typeof performance.measureUserAgentSpecificMemory !== 'function') return;
         memoryPending = true;
         nextPageMemory = performance.now()+60000;
-        try {showMemory((await performance.measureUserAgentSpecificMemory()).bytes,true);}
-        catch (_) { /* The heap reading or unavailable label remains useful. */ }
+        try {showMemory((await performance.measureUserAgentSpecificMemory()).bytes);}
+        catch (_) { /* Keep the explicit unavailable label or last estimate. */ }
         finally {memoryPending=false;}
     }
     sampleMemory();
@@ -74,5 +102,5 @@
     }
     let cacheEpoch = '';
     try {cacheEpoch=localStorage.getItem('noveldb.cacheEpoch') || '';} catch (_) {}
-    window.NovelSiteTools = {begin,painted,clearCache,cacheEpoch};
+    window.NovelSiteTools = {begin,painted,sourceStarted,catalogReady,catalogFailed,clearCache,cacheEpoch};
 })();
