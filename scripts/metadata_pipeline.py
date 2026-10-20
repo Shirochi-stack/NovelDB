@@ -14,6 +14,7 @@ except ImportError:
 
 import argparse
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -431,6 +432,7 @@ def build(source, output_dir, state_dir):
     gzip_json(output_dir / f"{source}_top.json.gz", top_payload(state, rows))
     manifest.update({
         "format": "metadata-v1", "source": source,
+        "chunkHashes": [hashlib.sha256((output_dir / name).read_bytes()).hexdigest() for name in manifest["files"]],
         "descriptionShardCount": SHARDS,
         "descriptionShardPrefix": f"{source}_descriptions_shard_",
         "topUrl": f"{source}_top.json.gz",
@@ -476,7 +478,12 @@ def validate_artifacts(source, output_dir):
     if any(not re.fullmatch(re.escape(source) + r"_chunk_\d+\.json\.gz", name) for name in files):
         raise ValueError("Catalog manifest contains a foreign or unsafe file path")
     concatenated = []
-    for name in files:
+    hashes = manifest.get("chunkHashes")
+    if hashes is not None and (not isinstance(hashes, list) or len(hashes) != len(files)):
+        raise ValueError("Invalid catalog chunk hashes")
+    for index, name in enumerate(files):
+        if hashes is not None and hashes[index] != hashlib.sha256((output_dir / name).read_bytes()).hexdigest():
+            raise ValueError("Catalog chunk hash disagrees with manifest")
         payload = read_gzip_json(output_dir / name)
         if not isinstance(payload, dict) or not isinstance(payload.get("novels"), list):
             raise ValueError("Catalog chunks must contain embedded novels objects")

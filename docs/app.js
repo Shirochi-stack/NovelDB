@@ -6828,6 +6828,7 @@
             label: "Npia",
             dataUrl: "data/novels.json",
             format: "array",
+            manifestUrl: "data/npia_chunk_manifest.json",
             coverPrefix: "https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com",
             linkPrefix: "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/",
             chunked: true,
@@ -6839,6 +6840,7 @@
         },
         kpage: {
             label: "Kpage",
+            manifestUrl: "data/kpage_chunk_manifest.json",
             dataUrl: "data/kpage_novels.json",
             format: "array",
             coverPrefix: "",
@@ -6851,6 +6853,7 @@
         },
         sfc: {
             label: "SFC",
+            manifestUrl: "data/sfc_chunk_manifest.json",
             dataUrl: "data/sfc_novels.json",
             format: "array",
             coverPrefix: "https://rss.\u0073\u0066\u0061\u0063\u0067.com/web/novel/images/NovelCover/Big/",
@@ -6902,7 +6905,7 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=3");
+            const worker = new Worker("catalog-worker.js?v=4");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
@@ -7092,12 +7095,15 @@
                 const response = await fetch(versionedDataUrl(cfg.manifestUrl), {cache:"no-cache"});
                 const option = Array.from(sourceSelect.options).find((item) => item.value === source);
                 if (response.status === 404) {
+                    if (cfg.format !== "metadata-v1") return cfg;
                     cfg.available = false;
                     if (option) { option.disabled = true; option.title = "Metadata has not been published"; }
                     return null;
                 }
                 if (!response.ok) throw new Error(`HTTP ${response.status} for ${cfg.label} manifest`);
-                Object.assign(cfg, metadata.manifestConfig(await response.json(), source), { available: true });
+                const manifest = await response.json();
+                Object.assign(cfg, cfg.format === "metadata-v1" ? metadata.manifestConfig(manifest,source)
+                    : metadata.catalogManifestConfig(manifest,source), { available: true });
                 if (option) { option.disabled = false; option.title = ""; }
                 registerBoards(source, cfg.boards);
                 return cfg;

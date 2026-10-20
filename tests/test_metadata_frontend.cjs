@@ -74,6 +74,12 @@ test('canonical destinations and manifests reject unrelated or executable URLs',
     assert.equal(core.manifestConfig(manifest, 'nweb').chunkFiles[0], 'data/nweb_chunk_0.json.gz');
     assert.throws(() => core.manifestConfig({...manifest, files: ['../npia_chunk_0.json.gz']}, 'nweb'));
     assert.throws(() => core.manifestConfig({...manifest, descriptionShardPrefix: 'jara_descriptions_shard_'}, 'nweb'));
+    const hash = 'a'.repeat(64);
+    assert.deepEqual(core.manifestConfig({...manifest,chunkHashes:[hash]},'nweb').chunkHashes,[hash]);
+    for (const hashes of [[hash,hash],['invalid'],[null],{}]) {
+        assert.throws(() => core.manifestConfig({...manifest,chunkHashes:hashes},'nweb'));
+    }
+    assert.throws(() => core.catalogManifestConfig({...manifest,files:['npia_chunk_0.json.gz']},'nweb'));
 });
 
 function legacyCompare(sortBy, order, audience) {

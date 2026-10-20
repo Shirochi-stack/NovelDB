@@ -347,6 +347,18 @@
         return merged;
     }
 
+    function catalogManifestConfig(manifest, source) {
+        if (!manifest || !Array.isArray(manifest.files) || manifest.chunks !== manifest.files.length
+                || !Number.isInteger(manifest.totalEntries) || manifest.totalEntries < 0
+                || manifest.files.some(file => typeof file !== "string" || !new RegExp(`^${source}_chunk_\\d+\\.json\\.gz$`).test(file))
+                || new Set(manifest.files).size !== manifest.files.length) throw new Error(`Invalid ${source} catalog manifest`);
+        const hashes = manifest.chunkHashes;
+        if (hashes != null && (!Array.isArray(hashes) || hashes.length !== manifest.files.length
+                || hashes.some(hash => typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash)))) throw new Error(`Invalid ${source} chunk hashes`);
+        return { chunked:true, chunkFiles:manifest.files.map(file => `data/${file}`), chunkCount:manifest.chunks,
+            totalEntries:manifest.totalEntries, chunkHashes:hashes || null };
+    }
+
     function manifestConfig(manifest, source) {
         if (!manifest || manifest.format !== "metadata-v1" || !Array.isArray(manifest.files)
             || manifest.chunks !== manifest.files.length || !Number.isInteger(manifest.totalEntries)
@@ -363,8 +375,7 @@
             if (value && typeof value.label === "string") boards[key] = value;
         }
         return {
-            format: "metadata-v1", chunked: true, chunkFiles: manifest.files.map(localFile),
-            chunkCount: manifest.chunks, totalEntries: manifest.totalEntries,
+            ...catalogManifestConfig(manifest,source), format: "metadata-v1",
             descriptionShardCount: manifest.descriptionShardCount, descriptionShardPrefix: localFile(prefix),
             topUrl: manifest.topUrl ? localFile(manifest.topUrl) : null,
             boards, coverage: manifest.coverage || {},
@@ -373,5 +384,5 @@
 
     return { nullableNumber, identity, mergeRecords, safeHttpUrl, safeCoverUrl, parseRows, matchesStatus,
         matchesAudience, compareNullable, nativeRank, rankValue, periodRank, supportedPeriods, sortPlan, recordComparator, sortRecords,
-        mergeSortedRecords, metricEntries, manifestConfig };
+        mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig };
 });

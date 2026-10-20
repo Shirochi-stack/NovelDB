@@ -1,6 +1,7 @@
 """Offline pipeline checks: no scraper, browser session, or translation API."""
 
 import gzip
+import hashlib
 import json
 from pathlib import Path
 
@@ -108,6 +109,7 @@ def test_build_schema_manifest_shards_and_top(built):
     assert row[14] == {"favorites": 12, "synopsis_available": True} and row[15] == {"best": 1}
     assert manifest["format"] == "metadata-v1"
     assert manifest["descriptionShardCount"] == 128
+    assert manifest['chunkHashes'] == [hashlib.sha256((output / name).read_bytes()).hexdigest() for name in manifest['files']]
     assert len([name for name in files if "descriptions_shard_" in name and name.endswith(".gz")]) == 128
     shard = pipeline.read_gzip_json(output / "nweb_descriptions_shard_001.json.gz")
     assert shard == {"129": record()["synopsis"]}
@@ -115,6 +117,33 @@ def test_build_schema_manifest_shards_and_top(built):
     assert top["novels"] == [row]
     assert top["translations"] == {"129": "English title"}
     assert top["descriptions"]["129"] == record()["synopsis"]
+
+
+def test_rejects_chunk_replaced_without_matching_manifest_hash(built):
+    output, _ = built
+    path = output / 'nweb_chunk_0.json.gz'
+    payload = pipeline.read_gzip_json(path)
+    payload['translations']['129'] = 'Changed title'
+    pipeline.gzip_json(path,payload)
+    with pytest.raises(ValueError, match='chunk hash'):
+        pipeline.validate_artifacts('nweb',output)
+
+
+def test_legacy_chunk_hashes_follow_embedded_translation_updates(tmp_path):
+    catalog, titles = tmp_path / 'novels.json', tmp_path / 'titles.txt'
+    common.atomic_json(catalog,[[1,'First original'],[2,'Second original']])
+    titles.write_text('1|||First original|||First title\n2|||Second original|||Second title\n',encoding='utf-8')
+    def build():
+        pipeline.run_python('chunk_and_compress.py',['--input',catalog,'--output-dir',tmp_path,
+            '--prefix','npia_chunk','-n',2,'--translations',titles])
+        result = json.loads((tmp_path/'npia_chunk_manifest.json').read_text(encoding='utf-8'))
+        assert result['chunkHashes'] == [hashlib.sha256((tmp_path/name).read_bytes()).hexdigest() for name in result['files']]
+        return result['chunkHashes']
+    first = build()
+    assert build() == first
+    titles.write_text('1|||First original|||Changed title\n2|||Second original|||Second title\n',encoding='utf-8')
+    changed = build()
+    assert changed[0] != first[0] and changed[1] == first[1]
 
 
 def test_build_does_not_discard_unmerged_translation_patch(built):
