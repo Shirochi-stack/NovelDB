@@ -194,6 +194,10 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
            ('nweb','rank:nweb:best_102_daily_free','asc'),('rbooks','metric:rating','asc'),
            ('all','views','desc'),('all','title','asc'),('all','sfc_popularity','asc'),
            ('all','rank:jara:all_today','desc')]
+    cases += [(source,period,order) for source,period in [('nweb','monthly'),('mpia','weekly'),
+        ('rbooks','daily'),('sfc','monthly'),('kpage','daily'),('nseries','weekly'),
+        ('rbooks','rank:nweb:best_102_daily_free'),('npia','sfc_popularity')]
+        for order in ('desc','asc')]
     async def scenario():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
@@ -204,6 +208,7 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
                 await page.goto(f'https://metadata.test/#src={source}&sort={sort}&order={order}')
                 await page.wait_for_function("document.querySelectorAll('.novel-card').length===100")
                 assert await page.locator('body').get_attribute('data-catalog-ready')=='false'
+                assert await page.locator('#sortSelect').input_value()==sort
                 shown=[]
                 for number in (1,2,3):
                     if number>1:
@@ -215,9 +220,10 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
                 site.release.set();await wait_loaded(page)
                 assert await page.evaluate('changes===0&&lockedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])'),(source,sort,order)
                 worker=next(w for w in page.workers if 'catalog-worker' in w.url)
+                effective=await page.evaluate('([sort,source])=>NovelMetadata.resolveSourceSort(sort,source)',[sort,source])
                 query=dict(sources=list(SOURCES) if source=='all' else [source],text='',author=None,status='all',audience='all',
                     **{'and':[],'or':[],'exclude':[]},focus=None,page=1,size=300,
-                    sort=dict(sortBy=sort,order=order,audience='all',defaultSource=source))
+                    sort=dict(sortBy=effective,order=order,audience='all',defaultSource=source))
                 expected=await worker.evaluate('q=>query(q,latestQuery)',query)
                 assert shown==[f"{n['source']}:{n['id']}" for n in expected['rows']],(source,sort,order)
                 await page.close()

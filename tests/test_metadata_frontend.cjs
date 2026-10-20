@@ -2,6 +2,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const core = require('../docs/metadata-core.js');
 
+test('source ranking fallbacks preserve period intent and use populated catalog measures', () => {
+    const expected = {
+        npia:['daily','weekly','monthly'], jara:['daily','weekly','monthly'],
+        nweb:['daily','weekly','weekly'], mpia:['daily','daily','daily'],
+        rbooks:['weekly','weekly','monthly'], sfc:Array(3).fill('sfc_popularity'),
+        kpage:Array(3).fill('views'), nseries:Array(3).fill('metric:rating'),
+        all:['daily','weekly','monthly'],
+    };
+    for (const [source, sorts] of Object.entries(expected)) {
+        ['daily','weekly','monthly'].forEach((period, i) => assert.equal(core.resolveSourceSort(period,source),sorts[i]));
+        for (const value of ['title','updated','likes','metric:rating']) assert.equal(core.resolveSourceSort(value,source),value);
+    }
+    assert.equal(core.resolveSourceSort('rank:nweb:best_102_weekly_free','rbooks'),'weekly');
+    assert.equal(core.resolveSourceSort('rank:nweb:best_102_weekly_free','nweb'),'rank:nweb:best_102_weekly_free');
+    assert.equal(core.resolveSourceSort('sfc_bestseller','mpia'),'daily');
+    assert.equal(core.resolveSourceSort('sfc_bestseller','sfc'),'sfc_bestseller');
+    assert.equal(core.resolveSourceSort('sfc_bestseller','all'),'sfc_bestseller');
+});
+
 const cfg = { format: 'metadata-v1', linkHosts: ['novel.\u006e\u0061\u0076\u0065\u0072.com'], purchaseHosts: ['series.\u006e\u0061\u0076\u0065\u0072.com'] };
 function row(id = 7, values = {}) {
     const result = [id, '제목', '작가', '', ['판타지'], null, null, null, null, null, null,

@@ -176,6 +176,24 @@
             mpia: ["daily"], rbooks: ["weekly", "monthly"] })[source] || [];
     }
 
+    // Resolve the requested ranking without changing the user's selection.
+    // Catalogs without period boards use a measure their published data has.
+    function resolveSourceSort(requested, source) {
+        if (!source || source === "all") return requested;
+        const periods = ["daily", "weekly", "monthly"];
+        const native = requested.startsWith("rank:");
+        if (native && requested.split(":")[1] === source) return requested;
+        if (requested.startsWith("sfc_") && source === "sfc") return requested;
+        if (!periods.includes(requested) && !native && !requested.startsWith("sfc_")) return requested;
+        const period = periods.includes(requested) ? requested
+            : /monthly/i.test(requested) ? "monthly" : /weekly/i.test(requested) ? "weekly" : "daily";
+        const nearest = {daily:["daily","weekly","monthly"], weekly:["weekly","daily","monthly"],
+            monthly:["monthly","weekly","daily"]}[period];
+        const available = supportedPeriods(source);
+        return nearest.find(value => available.includes(value))
+            || ({sfc:"sfc_popularity", nseries:"metric:rating", kpage:"views"})[source] || "likes";
+    }
+
     function previewSorts(source, boards = {}) {
         const sorts = [...supportedPeriods(source), 'likes', 'views', 'chapters',
             'metric:favorites', 'metric:recommendations', 'metric:rating', 'metric:downloads', 'updated', 'title'];
@@ -401,5 +419,5 @@
 
     return { nullableNumber, identity, mergeRecords, safeHttpUrl, safeCoverUrl, parseRows, matchesStatus,
         matchesAudience, compareNullable, nativeRank, rankValue, periodRank, supportedPeriods, sortPlan, recordComparator, sortRecords,
-        mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig, previewSorts };
+        mergeSortedRecords, metricEntries, catalogManifestConfig, manifestConfig, previewSorts, resolveSourceSort };
 });

@@ -6035,7 +6035,8 @@
     let lastFilter = null; // { baseKey, query, result } lets a growing query narrow its previous result
 
     function sortOptions() {
-        return { sortBy: sortSelect.value, order: orderSelect.value, audience: audienceSelect.value, defaultSource: currentSource };
+        return { sortBy: metadata.resolveSourceSort(sortSelect.value, currentSource), order: orderSelect.value,
+            audience: audienceSelect.value, defaultSource: currentSource };
     }
 
     function ensureSorted() {
@@ -6239,7 +6240,7 @@
             ? `<img class="card-cover" data-src="${escHtml(coverSrc)}" alt="" decoding="async" referrerpolicy="no-referrer">`
             : `<div class="card-cover no-img">📖</div>`;
 
-        const sortBy = sortSelect.value;
+        const sortBy = sortOptions().sortBy;
         const isSfcSort = sortBy.startsWith("sfc_");
         const isRankSort = sortBy === "daily" || sortBy === "weekly" || sortBy === "monthly" || isSfcSort || sortBy.startsWith("rank:");
         let displayRank;
@@ -6679,7 +6680,7 @@
         searchTimer = setTimeout(applyFilters, 200);
     });
 
-    sortSelect.addEventListener("change", applyFilters);
+    sortSelect.addEventListener("change", () => { updateSourceSortOptions(); applyFilters(); });
     orderSelect.addEventListener("change", applyFilters);
     statusSelect.addEventListener("change", applyFilters);
     audienceSelect.addEventListener("change", applyFilters);
@@ -7175,26 +7176,26 @@
     }
 
     function updateSourceSortOptions() {
-        const periods = metadata.supportedPeriods(currentSource);
         for (const option of sortSelect.options) {
+            const effective = metadata.resolveSourceSort(option.value, currentSource);
+            const fallback = effective !== option.value;
+            const effectiveLabel = Array.from(sortSelect.options).find(item => item.value === effective)?.textContent
+                .replace(/ \(.*$/, "") || effective;
             if (["daily", "weekly", "monthly"].includes(option.value)) {
-                option.disabled = !periods.includes(option.value);
+                option.disabled = false;
                 const label = option.value[0].toUpperCase() + option.value.slice(1);
                 const grouped = ["nweb", "rbooks", "mpia"].includes(currentSource);
-                option.textContent = `${label} Rank${option.disabled ? " (unavailable)" : grouped ? " (by board)" : ""}`;
-                option.title = option.disabled ? "This period is not available for the selected source"
+                option.textContent = `${label} Rank${fallback ? ` (uses ${effectiveLabel})` : grouped ? " (by board)" : ""}`;
+                option.title = fallback ? `Uses ${effectiveLabel} for this source; your selected sort is kept when switching sources`
                     : grouped ? "Uses the best position on the source's matching boards; badge details identify the board"
                     : currentSource === "all" ? "Npia rankings take priority" : "Uses this source's rankings";
             }
-            if (option.value.startsWith("rank:")) option.hidden = currentSource !== "all" && option.value.split(":")[1] !== currentSource;
-            if (option.value.startsWith("sfc_")) option.hidden = !["all", "sfc"].includes(currentSource);
+            if (option.value.startsWith("rank:")) option.hidden = !option.selected && currentSource !== "all" && option.value.split(":")[1] !== currentSource;
+            if (option.value.startsWith("sfc_")) option.hidden = !option.selected && !["all", "sfc"].includes(currentSource);
         }
-        const chosen = sortSelect.selectedOptions[0];
-        if (chosen?.disabled || chosen?.hidden) {
-            const native = Object.keys(SOURCES[currentSource]?.boards || {})[0];
-            sortSelect.value = periods[0] || (currentSource === "sfc" ? "sfc_popularity"
-                : native ? `rank:${currentSource}:${native}` : "updated");
-        }
+        const selected = sortSelect.value, effective = metadata.resolveSourceSort(selected, currentSource);
+        const effectiveOption = Array.from(sortSelect.options).find(option => option.value === effective);
+        sortSelect.title = effective !== selected ? `Uses ${effectiveOption?.textContent.replace(/ \(.*$/, "") || effective} for this source` : "";
         sortedKey = null;
     }
 
