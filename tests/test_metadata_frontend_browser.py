@@ -225,7 +225,7 @@ class FixtureSite:
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
-        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/source-picker.js", "/cover-loader.js", "/site-tools.js", "/style.css"):
+        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/source-picker.js", "/cover-loader.js", "/cover-save.js", "/site-tools.js", "/style.css"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
             await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
@@ -863,12 +863,12 @@ def test_large_covers_use_small_decodes_and_release_full_size_images():
                 await cover.wait_for()
                 await cover.evaluate('c=>c.decode()')
                 size = await cover.evaluate('c=>({width:c.naturalWidth,height:c.naturalHeight})')
-                assert size['width'] <= 480 and size['height'] <= 720
+                assert size['width'] <= 320 and size['height'] <= 480
                 assert abs(size['width']/size['height']-(1.5 if fmt == 'EXIF' else 2/3)) < .01
                 assert size['width']*size['height'] <= 1600*2400/10
                 assert await page.locator('canvas.card-cover').count() == 0
                 calls = await page.evaluate('bitmapCalls')
-                assert (not calls) if fmt == 'SVG' else (calls and all(c['resizeWidth'] <= 480 for c in calls))
+                assert (not calls) if fmt == 'SVG' else (calls and all(c['resizeWidth'] <= 320 for c in calls))
                 assert await page.evaluate('closedBitmaps') == len(calls)
                 await cover.evaluate('c=>window.savedCoverCanvas=c')
                 await page.locator('#statusSelect').select_option('ongoing')
@@ -911,7 +911,7 @@ def test_cover_resize_fallback_handles_blocked_cors_and_older_decoders():
                 await wait_loaded(page)
                 cover = page.locator('canvas.card-cover.loaded')
                 await cover.wait_for()
-                assert await cover.evaluate('c=>c.width<=480&&c.height<=720')
+                assert await cover.evaluate('c=>c.width<=320&&c.height<=480')
                 assert await page.locator('img.card-cover').count() == 0
                 assert await cover.evaluate("c=>{try{c.toDataURL();return false}catch(e){return e.name==='SecurityError'}}")
                 # Simulate a discarded mobile drawing buffer and returning
@@ -926,7 +926,7 @@ def test_cover_resize_fallback_handles_blocked_cors_and_older_decoders():
                         await page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))")
                     await page.wait_for_function("document.querySelector('canvas.card-cover.loaded') !== oldCanvas && !!document.querySelector('canvas.card-cover.loaded')")
                     cover = page.locator('canvas.card-cover.loaded')
-                    assert await cover.evaluate('c=>c.width>0&&c.width<=480&&c.height<=720')
+                    assert await cover.evaluate('c=>c.width>0&&c.width<=320&&c.height<=480')
                 await page.close()
             await browser.close()
     asyncio.run(scenario())

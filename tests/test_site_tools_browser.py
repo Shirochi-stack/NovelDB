@@ -31,9 +31,9 @@ def test_cover_resolution_toggle_changes_pixels_without_moving_cards_and_survive
             await page.locator('.card-cover.loaded').wait_for()
             await page.evaluate('window.card=document.querySelector(".novel-card")')
             if readable:
-                assert await page.locator('img.card-cover.loaded').evaluate('img=>img.naturalWidth') <= 480
+                assert await page.locator('img.card-cover.loaded').evaluate('img=>img.naturalWidth') <= 320
             else:
-                assert await page.locator('canvas.card-cover.loaded').evaluate('img=>img.width') <= 480
+                assert await page.locator('canvas.card-cover.loaded').evaluate('img=>img.width') <= 320
             await page.locator('#lowResCovers').uncheck()
             original = page.locator('img.card-cover.loaded')
             await original.wait_for()
@@ -46,7 +46,7 @@ def test_cover_resolution_toggle_changes_pixels_without_moving_cards_and_survive
             assert await original.evaluate('img=>img.naturalWidth') == 1600
             await page.locator('#lowResCovers').check()
             await page.locator('.card-cover.loaded').wait_for()
-            assert await page.locator('.card-cover.loaded').evaluate('img=>(img.naturalWidth||img.width)<=480')
+            assert await page.locator('.card-cover.loaded').evaluate('img=>(img.naturalWidth||img.width)<=320')
             assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
             await browser.close()
     asyncio.run(scenario())
