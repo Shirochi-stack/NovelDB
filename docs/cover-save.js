@@ -137,34 +137,9 @@
     figure.append(image,imageStatus,detailDownload);
     const fields=document.createElement('div');fields.className='novel-details-fields';
     const facts=document.createElement('dl');facts.className='novel-details-facts';
-    const tabs=document.createElement('div');tabs.className='novel-details-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Novel details');
-    const panels=document.createElement('div');panels.className='novel-details-panels';
-    const detailPanels=new Map(), detailTabs=new Map();
-    function selectDetailsTab(name,focus=false) {
-        for(const [key,tab] of detailTabs) {
-            const active=key===name;
-            tab.setAttribute('aria-selected',String(active));tab.tabIndex=active ? 0 : -1;
-            detailPanels.get(key).classList.toggle('active',active);
-            if(active && focus) tab.focus({preventScroll:true});
-        }
-    }
-    for(const [name,label] of [['info','Info'],['synopsis','Synopsis'],['more','More']]) {
-        const tab=document.createElement('button');tab.type='button';tab.textContent=label;tab.id=`detailsTab-${name}`;
-        tab.setAttribute('role','tab');tab.setAttribute('aria-controls',`detailsPanel-${name}`);
-        const panel=document.createElement('dl');panel.className='novel-details-panel';panel.id=`detailsPanel-${name}`;
-        panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panel.tabIndex=0;
-        detailTabs.set(name,tab);detailPanels.set(name,panel);tabs.append(tab);panels.append(panel);
-        tab.addEventListener('click',()=>selectDetailsTab(name));
-        tab.addEventListener('keydown',event=>{
-            const names=[...detailTabs.keys()],index=names.indexOf(name);
-            const next=event.key==='Home' ? 0 : event.key==='End' ? names.length-1
-                : event.key==='ArrowRight' ? (index+1)%names.length : event.key==='ArrowLeft' ? (index+names.length-1)%names.length : -1;
-            if(next<0) return;
-            event.preventDefault();selectDetailsTab(names[next],true);
-        });
-    }
-    function clearMetadata() {facts.replaceChildren();for(const panel of detailPanels.values()) panel.replaceChildren();}
-    fields.append(facts,tabs,panels);body.append(figure,fields);
+    const content=document.createElement('dl');content.className='novel-details-content';
+    function clearMetadata() {facts.replaceChildren();content.replaceChildren();}
+    fields.append(facts,content);body.append(figure,fields);
     dialog.append(header,body);document.body.append(dialog);
     let detailCard=null;
     const labels={title:'Original title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
@@ -186,6 +161,7 @@
         function add(key,value,wide=false) {
             const group=document.createElement('div'),term=document.createElement('dt'),definition=document.createElement('dd');
             group.className='novel-details-field'+(wide ? ' details-wide' : '');
+            if(['title','canonicalUrl','synopsis','tags','rankings'].includes(key)) group.classList.add(`details-${key}`);
             term.textContent=fieldLabel(key);definition.dataset.field=key;
             if(key==='canonicalUrl' || key==='purchaseUrl') {
                 if(!/^https?:\/\//i.test(String(value))) return;
@@ -214,10 +190,10 @@
                 : Array.isArray(value) ? value.join(', ') : typeof value==='number' ? value.toLocaleString('en') : String(value);
             group.style.order=priority.includes(key) ? priority.indexOf(key) : priority.length;
             const target=['author','source','id','complete','age','updated','views','likes','chapters','tier'].includes(key) ? facts
-                : detailPanels.get(key==='synopsis' ? 'synopsis' : ['title','canonicalUrl','tags','rankings'].includes(key) ? 'info' : 'more');
+                : content;
             group.append(term,definition);target.append(group);
         }
-        const priority=['title','canonicalUrl','author','source','id','complete','age','updated','views','likes','chapters','tier','synopsis','tags'];
+        const priority=['title','canonicalUrl','author','source','id','complete','age','updated','views','likes','chapters','tier','tags','rankings','synopsis'];
         for(const key of new Set([...priority,...Object.keys(record)])) {
             const value=record[key];
             if(!(key in record) || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings'].includes(key) || isRank(key)) continue;
@@ -232,8 +208,7 @@
         closeMenu();viewController?.abort();viewController=new AbortController();
         const signal=viewController.signal, sequence=++viewSequence;
         detailCard=card;returnFocus=card.querySelector('.cover-details') || card.querySelector('a');
-        selectDetailsTab('info');
-        for(const panel of detailPanels.values()) panel.scrollTop=0;
+        body.scrollTop=0;
         title.textContent=card._record?.titleEn || card._record?.title || 'Novel details';
         title.dataset.field=card._record?.titleEn ? 'titleEn' : 'title';
         renderMetadata({...card._record,canonicalUrl:card._record?.canonicalUrl || card.querySelector('.card-cover-wrap')?.href,synopsis:card._synopsis || card._record?.synopsis || 'Loading synopsis…'});
