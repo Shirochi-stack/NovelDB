@@ -138,22 +138,62 @@
     const fields=document.createElement('dl');fields.className='novel-details-fields';body.append(figure,fields);
     dialog.append(header,body);document.body.append(dialog);
     let detailCard=null;
-    const labels={title:'Original title',titleEn:'Translated title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
-        metadataV1:'Metadata format v1',synopsis:'Synopsis',id:'ID',cover:'Cover URL'};
+    const labels={title:'Original title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
+        synopsis:'Synopsis',id:'ID',complete:'Complete',age:'Age',metrics:'Other details',rankings:'Rankings'};
+    const fieldLabel=key=>labels[key] || key.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
     function renderMetadata(record) {
         fields.replaceChildren();
-        const priority=['source','id','titleEn','title','author','synopsis','tags'];
-        const keys=[...new Set([...priority,...Object.keys(record)])].filter(key=>key in record && !key.startsWith('_'));
-        for(const key of keys) {
-            const term=document.createElement('dt'), definition=document.createElement('dd'), value=record[key];
-            term.textContent=labels[key] || key.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
-            if(typeof value==='string' && /^(https?):\/\//.test(value)) {
-                const link=document.createElement('a');link.href=value;link.textContent=value;link.target='_blank';link.rel='noopener';definition.append(link);
-            } else definition.textContent=value==null || value==='' ? 'Not available' : typeof value==='boolean' ? (value ? 'Yes' : 'No')
-                : Array.isArray(value) && value.every(v=>typeof v!=='object') ? value.join(', ')
-                : typeof value==='object' ? JSON.stringify(value,null,2) : String(value);
-            definition.dataset.field=key;fields.append(term,definition);
+        const adult=window.NovelMetadata.matchesAudience(record,'adult');
+        const teen=window.NovelMetadata.matchesAudience(record,'r15');
+        const rankEntries=[];
+        const isRank=key=>/Rank(?:Adult|Teen)?$/.test(key);
+        const relevantRank=key=>(!/adult|r19/i.test(key) || adult) && (!/teen|r15/i.test(key) || teen);
+        for(const [key,value] of Object.entries(record)) {
+            if(isRank(key) && value>0 && relevantRank(key)) rankEntries.push([key,value]);
         }
+        for(const [key,value] of Object.entries(record.rankings || {})) {
+            if(value>0 && relevantRank(key)) rankEntries.push([key,value]);
+        }
+        function add(key,value,wide=false) {
+            const group=document.createElement('div'),term=document.createElement('dt'),definition=document.createElement('dd');
+            group.className='novel-details-field'+(wide ? ' details-wide' : '');
+            term.textContent=fieldLabel(key);definition.dataset.field=key;
+            if(key==='canonicalUrl' || key==='purchaseUrl') {
+                if(!/^https?:\/\//i.test(String(value))) return;
+                const link=document.createElement('a');link.href=value;link.textContent=key==='canonicalUrl' ? 'Open novel ↗' : 'Purchase ↗';
+                link.target='_blank';link.rel='noopener';definition.append(link);
+            } else if(key==='age') definition.textContent=value==null ? 'Not available' : adult ? '19+' : teen ? '15+' : Number(value)===0 ? 'General' : Number(value)>0 ? `${value}+` : 'Not available';
+            else if(key==='complete') definition.textContent=value==null ? 'Not available' : [true,1,'1'].includes(value) ? 'Yes' : 'No';
+            else if(key==='rankings') {
+                for(const [name,rank] of rankEntries) {
+                    const chip=document.createElement('span');chip.className='details-rank';
+                    chip.textContent=`${fieldLabel(name).replace(/ Rank(?= Adult| Teen|$)/,'')}: #${rank}`;
+                    chip.dataset.field=name;definition.append(chip);
+                }
+            } else if(value && typeof value==='object' && !Array.isArray(value)) {
+                const pairs=document.createElement('dl');pairs.className='details-properties';
+                for(const [name,item] of Object.entries(value)) {
+                    if(item==null || item==='' || (typeof item==='object' && !Object.keys(item).length)) continue;
+                    const label=document.createElement('dt'),text=document.createElement('dd');
+                    label.textContent=fieldLabel(name);text.textContent=typeof item==='object' ? JSON.stringify(item)
+                        : typeof item==='boolean' ? (item ? 'Yes' : 'No') : String(item);
+                    pairs.append(label,text);
+                }
+                if(!pairs.children.length) return;
+                definition.append(pairs);
+            } else definition.textContent=value==null || value==='' ? 'Not available' : typeof value==='boolean' ? (value ? 'Yes' : 'No')
+                : Array.isArray(value) ? value.join(', ') : typeof value==='number' ? value.toLocaleString('en') : String(value);
+            group.append(term,definition);fields.append(group);
+        }
+        const priority=['title','canonicalUrl','author','source','id','complete','age','updated','views','likes','chapters','tier','synopsis','tags'];
+        for(const key of new Set([...priority,...Object.keys(record)])) {
+            const value=record[key];
+            if(!(key in record) || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings'].includes(key) || isRank(key)) continue;
+            if(key==='title' && !record.titleEn) continue;
+            if((value==null || value==='' || (typeof value==='object' && !Object.keys(value).length)) && !['complete','age'].includes(key)) continue;
+            add(key,value,['title','canonicalUrl','synopsis','tags','metrics'].includes(key) || (value!==null && typeof value==='object'));
+        }
+        if(rankEntries.length) add('rankings',rankEntries,true);
     }
     async function openDetails(card) {
         if(!card) return;
@@ -161,7 +201,8 @@
         const signal=viewController.signal, sequence=++viewSequence;
         detailCard=card;returnFocus=card.querySelector('.cover-details') || card.querySelector('a');
         title.textContent=card._record?.titleEn || card._record?.title || 'Novel details';
-        renderMetadata({...card._record,synopsis:card._synopsis || card._record?.synopsis || 'Loading synopsis…'});
+        title.dataset.field=card._record?.titleEn ? 'titleEn' : 'title';
+        renderMetadata({...card._record,canonicalUrl:card._record?.canonicalUrl || card.querySelector('.card-cover-wrap')?.href,synopsis:card._synopsis || card._record?.synopsis || 'Loading synopsis…'});
         image.removeAttribute('src');image.hidden=false;detailDownload.disabled=false;
         imageStatus.textContent='Loading original image…';
         let attempt=0, imageTimer;
