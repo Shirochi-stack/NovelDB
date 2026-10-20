@@ -84,58 +84,85 @@ async function importSource(source, cfg, progress, labels) {
     const keys = [], counts = new Map();
     let total = 0;
     const warnings = [];
-    for (let chunk = 0; chunk < files.length; chunk++) {
-        const url = files[chunk];
+    // Keep one compressed download ahead of the chunk being imported. Only
+    // the current chunk is decompressed, parsed and written to the database.
+    const downloads = new Map(), controller = new AbortController();
+    async function download(chunk) {
         let old;
         try {
             old = await get("meta", [source, chunk]);
-            const response = await fetch(url, { cache: "no-cache" });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const url = files[chunk];
+            const response = await fetch(url, { cache: "no-cache", signal: controller.signal });
+            if (!response.ok) { await response.body?.cancel(); throw new Error(`HTTP ${response.status}`); }
             const validator = response.headers.get("etag") || response.headers.get("last-modified");
             const fingerprint = JSON.stringify([2,url, validator, cfg.format, cfg.coverPrefix, cfg.linkHosts,cfg.tagVersion]);
-            let info;
             if (validator && old?.fingerprint === fingerprint) {
-                await response.body?.cancel(); info = old;
-            } else {
-                const stream = url.split("?")[0].endsWith(".gz") ? response.body.pipeThrough(new DecompressionStream("gzip")) : response.body;
-                const raw = JSON.parse(await new Response(stream).text());
-                const rows = raw.novels || raw;
-                if (!Array.isArray(rows)) throw new Error("Invalid catalog array");
-                const translations = raw.translations || {}, chunkKeys = [], chunkTags = new Map();
-                // Each published chunk is committed atomically with its validator.
-                const tx = (await db()).transaction(["index", "cards", "meta"], "readwrite");
-                const done = transaction(tx);
-                try {
-                    if (old) for (const key of old.keys) { tx.objectStore("index").delete(key); tx.objectStore("cards").delete(key); }
-                    for (let start = 0; start < rows.length; start += BLOCK) {
-                        const slice = rows.slice(start, start + BLOCK), key = [source, chunk, start / BLOCK];
-                        const index = pack(slice, translations, source, cfg);
-                        const titles = slice.map(r => String(translations[String(r[0])] || ""));
-                        countTags(index,labels,chunkTags);
-                        tx.objectStore("index").put(index, key);
-                        tx.objectStore("cards").put({ rows: slice, titles }, key);
-                        chunkKeys.push(key);
-                    }
-                    info = { fingerprint, keys: chunkKeys, total: rows.length, groups: serializeGroups(chunkTags) };
-                    tx.objectStore("meta").put(info, [source, chunk]);
-                } catch (error) { tx.abort(); await done.catch(() => {}); throw error; }
-                await done;
+                await response.body?.cancel();
+                return { old, info: old };
             }
-            keys.push(...info.keys); total += info.total;
-            combineGroups(counts, info.groups);
-        } catch (error) {
-            if (["QuotaExceededError", "SecurityError", "InvalidStateError"].includes(error.name)) throw error;
-            warnings.push(`${source}: chunk ${chunk + 1}/${files.length} unavailable`);
-            if (old) {
-                // A failed refresh must not discard a committed earlier chunk.
-                keys.push(...old.keys); total += old.total;
-                if (JSON.parse(old.fingerprint).at(-1) !== (cfg.tagVersion ?? null)) {
-                    for (const key of old.keys) countTags(await get("index",key),labels,counts);
-                } else combineGroups(counts,old.groups);
-                warnings.push(`${source}: using last saved chunk ${chunk + 1}`);
+            return { old, fingerprint, compressed: await response.arrayBuffer() };
+        } catch (error) { return { old, error }; }
+    }
+    const schedule = chunk => { if (chunk < files.length) downloads.set(chunk, download(chunk)); };
+    schedule(0); schedule(1);
+    try {
+        for (let chunk = 0; chunk < files.length; chunk++) {
+            const url = files[chunk];
+            let old;
+            try {
+                const downloaded = await downloads.get(chunk);
+                downloads.delete(chunk);
+                old = downloaded.old;
+                if (downloaded.error) throw downloaded.error;
+                let info = downloaded.info;
+                if (!info) {
+                    const { fingerprint } = downloaded;
+                    let stream = new Blob([downloaded.compressed]).stream();
+                    downloaded.compressed = null;
+                    if (url.split("?")[0].endsWith(".gz")) stream = stream.pipeThrough(new DecompressionStream("gzip"));
+                    const raw = JSON.parse(await new Response(stream).text());
+                    const rows = raw.novels || raw;
+                    if (!Array.isArray(rows)) throw new Error("Invalid catalog array");
+                    const translations = raw.translations || {}, chunkKeys = [], chunkTags = new Map();
+                    // Each published chunk is committed atomically with its validator.
+                    const tx = (await db()).transaction(["index", "cards", "meta"], "readwrite");
+                    const done = transaction(tx);
+                    try {
+                        if (old) for (const key of old.keys) { tx.objectStore("index").delete(key); tx.objectStore("cards").delete(key); }
+                        for (let start = 0; start < rows.length; start += BLOCK) {
+                            const slice = rows.slice(start, start + BLOCK), key = [source, chunk, start / BLOCK];
+                            const index = pack(slice, translations, source, cfg);
+                            const titles = slice.map(r => String(translations[String(r[0])] || ""));
+                            countTags(index,labels,chunkTags);
+                            tx.objectStore("index").put(index, key);
+                            tx.objectStore("cards").put({ rows: slice, titles }, key);
+                            chunkKeys.push(key);
+                        }
+                        info = { fingerprint, keys: chunkKeys, total: rows.length, groups: serializeGroups(chunkTags) };
+                        tx.objectStore("meta").put(info, [source, chunk]);
+                    } catch (error) { tx.abort(); await done.catch(() => {}); throw error; }
+                    await done;
+                }
+                keys.push(...info.keys); total += info.total;
+                combineGroups(counts, info.groups);
+            } catch (error) {
+                if (["QuotaExceededError", "SecurityError", "InvalidStateError"].includes(error.name)) throw error;
+                warnings.push(`${source}: chunk ${chunk + 1}/${files.length} unavailable`);
+                if (old) {
+                    // A failed refresh must not discard a committed earlier chunk.
+                    keys.push(...old.keys); total += old.total;
+                    if (JSON.parse(old.fingerprint).at(-1) !== (cfg.tagVersion ?? null)) {
+                        for (const key of old.keys) countTags(await get("index",key),labels,counts);
+                    } else combineGroups(counts,old.groups);
+                    warnings.push(`${source}: using last saved chunk ${chunk + 1}`);
+                }
             }
+            progress({ source, loaded: chunk + 1, total: files.length });
+            schedule(chunk + 2);
         }
-        progress({ source, loaded: chunk + 1, total: files.length });
+    } finally {
+        controller.abort();
+        downloads.clear();
     }
     if (!keys.length && warnings.length) throw new Error(`No ${source} catalog chunks available`);
     if (cfg.totalEntries != null && total !== cfg.totalEntries) warnings.push(`${source}: loaded ${total} of ${cfg.totalEntries} records`);

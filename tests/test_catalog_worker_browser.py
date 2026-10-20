@@ -146,3 +146,112 @@ def test_blocked_storage_keeps_top_cards_and_explains_recovery():
             assert await page.locator('#loadFullCatalog').count() == 0
             await browser.close()
     asyncio.run(scenario())
+
+
+def test_downloads_overlap_but_only_one_compressed_chunk_waits_ahead():
+    class Site(FixtureSite):
+        def __init__(self):
+            super().__init__()
+            self.release_first = asyncio.Event()
+            self.first_two = asyncio.Event()
+            self.started = []
+            self.worker = None
+            self.third_saw_committed_first = False
+
+        async def route(self, route):
+            path = urlsplit(route.request.url).path
+            if path == '/':
+                await route.fulfill(body='<html><body>Worker test</body></html>', content_type='text/html')
+            elif path.startswith('/data/overlap_'):
+                chunk = int(path.split('_')[-1].split('.')[0])
+                self.started.append(chunk)
+                if len(self.started) == 2:
+                    self.first_two.set()
+                if chunk == 0:
+                    await self.release_first.wait()
+                if chunk == 2:
+                    saved = await self.worker.evaluate("get('cards',['npia',0,0])")
+                    self.third_saw_committed_first = saved['rows'][0][0] == 1
+                # A failed prefetched download must preserve other chunks.
+                if chunk == 2:
+                    await route.abort('failed')
+                else:
+                    await route.fulfill(body=gzip.compress(json.dumps({'novels': [row('npia', chunk + 1)]}).encode()),
+                                        content_type='application/gzip')
+            else:
+                await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            site = Site()
+            await page.route('**/*', site.route)
+            await page.goto('http://metadata.test/')
+            async with page.expect_worker() as worker_event:
+                await page.evaluate(BOOT)
+            site.worker = await worker_event.value
+            pending = asyncio.create_task(page.evaluate("""rpc('import',{source:'npia',cfg:{format:'array',chunked:true,
+                chunkFiles:[0,1,2,3].map(i=>`http://metadata.test/data/overlap_${i}.json.gz`)}})"""))
+            await asyncio.wait_for(site.first_two.wait(), 5)
+            assert sorted(site.started) == [0, 1]
+            # Hold the first response: no unbounded downloading or early parsing.
+            await asyncio.sleep(.1)
+            assert sorted(site.started) == [0, 1]
+            assert await site.worker.evaluate("get('meta',['npia',0])") is None
+            assert await site.worker.evaluate("get('meta',['npia',1])") is None
+            site.release_first.set()
+            result = await pending
+            assert result['total'] == 3 and len(result['warnings']) == 1
+            assert site.third_saw_committed_first
+            assert sorted(site.started) == [0, 1, 2, 3]
+            assert await site.worker.evaluate("get('meta',['npia',2])") is None
+            assert (await site.worker.evaluate("get('cards',['npia',3,0])"))['rows'][0][0] == 4
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_storage_failure_aborts_the_prefetched_download():
+    class Site(FixtureSite):
+        async def route(self, route):
+            path = urlsplit(route.request.url).path
+            if path == '/':
+                await route.fulfill(body='<html><body>Worker test</body></html>', content_type='text/html')
+            elif path == '/catalog-worker.js':
+                prefix = """
+                    self.prefetchState={started:false,aborted:false};
+                    const originalFetch=self.fetch.bind(self);
+                    self.fetch=(url,options)=>{
+                        if(String(url).endsWith('cancel_1.json')) {
+                            prefetchState.started=true;
+                            return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>{
+                                prefetchState.aborted=true;reject(new DOMException('Cancelled','AbortError'));
+                            },{once:true}));
+                        }
+                        if(String(url).endsWith('cancel_0.json')) return new Promise(resolve=>setTimeout(()=>
+                            resolve(new Response(JSON.stringify({novels:[[1]]}))),30));
+                        return originalFetch(url,options);
+                    };
+                """
+                suffix = "\nself.NovelMetadata.parseRows=()=>{throw new DOMException('Disk full','QuotaExceededError')};"
+                await route.fulfill(body=prefix+(DOCS/'catalog-worker.js').read_text(encoding='utf-8')+suffix,
+                                    content_type='text/javascript')
+            else:
+                await super().route(route)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route('**/*', Site().route)
+            await page.goto('http://metadata.test/')
+            async with page.expect_worker() as worker_event:
+                await page.evaluate(BOOT)
+            worker = await worker_event.value
+            error = await page.evaluate("""rpc('import',{source:'npia',cfg:{format:'array',chunked:true,
+                chunkFiles:[0,1].map(i=>`http://metadata.test/data/cancel_${i}.json`)}}).then(()=>null,e=>e.message)""")
+            assert error == 'Disk full'
+            assert await worker.evaluate('prefetchState') == {'started': True, 'aborted': True}
+            assert await worker.evaluate("get('meta',['npia',0])") is None
+            await browser.close()
+    asyncio.run(scenario())
