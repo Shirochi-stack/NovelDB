@@ -1121,3 +1121,26 @@ button.synopsis-status {
     cursor: pointer;
     text-align: left;
 }
+.synopsis-progress {
+    height: .35rem;
+    margin-top: .65rem;
+    overflow: hidden;
+    border-radius: 1rem;
+    background: rgba(139, 92, 246, .18);
+}
+.synopsis-progress::before {
+    content: "";
+    display: block;
+    height: 100%;
+    width: 35%;
+    border-radius: inherit;
+    background: var(--accent, #8b5cf6);
+    animation: synopsis-loading 1.3s ease-in-out infinite;
+}
+@keyframes synopsis-loading {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(390%); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .synopsis-progress::before { animation: none; width: 100%; opacity: .6; }
+}
