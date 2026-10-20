@@ -10,6 +10,10 @@ ORIGIN = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 REFRESH_SECONDS = 7 * 86400
 
 
+class PublicDetailUnavailable(ValueError):
+    """The site explicitly reports a missing or inaccessible public detail."""
+
+
 def listing_ids(html):
     soup = BeautifulSoup(html, "html.parser")
     ids = []
@@ -30,6 +34,9 @@ def parse_detail(html, nid):
             raise ValueError("detail identity mismatch")
     info = soup.select_one(".epnew-novel-info")
     if not info:
+        alert = soup.select_one('#alert_modal')
+        if alert and '\uC798\uBABB\uB41C \uC811\uADFC' in alert.get_text(' ', strip=True):
+            raise PublicDetailUnavailable('site reports invalid or unavailable novel access')
         raise ValueError("public detail metadata unavailable")
     title = info.select_one(".epnew-novel-title")
     author = info.select_one(".in-writer .writer-name")
@@ -70,7 +77,7 @@ def enrich(session, fresh, existing, old_full, state, *, listing_pages=10,
     checked = state.setdefault("checked", {})
     pending = list(dict.fromkeys(str(n) for n in state.get("pending", []) if str(n).isdigit()))
     page = max(1, int(state.get("listing_page", 1)))
-    stats = dict(discovered=0, updated=0, skipped=0, failed=0, listing_failed=0)
+    stats = dict(discovered=0, updated=0, skipped=0, unavailable=0, failed=0, listing_failed=0)
     requests_made = 0
 
     def fetch(path):
@@ -79,6 +86,8 @@ def enrich(session, fresh, existing, old_full, state, *, listing_pages=10,
             sleep(delay)
         requests_made += 1
         response = session.get(ORIGIN + path, timeout=30, allow_redirects=False)
+        if response.status_code in (404, 410):
+            raise PublicDetailUnavailable(f'HTTP {response.status_code}')
         if response.status_code != 200:
             raise ValueError(f"HTTP {response.status_code}")
         return response.text
@@ -122,7 +131,6 @@ def enrich(session, fresh, existing, old_full, state, *, listing_pages=10,
     candidates = list(dict.fromkeys(refresh + [nid for nid in pending if due(nid)] +
                                     [nid for nid in known_ids if due(nid)]))[:detail_limit]
     for nid in candidates:
-        checked[nid] = now
         try:
             patch = parse_detail(fetch(f"/novel/{nid}"), nid)
             if patch is None:
@@ -143,8 +151,15 @@ def enrich(session, fresh, existing, old_full, state, *, listing_pages=10,
                     base.setdefault(field, default)
                 fresh[nid] = base
                 stats["updated"] += 1
+            checked[nid] = now
             if nid in pending:
                 pending.remove(nid)
+        except PublicDetailUnavailable as exc:
+            checked[nid] = now
+            if nid in pending:
+                pending.remove(nid)
+            stats['unavailable'] += 1
+            print(f'R19 {nid} SKIPPED (public detail unavailable); existing metadata retained: {exc}', flush=True)
         except Exception as exc:
             stats["failed"] += 1
             print(f"R19 {nid} FAILED; existing metadata retained: {type(exc).__name__}: {exc}", flush=True)

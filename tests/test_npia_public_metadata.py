@@ -39,6 +39,25 @@ def test_detail_rejects_other_id_and_unavailable_metadata():
     assert public.parse_detail(detail(adult=False), "123") is None
 
 
+def test_invalid_access_detail_is_reported_as_unavailable_without_an_error(capsys):
+    unavailable = '<div id="alert_modal">\uC798\uBABB\uB41C \uC811\uADFC\uC785\uB2C8\uB2E4.</div>'
+    session = Session({'/novel/224': unavailable})
+    fresh = {'224': {'title': 'Retained'}}
+    state = public.enrich(session, fresh, [row(224)], {}, {'pending': ['224']},
+                          listing_pages=0, detail_limit=1, now=1_000_000)
+    assert fresh == {'224': {'title': 'Retained'}}
+    assert state['last_run']['unavailable'] == 1 and state['last_run']['failed'] == 0
+    assert state['checked']['224'] == 1_000_000 and not state['pending']
+    log = capsys.readouterr().out
+    assert '224 SKIPPED' in log and 'ValueError' not in log
+
+
+def test_transient_failure_does_not_mark_detail_checked_for_a_week():
+    state = public.enrich(Session({'/novel/123': TimeoutError('timeout')}), {}, [row(123)], {}, {},
+                          listing_pages=0, detail_limit=1, now=1_000_000)
+    assert '123' not in state['checked']
+
+
 def test_listing_reads_visible_links_and_click_handlers_only():
     html = '''<a href="/novel/123">Title</a><b onclick="location='/novel/124'">Other</b>
               <a href="/novel/123">Duplicate</a><script>url='/novel/999'</script>'''
@@ -138,7 +157,11 @@ def test_workflow_scraper_integrates_public_metadata_and_checkpoint(tmp_path, mo
     before = catalog.read_bytes()
     monkeypatch.setattr(scraper, "__file__", str(tmp_path / "scripts" / "rescrape_npia_noauth.py"))
     monkeypatch.setattr(scraper, "fetch_terms", lambda *a: {})
-    monkeypatch.setattr(scraper, "scrape_ranking", lambda *a: {})
+    def ranking(session, period, audience):
+        if (audience, period) == ('all/plus', 'weekly'):
+            raise RuntimeError('Temporary public board failure')
+        return {'123': {'month': 1, 'today': 2}.get(period, 3)}
+    monkeypatch.setattr(scraper, "scrape_ranking", ranking)
 
     class AnonymousSession:
         headers = {}
@@ -160,6 +183,9 @@ def test_workflow_scraper_integrates_public_metadata_and_checkpoint(tmp_path, mo
         assert result[1] == "Title" and result[11] == 19
         assert result[3] == "/saved-cover" and result[9] == "saved-date"
         assert result[14:17] == row(123)[14:17]
+        assert result[10] == row(123)[10]
+        assert result[12:14] == [1, 2]
+        assert result[17:20] == [3, 1, 2]
         full = json.loads((data / "novels_full.json").read_text(encoding="utf-8"))
         assert full[0]["synopsis"] == "Line one\nLine two"
         state = json.loads((data / "npia_public_state.json").read_text(encoding="utf-8"))
