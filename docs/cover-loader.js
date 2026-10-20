@@ -1,13 +1,13 @@
 /* Bounded, near-viewport cover decoding with small retained pixel buffers. */
 (function () {
     'use strict';
-    const MAX_WIDTH = 480, MAX_HEIGHT = 720, CONCURRENCY = 2;
+    const MAX_WIDTH = 320, MAX_HEIGHT = 480, CONCURRENCY = 2;
     const queue = [], active = new Map(), blockedOrigins = new Set();
     const objectUrls = new Map(), recoverable = new WeakMap();
     let lowResolution = true;
     try {lowResolution=localStorage.getItem('noveldb.lowResCovers') !== 'false';} catch (_) {}
     function widthFor(img) {
-        return Math.max(1,Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,2))));
+        return Math.max(1,Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,1.5))));
     }
     async function drawThumbnail(img, image) {
         if (!img.isConnected) return;
@@ -25,8 +25,9 @@
         // Encoded thumbnails survive page suspension and discarded drawing
         // buffers. The browser can decode the small image again on return.
         let blob;
-        try { blob = await new Promise(resolve => canvas.toBlob(resolve,'image/webp',0.85)); }
+        try { blob = await new Promise(resolve => canvas.toBlob(resolve,'image/webp',0.72)); }
         catch (_) { /* Display-only cross-origin images taint the canvas. */ }
+        if (blob?.type !== 'image/webp') blob = null;
         if (!img.isConnected) return;
         if (blob) {
             const thumbnail = document.createElement('img'), url = URL.createObjectURL(blob);
@@ -97,7 +98,6 @@
     async function displayNative(img,url,policy,signal) {
         await nativeImage(img,url,policy,signal);
         if (!img.isConnected || signal.aborted) return;
-        if (img.naturalWidth <= widthFor(img) && img.naturalHeight <= MAX_HEIGHT) return img;
         return drawThumbnail(img,img);
     }
     async function decode(img,url,policy,signal) {
@@ -150,7 +150,7 @@
         for (const [url,policy] of attempts) {
             try {
                 const cover = await decode(img,url,policy,controller.signal);
-                if (cover?.isConnected) ready(cover);
+                if (cover?.isConnected) {cover.dataset.originalSrc=url;ready(cover);}
                 return;
             } catch (error) {if (controller.signal.aborted || !img.isConnected) return;}
         }

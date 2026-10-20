@@ -6291,11 +6291,11 @@
             : `<span class="stat" title="Views" aria-label="Views: ${fmt(n.views)}"><span aria-hidden="true">👁</span> ${fmt(n.views)}</span><span class="stat" title="Likes" aria-label="Likes: ${fmt(n.likes)}"><span aria-hidden="true">❤</span> ${fmt(n.likes)}</span><span class="stat" title="Episodes" aria-label="Episodes: ${fmt(n.chapters)}"><span aria-hidden="true">📄</span> ${fmt(n.chapters)}</span>`;
 
         card.innerHTML = `
-            <a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
+            <div class="card-cover-area"><a class="card-cover-wrap" href="${escHtml(cardLink)}" target="_blank" rel="noopener">
                 ${coverHTML}
                 ${ageBadge}
                 ${badgeHTML}
-            </a>
+            </a>${coverSrc ? '<button type="button" class="cover-save" aria-label="Save original cover as WebP" title="Save original-resolution WebP">↓</button>' : ''}</div>
             <div class="card-body">
                 <div class="card-title">${n.titleEn ? escHtml(n.titleEn) : escHtml(n.title)}</div>
                 ${n.titleEn ? `<div class="card-title-kr">${escHtml(n.title)}</div>` : ""}
