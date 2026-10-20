@@ -228,7 +228,8 @@ def test_eight_downloads_and_four_parsers_are_bounded_and_cleaned_up():
             await asyncio.wait_for(site.first_four_parsers.wait(),5)
             await asyncio.sleep(.1)
             assert len(site.parsing) == 4
-            assert sorted(site.started) == list(range(8))
+            assert sorted(set(site.started)) == list(range(8))
+            assert site.started.count(2) == 2  # One bounded network retry.
             cdp = await browser.new_browser_cdp_session()
             targets = (await cdp.send('Target.getTargets'))['targetInfos']
             assert len([t for t in targets if t['type']=='worker' and '/catalog-parser.js' in t['url']]) == 4
@@ -237,7 +238,8 @@ def test_eight_downloads_and_four_parsers_are_bounded_and_cleaned_up():
             assert result['total'] == 9 and len(result['warnings']) == 1
             assert result['groups'] == [['label:fantasy',9,[['판타지',9]]]]
             assert site.ninth_saw_committed_first
-            assert sorted(site.started) == list(range(10))
+            assert sorted(set(site.started)) == list(range(10))
+            assert len(site.started) == 11
             assert len(site.parsing) == 9
             assert await site.worker.evaluate("get('meta',['npia',2])") is None
             assert (await site.worker.evaluate("get('cards',['npia',9,0])"))['rows'][0][0] == 10

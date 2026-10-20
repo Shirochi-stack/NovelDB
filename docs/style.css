@@ -438,7 +438,7 @@ main {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 1rem;
-    transition: opacity 0.15s ease;
+    transition: none;
 }
 
 @media (max-width: 1500px) {
@@ -469,7 +469,7 @@ main {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: visible;
-    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    transition: none;
     color: inherit;
     display: flex;
     flex-direction: column;
@@ -511,7 +511,7 @@ a.card-cover-wrap {
     display: block;
     min-height: 200px;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: none;
 }
 
 .card-cover.loaded {

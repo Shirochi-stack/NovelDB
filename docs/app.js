@@ -6106,6 +6106,7 @@
         }
         if (activeCatalogController) {
             if (options.resetPage !== false) {currentPage = 1; catalogRequestedPage = 1;}
+            diskCatalog=true; queryDiskCatalog();
             if (options.saveState !== false) saveState();
             return;
         }
@@ -6511,7 +6512,7 @@
 
             const existing = new Map(Array.from(resultsEl.querySelectorAll(".novel-card"),
                 card => [`${card.dataset.source}:${card.dataset.novelId}`, card]));
-            const context = JSON.stringify([sortSelect.value, [...andTags], [...orTags], focusedCard, descriptionsEnabled]);
+            const context = JSON.stringify([sortSelect.value, [...andTags], [...orTags], focusedCard]);
             const wanted = new Set();
             for (let i = start; i < end; i++) {
                 const novel = filtered[i];
@@ -6678,7 +6679,11 @@
         activeAuthorFilter = null;
         authorFilterRestoreState = null;
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(applyFilters, 200);
+        searchTimer = setTimeout(()=>{
+            if(searchInput.value.trim() && currentSource!=='all') {
+                currentPage=1; loadSource('all',true); saveState();
+            } else applyFilters();
+        },200);
     });
 
     sortSelect.addEventListener("change", () => { updateSourceSortOptions(); applyFilters(); });
@@ -6952,9 +6957,7 @@
             if (previewRequests.get(key)?._signal?.aborted) previewRequests.delete(key);
             if (!previewRequests.has(key)) {
                 const pending = (async()=>{
-                    const response = await fetch(`${versionedDataUrl(url)}&preview=${signature}`,{signal,priority});
-                    if (!response.ok) throw new Error('Preview unavailable');
-                    const compressed = await response.arrayBuffer();
+                    const compressed = await window.NovelSiteTools.read(`${versionedDataUrl(url)}&preview=${signature}`,{signal,priority,cache:'no-cache'});
                     if (crypto.subtle) {
                         const digest = await crypto.subtle.digest('SHA-256',compressed);
                         if ([...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')!==signature) throw new Error('Preview checksum mismatch');
@@ -6979,7 +6982,7 @@
         }
     }
     let previewWarmup = false, cacheClearing = false;
-    const previewWarmController = new AbortController();
+    let previewWarmController = new AbortController();
     function warmSourcePreviews() {
         if (previewWarmup || cacheClearing) return;
         previewWarmup = true;
@@ -7021,13 +7024,14 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=9");
+            const worker = new Worker("catalog-worker.js?v=10");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
                 const pending = workerRequests.get(data.id);
                 if (!pending) return;
-                if (data.progress) { pending.progress?.(data.progress); return; }
+                if (data.progress) { pending.touch();pending.progress?.(data.progress); return; }
+                clearTimeout(pending.timer);
                 workerRequests.delete(data.id);
                 if (data.error) { const error = new Error(data.error.message); error.name = data.error.name; pending.reject(error); }
                 else pending.resolve(data.result);
@@ -7044,9 +7048,14 @@
         }
         const id = ++workerSequence;
         return new Promise((resolve,reject) => {
-            workerRequests.set(id,{resolve,reject,progress});
+            const pending={resolve:value=>{clearTimeout(pending.timer);resolve(value);},reject:error=>{clearTimeout(pending.timer);reject(error);},progress,
+                touch:()=>{clearTimeout(pending.timer);pending.timer=setTimeout(()=>{
+                    workerRequests.delete(id);reject(new Error('Catalog operation timed out; retry by selecting the source again'));
+                    closeCatalogWorker();
+                },120000);}};
+            pending.touch();workerRequests.set(id,pending);
             try { catalogWorker.postMessage({id,type,value}); }
-            catch (error) { workerRequests.delete(id); reject(error); }
+            catch (error) { workerRequests.delete(id); pending.reject(error); }
         });
     }
     function diskQuery() {
@@ -7062,12 +7071,14 @@
     function diskQueryKey() { return JSON.stringify(diskQuery()); }
     async function queryDiskCatalog() {
         if (cacheClearing) return;
+        if (cacheNeedsReload && diskPageKey!==diskQueryKey()) {loadSource(currentSource,true);return;}
         const query = diskQuery(), key = JSON.stringify(query);
         if (diskPageKey === key) { render(false); return; }
         const seq = ++diskQuerySequence;
         const cached = resultPages.get(key);
         let immediate=cached?.result || previewResult(query);
-        if (!immediate && previewEligible(query)) {
+        if (!immediate && previewEligible(query) && query.page*query.size<=300
+                && document.body.dataset.catalogReady!=='true') {
             if (!activeCatalogController) {
                 catalogLoadStatus.hidden=false;catalogLoadStatus.textContent='Loading preview…';
             }
@@ -7082,11 +7093,12 @@
             diskTotal = immediate.total; currentPage = immediate.page; filtered = immediate.rows; allNovels = [];
             diskPageKey = diskQueryKey(); render(false); warmSourcePreviews(); return;
         }
-        if (activeCatalogController) {
-            catalogLoadStatus.hidden = false; catalogLoadStatus.textContent = 'Loading the full catalog for this view…';
-            return;
+        const partial=!!activeCatalogController;
+        if (partial) {
+            catalogLoadStatus.hidden = false; catalogLoadStatus.textContent = 'Searching available sources while the remaining catalogs load…';
+            if(!importedSources.size) return;
         }
-        if (document.body.dataset.catalogReady!=='true') {
+        if (!partial && document.body.dataset.catalogReady!=='true') {
             resultCount.textContent = 'Full catalog unavailable. Reload to search this view.';
             return;
         }
@@ -7094,9 +7106,9 @@
             if (seq===diskQuerySequence) resultCount.textContent = 'Searching catalog…';
         },180);
         try {
-            const result = await workerRequest("query",query);
+            const result = await workerRequest("query",partial ? {...query,sources:query.sources.filter(source=>importedSources.has(source))} : query);
             if (!diskCatalog || seq !== diskQuerySequence) return;
-            rememberPage(key,result);
+            if(!partial) rememberPage(key,result);
             diskTotal = result.total; currentPage = result.page;
             const focus = diskFocus; diskFocus = null;
             filtered = result.rows; allNovels = [];
@@ -7151,14 +7163,22 @@
                 }
             }
         }
+        for(const warning of catalogWarnings) {
+            if([...catalogDiagnosticRecords.keys()].some(source=>warning.startsWith(SOURCES[source].label+':'))) continue;
+            const item=document.createElement('li');item.textContent=warning;list.appendChild(item);
+        }
         catalogDiagnostics.hidden = !list.children.length;
     }
 
     function catalogStatusSuffix() {
         const loading = [...catalogLoading.values()];
         const warnings = [...catalogWarnings];
+        resultCount.title=warnings.join('\n');
+        renderCatalogDiagnostics();
         return (loading.length && !diskPageKey ? ` — loading ${loading.join(", ")}` : "")
-            + (warnings.length ? ` — Partial results: ${warnings.join("; ")}` : "");
+            + (loading.length && diskPageKey && searchInput.value.trim() ? ' — more sources loading…' : '')
+            + (warnings.length ? warnings.join('; ').length<=240 ? ` — Partial results: ${warnings.join('; ')}`
+                : ` — Partial results: ${warnings.length} catalog notices (see collection details)` : "");
     }
 
     function ensureSortValue(value) {
@@ -7225,7 +7245,7 @@
         if (!cfg.manifestUrl) return cfg;
         if (!cfg.manifestPromise) {
             cfg.manifestPromise = (async () => {
-                const response = await fetch(versionedDataUrl(cfg.manifestUrl), {cache:"no-cache"});
+                const response = await window.NovelSiteTools.read(versionedDataUrl(cfg.manifestUrl), {cache:"no-cache"},'jsonResponse');
                 const option = Array.from(sourceSelect.options).find((item) => item.value === source);
                 if (response.status === 404) {
                     if (cfg.format !== "metadata-v1") return cfg;
@@ -7234,7 +7254,7 @@
                     return null;
                 }
                 if (!response.ok) throw new Error(`HTTP ${response.status} for ${cfg.label} manifest`);
-                const manifest = await response.json();
+                const manifest = response.value;
                 Object.assign(cfg, cfg.format === "metadata-v1" ? metadata.manifestConfig(manifest,source)
                     : metadata.catalogManifestConfig(manifest,source), { available: true });
                 if (option) { option.disabled = false; option.title = ""; }
@@ -7258,7 +7278,12 @@
         try { localStorage.setItem("noveldb.loadDescriptions", String(descriptionsEnabled)); } catch (_) {}
         document.body.classList.toggle("descriptions-disabled", !descriptionsEnabled);
         cancelDescriptionLoads();
-        applyFilters();
+        for(const card of resultsEl.querySelectorAll('.novel-card')) {
+            if(!descriptionsEnabled) card.querySelector('.card-synopsis')?.remove();
+            else if(card._synopsis) updateCardSynopsis(card,card._synopsis);
+            else {card.dataset.needsSynopsis='true';setSynopsisStatus(card,'Loading synopsis…',false,true);}
+        }
+        if(descriptionsEnabled) observeMissingSynopses();
     });
     const lowResToggle = document.getElementById('lowResCovers');
     lowResToggle.checked = window.NovelCovers.lowResolutionEnabled;
@@ -7268,48 +7293,57 @@
     });
     const clearCacheButton = document.getElementById('clearCache');
     const cacheStatus = document.getElementById('cacheStatus');
-    let cacheChannel = null, cacheClearedElsewhere = false;
+    let cacheChannel = null, cacheNeedsReload = false, peerClearTimer;
+    let protectedPages = [];
+    const visibleIds = () => [...resultsEl.querySelectorAll('.novel-card')].map(card=>({source:card.dataset.source,id:card.dataset.novelId}));
     function stopForCacheClear() {
-        cacheClearing = true; clearCacheButton.disabled = true;
+        cacheClearing = true; cacheNeedsReload = true; clearCacheButton.disabled = true;
         activeCatalogController?.abort(); activeCatalogController = null;
         previewWarmController.abort();
+        const currentKey=diskPageKey;
+        const currentResult={rows:filtered,total:diskTotal,page:currentPage};
         closeCatalogWorker(); cancelDescriptionLoads();
-        coverObserver?.disconnect(); descriptionObserver?.disconnect();
-        resultsEl.replaceChildren(); window.NovelCovers.prune();
-        allNovels = []; filtered = []; resultPages.clear();
-        previewBundles.clear(); previewRequests.clear(); synopsisCache.clear(); catalogState.clear();
+        diskCatalog=!!currentKey; diskPageKey=currentKey;
+        resultPages.clear();
+        if(currentKey) rememberPage(currentKey,currentResult,true);
+        previewBundles.clear(); previewRequests.clear(); catalogState.clear();
+        catalogLoading.clear(); document.body.dataset.catalogReady='false'; catalogLoadStatus.hidden=true;
+        // Visible DOM nodes, decoded covers and synopses remain intact.
+    }
+    function finishCacheClear() {
+        clearTimeout(peerClearTimer); cacheClearing=false; clearCacheButton.disabled=false;
+        previewWarmController=new AbortController(); previewWarmup=false;
+        observeMissingSynopses();
     }
     try {
         cacheChannel = new BroadcastChannel('noveldb-cache');
         cacheChannel.onmessage = ({data}) => {
-            if (data === 'clearing') {
-                stopForCacheClear(); cacheClearedElsewhere = true;
-                clearCacheButton.textContent = 'Reload';
-                cacheStatus.textContent = 'Cache is being cleared in another tab…';
-            } else if (cacheClearedElsewhere && ['cleared','failed'].includes(data)) {
-                clearCacheButton.disabled = false;
-                cacheStatus.textContent = data === 'cleared' ? 'Cache cleared in another tab. Reload to continue.'
-                    : 'Cache clearing stopped in another tab. Reload to continue.';
+            if(data?.type==='prepare') {
+                cacheChannel.postMessage({type:'protect',visible:visibleIds()});
+                stopForCacheClear(); cacheStatus.textContent='Clearing unused cache in another tab…';
+                peerClearTimer=setTimeout(()=>{finishCacheClear();cacheStatus.textContent='Cache cleanup stopped responding; current page kept.';},55000);
+            } else if(data?.type==='protect' && cacheClearing) protectedPages.push(...data.visible);
+            else if(data?.type==='finished') {
+                finishCacheClear(); cacheStatus.textContent=data.message;
             }
         };
-    } catch (_) { /* Storage blockers still report other open tabs below. */ }
+    } catch (_) { /* Cache cleanup also works without cross-tab coordination. */ }
     clearCacheButton.addEventListener('click', async () => {
-        if (cacheClearedElsewhere) {location.reload();return;}
-        if (cacheClearing) return;
-        stopForCacheClear();
-        cacheStatus.textContent = 'Clearing downloaded data…';
-        cacheChannel?.postMessage('clearing');
+        if(cacheClearing) return;
+        protectedPages=visibleIds(); stopForCacheClear();
+        cacheStatus.textContent='Clearing unused downloaded data…';
+        cacheChannel?.postMessage({type:'prepare'});
+        let message;
         try {
-            await window.NovelSiteTools.clearCache(() => {
-                cacheStatus.textContent = 'Close other NovelDB tabs to finish clearing the cache.';
-            });
-            cacheStatus.textContent = 'Cache cleared. Reloading…';
-            cacheChannel?.postMessage('cleared');
-            location.reload();
-        } catch (error) {
-            cacheChannel?.postMessage('failed');
-            cacheClearing = false; clearCacheButton.disabled = false;
-            cacheStatus.textContent = `Could not clear cache: ${error.message}. Reload to continue or retry.`;
+            // Other tabs contribute their current pages before unused blocks
+            // are removed. Ordinary transactions do not require closing tabs.
+            await new Promise(resolve=>setTimeout(resolve,150));
+            const result=await window.NovelSiteTools.clearCache(protectedPages);
+            message=`Approximately ${window.NovelSiteTools.formatBytes(result.bytes)} cleared. Current page kept.`;
+        } catch(error) {message=`Could not finish clearing cache: ${error.message}. Current page kept.`;}
+        finally {
+            finishCacheClear(); cacheStatus.textContent=message;
+            cacheChannel?.postMessage({type:'finished',message});
         }
     });
 
@@ -7375,12 +7409,11 @@
     /** Fetch a .gz text file and decompress it client-side. */
     async function fetchGzText(url, signal) {
         const fetchUrl = versionedDataUrl(url);
-        const resp = await fetch(fetchUrl, { signal });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
-        if (!resp.body || typeof DecompressionStream === "undefined") {
+        const bytes = await window.NovelSiteTools.read(fetchUrl,{signal});
+        if (typeof DecompressionStream === "undefined") {
             throw new Error("This browser does not support streaming gzip decompression");
         }
-        const decompressed = resp.body.pipeThrough(new DecompressionStream("gzip"));
+        const decompressed = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
         return await new Response(decompressed).text();
     }
 
@@ -7647,6 +7680,7 @@
     // Full records and search indexes remain in IndexedDB.
     const catalogState = new Map();
     let selectedSources = [];
+    let importedSources = new Set();
     let tagsVersion = 0;
     function sourceState(name) {
         if (!catalogState.has(name)) catalogState.set(name,{tags:new Map(),warnings:[],diagnostics:null});
@@ -7655,6 +7689,7 @@
 
     async function loadSource(source, keepState = false) {
         if (cacheClearing) return;
+        cacheNeedsReload=false;
         if (source !== "all" && !SOURCES[source]) source = "all";
         // Terminate only unfinished imports. Completed source indexes remain
         // on disk; keep their worker registry across source changes.
@@ -7677,6 +7712,7 @@
         cancelDescriptionLoads();
         coverObserver?.disconnect();
         selectedSources = source === "all" ? Object.keys(SOURCES) : [source];
+        importedSources=new Set();
         allNovels = [];
         filtered = [];
         allTagGroups = [];
@@ -7707,7 +7743,12 @@
         if (resultPages.has(diskQueryKey())) {
             diskCatalog = true;
             queryDiskCatalog();
-        } else showSourcePreview(isCurrent,signal).catch(()=>{});
+        } else showSourcePreview(isCurrent,signal).catch(async error=>{
+            if(!isCurrent()) return;
+            console.warn('Preview retry:',error.message);
+            for(const name of selectedSources) SOURCES[name].manifestPromise=null;
+            try {await showSourcePreview(isCurrent,signal);} catch(error) {console.warn('Preview unavailable:',error.message);}
+        });
 
         // Full catalogs are imported and queried exclusively by the worker.
         // The interface retains tag summaries and the current result page.
@@ -7740,6 +7781,8 @@
                 catalogLoadStatus.textContent = `Loading ${cfg.label} ${loaded}/${total} in the background…`;
             });
             if (!isCurrent()) return;
+            importedSources.add(name);
+            if(info.refreshed) {Object.assign(cfg,info.refreshed);registerBoards(name,cfg.boards);previewBundles.delete(name);}
             successfulImports++;
             if (!info.reused) {
                 for (const [key,page] of resultPages) if (!page.preview && page.sources.includes(name)) resultPages.delete(key);
@@ -7766,6 +7809,9 @@
                 try { await loadDiskSource(name); }
                 catch (error) { if (!isCurrent() || error.name === "AbortError") return; catalogWarnings.add(`${SOURCES[name].label} unavailable: ${error.message}`); catalogLoading.delete(name); }
                 finally { if (isCurrent()) catalogLoading.delete(name); }
+                if(isCurrent() && importedSources.size && !previewEligible(diskQuery())) {
+                    diskCatalog=true;diskPageKey='';await queryDiskCatalog();
+                }
             }
             if (!isCurrent()) return;
             if (!successfulImports) throw new Error("No catalog could be imported");
@@ -7883,7 +7929,7 @@
         }
 
         updateActiveTagsSummary();
-        const source = params.src === "all" || SOURCES[params.src] ? params.src : "npia";
+        const source = params.q && !params.author ? "all" : params.src === "all" || SOURCES[params.src] ? params.src : "npia";
         sourceSelect.value = source;
         if (source !== currentSource) loadSource(source, true);
         else {
@@ -7918,7 +7964,7 @@
     }
 
     const savedParams = restoreState();
-    const initialSource = sourceSelect.value;
+    const initialSource = searchInput.value.trim() && !activeAuthorFilter ? 'all' : sourceSelect.value;
     const hasRestoredState = savedParams && Object.keys(savedParams).length > 0;
 
     // Source change listener
