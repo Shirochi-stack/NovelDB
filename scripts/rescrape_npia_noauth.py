@@ -336,7 +336,8 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
                                     r19_unique=len(r19_seen), r19_new=len(r19_seen - compact.keys() - old_full.keys()),
                                     r19_already_refreshed=len(r19_seen & earlier_r19), targeted_pages=targeted_pages)
     print(f"Author R19 metadata: {len(r19_seen)} unique, {r19_hits} hits, "
-          f"{state['author_last_run']['r19_new']} new IDs; {targeted_pages}/{pages} requests targeted R19", flush=True)
+          f"{state['author_last_run']['r19_new']} new IDs, {len(r19_seen & earlier_r19)} already refreshed; "
+          f"{targeted_pages}/{pages} requests targeted R19", flush=True)
     return state
 
 
@@ -468,6 +469,8 @@ def main():
     stats = {
         "updated": 0,
         "added": 0,
+        "r19_refreshed": sum(str(n.get('age')) == '19' for n in fresh_novels.values()),
+        "r19_added": sum(str(n.get('age')) == '19' and nid not in existing_lookup for nid, n in fresh_novels.items()),
         "preserved_r19": 0,
         "preserved_other": 0,
         "deleted_tagged": 0,
@@ -609,6 +612,8 @@ def main():
     print(f"  Freshly scraped:         {len(fresh_novels)}")
     print(f"  Updated (existing):      {stats['updated']}")
     print(f"  Added (new):             {stats['added']}")
+    print(f"  R19 refreshed (unique):  {stats['r19_refreshed']}")
+    print(f"  R19 new IDs:             {stats['r19_added']}")
     print(f"  Preserved (R19):         {stats['preserved_r19']}")
     print(f"  Preserved (other):       {stats['preserved_other']}")
     print(f"  Tagged deleted:          {stats['deleted_tagged']}")
