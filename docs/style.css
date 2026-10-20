@@ -518,9 +518,9 @@ main {
 .details-rank { display: inline-block; padding: .15rem .45rem; margin: .15rem .35rem .15rem 0; border: 1px solid var(--border); border-radius: .35rem; font-size: .8rem; }
 
 @media (max-width: 650px) {
-    .image-compression { width: 100%; flex-wrap: nowrap; gap: .5rem; }
+    .image-compression { display: grid; width: 100%; grid-template-columns: minmax(0,1fr); gap: .4rem; }
     .image-compression .description-toggle { flex: none; white-space: nowrap; font-size: .85rem; }
-    .compression-quality { flex: 1; min-width: 0; font-size: .75rem; }
+    .compression-quality { display: grid; grid-template-columns: 6rem minmax(40px,1fr) 4ch; min-width: 0; width: 100%; font-size: .8rem; }
     .compression-quality input { flex: 1; min-width: 40px; width: 100%; }
     .novel-details-body { grid-template-columns: minmax(0,1fr); }
     .novel-details-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }

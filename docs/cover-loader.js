@@ -4,15 +4,21 @@
     const MAX_WIDTH = 320, MAX_HEIGHT = 480, CONCURRENCY = 2;
     const queue = [], active = new Map(), blockedOrigins = new Set();
     const objectUrls = new Map(), recoverable = new WeakMap();
-    let lowResolution = true, quality=72;
-    try {lowResolution=localStorage.getItem('noveldb.lowResCovers') !== 'false';quality=Number(localStorage.getItem('noveldb.imageQuality') || 72);} catch (_) {}
+    let lowResolution = true, quality=72, resolution=72;
+    try {
+        lowResolution=localStorage.getItem('noveldb.lowResCovers') !== 'false';
+        quality=Number(localStorage.getItem('noveldb.imageQuality') || 72);
+        // Preserve the former combined slider's appearance on first upgrade.
+        resolution=Number(localStorage.getItem('noveldb.imageResolution') ?? quality);
+    } catch (_) {}
     const clampQuality=value=>Number.isFinite(Number(value)) ? Math.min(100,Math.max(20,Math.round(Number(value)))) : 72;
-    quality=clampQuality(quality);
+    quality=clampQuality(quality);resolution=clampQuality(resolution);
+    try {localStorage.setItem('noveldb.imageResolution',String(resolution));} catch (_) {}
     function widthFor(img) {
         const width=Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,1.5)));
-        return Math.max(1,Math.floor(width*quality/100));
+        return Math.max(1,Math.floor(width*resolution/100));
     }
-    const heightFor=()=>Math.max(1,Math.floor(MAX_HEIGHT*quality/100));
+    const heightFor=()=>Math.max(1,Math.floor(MAX_HEIGHT*resolution/100));
     async function drawThumbnail(img, image) {
         if (!img.isConnected) return;
         const width = image.naturalWidth || image.width, height = image.naturalHeight || image.height;
@@ -185,6 +191,14 @@
     }
     window.NovelCovers = {
         get lowResolutionEnabled() { return lowResolution; },
+        get resolution() {return resolution;},
+        setResolution(value) {
+            const next=clampQuality(value);
+            if(next===resolution) return;
+            resolution=next;
+            try {localStorage.setItem('noveldb.imageResolution',String(resolution));} catch (_) {}
+            if(lowResolution) this.refresh();
+        },
         get quality() {return quality;},
         setQuality(value) {
             const next=clampQuality(value);
