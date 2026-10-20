@@ -7690,7 +7690,7 @@
             currentPage = 1;
         }
         catalogRequestedPage = keepState ? currentPage : null;
-        window.NovelSiteTools?.begin(diskQueryKey(),viewStarted);
+        const timingToken = window.NovelSiteTools?.sourceStarted(source,diskQueryKey(),viewStarted);
         // Completed pages appear synchronously on a return visit. A first
         // visit races its small preview against the complete disk import.
         if (resultPages.has(diskQueryKey())) {
@@ -7766,9 +7766,11 @@
             const page = resultPages.get(diskQueryKey());
             if (page?.preview) page.result.total = selectedSources.reduce((sum,name)=>sum+(SOURCES[name].totalEntries || 0),0);
             await queryDiskCatalog();
+            window.NovelSiteTools?.catalogReady(timingToken);
             return;
         } catch (error) {
             if (!isCurrent()) return;
+            window.NovelSiteTools?.catalogFailed(timingToken);
             activeCatalogController = null; catalogLoading.clear();
             catalogLoadStatus.hidden = true;
             if (diskCatalog && diskPageKey) {
