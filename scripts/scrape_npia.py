@@ -295,7 +295,8 @@ def main():
                         help="Retries per search page")
     parser.add_argument("--search-delay", type=float, default=0.5,
                         help="Seconds to stagger parallel search submissions")
-    parser.add_argument("--author-pages", type=int, default=200)
+    parser.add_argument("--author-pages", type=int, default=0,
+                        help="Optional diagnostic request limit; 0 checks every known author (default)")
     parser.add_argument("--author-delay", type=float, default=2.0)
     parser.add_argument("--intro-requests", type=int, default=6)
     args = parser.parse_args()
@@ -351,7 +352,7 @@ def main():
     enrich_author_catalogs(auth.session, novels_by_id, previous_full, public_state,
                           page_limit=args.author_pages, delay=args.author_delay,
                           existing=load_json_file("docs/data/novels.json", []), registry=registry,
-                          priority_authors=sorted(intro_authors, key=int))
+                          priority_authors=sorted(intro_authors, key=int), page_size=100, resume=False)
     author_registry.report_coverage(registry, search_ids)
     novels = list(novels_by_id.values())
 

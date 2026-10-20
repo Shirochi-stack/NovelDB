@@ -28,7 +28,7 @@ except ImportError:
     from npia_rankings import scrape_ranking, collect_rankings, patch_ranks
 
 
-import sys, os, json, time, re, argparse, requests
+import sys, os, json, time, re, argparse, requests, uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -215,11 +215,24 @@ def merge_term_results(terms, results, fresh_novels):
     return raw_count, len(fresh_novels) - before
 
 
-def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, delay=2.0, now=None, existing=(), registry=None, priority_authors=(), page_size=20):
-    """Resume a bounded author sweep, retaining every completed metadata page."""
+def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, delay=2.0, now=None, existing=(), registry=None, priority_authors=(), page_size=20, resume=True, seconds=0):
+    """Check every known author; job limits pause a sweep rather than truncate it."""
     now = time.time() if now is None else now
+    deadline = time.monotonic() + seconds if seconds else None
+    stopped = lambda: deadline is not None and time.monotonic() >= deadline
+    # Zero retains the CLI's unlimited default. Positive limits are useful for
+    # diagnostics; production continuations use a wall-clock save deadline.
+    page_limit = page_limit or None
     pending = state.setdefault("author_pending", {})
     checked = state.setdefault("author_checked", {})
+    sweep = state.get("author_sweep")
+    if not resume or not sweep or sweep.get("complete"):
+        sweep = state["author_sweep"] = dict(id=uuid.uuid4().hex, started=now,
+                                             completed=[], failures={})
+        if not resume:
+            pending = state['author_pending'] = {owner: 1 for owner in pending}
+    done = set(sweep["completed"])
+    failures = sweep["failures"]
     previous_size = state.get('author_page_size', 20)
     if previous_size != page_size:
         # Resume at or before the old offset; changing batch sizes must never
@@ -230,12 +243,13 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
     compact = {str(row[0]): row for row in existing}
     for novel in list(fresh.values()) + list(old_full.values()):
         owner = author_id(novel)
-        if owner and owner not in pending and now - checked.get(owner, 0) >= 7 * 86400:
+        if owner and owner not in done and owner not in pending:
             pending[owner] = 1
     if registry is not None:
         author_registry.observe(registry, list(old_full.values()) + list(fresh.values()), now)
+        author_registry.observe(registry, ({'author_id': owner} for owner in pending), now)
         for owner in registry["authors"]:
-            if owner not in pending and now - checked.get(owner, 0) >= 7 * 86400:
+            if owner not in done and owner not in pending:
                 pending[owner] = 1
     plan = author_registry.plan_r19_requests(registry or {}, existing,
                                            list(old_full.values()) + list(fresh.values()), now=now)
@@ -246,7 +260,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
     targeted = [owner for owner in priority if owner in pending]
     targeted_set = set(targeted)
     ordinary = [owner for owner in pending if owner not in targeted_set]
-    targeted_budget = page_limit - max(1, page_limit // 5) if targeted and ordinary and page_limit > 1 else page_limit
+    targeted_budget = page_limit - max(1, page_limit // 5) if targeted and ordinary and page_limit and page_limit > 1 else page_limit
     targeted_pages = 0
     seen, r19_seen, failed_owners = set(), set(), set()
     r19_hits = 0
@@ -254,19 +268,20 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
     # Leave 20% for general discovery, then spend any unused allowance on R19.
     tasks = [(owner, True, False) for owner in targeted] + [(owner, False, False) for owner in ordinary] + [(owner, True, True) for owner in targeted]
     for owner, is_targeted, refill in tasks:
-        if pages >= page_limit:
+        if stopped() or (page_limit is not None and pages >= page_limit):
             break
-        if owner not in pending or owner in failed_owners:
+        if owner not in pending or owner in failed_owners or failures.get(owner, 0) >= 3:
             continue
-        allowance = page_limit - pages
-        if is_targeted and not refill:
+        allowance = page_limit - pages if page_limit is not None else None
+        if is_targeted and not refill and targeted_budget is not None:
             allowance = min(allowance, targeted_budget - targeted_pages)
-        if allowance <= 0:
+        if allowance is not None and allowance <= 0:
             continue
         before_pages = pages
         try:
             for page, rows, more in iter_author_pages(session, owner, start_page=pending[owner],
-                                                     max_pages=allowance, delay=delay, page_size=page_size):
+                                                     max_pages=allowance, delay=delay, page_size=page_size,
+                                                     stopped=stopped):
                 pages += 1
                 if registry is not None:
                     entry = registry["authors"][owner]
@@ -311,6 +326,8 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
                 else:
                     del pending[owner]
                     checked[owner] = now
+                    done.add(owner)
+                    failures.pop(owner, None)
                     completed += 1
                     if registry is not None:
                         entry["catalog_status"] = "complete"
@@ -321,6 +338,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
             pages += 1  # Failed requests also consume the run's request budget.
             failed += 1
             failed_owners.add(owner)
+            failures[owner] = failures.get(owner, 0) + 1
             if registry is not None:
                 registry["authors"][owner]["catalog_status"] = "partial"
                 registry["authors"][owner]["catalog_error"] = type(exc).__name__
@@ -331,6 +349,9 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
         finally:
             if is_targeted:
                 targeted_pages += pages - before_pages
+    sweep.update(completed=sorted(done, key=int), total=len(done) + len(pending),
+                 remaining=len(pending), complete=not pending,
+                 continuation_required=any(failures.get(owner, 0) < 3 for owner in pending))
     state["author_last_run"] = dict(pages=pages, updated=updated, completed=completed, failed=failed,
                                     pending=len(pending), unique_updated=len(seen), r19_hits=r19_hits,
                                     r19_unique=len(r19_seen), r19_new=len(r19_seen - compact.keys() - old_full.keys()),
@@ -338,6 +359,11 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=200, dela
     print(f"Author R19 metadata: {len(r19_seen)} unique, {r19_hits} hits, "
           f"{state['author_last_run']['r19_new']} new IDs, {len(r19_seen & earlier_r19)} already refreshed; "
           f"{targeted_pages}/{pages} requests targeted R19", flush=True)
+    print(f"Author sweep: {len(done)}/{sweep['total']} complete; {len(pending)} remaining "
+          f"({len(failures)} failed authors). "
+          + ("All known authors checked." if sweep['complete'] else
+             "Continuation required to finish this sweep." if sweep['continuation_required'] else
+             "INCOMPLETE: failed authors retained for the next sweep."), flush=True)
     return state
 
 
@@ -354,8 +380,14 @@ def main():
     parser.add_argument("--r19-listing-pages", type=int, default=10)
     parser.add_argument("--r19-detail-limit", type=int, default=200)
     parser.add_argument("--r19-delay", type=float, default=2.0)
-    parser.add_argument("--author-pages", type=int, default=200,
-                        help="Maximum public author catalog requests per run; checkpoints resume next run")
+    parser.add_argument("--author-pages", type=int, default=0,
+                        help="Optional diagnostic request limit; 0 checks every known author (default)")
+    parser.add_argument("--author-seconds", type=float, default=0,
+                        help="Save and pause author collection after this many seconds; 0 is unlimited")
+    parser.add_argument("--author-sweep-id", default="",
+                        help="Continue this saved sweep without repeating searches or completed authors")
+    parser.add_argument("--author-continuation-file",
+                        help="Write the workflow continuation decision after saving metadata")
     parser.add_argument("--author-delay", type=float, default=2.0)
     parser.add_argument('--author-page-size', type=int, default=100,
                         help='Novels per public author request (1-100)')
@@ -363,7 +395,7 @@ def main():
                         help="Maximum requests for public R19 author discovery per run")
     args = parser.parse_args()
     if min(args.r19_listing_pages, args.r19_detail_limit, args.r19_delay,
-           args.author_pages, args.author_delay, args.intro_requests) < 0:
+           args.author_pages, args.author_delay, args.author_seconds, args.intro_requests) < 0:
         parser.error("R19 request budgets and delay must be nonnegative")
     if not 1 <= args.author_page_size <= 100:
         parser.error('Author page size must be between 1 and 100')
@@ -374,6 +406,17 @@ def main():
     public_state_path = os.path.join(base_dir, "docs", "data", "npia_public_state.json")
     registry_path = os.path.join(base_dir, "docs", "data", "npia_authors.json")
     registry = author_registry.load(registry_path)
+    public_state = {}
+    if os.path.exists(public_state_path):
+        with open(public_state_path, encoding="utf-8") as handle:
+            public_state = json.load(handle)
+    if args.author_sweep_id and public_state.get('author_sweep', {}).get('id') != args.author_sweep_id:
+        parser.error('Saved author sweep has changed; refusing a stale continuation')
+    if args.author_sweep_id and public_state['author_sweep'].get('complete'):
+        print('Author sweep already complete; no requests needed.')
+        if args.author_continuation_file and not args.dry_run:
+            atomic_json(args.author_continuation_file, public_state['author_sweep'])
+        return
 
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -387,32 +430,37 @@ def main():
     # ── Phase 1: Tag search ──────────────────────────────────────
     fresh_novels = {}  # id -> novel dict
 
-    tag_results = fetch_terms(
-        "Searching", SEARCH_TAGS,
-        args.search_workers, args.search_retries, args.search_delay,
-    )
-    tag_total, tag_new = merge_term_results(SEARCH_TAGS, tag_results, fresh_novels)
-    print(
-        f"\n--- Phase 1 complete: {len(fresh_novels)} novels from tags "
-        f"({tag_total} raw results, {tag_new} unique) ---\n"
-    )
+    rankings = {}
+    search_ids = set(public_state.get('author_search_ids', []))
+    if not args.author_sweep_id:
+        tag_results = fetch_terms(
+            "Searching", SEARCH_TAGS,
+            args.search_workers, args.search_retries, args.search_delay,
+        )
+        tag_total, tag_new = merge_term_results(SEARCH_TAGS, tag_results, fresh_novels)
+        print(
+            f"\n--- Phase 1 complete: {len(fresh_novels)} novels from tags "
+            f"({tag_total} raw results, {tag_new} unique) ---\n"
+        )
 
-    # ── Phase 2: Character sweep ─────────────────────────────────
-    sweep_results = fetch_terms(
-        "Sweep", SWEEP_CHARS,
-        args.search_workers, args.search_retries, args.search_delay,
-    )
-    sweep_total, sweep_new = merge_term_results(SWEEP_CHARS, sweep_results, fresh_novels)
-    print(
-        f"\n--- Phase 2 complete: {len(fresh_novels)} total scraped novels "
-        f"({sweep_total} raw sweep results, {sweep_new} new unique) ---\n"
-    )
-    search_ids = set(fresh_novels)
-    author_registry.record_search(registry, fresh_novels.values())
+        # ── Phase 2: Character sweep ─────────────────────────────────
+        sweep_results = fetch_terms(
+            "Sweep", SWEEP_CHARS,
+            args.search_workers, args.search_retries, args.search_delay,
+        )
+        sweep_total, sweep_new = merge_term_results(SWEEP_CHARS, sweep_results, fresh_novels)
+        print(
+            f"\n--- Phase 2 complete: {len(fresh_novels)} total scraped novels "
+            f"({sweep_total} raw sweep results, {sweep_new} new unique) ---\n"
+        )
+        search_ids = set(fresh_novels)
+        author_registry.record_search(registry, fresh_novels.values())
 
-    # ── Phase 3: Scrape rankings ─────────────────────────────────
-    print("--- Scraping rankings ---")
-    rankings = collect_rankings(session, fetch=scrape_ranking, log=lambda message: print(message, flush=True))
+        # ── Phase 3: Scrape rankings ─────────────────────────────────
+        print("--- Scraping rankings ---")
+        rankings = collect_rankings(session, fetch=scrape_ranking, log=lambda message: print(message, flush=True))
+
+        public_state['author_search_ids'] = sorted(search_ids, key=int)
 
     # ── Phase 4: Merge into existing data ────────────────────────
     print(f"\n--- Merging into existing data ---")
@@ -437,27 +485,26 @@ def main():
         except Exception as e:
             print(f"  Warning: Could not load old full data for cover preservation: {e}")
 
-    public_state = {}
     author_registry.seed_catalog_names(registry, existing_data)
-    if os.path.exists(public_state_path):
-        with open(public_state_path, encoding="utf-8") as handle:
-            public_state = json.load(handle)
-    print("\n--- Refreshing public R19 metadata (no auth) ---", flush=True)
-    plan = author_registry.plan_r19_requests(registry, existing_data, old_full_lookup.values(),
-                                           checked=public_state.get('checked', {}))
-    print(f"R19 request plan: {plan['confirmed_ids']}/{plan['r19_total']} verified author mappings; "
-          f"{len(plan['authors'])} candidate authors; {plan['unresolved_groups']} unresolved author groups", flush=True)
-    public_state = enrich(session, fresh_novels, existing_data, old_full_lookup, public_state,
-                          listing_pages=args.r19_listing_pages,
-                          detail_limit=args.r19_detail_limit, delay=args.r19_delay, detail_ids=plan['detail_ids'])
-    print("\n--- Checking public author catalogs (no auth) ---", flush=True)
-    intro_rows = discover_intro(session, public_state, max_requests=args.intro_requests,
-                                delay=args.author_delay)
-    intro_authors = author_registry.observe(registry, intro_rows)
+    intro_authors = set()
+    if not args.author_sweep_id:
+        print("\n--- Refreshing public R19 metadata (no auth) ---", flush=True)
+        plan = author_registry.plan_r19_requests(registry, existing_data, old_full_lookup.values(),
+                                               checked=public_state.get('checked', {}))
+        print(f"R19 request plan: {plan['confirmed_ids']}/{plan['r19_total']} verified author mappings; "
+              f"{len(plan['authors'])} candidate authors; {plan['unresolved_groups']} unresolved author groups", flush=True)
+        public_state = enrich(session, fresh_novels, existing_data, old_full_lookup, public_state,
+                              listing_pages=args.r19_listing_pages,
+                              detail_limit=args.r19_detail_limit, delay=args.r19_delay, detail_ids=plan['detail_ids'])
+        print("\n--- Checking public author catalogs (no auth) ---", flush=True)
+        intro_rows = discover_intro(session, public_state, max_requests=args.intro_requests,
+                                    delay=args.author_delay)
+        intro_authors = author_registry.observe(registry, intro_rows)
     public_state = enrich_author_catalogs(session, fresh_novels, old_full_lookup, public_state,
                                           page_limit=args.author_pages, delay=args.author_delay,
                                           existing=existing_data, registry=registry,
-                                          priority_authors=sorted(intro_authors, key=int), page_size=args.author_page_size)
+                                          priority_authors=sorted(intro_authors, key=int), page_size=args.author_page_size,
+                                          resume=bool(args.author_sweep_id), seconds=args.author_seconds)
     author_registry.report_coverage(registry, search_ids)
 
     # Build lookup: novel_id_str -> index in existing_data
@@ -573,8 +620,8 @@ def main():
         if nid not in fresh_novels:
             live_missing += 1
     missing_ratio = live_missing / live_total if live_total else 0.0
-    skip_delete_tagging = live_total >= MIN_CATALOG and missing_ratio > MAX_MISSING_RATIO
-    if skip_delete_tagging:
+    skip_delete_tagging = bool(args.author_sweep_id) or (live_total >= MIN_CATALOG and missing_ratio > MAX_MISSING_RATIO)
+    if skip_delete_tagging and not args.author_sweep_id:
         print(
             f"\n  GUARD TRIPPED: only {live_total - live_missing:,}/{live_total:,} "
             f"live non-R19 novels were re-found "
@@ -661,6 +708,8 @@ def main():
     print(f"Saved {full_path} ({os.path.getsize(full_path) / 1024 / 1024:.1f} MB)")
     atomic_json(public_state_path, public_state)
     author_registry.save(registry_path, registry)
+    if args.author_continuation_file:
+        atomic_json(args.author_continuation_file, public_state['author_sweep'])
 
 
 if __name__ == "__main__":

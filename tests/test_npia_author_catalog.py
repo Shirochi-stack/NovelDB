@@ -189,3 +189,98 @@ def test_metadata_partial_author_page_preserves_compact_metadata():
                                    delay=0, now=1_000_000, existing=compact)
     assert fresh["1"]["updated"] == "saved-date" and fresh["1"]["complete"] == 1
     assert fresh["1"]["views"] == 100 and fresh["1"]["cover"] == "/saved-cover"
+
+
+def public_author_session(calls, fail=()):
+    def post(url, **kwargs):
+        owner = kwargs['data']['mem_no']
+        calls.append(owner)
+        if owner in fail:
+            raise TimeoutError('offline timeout')
+        row = dict(novel_no=int(owner), mem_no=int(owner), novel_name='Title', novel_age=0)
+        return SimpleNamespace(status_code=200, json=lambda: dict(status=200, result=page([row])))
+    return SimpleNamespace(post=post)
+
+
+def author_registry_fixture(count):
+    return {'authors': {str(n): {'name': f'Author {n}', 'names': [], 'novel_ids': [],
+                                'last_catalog_checked': 1_000_000, 'catalog_status': 'complete'}
+                        for n in range(1, count + 1)}}
+
+
+def test_default_sweep_checks_over_200_recent_authors_of_every_age():
+    scraper = scraper_module()
+    registry = author_registry_fixture(251)
+    registry['authors']['2']['novel_ids'] = ['2']
+    state = {'author_checked': {owner: 1_000_000 for owner in registry['authors']}}
+    calls = []
+    existing = [[2, 'R19', 'Author 2'] + [0]*8 + [19]]
+    scraper.enrich_author_catalogs(public_author_session(calls), {}, {}, state,
+                                   registry=registry, existing=existing, delay=0, now=1_000_001)
+    assert calls[0] == '2'  # Priority affects order only, never inclusion.
+    assert len(calls) == len(set(calls)) == 251
+    assert set(calls) == set(registry['authors'])
+    assert state['author_sweep']['complete']
+    assert not state['author_sweep']['continuation_required']
+
+
+def test_continuation_finishes_queue_includes_new_author_and_new_sweep_rechecks_all():
+    scraper = scraper_module()
+    registry = author_registry_fixture(3)
+    state, calls = {}, []
+    session = public_author_session(calls)
+    scraper.enrich_author_catalogs(session, {}, {}, state, registry=registry,
+                                   page_limit=1, delay=0, now=1_000_000)
+    sweep_id = state['author_sweep']['id']
+    assert state['author_sweep']['continuation_required']
+    registry['authors']['4'] = {'name': 'New', 'names': [], 'novel_ids': []}
+    scraper.enrich_author_catalogs(session, {}, {}, state, registry=registry, delay=0, now=1_000_001)
+    assert calls == ['1', '2', '3', '4']
+    assert state['author_sweep']['id'] == sweep_id
+    assert state['author_sweep']['complete']
+    scraper.enrich_author_catalogs(session, {}, {}, state, registry=registry,
+                                   resume=False, delay=0, now=1_000_002)
+    assert calls == ['1', '2', '3', '4'] * 2
+    assert state['author_sweep']['id'] != sweep_id
+
+
+def test_failed_author_does_not_exclude_others_or_claim_complete():
+    scraper = scraper_module()
+    registry = author_registry_fixture(3)
+    state, calls = {}, []
+    session = public_author_session(calls, fail={'1'})
+    for _ in range(3):
+        scraper.enrich_author_catalogs(session, {}, {}, state, registry=registry,
+                                       delay=0, now=1_000_001)
+    assert calls == ['1', '2', '3', '1', '1']
+    assert state['author_pending'] == {'1': 1}
+    assert not state['author_sweep']['complete']
+    assert state['author_sweep']['remaining'] == 1
+    assert not state['author_sweep']['continuation_required']
+    scraper.enrich_author_catalogs(public_author_session(calls), {}, {}, state,
+                                   registry=registry, resume=False, delay=0, now=1_000_002)
+    assert calls[-3:] == ['1', '2', '3']
+    assert state['author_sweep']['complete']
+
+
+def test_time_limit_preserves_author_page_and_continuation_cursor(monkeypatch):
+    scraper = scraper_module()
+    clock = [0.0]
+    monkeypatch.setattr(scraper.time, 'monotonic', lambda: clock[0])
+    first = [novel(n) for n in range(1, 21)]
+    session = Session([page(first, 21)])
+    post = session.post
+    def timed_post(*args, **kwargs):
+        result = post(*args, **kwargs)
+        clock[0] = 11.0
+        return result
+    session.post = timed_post
+    state, fresh = {}, {'1': dict(id=1, author_id='42')}
+    scraper.enrich_author_catalogs(session, fresh, {}, state, seconds=10, delay=0, now=1_000_000)
+    assert len(fresh) == 20
+    assert state['author_pending'] == {'42': 2}
+    assert state['author_sweep']['continuation_required']
+    second = Session([page([novel(21)], 21)])
+    scraper.enrich_author_catalogs(second, fresh, {}, state, seconds=10, delay=0, now=1_000_001)
+    assert second.posts[0]['paging[curPage]'] == 2
+    assert state['author_sweep']['complete']

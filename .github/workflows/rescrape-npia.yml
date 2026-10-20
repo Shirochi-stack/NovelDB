@@ -4,10 +4,16 @@ on:
   schedule:
     # Run every Sunday at 12:00 UTC (after rankings + translate chains finish)
     - cron: '0 12 * * 0'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      author_sweep_id:
+        description: 'Saved author sweep to continue (leave empty for a new full update)'
+        type: string
+        default: ''
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: data-write-lock
@@ -32,8 +38,15 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Rescrape Npia catalog and public R19 metadata (no auth)
-        run: python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-pages 200 --author-page-size 100 --author-delay 2 --intro-requests 6
+      - name: Rescrape Npia catalog and every known author (no auth)
+        env:
+          AUTHOR_SWEEP_ID: ${{ inputs.author_sweep_id }}
+        run: |
+          CONTINUE_ARGS=()
+          if [ -n "$AUTHOR_SWEEP_ID" ]; then
+            CONTINUE_ARGS+=(--author-sweep-id "$AUTHOR_SWEEP_ID")
+          fi
+          python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-page-size 100 --author-delay 2 --author-seconds 14400 --author-continuation-file .cache/npia-author-continuation.json --intro-requests 6 "${CONTINUE_ARGS[@]}"
 
       - name: Extract descriptions from full data
         run: python scripts/extract_descriptions.py
@@ -70,3 +83,37 @@ jobs:
           python scripts/codename_policy.py check --commits
           git commit -m "🔄 Update Npia data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
           git push
+
+      - name: Continue until every known author is checked
+        uses: actions/github-script@v7
+        env:
+          AUTHOR_SWEEP_REF: ${{ github.ref_name }}
+        with:
+          script: |
+            const fs = require('fs');
+            const sweep = JSON.parse(fs.readFileSync('.cache/npia-author-continuation.json', 'utf8'));
+            await core.summary.addRaw(`Author sweep: ${sweep.completed.length}/${sweep.total} complete; ${sweep.remaining} remaining.\n`).write();
+            if (sweep.continuation_required) {
+              await github.rest.actions.createWorkflowDispatch({
+                ...context.repo, workflow_id: 'rescrape-npia.yml',
+                ref: process.env.AUTHOR_SWEEP_REF,
+                inputs: { author_sweep_id: sweep.id }
+              });
+              core.info('Saved all completed pages and queued the next part of this author sweep.');
+            } else if (!sweep.complete) {
+              core.setFailed(`Incomplete coverage: ${sweep.remaining} authors still failed after three attempts. Their cursors are saved for the next full sweep.`);
+            }
+
+      - name: Preserve author sweep recovery data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npia-author-sweep-${{ github.run_id }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .cache/npia-author-continuation.json
+            docs/data/npia_public_state.json
+            docs/data/npia_authors.json
+            docs/data/novels_full.json
