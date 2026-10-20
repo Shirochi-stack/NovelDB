@@ -1149,6 +1149,19 @@ a.card-cover-wrap.cover-ready {
 @media (max-width: 600px) { .sort-control { width: 100%; } }
 
 @media (max-width: 650px) {
+    .pagination { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: .5rem; max-width: 420px; margin-inline: auto; padding: .5rem 0; }
+    .pagination .page-numbers { grid-column: 1 / -1; grid-row: 1; flex-wrap: nowrap; align-items: center; gap: .25rem; min-width: 0; }
+    .pagination .page-btn { min-width: 32px; min-height: 36px; padding: .35rem .45rem; font-size: .75rem; white-space: nowrap; transition: none; font-variant-numeric: tabular-nums; }
+    .pagination .page-btn:hover:not(:disabled):not(.active) { background: var(--bg-card); border-color: var(--border); color: var(--text-primary); }
+    .pagination :focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+    .pagination .page-numbers .page-btn { flex: 0 1 auto; }
+    .pagination .page-ellipsis { flex: none; padding: 0 .1rem; font-size: .7rem; }
+    .pagination .prev-page { grid-column: 1; grid-row: 2; width: 100%; }
+    .pagination .next-page { grid-column: 3; grid-row: 2; width: 100%; }
+    .pagination .page-jump { grid-column: 2; grid-row: 2; gap: .3rem; }
+    .pagination .page-input { width: 58px; height: 36px; padding: .3rem; font-size: 1rem; }
+    .pagination .go-page { min-width: 36px; }
+
     .controls { padding: .75rem; }
     .search-row { grid-template-columns: repeat(2,minmax(0,1fr)); gap: .45rem .65rem; }
     .search-box input { padding-top: .55rem; padding-bottom: .55rem; font-size: 1rem; }

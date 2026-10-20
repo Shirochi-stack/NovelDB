@@ -6543,54 +6543,65 @@
 
             scheduleCardTitleFit();
 
-            // Update both pagination bars
-            const show = totalPages > 1;
-            const pages = buildPageRange(currentPage, totalPages);
-            for (const bar of paginationBars) {
-                bar.style.display = show ? "" : "none";
-                bar.querySelector(".prev-page").disabled = currentPage === 1;
-                bar.querySelector(".next-page").disabled = currentPage === totalPages;
-                const pi = bar.querySelector(".page-input");
-                if (pi) pi.max = totalPages;
-
-                const numsEl = bar.querySelector(".page-numbers");
-                const paginationSignature = JSON.stringify([currentPage, pages]);
-                if (numsEl.dataset.signature === paginationSignature) continue;
-                numsEl.dataset.signature = paginationSignature;
-                numsEl.innerHTML = "";
-                for (const p of pages) {
-                    if (p === "...") {
-                        const span = document.createElement("span");
-                        span.className = "page-ellipsis";
-                        span.textContent = "...";
-                        numsEl.appendChild(span);
-                    } else {
-                        const btn = document.createElement("button");
-                        btn.className = "page-btn" + (p === currentPage ? " active" : "");
-                        btn.textContent = p;
-                        btn.addEventListener("click", () => {
-                            currentPage = p;
-                            if (activeCatalogController) catalogRequestedPage = currentPage;
-                            render();
-                            saveState();
-                            window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
-                        });
-                        numsEl.appendChild(btn);
-                    }
-                }
-            }
+            updatePagination(totalPages);
 
         }
         // Incremental updates preserve existing cards; no grid-wide fade or delayed rebuild.
         doRender();
     }
 
+    const compactPagination = window.matchMedia('(max-width: 650px)');
+    compactPagination.addEventListener('change', () => {
+        if (paginationBars.some(bar => bar.style.display !== 'none')) {
+            updatePagination(Math.max(1, Math.ceil((diskCatalog ? diskTotal : filtered.length) / BATCH)));
+        }
+    });
+    function updatePagination(totalPages) {
+        const show = totalPages > 1;
+        const pages = buildPageRange(currentPage, totalPages);
+        for (const bar of paginationBars) {
+            bar.style.display = show ? "" : "none";
+            bar.querySelector(".prev-page").disabled = currentPage === 1;
+            bar.querySelector(".next-page").disabled = currentPage === totalPages;
+            const pi = bar.querySelector(".page-input");
+            if (pi) pi.max = totalPages;
+
+            const numsEl = bar.querySelector(".page-numbers");
+            const paginationSignature = JSON.stringify([currentPage, pages]);
+            if (numsEl.dataset.signature === paginationSignature) continue;
+            numsEl.dataset.signature = paginationSignature;
+            numsEl.innerHTML = "";
+            for (const p of pages) {
+                if (p === "...") {
+                    const span = document.createElement("span");
+                    span.className = "page-ellipsis";
+                    span.textContent = "...";
+                    numsEl.appendChild(span);
+                } else {
+                    const btn = document.createElement("button");
+                    btn.className = "page-btn" + (p === currentPage ? " active" : "");
+                    btn.textContent = p;
+                    btn.setAttribute('aria-label', `Page ${p}`);
+                    if (p === currentPage) btn.setAttribute('aria-current', 'page');
+                    btn.addEventListener("click", () => {
+                        currentPage = p;
+                        if (activeCatalogController) catalogRequestedPage = currentPage;
+                        render();
+                        saveState();
+                        window.scrollTo({ top: resultsEl.offsetTop - 80, behavior: "smooth" });
+                    });
+                    numsEl.appendChild(btn);
+                }
+            }
+        }
+    }
+
     function buildPageRange(current, total) {
-        // Show: 1 ... [current-2..current+2] ... last
-        const delta = 2;
+        // Keep one neighbor on each side on phones; desktop keeps two.
+        const delta = compactPagination.matches ? 1 : 2;
         const pages = [];
-        const rangeStart = Math.max(2, current - delta);
-        const rangeEnd = Math.min(total - 1, current + delta);
+        const rangeStart = Math.max(2, compactPagination.matches && current >= total - 1 ? total - 2 : current - delta);
+        const rangeEnd = Math.min(total - 1, compactPagination.matches && current <= 2 ? 3 : current + delta);
 
         pages.push(1);
         if (rangeStart > 2) pages.push("...");
