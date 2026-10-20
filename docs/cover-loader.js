@@ -4,6 +4,8 @@
     const MAX_WIDTH = 480, MAX_HEIGHT = 720, CONCURRENCY = 2;
     const queue = [], active = new Map(), blockedOrigins = new Set();
     const objectUrls = new Map(), recoverable = new WeakMap();
+    let lowResolution = true;
+    try {lowResolution=localStorage.getItem('noveldb.lowResCovers') !== 'false';} catch (_) {}
     function widthFor(img) {
         return Math.max(1,Math.min(MAX_WIDTH,Math.ceil((img.getBoundingClientRect().width || 240) * Math.min(devicePixelRatio || 1,2))));
     }
@@ -30,6 +32,7 @@
             const thumbnail = document.createElement('img'), url = URL.createObjectURL(blob);
             thumbnail.className = img.className; thumbnail.dataset.src = img.dataset.src;
             thumbnail.alt = img.alt || ''; thumbnail.decoding = 'async';
+            thumbnail._coverOptions = img._coverOptions; thumbnail._coverFallback = img._coverFallback;
             thumbnail.src = url;
             objectUrls.set(thumbnail,url);
             img.replaceWith(thumbnail); img.removeAttribute('src');
@@ -98,6 +101,10 @@
         return drawThumbnail(img,img);
     }
     async function decode(img,url,policy,signal) {
+        if (!lowResolution) {
+            await nativeImage(img,url,policy,signal);
+            return img;
+        }
         const origin = new URL(url,location.href).origin;
         if (typeof createImageBitmap === 'function' && !blockedOrigins.has(origin)) {
             let response;
@@ -158,6 +165,23 @@
         }
     }
     window.NovelCovers = {
+        get lowResolutionEnabled() { return lowResolution; },
+        setLowResolution(enabled) {
+            lowResolution = !!enabled;
+            try {localStorage.setItem('noveldb.lowResCovers',String(lowResolution));} catch (_) {}
+            // Requeue visible covers through the same bounded loader. Cards
+            // and their synopses keep their current positions and contents.
+            for (const cover of document.querySelectorAll('.card-cover[data-src]')) {
+                const options = cover._coverOptions || recoverable.get(cover);
+                const img = document.createElement('img');
+                img.className = 'card-cover'; img.dataset.src = cover.dataset.src;
+                img.alt = cover.alt || ''; img.decoding = 'async';
+                img._coverFallback = options?.fallback || cover._coverFallback;
+                cover.parentElement?.classList.remove('cover-ready');
+                cover.replaceWith(img);
+            }
+            this.prune();
+        },
         load(img,options) {
             if (img._coverQueued || !img.isConnected) return;
             img._coverOptions = options;

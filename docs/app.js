@@ -6581,6 +6581,7 @@
         }
         // Incremental updates preserve existing cards; no grid-wide fade or delayed rebuild.
         doRender();
+        window.NovelSiteTools?.painted(diskQueryKey());
     }
 
     function buildPageRange(current, total) {
@@ -6676,6 +6677,7 @@
     searchInput.addEventListener("input", () => {
         activeAuthorFilter = null;
         authorFilterRestoreState = null;
+        window.NovelSiteTools?.begin(diskQueryKey());
         clearTimeout(searchTimer);
         searchTimer = setTimeout(applyFilters, 200);
     });
@@ -6778,7 +6780,8 @@
 
     function versionedDataUrl(url) {
         const sep = url.includes("?") ? "&" : "?";
-        return `${url}${sep}v=${DATA_VERSION}`;
+        const epoch = window.NovelSiteTools?.cacheEpoch;
+        return `${url}${sep}v=${DATA_VERSION}${epoch ? `&fresh=${encodeURIComponent(epoch)}` : ''}`;
     }
 
     // === Source configs ===
@@ -6960,18 +6963,19 @@
             await previewRequests.get(key);
         }
     }
-    let previewWarmup = false;
+    let previewWarmup = false, cacheClearing = false, firstCatalogView = true;
+    const previewWarmController = new AbortController();
     function warmSourcePreviews() {
-        if (previewWarmup) return;
+        if (previewWarmup || cacheClearing) return;
         previewWarmup = true;
         const start = () => {
             const jobs=Object.keys(SOURCES).flatMap(source=>[{source,allSorts:false}]);
             jobs.push(...Object.keys(SOURCES).map(source=>({source,allSorts:true})));
             let position = 0;
             async function next() {
-                while (position<jobs.length) {
+                while (position<jobs.length && !cacheClearing) {
                     const {source,allSorts}=jobs[position++];
-                    try {await loadPreviewBundle(source,await ensureSourceConfig(source),undefined,'low',allSorts);}
+                    try {await loadPreviewBundle(source,await ensureSourceConfig(source),previewWarmController.signal,'low',allSorts);}
                     catch (_) { /* A missing preview never blocks the catalog. */ }
                 }
             }
@@ -7002,7 +7006,7 @@
     }
     function workerRequest(type, value, progress) {
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=7");
+            const worker = new Worker("catalog-worker.js?v=8");
             catalogWorker = worker;
             worker.onmessage = ({data}) => {
                 if (catalogWorker !== worker) return;
@@ -7042,7 +7046,9 @@
     }
     function diskQueryKey() { return JSON.stringify(diskQuery()); }
     async function queryDiskCatalog() {
+        if (cacheClearing) return;
         const query = diskQuery(), key = JSON.stringify(query);
+        window.NovelSiteTools?.begin(key);
         if (diskPageKey === key) { render(false); return; }
         const seq = ++diskQuerySequence;
         const cached = resultPages.get(key);
@@ -7239,6 +7245,58 @@
         document.body.classList.toggle("descriptions-disabled", !descriptionsEnabled);
         cancelDescriptionLoads();
         applyFilters();
+    });
+    const lowResToggle = document.getElementById('lowResCovers');
+    lowResToggle.checked = window.NovelCovers.lowResolutionEnabled;
+    lowResToggle.addEventListener('change', () => {
+        window.NovelCovers.setLowResolution(lowResToggle.checked);
+        observeCovers();
+    });
+    const clearCacheButton = document.getElementById('clearCache');
+    const cacheStatus = document.getElementById('cacheStatus');
+    let cacheChannel = null, cacheClearedElsewhere = false;
+    function stopForCacheClear() {
+        cacheClearing = true; clearCacheButton.disabled = true;
+        activeCatalogController?.abort(); activeCatalogController = null;
+        previewWarmController.abort();
+        closeCatalogWorker(); cancelDescriptionLoads();
+        coverObserver?.disconnect(); descriptionObserver?.disconnect();
+        resultsEl.replaceChildren(); window.NovelCovers.prune();
+        allNovels = []; filtered = []; resultPages.clear();
+        previewBundles.clear(); previewRequests.clear(); synopsisCache.clear(); catalogState.clear();
+    }
+    try {
+        cacheChannel = new BroadcastChannel('noveldb-cache');
+        cacheChannel.onmessage = ({data}) => {
+            if (data === 'clearing') {
+                stopForCacheClear(); cacheClearedElsewhere = true;
+                clearCacheButton.textContent = 'Reload';
+                cacheStatus.textContent = 'Cache is being cleared in another tab…';
+            } else if (cacheClearedElsewhere && ['cleared','failed'].includes(data)) {
+                clearCacheButton.disabled = false;
+                cacheStatus.textContent = data === 'cleared' ? 'Cache cleared in another tab. Reload to continue.'
+                    : 'Cache clearing stopped in another tab. Reload to continue.';
+            }
+        };
+    } catch (_) { /* Storage blockers still report other open tabs below. */ }
+    clearCacheButton.addEventListener('click', async () => {
+        if (cacheClearedElsewhere) {location.reload();return;}
+        if (cacheClearing) return;
+        stopForCacheClear();
+        cacheStatus.textContent = 'Clearing downloaded data…';
+        cacheChannel?.postMessage('clearing');
+        try {
+            await window.NovelSiteTools.clearCache(() => {
+                cacheStatus.textContent = 'Close other NovelDB tabs to finish clearing the cache.';
+            });
+            cacheStatus.textContent = 'Cache cleared. Reloading…';
+            cacheChannel?.postMessage('cleared');
+            location.reload();
+        } catch (error) {
+            cacheChannel?.postMessage('failed');
+            cacheClearing = false; clearCacheButton.disabled = false;
+            cacheStatus.textContent = `Could not clear cache: ${error.message}. Reload to continue or retry.`;
+        }
     });
 
     // Visible synopses load independently of catalog discovery. Requests are
@@ -7582,6 +7640,9 @@
     }
 
     async function loadSource(source, keepState = false) {
+        if (cacheClearing) return;
+        const viewStarted = firstCatalogView ? 0 : performance.now();
+        firstCatalogView = false;
         if (source !== "all" && !SOURCES[source]) source = "all";
         // Terminate only unfinished imports. Completed source indexes remain
         // on disk; keep their worker registry across source changes.
@@ -7629,6 +7690,7 @@
             currentPage = 1;
         }
         catalogRequestedPage = keepState ? currentPage : null;
+        window.NovelSiteTools?.begin(diskQueryKey(),viewStarted);
         // Completed pages appear synchronously on a return visit. A first
         // visit races its small preview against the complete disk import.
         if (resultPages.has(diskQueryKey())) {

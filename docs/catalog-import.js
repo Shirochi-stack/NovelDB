@@ -11,7 +11,10 @@ async function db() {
     if (!database) database = new Promise((resolve, reject) => {
         const req = indexedDB.open("noveldb-catalog-v1", 1);
         req.onupgradeneeded = () => { for (const store of ["meta", "index", "cards", "runs"]) req.result.createObjectStore(store); };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+            req.result.onversionchange = () => { req.result.close(); database = null; };
+            resolve(req.result);
+        };
         req.onerror = () => reject(req.error);
         req.onblocked = () => reject(new Error("Catalog storage is blocked by another tab"));
     });
