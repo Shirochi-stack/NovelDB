@@ -503,11 +503,14 @@ main {
 .novel-details-header h2 { flex: 1; min-width: 0; font-size: 1.15rem; overflow-wrap: anywhere; }
 .novel-details-header button { flex: none; width: 2.25rem; height: 2.25rem; border: 1px solid var(--border-hover); border-radius: .5rem; background: var(--bg-input); color: var(--text-primary); font-size: 1.5rem; cursor: pointer; }
 .novel-details-body { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,3fr); gap: 1.5rem; padding: 1rem; }
-.novel-details-image { min-width: 0; }
+.novel-details-image { min-width: 0; grid-column: 1; grid-row: 1; }
 .novel-details-image img { display: block; width: 100%; height: auto; }
 .novel-details-image img[hidden] { display: none; }
 .novel-details-image figcaption { color: var(--text-secondary); font-size: .8rem; margin: .5rem 0; }
-.novel-details-fields { min-width: 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .65rem 1rem; align-content: start; }
+.novel-details-actions { grid-column: 1; grid-row: 2; display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .8rem; align-self: start; }
+.novel-details-actions .page-btn { min-width: 140px; white-space: nowrap; }
+.novel-details-actions a { color: var(--accent-hover); font-size: .85rem; }
+.novel-details-fields { min-width: 0; display: grid; grid-column: 2; grid-row: 1 / span 2; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .65rem 1rem; align-content: start; }
 .novel-details-facts, .novel-details-content { display: contents; }
 .novel-details-field { min-width: 0; }
 .novel-details-field.details-wide { grid-column: 1 / -1; }
@@ -1175,17 +1178,18 @@ a.card-cover-wrap.cover-ready {
     .novel-details-header { position: static; align-items: center; gap: .4rem; padding: .5rem .6rem; }
     .novel-details-header h2 { font-size: .8rem; line-height: 1.3; max-height: 3.9em; overflow: auto; }
     .novel-details-header button { width: 30px; height: 30px; font-size: 1.2rem; }
-    .novel-details-body { min-height: 0; grid-template-columns: minmax(64px,24%) minmax(0,1fr); grid-template-rows: auto auto; align-content: start; gap: .5rem .6rem; padding: .6rem; overflow: auto; overscroll-behavior: contain; }
+    .novel-details-body { min-height: 0; grid-template-columns: minmax(64px,24%) minmax(0,1fr); grid-template-rows: auto auto auto; align-content: start; gap: .5rem .6rem; padding: .6rem; overflow: auto; overscroll-behavior: contain; }
     .novel-details-fields { display: contents; }
     .novel-details-image { grid-column: 1; grid-row: 1; }
     .novel-details-image img { height: auto; max-height: min(20dvh,140px); object-fit: contain; object-position: top; }
     .novel-details-image figcaption { margin: .2rem 0; font-size: .55rem; line-height: 1.2; }
-    .novel-details-image .page-btn { width: 100%; padding: .35rem .15rem; font-size: .625rem; min-height: 30px; }
+    .novel-details-actions { grid-column: 1 / -1; grid-row: 2; }
+    .novel-details-actions .page-btn { min-width: 120px; padding: .35rem .7rem; font-size: .625rem; min-height: 30px; }
+    .novel-details-actions a { font-size: .675rem; }
     .novel-details-facts { display: grid; grid-column: 2; grid-row: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .3rem .4rem; align-content: start; }
     .novel-details-fields dt { font-size: .625rem; line-height: 1.25; }
     .novel-details-fields dd { margin-top: .1rem; font-size: .675rem; line-height: 1.35; }
-    .novel-details-content { display: grid; grid-column: 1 / -1; grid-row: 2; grid-template-columns: repeat(2,minmax(0,1fr)); align-content: start; gap: .4rem .6rem; border-top: 1px solid var(--border); padding-top: .5rem; }
-    .novel-details-content .details-title, .novel-details-content .details-canonicalUrl { grid-column: auto; }
+    .novel-details-content { display: grid; grid-column: 1 / -1; grid-row: 3; grid-template-columns: repeat(2,minmax(0,1fr)); align-content: start; gap: .4rem .6rem; border-top: 1px solid var(--border); padding-top: .5rem; }
     .novel-details-content [data-field=synopsis] { max-height: min(25dvh,150px); overflow: auto; overscroll-behavior: contain; }
     .details-rank { font-size: .625rem; margin: .1rem .2rem .1rem 0; padding: .1rem .3rem; }
 }
