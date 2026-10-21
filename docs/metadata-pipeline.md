@@ -455,7 +455,10 @@ R19 identity discovery distinguishes explicit deleted-novel and invalid-access n
 from temporary request or parser failures. It tries another known novel in the same
 name group and preserves existing metadata. Catalog-tagged and explicitly confirmed
 deleted novels are excluded from identity requests until a fresh source listing shows
-them again. Other unavailable novel IDs receive a seven-day cooldown in the tracked
+them again. Their catalog rows, covers, descriptions and other metadata remain saved;
+confirmed deletions carry the `deleted` tag in both compact and full metadata.
+Invalid-access notices and temporary errors alone do not add that tag.
+Other unavailable novel IDs receive a seven-day cooldown in the tracked
 author registry. Historical metadata alone cannot undo an explicit deletion. These groups remain visibly
 unresolved; they do not trigger repeated continuation jobs or imply that the author
 is unavailable. Known verified R19 author catalogs are still checked normally.

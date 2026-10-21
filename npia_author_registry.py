@@ -22,6 +22,34 @@ def is_deleted(novel):
     return isinstance(tags, (list, tuple, set)) and any(str(tag).strip().casefold() == 'deleted' for tag in tags)
 
 
+def preserve_deleted_tags(registry, rows=(), full=()):
+    """Keep every record and mark confirmed deletions in both saved formats."""
+    rows = list(rows)
+    deleted = {nid for nid, entry in registry.get('r19_identity_unavailable', {}).items()
+               if entry.get('reason') == DELETED_IDENTITY_REASON}
+    deleted.update(str(row[0]) for row in rows if len(row) > 4 and is_deleted({'tags': row[4]}))
+    counts = dict(compact=0, full=0)
+
+    def tagged(tags):
+        if isinstance(tags, str):
+            try:
+                tags = json.loads(tags)
+            except ValueError:
+                tags = [tags]
+        return list(tags or []) + ['deleted']
+
+    for row in rows:
+        if len(row) > 4 and str(row[0]) in deleted and not is_deleted({'tags': row[4]}):
+            row[4] = tagged(row[4])
+            counts['compact'] += 1
+    for novel in full:
+        nid = str(novel.get('id') or novel.get('novel_no') or '')
+        if nid in deleted and not is_deleted(novel):
+            novel['tags'] = tagged(novel.get('tags', []))
+            counts['full'] += 1
+    return counts
+
+
 def record_live_novels(registry, novels, *, now=None):
     """Only fresh source listings can overturn a confirmed deletion."""
     now = time.time() if now is None else now

@@ -290,3 +290,47 @@ def test_offline_registry_refresh_never_opens_account_config_or_uses_http(tmp_pa
     result = registry.load(path)
     assert result['r19']['verified_author_count'] == 1
     assert result['r19']['authors']['42']['name'] == 'Writer'
+
+
+def test_confirmed_deletions_keep_all_fields_and_tags_without_marking_access_errors():
+    import copy
+    rows = [[nid, 'Saved title', 'Writer', 'cover', ['Fantasy'], 12, 3, 4, 0, 'date', 0, 19]
+            for nid in (1, 2)]
+    full = [dict(id=nid, title='Saved title', author='Writer', cover='cover', tags=['Fantasy'],
+                 synopsis='Saved synopsis', views=12, likes=3, age=19) for nid in (1, 2)]
+    before_rows, before_full = copy.deepcopy(rows), copy.deepcopy(full)
+    data = {'r19_identity_unavailable': {
+        '1': dict(reason=registry.DELETED_IDENTITY_REASON, checked=1),
+        '2': dict(reason='site reports invalid or unavailable novel access', checked=1)}}
+    assert registry.preserve_deleted_tags(data, rows, full) == dict(compact=1, full=1)
+    before_rows[0][4].append('deleted');before_full[0]['tags'].append('deleted')
+    assert rows == before_rows and full == before_full
+    assert registry.preserve_deleted_tags(data, rows, full) == dict(compact=0, full=0)
+
+
+def test_continuation_saves_confirmed_deleted_r19_novel_and_synopsis_without_requesting_it(tmp_path, monkeypatch):
+    import time
+    scraper = load_scraper('rescrape_npia_noauth')
+    data = tmp_path / 'docs' / 'data'
+    saved = {'version': 1, 'authors': {}, 'r19_identity_unavailable': {
+        '1': dict(reason=registry.DELETED_IDENTITY_REASON, checked=time.time()),
+        '2': dict(reason='site reports invalid or unavailable novel access', checked=time.time())}}
+    registry.save(data / 'npia_authors.json', saved)
+    rows = [[nid, 'Saved title', 'Writer', 'cover', ['Fantasy'], 12, 3, 4, 0, 'date', 0, 19]+[0]*8
+            for nid in (1, 2)]
+    full = [dict(id=nid, title='Saved title', author='Writer', cover='cover', tags=['Fantasy'],
+                 synopsis='Saved synopsis', views=12, likes=3, age=19) for nid in (1, 2)]
+    (data / 'novels.json').write_text(json.dumps(rows), encoding='utf-8')
+    (data / 'novels_full.json').write_text(json.dumps(full), encoding='utf-8')
+    (data / 'npia_public_state.json').write_text(json.dumps({'author_sweep': dict(
+        id='saved', completed=[], failures={})}), encoding='utf-8')
+    monkeypatch.setattr(scraper, '__file__', str(tmp_path / 'scripts' / 'rescrape_npia_noauth.py'))
+    def get(url, **kwargs):
+        assert '/novel/' not in url
+        return SimpleNamespace(status_code=200, text='')
+    monkeypatch.setattr(scraper.requests, 'Session', lambda: SimpleNamespace(headers={}, get=get))
+    monkeypatch.setattr(sys, 'argv', ['scraper', '--author-sweep-id', 'saved', '--intro-requests', '0'])
+    scraper.main()
+    rows[0][4].append('deleted');full[0]['tags'].append('deleted')
+    assert json.loads((data / 'novels.json').read_text(encoding='utf-8')) == rows
+    assert json.loads((data / 'novels_full.json').read_text(encoding='utf-8')) == full
