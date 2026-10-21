@@ -1,4 +1,7 @@
-"""Full Npia catalog rescrape WITHOUT authentication.
+"""Full Npia metadata rescrape, anonymous unless an optional environment key is supplied.
+
+NPIA_METADATA_LOGINKEY restores the dedicated metadata account session without
+reading account configuration or requesting age verification.
 
 Merges freshly scraped data into the existing novels.json, preserving every
 existing unique novel ID that is not present in the latest scrape.
@@ -123,8 +126,15 @@ def extract_novel(item):
 
 
 def make_search_session():
+    """Use the optional metadata account key for every search and catalog worker."""
     session = requests.Session()
     session.headers.update(HEADERS)
+    key = os.environ.get('NPIA_METADATA_LOGINKEY', '').strip()
+    if key:
+        if '\r' in key or '\n' in key:
+            raise ValueError('Metadata session key must be a single value')
+        session.cookies.set('LOGINKEY', key,
+            domain='\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com', path='/', secure=True)
     return session
 
 
@@ -356,7 +366,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Rescrape Npia catalog (no auth)")
+    parser = argparse.ArgumentParser(description="Rescrape Npia metadata with optional environment session key")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run scrape and show merge summary without saving")
     parser.add_argument("--search-workers", type=int, default=4,
@@ -410,10 +420,10 @@ def main():
     if args.author_sweep_id and public_state.get('author_sweep', {}).get('id') != args.author_sweep_id:
         parser.error('Saved author sweep has changed; refusing a stale continuation')
 
-    session = requests.Session()
-    session.headers.update(HEADERS)
+    session = make_search_session()
 
-    print("Initializing session...")
+    print('Initializing metadata session (' +
+          ('environment account key' if os.environ.get('NPIA_METADATA_LOGINKEY', '').strip() else 'anonymous') + ')...')
     try:
         session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com", timeout=15)
     except Exception:
