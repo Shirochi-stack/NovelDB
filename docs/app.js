@@ -6364,7 +6364,7 @@
 
         const synopsisHTML = descriptionsEnabled ? `
                 <div class="card-synopsis" aria-busy="${!savedSynopsis}"><span class="synopsis-label">${n.metrics?.synopsis_is_preview ? "Synopsis preview:" : "Synopsis:"}</span> ${savedSynopsis
-                    ? `<span class="synopsis-text">${escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</span><button type="button" class="synopsis-details">Show full details</button>`
+                    ? `<span class="synopsis-text">${escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</span>`
                     : synopsisLoadingHTML()}</div>` : "";
         if (!savedSynopsis) card.dataset.needsSynopsis = "true";
         else delete card.dataset.needsSynopsis;
@@ -7680,7 +7680,7 @@
             synopsisEl.className = "card-synopsis";
             body.appendChild(synopsisEl);
         }
-        synopsisEl.innerHTML = `<span class="synopsis-label">${card.dataset.synopsisPreview === "true" ? "Synopsis preview:" : "Synopsis:"}</span> <span class="synopsis-text">${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}</span><button type="button" class="synopsis-details">Show full details</button>`;
+        synopsisEl.innerHTML = `<span class="synopsis-label">${card.dataset.synopsisPreview === "true" ? "Synopsis preview:" : "Synopsis:"}</span> <span class="synopsis-text">${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}</span>`;
         synopsisEl.setAttribute('aria-busy','false');
         delete card.dataset.needsSynopsis;
     }
