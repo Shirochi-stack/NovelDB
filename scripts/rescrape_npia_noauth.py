@@ -269,7 +269,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
     compact = {str(row[0]): row for row in existing}
     working_registry = registry if registry is not None else {'version': 1, 'authors': {}}
     r19 = author_registry.refresh_r19(working_registry, existing,
-                                       list(old_full.values()) + list(fresh.values()), now)
+                                       list(old_full.values()) + list(fresh.values()), now, live=fresh.values())
     maximum_delay = (2.0 if delay == 1.0 else delay) if delay_max is None else delay_max
     identity_failures = sweep.setdefault('resolution_failures', {})
     identity_stats = dict(requests=0)
@@ -280,7 +280,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
             max_requests=page_limit, stopped=stopped, checkpoint=registry_checkpoint,
             log=lambda message: print(message, flush=True))
         r19 = author_registry.refresh_r19(working_registry, existing,
-                                           list(old_full.values()) + list(fresh.values()), now)
+                                           list(old_full.values()) + list(fresh.values()), now, live=fresh.values())
     eligible = set(r19['authors'])
     # Migrate old all-author checkpoints without querying general-only authors.
     pending = {owner: page for owner, page in pending.items() if owner in eligible}
@@ -335,6 +335,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
             entry["catalog_novel_ids"] = sorted(set(entry.get("catalog_novel_ids", [])) |
                                                  {str(item["novel_no"]) for item in rows}, key=int)
             author_registry.observe(registry, rows, now)
+            author_registry.record_live_novels(registry, rows)
         for item in rows:
             nid = str(item["novel_no"])
             base = dict(old_full.get(nid) or {})
@@ -379,7 +380,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
                 entry.pop("catalog_error", None)
         print(f"Author catalogs: {completed} complete, {pages} requests, {updated} records updated", flush=True)
     if registry is not None:
-        author_registry.refresh_r19(registry, existing, list(old_full.values()) + list(fresh.values()), now)
+        author_registry.refresh_r19(registry, existing, list(old_full.values()) + list(fresh.values()), now, live=fresh.values())
     unresolved = author_registry.unresolved_r19_groups(working_registry, identity_failures) if resolve_identities else []
     unavailable_groups = sum(not author_registry.identity_candidates(working_registry, ids)
                              for _, ids in unresolved)
@@ -548,6 +549,7 @@ def main():
         intro_rows = discover_intro(session, public_state, max_requests=args.intro_requests,
                                     delay=args.author_delay)
         intro_authors = author_registry.observe(registry, intro_rows)
+        author_registry.record_live_novels(registry, intro_rows)
     public_state = enrich_author_catalogs(session, fresh_novels, old_full_lookup, public_state,
                                           page_limit=args.author_pages, delay=args.author_delay,
                                           existing=existing_data, registry=registry,

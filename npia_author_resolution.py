@@ -32,7 +32,7 @@ def parse_identity(html, nid):
         alert = soup.select_one('#alert_modal')
         notice = alert.get_text(' ', strip=True) if alert else ''
         if re.search(r'\uC0AD\uC81C\uB41C\s*\uC18C\uC124', notice):
-            raise IdentityUnavailable('site reports this novel has been deleted')
+            raise IdentityUnavailable(authors.DELETED_IDENTITY_REASON)
         if '\uC798\uBABB\uB41C \uC811\uADFC' in notice:
             raise IdentityUnavailable('site reports invalid or unavailable novel access')
     link = info.select_one('.in-writer .writer-name[href]') if info else None
@@ -103,7 +103,9 @@ def resolve_missing(session, registry, *, failures=None, workers=4, delay=1.0, d
                     raise ValueError(f'HTTP {response.status_code}')
                 return nid, parse_identity(response.text, nid), None
             except IdentityUnavailable as error:
-                log(f'R19 novel {nid} UNAVAILABLE: {error}; existing metadata retained; retry deferred for seven days')
+                policy = ('excluded until a fresh listing shows it again' if str(error) == authors.DELETED_IDENTITY_REASON
+                          else 'retry deferred for seven days')
+                log(f'R19 novel {nid} UNAVAILABLE: {error}; existing metadata retained; {policy}')
                 return nid, None, error
             except Exception as error:
                 # Exception URLs and raw account responses must not enter logs.

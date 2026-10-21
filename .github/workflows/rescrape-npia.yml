@@ -102,7 +102,7 @@ jobs:
               });
               core.info('Saved author identities and completed pages; queued the next part of this R19 sweep.');
             } else if (!sweep.complete && sweep.remaining === sweep.remaining_unavailable_identities) {
-              core.warning(`${sweep.remaining} author identities have only explicitly unavailable novel pages. Existing metadata is retained; access will be checked again after seven days.`);
+              core.warning(`${sweep.remaining} author identities have only unavailable or catalog-deleted novel pages. Existing metadata is retained. Deleted novels stay excluded until a fresh listing restores them; other access notices are rechecked after seven days.`);
             } else if (!sweep.complete) {
               core.setFailed(`Incomplete coverage: ${sweep.remaining} author catalogs or identities still failed after three passes with request retries. Progress is saved for the next full sweep.`);
             }

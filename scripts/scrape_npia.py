@@ -309,7 +309,7 @@ def main():
     previous_full = {str(n["id"]): n for n in load_json_file("docs/data/novels_full.json", [])
                      if isinstance(n, dict) and n.get("id") is not None}
     r19 = author_registry.refresh_r19(registry, load_json_file('docs/data/novels.json', []),
-                                       list(previous_full.values()) + list(novels_by_id.values()))
+                                       list(previous_full.values()) + list(novels_by_id.values()), live=novels_by_id.values())
     print(f"R19 registry updated from authenticated search: {r19['verified_author_count']} verified authors; "
           f"{r19['name_matched_author_count']} name matches; no author catalog requests", flush=True)
     author_registry.report_coverage(registry, search_ids)

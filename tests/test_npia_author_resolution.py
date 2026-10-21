@@ -247,7 +247,11 @@ def test_explicit_deleted_notice_does_not_retry_or_lose_existing_metadata(nid, t
     assert result['requests'] == 0 and len(calls) == 1
     assert any('has been deleted' in log for log in logs)
     checked = restored['r19_identity_unavailable'][nid]['checked']
-    assert authors.identity_candidates(restored, [nid], now=checked + 7 * 86400) == [nid]
+    assert authors.identity_candidates(restored, [nid], now=checked + 30 * 86400) == []
+    authors.refresh_r19(restored, [row(int(nid))], [dict(id=int(nid), author='Writer', age=19)])
+    assert authors.identity_candidates(restored, [nid], now=checked + 30 * 86400) == []
+    authors.record_search(restored, [dict(id=int(nid), author='Writer', age=19)])
+    assert authors.identity_candidates(restored, [nid], now=checked + 30 * 86400) == [nid]
 
 
 def test_deleted_representative_tries_next_known_novel_in_same_pass():
@@ -295,3 +299,52 @@ def test_workflow_keeps_deleted_groups_visible_without_automatic_retry_loop():
         assert sweep['remaining'] == sweep['remaining_unavailable_identities'] == 1
         assert fresh == {'1': dict(title='Retained', synopsis='Keep')}
     assert state['author_last_run']['identity_requests'] == 0
+
+
+def test_catalog_deleted_novel_is_never_requested_and_live_sibling_is_used():
+    first, second = row(1), row(2)
+    first[4] = ['deleted']
+    registry = registry_for([first, second])
+    calls = []
+    session = SimpleNamespace(get=lambda url, **kw: calls.append(url) or response(detail(2)))
+    result = identities.resolve_missing(session, registry, delay=0, delay_max=0, log=lambda _: None)
+    assert calls == [identities.ORIGIN + '/novel/2'] and result['requests'] == 1
+    assert authors.unresolved_r19_groups(registry) == [('Writer', ['1', '2'])]
+
+
+def test_deleted_only_known_author_still_gets_catalog_check_without_novel_request():
+    scraper = scraper_module()
+    novel = row(1); novel[4] = ['deleted']
+    registry = registry_for([novel])
+    authors.observe(registry, [dict(id=1, author='Writer', author_id='42', age=19)])
+    calls = []
+    def get(*args, **kwargs):
+        pytest.fail('Known deleted novel requested')
+    def post(url, **kwargs):
+        calls.append(kwargs['data']['mem_no'])
+        return SimpleNamespace(status_code=200, json=lambda: dict(status=200, result=dict(allCount=0, novel=[])))
+    state = {}
+    scraper.enrich_author_catalogs(SimpleNamespace(get=get, post=post), {}, {}, state,
+        registry=registry, existing=[novel], delay=0, resolve_identities=True)
+    assert calls == ['42'] and state['author_last_run']['identity_requests'] == 0
+    assert registry['authors']['42']['r19_novel_ids'] == ['1']
+
+
+def test_temporary_access_notice_still_expires_and_fresh_listing_overrides_stale_deleted_tags():
+    registry = registry_for([row(1)])
+    registry['r19_identity_unavailable'] = {'1': dict(checked=100, reason='site reports invalid or unavailable novel access')}
+    assert authors.identity_candidates(registry, ['1'], now=101) == []
+    assert authors.identity_candidates(registry, ['1'], now=100 + 7 * 86400) == ['1']
+    old = row(1); old[4] = ['deleted']
+    authors.refresh_r19(registry, [old], live=[dict(id=1, author='Writer', age=19)])
+    assert authors.identity_candidates(registry, ['1'], now=101) == ['1']
+
+
+def test_earlier_listing_cannot_undo_a_later_deleted_response_in_same_pass():
+    registry = registry_for([row(1)])
+    registry['r19_identity_unavailable'] = {'1': dict(checked=200, reason=authors.DELETED_IDENTITY_REASON)}
+    fresh = [dict(id=1, author='Writer', age=19)]
+    authors.refresh_r19(registry, [row(1)], now=100, live=fresh)
+    assert authors.identity_candidates(registry, ['1'], now=201) == []
+    authors.record_live_novels(registry, fresh, now=201)
+    assert authors.identity_candidates(registry, ['1'], now=201) == ['1']
