@@ -17,6 +17,10 @@ from npia_search_http import response_details
 ORIGIN = 'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
 
 
+class IdentityUnavailable(ValueError):
+    """An explicit novel access notice, rather than a temporary parser failure."""
+
+
 def parse_identity(html, nid):
     """Accept only the requested novel's own author link, never a recommendation."""
     soup = BeautifulSoup(html, 'html.parser')
@@ -24,6 +28,13 @@ def parse_identity(html, nid):
     if not canonical or urlsplit(canonical.get('content', '')).path.rstrip('/') != f'/novel/{nid}':
         raise ValueError('novel identity unavailable or mismatched')
     info = soup.select_one('.epnew-novel-info')
+    if info is None:
+        alert = soup.select_one('#alert_modal')
+        notice = alert.get_text(' ', strip=True) if alert else ''
+        if re.search(r'\uC0AD\uC81C\uB41C\s*\uC18C\uC124', notice):
+            raise IdentityUnavailable('site reports this novel has been deleted')
+        if '\uC798\uBABB\uB41C \uC811\uADFC' in notice:
+            raise IdentityUnavailable('site reports invalid or unavailable novel access')
     link = info.select_one('.in-writer .writer-name[href]') if info else None
     owner = re.fullmatch(r'/user/([1-9]\d*)(?:/writer_novel)?/?', link.get('href', '')) if link else None
     if not owner:
@@ -46,8 +57,9 @@ def resolve_missing(session, registry, *, failures=None, workers=4, delay=1.0, d
         raise ValueError('invalid identity request settings')
     failures = {} if failures is None else failures
     groups = authors.unresolved_r19_groups(registry, failures)
-    queue = iter(ids[0] for _, ids in groups if failures.get(ids[0], 0) < 3)
-    stats = dict(groups=len(groups), requests=0, resolved=0, failed=0, new_authors=0)
+    queue = iter(candidates for _, ids in groups
+                 if (candidates := authors.identity_candidates(registry, ids, failures)))
+    stats = dict(groups=len(groups), requests=0, resolved=0, failed=0, unavailable=0, new_authors=0)
     lock = threading.Lock()
     local = threading.local()
     clients = []
@@ -85,9 +97,14 @@ def resolve_missing(session, registry, *, failures=None, workers=4, delay=1.0, d
             response = None
             try:
                 response = client().get(ORIGIN + f'/novel/{nid}', timeout=30, allow_redirects=False)
+                if response.status_code in (404, 410):
+                    raise IdentityUnavailable(f'HTTP {response.status_code}: novel unavailable')
                 if response.status_code != 200:
                     raise ValueError(f'HTTP {response.status_code}')
                 return nid, parse_identity(response.text, nid), None
+            except IdentityUnavailable as error:
+                log(f'R19 novel {nid} UNAVAILABLE: {error}; existing metadata retained; retry deferred for seven days')
+                return nid, None, error
             except Exception as error:
                 # Exception URLs and raw account responses must not enter logs.
                 details = response_details(response) if response is not None and hasattr(response, 'headers') else 'no response details'
@@ -95,6 +112,16 @@ def resolve_missing(session, registry, *, failures=None, workers=4, delay=1.0, d
                 last_error = f'{reason}; {details}'
                 log(f'R19 author identity {nid} attempt {attempt}/{retries} failed: {last_error}')
         return nid, None, last_error
+
+    def fetch_group(ids):
+        unavailable = []
+        for nid in ids:
+            result = fetch(nid)
+            if isinstance(result[2], IdentityUnavailable):
+                unavailable.append((nid, str(result[2]), time.time()))
+            else:
+                return (*result, unavailable)
+        return ids[-1], None, None, unavailable
 
     log(f"Resolving {len(groups)} unverified R19 author groups with {workers} workers; "
         f'{delay:g}-{delay_max:g}s random delay; {retries} attempts per identity')
@@ -105,17 +132,23 @@ def resolve_missing(session, registry, *, failures=None, workers=4, delay=1.0, d
         running = set()
         while running or not exhausted():
             while len(running) < workers and not exhausted():
-                nid = next(queue, None)
-                if nid is None:
+                ids = next(queue, None)
+                if ids is None:
                     break
-                running.add(pool.submit(fetch, nid))
+                running.add(pool.submit(fetch_group, ids))
             if not running:
                 break
             done, _ = wait(running, return_when=FIRST_COMPLETED)
             for future in done:
                 running.remove(future)
-                nid, novel, error = future.result()
+                nid, novel, error, unavailable = future.result()
+                for unavailable_id, reason, checked in unavailable:
+                    registry.setdefault('r19_identity_unavailable', {})[unavailable_id] = dict(
+                        reason=reason, checked=checked)
+                    failures.pop(unavailable_id, None)
+                    stats['unavailable'] += 1
                 if novel is not None:
+                    registry.get('r19_identity_unavailable', {}).pop(nid, None)
                     was_known = novel['author_id'] in registry['authors']
                     authors.observe(registry, [novel])
                     stats['resolved'] += 1

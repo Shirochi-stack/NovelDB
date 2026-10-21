@@ -70,6 +70,8 @@ The scheduled job uses the [six-hour GitHub-hosted job ceiling](https://docs.git
 
 The scheduled npia metadata scraper optionally logs in with the GitHub Actions secrets `NPIA_METADATA_EMAIL` and `NPIA_METADATA_PASSWORD`, passed only to the collection step as environment variables. Each run or continuation establishes and verifies one fresh account session; search and author/identity workers inherit its cookies without making individual login requests. It does not rely on a saved session-key secret. With neither credential, collection stays anonymous; an incomplete credential pair or rejected login stops the run instead of silently continuing anonymously. Temporary service errors receive four attempts. This route never reads `config.json` or changes age-verification status; the three adult ranking boards retain their existing values. Credentials, login response bodies, and fresh session keys are never included in logs or metadata exports. The separate manual authenticated batch remains unchanged.
 
+The full npia workflow publishes through `scripts/publish_metadata.py`, which fetches the current branch and retries non-fast-forward pushes without force-pushing. Unrelated newer commits survive publication. Overlapping source-data changes stop publication rather than selecting an arbitrary version; the recovery artifact retains the compact catalog, full metadata, author registry, and continuation state so finished discovery can be recovered without repeating its requests.
+
 ### How each source is collected
 
 **Npia.** Both full scrapers query `SOURCE_URL` with `cmd=novel_search`, first for shared tags and then for a character sweep. A short result page ends a term; the page cap also bounds discovery. Results are deduplicated by stringified novel ID, with the first fresh discovery winning. This is broad search-based discovery, not proof of exhaustive enumeration. Search responses supply the original title, author nickname, synopsis, tags, cover URL, views, likes, chapter count, completion, age and update value. Separate top-100 HTML pages supply ranking positions from their `/novel/{id}` links. The compact export omits the synopsis; the full object file retains it for extraction. A previously known real cover is preserved when a fresh response supplies an empty or placeholder cover. See [authenticated scraper](../scripts/scrape_npia.py) and [public scraper](../scripts/rescrape_npia_noauth.py).
@@ -448,6 +450,13 @@ Rbooks (`rbooks`) is the fourth metadata-v1 source and seventh platform. Its fou
 
 
 ### Reliable catalog collection and recovery
+
+R19 identity discovery distinguishes explicit deleted-novel and invalid-access notices
+from temporary request or parser failures. It tries another known novel in the same
+name group, preserves existing metadata, and records unavailable novel IDs in the
+tracked author registry for a seven-day cooldown. These groups remain visibly
+unresolved; they do not trigger repeated continuation jobs or imply that the author
+is unavailable. Known verified R19 author catalogs are still checked normally.
 
 See [publishing and recovery](metadata-recovery.md) for parallel catalog workers,
 pre-publication backups, automatic checkpoint recovery, gzip-native Kpage

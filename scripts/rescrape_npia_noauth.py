@@ -381,11 +381,15 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
     if registry is not None:
         author_registry.refresh_r19(registry, existing, list(old_full.values()) + list(fresh.values()), now)
     unresolved = author_registry.unresolved_r19_groups(working_registry, identity_failures) if resolve_identities else []
+    unavailable_groups = sum(not author_registry.identity_candidates(working_registry, ids)
+                             for _, ids in unresolved)
     sweep.update(completed=sorted(done, key=int), total=len(done) + len(pending) + len(unresolved),
                  remaining=len(pending) + len(unresolved), remaining_catalogs=len(pending),
                  remaining_identities=len(unresolved), complete=not pending and not unresolved,
+                 remaining_unavailable_identities=unavailable_groups,
                  continuation_required=any(failures.get(owner, 0) < 3 for owner in pending) or
-                    any(identity_failures.get(ids[0], 0) < 3 for _, ids in unresolved))
+                    any(author_registry.identity_candidates(working_registry, ids, identity_failures)
+                        for _, ids in unresolved))
     state["author_last_run"] = dict(pages=pages, updated=updated, completed=completed, failed=failed,
                                     pending=len(pending), unique_updated=len(seen), r19_hits=r19_hits,
                                     r19_unique=len(r19_seen), r19_new=len(r19_seen - compact.keys() - old_full.keys()),
@@ -398,7 +402,8 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
           f"({len(failures)} failed authors). "
           + ("All registered R19 authors checked." if sweep['complete'] else
              "Continuation required to finish this sweep." if sweep['continuation_required'] else
-             "INCOMPLETE: failed authors retained for the next sweep."), flush=True)
+             f"INCOMPLETE: {unavailable_groups} groups have only unavailable novels; existing metadata retained. "
+             "Other failed authors retained for the next sweep."), flush=True)
     return state
 
 
