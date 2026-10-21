@@ -10,6 +10,25 @@ from npia_author_catalog import author_id
 from scripts import source_names
 
 
+def is_r19(novel):
+    """Use the age field or explicit age-rating tags, never a genre inference."""
+    try:
+        if int(novel.get('novel_age', novel.get('age', 0)) or 0) >= 19:
+            return True
+    except (ValueError, TypeError):
+        pass
+    tags = novel.get('tags', novel.get('novel_genre', [])) or []
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except ValueError:
+            tags = [tags]
+    if not isinstance(tags, list):
+        return False
+    markers = {'r19', 'r-19', '19+', '19금', '성인', 'adult'}
+    return any(str(tag).strip().lstrip('#').casefold() in markers for tag in tags)
+
+
 def load(path):
     if not Path(path).exists():
         return {"version": 1, "authors": {}}
@@ -34,10 +53,12 @@ def observe(registry, novels, now=None):
         name = novel.get("writer_nick") or novel.get("author") or ""
         if name:
             entry["name"] = name
-            entry["names"] = sorted(set(entry["names"]) | {name})
+            entry["names"] = sorted(set(entry.get("names", [])) | {name})
         nid = str(novel.get("novel_no") or novel.get("id") or "")
         if nid.isdigit():
-            entry["novel_ids"] = sorted(set(entry["novel_ids"]) | {nid}, key=int)
+            entry["novel_ids"] = sorted(set(entry.get("novel_ids", [])) | {nid}, key=int)
+            if is_r19(novel):
+                entry['r19_novel_ids'] = sorted(set(entry.get('r19_novel_ids', [])) | {nid}, key=int)
             unresolved = registry.get("unresolved_names", {})
             if name in unresolved and nid in unresolved[name]:
                 unresolved[name].remove(nid)
@@ -51,10 +72,11 @@ def plan_r19_requests(registry, rows, full=(), *, checked=None, now=None):
     """Prioritize public catalogs using evidence; names are candidates, not identities."""
     now = time.time() if now is None else now
     checked = checked or {}
-    adults = {str(row[0]): row[2] for row in rows if len(row) > 11 and str(row[11]) == '19'}
+    adults = {str(row[0]): row[2] for row in rows if len(row) > 2 and
+              is_r19({'age': row[11] if len(row) > 11 else 0, 'tags': row[4] if len(row) > 4 else []})}
     confirmed = {}
     for novel in full:
-        if str(novel.get('age')) == '19':
+        if is_r19(novel):
             nid = str(novel.get('id', ''))
             if nid.isdigit():
                 adults[nid] = novel.get('author', '')
@@ -102,6 +124,68 @@ def plan_r19_requests(registry, rows, full=(), *, checked=None, now=None):
     return dict(detail_ids=details, authors=authors, r19_total=len(adults),
                 confirmed_ids=len(confirmed), candidate_ids=len(candidate_ids),
                 unresolved_groups=len(groups))
+
+
+def refresh_r19(registry, rows=(), full=(), now=None):
+    """Build the persisted R19 subset locally; name matches never prove identity."""
+    now = time.time() if now is None else now
+    full = list(full)
+    observe(registry, full, now)
+    names = {name: set(ids) for name, ids in registry.get('r19', {}).get('known_names', {}).items()}
+    unnamed = set(registry.get('r19', {}).get('unnamed_novel_ids', []))
+    adults = {nid: name for name, ids in names.items() for nid in ids}
+    adults.update({nid: '' for nid in unnamed if nid not in adults})
+    for row in rows:
+        if len(row) > 2 and is_r19({'age': row[11] if len(row) > 11 else 0,
+                                   'tags': row[4] if len(row) > 4 else []}):
+            adults[str(row[0])] = str(row[2] or '')
+    for novel in full:
+        if is_r19(novel):
+            nid = str(novel.get('id') or novel.get('novel_no') or '')
+            if nid.isdigit():
+                adults[nid] = str(novel.get('author') or novel.get('writer_nick') or '')
+    # Verified R19 evidence survives partial/no-auth results in later runs.
+    for entry in registry['authors'].values():
+        for nid in entry.get('r19_novel_ids', []):
+            adults.setdefault(nid, entry.get('name', ''))
+    names = {}
+    for nid, name in adults.items():
+        if name:
+            names.setdefault(name, set()).add(nid)
+    compact = [[int(nid), '', name] + [0]*8 + [19] for nid, name in adults.items()]
+    plan = plan_r19_requests(registry, compact, now=now)
+    selected, covered = {}, set()
+    aliases = {}
+    for owner, entry in registry['authors'].items():
+        for name in set(entry.get('names', []) + [entry.get('name', '')]):
+            if name in names:
+                aliases.setdefault(name, set()).add(owner)
+    for owner in plan['authors']:
+        entry = registry['authors'][owner]
+        verified = (set(entry.get('novel_ids', [])) | set(entry.get('r19_novel_ids', []))) & adults.keys()
+        if verified:
+            entry['r19_novel_ids'] = sorted(verified, key=int)
+        matched_names = set(entry.get('names', []) + [entry.get('name', '')]) & names.keys()
+        candidates = set(verified)
+        for name in matched_names:
+            matches = names[name]
+            if entry.get('catalog_status') == 'complete':
+                matches = matches & set(entry.get('catalog_novel_ids', []))
+            candidates.update(matches)
+        selected[owner] = dict(name=entry.get('name', ''), names=sorted(matched_names),
+                               verified_novel_ids=sorted(verified, key=int),
+                               candidate_novel_ids=sorted(candidates - verified, key=int),
+                               evidence='verified' if verified else 'name_match')
+        covered.update(candidates)
+    result = dict(updated=now, novel_count=len(adults), author_name_count=len(names), authors=selected,
+                  verified_author_count=sum(bool(entry['verified_novel_ids']) for entry in selected.values()),
+                  name_matched_author_count=sum(not entry['verified_novel_ids'] for entry in selected.values()),
+                  known_names={name: sorted(ids, key=int) for name, ids in sorted(names.items())},
+                  unresolved_names={name: sorted(ids - covered, key=int) for name, ids in sorted(names.items()) if ids - covered},
+                  ambiguous_names={name: sorted(owners, key=int) for name, owners in aliases.items() if len(owners) > 1},
+                  unnamed_novel_ids=sorted((nid for nid, name in adults.items() if not name), key=int))
+    registry['r19'] = result
+    return result
 
 
 def seed_catalog_names(registry, rows):

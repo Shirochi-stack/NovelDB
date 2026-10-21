@@ -1211,11 +1211,11 @@ img { max-width: 100%; height: auto; }
                 authors.add(owner)
             if matches_age(novel, age_filter):
                 ids.add(str(novel["novel_no"]))
-        self.log(f"Checking {len(authors)} public author catalogs with 4 workers (2-4s random delay)...")
+        self.log(f"Checking {len(authors)} public author catalogs with 4 workers (1-2s random delay)...")
         completed_authors = 0
         for owner, page, novels, more, error, attempts in parallel_author_pages(
                 self.auth.session, {owner: 1 for owner in sorted(authors, key=int)},
-                workers=4, delay=2, delay_max=4, retries=4, page_size=100,
+                workers=4, delay=1, delay_max=2, retries=4, page_size=100,
                 stopped=lambda: self.stop_signal, log=self.log, fetch_pages=iter_author_pages):
             if error is not None:
                 self.log(f"  Author {owner} PARTIAL: completed IDs retained; {error}")

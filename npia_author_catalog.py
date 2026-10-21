@@ -30,7 +30,7 @@ def matches_age(item, age_filter=""):
     return age >= 19 if age_filter == "19" else age < 19 if age_filter == "15" else True
 
 
-def iter_author_pages(session, author, *, start_page=1, max_pages=None, delay=2.0,
+def iter_author_pages(session, author, *, start_page=1, max_pages=None, delay=1.0,
                       stopped=lambda: False, sleep=time.sleep, page_size=20,
                       delay_max=None, retries=4, log=lambda message: None,
                       acquire_request=lambda: True, signatures=None):
@@ -106,7 +106,7 @@ def iter_author_pages(session, author, *, start_page=1, max_pages=None, delay=2.
         page += 1
 
 
-def parallel_author_pages(session, authors, *, workers=4, delay=2.0, delay_max=4.0,
+def parallel_author_pages(session, authors, *, workers=4, delay=1.0, delay_max=2.0,
                           retries=4, page_size=100, max_requests=None,
                           stopped=lambda: False, log=lambda message: None,
                           fetch_pages=iter_author_pages):
