@@ -94,11 +94,11 @@ def test_details_translate_tags_in_both_render_phases_without_changing_filter_va
                 assert await card.locator('.card-tag').all_text_contents()==labels
                 await card.locator('.cover-details').click()
                 dialog=page.get_by_role('dialog');await dialog.wait_for()
-                assert await dialog.locator('[data-field=tags]').inner_text()==', '.join(labels)
+                assert await dialog.locator('[data-field=tags] .details-tag').all_text_contents()==labels
                 await page.wait_for_function('typeof window.finishDetails==="function"')
                 await page.evaluate('finishDetails();delete window.finishDetails')
                 await page.wait_for_function('document.querySelector("[data-field=synopsis]")?.textContent==="Completed details synopsis"')
-                assert await dialog.locator('[data-field=tags]').inner_text()==', '.join(labels)
+                assert await dialog.locator('[data-field=tags] .details-tag').all_text_contents()==labels
                 assert await card.evaluate('card=>card._record.tags')==raw_tags
                 await page.get_by_role('button',name='Close Details').click()
                 assert await card.locator('.card-tag').evaluate_all('tags=>tags.map(tag=>tag.dataset.tag)')==raw_tags
