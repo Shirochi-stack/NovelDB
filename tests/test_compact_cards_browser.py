@@ -67,7 +67,8 @@ def test_compact_previews_tag_details_filtering_and_density_persist(monkeypatch)
             assert 'Tag number 24' in await page.locator('#activeTagsSummary').inner_text()
             assert await card.evaluate('c=>c._record.tags')==tags
             await assert_rows(3)
-            await card.locator('.synopsis-details').click()
+            assert await card.locator('.synopsis-details').count()==0
+            await card.locator('.cover-details').click()
             assert await dialog.locator('[data-field=synopsis]').inner_text()==synopsis.strip()
             assert await dialog.locator('.details-tag').first.get_attribute('data-tag')==tags[24]
             await page.get_by_role('button',name='Close Details').click()
@@ -77,7 +78,7 @@ def test_compact_previews_tag_details_filtering_and_density_persist(monkeypatch)
             await close_settings(page)
             assert await card.locator('.card-tag:visible').count()==len(tags)
             assert not await card.locator('.card-tags-more').is_visible()
-            assert not await card.locator('.synopsis-details').is_visible()
+            assert await card.locator('.synopsis-details').count()==0
             assert await page.locator('#synopsisLines').is_disabled()
             assert await card.locator('.card-synopsis').evaluate('e=>e.scrollHeight>e.clientHeight && getComputedStyle(e).overflowY==="auto"')
             await open_settings(page)

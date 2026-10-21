@@ -276,7 +276,7 @@
         (save.disabled ? details : save).focus({preventScroll:true});
     });
     document.addEventListener('click',event=>{
-        const button=event.target.closest?.('.cover-details,.synopsis-details,.card-tags-more');
+        const button=event.target.closest?.('.cover-details,.card-tags-more');
         if(button) {event.preventDefault();openDetails(button.closest('.novel-card'));}
     });
     save.addEventListener('click',()=>{const card=contextCard;closeMenu();download(card);});

@@ -1314,13 +1314,11 @@ button.synopsis-status {
 /* Compact cards keep text previews bounded without reserving empty space. */
 .card-tag { font-family: inherit; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .card-tag[hidden], .card-tags-more[hidden] { display: none; }
-.synopsis-details, .card-tags-more { font-family: inherit; cursor: pointer; border: 1px solid var(--border); border-radius: 10px; background: var(--tag-bg); color: var(--tag-text); }
+.card-tags-more { font-family: inherit; cursor: pointer; border: 1px solid var(--border); border-radius: 10px; background: var(--tag-bg); color: var(--tag-text); }
 .card-tags-more { font-size: .7rem; padding: .15rem .5rem; white-space: nowrap; max-width: 100%; }
-.synopsis-details { display: none; font-size: .75rem; padding: .3rem .5rem; margin-top: .4rem; }
-.compact-cards .card-synopsis { display: grid; grid-template-rows: auto calc(var(--synopsis-lines,5) * 1.6em) 28px; gap: .25rem; height: auto; flex: 0 0 auto; overflow: visible; align-content: start; }
+.compact-cards .card-synopsis { display: grid; grid-template-rows: auto calc(var(--synopsis-lines,5) * 1.6em); gap: .25rem; height: auto; flex: 0 0 auto; overflow: visible; align-content: start; }
 .compact-cards .synopsis-label { margin-bottom: 0; }
 .compact-cards .synopsis-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--synopsis-lines,5); line-clamp: var(--synopsis-lines,5); overflow: hidden; }
-.compact-cards .synopsis-details { display: inline-block; justify-self: start; align-self: start; margin-top: 0; }
 .details-tags { display: flex; flex-wrap: wrap; gap: .25rem; }
 .details-tags .card-tag { font-size: .75rem; padding: .2rem .5rem; white-space: normal; text-align: left; }
 .card-compact-settings { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
