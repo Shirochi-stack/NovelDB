@@ -193,7 +193,7 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
                     # Use the existing page-jump control while import is held.
                     if number>1:
                         await page.locator('#paginationBottom .page-input').fill(str(number))
-                        await page.locator('#paginationBottom .go-page').click()
+                        await page.locator('#paginationBottom .page-input').press('Enter')
                     expected = [str(bundle['novels'][i][0]) for i in bundle['profiles'][sort][(number-1)*30:number*30]]
                     assert await page.locator('.novel-card').evaluate_all('cs=>cs.map(c=>c.dataset.novelId)') == expected
                 await page.select_option('#sortSelect','daily' if sort!='daily' else 'weekly')
@@ -204,7 +204,7 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
             assert await page.evaluate('cardMutations===0&&lockedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])')
             assert await page.locator('.novel-card').count()==30
             await page.locator('#paginationBottom .page-input').fill('11')
-            await page.locator('#paginationBottom .go-page').click()
+            await page.locator('#paginationBottom .page-input').press('Enter')
             await page.wait_for_function("document.querySelectorAll('.novel-card').length===30")
             # Warm each source, then monitor the existing status during returns.
             for source in ['sfc','nweb','all']:
@@ -246,7 +246,7 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
                 for number in (1,2,3):
                     if number>1:
                         await page.locator('#paginationBottom .page-input').fill(str(number))
-                        await page.locator('#paginationBottom .go-page').click()
+                        await page.locator('#paginationBottom .page-input').press('Enter')
                     shown.extend(await page.locator('.novel-card').evaluate_all("cs=>cs.map(c=>c.dataset.source+':'+c.dataset.novelId)"))
                 await page.evaluate('''window.lockedCards=[...document.querySelectorAll('.novel-card')];window.changes=0;
                     new MutationObserver(()=>changes++).observe(document.querySelector('#results'),{childList:true})''')
@@ -302,14 +302,14 @@ def test_combined_ranking_continues_by_likes_after_top_100_and_page_sizes_are_or
             assert await page.locator('#batchSelect option').evaluate_all('opts=>opts.map(o=>o.value)')==['30','60','90','120','250']
             # Page four at the default size crosses the actual rank boundary.
             await page.locator('#paginationBottom .page-input').fill('4')
-            await page.locator('#paginationBottom .go-page').click()
+            await page.locator('#paginationBottom .page-input').press('Enter')
             await page.wait_for_function("document.querySelector('#resultCount').textContent.includes('page 4 of')")
             ids=await page.locator('.novel-card').evaluate_all("cs=>cs.map(c=>c.dataset.source+':'+c.dataset.novelId)")
             assert ids==[f'{s}:{item[0]}' for s,item in expected[90:120]]
             assert ids[:10]==[f'npia:{i}' for i in range(91,101)]
             await page.select_option('#batchSelect','90')
             await page.locator('#paginationBottom .page-input').fill('2')
-            await page.locator('#paginationBottom .go-page').click()
+            await page.locator('#paginationBottom .page-input').press('Enter')
             await page.wait_for_function("document.querySelector('#resultCount').textContent.includes('page 2 of')")
             shown=await page.locator('.novel-card').evaluate_all("cs=>cs.map(c=>c.dataset.source+':'+c.dataset.novelId)")
             assert shown==[f'{s}:{item[0]}' for s,item in expected[90:180]]

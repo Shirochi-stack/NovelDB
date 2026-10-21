@@ -6097,6 +6097,7 @@
     }
 
     function applyFilters(options = {}) {
+        window.NovelControlPicker?.sync();
         if (diskCatalog) {
             if (options.resetPage !== false) { currentPage = 1; catalogRequestedPage = null; }
             diskFocus = null;
@@ -6571,13 +6572,11 @@
             const paginationSignature = JSON.stringify([currentPage, pages]);
             if (numsEl.dataset.signature === paginationSignature) continue;
             numsEl.dataset.signature = paginationSignature;
-            numsEl.innerHTML = "";
+            const jump = bar.querySelector(".page-jump");
+            numsEl.replaceChildren();
             for (const p of pages) {
-                if (p === "...") {
-                    const span = document.createElement("span");
-                    span.className = "page-ellipsis";
-                    span.textContent = "...";
-                    numsEl.appendChild(span);
+                if (p === "jump") {
+                    numsEl.appendChild(jump);
                 } else {
                     const btn = document.createElement("button");
                     btn.className = "page-btn" + (p === currentPage ? " active" : "");
@@ -6598,18 +6597,19 @@
     }
 
     function buildPageRange(current, total) {
-        // Keep one neighbor on each side on phones; desktop keeps two.
-        const delta = compactPagination.matches ? 1 : 2;
-        const pages = [];
-        const rangeStart = Math.max(2, compactPagination.matches && current >= total - 1 ? total - 2 : current - delta);
-        const rangeEnd = Math.min(total - 1, compactPagination.matches && current <= 2 ? 3 : current + delta);
-
-        pages.push(1);
-        if (rangeStart > 2) pages.push("...");
-        for (let i = rangeStart; i <= rangeEnd; i++) pages.push(i);
-        if (rangeEnd < total - 1) pages.push("...");
-        if (total > 1) pages.push(total);
-
+        let pages;
+        if (compactPagination.matches) {
+            pages = total <= 4 ? Array.from({length: total}, (_, i) => i + 1)
+                : current <= 2 ? [1, 2, 3, total]
+                : current >= total - 1 ? [1, total - 2, total - 1, total]
+                : [1, current - 1, current, total];
+        } else {
+            pages = [1];
+            for (let i = Math.max(2, current - 2); i <= Math.min(total - 1, current + 2); i++) pages.push(i);
+            if (total > 1) pages.push(total);
+        }
+        // One persistent jump input occupies the gap before the last page.
+        pages.splice(Math.max(1, pages.length - 1), 0, "jump");
         return pages;
     }
 
@@ -6618,13 +6618,31 @@
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
+    // Settings are separate from the catalog so opening them leaves cards intact.
+    const settingsDialog = document.getElementById("siteSettingsDialog");
+    const settingsButton = document.getElementById("settingsButton");
+    settingsButton.addEventListener("click", () => {
+        settingsDialog.showModal();
+        settingsButton.setAttribute("aria-expanded", "true");
+    });
+    document.getElementById("closeSettings").addEventListener("click", () => settingsDialog.close());
+    settingsDialog.addEventListener("click", event => {
+        if (event.target !== settingsDialog) return;
+        const rect = settingsDialog.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) settingsDialog.close();
+    });
+    settingsDialog.addEventListener("close", () => {
+        settingsButton.setAttribute("aria-expanded", "false");
+        settingsButton.focus({preventScroll: true});
+    });
+
     // === Tag section toggle ===
     function setupToggle(headerId, containerId, searchInputEl) {
         const header = document.getElementById(headerId);
         const container = document.getElementById(containerId);
         header.addEventListener("click", (e) => {
             // Don't toggle when clicking buttons or inputs inside the header
-            if (e.target.closest("button") || e.target.closest("input")) return;
+            if ((e.target.closest("button") && e.target.closest("button") !== header) || e.target.closest("input")) return;
             const collapsed = container.classList.toggle("collapsed");
             // Also toggle the search input visibility
             if (searchInputEl) {
@@ -6634,8 +6652,9 @@
                     searchInputEl.classList.remove("collapsed");
                 }
             }
-            const label = header.querySelector("span");
-            label.textContent = label.textContent.replace(/^[▶▼]/, collapsed ? "▶" : "▼");
+            header.setAttribute("aria-expanded", String(!collapsed));
+            document.getElementById(header.getAttribute("aria-controls")).hidden = collapsed;
+            header.querySelector(".tag-disclosure").textContent = collapsed ? "▸" : "▾";
         });
     }
     setupToggle("tagToggle", "tagContainer", tagSearchInput);
@@ -6727,12 +6746,11 @@
             }
         });
 
-        const goBtn = bar.querySelector(".go-page");
         const pageInput = bar.querySelector(".page-input");
         function jumpToPage() {
             const totalPages = Math.max(1, Math.ceil((diskCatalog ? diskTotal : filtered.length) / BATCH));
-            const val = parseInt(pageInput.value);
-            if (val >= 1 && val <= totalPages) {
+            const val = Number(pageInput.value);
+            if (Number.isInteger(val) && val >= 1 && val <= totalPages) {
                 currentPage = val;
                 if (activeCatalogController) catalogRequestedPage = currentPage;
                 render();
@@ -6741,9 +6759,8 @@
             }
             pageInput.value = "";
         }
-        goBtn.addEventListener("click", jumpToPage);
         pageInput.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") jumpToPage();
+            if (e.key === "Enter") { e.preventDefault(); jumpToPage(); }
         });
     }
 
@@ -6751,12 +6768,16 @@
         tagMode = "AND";
         tagModeAnd.classList.add("active");
         tagModeOr.classList.remove("active");
+        tagModeAnd.setAttribute("aria-pressed", "true");
+        tagModeOr.setAttribute("aria-pressed", "false");
     });
 
     tagModeOr.addEventListener("click", () => {
         tagMode = "OR";
         tagModeOr.classList.add("active");
         tagModeAnd.classList.remove("active");
+        tagModeAnd.setAttribute("aria-pressed", "false");
+        tagModeOr.setAttribute("aria-pressed", "true");
     });
 
     clearTagsBtn.addEventListener("click", () => {
@@ -7312,6 +7333,7 @@
         const effectiveOption = Array.from(sortSelect.options).find(option => option.value === effective);
         sortSelect.title = effective !== selected ? `Uses ${effectiveOption?.textContent.replace(/ \(.*$/, "") || effective} for this source` : "";
         sortedKey = null;
+        window.NovelControlPicker?.sync();
     }
 
     async function ensureSourceConfig(source) {
@@ -7965,6 +7987,7 @@
 
     // === State persistence via URL hash ===
     function saveState() {
+        window.NovelControlPicker?.sync();
         const state = {};
         if (activeAuthorFilter) state.author = activeAuthorFilter;
         else if (searchInput.value) state.q = searchInput.value;
@@ -8014,7 +8037,11 @@
         setBatch(params.batch || "30");
         currentPage = Math.max(1, parseInt(params.page, 10) || 1);
         if (activeCatalogController) catalogRequestedPage = currentPage;
-        if (params.tmode) tagMode = params.tmode;
+        tagMode = params.tmode === "OR" ? "OR" : "AND";
+        tagModeAnd.classList.toggle("active", tagMode === "AND");
+        tagModeOr.classList.toggle("active", tagMode === "OR");
+        tagModeAnd.setAttribute("aria-pressed", String(tagMode === "AND"));
+        tagModeOr.setAttribute("aria-pressed", String(tagMode === "OR"));
 
         // Restore AND tags
         andTags.clear();

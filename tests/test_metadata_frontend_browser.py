@@ -286,6 +286,16 @@ class FixtureSite:
         await route.fulfill(body=gzip.compress(json.dumps(payload, ensure_ascii=False).encode()), content_type="application/gzip")
 
 
+async def open_settings(page):
+    if not await page.locator('#siteSettingsDialog').evaluate('dialog=>dialog.open'):
+        await page.get_by_role('button', name='Settings', exact=True).click()
+
+
+async def close_settings(page):
+    if await page.locator('#siteSettingsDialog').evaluate('dialog=>dialog.open'):
+        await page.get_by_role('button', name='Close Settings', exact=True).click()
+
+
 async def wait_loaded(page):
     await page.wait_for_function("document.body.dataset.catalogReady==='true' && !document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
 
@@ -757,7 +767,7 @@ def test_progressive_updates_reuse_cards_and_loaded_cover_nodes():
             assert await page.evaluate("savedImage === savedCard.querySelector('img.card-cover')")
             assert await page.evaluate("imageSources.every(value => !!value)")
             assert await page.locator('#sortSelect').evaluate("el => el.getBoundingClientRect().width") <= 250
-            assert await page.locator('#sortSelect').evaluate("el => el.closest('.control-group').nextElementSibling.querySelector('select').id") == 'audienceSelect'
+            assert await page.locator('#sortSelect').evaluate("el => document.querySelector('.source-control').nextElementSibling.querySelector('select').id") == 'statusSelect'
             await browser.close()
     asyncio.run(scenario())
 
@@ -955,7 +965,7 @@ def test_source_menu_icons_keyboard_history_and_site_icon():
             assert await menu.get_by_role('option',name='Jara',exact=True).is_disabled()
             await menu.get_by_role('option',name='Nweb',exact=True).click()
             await wait_loaded(page)
-            assert await button.inner_text() == 'Nweb'
+            assert await button.inner_text() == 'NW'
             assert await page.locator('#sourceSelect').input_value() == 'nweb'
             await button.focus()
             await page.keyboard.press('ArrowDown')
@@ -963,10 +973,10 @@ def test_source_menu_icons_keyboard_history_and_site_icon():
             await page.keyboard.press('ArrowDown')
             await page.keyboard.press('Enter')
             await wait_loaded(page)
-            assert await button.inner_text() == 'Npia'
+            assert await button.inner_text() == 'NP'
             assert 'src=' not in page.url
             await page.go_back()
-            await page.wait_for_function('document.querySelector("#sourcePickerButton").textContent==="Nweb"')
+            await page.wait_for_function('document.querySelector("#sourcePickerButton").textContent==="NW"')
             await button.click()
             await page.keyboard.press('Escape')
             assert await button.get_attribute('aria-expanded') == 'false'
@@ -1065,10 +1075,14 @@ def test_description_preference_prevents_requests_and_persists():
             assert not await page.locator('#loadDescriptions').is_checked()
             assert not any('descriptions_shard_' in url for url in site.requests)
             assert await page.locator('.card-synopsis:visible').count() == 0
+            await open_settings(page)
             await page.check('#loadDescriptions')
+            await close_settings(page)
             await page.wait_for_selector('.card-synopsis[aria-busy="false"]')
             assert any('descriptions_shard_' in url for url in site.requests)
+            await open_settings(page)
             await page.uncheck('#loadDescriptions')
+            await close_settings(page)
             assert await page.evaluate("localStorage.getItem('noveldb.loadDescriptions')") == 'false'
             site.requests.clear()
             await page.reload()
@@ -1088,10 +1102,14 @@ def test_disabling_descriptions_ignores_delayed_shard_responses():
             await page.route("**/*", site.route)
             await page.goto("http://metadata.test/#src=nweb")
             await page.wait_for_selector('.novel-card')
+            await open_settings(page)
             await page.uncheck('#loadDescriptions')
+            await close_settings(page)
             await page.wait_for_timeout(600)
             assert await page.locator('.card-synopsis').count() == 0
+            await open_settings(page)
             await page.check('#loadDescriptions')
+            await close_settings(page)
             await page.wait_for_selector('.card-synopsis[aria-busy="false"]')
             await browser.close()
     asyncio.run(scenario())
@@ -1303,12 +1321,16 @@ def test_nweb_novels_without_synopsis_stay_visible(monkeypatch):
             missing = page.locator('.novel-card[data-source="nweb"][data-novel-id="7"]')
             # Shown whether or not descriptions are loaded.
             await missing.wait_for()
+            await open_settings(page)
             await page.uncheck('#loadDescriptions')
+            await close_settings(page)
             await missing.wait_for()
             await page.reload()
             await wait_loaded(page)
             await missing.wait_for()
+            await open_settings(page)
             await page.check('#loadDescriptions')
+            await close_settings(page)
             await missing.wait_for()
             assert await page.locator('.novel-card').count() > 0
             await browser.close()
