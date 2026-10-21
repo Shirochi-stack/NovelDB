@@ -56,6 +56,56 @@ def test_source_logo_is_the_only_transparent_badge_and_opens_details_for_each_so
     asyncio.run(scenario())
 
 
+def test_details_translate_tags_in_both_render_phases_without_changing_filter_values():
+    async def scenario():
+        raw_tags=['판타지','퓨전펑크','추가검증태그','미등록검증태그']
+        labels=['Fantasy','Fusion Punk','Extra translated tag','미등록검증태그']
+        site=FixtureSite()
+        async def route(r):
+            name=urlsplit(r.request.url).path.rsplit('/',1)[-1]
+            if name=='tags_en.txt.gz':
+                await r.fulfill(body=gzip.compress('퓨전펑크|||Fusion Punk\n'.encode()),content_type='application/gzip')
+            elif name=='tags_extra.json.gz':
+                await r.fulfill(body=gzip.compress(json.dumps({'추가검증태그':'Extra translated tag'}).encode()),content_type='application/gzip')
+            elif '_chunk_' in name and name.endswith('.json.gz'):
+                source=name.split('_')[0]
+                novel=row(source);novel[4]=raw_tags.copy()
+                await r.fulfill(body=gzip.compress(json.dumps({'novels':[novel]}).encode()),content_type='application/gzip')
+            else:
+                await site.route(r)
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
+            await page.route('**/*',route)
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            await page.evaluate('''()=>{
+                const original=window.NovelDetailsData;
+                window.NovelDetailsData=async(...args)=>{
+                    const record=await original(...args);
+                    await new Promise(resolve=>window.finishDetails=resolve);
+                    record.synopsis='Completed details synopsis';
+                    return record;
+                };
+            }''')
+            for source in SOURCES:
+                if source!='npia':
+                    await page.select_option('#sourceSelect',source);await wait_loaded(page)
+                card=page.locator('.novel-card').first
+                assert await card.locator('.card-tag').all_text_contents()==labels
+                await card.locator('.cover-details').click()
+                dialog=page.get_by_role('dialog');await dialog.wait_for()
+                assert await dialog.locator('[data-field=tags]').inner_text()==', '.join(labels)
+                await page.wait_for_function('typeof window.finishDetails==="function"')
+                await page.evaluate('finishDetails();delete window.finishDetails')
+                await page.wait_for_function('document.querySelector("[data-field=synopsis]")?.textContent==="Completed details synopsis"')
+                assert await dialog.locator('[data-field=tags]').inner_text()==', '.join(labels)
+                assert await card.evaluate('card=>card._record.tags')==raw_tags
+                await page.get_by_role('button',name='Close Details').click()
+                assert await card.locator('.card-tag').evaluate_all('tags=>tags.map(tag=>tag.dataset.tag)')==raw_tags
+            await browser.close()
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize('fmt,context_menu',[('PNG',False),('JPEG',True),('WEBP',False),('GIF',True),('AVIF',False)])
 def test_original_download_keeps_original_dimensions_and_pixels_while_display_is_small_webp(tmp_path,fmt,context_menu):
     async def scenario():
