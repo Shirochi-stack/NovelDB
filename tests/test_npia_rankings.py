@@ -46,7 +46,7 @@ def test_empty_or_failed_public_html_uses_bounded_native_list_request(status):
 def test_partial_response_is_not_published_as_a_complete_top100():
     session = Session('<div id="top100_page">'+board_html(range(1, 4))+'</div>', board_html(range(1, 5)))
     with pytest.raises(RuntimeError, match='Public ranking unavailable.*ranked=3/100.*ranked=4/100'):
-        ranks.scrape_ranking(session, 'today', 'all/plus')
+        ranks.scrape_ranking(session, 'today', 'all/plus', retries=1)
     assert len(session.calls) == 2
 
 
@@ -75,3 +75,38 @@ def test_unranked_rows_are_cleared_only_for_successful_boards():
     ranks.patch_ranks(novel, {('all/plus', 'today'): {'123': 1}})
     assert novel[13] == 0
     assert novel[10] == novel[12] == novel[14] == 8
+
+
+def test_temporarily_unavailable_board_retries_html_and_native_list_then_recovers(monkeypatch):
+    class Recovering(Session):
+        def get(self, url, **kwargs):
+            if len(self.calls) >= 2:
+                self.html = '<div id="top100_page">'+board_html()+'</div>'
+            return super().get(url, **kwargs)
+    session = Recovering()
+    waits, logs = [], []
+    monkeypatch.setattr(ranks.random, 'uniform', lambda a, b: 1.5)
+    result = ranks.scrape_ranking(session, 'month', 'all/plus', sleep=waits.append, log=logs.append)
+    assert len(result) == 100
+    assert [method for method, *_ in session.calls] == ['get', 'post', 'get']
+    assert waits == [1.5] and 'attempt 1/4 failed' in logs[0]
+
+
+def test_permanently_unavailable_board_uses_four_attempts_and_preserves_old_ranks():
+    session = Session()
+    waits, logs = [], []
+    with pytest.raises(RuntimeError, match='Public ranking unavailable'):
+        ranks.scrape_ranking(session, 'month', 'all/plus', sleep=waits.append, log=logs.append)
+    assert len(session.calls) == 8
+    assert len(waits) == 3 and all(1 <= delay <= 2 for delay in waits)
+    assert len(logs) == 4 and 'attempt 4/4 failed' in logs[-1]
+    old = [123] + [0]*9 + [8]*10
+    ranks.patch_ranks(old, {('all/plus', 'month'): {}})
+    assert old[12] == 8
+
+
+def test_adult_boards_never_make_requests_or_sleep():
+    session = Session()
+    assert ranks.scrape_ranking(session, 'weekly', 'adult/plus',
+                               sleep=lambda _: pytest.fail('No adult retries')) == {}
+    assert session.calls == []

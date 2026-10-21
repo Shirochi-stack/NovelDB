@@ -34,7 +34,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
-from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
+from npia_search_http import PartialSearchError, paginated_search, get_json_with_retry as _search_json
 from npia_author_catalog import author_id, parallel_author_pages
 from npia_intro_discovery import discover as discover_intro
 import npia_author_registry as author_registry
@@ -132,35 +132,13 @@ def get_json_with_retry(session, params, retries, timeout=120):
 
 
 def search_novels(session, search_val, retries, search_type="all"):
-    """Search Npia API for novels matching a search term."""
-    items = []
-    ROWS = 15000
-    # Split the former 30,000-row pages in half to avoid server memory exhaustion.
-    # Forty pages retain the previous 600,000-result search ceiling.
-    for pg in range(1, 41):
-        try:
-            data = get_json_with_retry(session, {
-                "cmd": "novel_search",
-                "search_type": search_type,
-                "search_val": search_val,
-                "page": pg,
-                "rows": ROWS,
-                "novel_type": "",
-                "sort_col": "last_viewdate",
-                "block_out": 0,
-                "block_stop": 0,
-                "is_contest": 0,
-                "is_challenge": 0,
-            }, retries)
-        except Exception as exc:
-            raise PartialSearchError(items, pg, exc) from exc
-        if not data:
-            break
-        batch = data.get("list", [])
-        items.extend(batch)
-        if len(batch) < ROWS:
-            break
-    return items
+    """Read small search pages, recovering source memory failures by result offset."""
+    params = {
+        "cmd": "novel_search", "search_type": search_type, "search_val": search_val,
+        "novel_type": "", "sort_col": "last_viewdate", "block_out": 0,
+        "block_stop": 0, "is_contest": 0, "is_challenge": 0,
+    }
+    return paginated_search(lambda query: get_json_with_retry(session, query, retries), params)
 
 
 def fetch_terms(label, terms, workers, retries, delay):
