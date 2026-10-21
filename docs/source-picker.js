@@ -33,9 +33,9 @@
             } else {
                 symbol.className='picker-symbol';symbol.hidden=false;
                 if(kind==='audience'){
-                    symbol.className='picker-symbol audience-badge '+value;
-                    symbol.textContent={general:'G',r15:'15+',adult:'19+'}[value]||'';
-                    symbol.hidden=value==='all';text.textContent=value==='all'?'All':'';
+                    symbol.className='picker-symbol'+(value==='all'?'':' audience-badge '+value);
+                    symbol.textContent={all:'👥',general:'G',r15:'15+',adult:'19+'}[value]||'';
+                    text.textContent=value==='all'?'All':'';
                 } else if(kind==='status'){
                     symbol.textContent='●';symbol.classList.add('status-symbol');text.textContent={all:'ALL',ongoing:'ON',complete:'DONE'}[value];
                 } else if(kind==='order'){symbol.textContent=value==='asc'?'↑':'↓';text.textContent=value==='asc'?'ASC':'DESC';}
@@ -49,7 +49,7 @@
                 if(!item){
                     item=document.createElement('button');item.type='button';item.className='source-picker-option';item.tabIndex=-1;item.setAttribute('role','option');
                     if(source){const img=document.createElement('img');img.src=icons[option.value]||icons.all;img.alt='';img.width=img.height=20;item.append(img);item.dataset.source=option.value;}
-                    if(kind==='audience'&&option.value!=='all'){const badge=document.createElement('span');badge.className='audience-badge '+option.value;badge.setAttribute('aria-hidden','true');badge.textContent={general:'G',r15:'15+',adult:'19+'}[option.value];item.append(badge);}
+                    if(kind==='audience'){const badge=document.createElement('span');badge.className=option.value==='all'?'picker-symbol':'audience-badge '+option.value;badge.setAttribute('aria-hidden','true');badge.textContent={all:'👥',general:'G',r15:'15+',adult:'19+'}[option.value];item.append(badge);}
                     const name=document.createElement('span');item.append(name);items.set(option.value,item);menu.append(item);
                     item.addEventListener('click',()=>{if(option.disabled)return;select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));close(true);});
                 }
