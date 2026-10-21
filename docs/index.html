@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=36">
+    <link rel="stylesheet" href="style.css?v=37">
 </head>
 
 <body>
@@ -112,6 +112,7 @@
                 </div>
             </div>
 
+            <div id="settingsInline"></div>
             <div class="tag-toolbar">
                 <button type="button" class="tag-toggle" id="tagToggle" aria-controls="includeTagsPanel" aria-expanded="false"><span>＋ Tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
                 <button type="button" class="tag-toggle exclude-toggle" id="excludeToggle" aria-controls="excludeTagsPanel" aria-expanded="false"><span>− Tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
@@ -124,7 +125,7 @@
             <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
             <div class="tag-section tag-panel" id="includeTagsPanel" hidden>
                 <div class="tag-header">
-                    <span>Include tags</span>
+                    <span class="mobile-panel-label">Include tags</span>
                     <button id="clearTags" class="clear-btn">Clear</button>
                 </div>
                 <input type="text" id="tagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
@@ -133,7 +134,7 @@
 
             <div class="tag-section tag-panel exclude-section" id="excludeTagsPanel" hidden>
                 <div class="tag-header">
-                    <span>Exclude tags</span>
+                    <span class="mobile-panel-label">Exclude tags</span>
                     <button id="clearExclude" class="clear-btn">Clear</button>
                 </div>
                 <input type="text" id="excludeTagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
@@ -188,7 +189,7 @@
     <script src="cover-loader.js?v=8"></script>
     <script src="cover-save.js?v=8"></script>
     <script src="site-tools.js?v=6"></script>
-    <script src="app.js?v=62"></script>
+    <script src="app.js?v=63"></script>
 </body>
 
 </html>

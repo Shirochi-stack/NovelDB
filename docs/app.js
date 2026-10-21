@@ -6633,8 +6633,46 @@
     });
     settingsDialog.addEventListener("close", () => {
         settingsButton.setAttribute("aria-expanded", "false");
-        settingsButton.focus({preventScroll: true});
+        if (compactPagination.matches) settingsButton.focus({preventScroll: true});
     });
+
+    // Move the same controls between desktop and mobile without resetting values.
+    const settingsContent = settingsDialog.querySelector(".site-settings");
+    const tagToolbar = document.querySelector(".tag-toolbar");
+    const tagModeControls = tagToolbar.querySelector(".tag-mode");
+    const responsiveTags = [
+        ["tagToggle", "includeTagsPanel", "tagContainer", "activeTagsSummary", "Filter by tags", "＋ Tags"],
+        ["excludeToggle", "excludeTagsPanel", "excludeTagContainer", "activeExcludeTagsSummary", "Exclude tags", "− Tags"]
+    ];
+    function updateControlsLayout() {
+        const mobile = compactPagination.matches;
+        if (!mobile && settingsDialog.open) settingsDialog.close();
+        if (mobile) tagToolbar.appendChild(tagModeControls);
+        (mobile ? settingsDialog : document.getElementById("settingsInline")).appendChild(settingsContent);
+        for (const [toggleId, panelId, containerId, summaryId, desktopLabel, mobileLabel] of responsiveTags) {
+            const toggle = document.getElementById(toggleId);
+            const panel = document.getElementById(panelId);
+            const header = panel.querySelector(".tag-header");
+            const summary = document.getElementById(summaryId);
+            toggle.querySelector("span").textContent = mobile ? mobileLabel : desktopLabel;
+            if (mobile) {
+                tagToolbar.insertBefore(toggle, tagModeControls);
+                tagToolbar.after(summary);
+            } else {
+                header.prepend(toggle);
+                header.after(summary);
+            }
+            panel.hidden = mobile && document.getElementById(containerId).classList.contains("collapsed");
+        }
+        if (mobile) {
+            tagToolbar.appendChild(tagModeControls);
+            document.getElementById("activeTagsSummary").after(document.getElementById("activeExcludeTagsSummary"));
+        } else {
+            document.getElementById("tagToggle").after(tagModeControls);
+        }
+    }
+    compactPagination.addEventListener("change", updateControlsLayout);
+    updateControlsLayout();
 
     // === Tag section toggle ===
     function setupToggle(headerId, containerId, searchInputEl) {
@@ -6653,7 +6691,7 @@
                 }
             }
             header.setAttribute("aria-expanded", String(!collapsed));
-            document.getElementById(header.getAttribute("aria-controls")).hidden = collapsed;
+            document.getElementById(header.getAttribute("aria-controls")).hidden = compactPagination.matches && collapsed;
             header.querySelector(".tag-disclosure").textContent = collapsed ? "▸" : "▾";
         });
     }

@@ -1297,3 +1297,16 @@ button.synopsis-status {
     .pagination, .pagination .page-numbers { gap: 3px; }
     .pagination .page-btn { padding-inline: .3rem; }
 }
+
+/* Desktop keeps the full inline controls and separate tag sections. */
+@media (min-width: 651px) {
+    .settings-control, .tag-toolbar, .mobile-panel-label { display: none; }
+    .tag-section { margin-top: 1.25rem; padding-top: 1.25rem; }
+    .tag-header { margin-bottom: .75rem; }
+    .tag-header .tag-toggle { justify-content: flex-start; gap: .4rem; padding: 0; min-height: 0; background: transparent; border: 0; border-radius: 0; font-size: .85rem; }
+    .tag-header .tag-disclosure { order: -1; }
+    .status-bar { margin-top: 1rem; }
+}
+@media (max-width: 650px) {
+    #settingsInline { display: none; }
+}
