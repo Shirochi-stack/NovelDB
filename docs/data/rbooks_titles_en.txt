@@ -828,6 +828,7 @@
 1190022255|||격랑의 바다|||Sea of Turmoil
 1190022723|||이것이 국가다!|||This Is a Nation!
 1190023552|||퓨전삼국지 천하를 화평하게 하라!|||Fusion Romance of the Three Kingdoms: Bring Peace to the Realm!
+1190024308|||의원님이 보우하사|||By the Grace of the Councilor
 120031409|||절대검귀|||Absolute Sword Demon
 120031633|||원스 어폰 어 타임 인 무림|||Once Upon a Time in the Martial World
 120035477|||천강기협전|||Chronicle of the Heavenly Gang Hero
@@ -3523,6 +3524,7 @@
 1811279596|||도왕협제|||The Blade King and the Martial Emperor
 1811280108|||꼴찌 고교야구부의 감독이 되었다|||I Became the Coach of the Worst High School Baseball Team
 1811280251|||발해가 몽골제국 포지션을 먹음|||Balhae Takes the Mongol Empire’s Place
+1811280835|||하데스의 시한부 아내|||Hades' Terminally Ill Wife
 1818003815|||첫사랑 코디네이터|||First Love Coordinator
 1818003937|||잠자는 꿈속의 배우님|||The Actor Sleeping in a Dream
 1818004219|||힘센 로맨스|||Strong Romance
@@ -18232,6 +18234,7 @@
 5453000924|||아가씨는 그 개가 갖고 싶다(15세 개정판)|||The Young Lady Wants That Dog (Age-Rated Edition)
 5454000001|||그 아카데미의 근무 수칙|||The Work Rules of That Academy
 5454000002|||그 아카데미의 근무 수칙(15세 개정판)|||The Work Rules of That Academy (15+ Revised Edition)
+5456000013|||설계자의 마스터피스|||The Architect's Masterpiece
 5468000001|||무협 소설에 빙의하면 마감 안 해도 되나요|||If I Possess a Murim Novel, Do I Not Have to Meet Deadlines?
 5468000002|||무협 소설에 빙의하면 마감 안 해도 되나요(15세 개정판)|||If I Possess a Murim Novel, Do I Not Have to Meet Deadlines? (15+ Revised Edition)
 5473000001|||모래 위에 누운 밤|||The Night Lying on Sand
@@ -18668,6 +18671,7 @@
 5958042283|||미국 씹어먹는 야구 천재|||The Baseball Genius Who Dominates America
 5958043483|||역대급 좋소기업 성공기|||The Greatest Small Business Success Story
 5958043984|||흑도전생|||Reborn on the Black Path
+5958044145|||무신으로 살아남기|||Surviving as the War God
 5959000001|||정치의 일기장|||The Political Diary
 5959000209|||40살까지 못 해본 남자|||The Man Who Has Never Done It by Forty
 5959000259|||회장님의 핵몽둥이|||The Chairman's Nuclear Club
@@ -20059,6 +20063,7 @@
 777189687|||낙양진가 막내아들|||The Youngest Son of the Luoyang Jin Family
 777190192|||창천무제|||Azure Heaven Martial Emperor
 777191855|||은퇴한 헌터가 드래곤 하트를 얻음|||A Retired Hunter Gets a Dragon Heart
+777192049|||퇴근 후 소소하게 힐링함|||Quietly Healing After Work
 777192531|||천재 통역사가 되었다|||I Became a Genius Interpreter
 793002786|||머신|||Machine
 793002996|||푸른 늑대|||Blue Wolf
@@ -21304,11 +21309,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-1190024308|||의원님이 보우하사|||
-1811280835|||하데스의 시한부 아내|||
 425606091|||1903|||
 425629250|||1973|||
-5456000013|||설계자의 마스터피스|||
-5958044145|||무신으로 살아남기|||
-777192049|||퇴근 후 소소하게 힐링함|||
 945008054|||40,41|||
