@@ -298,10 +298,17 @@ def main():
     parser.add_argument("--author-pages", type=int, default=0,
                         help="Optional diagnostic request limit; 0 checks every known author (default)")
     parser.add_argument("--author-delay", type=float, default=2.0)
+    parser.add_argument('--author-delay-max', type=float, default=None)
+    parser.add_argument('--author-workers', type=int, default=4)
+    parser.add_argument('--author-retries', type=int, default=4)
     parser.add_argument("--intro-requests", type=int, default=6)
     args = parser.parse_args()
     if min(args.author_pages, args.author_delay, args.intro_requests) < 0:
         parser.error("Author request budgets and delay must be nonnegative")
+    if args.author_workers < 1 or args.author_retries < 1:
+        parser.error('Author workers and attempts must be positive')
+    if args.author_delay_max is not None and args.author_delay_max < args.author_delay:
+        parser.error('Maximum author delay must be at least the minimum delay')
 
     auth = NpiaAuth()
     with open('config.json', 'r') as f:
@@ -352,7 +359,9 @@ def main():
     enrich_author_catalogs(auth.session, novels_by_id, previous_full, public_state,
                           page_limit=args.author_pages, delay=args.author_delay,
                           existing=load_json_file("docs/data/novels.json", []), registry=registry,
-                          priority_authors=sorted(intro_authors, key=int), page_size=100, resume=False)
+                          priority_authors=sorted(intro_authors, key=int), page_size=100, resume=False,
+                          workers=args.author_workers, delay_max=args.author_delay_max,
+                          retries=args.author_retries)
     author_registry.report_coverage(registry, search_ids)
     novels = list(novels_by_id.values())
 

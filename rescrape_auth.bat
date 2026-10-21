@@ -12,7 +12,7 @@ echo.
 cd /d "%~dp0"
 
 echo [1/8] Scraping Npia (authenticated)...
-python scripts/scrape_npia.py --author-delay 2 --intro-requests 6
+python scripts/scrape_npia.py --author-workers 4 --author-delay 2 --author-delay-max 4 --author-retries 4 --intro-requests 6
 if errorlevel 1 goto :error
 echo.
 

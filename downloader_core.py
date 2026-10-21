@@ -8,7 +8,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
-from npia_author_catalog import author_id, iter_author_pages, matches_age
+from npia_author_catalog import author_id, iter_author_pages, parallel_author_pages, matches_age
 from npia_intro_discovery import discover as discover_intro
 
 from npia_search_terms import (
@@ -1211,24 +1211,23 @@ img { max-width: 100%; height: auto; }
                 authors.add(owner)
             if matches_age(novel, age_filter):
                 ids.add(str(novel["novel_no"]))
-        self.log(f"Checking {len(authors)} public author catalogs...")
-        for index, owner in enumerate(sorted(authors, key=int), 1):
-            if self.stop_signal:
-                break
-            before = len(ids)
-            try:
-                for page, novels, more in iter_author_pages(
-                        self.auth.session, owner, delay=max(2.0, delay),
-                        stopped=lambda: self.stop_signal):
-                    for novel in novels:
-                        if matches_age(novel, age_filter):
-                            ids.add(str(novel["novel_no"]))
-                    self.log(f"  Author {index}/{len(authors)}, page {page}: {len(ids)} IDs total")
-                self.log(f"  Author {index}/{len(authors)}: {len(ids) - before} new IDs (total: {len(ids)})")
-            except Exception as exc:
-                self.log(f"  Author {index}/{len(authors)} PARTIAL: {len(ids) - before} new IDs retained; {exc}")
-                if "HTTP 429" in str(exc):
-                    break
+        self.log(f"Checking {len(authors)} public author catalogs with 4 workers (2-4s random delay)...")
+        completed_authors = 0
+        for owner, page, novels, more, error, attempts in parallel_author_pages(
+                self.auth.session, {owner: 1 for owner in sorted(authors, key=int)},
+                workers=4, delay=2, delay_max=4, retries=4, page_size=100,
+                stopped=lambda: self.stop_signal, log=self.log, fetch_pages=iter_author_pages):
+            if error is not None:
+                self.log(f"  Author {owner} PARTIAL: completed IDs retained; {error}")
+                continue
+            if novels is None:
+                continue
+            for novel in novels:
+                if matches_age(novel, age_filter):
+                    ids.add(str(novel["novel_no"]))
+            if not more:
+                completed_authors += 1
+            self.log(f"  Author {owner}, page {page}: {completed_authors}/{len(authors)} complete, {len(ids)} IDs total")
 
         self.log(f"  {len(ids)} novel(s) retrieved total")
         return list(ids)
