@@ -453,8 +453,10 @@ Rbooks (`rbooks`) is the fourth metadata-v1 source and seventh platform. Its fou
 
 R19 identity discovery distinguishes explicit deleted-novel and invalid-access notices
 from temporary request or parser failures. It tries another known novel in the same
-name group, preserves existing metadata, and records unavailable novel IDs in the
-tracked author registry for a seven-day cooldown. These groups remain visibly
+name group and preserves existing metadata. Catalog-tagged and explicitly confirmed
+deleted novels are excluded from identity requests until a fresh source listing shows
+them again. Other unavailable novel IDs receive a seven-day cooldown in the tracked
+author registry. Historical metadata alone cannot undo an explicit deletion. These groups remain visibly
 unresolved; they do not trigger repeated continuation jobs or imply that the author
 is unavailable. Known verified R19 author catalogs are still checked normally.
 

@@ -9,6 +9,33 @@ import time
 from npia_author_catalog import author_id
 from scripts import source_names
 
+DELETED_IDENTITY_REASON = 'site reports this novel has been deleted'
+
+
+def is_deleted(novel):
+    tags = novel.get('tags', novel.get('novel_genre', [])) or []
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except ValueError:
+            tags = [tags]
+    return isinstance(tags, (list, tuple, set)) and any(str(tag).strip().casefold() == 'deleted' for tag in tags)
+
+
+def record_live_novels(registry, novels, *, now=None):
+    """Only fresh source listings can overturn a confirmed deletion."""
+    now = time.time() if now is None else now
+    previous = registry.get('catalog_deleted_novel_ids', [])
+    deleted = set(previous)
+    for novel in novels:
+        nid = str(novel.get('id') or novel.get('novel_no') or '')
+        unavailable = registry.get('r19_identity_unavailable', {}).get(nid, {})
+        if nid.isdigit() and not is_deleted(novel) and unavailable.get('checked', 0) <= now:
+            deleted.discard(nid)
+            registry.get('r19_identity_unavailable', {}).pop(nid, None)
+    if len(deleted) != len(previous) or 'catalog_deleted_novel_ids' not in registry:
+        registry['catalog_deleted_novel_ids'] = sorted(deleted, key=int)
+
 
 def is_r19(novel):
     """Use the age field or explicit age-rating tags, never a genre inference."""
@@ -126,10 +153,24 @@ def plan_r19_requests(registry, rows, full=(), *, checked=None, now=None):
                 unresolved_groups=len(groups))
 
 
-def refresh_r19(registry, rows=(), full=(), now=None):
+def refresh_r19(registry, rows=(), full=(), now=None, *, live=()):
     """Build the persisted R19 subset locally; name matches never prove identity."""
     now = time.time() if now is None else now
     full = list(full)
+    rows = list(rows)
+    deleted = set(registry.get('catalog_deleted_novel_ids', []))
+    for novel in full:
+        nid = str(novel.get('id') or novel.get('novel_no') or '')
+        if is_deleted(novel) and nid.isdigit():
+            deleted.add(nid)
+    for row in rows:
+        if len(row) > 4:
+            if is_deleted({'tags': row[4]}):
+                deleted.add(str(row[0]))
+            else:
+                deleted.discard(str(row[0]))
+    registry['catalog_deleted_novel_ids'] = sorted(deleted, key=int)
+    record_live_novels(registry, live, now=now)
     observe(registry, full, now)
     names = {name: set(ids) for name, ids in registry.get('r19', {}).get('known_names', {}).items()}
     unnamed = set(registry.get('r19', {}).get('unnamed_novel_ids', []))
@@ -205,11 +246,13 @@ def unresolved_r19_groups(registry, failures=None):
 
 
 def identity_candidates(registry, ids, failures=None, now=None):
-    """Keep blocked novels registered, but retry explicit access notices after a week."""
+    """Exclude known deletions; only other access failures get a weekly retry."""
     now = time.time() if now is None else now
     failures = failures or {}
     unavailable = registry.get('r19_identity_unavailable', {})
-    return [nid for nid in ids if failures.get(nid, 0) < 3 and
+    deleted = set(registry.get('catalog_deleted_novel_ids', []))
+    return [nid for nid in ids if nid not in deleted and
+            unavailable.get(nid, {}).get('reason') != DELETED_IDENTITY_REASON and failures.get(nid, 0) < 3 and
             now - unavailable.get(nid, {}).get('checked', -float('inf')) >= 7 * 86400]
 
 
@@ -231,6 +274,7 @@ def seed_catalog_names(registry, rows):
 
 def record_search(registry, novels, now=None):
     novels = list(novels)
+    record_live_novels(registry, novels, now=now)
     owners = observe(registry, novels, now)
     registry["last_search"] = {
         "at": time.time() if now is None else now,
