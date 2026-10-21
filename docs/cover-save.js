@@ -176,7 +176,18 @@
                 link.target='_blank';link.rel='noopener';definition.append(link);
             } else if(key==='age') definition.textContent=value==null ? 'Not available' : adult ? '19+' : teen ? '15+' : Number(value)===0 ? 'General' : Number(value)>0 ? `${value}+` : 'Not available';
             else if(key==='complete') definition.textContent=value==null ? 'Not available' : [true,1,'1'].includes(value) ? 'Yes' : 'No';
-            else if(key==='tags' && Array.isArray(value)) definition.textContent=value.map(tag=>window.NovelTagLabel?.(tag) ?? tag).join(', ');
+            else if(key==='tags' && Array.isArray(value)) {
+                definition.className='details-tags';
+                const ordered=[...value].sort((a,b)=>Number(window.NovelTagSelected?.(b)||false)-Number(window.NovelTagSelected?.(a)||false));
+                for(const tag of ordered) {
+                    const chip=document.createElement('button');chip.type='button';chip.className='card-tag details-tag';chip.dataset.tag=tag;
+                    const selected=!!window.NovelTagSelected?.(tag);
+                    chip.classList.toggle('active',selected);chip.setAttribute('aria-pressed',String(selected));
+                    chip.textContent=window.NovelTagLabel?.(tag) ?? tag;chip.title=tag;
+                    chip.addEventListener('click',()=>{const card=detailCard;dialog.close();if(card)window.NovelTagFilter?.(card,tag);});
+                    definition.append(chip);
+                }
+            }
             else if(key==='rankings') {
                 for(const [name,rank] of rankEntries) {
                     const chip=document.createElement('span');chip.className='details-rank';
@@ -265,7 +276,7 @@
         (save.disabled ? details : save).focus({preventScroll:true});
     });
     document.addEventListener('click',event=>{
-        const button=event.target.closest?.('.cover-details');
+        const button=event.target.closest?.('.cover-details,.synopsis-details,.card-tags-more');
         if(button) {event.preventDefault();openDetails(button.closest('.novel-card'));}
     });
     save.addEventListener('click',()=>{const card=contextCard;closeMenu();download(card);});

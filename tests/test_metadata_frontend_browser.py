@@ -1222,7 +1222,7 @@ def test_catalog_diagnostics_distinguish_skipped_rows_and_escape_reported_text()
     asyncio.run(scenario())
 
 
-def test_compact_metrics_and_synopsis_fill_remaining_card_space():
+def test_noncompact_metrics_and_synopsis_fill_remaining_card_space():
     async def scenario():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
@@ -1240,6 +1240,9 @@ def test_compact_metrics_and_synopsis_fill_remaining_card_space():
                     assert icon in await stat.inner_text()
                     assert label not in await stat.inner_text()
                     assert (await stat.get_attribute('aria-label')).startswith(label + ':')
+                await open_settings(page)
+                await page.locator('#compactCards').uncheck()
+                await close_settings(page)
                 # Uneven tag counts reproduce the spare space in stretched grid cards.
                 await page.evaluate('''() => {
                     const cards = [...document.querySelectorAll('.novel-card')];
@@ -1268,7 +1271,7 @@ def test_compact_metrics_and_synopsis_fill_remaining_card_space():
     asyncio.run(scenario())
 
 
-def test_clicked_card_tags_keep_source_order_across_all_platforms(monkeypatch):
+def test_selected_card_tags_move_first_across_all_platforms(monkeypatch):
     original_row = row
     def tagged_row(*args, **kwargs):
         result = original_row(*args, **kwargs)
@@ -1290,13 +1293,15 @@ def test_clicked_card_tags_keep_source_order_across_all_platforms(monkeypatch):
                 clicked = card.locator('.card-tag[data-tag="Harem"]')
                 await clicked.click()
                 await page.wait_for_function('''source => document.querySelector(`.novel-card[data-source="${source}"][data-novel-id="7"] .card-tag[data-tag="Harem"]`)?.classList.contains('active')''', arg=source)
-                assert await tags.all_text_contents() == before, source
+                await page.wait_for_function('document.querySelector(".card-tags .card-tag")?.dataset.tag==="Harem"')
+                assert await tags.all_text_contents() == ['Harem', 'Fantasy', 'Academy'], source
                 assert await page.locator('.novel-card').count() == 18
-                # Other cards sharing the selected tag must retain their order too.
-                orders = await page.locator('.card-tags').evaluate_all('elements => elements.map(el => [...el.children].map(tag => tag.textContent))')
-                assert all(order == before for order in orders)
+                # Selected tags move first on every visible card; raw records stay unchanged.
+                orders = await page.locator('.card-tags').evaluate_all("elements => elements.map(el => [...el.querySelectorAll('.card-tag')].map(tag => tag.textContent))")
+                assert all(order == ['Harem', 'Fantasy', 'Academy'] for order in orders)
                 await clicked.click()
                 await page.wait_for_function('!document.querySelector(".card-tag.active")')
+                await page.wait_for_function('document.querySelector(".card-tags .card-tag")?.dataset.tag==="Fantasy"')
                 assert await tags.all_text_contents() == before, source
             await browser.close()
     asyncio.run(scenario())

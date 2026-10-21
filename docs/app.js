@@ -6216,6 +6216,92 @@
         }
     }
 
+    const compactCardsToggle = document.getElementById("compactCards");
+    const synopsisLinesControl = document.getElementById("synopsisLines");
+    const tagRowsControl = document.getElementById("tagRows");
+    function cardPreference(key, fallback) {
+        try { return localStorage.getItem(`noveldb.${key}`) ?? fallback; } catch (_) { return fallback; }
+    }
+    function boundedLines(value, min, max, fallback) {
+        const number = Number(value);
+        return Number.isInteger(number) && number >= min && number <= max ? number : fallback;
+    }
+    compactCardsToggle.checked = cardPreference("compactCards", "true") !== "false";
+    synopsisLinesControl.value = boundedLines(cardPreference("synopsisLines", "5"), 1, 12, 5);
+    tagRowsControl.value = boundedLines(cardPreference("tagRows", "3"), 1, 8, 3);
+    let compactCardsFrame = 0;
+    function fitCardTags(card) {
+        const tags = card.querySelector(".card-tags");
+        if (!tags || !tags.clientWidth) return;
+        const chips = [...tags.querySelectorAll(".card-tag")];
+        // Retain raw record order as the tie-breaker when a filter is cleared.
+        chips.sort((a,b) => Number(b.classList.contains("active") || b.classList.contains("active-or"))
+            - Number(a.classList.contains("active") || a.classList.contains("active-or"))
+            || Number(a.dataset.tagOrder) - Number(b.dataset.tagOrder));
+        let more = tags.querySelector(".card-tags-more");
+        if (!more) {
+            more = document.createElement("button"); more.type = "button"; more.className = "card-tags-more";
+            tags.appendChild(more);
+        }
+        for (const chip of chips) {chip.hidden = false; tags.insertBefore(chip, more);}
+        more.hidden = true;
+        if (!compactCardsToggle.checked || !chips.length) return;
+        const rows = Number(tagRowsControl.value), tops = [];
+        let visible = 0;
+        for (const chip of chips) {
+            const top = chip.getBoundingClientRect().top;
+            if (!tops.length || Math.abs(top - tops[tops.length - 1]) > 1) tops.push(top);
+            if (tops.length <= rows) visible++;
+        }
+        if (visible === chips.length) return;
+        const lastTop = tops[Math.min(rows, tops.length) - 1];
+        for (let i = visible; i < chips.length; i++) chips[i].hidden = true;
+        more.hidden = false;
+        do {
+            more.textContent = `+${chips.length - visible} tags`;
+            more.setAttribute("aria-label", `View ${chips.length - visible} more tags in Details`);
+            if (more.getBoundingClientRect().top <= lastTop + 1 || visible === 0) break;
+            chips[--visible].hidden = true;
+        } while (true);
+    }
+    function scheduleCompactCards() {
+        if (compactCardsFrame) return;
+        compactCardsFrame = requestAnimationFrame(() => {
+            compactCardsFrame = 0;
+            resultsEl.querySelectorAll(".novel-card").forEach(fitCardTags);
+        });
+    }
+    function updateCardPreferences(save = false) {
+        document.body.classList.toggle("compact-cards", compactCardsToggle.checked);
+        document.body.style.setProperty("--synopsis-lines", synopsisLinesControl.value);
+        for (const control of [synopsisLinesControl, tagRowsControl]) {
+            document.getElementById(control.id + "Value").textContent = control.value;
+            control.disabled = !compactCardsToggle.checked;
+        }
+        if (save) {
+            try {
+                for (const [key, value] of [["compactCards", compactCardsToggle.checked], ["synopsisLines", synopsisLinesControl.value], ["tagRows", tagRowsControl.value]]) localStorage.setItem(`noveldb.${key}`, String(value));
+            } catch (_) { /* Preferences still apply when storage is unavailable. */ }
+        }
+        scheduleCompactCards();
+    }
+    compactCardsToggle.addEventListener("change", () => updateCardPreferences(true));
+    for (const control of [synopsisLinesControl, tagRowsControl]) control.addEventListener("input", () => updateCardPreferences(true));
+    updateCardPreferences();
+    let compactWidth = 0;
+    const compactResize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(entries => {
+        const width = entries[0].contentRect.width;
+        if (width !== compactWidth) {compactWidth = width; scheduleCompactCards();}
+    });
+    compactResize?.observe(resultsEl);
+    window.addEventListener("resize", scheduleCompactCards);
+    document.fonts?.ready.then(scheduleCompactCards);
+    window.NovelTagSelected = tag => tagSetHasMatch(andTags, tag) || tagSetHasMatch(orTags, tag);
+    window.NovelTagFilter = (card, tag) => {
+        const chip = [...card.querySelectorAll(".card-tag")].find(chip => chip.dataset.tag === tag);
+        chip?.click();
+    };
+
     function renderCard(n, card = document.createElement("div")) {
         const previousImage = card.querySelector(".card-cover[data-src]");
         const savedSynopsis = n.synopsis || card._synopsis;
@@ -6265,10 +6351,9 @@
         const badgeHTML = completeBadge + rankBadge;
 
         // Selected tags are highlighted on every card (AND purple, OR amber)
-        // without changing their position, so a card's tag looks pressed
-        // exactly when the cloud chip or summary row shows it selected.
+        // and appear first so a selection from Details stays visible.
         const tagsHTML = n.tags
-            .map((t) => `<span class="card-tag${tagSetHasMatch(andTags, t) ? ' active' : tagSetHasMatch(orTags, t) ? ' active-or' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</span>`)
+            .map((t, index) => `<button type="button" data-tag-order="${index}" aria-pressed="${tagSetHasMatch(andTags, t) || tagSetHasMatch(orTags, t)}" class="card-tag${tagSetHasMatch(andTags, t) ? ' active' : tagSetHasMatch(orTags, t) ? ' active-or' : ''}" title="${escHtml(t)}" data-tag="${escHtml(t)}">${escHtml(tl(t))}</button>`)
             .join("");
 
         const isR15 = metadata.matchesAudience(n, "r15");
@@ -6279,7 +6364,7 @@
 
         const synopsisHTML = descriptionsEnabled ? `
                 <div class="card-synopsis" aria-busy="${!savedSynopsis}"><span class="synopsis-label">${n.metrics?.synopsis_is_preview ? "Synopsis preview:" : "Synopsis:"}</span> ${savedSynopsis
-                    ? escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')
+                    ? `<span class="synopsis-text">${escHtml(savedSynopsis).replace(n.metadataV1 ? /\r\n|\r|\n/g : /\n+/g, '<br>')}</span><button type="button" class="synopsis-details">Show full details</button>`
                     : synopsisLoadingHTML()}</div>` : "";
         if (!savedSynopsis) card.dataset.needsSynopsis = "true";
         else delete card.dataset.needsSynopsis;
@@ -6540,6 +6625,7 @@
             }
             for (const child of Array.from(resultsEl.children)) if (!wanted.has(child)) child.remove();
             observeMissingSynopses();
+            scheduleCompactCards();
 
             observeCovers();
 
@@ -7594,7 +7680,7 @@
             synopsisEl.className = "card-synopsis";
             body.appendChild(synopsisEl);
         }
-        synopsisEl.innerHTML = `<span class="synopsis-label">${card.dataset.synopsisPreview === "true" ? "Synopsis preview:" : "Synopsis:"}</span> ${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}`;
+        synopsisEl.innerHTML = `<span class="synopsis-label">${card.dataset.synopsisPreview === "true" ? "Synopsis preview:" : "Synopsis:"}</span> <span class="synopsis-text">${escHtml(synopsis).replace(isMetadata ? /\r\n|\r|\n/g : /\n+/g, "<br>")}</span><button type="button" class="synopsis-details">Show full details</button>`;
         synopsisEl.setAttribute('aria-busy','false');
         delete card.dataset.needsSynopsis;
     }
