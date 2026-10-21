@@ -104,7 +104,8 @@ jobs:
             } else if (!sweep.complete && sweep.remaining === sweep.remaining_unavailable_identities) {
               core.warning(`${sweep.remaining} author identities have only unavailable or catalog-deleted novel pages. Existing metadata is retained. Deleted novels stay excluded until a fresh listing restores them; other access notices are rechecked after seven days.`);
             } else if (!sweep.complete) {
-              core.setFailed(`Incomplete coverage: ${sweep.remaining} author catalogs or identities still failed after three passes with request retries. Progress is saved for the next full sweep.`);
+              const unavailable = sweep.remaining_unavailable_identities ?? 0;
+              core.setFailed(`Incomplete coverage: ${sweep.remaining - unavailable} author catalog or identity checks failed after three passes with request retries; ${unavailable} additional groups have only unavailable/deleted novel pages. Progress is saved for the next full sweep.`);
             }
 
       - name: Preserve author sweep recovery data
