@@ -73,15 +73,15 @@ def test_larger_batch_migration_resumes_before_old_offset_without_skipping():
     scraper = scraper_module()
     session = Session([page([novel(n) for n in range(101, 201)], 220)])
     state = {'author_pending': {'42': 8}, 'author_page_size': 20}
-    scraper.enrich_author_catalogs(session, {}, {}, state, page_limit=1, page_size=100,
+    scraper.enrich_author_catalogs(session, {"1": dict(id=1, author_id="42", age=19)}, {}, state, page_limit=1, page_size=100,
                                    delay=0, now=1_000_000)
     assert session.posts[0]['paging[curPage]'] == 2
     assert state['author_pending']['42'] == 3 and state['author_page_size'] == 100
 
 
-def test_r19_targets_precede_general_queue_and_reserve_general_exploration():
+def test_only_r19_targets_are_scheduled_under_a_request_budget():
     scraper = scraper_module()
-    authors = {str(n): {'name': f'Author {n}', 'names': [f'Author {n}'], 'novel_ids': []}
+    authors = {str(n): {'name': f'Author {n}', 'names': [f'Author {n}'], 'novel_ids': [str(n)]}
                for n in range(1, 8)}
     existing = [[n, 'Title', f'Author {n}'] + [0]*8 + [19] for n in range(2, 8)]
     calls = []
@@ -93,10 +93,10 @@ def test_r19_targets_precede_general_queue_and_reserve_general_exploration():
     scraper.enrich_author_catalogs(SimpleNamespace(post=post), {}, {}, state,
                                    registry={'authors': authors}, existing=existing,
                                    page_limit=5, page_size=100, delay=0, now=1_000_000, workers=1)
-    assert calls == ['2', '3', '4', '5', '1']
-    assert state['author_last_run']['targeted_pages'] == 4
+    assert calls == ['2', '3', '4', '5', '6']
+    assert state['author_last_run']['targeted_pages'] == 5
     assert state['author_last_run']['r19_unique'] == 5
-    assert state['author_last_run']['r19_new'] == 1
+    assert state['author_last_run']['r19_new'] == 0
 
 
 def test_cancellation_during_delay_makes_no_request():
@@ -140,7 +140,7 @@ def scraper_module():
 def test_metadata_author_checkpoint_resume_and_sparse_merge():
     scraper = scraper_module()
     session = Session([page([novel(n) for n in range(1, 21)], 21)])
-    fresh = {"1": dict(id=1, author_id="42", cover="saved-cover", updated="saved-date")}
+    fresh = {"1": dict(id=1, author_id="42", age=19, cover="saved-cover", updated="saved-date")}
     state = {}
     scraper.enrich_author_catalogs(session, fresh, {}, state, page_limit=1, delay=0, now=1_000_000)
     assert state["author_pending"] == {"42": 2}
@@ -155,7 +155,7 @@ def test_metadata_author_checkpoint_resume_and_sparse_merge():
 
 def test_metadata_failed_author_keeps_cursor_and_existing_metadata():
     scraper = scraper_module()
-    fresh = {"1": dict(id=1, author_id="42", synopsis="Saved")}
+    fresh = {"1": dict(id=1, author_id="42", age=19, synopsis="Saved")}
     state = {"author_pending": {"42": 3}}
     scraper.enrich_author_catalogs(Session([TimeoutError("timeout")]), fresh, {}, state,
                                    page_limit=1, delay=0, now=1_000_000)
@@ -204,7 +204,7 @@ def public_author_session(calls, fail=()):
 
 
 def author_registry_fixture(count):
-    return {'authors': {str(n): {'name': f'Author {n}', 'names': [], 'novel_ids': [],
+    return {'authors': {str(n): {'name': f'Author {n}', 'names': [], 'novel_ids': [str(n)], 'r19_novel_ids': [str(n)],
                                 'last_catalog_checked': 1_000_000, 'catalog_status': 'complete'}
                         for n in range(1, count + 1)}}
 
@@ -212,7 +212,8 @@ def author_registry_fixture(count):
 def test_default_sweep_checks_over_200_recent_authors_of_every_age():
     scraper = scraper_module()
     registry = author_registry_fixture(251)
-    registry['authors']['2']['novel_ids'] = ['2']
+    registry['authors']['2']['novel_ids'] = ['2', '999']
+    registry['authors']['2']['r19_novel_ids'] = ['2', '999']
     state = {'author_checked': {owner: 1_000_000 for owner in registry['authors']}}
     calls = []
     existing = [[2, 'R19', 'Author 2'] + [0]*8 + [19]]
@@ -234,14 +235,14 @@ def test_continuation_finishes_queue_includes_new_author_and_new_sweep_rechecks_
                                    page_limit=1, delay=0, now=1_000_000, workers=1)
     sweep_id = state['author_sweep']['id']
     assert state['author_sweep']['continuation_required']
-    registry['authors']['4'] = {'name': 'New', 'names': [], 'novel_ids': []}
+    registry['authors']['4'] = {'name': 'New', 'names': [], 'novel_ids': ['4'], 'r19_novel_ids': ['4']}
     scraper.enrich_author_catalogs(session, {}, {}, state, registry=registry, delay=0, now=1_000_001, workers=1)
-    assert calls == ['1', '2', '3', '4']
+    assert len(calls) == 4 and set(calls) == {'1', '2', '3', '4'}
     assert state['author_sweep']['id'] == sweep_id
     assert state['author_sweep']['complete']
     scraper.enrich_author_catalogs(session, {}, {}, state, registry=registry,
                                    resume=False, delay=0, now=1_000_002, workers=1)
-    assert calls == ['1', '2', '3', '4'] * 2
+    assert len(calls) == 8 and all(calls.count(owner) == 2 for owner in ('1', '2', '3', '4'))
     assert state['author_sweep']['id'] != sweep_id
 
 
@@ -277,7 +278,7 @@ def test_time_limit_preserves_author_page_and_continuation_cursor(monkeypatch):
         clock[0] = 11.0
         return result
     session.post = timed_post
-    state, fresh = {}, {'1': dict(id=1, author_id='42')}
+    state, fresh = {}, {'1': dict(id=1, author_id='42', age=19)}
     scraper.enrich_author_catalogs(session, fresh, {}, state, seconds=10, delay=0, now=1_000_000)
     assert len(fresh) == 20
     assert state['author_pending'] == {'42': 2}
@@ -338,10 +339,10 @@ def test_every_response_error_retries_same_page_before_success(failure):
     assert 'attempt 1/4 failed' in logs[0]
 
 
-def test_random_2_to_4_second_delays_apply_to_initial_requests_retries_and_pages(monkeypatch):
-    choices = iter([2.0, 4.0, 3.0])
+def test_random_1_to_2_second_delays_apply_to_initial_requests_retries_and_pages(monkeypatch):
+    choices = iter([1.0, 2.0, 1.5])
     def uniform(low, high):
-        assert (low, high) == (2, 4)
+        assert (low, high) == (1, 2)
         return next(choices)
     monkeypatch.setattr(catalog.random, 'uniform', uniform)
     clock, sent = [0.0], []
@@ -351,10 +352,10 @@ def test_random_2_to_4_second_delays_apply_to_initial_requests_retries_and_pages
         sent.append(clock[0])
         return post(*args, **kwargs)
     session.post = timed_post
-    rows = list(catalog.iter_author_pages(session, 42, page_size=1, delay=2, delay_max=4,
+    rows = list(catalog.iter_author_pages(session, 42, page_size=1, delay=1, delay_max=2,
                                           sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds)))
     assert len(rows) == 2
-    assert sent == pytest.approx([2, 6, 9])
+    assert sent == pytest.approx([1, 3, 4.5])
 
 
 def test_parallel_request_budget_includes_retries_and_never_overruns():
@@ -389,7 +390,9 @@ def test_parallel_permanent_failure_keeps_completed_pages_and_other_authors():
         return SimpleNamespace(status_code=200, json=lambda: dict(status=200, result=page([row], 2 if owner == '42' else 1)))
     state, fresh = {'author_pending': {'42': 1, '43': 1}}, {}
     scraper_module().enrich_author_catalogs(SimpleNamespace(post=post), fresh, {}, state,
-                                           page_size=1, delay=0, now=1_000_001)
+                                           page_size=1, delay=0, now=1_000_001,
+                                           registry={'authors': {'42': {'name':'A','names':[],'novel_ids':['42'],'r19_novel_ids':['42']},
+                                                                 '43': {'name':'B','names':[],'novel_ids':['43'],'r19_novel_ids':['43']}}})
     assert set(fresh) == {'42', '43'}
     assert state['author_pending'] == {'42': 2}
     assert calls.count(('42', 1)) == 1 and calls.count(('42', 2)) == 4
@@ -452,3 +455,24 @@ def test_desktop_uses_four_author_workers_and_retries_without_losing_ids(monkeyp
     monkeypatch.setattr(core, 'iter_author_pages', lambda *a, **kw: original(*a, **kw, sleep=lambda _: None))
     assert set(downloader.fetch_all_novels(delay=0, max_queries=1)) == {'1', '2', '3', '4'}
     assert calls == {'1': 2, '2': 1, '3': 1, '4': 1}
+
+
+def test_old_all_author_checkpoint_is_filtered_to_r19_without_losing_its_cursor():
+    scraper = scraper_module()
+    data = {'authors': {
+        '1': {'name': 'General', 'names': [], 'novel_ids': ['1']},
+        '42': {'name': 'Adult', 'names': [], 'novel_ids': ['2'], 'r19_novel_ids': ['2']},
+    }}
+    state = {'author_pending': {'1': 4, '42': 3},
+             'author_sweep': {'id': 'old-sweep', 'completed': ['1'], 'failures': {'1': 2}}}
+    calls = []
+    def post(url, **kwargs):
+        calls.append((kwargs['data']['mem_no'], kwargs['data']['paging[curPage]']))
+        raise TimeoutError('keep cursor')
+    scraper.enrich_author_catalogs(SimpleNamespace(post=post), {}, {}, state, registry=data,
+                                   page_limit=1, delay=0, now=1_000_001)
+    assert calls == [('42', 3)]
+    assert state['author_pending'] == {'42': 3}
+    assert state['author_sweep']['id'] == 'old-sweep' and state['author_sweep']['scope'] == 'r19'
+    assert state['author_sweep']['total'] == 1
+    assert '1' not in state['author_sweep']['failures']

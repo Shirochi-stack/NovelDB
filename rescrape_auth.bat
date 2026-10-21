@@ -6,13 +6,13 @@ echo.
 echo  This will scrape ALL Npia novels (including R19)
 echo  using your loginkey from config.json, then extract
 echo  descriptions for translation.
-echo  Also updates the shared author registry and checks known author catalogs.
+echo  Also updates the R19 author registry from authenticated search results.
 echo.
 
 cd /d "%~dp0"
 
 echo [1/8] Scraping Npia (authenticated)...
-python scripts/scrape_npia.py --author-workers 4 --author-delay 2 --author-delay-max 4 --author-retries 4 --intro-requests 6
+python scripts/scrape_npia.py
 if errorlevel 1 goto :error
 echo.
 

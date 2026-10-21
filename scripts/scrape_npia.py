@@ -24,8 +24,6 @@ sys.stdout.reconfigure(encoding='utf-8')
 from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
 from npia_author_catalog import author_id
 import npia_author_registry as author_registry
-from scripts.rescrape_npia_noauth import enrich_author_catalogs
-from npia_intro_discovery import discover as discover_intro
 
 from npia_auth import NpiaAuth
 from npia_search_terms import SEARCH_TAGS, SWEEP_CHARS
@@ -295,20 +293,7 @@ def main():
                         help="Retries per search page")
     parser.add_argument("--search-delay", type=float, default=0.5,
                         help="Seconds to stagger parallel search submissions")
-    parser.add_argument("--author-pages", type=int, default=0,
-                        help="Optional diagnostic request limit; 0 checks every known author (default)")
-    parser.add_argument("--author-delay", type=float, default=2.0)
-    parser.add_argument('--author-delay-max', type=float, default=None)
-    parser.add_argument('--author-workers', type=int, default=4)
-    parser.add_argument('--author-retries', type=int, default=4)
-    parser.add_argument("--intro-requests", type=int, default=6)
     args = parser.parse_args()
-    if min(args.author_pages, args.author_delay, args.intro_requests) < 0:
-        parser.error("Author request budgets and delay must be nonnegative")
-    if args.author_workers < 1 or args.author_retries < 1:
-        parser.error('Author workers and attempts must be positive')
-    if args.author_delay_max is not None and args.author_delay_max < args.author_delay:
-        parser.error('Maximum author delay must be at least the minimum delay')
 
     auth = NpiaAuth()
     with open('config.json', 'r') as f:
@@ -345,23 +330,16 @@ def main():
     )
 
     registry_path = "docs/data/npia_authors.json"
-    state_path = "docs/data/npia_public_state.json"
     registry = author_registry.load(registry_path)
     author_registry.seed_catalog_names(registry, load_json_file("docs/data/novels.json", []))
     author_registry.record_search(registry, novels_by_id.values())
     search_ids = set(novels_by_id)
     previous_full = {str(n["id"]): n for n in load_json_file("docs/data/novels_full.json", [])
                      if isinstance(n, dict) and n.get("id") is not None}
-    public_state = load_json_file(state_path, {})
-    intro_rows = discover_intro(auth.session, public_state, max_requests=args.intro_requests,
-                                delay=args.author_delay)
-    intro_authors = author_registry.observe(registry, intro_rows)
-    enrich_author_catalogs(auth.session, novels_by_id, previous_full, public_state,
-                          page_limit=args.author_pages, delay=args.author_delay,
-                          existing=load_json_file("docs/data/novels.json", []), registry=registry,
-                          priority_authors=sorted(intro_authors, key=int), page_size=100, resume=False,
-                          workers=args.author_workers, delay_max=args.author_delay_max,
-                          retries=args.author_retries)
+    r19 = author_registry.refresh_r19(registry, load_json_file('docs/data/novels.json', []),
+                                       list(previous_full.values()) + list(novels_by_id.values()))
+    print(f"R19 registry updated from authenticated search: {r19['verified_author_count']} verified authors; "
+          f"{r19['name_matched_author_count']} name matches; no author catalog requests", flush=True)
     author_registry.report_coverage(registry, search_ids)
     novels = list(novels_by_id.values())
 
@@ -489,7 +467,6 @@ def main():
     print(f"\nFull: {len(novels)} novels -> {os.path.getsize(full_path) / 1024 / 1024:.1f} MB")
 
     write_json_file(opt_path, optimized, separators=(",", ":"))
-    write_json_file(state_path, public_state)
     author_registry.save(registry_path, registry)
 
     print(f"Site: {len(optimized)} novels -> {os.path.getsize(opt_path) / 1024 / 1024:.1f} MB")

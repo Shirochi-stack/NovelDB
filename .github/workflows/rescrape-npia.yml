@@ -22,7 +22,7 @@ concurrency:
 jobs:
   rescrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
@@ -38,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Rescrape Npia catalog and every known author (no auth)
+      - name: Rescrape Npia catalog and known R19 authors (no auth)
         env:
           AUTHOR_SWEEP_ID: ${{ inputs.author_sweep_id }}
         run: |
@@ -46,7 +46,7 @@ jobs:
           if [ -n "$AUTHOR_SWEEP_ID" ]; then
             CONTINUE_ARGS+=(--author-sweep-id "$AUTHOR_SWEEP_ID")
           fi
-          python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-page-size 100 --author-workers 4 --author-delay 2 --author-delay-max 4 --author-retries 4 --author-seconds 14400 --author-continuation-file .cache/npia-author-continuation.json --intro-requests 6 "${CONTINUE_ARGS[@]}"
+          python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 0 --r19-delay 1 --author-page-size 100 --author-workers 4 --author-delay 1 --author-delay-max 2 --author-retries 4 --author-seconds 4500 --author-continuation-file .cache/npia-author-continuation.json --intro-requests 6 "${CONTINUE_ARGS[@]}"
 
       - name: Extract descriptions from full data
         run: python scripts/extract_descriptions.py
@@ -84,7 +84,7 @@ jobs:
           git commit -m "🔄 Update Npia data: ${NOVEL_COUNT} novels ($(date -u +%Y-%m-%d))"
           git push
 
-      - name: Continue until every known author is checked
+      - name: Continue unfinished R19 author checks
         uses: actions/github-script@v7
         env:
           AUTHOR_SWEEP_REF: ${{ github.ref_name }}

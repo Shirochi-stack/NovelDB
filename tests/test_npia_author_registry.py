@@ -112,7 +112,7 @@ def load_scraper(name):
 def test_registry_author_absent_from_search_is_still_checked():
     scraper = load_scraper("rescrape_npia_noauth")
     data = {"version": 1, "authors": {}}
-    registry.observe(data, [dict(id=1, author_id="42", author="Writer")], now=10)
+    registry.observe(data, [dict(id=1, author_id="42", author="Writer", age=19)], now=10)
     registry.record_search(data, [], now=1_000_000)
     calls = []
     item = dict(novel_no=2, mem_no=42, novel_name="Missing novel", novel_age=19, novel_story="Synopsis")
@@ -132,7 +132,7 @@ def test_registry_author_absent_from_search_is_still_checked():
 def test_failed_catalog_does_not_mark_author_complete():
     scraper = load_scraper("rescrape_npia_noauth")
     data = {"version": 1, "authors": {}}
-    registry.observe(data, [dict(id=1, author_id="42", author="Writer")], now=10)
+    registry.observe(data, [dict(id=1, author_id="42", author="Writer", age=19)], now=10)
     def fail(*a, **k):
         raise TimeoutError("timeout")
     state = {}
@@ -143,35 +143,24 @@ def test_failed_catalog_does_not_mark_author_complete():
     assert state["author_pending"] == {"42": 1}
 
 
-def test_authenticated_rescrape_updates_shared_registry_without_real_credentials(tmp_path, monkeypatch):
-    scraper = load_scraper("scrape_npia")
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.json").write_text('{"loginkey":"offline-fixture"}', encoding="utf-8")
-    data = tmp_path / "docs" / "data"
-    registry_path = data / "npia_authors.json"
-    saved = {"version": 1, "authors": {}}
-    registry.observe(saved, [dict(id=10, author_id="43", author="Missing author")], now=1)
-    registry.save(registry_path, saved)
-    def item(nid, owner):
-        return dict(novel_no=nid, mem_no=owner, novel_name=f"Novel {nid}", writer_nick=f"Author {owner}",
-                    novel_story="Synopsis", novel_age=19)
-    calls = []
-    def post(url, **kwargs):
-        owner = int(kwargs["data"]["mem_no"])
-        calls.append(owner)
-        return SimpleNamespace(status_code=200, json=lambda: dict(status=200, result=dict(novel=[item(owner, owner)], allCount=1)))
-    session = SimpleNamespace(post=post, get=lambda *a, **k: SimpleNamespace(text="", status_code=200))
-    monkeypatch.setattr(scraper, "NpiaAuth", lambda: SimpleNamespace(session=session, set_manual_key=lambda _: None))
-    monkeypatch.setattr(scraper, "fetch_terms", lambda label, terms, *a: {terms[0]: [item(1, 42)]})
-    monkeypatch.setattr(sys, "argv", ["scraper", "--author-pages", "2", "--author-delay", "0", "--intro-requests", "0"])
-    scraper.main()
-    updated = registry.load(registry_path)
-    assert set(updated["authors"]) == {"42", "43"}
-    assert calls == [42, 43]
-    assert updated["coverage"]["known_authors_missing_from_search"] == ["43"]
-    assert (data / "npia_public_state.json").exists()
-    full = json.loads((data / "novels_full.json").read_text(encoding="utf-8"))
-    assert {n["id"] for n in full} == {1, 42, 43}
+def test_authenticated_path_records_r19_without_catalog_or_config_execution():
+    import ast
+    from pathlib import Path
+    source = Path('scripts/scrape_npia.py').read_text(encoding='utf-8')
+    tree = ast.parse(source)
+    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
+    calls = [node.func for node in ast.walk(main) if isinstance(node, ast.Call)]
+    names = {node.id for node in calls if isinstance(node, ast.Name)}
+    assert not {'enrich_author_catalogs', 'discover_intro', 'parallel_author_pages'} & names
+    assert any(isinstance(node, ast.Attribute) and node.attr == 'refresh_r19' for node in calls)
+    batch = Path('rescrape_auth.bat').read_text(encoding='utf-8')
+    assert 'python scripts/scrape_npia.py\n' in batch and '--author-' not in batch
+    data = {'version': 1, 'authors': {}}
+    registry.record_search(data, [dict(id=1, author_id='42', author='Adult', age=19),
+                                  dict(id=2, author_id='43', author='General', age=0)], now=10)
+    subset = registry.refresh_r19(data, now=11)
+    assert set(subset['authors']) == {'42'}
+    assert subset['authors']['42']['evidence'] == 'verified'
 
 
 def test_workflow_scraper_checks_registry_when_search_finds_nothing(tmp_path, monkeypatch):
@@ -179,7 +168,7 @@ def test_workflow_scraper_checks_registry_when_search_finds_nothing(tmp_path, mo
     data = tmp_path / "docs" / "data"
     path = data / "npia_authors.json"
     saved = {"version": 1, "authors": {}}
-    registry.observe(saved, [dict(id=1, author_id="42", author="Known")], now=1)
+    registry.observe(saved, [dict(id=1, author_id="42", author="Known", age=19)], now=1)
     registry.save(path, saved)
     monkeypatch.setattr(scraper, "__file__", str(tmp_path / "scripts" / "rescrape_npia_noauth.py"))
     monkeypatch.setattr(scraper, "fetch_terms", lambda *a: {})
@@ -202,7 +191,7 @@ def test_workflow_continuation_persists_progress_and_preserves_catalog(tmp_path,
     scraper = load_scraper('rescrape_npia_noauth')
     data = tmp_path / 'docs' / 'data'
     saved = {'version': 1, 'authors': {}}
-    registry.observe(saved, [dict(id=n, author_id=str(n), author=f'Author {n}')
+    registry.observe(saved, [dict(id=n, author_id=str(n), author=f'Author {n}', age=19)
                             for n in (1, 2)], now=1)
     registry.save(data / 'npia_authors.json', saved)
     # A retained row absent from search must not be tagged deleted by a continuation,
@@ -246,6 +235,7 @@ def test_workflow_continuation_persists_progress_and_preserves_catalog(tmp_path,
     assert completed['id'] == decision['id'] and completed['complete']
     assert completed['remaining'] == 0 and not completed['continuation_required']
     assert calls == ['1', '2']
+
     rows = {row[0]: row for row in json.loads((data / 'novels.json').read_text(encoding='utf-8'))}
     assert set(rows) == {1, 2, 99}
     assert rows[99][4] == [] and rows[99][12:] == [7]*8
@@ -255,3 +245,48 @@ def test_workflow_continuation_persists_progress_and_preserves_catalog(tmp_path,
     with pytest.raises(SystemExit):
         scraper.main()
     assert calls == ['1', '2']
+
+
+def test_r19_subset_uses_age_and_explicit_tags_without_assigning_name_candidates():
+    data = {'version': 1, 'authors': {}}
+    registry.observe(data, [dict(id=10, author_id='10', author='General'),
+                            dict(id=30, author_id='30', author='Matched')], now=1)
+    rows = [[20, 'Tagged', 'Matched', '', ['R19']],
+            [21, 'Unresolved', 'Missing', '', ['19금']],
+            [22, 'Genre only', 'General', '', ['고수위']]]
+    full = [dict(id=40, author_id='40', author='Verified', age=19)]
+    subset = registry.refresh_r19(data, rows, full, now=2)
+    assert set(subset['authors']) == {'30', '40'}
+    assert subset['authors']['30']['evidence'] == 'name_match'
+    assert subset['authors']['30']['verified_novel_ids'] == []
+    assert data['authors']['30']['novel_ids'] == ['30']
+    assert 'r19_novel_ids' not in data['authors']['30']
+    assert subset['authors']['40']['verified_novel_ids'] == ['40']
+    assert subset['unresolved_names'] == {'Missing': ['21']}
+    later = registry.refresh_r19(data, [], [], now=3)
+    assert later['known_names'] == subset['known_names']
+    assert set(later['authors']) == {'30', '40'}
+
+
+def test_offline_registry_refresh_never_opens_account_config_or_uses_http(tmp_path, monkeypatch):
+    import builtins
+    import requests
+    from scripts import update_npia_r19_registry as updater
+    rows = tmp_path / 'novels.json'
+    full = tmp_path / 'full.json'
+    path = tmp_path / 'authors.json'
+    rows.write_text(json.dumps([[1, 'Title', 'Writer'] + [0]*8 + [19]]), encoding='utf-8')
+    full.write_text(json.dumps([dict(id=1, author_id='42', author='Writer', age=19)]), encoding='utf-8')
+    original = builtins.open
+    def guarded_open(file, *args, **kwargs):
+        assert str(file).replace('\\', '/').split('/')[-1] != 'config.json'
+        return original(file, *args, **kwargs)
+    monkeypatch.setattr(builtins, 'open', guarded_open)
+    def forbidden(*args, **kwargs):
+        pytest.fail('Offline registry update attempted HTTP')
+    monkeypatch.setattr(requests.Session, 'request', forbidden)
+    monkeypatch.setattr(sys, 'argv', ['updater', '--registry', str(path), '--catalog', str(rows), '--full', str(full)])
+    updater.main()
+    result = registry.load(path)
+    assert result['r19']['verified_author_count'] == 1
+    assert result['r19']['authors']['42']['name'] == 'Writer'
