@@ -65668,6 +65668,7 @@
 1506575|||[붕괴3rd] 안해요 안해|||[Honkai Impact 3rd] No, I Won’t
 1506576|||겨울 정원의 하와르|||Hawar of the Winter Garden
 1506578|||전업 힐러는 점점 강해진다|||The Full-Time Healer Grows Stronger
+1506594|||[주술회전] 회회기담 廻廻奇譚|||[Jujutsu Kaisen] Hoi Hoi Kidan: Kaiten Kitan
 1506600|||왕이 읍할 때, 용은 고했고, 오는 울었다|||When the King Bowed, the Dragon Spoke, and the Crow Wept
 1506601|||그 세계의 일상|||Everyday Life in That World
 1506614|||[던만추X다중]Gunslinger|||[DanMachi x Crossover] Gunslinger
@@ -111067,6 +111068,7 @@
 1761788|||[해즈빈/헬루바]무슨 일이 일어나고 있나요?|||[Hazbin/Helluva] What Is Going On?
 1761794|||[괴수8호/주술회전]더 이상 전투는 싫어|||[Kaiju No. 8/Jujutsu Kaisen] I Don't Want to Fight Anymore
 17618|||뉴 라이프|||New Life
+1761814|||[하이큐] 동정과 호감의 상관관계|||[Haikyuu] Correlation Between Virginity and Affection
 176182|||실버로드(Silver Lord) Part2|||Silver Lord Part 2
 1761822|||[화산귀환/해리포터]블루벨|||[Return of the Blossoming Blade/Harry Potter] Bluebell
 1761830|||The Maruders: How it all began|||The Marauders: How It All Began
@@ -197359,6 +197361,7 @@
 535952|||FLS|||FLS
 53598|||sixth sense|||sixth sense
 536|||묵상기도|||Meditative Prayer
+5360|||(端悧勢家)|||(Danri Seiga)
 536000|||흡혈귀와 합의보는 법|||How to Negotiate with a Vampire
 536011|||나의 첫사랑은 미술학원에서3|||My First Love at Art School 3
 53602|||[테니프리♡아린] 왕자님과의 생활|||[TeniPuri ♡ Arin] Life with the Prince
@@ -235507,6 +235510,7 @@
 981283|||한자도 과외가 있나요|||Are There Tutors for Hanja Too?
 981289|||신의 장난|||God's Plaything
 981290|||프론티어|||Frontier
+981291|||[신세계] 之擅: 멋대로 가다.|||[New World] Zhi Shan: Go Your Own Way.
 981293|||이별하던 날|||The Day We Parted
 981295|||[해리포터] 새하얀 거짓말|||[Harry Potter] A Pure White Lie
 9813|||-카루야-|||-Karuya-
@@ -237953,7 +237957,6 @@
 1501525|||.|||
 1503575|||###|||
 1505748|||.|||
-1506594|||[주술회전] 회회기담 廻廻奇譚|||
 1508913|||.......|||
 1509673|||.,,,..|||
 1511944|||.|||
@@ -238248,7 +238251,6 @@
 1760830|||.|||
 1760968|||.|||
 1761796|||-|||
-1761814|||[하이큐] 동정과 호감의 상관관계|||
 1762074|||.|||
 1762678|||.|||
 1763118|||ㆍ|||
@@ -238588,7 +238590,6 @@
 52948|||ㅡ,.ㅡ|||
 530805|||[은혼] 신혼~新婚~|||
 534854|||22, 24|||
-5360|||(端悧勢家)|||
 542067|||수(修)라(羅)도(道)|||
 542653|||?|||
 546472|||.|||
@@ -238743,7 +238744,6 @@
 977400|||.|||
 979142|||----|||
 980652|||00|||
-981291|||[신세계] 之擅: 멋대로 가다.|||
 981749|||22222'|||
 984304|||---|||
 985434|||1201|||
