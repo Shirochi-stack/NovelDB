@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
 from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
-from npia_author_catalog import author_id, iter_author_pages
+from npia_author_catalog import author_id, parallel_author_pages
 from npia_intro_discovery import discover as discover_intro
 import npia_author_registry as author_registry
 
@@ -215,7 +215,7 @@ def merge_term_results(terms, results, fresh_novels):
     return raw_count, len(fresh_novels) - before
 
 
-def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, delay=2.0, now=None, existing=(), registry=None, priority_authors=(), page_size=20, resume=True, seconds=0):
+def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, delay=2.0, now=None, existing=(), registry=None, priority_authors=(), page_size=20, resume=True, seconds=0, workers=4, delay_max=None, retries=4):
     """Check every known author; job limits pause a sweep rather than truncate it."""
     now = time.time() if now is None else now
     deadline = time.monotonic() + seconds if seconds else None
@@ -262,93 +262,85 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
     ordinary = [owner for owner in pending if owner not in targeted_set]
     targeted_budget = page_limit - max(1, page_limit // 5) if targeted and ordinary and page_limit and page_limit > 1 else page_limit
     targeted_pages = 0
-    seen, r19_seen, failed_owners = set(), set(), set()
+    seen, r19_seen = set(), set()
     r19_hits = 0
     earlier_r19 = {nid for nid, novel in fresh.items() if str(novel.get('age')) == '19'}
-    # Leave 20% for general discovery, then spend any unused allowance on R19.
-    tasks = [(owner, True, False) for owner in targeted] + [(owner, False, False) for owner in ordinary] + [(owner, True, True) for owner in targeted]
-    for owner, is_targeted, refill in tasks:
-        if stopped() or (page_limit is not None and pages >= page_limit):
-            break
-        if owner not in pending or owner in failed_owners or failures.get(owner, 0) >= 3:
-            continue
-        allowance = page_limit - pages if page_limit is not None else None
-        if is_targeted and not refill and targeted_budget is not None:
-            allowance = min(allowance, targeted_budget - targeted_pages)
-        if allowance is not None and allowance <= 0:
-            continue
-        before_pages = pages
-        try:
-            for page, rows, more in iter_author_pages(session, owner, start_page=pending[owner],
-                                                     max_pages=allowance, delay=delay, page_size=page_size,
-                                                     stopped=stopped):
-                pages += 1
-                if registry is not None:
-                    entry = registry["authors"][owner]
-                    if page == 1:
-                        entry["catalog_novel_ids"] = []
-                    entry["catalog_status"] = "partial"
-                    entry["catalog_novel_ids"] = sorted(set(entry.get("catalog_novel_ids", [])) |
-                                                         {str(item["novel_no"]) for item in rows}, key=int)
-                    author_registry.observe(registry, rows, now)
-                for item in rows:
-                    nid = str(item["novel_no"])
-                    base = dict(old_full.get(nid) or {})
-                    row = compact.get(nid, [])
-                    for field, index in (("title", 1), ("author", 2), ("cover", 3), ("tags", 4),
-                                         ("views", 5), ("likes", 6), ("chapters", 7),
-                                         ("complete", 8), ("updated", 9), ("age", 11)):
-                        if len(row) > index:
-                            base.setdefault(field, row[index])
-                    base.update(fresh.get(nid, {}))
-                    patch = extract_novel(item)
-                    patch["author_id"] = owner
-                    # Missing fields are unknown, never erase previously known metadata.
-                    fields = {"novel_name": "title", "novel_story": "synopsis", "writer_nick": "author",
-                              "count_view": "views", "count_good": "likes", "count_book": "chapters",
-                              "is_complete": "complete", "novel_age": "age", "last_viewdate": "updated"}
-                    for wire, field in fields.items():
-                        if wire not in item or item[wire] is None or item[wire] == "":
-                            if field in base:
-                                patch[field] = base[field]
-                    for field in ("cover", "tags"):
-                        if not patch[field] and base.get(field):
-                            patch[field] = base[field]
-                    base.update(patch)
-                    fresh[nid] = base
-                    updated += 1
-                    seen.add(nid)
-                    if str(base.get('age')) == '19':
-                        r19_hits += 1
-                        r19_seen.add(nid)
-                if more:
-                    pending[owner] = page + 1
-                else:
-                    del pending[owner]
-                    checked[owner] = now
-                    done.add(owner)
-                    failures.pop(owner, None)
-                    completed += 1
-                    if registry is not None:
-                        entry["catalog_status"] = "complete"
-                        entry["last_catalog_checked"] = now
-                        entry.pop("catalog_error", None)
-            print(f"Author catalogs: {completed} complete, {pages} pages, {updated} records updated", flush=True)
-        except Exception as exc:
-            pages += 1  # Failed requests also consume the run's request budget.
+    # Keep diagnostic samples representative; full sweeps include every author.
+    cut = targeted_budget if targeted_budget is not None else len(targeted)
+    ordered = targeted[:cut] + ordinary + targeted[cut:]
+    queue = {owner: pending[owner] for owner in ordered if failures.get(owner, 0) < 3}
+    maximum_delay = (4.0 if delay == 2.0 else delay) if delay_max is None else delay_max
+    print(f'Checking {len(queue)} author catalogs with {workers} workers; '
+          f'{delay:g}-{maximum_delay:g}s random delay; {retries} attempts per page', flush=True)
+    for owner, page, rows, more, error, attempts in parallel_author_pages(
+            session, queue, workers=workers, delay=delay, delay_max=maximum_delay,
+            retries=retries, page_size=page_size, max_requests=page_limit,
+            stopped=stopped, log=lambda message: print(message, flush=True)):
+        pages += attempts
+        if owner in targeted_set:
+            targeted_pages += attempts
+        if error is not None:
             failed += 1
-            failed_owners.add(owner)
             failures[owner] = failures.get(owner, 0) + 1
             if registry is not None:
-                registry["authors"][owner]["catalog_status"] = "partial"
-                registry["authors"][owner]["catalog_error"] = type(exc).__name__
-            pending[owner] = pending.pop(owner)  # Retry after other queued authors next run.
-            print(f"Author {owner} PARTIAL; completed pages retained: {exc}", flush=True)
-            if "HTTP 429" in str(exc):
-                break
-        finally:
-            if is_targeted:
-                targeted_pages += pages - before_pages
+                registry['authors'][owner]['catalog_status'] = 'partial'
+                registry['authors'][owner]['catalog_error'] = type(error).__name__
+            pending[owner] = pending.pop(owner)
+            print(f'Author {owner} PARTIAL; completed pages retained: {error}', flush=True)
+            continue
+        if rows is None:
+            continue  # Deadline, cancellation, or diagnostic request budget.
+        if registry is not None:
+            entry = registry["authors"][owner]
+            if page == 1:
+                entry["catalog_novel_ids"] = []
+            entry["catalog_status"] = "partial"
+            entry["catalog_novel_ids"] = sorted(set(entry.get("catalog_novel_ids", [])) |
+                                                 {str(item["novel_no"]) for item in rows}, key=int)
+            author_registry.observe(registry, rows, now)
+        for item in rows:
+            nid = str(item["novel_no"])
+            base = dict(old_full.get(nid) or {})
+            row = compact.get(nid, [])
+            for field, index in (("title", 1), ("author", 2), ("cover", 3), ("tags", 4),
+                                 ("views", 5), ("likes", 6), ("chapters", 7),
+                                 ("complete", 8), ("updated", 9), ("age", 11)):
+                if len(row) > index:
+                    base.setdefault(field, row[index])
+            base.update(fresh.get(nid, {}))
+            patch = extract_novel(item)
+            patch["author_id"] = owner
+            # Missing fields are unknown, never erase previously known metadata.
+            fields = {"novel_name": "title", "novel_story": "synopsis", "writer_nick": "author",
+                      "count_view": "views", "count_good": "likes", "count_book": "chapters",
+                      "is_complete": "complete", "novel_age": "age", "last_viewdate": "updated"}
+            for wire, field in fields.items():
+                if wire not in item or item[wire] is None or item[wire] == "":
+                    if field in base:
+                        patch[field] = base[field]
+            for field in ("cover", "tags"):
+                if not patch[field] and base.get(field):
+                    patch[field] = base[field]
+            base.update(patch)
+            fresh[nid] = base
+            updated += 1
+            seen.add(nid)
+            if str(base.get('age')) == '19':
+                r19_hits += 1
+                r19_seen.add(nid)
+        if more:
+            pending[owner] = page + 1
+        else:
+            del pending[owner]
+            checked[owner] = now
+            done.add(owner)
+            failures.pop(owner, None)
+            completed += 1
+            if registry is not None:
+                entry["catalog_status"] = "complete"
+                entry["last_catalog_checked"] = now
+                entry.pop("catalog_error", None)
+        print(f"Author catalogs: {completed} complete, {pages} requests, {updated} records updated", flush=True)
     sweep.update(completed=sorted(done, key=int), total=len(done) + len(pending),
                  remaining=len(pending), complete=not pending,
                  continuation_required=any(failures.get(owner, 0) < 3 for owner in pending))
@@ -389,6 +381,11 @@ def main():
     parser.add_argument("--author-continuation-file",
                         help="Write the workflow continuation decision after saving metadata")
     parser.add_argument("--author-delay", type=float, default=2.0)
+    parser.add_argument('--author-delay-max', type=float, default=None,
+                        help='Maximum random per-worker delay (default: 4 seconds)')
+    parser.add_argument('--author-workers', type=int, default=4)
+    parser.add_argument('--author-retries', type=int, default=4,
+                        help='Total attempts per author page, for any request or response error')
     parser.add_argument('--author-page-size', type=int, default=100,
                         help='Novels per public author request (1-100)')
     parser.add_argument("--intro-requests", type=int, default=6,
@@ -399,6 +396,10 @@ def main():
         parser.error("R19 request budgets and delay must be nonnegative")
     if not 1 <= args.author_page_size <= 100:
         parser.error('Author page size must be between 1 and 100')
+    if args.author_workers < 1 or args.author_retries < 1:
+        parser.error('Author workers and attempts must be positive')
+    if args.author_delay_max is not None and args.author_delay_max < args.author_delay:
+        parser.error('Maximum author delay must be at least the minimum delay')
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_path = os.path.join(base_dir, "docs", "data", "novels.json")
@@ -504,7 +505,9 @@ def main():
                                           page_limit=args.author_pages, delay=args.author_delay,
                                           existing=existing_data, registry=registry,
                                           priority_authors=sorted(intro_authors, key=int), page_size=args.author_page_size,
-                                          resume=bool(args.author_sweep_id), seconds=args.author_seconds)
+                                          resume=bool(args.author_sweep_id), seconds=args.author_seconds,
+                                          workers=args.author_workers, delay_max=args.author_delay_max,
+                                          retries=args.author_retries)
     author_registry.report_coverage(registry, search_ids)
 
     # Build lookup: novel_id_str -> index in existing_data

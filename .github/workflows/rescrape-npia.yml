@@ -46,7 +46,7 @@ jobs:
           if [ -n "$AUTHOR_SWEEP_ID" ]; then
             CONTINUE_ARGS+=(--author-sweep-id "$AUTHOR_SWEEP_ID")
           fi
-          python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-page-size 100 --author-delay 2 --author-seconds 14400 --author-continuation-file .cache/npia-author-continuation.json --intro-requests 6 "${CONTINUE_ARGS[@]}"
+          python scripts/rescrape_npia_noauth.py --r19-listing-pages 0 --r19-detail-limit 200 --r19-delay 2 --author-page-size 100 --author-workers 4 --author-delay 2 --author-delay-max 4 --author-retries 4 --author-seconds 14400 --author-continuation-file .cache/npia-author-continuation.json --intro-requests 6 "${CONTINUE_ARGS[@]}"
 
       - name: Extract descriptions from full data
         run: python scripts/extract_descriptions.py
@@ -101,7 +101,7 @@ jobs:
               });
               core.info('Saved all completed pages and queued the next part of this author sweep.');
             } else if (!sweep.complete) {
-              core.setFailed(`Incomplete coverage: ${sweep.remaining} authors still failed after three attempts. Their cursors are saved for the next full sweep.`);
+              core.setFailed(`Incomplete coverage: ${sweep.remaining} authors still failed after three passes with page retries. Their cursors are saved for the next full sweep.`);
             }
 
       - name: Preserve author sweep recovery data
