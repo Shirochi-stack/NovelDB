@@ -38,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Rescrape Npia catalog and known R19 authors (no auth)
+      - name: Rescrape Npia catalog and resolve missing R19 authors (no auth)
         env:
           AUTHOR_SWEEP_ID: ${{ inputs.author_sweep_id }}
         run: |
@@ -92,16 +92,16 @@ jobs:
           script: |
             const fs = require('fs');
             const sweep = JSON.parse(fs.readFileSync('.cache/npia-author-continuation.json', 'utf8'));
-            await core.summary.addRaw(`Author sweep: ${sweep.completed.length}/${sweep.total} complete; ${sweep.remaining} remaining.\n`).write();
+            await core.summary.addRaw(`Author sweep: ${sweep.completed.length}/${sweep.total} complete; ${sweep.remaining_catalogs ?? sweep.remaining} catalogs and ${sweep.remaining_identities ?? 0} author identities remaining.\n`).write();
             if (sweep.continuation_required) {
               await github.rest.actions.createWorkflowDispatch({
                 ...context.repo, workflow_id: 'rescrape-npia.yml',
                 ref: process.env.AUTHOR_SWEEP_REF,
                 inputs: { author_sweep_id: sweep.id }
               });
-              core.info('Saved all completed pages and queued the next part of this author sweep.');
+              core.info('Saved author identities and completed pages; queued the next part of this R19 sweep.');
             } else if (!sweep.complete) {
-              core.setFailed(`Incomplete coverage: ${sweep.remaining} authors still failed after three passes with page retries. Their cursors are saved for the next full sweep.`);
+              core.setFailed(`Incomplete coverage: ${sweep.remaining} author catalogs or identities still failed after three passes with request retries. Progress is saved for the next full sweep.`);
             }
 
       - name: Preserve author sweep recovery data
