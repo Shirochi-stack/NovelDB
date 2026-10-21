@@ -5586,6 +5586,7 @@
     };
 
     function tl(tag) { return TAG_MAP[tag] || tag; }
+    window.NovelTagLabel = tl;
 
     const TAG_KEY_CACHE = new Map();
     function normalizeTagText(value) {
