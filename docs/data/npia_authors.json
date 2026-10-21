@@ -944956,7 +944956,7 @@
         "442018"
       ]
     },
-    "updated": 1792586318.010148,
+    "updated": 1792587145.0804837,
     "verified_author_count": 8693
   },
   "r19_identity_unavailable": {
@@ -944998,6 +944998,10 @@
     },
     "121214": {
       "checked": 1792585729.4494638,
+      "reason": "site reports this novel has been deleted"
+    },
+    "121368": {
+      "checked": 1792587172.65536,
       "reason": "site reports this novel has been deleted"
     },
     "121493": {
@@ -945080,6 +945084,10 @@
       "checked": 1792586414.5402606,
       "reason": "site reports this novel has been deleted"
     },
+    "157774": {
+      "checked": 1792587180.3957603,
+      "reason": "site reports this novel has been deleted"
+    },
     "158005": {
       "checked": 1792586410.3850212,
       "reason": "site reports this novel has been deleted"
@@ -945088,6 +945096,10 @@
       "checked": 1792586698.769112,
       "reason": "site reports this novel has been deleted"
     },
+    "164254": {
+      "checked": 1792587148.447529,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "164520": {
       "checked": 1792586321.2636163,
       "reason": "site reports invalid or unavailable novel access"
@@ -945095,6 +945107,10 @@
     "167225": {
       "checked": 1792586652.04517,
       "reason": "site reports this novel has been deleted"
+    },
+    "172477": {
+      "checked": 1792587166.4770901,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "176655": {
       "checked": 1792586564.34783,
@@ -945114,6 +945130,10 @@
     },
     "179913": {
       "checked": 1792586694.0818582,
+      "reason": "site reports this novel has been deleted"
+    },
+    "181952": {
+      "checked": 1792587177.8498535,
       "reason": "site reports this novel has been deleted"
     },
     "187049": {
@@ -945186,6 +945206,10 @@
     },
     "212461": {
       "checked": 1792586810.6530335,
+      "reason": "site reports this novel has been deleted"
+    },
+    "213026": {
+      "checked": 1792587153.1832528,
       "reason": "site reports this novel has been deleted"
     },
     "213102": {
@@ -945300,6 +945324,18 @@
       "checked": 1792586456.1110651,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "250874": {
+      "checked": 1792587162.2240694,
+      "reason": "site reports invalid or unavailable novel access"
+    },
+    "253326": {
+      "checked": 1792587178.5290885,
+      "reason": "site reports invalid or unavailable novel access"
+    },
+    "253960": {
+      "checked": 1792587161.710279,
+      "reason": "site reports this novel has been deleted"
+    },
     "257193": {
       "checked": 1792586780.7876508,
       "reason": "site reports invalid or unavailable novel access"
@@ -945343,6 +945379,10 @@
     "267186": {
       "checked": 1792586826.077673,
       "reason": "site reports this novel has been deleted"
+    },
+    "268171": {
+      "checked": 1792587168.0748074,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "268210": {
       "checked": 1792586478.573357,
@@ -945388,6 +945428,10 @@
       "checked": 1792586525.8821025,
       "reason": "site reports this novel has been deleted"
     },
+    "278041": {
+      "checked": 1792587159.3505123,
+      "reason": "site reports this novel has been deleted"
+    },
     "283140": {
       "checked": 1792586810.9140956,
       "reason": "site reports this novel has been deleted"
@@ -945398,6 +945442,10 @@
     },
     "285077": {
       "checked": 1792586780.4703472,
+      "reason": "site reports this novel has been deleted"
+    },
+    "286345": {
+      "checked": 1792587171.7283833,
       "reason": "site reports this novel has been deleted"
     },
     "286522": {
@@ -945422,6 +945470,10 @@
     },
     "292440": {
       "checked": 1792586547.9287472,
+      "reason": "site reports invalid or unavailable novel access"
+    },
+    "29313": {
+      "checked": 1792587159.7558627,
       "reason": "site reports invalid or unavailable novel access"
     },
     "294159": {
@@ -945612,6 +945664,10 @@
       "checked": 1792586781.2482247,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "338715": {
+      "checked": 1792587175.1350338,
+      "reason": "site reports this novel has been deleted"
+    },
     "339812": {
       "checked": 1792586562.1599066,
       "reason": "site reports this novel has been deleted"
@@ -945630,6 +945686,14 @@
     },
     "343064": {
       "checked": 1792586690.3684392,
+      "reason": "site reports this novel has been deleted"
+    },
+    "343550": {
+      "checked": 1792587157.6397958,
+      "reason": "site reports invalid or unavailable novel access"
+    },
+    "344136": {
+      "checked": 1792587153.886537,
       "reason": "site reports this novel has been deleted"
     },
     "344313": {
@@ -945660,6 +945724,14 @@
       "checked": 1792586770.6647835,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "351469": {
+      "checked": 1792587160.4561403,
+      "reason": "site reports this novel has been deleted"
+    },
+    "352884": {
+      "checked": 1792587157.5951478,
+      "reason": "site reports this novel has been deleted"
+    },
     "353159": {
       "checked": 1792586531.5797622,
       "reason": "site reports this novel has been deleted"
@@ -945688,6 +945760,10 @@
       "checked": 1792586801.5052423,
       "reason": "site reports this novel has been deleted"
     },
+    "362357": {
+      "checked": 1792587155.7660637,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "362469": {
       "checked": 1792586760.6195798,
       "reason": "site reports invalid or unavailable novel access"
@@ -945712,6 +945788,10 @@
       "checked": 1792586731.4666703,
       "reason": "site reports this novel has been deleted"
     },
+    "364887": {
+      "checked": 1792587151.3056474,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "365339": {
       "checked": 1792586462.7533562,
       "reason": "site reports this novel has been deleted"
@@ -945723,6 +945803,10 @@
     "366135": {
       "checked": 1792586425.6060526,
       "reason": "site reports invalid or unavailable novel access"
+    },
+    "366451": {
+      "checked": 1792587166.808708,
+      "reason": "site reports this novel has been deleted"
     },
     "366717": {
       "checked": 1792586577.6365404,
@@ -945736,9 +945820,17 @@
       "checked": 1792586700.0504405,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "369556": {
+      "checked": 1792587161.4681544,
+      "reason": "site reports this novel has been deleted"
+    },
     "370065": {
       "checked": 1792586446.4576283,
       "reason": "site reports this novel has been deleted"
+    },
+    "370317": {
+      "checked": 1792587155.633709,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "370859": {
       "checked": 1792586620.7789497,
@@ -945804,6 +945896,10 @@
       "checked": 1792586556.8660417,
       "reason": "site reports this novel has been deleted"
     },
+    "378204": {
+      "checked": 1792587150.2005253,
+      "reason": "site reports this novel has been deleted"
+    },
     "378549": {
       "checked": 1792586606.4383123,
       "reason": "site reports invalid or unavailable novel access"
@@ -945860,6 +945956,10 @@
       "checked": 1792586669.4757552,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "384006": {
+      "checked": 1792587147.9888537,
+      "reason": "site reports this novel has been deleted"
+    },
     "384109": {
       "checked": 1792586715.775699,
       "reason": "site reports this novel has been deleted"
@@ -945907,6 +946007,10 @@
     "387630": {
       "checked": 1792586350.307943,
       "reason": "site reports invalid or unavailable novel access"
+    },
+    "387965": {
+      "checked": 1792587148.1750216,
+      "reason": "site reports this novel has been deleted"
     },
     "388063": {
       "checked": 1792586610.2726629,
@@ -946036,6 +946140,10 @@
       "checked": 1792586823.0206978,
       "reason": "site reports this novel has been deleted"
     },
+    "398301": {
+      "checked": 1792587179.5715063,
+      "reason": "site reports this novel has been deleted"
+    },
     "398559": {
       "checked": 1792586735.239829,
       "reason": "site reports this novel has been deleted"
@@ -946092,6 +946200,10 @@
       "checked": 1792586566.609586,
       "reason": "site reports this novel has been deleted"
     },
+    "403811": {
+      "checked": 1792587176.4177976,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "403851": {
       "checked": 1792586612.1058798,
       "reason": "site reports this novel has been deleted"
@@ -946107,6 +946219,10 @@
     "4041": {
       "checked": 1792586809.348992,
       "reason": "site reports this novel has been deleted"
+    },
+    "404104": {
+      "checked": 1792587156.364462,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "404417": {
       "checked": 1792586330.6863067,
@@ -946228,6 +946344,10 @@
       "checked": 1792586578.297917,
       "reason": "site reports this novel has been deleted"
     },
+    "410972": {
+      "checked": 1792587158.9007938,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "411011": {
       "checked": 1792586532.74344,
       "reason": "site reports this novel has been deleted"
@@ -946275,6 +946395,10 @@
     "412631": {
       "checked": 1792586559.1202245,
       "reason": "site reports invalid or unavailable novel access"
+    },
+    "412738": {
+      "checked": 1792587169.5913577,
+      "reason": "site reports this novel has been deleted"
     },
     "412921": {
       "checked": 1792586670.6724958,
@@ -946384,6 +946508,10 @@
       "checked": 1792586831.8076265,
       "reason": "site reports this novel has been deleted"
     },
+    "415569": {
+      "checked": 1792587164.1404197,
+      "reason": "site reports this novel has been deleted"
+    },
     "415693": {
       "checked": 1792586513.32913,
       "reason": "site reports invalid or unavailable novel access"
@@ -946402,6 +946530,10 @@
     },
     "416291": {
       "checked": 1792586646.619364,
+      "reason": "site reports invalid or unavailable novel access"
+    },
+    "416305": {
+      "checked": 1792587158.0730767,
       "reason": "site reports invalid or unavailable novel access"
     },
     "416318": {
@@ -946472,8 +946604,20 @@
       "checked": 1792586464.421559,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "419266": {
+      "checked": 1792587150.4720516,
+      "reason": "site reports this novel has been deleted"
+    },
     "419322": {
       "checked": 1792586481.8662448,
+      "reason": "site reports invalid or unavailable novel access"
+    },
+    "419324": {
+      "checked": 1792587169.4420748,
+      "reason": "site reports this novel has been deleted"
+    },
+    "419555": {
+      "checked": 1792587171.4194255,
       "reason": "site reports invalid or unavailable novel access"
     },
     "419586": {
@@ -946486,6 +946630,10 @@
     },
     "419681": {
       "checked": 1792586627.0989125,
+      "reason": "site reports this novel has been deleted"
+    },
+    "419846": {
+      "checked": 1792587174.6043508,
       "reason": "site reports this novel has been deleted"
     },
     "419972": {
@@ -946520,8 +946668,16 @@
       "checked": 1792586329.4568896,
       "reason": "site reports this novel has been deleted"
     },
+    "420398": {
+      "checked": 1792587148.057101,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "420626": {
       "checked": 1792586554.5613356,
+      "reason": "site reports this novel has been deleted"
+    },
+    "420689": {
+      "checked": 1792587181.1077652,
       "reason": "site reports this novel has been deleted"
     },
     "420810": {
@@ -946580,6 +946736,10 @@
       "checked": 1792586745.0661254,
       "reason": "site reports this novel has been deleted"
     },
+    "422247": {
+      "checked": 1792587154.7856417,
+      "reason": "site reports this novel has been deleted"
+    },
     "422477": {
       "checked": 1792586366.9417212,
       "reason": "site reports invalid or unavailable novel access"
@@ -946620,6 +946780,10 @@
       "checked": 1792586456.3996904,
       "reason": "site reports this novel has been deleted"
     },
+    "423437": {
+      "checked": 1792587153.3669417,
+      "reason": "site reports this novel has been deleted"
+    },
     "423598": {
       "checked": 1792586367.7224305,
       "reason": "site reports this novel has been deleted"
@@ -946630,6 +946794,10 @@
     },
     "423721": {
       "checked": 1792586685.844129,
+      "reason": "site reports this novel has been deleted"
+    },
+    "423752": {
+      "checked": 1792587174.5803375,
       "reason": "site reports this novel has been deleted"
     },
     "423772": {
@@ -946682,6 +946850,10 @@
     },
     "425146": {
       "checked": 1792586703.5531902,
+      "reason": "site reports this novel has been deleted"
+    },
+    "425316": {
+      "checked": 1792587170.2457008,
       "reason": "site reports this novel has been deleted"
     },
     "425339": {
@@ -946836,6 +947008,10 @@
       "checked": 1792586365.3592095,
       "reason": "site reports this novel has been deleted"
     },
+    "428795": {
+      "checked": 1792587165.747529,
+      "reason": "site reports this novel has been deleted"
+    },
     "428842": {
       "checked": 1792586502.417204,
       "reason": "site reports this novel has been deleted"
@@ -946846,6 +947022,10 @@
     },
     "428931": {
       "checked": 1792586438.3901067,
+      "reason": "site reports this novel has been deleted"
+    },
+    "428935": {
+      "checked": 1792587152.0553522,
       "reason": "site reports this novel has been deleted"
     },
     "428953": {
@@ -946862,6 +947042,10 @@
     },
     "429047": {
       "checked": 1792586489.696254,
+      "reason": "site reports this novel has been deleted"
+    },
+    "429071": {
+      "checked": 1792587177.608149,
       "reason": "site reports this novel has been deleted"
     },
     "429140": {
@@ -946950,6 +947134,10 @@
     },
     "429989": {
       "checked": 1792586461.740353,
+      "reason": "site reports this novel has been deleted"
+    },
+    "430081": {
+      "checked": 1792587165.4288726,
       "reason": "site reports this novel has been deleted"
     },
     "430207": {
@@ -947044,6 +947232,14 @@
       "checked": 1792586773.389243,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "432688": {
+      "checked": 1792587154.622985,
+      "reason": "site reports this novel has been deleted"
+    },
+    "432756": {
+      "checked": 1792587150.1771703,
+      "reason": "site reports this novel has been deleted"
+    },
     "432785": {
       "checked": 1792586787.932727,
       "reason": "site reports invalid or unavailable novel access"
@@ -947102,6 +947298,10 @@
     },
     "433528": {
       "checked": 1792586324.8191776,
+      "reason": "site reports this novel has been deleted"
+    },
+    "433556": {
+      "checked": 1792587151.8890562,
       "reason": "site reports this novel has been deleted"
     },
     "433584": {
@@ -947244,9 +947444,17 @@
       "checked": 1792586450.8026788,
       "reason": "site reports this novel has been deleted"
     },
+    "435379": {
+      "checked": 1792587162.7306628,
+      "reason": "site reports this novel has been deleted"
+    },
     "435404": {
       "checked": 1792586666.9604623,
       "reason": "site reports invalid or unavailable novel access"
+    },
+    "435613": {
+      "checked": 1792587156.5876682,
+      "reason": "site reports this novel has been deleted"
     },
     "435643": {
       "checked": 1792586694.1118312,
@@ -947274,6 +947482,10 @@
     },
     "4360": {
       "checked": 1792586759.477638,
+      "reason": "site reports this novel has been deleted"
+    },
+    "436007": {
+      "checked": 1792587151.9511662,
       "reason": "site reports this novel has been deleted"
     },
     "436069": {
@@ -947335,6 +947547,10 @@
     "436581": {
       "checked": 1792586369.3961105,
       "reason": "site reports this novel has been deleted"
+    },
+    "436589": {
+      "checked": 1792587164.9393387,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "436598": {
       "checked": 1792586724.3971362,
@@ -947426,6 +947642,10 @@
     },
     "437096": {
       "checked": 1792586333.508864,
+      "reason": "site reports this novel has been deleted"
+    },
+    "437141": {
+      "checked": 1792587163.6453576,
       "reason": "site reports this novel has been deleted"
     },
     "437152": {
@@ -947535,6 +947755,10 @@
     "440086": {
       "checked": 1792586444.5305772,
       "reason": "site reports this novel has been deleted"
+    },
+    "440156": {
+      "checked": 1792587168.9510434,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "440250": {
       "checked": 1792586627.0693018,
@@ -947787,6 +948011,10 @@
     "442104": {
       "checked": 1792586692.775385,
       "reason": "site reports this novel has been deleted"
+    },
+    "442105": {
+      "checked": 1792587149.717197,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "442107": {
       "checked": 1792586691.0597355,
@@ -948064,6 +948292,10 @@
       "checked": 1792586612.1950743,
       "reason": "site reports this novel has been deleted"
     },
+    "443485": {
+      "checked": 1792587179.6485739,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "443519": {
       "checked": 1792586746.3267536,
       "reason": "site reports invalid or unavailable novel access"
@@ -948103,6 +948335,14 @@
     "443858": {
       "checked": 1792586527.5779655,
       "reason": "site reports this novel has been deleted"
+    },
+    "443874": {
+      "checked": 1792587158.0402298,
+      "reason": "site reports this novel has been deleted"
+    },
+    "443914": {
+      "checked": 1792587164.065537,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "443983": {
       "checked": 1792586551.8325493,
@@ -948240,6 +948480,10 @@
       "checked": 1792586755.505852,
       "reason": "site reports this novel has been deleted"
     },
+    "445191": {
+      "checked": 1792587153.675037,
+      "reason": "site reports this novel has been deleted"
+    },
     "445206": {
       "checked": 1792586356.6840148,
       "reason": "site reports this novel has been deleted"
@@ -948275,6 +948519,10 @@
     "445425": {
       "checked": 1792586816.9613621,
       "reason": "site reports this novel has been deleted"
+    },
+    "445443": {
+      "checked": 1792587177.878996,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "445447": {
       "checked": 1792586597.2160442,
@@ -948532,8 +948780,16 @@
       "checked": 1792586651.3750527,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "447214": {
+      "checked": 1792587165.646523,
+      "reason": "site reports this novel has been deleted"
+    },
     "447272": {
       "checked": 1792586791.5903256,
+      "reason": "site reports this novel has been deleted"
+    },
+    "447277": {
+      "checked": 1792587167.5854037,
       "reason": "site reports this novel has been deleted"
     },
     "447302": {
@@ -948554,6 +948810,10 @@
     },
     "447416": {
       "checked": 1792586360.38618,
+      "reason": "site reports this novel has been deleted"
+    },
+    "447475": {
+      "checked": 1792587174.831801,
       "reason": "site reports this novel has been deleted"
     },
     "447515": {
@@ -948680,6 +948940,10 @@
       "checked": 1792586544.3306236,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "448570": {
+      "checked": 1792587176.4318187,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "448607": {
       "checked": 1792586777.74836,
       "reason": "site reports this novel has been deleted"
@@ -948740,6 +949004,10 @@
       "checked": 1792586531.978754,
       "reason": "site reports this novel has been deleted"
     },
+    "449229": {
+      "checked": 1792587170.913324,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "449253": {
       "checked": 1792586440.1941268,
       "reason": "site reports this novel has been deleted"
@@ -948754,6 +949022,10 @@
     },
     "449320": {
       "checked": 1792586533.0671458,
+      "reason": "site reports this novel has been deleted"
+    },
+    "449441": {
+      "checked": 1792587173.148704,
       "reason": "site reports this novel has been deleted"
     },
     "449468": {
@@ -948771,6 +949043,10 @@
     "449511": {
       "checked": 1792586735.4913988,
       "reason": "site reports this novel has been deleted"
+    },
+    "449563": {
+      "checked": 1792587167.7213314,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "449564": {
       "checked": 1792586614.0408788,
@@ -948836,6 +949112,10 @@
       "checked": 1792586506.9239368,
       "reason": "site reports this novel has been deleted"
     },
+    "450765": {
+      "checked": 1792587176.2527795,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "450779": {
       "checked": 1792586339.4445324,
       "reason": "site reports this novel has been deleted"
@@ -948862,6 +949142,10 @@
     },
     "451132": {
       "checked": 1792586633.335598,
+      "reason": "site reports this novel has been deleted"
+    },
+    "451315": {
+      "checked": 1792587162.0411582,
       "reason": "site reports this novel has been deleted"
     },
     "451345": {
@@ -948904,6 +949188,10 @@
       "checked": 1792586364.4791436,
       "reason": "site reports this novel has been deleted"
     },
+    "451757": {
+      "checked": 1792587159.9579523,
+      "reason": "site reports this novel has been deleted"
+    },
     "451805": {
       "checked": 1792586772.5821006,
       "reason": "site reports this novel has been deleted"
@@ -948936,6 +949224,10 @@
       "checked": 1792586750.3251843,
       "reason": "site reports this novel has been deleted"
     },
+    "53670": {
+      "checked": 1792587168.8577433,
+      "reason": "site reports this novel has been deleted"
+    },
     "56291": {
       "checked": 1792586745.5992205,
       "reason": "site reports this novel has been deleted"
@@ -948948,9 +949240,17 @@
       "checked": 1792586798.8294072,
       "reason": "site reports this novel has been deleted"
     },
+    "60994": {
+      "checked": 1792587173.3003333,
+      "reason": "site reports invalid or unavailable novel access"
+    },
     "62044": {
       "checked": 1792586552.659396,
       "reason": "site reports this novel has been deleted"
+    },
+    "6851": {
+      "checked": 1792587176.2893941,
+      "reason": "site reports invalid or unavailable novel access"
     },
     "68525": {
       "checked": 1792586735.650082,
@@ -948988,6 +949288,10 @@
       "checked": 1792586616.599144,
       "reason": "site reports invalid or unavailable novel access"
     },
+    "89300": {
+      "checked": 1792587172.6047482,
+      "reason": "site reports this novel has been deleted"
+    },
     "89685": {
       "checked": 1792586460.2303114,
       "reason": "site reports this novel has been deleted"
@@ -949007,11 +949311,11 @@
   },
   "r19_resolution_last_run": {
     "failed": 1,
-    "groups": 844,
-    "new_authors": 76,
-    "requests": 1097,
-    "resolved": 84,
-    "unavailable": 1009
+    "groups": 829,
+    "new_authors": 0,
+    "requests": 80,
+    "resolved": 0,
+    "unavailable": 76
   },
   "unresolved_names": {
     "._870": [
