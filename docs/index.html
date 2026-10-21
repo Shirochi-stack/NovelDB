@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=35">
+    <link rel="stylesheet" href="style.css?v=36">
 </head>
 
 <body>
@@ -30,7 +30,7 @@
                         <circle cx="11" cy="11" r="8" />
                         <path d="m21 21-4.3-4.3" />
                     </svg>
-                    <input type="text" id="searchInput" placeholder="Search by title, author, or ID..."
+                    <input type="text" id="searchInput" placeholder="Title, author or ID…" aria-label="Search by title, author, or ID"
                         autocomplete="off">
                 </div>
                 <div class="control-group source-control">
@@ -47,9 +47,44 @@
                         <option value="nseries" disabled>Nseries</option>
                     </select>
                 </div>
-                <div class="control-group sort-control">
-                    <label>Sort by</label>
-                    <select id="sortSelect">
+                <div class="control-group status-control">
+                    <label for="statusSelect">Status</label>
+                    <select id="statusSelect">
+                        <option value="all">All</option>
+                        <option value="ongoing">Ongoing</option>
+                        <option value="complete">Complete</option>
+                    </select>
+                </div>
+                <div class="control-group audience-control">
+                    <label for="audienceSelect">Audience</label>
+                    <select id="audienceSelect">
+                        <option value="all">All</option>
+                        <option value="general">General</option>
+                        <option value="adult">Adult Only (19+)</option>
+                        <option value="r15">Teen Only (R15+)</option>
+                    </select>
+                </div>
+                <div class="control-group order-control">
+                    <label for="orderSelect">Order</label>
+                    <select id="orderSelect">
+                        <option value="desc">Descending</option>
+                        <option value="asc">Ascending</option>
+                    </select>
+                </div>
+                <div class="secondary-controls">
+                    <div class="control-group batch-control">
+                        <label for="batchSelect">Per page</label>
+                        <select id="batchSelect">
+                            <option value="30" selected>30</option>
+                            <option value="60">60</option>
+                            <option value="90">90</option>
+                            <option value="120">120</option>
+                            <option value="250">250</option>
+                        </select>
+                    </div>
+                    <div class="control-group sort-control">
+                        <label for="sortSelect">Sort by</label>
+                        <select id="sortSelect">
                         <option value="daily">Daily Rank</option>
                         <option value="weekly">Weekly Rank</option>
                         <option value="monthly">Monthly Rank</option>
@@ -67,78 +102,40 @@
                         <option value="metric:downloads">Downloads</option>
                         <option value="updated">Last Updated</option>
                         <option value="title">Title</option>
-                    </select>
-                </div>
-                <div class="control-group">
-                    <label>Audience</label>
-                    <select id="audienceSelect">
-                        <option value="all">All</option>
-                        <option value="general">General</option>
-                        <option value="adult">Adult Only (19+)</option>
-                        <option value="r15">Teen Only (R15+)</option>
-                    </select>
-                </div>
-                <div class="control-group">
-                    <label>Order</label>
-                    <select id="orderSelect">
-                        <option value="desc">Descending</option>
-                        <option value="asc">Ascending</option>
-                    </select>
-                </div>
-                <div class="control-group">
-                    <label>Per page</label>
-                    <select id="batchSelect">
-                        <option value="30" selected>30</option>
-                        <option value="60">60</option>
-                        <option value="90">90</option>
-                        <option value="120">120</option>
-                        <option value="250">250</option>
-                    </select>
-                </div>
-                <div class="control-group">
-                    <label>Status</label>
-                    <select id="statusSelect">
-                        <option value="all">All</option>
-                        <option value="ongoing">Ongoing</option>
-                        <option value="complete">Complete</option>
-                    </select>
-                </div>
-
-            </div>
-
-            <div class="site-settings">
-                <div class="image-compression">
-                    <label class="description-toggle"><input type="checkbox" id="loadDescriptions" checked> Load Synopsis</label>
-                    <label class="description-toggle" title="Use smaller WebP card images. Turn off to display the original images."><input type="checkbox" id="lowResCovers" checked> Image Compression</label>
-                    <label class="compression-quality" title="Card-image resolution: lower values use less memory. 100 keeps the 320 × 480 maximum. Details and downloads use the original image."><span>Resolution</span> <input type="range" id="imageResolution" aria-label="Card image resolution" min="20" max="100" step="1" value="72"><output id="imageResolutionValue" for="imageResolution">72%</output></label>
-                    <label class="compression-quality" title="WebP encoding quality: lower values make smaller files without changing the card image's pixel dimensions."><span>WebP Quality</span> <input type="range" id="imageQuality" aria-label="WebP quality" min="20" max="100" step="1" value="72"><output id="imageQualityValue" for="imageQuality">72%</output></label>
-                </div>
-                <button type="button" id="clearCache" class="clear-btn" title="Clear unused downloaded data. The current page and your settings are kept.">Clear cache</button>
-                <span id="cacheStatus" role="status"></span>
-            </div>
-
-            <!-- Tag Filters -->
-            <div class="tag-section">
-                <div class="tag-header" id="tagToggle" style="cursor:pointer">
-                    <span>▶ Filter by tags</span>
-                    <div class="tag-mode">
-                        <button id="tagModeAnd" class="mode-btn active">AND</button>
-                        <button id="tagModeOr" class="mode-btn">OR</button>
+                        </select>
                     </div>
+                    <div class="control-group settings-control">
+                        <span class="settings-label" aria-hidden="true">Settings</span>
+                        <button type="button" id="settingsButton" title="Settings" aria-label="Settings" aria-haspopup="dialog"
+                            aria-controls="siteSettingsDialog" aria-expanded="false"><span aria-hidden="true">⚙</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tag-toolbar">
+                <button type="button" class="tag-toggle" id="tagToggle" aria-controls="includeTagsPanel" aria-expanded="false"><span>＋ Tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
+                <button type="button" class="tag-toggle exclude-toggle" id="excludeToggle" aria-controls="excludeTagsPanel" aria-expanded="false"><span>− Tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
+                <div class="tag-mode" aria-label="Tag match mode">
+                    <button id="tagModeAnd" class="mode-btn active" aria-pressed="true">AND</button>
+                    <button id="tagModeOr" class="mode-btn" aria-pressed="false">OR</button>
+                </div>
+            </div>
+            <div id="activeTagsSummary" class="active-tags-summary"></div>
+            <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
+            <div class="tag-section tag-panel" id="includeTagsPanel" hidden>
+                <div class="tag-header">
+                    <span>Include tags</span>
                     <button id="clearTags" class="clear-btn">Clear</button>
                 </div>
-                <div id="activeTagsSummary" class="active-tags-summary"></div>
                 <input type="text" id="tagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
                 <div id="tagContainer" class="tag-grid collapsed"></div>
             </div>
 
-            <!-- Exclude Tag Filters -->
-            <div class="tag-section exclude-section">
-                <div class="tag-header" id="excludeToggle" style="cursor:pointer">
-                    <span>▶ Exclude tags</span>
+            <div class="tag-section tag-panel exclude-section" id="excludeTagsPanel" hidden>
+                <div class="tag-header">
+                    <span>Exclude tags</span>
                     <button id="clearExclude" class="clear-btn">Clear</button>
                 </div>
-                <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
                 <input type="text" id="excludeTagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
                 <div id="excludeTagContainer" class="tag-grid collapsed"></div>
             </div>
@@ -155,30 +152,43 @@
 
         <!-- Results -->
         <div id="paginationTop" class="pagination" role="navigation" aria-label="Top page navigation" style="display:none">
-            <button class="page-btn prev-page">← Prev</button>
+            <button class="page-btn prev-page" aria-label="Previous page" title="Previous page">‹</button>
             <div class="page-numbers"></div>
-            <div class="page-jump"><input type="number" class="page-input" min="1" inputmode="numeric" aria-label="Page number" placeholder="#"><button
-                    class="page-btn go-page">Go</button></div>
-            <button class="page-btn next-page">Next →</button>
+            <div class="page-jump"><input type="number" class="page-input" min="1" step="1" inputmode="numeric" enterkeyhint="go" aria-label="Page number" title="Enter a page number and press Enter or Go" placeholder="#"></div>
+            <button class="page-btn next-page" aria-label="Next page" title="Next page">›</button>
         </div>
         <section id="results" class="results-grid"></section>
 
         <!-- Pagination -->
         <div id="paginationBottom" class="pagination" role="navigation" aria-label="Bottom page navigation" style="display:none">
-            <button class="page-btn prev-page">← Prev</button>
+            <button class="page-btn prev-page" aria-label="Previous page" title="Previous page">‹</button>
             <div class="page-numbers"></div>
-            <div class="page-jump"><input type="number" class="page-input" min="1" inputmode="numeric" aria-label="Page number" placeholder="#"><button
-                    class="page-btn go-page">Go</button></div>
-            <button class="page-btn next-page">Next →</button>
+            <div class="page-jump"><input type="number" class="page-input" min="1" step="1" inputmode="numeric" enterkeyhint="go" aria-label="Page number" title="Enter a page number and press Enter or Go" placeholder="#"></div>
+            <button class="page-btn next-page" aria-label="Next page" title="Next page">›</button>
         </div>
     </main>
 
+    <dialog id="siteSettingsDialog" class="site-settings-dialog" aria-labelledby="siteSettingsTitle">
+        <div class="settings-drag-handle" aria-hidden="true"></div>
+        <div class="settings-header"><h2 id="siteSettingsTitle">Settings</h2><button type="button" id="closeSettings" aria-label="Close Settings">×</button></div>
+        <div class="site-settings">
+            <div class="image-compression">
+                <label class="description-toggle"><input type="checkbox" id="loadDescriptions" checked> Load Synopsis</label>
+                <label class="description-toggle" title="Use smaller WebP card images. Turn off to display the original images."><input type="checkbox" id="lowResCovers" checked> Image Compression</label>
+                <label class="compression-quality" title="Card-image resolution: lower values use less memory. 100 keeps the 320 × 480 maximum. Details and downloads use the original image."><span>Resolution</span> <input type="range" id="imageResolution" aria-label="Card image resolution" min="20" max="100" step="1" value="72"><output id="imageResolutionValue" for="imageResolution">72%</output></label>
+                <label class="compression-quality" title="WebP encoding quality: lower values make smaller files without changing the card image's pixel dimensions."><span>WebP Quality</span> <input type="range" id="imageQuality" aria-label="WebP quality" min="20" max="100" step="1" value="72"><output id="imageQualityValue" for="imageQuality">72%</output></label>
+            </div>
+            <button type="button" id="clearCache" class="clear-btn" title="Clear unused downloaded data. The current page and your settings are kept.">Clear cache</button>
+            <span id="cacheStatus" role="status"></span>
+        </div>
+    </dialog>
+
     <script src="metadata-core.js?v=10"></script>
-    <script src="source-picker.js?v=2"></script>
+    <script src="source-picker.js?v=3"></script>
     <script src="cover-loader.js?v=8"></script>
     <script src="cover-save.js?v=8"></script>
     <script src="site-tools.js?v=6"></script>
-    <script src="app.js?v=61"></script>
+    <script src="app.js?v=62"></script>
 </body>
 
 </html>

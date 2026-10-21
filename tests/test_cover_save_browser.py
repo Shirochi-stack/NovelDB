@@ -9,7 +9,7 @@ import pytest
 from PIL import Image, ImageDraw
 from playwright.async_api import async_playwright
 
-from test_metadata_frontend_browser import FixtureSite, SOURCES, row, wait_loaded
+from test_metadata_frontend_browser import open_settings, close_settings, FixtureSite, SOURCES, row, wait_loaded
 
 
 def image_bytes(fmt):
@@ -238,9 +238,9 @@ def test_mobile_details_and_settings_fit_small_phones_without_outer_scrolling():
                 await page.set_viewport_size({'width':width,'height':height})
                 await page.evaluate('scrollTo({top:0,behavior:"instant"})')
                 assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-                assert await page.locator('.site-settings').evaluate('el=>el.getBoundingClientRect().height<140')
+                assert not await page.locator('#siteSettingsDialog').evaluate('dialog=>dialog.open')
                 assert await page.locator('.search-row').evaluate('el=>el.getBoundingClientRect().height<230')
-                positions=await page.locator('#sourcePickerButton,#sortSelect').evaluate_all('nodes=>nodes.map(n=>n.getBoundingClientRect().top)')
+                positions=await page.locator('#sourcePickerButton,#statusPickerButton').evaluate_all('nodes=>nodes.map(n=>n.getBoundingClientRect().top)')
                 assert abs(positions[0]-positions[1])<2
                 if width in (320,390):await page.screenshot(path=f'artifacts/compact-settings-{width}.png')
                 badge=page.locator('.cover-details').first
@@ -342,11 +342,15 @@ def test_resolution_and_webp_quality_are_independent_without_flicker_and_persist
             if readable: assert sizes[0]<sizes[1]<sizes[2]
             await adjust('imageResolution',50)
             assert await page.locator('#imageQuality').input_value()=='100'
+            await open_settings(page)
             await page.locator('.image-compression').screenshot(path=f'artifacts/separate-image-sliders-{readable}.png')
+            await close_settings(page)
             await page.reload();await wait_loaded(page)
             assert await page.locator('#imageResolution').input_value()=='50'
             assert await page.locator('#imageQuality').input_value()=='100'
+            await open_settings(page)
             await page.locator('#lowResCovers').uncheck()
+            await close_settings(page)
             for ident in ('imageResolution','imageQuality'):assert await page.locator('#'+ident).is_disabled()
             await page.reload();await wait_loaded(page)
             assert not await page.locator('#lowResCovers').is_checked()

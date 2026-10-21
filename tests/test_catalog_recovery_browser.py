@@ -11,7 +11,7 @@ from playwright.async_api import async_playwright
 
 from test_catalog_previews import PreviewSite, previews
 from test_catalog_worker_browser import BOOT
-from test_metadata_frontend_browser import FixtureSite, row, wait_loaded
+from test_metadata_frontend_browser import open_settings, close_settings, FixtureSite, row, wait_loaded
 
 
 def test_cover_toggle_keeps_ready_pixels_while_replacement_is_blocked():
@@ -38,13 +38,17 @@ def test_cover_toggle_keeps_ready_pixels_while_replacement_is_blocked():
                 await page.locator('.card-cover.loaded').wait_for()
                 await page.evaluate('window.card=document.querySelector(".novel-card");window.cover=card.querySelector(".card-cover")')
                 release.clear(); started.clear()
+                await open_settings(page)
                 await page.locator('#lowResCovers').uncheck()
+                await close_settings(page)
                 await asyncio.wait_for(started.wait(), 5)
                 assert await page.evaluate('cover.isConnected && cover.classList.contains("loaded") && getComputedStyle(cover).opacity==="1"')
                 assert await page.evaluate('card===document.querySelector(".novel-card") && getComputedStyle(cover).transitionDuration==="0s"')
                 release.set()
                 await page.wait_for_function('document.querySelector(".card-cover-wrap > .card-cover")?.naturalWidth===800')
+                await open_settings(page)
                 await page.locator('#loadDescriptions').uncheck()
+                await close_settings(page)
                 assert await page.evaluate('card===document.querySelector(".novel-card")')
                 # Rapid changes cancel obsolete replacements without blanking.
                 await page.evaluate('NovelCovers.setLowResolution(true);NovelCovers.setLowResolution(false);NovelCovers.setLowResolution(true)')
@@ -223,11 +227,13 @@ def test_cache_cleanup_watchdog_keeps_page_and_reenables_controls():
                 };
                 window.setTimeout=(fn,ms,...args)=>savedTimeout(fn,ms===40000 ? 20 : ms,...args);
             }''')
+            await open_settings(page)
             await page.locator('#clearCache').click()
             await page.wait_for_function('document.querySelector("#cacheStatus").textContent.includes("timed out")')
             assert await page.evaluate('cleanupTerminated && card===document.querySelector(".novel-card")')
             assert not await page.locator('#clearCache').is_disabled()
             await page.evaluate('window.Worker=savedWorker;window.setTimeout=savedTimeout')
+            await close_settings(page)
             await page.select_option('#sourceSelect','sfc')
             await wait_loaded(page)
             assert await page.locator('.novel-card').get_attribute('data-source') == 'sfc'
