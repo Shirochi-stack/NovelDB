@@ -10,6 +10,11 @@ from npia_author_catalog import author_id
 from scripts import source_names
 
 DELETED_IDENTITY_REASON = 'site reports this novel has been deleted'
+MISSING_IDENTITY_REASON = 'site reports this work does not exist'
+
+
+def is_confirmed_deleted(entry):
+    return entry.get('reason') in (DELETED_IDENTITY_REASON, MISSING_IDENTITY_REASON)
 
 
 def is_deleted(novel):
@@ -26,7 +31,7 @@ def preserve_deleted_tags(registry, rows=(), full=()):
     """Keep every record and mark confirmed deletions in both saved formats."""
     rows = list(rows)
     deleted = {nid for nid, entry in registry.get('r19_identity_unavailable', {}).items()
-               if entry.get('reason') == DELETED_IDENTITY_REASON}
+               if is_confirmed_deleted(entry)}
     deleted.update(str(row[0]) for row in rows if len(row) > 4 and is_deleted({'tags': row[4]}))
     counts = dict(compact=0, full=0)
 
@@ -280,7 +285,7 @@ def identity_candidates(registry, ids, failures=None, now=None):
     unavailable = registry.get('r19_identity_unavailable', {})
     deleted = set(registry.get('catalog_deleted_novel_ids', []))
     return [nid for nid in ids if nid not in deleted and
-            unavailable.get(nid, {}).get('reason') != DELETED_IDENTITY_REASON and failures.get(nid, 0) < 3 and
+            not is_confirmed_deleted(unavailable.get(nid, {})) and failures.get(nid, 0) < 3 and
             now - unavailable.get(nid, {}).get('checked', -float('inf')) >= 7 * 86400]
 
 

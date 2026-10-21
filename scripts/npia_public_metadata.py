@@ -37,6 +37,8 @@ def parse_detail(html, nid):
         alert = soup.select_one('#alert_modal')
         if alert and re.search(r'\uC0AD\uC81C\uB41C\s*\uC18C\uC124', alert.get_text(' ', strip=True)):
             raise PublicDetailUnavailable('site reports this novel has been deleted')
+        if alert and re.search(r'\uC874\uC7AC\uD558\uC9C0\s*\uC54A\uB294\s*\uC791\uD488', alert.get_text(' ', strip=True)):
+            raise PublicDetailUnavailable('site reports this work does not exist')
         if alert and '\uC798\uBABB\uB41C \uC811\uADFC' in alert.get_text(' ', strip=True):
             raise PublicDetailUnavailable('site reports invalid or unavailable novel access')
         raise ValueError("public detail metadata unavailable")

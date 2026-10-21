@@ -2,6 +2,7 @@
 import importlib
 import io
 import json
+from pathlib import Path
 import sys
 import threading
 from types import SimpleNamespace
@@ -223,7 +224,7 @@ def test_pre_upgrade_complete_sweep_still_resolves_missing_author_in_main(tmp_pa
     result = authors.load(data / 'npia_authors.json')
     assert result['r19']['authors']['50169']['verified_novel_ids'] == ['2910', '449004']
     sweep = json.loads((data / 'npia_public_state.json').read_text(encoding='utf-8'))['author_sweep']
-    assert sweep['id'] == 'legacy' and sweep['complete'] and sweep['resolution_version'] == 1
+    assert sweep['id'] == 'legacy' and sweep['complete'] and sweep['resolution_version'] == identities.RESOLUTION_VERSION
 
 
 def deleted(nid):
@@ -348,3 +349,60 @@ def test_earlier_listing_cannot_undo_a_later_deleted_response_in_same_pass():
     assert authors.identity_candidates(registry, ['1'], now=201) == []
     authors.record_live_novels(registry, fresh, now=201)
     assert authors.identity_candidates(registry, ['1'], now=201) == ['1']
+
+
+def test_missing_work_notice_requires_matching_canonical_url():
+    html = (Path(__file__).parent / 'fixtures/metadata/npia/missing-work.html').read_text(encoding='utf-8')
+    with pytest.raises(identities.IdentityUnavailable, match='work does not exist'):
+        identities.parse_identity(html, '382205')
+    with pytest.raises(ValueError) as error:
+        identities.parse_identity(html, '382206')
+    assert not isinstance(error.value, identities.IdentityUnavailable)
+
+
+def test_parser_upgrade_reopens_exhausted_missing_work_once_and_preserves_completed_catalogs(tmp_path, monkeypatch):
+    scraper = scraper_module()
+    data = tmp_path / 'docs' / 'data'
+    data.mkdir(parents=True)
+    rows = [row(382205), row(2, 'Known')]
+    rows[0][4] = ['Fantasy']
+    rows = [entry + [0]*8 for entry in rows]
+    registry = registry_for(rows)
+    authors.observe(registry, [dict(id=2, author='Known', author_id='42', age=19)])
+    authors.save(data / 'npia_authors.json', registry)
+    full = [dict(id=382205, title='Saved title', author='Writer', cover='cover',
+                 tags=['Fantasy'], synopsis='Saved synopsis', age=19)]
+    (data / 'novels.json').write_text(json.dumps(rows), encoding='utf-8')
+    (data / 'novels_full.json').write_text(json.dumps(full), encoding='utf-8')
+    (data / 'npia_public_state.json').write_text(json.dumps({'author_sweep': dict(
+        id='saved', completed=['42'], failures={}, resolution_version=1,
+        resolution_failures={'382205':3})}), encoding='utf-8')
+    html = (Path(__file__).parent / 'fixtures/metadata/npia/missing-work.html').read_text(encoding='utf-8')
+    calls = []
+    def get(url, **kwargs):
+        if '/novel/' in url:
+            calls.append(url)
+            assert url.endswith('/382205')
+            return response(html)
+        return response('')
+    def post(*args, **kwargs):
+        pytest.fail('Completed author catalog was repeated')
+    monkeypatch.setattr(scraper.requests, 'Session', lambda: SimpleNamespace(headers={}, get=get, post=post))
+    monkeypatch.setattr(scraper, '__file__', str(tmp_path / 'scripts' / 'rescrape_npia_noauth.py'))
+    monkeypatch.setattr(identities.random, 'uniform', lambda *args: 0)
+    monkeypatch.setattr(sys, 'argv', ['scraper','--author-sweep-id','saved','--intro-requests','0'])
+    for _ in range(2):
+        scraper.main()
+        state = json.loads((data / 'npia_public_state.json').read_text(encoding='utf-8'))
+        sweep = state['author_sweep']
+        assert sweep['completed'] == ['42'] and not sweep['continuation_required']
+        assert sweep['remaining'] == sweep['remaining_unavailable_identities'] == 1
+        assert sweep['resolution_version'] == identities.RESOLUTION_VERSION
+        assert '382205' not in sweep['resolution_failures']
+    assert calls == [identities.ORIGIN + '/novel/382205']
+    rows[0][4].append('deleted');full[0]['tags'].append('deleted')
+    assert json.loads((data / 'novels.json').read_text(encoding='utf-8')) == rows
+    assert json.loads((data / 'novels_full.json').read_text(encoding='utf-8')) == full
+    saved = authors.load(data / 'npia_authors.json')
+    assert saved['r19_identity_unavailable']['382205']['reason'] == authors.MISSING_IDENTITY_REASON
+    assert authors.identity_candidates(saved, ['382205'], now=10**12) == []

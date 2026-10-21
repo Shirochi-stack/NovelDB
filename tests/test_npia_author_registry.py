@@ -292,7 +292,8 @@ def test_offline_registry_refresh_never_opens_account_config_or_uses_http(tmp_pa
     assert result['r19']['authors']['42']['name'] == 'Writer'
 
 
-def test_confirmed_deletions_keep_all_fields_and_tags_without_marking_access_errors():
+@pytest.mark.parametrize('reason', [registry.DELETED_IDENTITY_REASON, registry.MISSING_IDENTITY_REASON])
+def test_confirmed_deletions_keep_all_fields_and_tags_without_marking_access_errors(reason):
     import copy
     rows = [[nid, 'Saved title', 'Writer', 'cover', ['Fantasy'], 12, 3, 4, 0, 'date', 0, 19]
             for nid in (1, 2)]
@@ -300,7 +301,7 @@ def test_confirmed_deletions_keep_all_fields_and_tags_without_marking_access_err
                  synopsis='Saved synopsis', views=12, likes=3, age=19) for nid in (1, 2)]
     before_rows, before_full = copy.deepcopy(rows), copy.deepcopy(full)
     data = {'r19_identity_unavailable': {
-        '1': dict(reason=registry.DELETED_IDENTITY_REASON, checked=1),
+        '1': dict(reason=reason, checked=1),
         '2': dict(reason='site reports invalid or unavailable novel access', checked=1)}}
     assert registry.preserve_deleted_tags(data, rows, full) == dict(compact=1, full=1)
     before_rows[0][4].append('deleted');before_full[0]['tags'].append('deleted')
