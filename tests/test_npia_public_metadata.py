@@ -39,8 +39,10 @@ def test_detail_rejects_other_id_and_unavailable_metadata():
     assert public.parse_detail(detail(adult=False), "123") is None
 
 
-def test_invalid_access_detail_is_reported_as_unavailable_without_an_error(capsys):
-    unavailable = '<div id="alert_modal">\uC798\uBABB\uB41C \uC811\uADFC\uC785\uB2C8\uB2E4.</div>'
+@pytest.mark.parametrize('notice', ['\uC798\uBABB\uB41C \uC811\uADFC\uC785\uB2C8\uB2E4.',
+                                    '\uC0AD\uC81C\uB41C \uC18C\uC124 \uC785\uB2C8\uB2E4.'])
+def test_invalid_access_detail_is_reported_as_unavailable_without_an_error(capsys, notice):
+    unavailable = f'<div id="alert_modal">{notice}</div>'
     session = Session({'/novel/224': unavailable})
     fresh = {'224': {'title': 'Retained'}}
     state = public.enrich(session, fresh, [row(224)], {}, {'pending': ['224']},

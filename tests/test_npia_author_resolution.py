@@ -224,3 +224,74 @@ def test_pre_upgrade_complete_sweep_still_resolves_missing_author_in_main(tmp_pa
     assert result['r19']['authors']['50169']['verified_novel_ids'] == ['2910', '449004']
     sweep = json.loads((data / 'npia_public_state.json').read_text(encoding='utf-8'))['author_sweep']
     assert sweep['id'] == 'legacy' and sweep['complete'] and sweep['resolution_version'] == 1
+
+
+def deleted(nid):
+    return (f'<meta property="og:url" content="/novel/{nid}">'
+            '<div id="alert_modal">\uC0AD\uC81C\uB41C \uC18C\uC124 \uC785\uB2C8\uB2E4.</div>')
+
+
+@pytest.mark.parametrize('nid', ['436480', '121214'])
+def test_explicit_deleted_notice_does_not_retry_or_lose_existing_metadata(nid, tmp_path):
+    registry = registry_for([row(int(nid))])
+    calls, logs, failures = [], [], {nid: 2}
+    session = SimpleNamespace(get=lambda url, **kw: calls.append(url) or response(deleted(nid)))
+    stats = identities.resolve_missing(session, registry, failures=failures,
+        delay=0, delay_max=0, log=logs.append)
+    assert stats['requests'] == stats['unavailable'] == 1 and stats['failed'] == 0
+    assert not failures and authors.unresolved_r19_groups(registry) == [('Writer', [nid])]
+    path = tmp_path / 'registry.json'
+    authors.save(path, registry)
+    restored = authors.load(path)
+    result = identities.resolve_missing(session, restored, delay=0, delay_max=0, log=logs.append)
+    assert result['requests'] == 0 and len(calls) == 1
+    assert any('has been deleted' in log for log in logs)
+    checked = restored['r19_identity_unavailable'][nid]['checked']
+    assert authors.identity_candidates(restored, [nid], now=checked + 7 * 86400) == [nid]
+
+
+def test_deleted_representative_tries_next_known_novel_in_same_pass():
+    registry = registry_for([row(1), row(2)])
+    calls = []
+    def get(url, **kwargs):
+        calls.append(url)
+        nid = url.rsplit('/', 1)[1]
+        return response(deleted(nid) if nid == '1' else detail(nid))
+    stats = identities.resolve_missing(SimpleNamespace(get=get), registry, delay=0, delay_max=0, log=lambda _: None)
+    assert stats['requests'] == 2 and stats['resolved'] == stats['unavailable'] == 1
+    assert registry['authors']['50169']['novel_ids'] == ['2']
+    assert authors.unresolved_r19_groups(registry) == [('Writer', ['1', '2'])]
+
+
+@pytest.mark.parametrize('status', [404, 410])
+def test_missing_http_status_is_not_retried(status):
+    registry = registry_for([row(1)])
+    stats = identities.resolve_missing(SimpleNamespace(get=lambda *a, **kw: response('', status)),
+        registry, delay=0, delay_max=0, log=lambda _: None)
+    assert stats['requests'] == stats['unavailable'] == 1 and stats['failed'] == 0
+
+
+@pytest.mark.parametrize('html', [deleted(2), detail(1).replace('Writer', '\uC0AD\uC81C\uB41C \uC18C\uC124'),
+    '<meta property="og:url" content="/novel/1"><p>Login required</p>',
+    '<meta property="og:url" content="/novel/1"><p>\uC0AD\uC81C\uB41C \uC18C\uC124</p>'])
+def test_only_matching_novel_access_notice_is_terminal(html):
+    try:
+        result = identities.parse_identity(html, '1')
+        assert result['author_id'] == '50169'
+    except ValueError as error:
+        assert not isinstance(error, identities.IdentityUnavailable)
+
+
+def test_workflow_keeps_deleted_groups_visible_without_automatic_retry_loop():
+    scraper = scraper_module()
+    registry = registry_for([row(1)])
+    state, fresh = {}, {'1': dict(title='Retained', synopsis='Keep')}
+    session = SimpleNamespace(get=lambda *a, **kw: response(deleted(1)))
+    for _ in range(2):
+        scraper.enrich_author_catalogs(session, fresh, {}, state, registry=registry, delay=0,
+            resolve_identities=True)
+        sweep = state['author_sweep']
+        assert not sweep['complete'] and not sweep['continuation_required']
+        assert sweep['remaining'] == sweep['remaining_unavailable_identities'] == 1
+        assert fresh == {'1': dict(title='Retained', synopsis='Keep')}
+    assert state['author_last_run']['identity_requests'] == 0

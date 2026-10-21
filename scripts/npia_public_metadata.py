@@ -35,6 +35,8 @@ def parse_detail(html, nid):
     info = soup.select_one(".epnew-novel-info")
     if not info:
         alert = soup.select_one('#alert_modal')
+        if alert and re.search(r'\uC0AD\uC81C\uB41C\s*\uC18C\uC124', alert.get_text(' ', strip=True)):
+            raise PublicDetailUnavailable('site reports this novel has been deleted')
         if alert and '\uC798\uBABB\uB41C \uC811\uADFC' in alert.get_text(' ', strip=True):
             raise PublicDetailUnavailable('site reports invalid or unavailable novel access')
         raise ValueError("public detail metadata unavailable")

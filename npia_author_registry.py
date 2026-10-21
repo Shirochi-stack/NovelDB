@@ -204,6 +204,15 @@ def unresolved_r19_groups(registry, failures=None):
             for name, ids in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))]
 
 
+def identity_candidates(registry, ids, failures=None, now=None):
+    """Keep blocked novels registered, but retry explicit access notices after a week."""
+    now = time.time() if now is None else now
+    failures = failures or {}
+    unavailable = registry.get('r19_identity_unavailable', {})
+    return [nid for nid in ids if failures.get(nid, 0) < 3 and
+            now - unavailable.get(nid, {}).get('checked', -float('inf')) >= 7 * 86400]
+
+
 def seed_catalog_names(registry, rows):
     """Keep legacy names without inventing IDs or treating names as unique identities."""
     assigned = {nid for entry in registry["authors"].values() for nid in entry["novel_ids"]}
