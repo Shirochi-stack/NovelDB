@@ -41,7 +41,8 @@ jobs:
       - name: Rescrape Npia metadata and resolve missing R19 authors
         env:
           AUTHOR_SWEEP_ID: ${{ inputs.author_sweep_id }}
-          NPIA_METADATA_LOGINKEY: ${{ secrets.NPIA_METADATA_LOGINKEY }}
+          NPIA_METADATA_EMAIL: ${{ secrets.NPIA_METADATA_EMAIL }}
+          NPIA_METADATA_PASSWORD: ${{ secrets.NPIA_METADATA_PASSWORD }}
         run: |
           CONTINUE_ARGS=()
           if [ -n "$AUTHOR_SWEEP_ID" ]; then
