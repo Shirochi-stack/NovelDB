@@ -1,7 +1,7 @@
-"""Full Npia metadata rescrape, anonymous unless an optional environment key is supplied.
+"""Full Npia metadata rescrape with optional dedicated-account password login.
 
-NPIA_METADATA_LOGINKEY restores the dedicated metadata account session without
-reading account configuration or requesting age verification.
+NPIA_METADATA_EMAIL and NPIA_METADATA_PASSWORD establish a fresh account session
+once per run, without reading account configuration or requesting age verification.
 
 Merges freshly scraped data into the existing novels.json, preserving every
 existing unique novel ID that is not present in the latest scrape.
@@ -31,7 +31,7 @@ except ImportError:
     from npia_rankings import scrape_ranking, collect_rankings, patch_ranks
 
 
-import sys, os, json, time, re, argparse, requests, uuid
+import sys, os, json, time, re, argparse, requests, uuid, copy, secrets
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -125,17 +125,53 @@ def extract_novel(item):
     }
 
 
-def make_search_session():
-    """Use the optional metadata account key for every search and catalog worker."""
+def make_search_session(source=None):
+    """Clone the run's authenticated session; workers never log in individually."""
     session = requests.Session()
     session.headers.update(HEADERS)
-    key = os.environ.get('NPIA_METADATA_LOGINKEY', '').strip()
-    if key:
-        if '\r' in key or '\n' in key:
-            raise ValueError('Metadata session key must be a single value')
-        session.cookies.set('LOGINKEY', key,
-            domain='\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com', path='/', secure=True)
+    if source is not None:
+        session.headers.update(source.headers)
+        session.cookies = copy.deepcopy(source.cookies)
+        for name in ('auth', 'proxies', 'params', 'verify', 'cert', 'trust_env'):
+            setattr(session, name, copy.copy(getattr(source, name)))
     return session
+
+
+def login_metadata_session(session, *, retries=4, sleep=time.sleep):
+    """Log in once with environment credentials, verifying the returned account state."""
+    email = os.environ.get('NPIA_METADATA_EMAIL', '').strip()
+    password = os.environ.get('NPIA_METADATA_PASSWORD', '')
+    if not email and not password:
+        return False
+    if not email or not password:
+        raise RuntimeError('Both metadata email and password secrets are required')
+    for attempt in range(1, retries + 1):
+        # This is a newly generated client key, not a stored account-session key.
+        session.cookies.set('LOGINKEY', secrets.token_hex(16) + '_' + secrets.token_hex(16),
+            domain='\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com', path='/', secure=True)
+        try:
+            response = session.post(COVER_PREFIX + '/proc/login',
+                data={'redirectrurl': '', 'email': email, 'wd': password}, timeout=30,
+                allow_redirects=False, headers={'Origin': COVER_PREFIX, 'Referer': COVER_PREFIX + '/login',
+                                               'X-Requested-With': 'XMLHttpRequest'})
+            if response.status_code == 429 or response.status_code >= 500 or not response.text.strip():
+                raise ValueError('login service temporarily unavailable')
+            if response.status_code not in (200, 302, 303):
+                raise PermissionError('login request rejected')
+            check = session.get(COVER_PREFIX + '/search', timeout=30, allow_redirects=False)
+            if check.status_code == 429 or check.status_code >= 500 or not check.text.strip():
+                raise ValueError('account verification temporarily unavailable')
+            if check.status_code != 200 or not re.search(r'''\bmem_no\s*=\s*['"]?[1-9]\d*['"]?\s*;''', check.text):
+                raise PermissionError('account session not established')
+            return True
+        except PermissionError:
+            raise RuntimeError('Metadata account login was rejected or requires an interactive check') from None
+        except Exception:
+            # Never include response bodies, exception text, email, or password.
+            print(f'Metadata login attempt {attempt}/{retries} temporarily failed', flush=True)
+            if attempt == retries:
+                raise RuntimeError('Metadata account login unavailable after retries') from None
+            sleep(min(2 ** (attempt - 1), 8))
 
 
 def get_json_with_retry(session, params, retries, timeout=120):
@@ -152,7 +188,7 @@ def search_novels(session, search_val, retries, search_type="all"):
     return paginated_search(lambda query: get_json_with_retry(session, query, retries), params)
 
 
-def fetch_terms(label, terms, workers, retries, delay):
+def fetch_terms(label, terms, workers, retries, delay, session=None):
     results = {}
     workers = max(1, workers)
     print(f"--- {label}: {len(terms)} terms ({workers} workers, {delay}s stagger) ---", flush=True)
@@ -176,7 +212,8 @@ def fetch_terms(label, terms, workers, retries, delay):
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {}
         for i, term in enumerate(terms):
-            future = pool.submit(search_novels, make_search_session(), term, retries)
+            client = make_search_session(session) if session is not None else make_search_session()
+            future = pool.submit(search_novels, client, term, retries)
             futures[future] = (i, term)
             done, _ = wait(futures.keys(), timeout=0, return_when=FIRST_COMPLETED)
             _collect_done(done, futures)
@@ -366,7 +403,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Rescrape Npia metadata with optional environment session key")
+    parser = argparse.ArgumentParser(description="Rescrape Npia metadata with optional email/password login")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run scrape and show merge summary without saving")
     parser.add_argument("--search-workers", type=int, default=4,
@@ -422,8 +459,9 @@ def main():
 
     session = make_search_session()
 
-    print('Initializing metadata session (' +
-          ('environment account key' if os.environ.get('NPIA_METADATA_LOGINKEY', '').strip() else 'anonymous') + ')...')
+    print('Initializing metadata session...')
+    authenticated = login_metadata_session(session)
+    print('Metadata account login verified.' if authenticated else 'Anonymous metadata session.', flush=True)
     try:
         session.get("https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com", timeout=15)
     except Exception:
@@ -437,7 +475,7 @@ def main():
     if not args.author_sweep_id:
         tag_results = fetch_terms(
             "Searching", SEARCH_TAGS,
-            args.search_workers, args.search_retries, args.search_delay,
+            args.search_workers, args.search_retries, args.search_delay, session,
         )
         tag_total, tag_new = merge_term_results(SEARCH_TAGS, tag_results, fresh_novels)
         print(
@@ -448,7 +486,7 @@ def main():
         # ── Phase 2: Character sweep ─────────────────────────────────
         sweep_results = fetch_terms(
             "Sweep", SWEEP_CHARS,
-            args.search_workers, args.search_retries, args.search_delay,
+            args.search_workers, args.search_retries, args.search_delay, session,
         )
         sweep_total, sweep_new = merge_term_results(SWEEP_CHARS, sweep_results, fresh_novels)
         print(
