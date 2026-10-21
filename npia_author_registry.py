@@ -177,15 +177,31 @@ def refresh_r19(registry, rows=(), full=(), now=None):
                                candidate_novel_ids=sorted(candidates - verified, key=int),
                                evidence='verified' if verified else 'name_match')
         covered.update(candidates)
+    verified_ids = {nid for entry in selected.values() for nid in entry['verified_novel_ids']}
     result = dict(updated=now, novel_count=len(adults), author_name_count=len(names), authors=selected,
                   verified_author_count=sum(bool(entry['verified_novel_ids']) for entry in selected.values()),
                   name_matched_author_count=sum(not entry['verified_novel_ids'] for entry in selected.values()),
                   known_names={name: sorted(ids, key=int) for name, ids in sorted(names.items())},
                   unresolved_names={name: sorted(ids - covered, key=int) for name, ids in sorted(names.items()) if ids - covered},
+                  unverified_names={name: sorted(ids - verified_ids, key=int) for name, ids in sorted(names.items()) if ids - verified_ids},
                   ambiguous_names={name: sorted(owners, key=int) for name, owners in aliases.items() if len(owners) > 1},
                   unnamed_novel_ids=sorted((nid for nid, name in adults.items() if not name), key=int))
     registry['r19'] = result
     return result
+
+
+def unresolved_r19_groups(registry, failures=None):
+    """One identity lookup per known R19 name; nicknames alone cannot verify an owner."""
+    failures = failures or {}
+    subset = registry.get('r19', {})
+    groups = dict(subset.get('unverified_names', {}))
+    verified = {nid for entry in subset.get('authors', {}).values()
+                for nid in entry.get('verified_novel_ids', [])}
+    for nid in subset.get('unnamed_novel_ids', []):
+        if nid not in verified:
+            groups[f'id:{nid}'] = [nid]
+    return [(name, sorted(ids, key=lambda nid: (failures.get(nid, 0), int(nid))))
+            for name, ids in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))]
 
 
 def seed_catalog_names(registry, rows):

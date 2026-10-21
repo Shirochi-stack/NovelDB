@@ -38,6 +38,7 @@ from npia_search_http import PartialSearchError, paginated_search, get_json_with
 from npia_author_catalog import author_id, parallel_author_pages
 from npia_intro_discovery import discover as discover_intro
 import npia_author_registry as author_registry
+from npia_author_resolution import resolve_missing as resolve_author_identities
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -193,7 +194,7 @@ def merge_term_results(terms, results, fresh_novels):
     return raw_count, len(fresh_novels) - before
 
 
-def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, delay=1.0, now=None, existing=(), registry=None, priority_authors=(), page_size=20, resume=True, seconds=0, workers=4, delay_max=None, retries=4):
+def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, delay=1.0, now=None, existing=(), registry=None, priority_authors=(), page_size=20, resume=True, seconds=0, workers=4, delay_max=None, retries=4, resolve_identities=False, registry_checkpoint=lambda: None):
     """Check the registered R19 subset, retaining partial pages for continuation."""
     now = time.time() if now is None else now
     deadline = time.monotonic() + seconds if seconds else None
@@ -204,7 +205,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
     pending = state.setdefault("author_pending", {})
     checked = state.setdefault("author_checked", {})
     sweep = state.get("author_sweep")
-    if not resume or not sweep or sweep.get("complete"):
+    if not resume or not sweep:
         sweep = state["author_sweep"] = dict(id=uuid.uuid4().hex, started=now,
                                              completed=[], failures={})
         if not resume:
@@ -222,6 +223,17 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
     working_registry = registry if registry is not None else {'version': 1, 'authors': {}}
     r19 = author_registry.refresh_r19(working_registry, existing,
                                        list(old_full.values()) + list(fresh.values()), now)
+    maximum_delay = (2.0 if delay == 1.0 else delay) if delay_max is None else delay_max
+    identity_failures = sweep.setdefault('resolution_failures', {})
+    identity_stats = dict(requests=0)
+    if resolve_identities:
+        sweep['resolution_version'] = 1
+        identity_stats = resolve_author_identities(session, working_registry, failures=identity_failures,
+            workers=workers, delay=delay, delay_max=maximum_delay, retries=retries,
+            max_requests=page_limit, stopped=stopped, checkpoint=registry_checkpoint,
+            log=lambda message: print(message, flush=True))
+        r19 = author_registry.refresh_r19(working_registry, existing,
+                                           list(old_full.values()) + list(fresh.values()), now)
     eligible = set(r19['authors'])
     # Migrate old all-author checkpoints without querying general-only authors.
     pending = {owner: page for owner, page in pending.items() if owner in eligible}
@@ -247,12 +259,12 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
     earlier_r19 = {nid for nid, novel in fresh.items() if str(novel.get('age')) == '19'}
     ordered = targeted + ordinary
     queue = {owner: pending[owner] for owner in ordered if failures.get(owner, 0) < 3}
-    maximum_delay = (2.0 if delay == 1.0 else delay) if delay_max is None else delay_max
     print(f'Checking {len(queue)} known R19 author catalogs with {workers} workers; '
           f'{delay:g}-{maximum_delay:g}s random delay; {retries} attempts per page', flush=True)
     for owner, page, rows, more, error, attempts in parallel_author_pages(
             session, queue, workers=workers, delay=delay, delay_max=maximum_delay,
-            retries=retries, page_size=page_size, max_requests=page_limit,
+            retries=retries, page_size=page_size,
+            max_requests=None if page_limit is None else max(0, page_limit - identity_stats['requests']),
             stopped=stopped, log=lambda message: print(message, flush=True)):
         pages += attempts
         if owner in targeted_set:
@@ -321,17 +333,21 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
         print(f"Author catalogs: {completed} complete, {pages} requests, {updated} records updated", flush=True)
     if registry is not None:
         author_registry.refresh_r19(registry, existing, list(old_full.values()) + list(fresh.values()), now)
-    sweep.update(completed=sorted(done, key=int), total=len(done) + len(pending),
-                 remaining=len(pending), complete=not pending,
-                 continuation_required=any(failures.get(owner, 0) < 3 for owner in pending))
+    unresolved = author_registry.unresolved_r19_groups(working_registry, identity_failures) if resolve_identities else []
+    sweep.update(completed=sorted(done, key=int), total=len(done) + len(pending) + len(unresolved),
+                 remaining=len(pending) + len(unresolved), remaining_catalogs=len(pending),
+                 remaining_identities=len(unresolved), complete=not pending and not unresolved,
+                 continuation_required=any(failures.get(owner, 0) < 3 for owner in pending) or
+                    any(identity_failures.get(ids[0], 0) < 3 for _, ids in unresolved))
     state["author_last_run"] = dict(pages=pages, updated=updated, completed=completed, failed=failed,
                                     pending=len(pending), unique_updated=len(seen), r19_hits=r19_hits,
                                     r19_unique=len(r19_seen), r19_new=len(r19_seen - compact.keys() - old_full.keys()),
                                     r19_already_refreshed=len(r19_seen & earlier_r19), targeted_pages=targeted_pages)
+    state['author_last_run']['identity_requests'] = identity_stats['requests']
     print(f"Author R19 metadata: {len(r19_seen)} unique, {r19_hits} hits, "
           f"{state['author_last_run']['r19_new']} new IDs, {len(r19_seen & earlier_r19)} already refreshed; "
           f"{targeted_pages}/{pages} requests targeted R19", flush=True)
-    print(f"Author sweep: {len(done)}/{sweep['total']} complete; {len(pending)} remaining "
+    print(f"Author sweep: {len(done)}/{sweep['total']} complete; {len(pending)} catalogs and {len(unresolved)} identities remaining "
           f"({len(failures)} failed authors). "
           + ("All registered R19 authors checked." if sweep['complete'] else
              "Continuation required to finish this sweep." if sweep['continuation_required'] else
@@ -393,11 +409,6 @@ def main():
             public_state = json.load(handle)
     if args.author_sweep_id and public_state.get('author_sweep', {}).get('id') != args.author_sweep_id:
         parser.error('Saved author sweep has changed; refusing a stale continuation')
-    if args.author_sweep_id and public_state['author_sweep'].get('complete') and public_state['author_sweep'].get('scope') == 'r19':
-        print('Author sweep already complete; no requests needed.')
-        if args.author_continuation_file and not args.dry_run:
-            atomic_json(args.author_continuation_file, public_state['author_sweep'])
-        return
 
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -479,7 +490,7 @@ def main():
                                   listing_pages=args.r19_listing_pages,
                                   detail_limit=args.r19_detail_limit, delay=args.r19_delay, detail_ids=plan['detail_ids'])
         else:
-            print('R19 refresh: registered author catalogs only; direct detail requests disabled.', flush=True)
+            print('R19 refresh: author catalogs and targeted missing-author ID resolution; individual metadata refresh disabled.', flush=True)
         print("\n--- Checking public author catalogs (no auth) ---", flush=True)
         intro_rows = discover_intro(session, public_state, max_requests=args.intro_requests,
                                     delay=args.author_delay)
@@ -490,7 +501,9 @@ def main():
                                           priority_authors=sorted(intro_authors, key=int), page_size=args.author_page_size,
                                           resume=bool(args.author_sweep_id), seconds=args.author_seconds,
                                           workers=args.author_workers, delay_max=args.author_delay_max,
-                                          retries=args.author_retries)
+                                          retries=args.author_retries, resolve_identities=True,
+                                          registry_checkpoint=(lambda: None) if args.dry_run else
+                                              lambda: author_registry.save(registry_path, registry))
     author_registry.report_coverage(registry, search_ids)
 
     # Build lookup: novel_id_str -> index in existing_data
