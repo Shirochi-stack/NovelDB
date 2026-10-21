@@ -24,87 +24,87 @@
 23|||blog.\u006e\u0061\u0076\u0065\u0072.com|||blog.nweb.com
 24|||×|||
 25|||​|||
-26|||﻿|||
-27|||1.|||
-28|||15+|||
-29|||3:1|||
-30|||51053;|||
-31|||????|||
-32|||?????|||
-33|||M남|||M Male
+26|||삼천월|||Samcheonwol
+27|||﻿|||
+28|||1.|||
+29|||15+|||
+30|||3:1|||
+31|||51053;|||
+32|||????|||
+33|||?????|||
 34|||[]|||
 35|||·|||
-36|||엿보기|||Peeking
-37|||이종교미|||Interspecies
-38|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Early Release
-39|||히로인유기없음|||No Heroine Abandonment
-40|||!!|||
-41|||!!!|||
-42|||\"|||
-43|||(???)|||
-44|||(_|||
-45|||***|||
-46|||+1|||
-47|||+@|||
-48|||--|||
-49|||-_-|||
-50|||....|||
-51|||.......|||
-52|||................|||
-53|||...~|||
-54|||0%|||
-55|||0.|||
-56|||01.|||
-57|||1%|||
-58|||1-1|||
-59|||100%|||
-60|||11.|||
-61|||19+|||
-62|||19금멜로|||Adult Romance
-63|||2+2=5|||
-64|||2-8|||
-65|||2.|||
-66|||2부는폴리아모리|||Part 2 Polyamory
-67|||3-1|||
-68|||30%|||
-69|||4.3|||
-70|||4.5|||
-71|||45461;|||
-72|||4858-9715|||
-73|||5%|||
-74|||5.18|||
-75|||50%|||
-76|||50524;|||
-77|||50751;&|||
-78|||50751;~|||
-79|||51053;??|||
-80|||51760;|||
-81|||53192;|||
-82|||53349;|||
-83|||54643;|||
-84|||5@|||
-85|||70%|||
-86|||7:1|||
-87|||8.15|||
-88|||95%|||
-89|||978-89-993-9450-8|||
-90|||979-11-03-31840-6|||
-91|||979-11-6600-303-5|||
-92|||::|||
-93|||;|||
-94|||;;|||
-95|||======|||
-96|||=>|||
-97|||>.<7|||
-98|||>_<|||
-99|||?!?!?!?|||
-100|||?....|||
-101|||??????|||
-102|||?????????????????|||
-103|||AI창작|||AI-Written
-104|||FX|||FX
-105|||MZ말투백발노인|||MZ Speech White-Haired Elder
-106|||NTR남TS|||NTR Male TS
+36|||다따먹|||Take It All
+37|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Early Release
+38|||!!|||
+39|||!!!|||
+40|||\"|||
+41|||(???)|||
+42|||(_|||
+43|||***|||
+44|||+1|||
+45|||+@|||
+46|||--|||
+47|||-_-|||
+48|||....|||
+49|||.......|||
+50|||................|||
+51|||...~|||
+52|||0%|||
+53|||0.|||
+54|||01.|||
+55|||1%|||
+56|||1-1|||
+57|||100%|||
+58|||11.|||
+59|||19+|||
+60|||2+2=5|||
+61|||2-8|||
+62|||2.|||
+63|||2D|||2D
+64|||3-1|||
+65|||30%|||
+66|||4.3|||
+67|||4.5|||
+68|||45461;|||
+69|||4858-9715|||
+70|||4차산업혁명|||Fourth Industrial Revolution
+71|||5%|||
+72|||5.18|||
+73|||50%|||
+74|||50524;|||
+75|||50751;&|||
+76|||50751;~|||
+77|||51053;??|||
+78|||51760;|||
+79|||53192;|||
+80|||53349;|||
+81|||54643;|||
+82|||5@|||
+83|||70%|||
+84|||7:1|||
+85|||8.15|||
+86|||95%|||
+87|||978-89-993-9450-8|||
+88|||979-11-03-31840-6|||
+89|||979-11-6600-303-5|||
+90|||::|||
+91|||;|||
+92|||;;|||
+93|||======|||
+94|||=>|||
+95|||>.<7|||
+96|||>_<|||
+97|||?!?!?!?|||
+98|||?....|||
+99|||??????|||
+100|||?????????????????|||
+101|||FAET|||FAET
+102|||JOAT기업|||JOAT Corp
+103|||MM|||MM
+104|||QA|||QA
+105|||TS빔있음|||TS Beam Present
+106|||TS요소거의없음|||Minimal TS Elements
 107|||[-]|||
 108|||^^*|||
 109|||_|||
@@ -112,7 +112,7 @@
 111|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
 112|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
 113|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
-114|||\u007c서리\u007c|||\u007cFrost\u007c
+114|||\u007c서리\u007c|||Seori
 115|||~?|||
 116|||~~|||
 117|||¿?|||
@@ -132,131 +132,143 @@
 131|||♥♥♥♪|||
 132|||✅|||
 133|||》|||
-134|||각정자|||Awakened
-135|||강제적선한외신|||Forced Saintly Outer God
-136|||갬퍼스|||Gamers
-137|||건실한먼치킨|||Sound Munchkin
-138|||겜판향첨가|||Game Board Flavor
-139|||경리과|||Accounting Department
-140|||공략기|||Strategy Guide
-141|||공략중|||Walkthrough In Progress
-142|||공모전참가취소|||Contest Entry Withdrawn
-143|||공포아님|||Not Horror
-144|||과위|||Overpowered
-145|||괴물박이|||Monster Encounter
-146|||구닥다리로봇|||Outdated Robot
-147|||구원세뇌|||Salvation Brainwashing
-148|||구원혹은타락|||Redemption or Fall
-149|||굴욕의좆물구걸도게자|||Humiliation Begging
-150|||규칙공략|||Rule Exploitation
-151|||깅긴|||Gingin
-152|||낙뢰|||Lightning Strike
-153|||남NTS|||Male NTS
-154|||남성희귀세계|||Male-Rare World
-155|||내용있음|||Has Content
-156|||\ub178\ubca8\ud53c\uc544공식|||npia Official
-157|||노예경매|||Slave Auction
-158|||다부다처제|||Polygamy
-159|||달달한순애같은하렘|||Sweet Devoted Harem
-160|||두구멍갱뱅|||Double Penetration Gangbang
-161|||똥개|||Ttonggae
-162|||럼준식|||Reom Junsik
-163|||레버리지|||Leverage
-164|||리진이야기|||Lijin Story
-165|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Academy Novel
-166|||마사지샵|||Massage Shop
-167|||막내주인공|||Youngest Protagonist
-168|||모솔아다|||Virgin
-169|||몸개그|||Physical Comedy
-170|||무림야사|||Martial World Chronicle
-171|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Wuxia
-172|||미션창|||Mission Window
-173|||미친감독|||Mad Director
-174|||반줘팸순애|||Devoted Companion
-175|||배틀섹스|||Battle Sex
-176|||변이타락|||Mutant Corruption
-177|||보호본능|||Protective Instinct
-178|||빙환트|||Bing-hwan
-179|||사피오섹슈얼|||Sapiosexual
-180|||살아있는불꽃|||Living Flame
-181|||살인\u007c|||Murder\u007c
-182|||생활특허|||Lifestyle Patent
-183|||성반자|||Gender Reversal
-184|||성인대사|||Adult Dialogue
-185|||성중독|||Sex Addiction
-186|||섹스로판|||Sex Romance Fantasy
-187|||쇼타물|||Shota
-188|||수업물|||Classroom
-189|||술장사|||Hostess Bar
-190|||숫처녀히로인|||Virgin Heroine
-191|||슈뢰딩거의처녀|||Schrodinger's Virgin
-192|||스마트워치|||Smartwatch
-193|||슬렌더|||Slender
-194|||시니시스타|||Cynic Star
-195|||신뢰할수없는화자|||Unreliable Narrator
-196|||신항로개척시대|||Age of New Trade Routes
-197|||쌍방TS|||Mutual TS
-198|||악인물|||Villain Protagonist
-199|||안정형|||Stable Type
-200|||애증복수|||Love-Hate Revenge
-201|||에프록토필리아|||Proctophilia
-202|||여동생후타나리|||Sister Futanari
-203|||여사장|||Female CEO
-204|||여인국|||Kingdom of Women
-205|||여초세계|||Female-Dominant World
-206|||역간물|||Reverse Content
-207|||역강간없음|||No Reverse Rape
-208|||오바콤|||Obacom
-209|||오피스텔로맨스|||Officetel Romance
-210|||오피스텔주민|||Officetel Resident
-211|||온달의재해석|||Ondal Reinterpretation
-212|||올드보이들|||Old Boys
-213|||외행성|||Outer Planet
-214|||우주최강|||Strongest in Universe
-215|||유부녀O|||Married Woman
-216|||음양합일|||Yin-Yang Union
-217|||이종수태|||Interspecies Pregnancy
-218|||임보출|||Pregnancy
-219|||임신섹스|||Pregnancy Sex
-220|||자발적암락|||Voluntary Fall
-221|||전기차|||Electric Car
-222|||전략액션|||Strategic Action
-223|||절대19금|||Strictly Adult
-224|||정숙한|||Demure
-225|||정통판타지호소인|||Traditional Fantasy Hosoin
-226|||제복물|||Uniform Content
-227|||\uc870\uc544\ub77c_투베도전|||jara Challenge
-228|||\uc870\uc544\ub77c공모전|||jara Contest
-229|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
-230|||\uc870\uc544\ub77c소설|||jara Novel
-231|||\uc870\uc544\ub77c신입사원|||jara Rookie
-232|||\uc870\uc544\ub77c여|||jara Female
-233|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
-234|||\uc870\uc544\ub77c의|||jara's
-235|||\uc870\uc544\ub77c첫작|||jara Debut
-236|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
-237|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Surrounding People
-238|||주인공이네토라레|||Protagonist NTR
-239|||처녀ONLY|||Virgins Only
-240|||처녀히로인만|||Virgin Heroine Only
-241|||천공술|||Sky Art
-242|||천재화가여주|||Genius Painter Heroine
-243|||초반후회피폐향첨가|||Early Regret Ruined Flavor
-244|||친딸|||Daughter
-245|||친아들|||Son
-246|||카사공|||Kasagong
-247|||카우걸|||Cowgirl
-248|||쿨타임|||Cooldown
-249|||태그추천받음|||Tag Requested
-250|||톱배우남녀|||Top Actor Male and Female
-251|||페디큐어|||Pedicure
-252|||펫물|||Pet Content
-253|||피폐순|||Pure Angst
-254|||피학성향|||Masochistic Tendencies
-255|||하드코어할수도도|||Hardcore
-256|||하얀피부|||Pale Skin
-257|||하프라이칸|||Half Lycan
-258|||협회물|||Association Content
-259|||후각|||Olfactory
-260|||후타X여자|||Futa x Female
-261|||／|||
+134|||ㅈㄷ|||
+135|||갓겜충|||God Game Addict
+136|||게임아닐수도있음|||Might Not Be a Game
+137|||과징금|||Penalty Fine
+138|||국립공원|||National Park
+139|||궤나부는사나이|||Gwenabu Man
+140|||귀도술|||Ghost Art
+141|||그낭|||Just Because
+142|||그정도|||That Much
+143|||그정도는|||Only That Much
+144|||근첩|||Geunjeop
+145|||기갈|||Starvation
+146|||기잔치|||Qi Feast
+147|||꺼지세요|||Get Lost
+148|||끼야악|||Eek
+149|||남자난입없음|||No Male Intruders
+150|||내가왜|||Why Me
+151|||냉혹|||Ruthless
+152|||넌손해좀보자|||Let's Take a Loss Together
+153|||\ub178\ubca8\ud53c\uc544공식|||npia Official
+154|||농농이|||Nongnongi
+155|||뉴노멀|||New Normal
+156|||니가써|||You Wrote It
+157|||니가해|||You Do It
+158|||단순노동의비생산성|||Unproductivity of Simple Labor
+159|||단체전이|||Team Battle
+160|||대제사장|||High Priest
+161|||대충잡다한거|||Miscellaneous Stuff
+162|||대화불가능|||Can't Communicate
+163|||더쓸게없네|||Nothing More to Write
+164|||데공황|||Dae Gonghwang
+165|||돈빨|||Money Power
+166|||듀얼은없다|||No Duels
+167|||랫킨|||Ratkin
+168|||러브코디미|||Love Comedy
+169|||레바리지|||Leverage
+170|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, Magic Fiction, Magic, Magic Arts, Novel, Personal Novel, jara Novel, Fantasy Magic School
+171|||마요괴|||Ma Yogoe
+172|||마요치키|||Mayo Chiki
+173|||메리베드엔드|||Merry Bad End
+174|||메세지를|||Send a Message
+175|||메인어|||Mainer
+176|||멘탈가출|||Mental Runaway
+177|||모기지론|||Mortgage Loan
+178|||모르겠네|||No Idea
+179|||몬스터역전|||Monster Reversal
+180|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Martial Arts, Wuxia, New Wuxia, Wuxia Novel, New Wuxia Novel, Genre Novel, Jianghu, Murim, Action, Novel, jara Wuxia, jara New Wuxia
+181|||물어보세요|||Ask Away
+182|||반인반룡|||Half-Human Half-Dragon
+183|||받아드립니다|||Accepted
+184|||변동확율|||Variable Probability
+185|||부분유료화|||Partial Paywall
+186|||분탕이든|||Trolling Included
+187|||블루아키이브|||Blue Archive
+188|||빙의사절|||No Possession
+189|||빙의자사양|||No Possessors
+190|||살인\u007c|||Murder|
+191|||샤리아|||Sharia
+192|||설명을해봐|||Explain It
+193|||소드월드|||Sword World
+194|||소설가의전망|||Novelist Outlook
+195|||소설이지|||It's a Novel
+196|||솔직하게|||Honestly
+197|||수집품|||Collectibles
+198|||승경도|||Seunggyeongdo
+199|||시고르자브종|||Sigorjabjong
+200|||신선도|||Freshness
+201|||아니지|||Nope
+202|||아씨|||Ugh
+203|||악역미화X|||No Villain Glorification
+204|||알트코인|||Altcoin
+205|||야알못|||Baseball Noob
+206|||야한거없음|||No Smut
+207|||어반오컬트|||Urban Occult
+208|||엘든링조금|||Some Elden Ring
+209|||엮은이AI|||AI Editor
+210|||오르페골|||Orpegol
+211|||오토배틀|||Auto Battle
+212|||오픈업|||Open Up
+213|||왜소설을써야만|||Why Must I Write Novels
+214|||왜필요한지|||Why It's Needed
+215|||외전한정먼치킨|||Spin-off Only Munchkin
+216|||요호|||Yoho
+217|||우주생존|||Space Survival
+218|||웹소설의현주소|||State of Web Novels
+219|||육체적피폐|||Physical Degradation
+220|||은근유리대포아님|||Subtly Not a Glass Cannon
+221|||임시교수|||Temporary Professor
+222|||자신에게|||To Oneself
+223|||작가무협모름|||Author Doesn't Know Wuxia
+224|||작은세상|||Small World
+225|||잡지식|||Trivia
+226|||전문직의도태|||Professional Obsolescence
+227|||정직원|||Full-Time Employee
+228|||정통포간|||Jeongtong Pogan
+229|||\uc870\uc544\ub77c_투베도전|||jara Tube Challenge
+230|||\uc870\uc544\ub77c공모전|||jara Contest
+231|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
+232|||\uc870\uc544\ub77c소설|||jara Novel
+233|||\uc870\uc544\ub77c신입사원|||jara New Employee
+234|||\uc870\uc544\ub77c여|||jara Female
+235|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
+236|||\uc870\uc544\ub77c의|||jara's
+237|||\uc870\uc544\ub77c첫작|||jara Debut
+238|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
+239|||좃빨|||Brown-Nosing
+240|||종이세상|||Paper World
+241|||좆반인은|||Crude Half-Human
+242|||좌우통합|||Left-Right Unification
+243|||죠죠한스푼|||JoJo Flavor
+244|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Everyone Around rbooks Author
+245|||주사위선택|||Dice Choice
+246|||지루해|||Boring
+247|||지루헤|||Boring
+248|||지루혜|||Boring
+249|||지은이AI|||AI Author
+250|||지하시설|||Underground Facility
+251|||천헤룡|||Cheonhaeryong
+252|||초반워해머|||Early Warhammer
+253|||촛불시위|||Candlelight Protest
+254|||쾌락타락|||Pleasure Torture
+255|||키부츠치|||Kibutsuchi
+256|||태그가|||Tags
+257|||태그없음|||No Tags
+258|||테마마크|||Theme Mark
+259|||트럭시위|||Truck Protest
+260|||파운드푸티지|||Found Footage
+261|||판엎기|||Flipping the Table
+262|||팔콤시리즈|||Falcom Series
+263|||포항항|||Pohang Port
+264|||프문한스푼|||Pmoon Flavor
+265|||하꼬방송|||Hakko Broadcast
+266|||학생회구멍|||Student Council Loophole
+267|||헬스장|||Gym
+268|||혀대판타지|||Modern Fantasy
+269|||협회장|||Association President
+270|||환생사절|||No Reincarnation
+271|||회귀사절|||No Regression
+272|||회빙환사절|||No Transmigration
+273|||／|||
