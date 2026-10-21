@@ -24,6 +24,8 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
                 positions = await page.locator('#sourcePickerButton,#statusPickerButton,#audiencePickerButton,#orderPickerButton').evaluate_all('els=>els.map(e=>e.getBoundingClientRect().top)')
                 assert max(positions)-min(positions)<1
                 assert await page.locator('#settingsButton').evaluate('e=>e.offsetWidth===48 && e.offsetHeight===42')
+                assert await page.locator('#audiencePickerButton .picker-symbol').inner_text() == '👥'
+                assert await page.locator('#audiencePickerButton .picker-value').evaluate('e=>e.scrollWidth<=e.clientWidth')
                 await page.evaluate('window.card=document.querySelector(".novel-card")')
                 await open_settings(page)
                 assert await page.locator('#siteSettingsDialog').evaluate('d=>d.open && d.getBoundingClientRect().bottom<=innerHeight && d.scrollWidth<=d.clientWidth')
@@ -44,9 +46,9 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
                 assert await page.locator('.source-picker-menu:visible').count() == 1
                 await page.keyboard.press('Escape')
             # Compact selected badges keep their full accessible descriptions.
-            for value, text in [('general','G'),('r15','15+'),('adult','19+'),('all','All')]:
+            for value, text in [('general','G'),('r15','15+'),('adult','19+'),('all','👥\nAll')]:
                 await page.locator('#audiencePickerButton').click()
-                await page.locator('#audiencePickerMenu').get_by_role('option', name={'general':'General','r15':'Teen Only (R15+)','adult':'Adult Only (19+)','all':'All'}[value], exact=True).click()
+                await page.locator('#audiencePickerMenu').get_by_role('option', name={'general':'General','r15':'Teen Only (R15+)','adult':'Adult Only (19+)','all':'All ages'}[value], exact=True).click()
                 assert await page.locator('#audienceSelect').input_value() == value
                 assert (await page.locator('#audiencePickerButton').inner_text()).strip() == text
                 assert (await page.locator('#audiencePickerButton').get_attribute('aria-label')).startswith('Audience: ')
