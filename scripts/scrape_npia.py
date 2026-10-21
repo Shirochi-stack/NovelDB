@@ -21,7 +21,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8')
 
-from npia_search_http import PartialSearchError, get_json_with_retry as _search_json
+from npia_search_http import PartialSearchError, paginated_search, get_json_with_retry as _search_json
 from npia_author_catalog import author_id
 import npia_author_registry as author_registry
 
@@ -109,43 +109,15 @@ def get_json_with_retry(session, params, headers, retries, timeout=120):
 
 
 def search_novels(session, search_val, headers, retries, search_type="all"):
-    """Search Npia API for novels matching a term."""
-    items = []
-    rows = 15000
-    # Split the former 30,000-row pages in half to avoid server memory exhaustion.
-    # Forty pages retain the previous 600,000-result search ceiling.
-    for pg in range(1, 41):
-        params = {
-            "cmd": "novel_search",
-            "search_type": search_type,
-            "search_val": search_val,
-            "page": pg,
-            "rows": rows,
-            "novel_type": "",
-            "start_count_book": "",
-            "end_count_book": "",
-            "novel_age": "",
-            "start_days": "",
-            "sort_col": "last_viewdate",
-            "novel_genre": "",
-            "block_out": 0,
-            "block_stop": 0,
-            "is_contest": 0,
-            "is_complete": "",
-            "is_challenge": 0,
-            "list_display": "grid",
-        }
-        try:
-            data = get_json_with_retry(session, params, headers, retries)
-        except Exception as exc:
-            raise PartialSearchError(items, pg, exc) from exc
-        if not data:
-            break
-        batch = data.get("list", [])
-        items.extend(batch)
-        if len(batch) < rows:
-            break
-    return items
+    """Read small search pages, recovering source memory failures by result offset."""
+    params = {
+        "cmd": "novel_search", "search_type": search_type, "search_val": search_val,
+        "novel_type": "", "start_count_book": "", "end_count_book": "", "novel_age": "",
+        "start_days": "", "sort_col": "last_viewdate", "novel_genre": "", "block_out": 0,
+        "block_stop": 0, "is_contest": 0, "is_complete": "", "is_challenge": 0,
+        "list_display": "grid",
+    }
+    return paginated_search(lambda query: get_json_with_retry(session, query, headers, retries), params)
 
 
 def fetch_terms(label, terms, loginkey, headers, workers, retries, delay):

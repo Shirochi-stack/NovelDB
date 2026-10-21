@@ -1,5 +1,7 @@
 """Anonymous public ranking collection with board-scoped preservation."""
 import re
+import random
+import time
 
 from bs4 import BeautifulSoup
 
@@ -32,7 +34,7 @@ def response_details(response):
             f"body-chars={len(response.text)}")
 
 
-def scrape_ranking(session, period, audience):
+def _ranking_attempt(session, period, audience):
     """Read the public board, recovering empty HTML through its own list endpoint."""
     if audience not in ('all/plus', 'teen/plus'):
         return {}
@@ -64,6 +66,22 @@ def scrape_ranking(session, period, audience):
     except Exception as error:
         diagnostics.append(f'list: {type(error).__name__}: {error}')
     raise RuntimeError('Public ranking unavailable; ' + '; '.join(diagnostics))
+
+
+def scrape_ranking(session, period, audience, *, retries=4, sleep=time.sleep, log=print):
+    """Retry unavailable public HTML/list responses without querying adult boards."""
+    if audience not in ('all/plus', 'teen/plus'):
+        return {}
+    if period not in dict(PERIODS):
+        raise ValueError('Unsupported ranking period')
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            return _ranking_attempt(session, period, audience)
+        except Exception as exc:
+            log(f'Public ranking {period} {audience} attempt {attempt}/{max(1, retries)} failed: {exc}')
+            if attempt == max(1, retries):
+                raise
+            sleep(random.uniform(1.0, 2.0))
 
 
 def collect_rankings(session, *, fetch=scrape_ranking, log=print):
