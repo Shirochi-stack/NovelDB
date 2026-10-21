@@ -190,3 +190,37 @@ def test_live_backfill_does_not_open_account_config(tmp_path, monkeypatch):
     updater.main()
     result = authors.load(path)
     assert result['r19']['authors']['50169']['verified_novel_ids'] == ['449004']
+
+
+def test_pre_upgrade_complete_sweep_still_resolves_missing_author_in_main(tmp_path, monkeypatch):
+    scraper = scraper_module()
+    data = tmp_path / 'docs' / 'data'
+    data.mkdir(parents=True)
+    (data / 'novels.json').write_text(json.dumps([
+        [449004, 'Title', 'Writer', '', [], 0, 0, 0, 0, '', 0, 19]]), encoding='utf-8')
+    authors.save(data / 'npia_authors.json', {'version': 1, 'authors': {}})
+    (data / 'npia_public_state.json').write_text(json.dumps({'author_sweep': dict(
+        id='legacy', completed=[], failures={}, complete=True, scope='r19', remaining=0)}), encoding='utf-8')
+    calls = []
+    def get(url, **kwargs):
+        if '/novel/' in url:
+            calls.append(('identity', url))
+            return response(detail(449004))
+        return response('')
+    def post(url, **kwargs):
+        calls.append(('catalog', kwargs['data']['mem_no']))
+        novels = [dict(novel_no=n, mem_no=50169, writer_nick='Writer', novel_age=19,
+                       novel_name='Title', novel_story='Synopsis') for n in (449004, 2910)]
+        return SimpleNamespace(status_code=200, json=lambda: dict(status=200, result=dict(allCount=2, novel=novels)))
+    session = SimpleNamespace(headers={}, get=get, post=post)
+    monkeypatch.setattr(scraper.requests, 'Session', lambda: session)
+    monkeypatch.setattr(scraper, '__file__', str(tmp_path / 'scripts' / 'rescrape_npia_noauth.py'))
+    monkeypatch.setattr(scraper, 'fetch_terms', lambda *a, **k: pytest.fail('Continuation repeated search'))
+    monkeypatch.setattr(sys, 'argv', ['scraper', '--author-sweep-id', 'legacy', '--author-pages', '2',
+                                     '--author-delay', '0', '--intro-requests', '0'])
+    scraper.main()
+    assert calls == [('identity', identities.ORIGIN + '/novel/449004'), ('catalog', '50169')]
+    result = authors.load(data / 'npia_authors.json')
+    assert result['r19']['authors']['50169']['verified_novel_ids'] == ['2910', '449004']
+    sweep = json.loads((data / 'npia_public_state.json').read_text(encoding='utf-8'))['author_sweep']
+    assert sweep['id'] == 'legacy' and sweep['complete'] and sweep['resolution_version'] == 1
