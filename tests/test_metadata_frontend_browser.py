@@ -287,7 +287,7 @@ class FixtureSite:
 
 
 async def open_settings(page):
-    if not await page.locator('#siteSettingsDialog').evaluate('dialog=>dialog.open'):
+    if await page.locator('#settingsButton').is_visible() and not await page.locator('#siteSettingsDialog').evaluate('dialog=>dialog.open'):
         await page.get_by_role('button', name='Settings', exact=True).click()
 
 
