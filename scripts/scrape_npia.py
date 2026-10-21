@@ -434,6 +434,7 @@ def main():
         ])
 
     optimized.extend(preserved_site_rows)
+    author_registry.preserve_deleted_tags(registry, optimized, novels)
 
     write_json_file(full_path, novels)
     print(f"\nFull: {len(novels)} novels -> {os.path.getsize(full_path) / 1024 / 1024:.1f} MB")

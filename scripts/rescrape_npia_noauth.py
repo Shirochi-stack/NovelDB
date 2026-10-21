@@ -704,6 +704,9 @@ def main():
                     entry[4] = tags
                 stats["preserved_other"] += 1
 
+    # Explicit source deletion notices also apply to retained R19 rows.
+    stats['deleted_tagged'] += author_registry.preserve_deleted_tags(registry, existing_data)['compact']
+
     # ── Phase 5: Patch rankings ──────────────────────────────────
     rank_changes = sum(patch_ranks(novel, rankings) for novel in existing_data)
 
@@ -757,6 +760,7 @@ def main():
         except Exception as e:
             print(f"  Warning: Could not merge old full data: {e}")
 
+    author_registry.preserve_deleted_tags(registry, existing_data, full_novels)
     with open(full_path, "w", encoding="utf-8") as f:
         source_names.dump(full_novels, f, ensure_ascii=False)
     print(f"Saved {full_path} ({os.path.getsize(full_path) / 1024 / 1024:.1f} MB)")
