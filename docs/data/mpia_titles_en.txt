@@ -18525,6 +18525,7 @@
 254308|||천하최대공모전|||The Greatest Contest Under Heaven
 254335|||edyy의 단편집|||Edyy's Short Story Collection
 254338|||AD. 2160년에 깨어났다|||I Woke Up in A.D. 2160
+254345|||ㅇㅇ1|||Yeah 1
 25435|||운명이라면,|||If It Is Fate,
 254367|||검사 김서진 [D]|||Prosecutor Kim Seojin [D]
 254368|||이계로 출근하는 고아원장 [D]|||The Orphanage Director Who Commutes to Another World [D]
@@ -44135,6 +44136,7 @@
 424354|||국정원 블랙 요원, 회귀하다. [D]|||NIS Black Operative Regresses [D]
 424359|||어센딩 블레이드 [이형석 작가-판타지 소설]|||Ascending Blade [Fantasy Novel by Lee Hyeong-seok]
 424362|||숨이 차는 이 불빛이 우리의 청춘이야|||This Breathless Light Is Our Youth
+424364|||ㅎㅎㄱㄱㄱ|||Haha
 424371|||좀비수선전|||Zombie Cultivation
 424379|||세계들을 독식하는 플레이어|||The Player Who Devours Worlds
 424380|||멸망한 세계의 검투사|||Gladiator of a Ruined World
@@ -92476,7 +92478,6 @@
 249068|||1235123|||
 25325|||3|||
 253479|||ㅅㄷㄴㅅㅁㄴㅇㄻㄴㅇㄹ|||
-254345|||ㅇㅇ1|||
 262182|||ㄱㄴㄷㄹ|||
 265480|||..............................|||
 265707|||...ㅇ.ㅇ.|||
@@ -92508,7 +92509,6 @@
 410591|||121231|||
 411134|||111232|||
 421553|||ㄹㄷㄹㄷㄹㄷㄷㄹㄷㄹㄹㄷㄹㄹ|||
-424364|||ㅎㅎㄱㄱㄱ|||
 431628|||5264|||
 435491|||240924|||
 435686|||20240925-13!|||
