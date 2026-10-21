@@ -15,6 +15,7 @@ import npia_author_registry as authors
 from npia_search_http import response_details
 
 ORIGIN = 'https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'
+RESOLUTION_VERSION = 2
 
 
 class IdentityUnavailable(ValueError):
@@ -33,6 +34,8 @@ def parse_identity(html, nid):
         notice = alert.get_text(' ', strip=True) if alert else ''
         if re.search(r'\uC0AD\uC81C\uB41C\s*\uC18C\uC124', notice):
             raise IdentityUnavailable(authors.DELETED_IDENTITY_REASON)
+        if re.search(r'\uC874\uC7AC\uD558\uC9C0\s*\uC54A\uB294\s*\uC791\uD488', notice):
+            raise IdentityUnavailable(authors.MISSING_IDENTITY_REASON)
         if '\uC798\uBABB\uB41C \uC811\uADFC' in notice:
             raise IdentityUnavailable('site reports invalid or unavailable novel access')
     link = info.select_one('.in-writer .writer-name[href]') if info else None
@@ -103,7 +106,7 @@ def resolve_missing(session, registry, *, failures=None, workers=4, delay=1.0, d
                     raise ValueError(f'HTTP {response.status_code}')
                 return nid, parse_identity(response.text, nid), None
             except IdentityUnavailable as error:
-                policy = ('excluded until a fresh listing shows it again' if str(error) == authors.DELETED_IDENTITY_REASON
+                policy = ('excluded until a fresh listing shows it again' if authors.is_confirmed_deleted({'reason': str(error)})
                           else 'retry deferred for seven days')
                 log(f'R19 novel {nid} UNAVAILABLE: {error}; existing metadata retained; {policy}')
                 return nid, None, error

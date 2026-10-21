@@ -40,7 +40,8 @@ def test_detail_rejects_other_id_and_unavailable_metadata():
 
 
 @pytest.mark.parametrize('notice', ['\uC798\uBABB\uB41C \uC811\uADFC\uC785\uB2C8\uB2E4.',
-                                    '\uC0AD\uC81C\uB41C \uC18C\uC124 \uC785\uB2C8\uB2E4.'])
+                                    '\uC0AD\uC81C\uB41C \uC18C\uC124 \uC785\uB2C8\uB2E4.',
+                                    '\uC874\uC7AC\uD558\uC9C0 \uC54A\uB294 \uC791\uD488\uC785\uB2C8\uB2E4.'])
 def test_invalid_access_detail_is_reported_as_unavailable_without_an_error(capsys, notice):
     unavailable = f'<div id="alert_modal">{notice}</div>'
     session = Session({'/novel/224': unavailable})

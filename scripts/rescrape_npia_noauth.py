@@ -41,7 +41,7 @@ from npia_search_http import PartialSearchError, paginated_search, get_json_with
 from npia_author_catalog import author_id, parallel_author_pages
 from npia_intro_discovery import discover as discover_intro
 import npia_author_registry as author_registry
-from npia_author_resolution import resolve_missing as resolve_author_identities
+from npia_author_resolution import RESOLUTION_VERSION, resolve_missing as resolve_author_identities
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -274,7 +274,12 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
     identity_failures = sweep.setdefault('resolution_failures', {})
     identity_stats = dict(requests=0)
     if resolve_identities:
-        sweep['resolution_version'] = 1
+        if sweep.get('resolution_version', 0) < RESOLUTION_VERSION:
+            if identity_failures:
+                print(f'Identity parser updated: reopening {len(identity_failures)} prior identity failures; '
+                      'completed author catalogs and unavailable-page records retained.', flush=True)
+            identity_failures.clear()
+            sweep['resolution_version'] = RESOLUTION_VERSION
         identity_stats = resolve_author_identities(session, working_registry, failures=identity_failures,
             workers=workers, delay=delay, delay_max=maximum_delay, retries=retries,
             max_requests=page_limit, stopped=stopped, checkpoint=registry_checkpoint,
