@@ -60,7 +60,7 @@ def test_desktop_feed_is_optional_responsive_and_saved_independently():
             assert not await page.locator('.controls').evaluate('c=>c.classList.contains("mobile-controls-floating")')
             await page.evaluate('scrollBy({top:-110,behavior:"instant"})')
             await page.wait_for_function('document.querySelector(".controls").classList.contains("mobile-controls-floating")')
-            assert await page.locator('.controls').evaluate('c=>c.getBoundingClientRect().top===0')
+            await page.wait_for_function('document.querySelector(".controls").getBoundingClientRect().top===0')
             # Resize a scrolled desktop feed across non-divisors of its 30-record slices.
             for width,columns in ((1100,4),(1920,6)):
                 await page.set_viewport_size({'width':width,'height':900})
@@ -124,7 +124,7 @@ def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_p
                 assert not await page.locator('.controls').evaluate('c=>c.classList.contains("mobile-controls-floating")')
             await page.evaluate('scrollBy({top:-150,behavior:"instant"})')
             await page.wait_for_function('document.querySelector(".controls").classList.contains("mobile-controls-floating")')
-            assert await page.locator('.controls').evaluate('c=>c.getBoundingClientRect().top===0')
+            await page.wait_for_function('document.querySelector(".controls").getBoundingClientRect().top===0')
             await page.locator('#sourcePickerButton').click()
             assert await page.locator('#sourcePickerMenu').evaluate('menu=>{const r=menu.getBoundingClientRect();return menu.contains(document.elementFromPoint(r.left+15,r.bottom-10));}')
             await page.keyboard.press('Escape')
