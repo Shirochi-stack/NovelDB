@@ -55,7 +55,10 @@ def test_desktop_feed_is_optional_responsive_and_saved_independently():
                 assert await page.locator('.novel-card').count()<=40
                 assert int(await page.locator('#results').get_attribute('data-feed-cached'))<=4
             assert int(await page.locator('#results').get_attribute('data-feed-start'))>30
-            await page.evaluate('scrollBy({top:-150,behavior:"instant"})')
+            await page.evaluate('scrollBy({top:-40,behavior:"instant"})')
+            await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            assert not await page.locator('.controls').evaluate('c=>c.classList.contains("mobile-controls-floating")')
+            await page.evaluate('scrollBy({top:-110,behavior:"instant"})')
             await page.wait_for_function('document.querySelector(".controls").classList.contains("mobile-controls-floating")')
             assert await page.locator('.controls').evaluate('c=>c.getBoundingClientRect().top===0')
             # Resize a scrolled desktop feed across non-divisors of its 30-record slices.
@@ -114,6 +117,11 @@ def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_p
                 assert await page.locator('.novel-card').count()<=16
                 assert int(await page.locator('#results').get_attribute('data-feed-cached'))<=4
             assert int(await page.locator('#results').get_attribute('data-feed-start'))>36
+            # Separate small upward corrections should not accumulate into a reveal.
+            for _ in range(4):
+                await page.evaluate('scrollBy({top:-40,behavior:"instant"})')
+                await page.wait_for_timeout(450)
+                assert not await page.locator('.controls').evaluate('c=>c.classList.contains("mobile-controls-floating")')
             await page.evaluate('scrollBy({top:-150,behavior:"instant"})')
             await page.wait_for_function('document.querySelector(".controls").classList.contains("mobile-controls-floating")')
             assert await page.locator('.controls').evaluate('c=>c.getBoundingClientRect().top===0')
