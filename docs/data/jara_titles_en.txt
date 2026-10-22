@@ -40146,6 +40146,7 @@
 1333666|||어떨결에 용인|||Accidentally a Dragonkin
 1333671|||퇴물에서 정상까지!|||From Washed-Up to the Top!
 1333694|||[해리포터]  비로소, 완전히|||[Harry Potter] At Last, Completely
+133370|||The story 武|||The Story of Mu
 1333710|||그들의 열일곱.|||Their Seventeen.
 1333720|||[TS] 메르헨|||[TS] Märchen
 1333730|||순백의 용과 금빛 소년|||The Pure White Dragon and the Golden Boy
@@ -57306,6 +57307,7 @@
 1451988|||우리들|||Us
 1451991|||내게 너무 과분한 그녀들|||They’re Far Too Good for Me
 1451997|||1군 아이돌과 일주일간 예능을|||A Variety Show with a Top-Tier Idol for a Week
+1452|||『 I don't know [兒易敦老]』|||『 I don't know [Ear Easy Donlo]』
 14520|||눈물|||Tears
 1452000|||[연애혁명] 바보라고 해도 좋아|||[Love Revolution] I Don’t Mind If You Call Me a Fool
 145201|||정령술사(精靈術師)|||Spirit Mage
@@ -140429,6 +140431,7 @@
 1876478|||[괴담출근] 그 핑크머리의 첫사랑|||[Working in a Horror Story] The Pink-Haired One’s First Love
 1876479|||왕궁의 빨래방 하녀들|||The Palace Laundry Maids
 1876486|||설탕을 받아갈게|||I’ll Take the Sugar
+1876487|||대공님의 저주가 맛있습니다|||The Grand Duke's Curse Is Delicious
 1876490|||[이누야샤/카구라바치 bl] 염천[엔텐 炎天]을 다루는 자. [준비중]|||[Inuyasha/Kagurabachi BL] Master of En-Ten [Coming Soon]
 1876494|||빚더미 지구에서 살아남기|||Surviving on a Debt-Ridden Earth
 1876495|||망자가된 타로리더,저승냥이에게 간택받다|||A Dead Tarot Reader Chosen by an Underworld Hound
@@ -145250,6 +145253,8 @@
 1889534|||마왕님은 용사님이 거슬리신데!|||The Demon King Is Bothered by the Hero!
 1889535|||무인 이랑|||Muin Irang
 1889536|||무인행|||Journey of a Martial Artist
+1889537|||절대 통수 맞지 않는 프로듀서|||The Producer Who Never Gets Betrayed
+1889538|||천재 뮤지션으로 살아가는 법|||How to Live as a Genius Musician
 1889539|||[연애혁명] 미련|||[Love Revolution] Lingering Feelings
 1889540|||전하지 못한 진심 [싱글맘과 탑아이돌의 순애]|||Unspoken Sincerity [Pure Love Between a Single Mother and a Top Idol]
 1889541|||오늘도, 퀘스트를 수락하시겠습니까?|||Will You Accept the Quest Today, Too?
@@ -236241,6 +236246,7 @@
 988011|||[클로저스] 조금 특별한(?) 검은양 이야기|||[Closers] A Slightly Special(?) Black Lamb Story
 988022|||두 얼굴의 이브(리메이크 예정)|||Eve of Two Faces (Remake Planned)
 988026|||파편|||Fragment
+98803|||[BL/Y물] 弊端[폐단;eviL]|||[BL/Yaoi] Vice [Pedan; eviL]
 988030|||뱀과 사과|||The Snake and the Apple
 988032|||부서질 것 같아|||I Feel Like I'm Breaking
 988038|||합의보고 스토킹 당합니다|||I Made a Settlement and Now I'm Being Stalked
@@ -237762,7 +237768,6 @@
 1332888|||.|||
 1333171|||.|||
 1333339|||1|||
-133370|||The story 武|||
 1333947|||..|||
 1333956|||.|||
 1334112|||.|||
@@ -237911,7 +237916,6 @@
 1448426|||..|||
 1449564|||...|||
 1451222|||20200505|||
-1452|||『 I don't know [兒易敦老]』|||
 1454335|||4 44|||
 1454917|||.|||
 1462173|||.|||
@@ -238413,7 +238417,6 @@
 1874595|||.|||
 1874749|||.|||
 1875625|||[완] 아시타비(我是他非) 10월 21일 출간|||
-1876487|||대공님의 저주가 맛있습니다|||
 1878126|||하늘 아래 떨어진 별[鼈]|||
 1878797|||.|||
 1879394|||逆(거스를역)|||
@@ -238428,8 +238431,6 @@
 1886519|||ㆍ|||
 1887427|||.|||
 1888696|||일인군단(一人軍團)|||
-1889537|||절대 통수 맞지 않는 프로듀서|||
-1889538|||천재 뮤지션으로 살아가는 법|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
@@ -238750,7 +238751,6 @@
 981749|||22222'|||
 984304|||---|||
 985434|||1201|||
-98803|||[BL/Y물] 弊端[폐단;eviL]|||
 988643|||500|||
 990369|||1|||
 992840|||.|||
