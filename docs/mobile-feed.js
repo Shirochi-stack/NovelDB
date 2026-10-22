@@ -13,7 +13,7 @@
             this.status=document.createElement('button');this.status.type='button';this.status.className='mobile-feed-status';this.status.setAttribute('aria-live','polite');
             this.status.addEventListener('click',()=>{this.failed=null;this.schedule();});
             this.placeholder=document.createElement('div');this.placeholder.hidden=true;controls.before(this.placeholder);
-            this.lastY=scrollY;this.direction=0;
+            this.lastY=scrollY;this.direction=0;this.lastScrollAt=0;
             window.addEventListener('scroll',()=>{if(this.enabled)this.activity?.();this.menu();this.schedule();},{passive:true});
             window.addEventListener('resize',()=>{this.heights=[];this.dirty=true;this.rebuild();this.schedule();});
             document.addEventListener('close',()=>this.schedule(),true);
@@ -144,14 +144,17 @@
             if(anchor>0&&Math.abs(delta)>1)window.scrollBy({top:delta,behavior:'instant'});
         }
         menu() {
-            if(!this.enabled||document.querySelector('dialog[open]'))return;
             const y=Math.max(0,scrollY),delta=y-this.lastY;this.lastY=y;
+            if(!this.enabled||document.querySelector('dialog[open]')){this.direction=0;this.lastScrollAt=0;return;}
             if(Math.abs(delta)<2)return;
-            if((delta<0)!==(this.direction<0))this.direction=0;
+            const now=performance.now();
+            // Small corrections separated by a pause are not one upward gesture.
+            if(now-this.lastScrollAt>400||(delta<0)!==(this.direction<0))this.direction=0;
+            this.lastScrollAt=now;
             this.direction+=delta;
             const edge=this.placeholder.hidden?this.controls.getBoundingClientRect().bottom+y:this.placeholder.offsetTop+this.placeholder.offsetHeight;
             if(y<=edge){this.floatMenu(false);return;}
-            if(this.direction<-24)this.floatMenu(true);
+            if(this.direction<-120)this.floatMenu(true);
             else if(this.direction>12&&!(this.controls.contains(document.activeElement)&&document.activeElement.matches('input[type=text],input[type=search],select,textarea')))this.floatMenu(false);
         }
         floatMenu(show) {
