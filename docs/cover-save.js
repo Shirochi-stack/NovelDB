@@ -257,7 +257,16 @@
         }
     }
     close.addEventListener('click',()=>dialog.close());
-    dialog.addEventListener('close',()=>{viewSequence++;viewController?.abort();viewController=null;detailCard=null;clearMetadata();returnFocus?.focus({preventScroll:true});returnFocus=null;});
+    dialog.addEventListener('close',()=>{
+        const source=detailCard?.dataset.source,id=detailCard?.dataset.novelId,focus=returnFocus;
+        viewSequence++;viewController?.abort();viewController=null;detailCard=null;clearMetadata();returnFocus=null;
+        if(focus?.isConnected)focus.focus({preventScroll:true});
+        else requestAnimationFrame(()=>{
+            if(dialog.open || (document.activeElement!==document.body && document.activeElement?.isConnected))return;
+            const card=[...document.querySelectorAll('.novel-card')].find(card=>card.dataset.source===source&&card.dataset.novelId===id);
+            card?.querySelector('.cover-details')?.focus({preventScroll:true});
+        });
+    });
     dialog.addEventListener('click',event=>{
         const rect=dialog.getBoundingClientRect();
         if(event.target===dialog && (event.clientX<rect.left || event.clientX>rect.right || event.clientY<rect.top || event.clientY>rect.bottom)) dialog.close();

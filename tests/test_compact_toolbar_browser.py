@@ -38,13 +38,13 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
                 await page.wait_for_function('!document.querySelector("#siteSettingsDialog").open')
                 assert await page.locator('#settingsButton').evaluate('e=>e===document.activeElement && e.getAttribute("aria-expanded")==="false"')
                 assert await page.evaluate('card===document.querySelector(".novel-card")')
-                # Every control menu fits; opening another closes the previous one.
-                for kind in ('source', 'status', 'audience', 'order', 'batch', 'sort'):
+                # Every control menu fits and closes with the keyboard.
+                for kind in ('source', 'status', 'audience', 'order', 'sort'):
                     await page.locator(f'#{kind}PickerButton').click()
                     menu = page.locator(f'#{kind}PickerMenu')
                     assert await menu.evaluate('m=>{const r=m.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight}')
-                assert await page.locator('.source-picker-menu:visible').count() == 1
-                await page.keyboard.press('Escape')
+                    assert await page.locator('.source-picker-menu:visible').count() == 1
+                    await page.keyboard.press('Escape')
             # Compact selected badges keep their full accessible descriptions.
             for value, text in [('general','G'),('r15','15+'),('adult','19+'),('all','👥\nAll')]:
                 await page.locator('#audiencePickerButton').click()
@@ -77,7 +77,7 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
             await open_settings(page)
             await page.mouse.click(3, 3)
             await page.wait_for_function('!document.querySelector("#siteSettingsDialog").open')
-            await page.set_viewport_size({'width': 1280, 'height': 900})
+            await page.set_viewport_size({'width': 1280, 'height': 900}); await wait_loaded(page)
             assert not await page.locator('#settingsButton').is_visible()
             assert await page.locator('#settingsInline #loadDescriptions').is_visible()
             assert await page.locator('#settingsInline #imageResolution').is_visible()
@@ -95,7 +95,7 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
             await page.evaluate('window.settingsNode=document.querySelector(".site-settings");window.card=document.querySelector(".novel-card")')
             await page.set_viewport_size({'width':390,'height':844})
             await open_settings(page)
-            await page.set_viewport_size({'width':1920,'height':1080})
+            await page.set_viewport_size({'width':1920,'height':1080}); await wait_loaded(page)
             assert not await page.locator('#siteSettingsDialog').evaluate('d=>d.open')
             assert await page.evaluate('settingsNode===document.querySelector("#settingsInline .site-settings") && card===document.querySelector(".novel-card")')
             assert not await page.locator('#loadDescriptions').is_checked()

@@ -277,6 +277,7 @@ def test_mobile_details_and_settings_fit_small_phones_without_outer_scrolling():
                     assert await dialog.get_by_role('tab').count()==0
                     await page.set_viewport_size({'width':width,'height':height});await fits()
                 await page.get_by_role('button',name='Close Details').click()
+                await page.wait_for_function('document.querySelector(".cover-details")===document.activeElement')
                 assert await badge.evaluate('b=>b===document.activeElement')
             # Unusually long text stays available without expanding the dialog off-screen.
             await page.set_viewport_size({'width':390,'height':640})

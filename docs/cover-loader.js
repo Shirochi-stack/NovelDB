@@ -228,6 +228,15 @@
             img._coverOptions = options;
             img._coverQueued = true; queue.push({img,...options}); pump();
         },
+        release(card) {
+            for (const cover of card.querySelectorAll('.card-cover')) {
+                const url=objectUrls.get(cover);
+                if(url){URL.revokeObjectURL(url);objectUrls.delete(cover);}
+                if(cover.tagName==='CANVAS'){cover.width=cover.height=0;}
+                else {cover.removeAttribute('src');cover.removeAttribute('srcset');}
+            }
+            this.prune();
+        },
         prune() {
             for (const [img,url] of objectUrls) if (!img.isConnected) {URL.revokeObjectURL(url);objectUrls.delete(img);}
             for (let i=queue.length-1;i>=0;i--) if (!queue[i].img.isConnected) {queue[i].img._coverQueued=false;queue.splice(i,1);}

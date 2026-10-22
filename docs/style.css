@@ -627,6 +627,7 @@ a.card-cover-wrap.cover-ready {
 }
 
 .card-tags {
+    position: relative;
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
@@ -1327,4 +1328,17 @@ button.synopsis-status {
     .card-tags-more { font-size: .5rem; padding: .1rem .35rem; }
     .details-tags .card-tag { font-size: .65rem; padding: .15rem .4rem; }
     .novel-details-content .details-tags { max-height: 120px; overflow: auto; }
+}
+
+/* Mobile infinite scrolling retains only a viewport-sized card window. */
+.results-grid.mobile-feed { display: block; overflow-anchor: none; }
+.mobile-feed-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .6rem; padding-bottom: .6rem; }
+.mobile-feed-space { pointer-events: none; }
+.mobile-feed-status { display: block; width: 100%; min-height: 44px; padding: .75rem; color: var(--text-secondary); background: transparent; border: 0; font: inherit; font-size: .8rem; }
+.mobile-feed-status[hidden] { display: none; }
+@media (max-width: 650px) {
+    .mobile-infinite .pagination, .mobile-infinite .batch-control { display: none !important; }
+    .mobile-infinite .secondary-controls { grid-template-columns: minmax(0,1fr) 48px; }
+    .mobile-controls-floating:has(.source-picker-menu:not([hidden])) { overflow: visible; max-height: none; }
+    .mobile-controls-floating { position: fixed; z-index: 80; top: 0; left: .5rem; right: .5rem; max-height: 75dvh; overflow-y: auto; box-shadow: var(--shadow); margin: 0; }
 }
