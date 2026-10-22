@@ -5664,6 +5664,11 @@
     let displayCount = 30;
     let allTagGroups = [];   // display tag groups for the current source
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
+    const mobileView = matchMedia('(max-width: 650px)');
+    const infiniteScrollToggle = document.getElementById("mobileInfiniteScroll");
+    try {infiniteScrollToggle.checked = localStorage.getItem('noveldb.mobileInfiniteScroll') !== 'false';} catch (_) {}
+    const mobileInfinite = () => mobileView.matches && infiniteScrollToggle.checked;
+    const catalogPageSize = () => mobileInfinite() ? 30 : BATCH;
     let BATCH = 30;
     let currentPage = 1;
     const BATCH_OPTIONS = new Set(["30", "60", "90", "120", "250"]);
@@ -6098,6 +6103,7 @@
 
     function applyFilters(options = {}) {
         window.NovelControlPicker?.sync();
+        mobileFeed.invalidate();
         if (diskCatalog) {
             if (options.resetPage !== false) { currentPage = 1; catalogRequestedPage = null; }
             diskFocus = null;
@@ -6249,7 +6255,8 @@
         const rows = Number(tagRowsControl.value), tops = [];
         let visible = 0;
         for (const chip of chips) {
-            const top = chip.getBoundingClientRect().top;
+            // Local row positions survive scroll anchoring as hidden tags shrink the card.
+            const top = chip.offsetTop;
             if (!tops.length || Math.abs(top - tops[tops.length - 1]) > 1) tops.push(top);
             if (tops.length <= rows) visible++;
         }
@@ -6260,7 +6267,7 @@
         do {
             more.textContent = `+${chips.length - visible} tags`;
             more.setAttribute("aria-label", `View ${chips.length - visible} more tags in Details`);
-            if (more.getBoundingClientRect().top <= lastTop + 1 || visible === 0) break;
+            if (more.offsetTop <= lastTop + 1 || visible === 0) break;
             chips[--visible].hidden = true;
         } while (true);
     }
@@ -6585,10 +6592,50 @@
         document.fonts.addEventListener("loadingdone", fontsChanged);
     }
 
+    function updateNovelCard(novel, card, context) {
+        const recordSignature = card?._record === novel ? card._recordSignature : JSON.stringify({...novel, synopsis: undefined});
+        const signature = recordSignature + context;
+        if (!card || card._renderSignature !== signature) {
+            card = renderCard(novel, card); card._renderSignature = signature;
+        } else if (descriptionsEnabled && novel.synopsis && novel.synopsis !== card._synopsis) updateCardSynopsis(card, novel.synopsis);
+        card._record = novel; card._recordSignature = recordSignature;
+        return card;
+    }
+    function mountedCards() {
+        observeMissingSynopses(); scheduleCompactCards(); observeCovers(); scheduleCardTitleFit();
+    }
+    function mobileFeedKey() {
+        const {page, size, focus, ...query} = diskQuery();
+        return JSON.stringify(query);
+    }
+    async function mobileFeedPage(page, identity) {
+        const check = () => {if (!mobileInfinite() || identity !== mobileFeedKey()) throw new DOMException('Feed changed', 'AbortError');};
+        check();
+        if(cacheNeedsReload){await loadSource(currentSource,true);throw new DOMException("Catalog reloaded", "AbortError");}
+        const query = {...diskQuery(), page, size:30, focus:null}, key = JSON.stringify(query);
+        const cached = resultPages.get(key);
+        let result = cached?.result || previewResult(query);
+        if (!result && previewEligible(query) && page*30<=300) {
+            await loadQueryPreview(query,activeCatalogController?.signal); check(); result=previewResult(query);
+        }
+        if (!result) {
+            if (activeCatalogController && !importedSources.size) throw new Error('Catalog is still loading');
+            result = await workerRequest('query',activeCatalogController ? {...query,sources:query.sources.filter(source=>importedSources.has(source))} : query);
+            check();
+        }
+        rememberPage(key,result,cached?.preview ?? !!activeCatalogController);
+        return result;
+    }
+
     function render(fade = false) {
         if (diskCatalog && diskPageKey !== diskQueryKey()) { queryDiskCatalog(); return; }
         function doRender() {
             const total = diskCatalog ? diskTotal : filtered.length;
+            if (mobileInfinite()) {
+                resultCount.textContent = `${total.toLocaleString()} novel(s) found${catalogStatusSuffix()}`;
+                mobileFeed.accept(mobileFeedKey(), {rows:filtered, total, page:currentPage});
+                updatePagination(1); return;
+            }
             const totalPages = Math.max(1, Math.ceil(total / BATCH));
             if (currentPage > totalPages) currentPage = totalPages;
 
@@ -6605,20 +6652,7 @@
                 const novel = filtered[i];
                 const key = `${novel.source || currentSource}:${novel.id}`;
                 let card = existing.get(key);
-                // Catalog merges replace records; synopsis is filled separately.
-                // Keep signatures on visible cards so unchanged records need no
-                // serialization and browsing doesn't accumulate a catalog cache.
-                const recordSignature = card?._record === novel ? card._recordSignature
-                    : JSON.stringify({ ...novel, synopsis: undefined });
-                const signature = recordSignature + context;
-                if (!card || card._renderSignature !== signature) {
-                    card = renderCard(novel, card);
-                    card._renderSignature = signature;
-                } else if (descriptionsEnabled && novel.synopsis && novel.synopsis !== card._synopsis) {
-                    updateCardSynopsis(card, novel.synopsis);
-                }
-                card._record = novel;
-                card._recordSignature = recordSignature;
+                card = updateNovelCard(novel, card, context);
                 wanted.add(card);
                 const position = resultsEl.children[i - start];
                 if (position !== card) resultsEl.insertBefore(card, position || null);
@@ -6638,14 +6672,31 @@
         doRender();
     }
 
-    const compactPagination = window.matchMedia('(max-width: 650px)');
+    const mobileFeed = new window.NovelMobileFeed({
+        host:resultsEl, controls:document.querySelector('.controls'), load:mobileFeedPage,
+        card:(novel,card)=>updateNovelCard(novel,card,JSON.stringify([sortSelect.value,[...andTags],[...orTags],focusedCard])),
+        mounted:mountedCards,
+        activity:()=>{if(catalogWorker&&!activeCatalogController&&!workerRequests.size)scheduleCatalogIdle();}
+    });
+    mobileFeed.setEnabled(mobileInfinite());
+    function updateMobileFeedMode() {
+        try {localStorage.setItem('noveldb.mobileInfiniteScroll',String(infiniteScrollToggle.checked));} catch (_) {}
+        if(mobileFeed.enabled===mobileInfinite())return;
+        const details=document.querySelector('.novel-details[open]');
+        if(details){details.addEventListener('close',updateMobileFeedMode,{once:true});return;}
+        mobileFeed.setEnabled(mobileInfinite()); currentPage=1; diskPageKey='';
+        applyFilters();
+    }
+    infiniteScrollToggle.addEventListener('change',updateMobileFeedMode);
+    mobileView.addEventListener('change',updateMobileFeedMode);
+    const compactPagination = mobileView;
     compactPagination.addEventListener('change', () => {
         if (paginationBars.some(bar => bar.style.display !== 'none')) {
             updatePagination(Math.max(1, Math.ceil((diskCatalog ? diskTotal : filtered.length) / BATCH)));
         }
     });
     function updatePagination(totalPages) {
-        const show = totalPages > 1;
+        const show = !mobileInfinite() && totalPages > 1;
         const pages = buildPageRange(currentPage, totalPages);
         for (const bar of paginationBars) {
             bar.style.display = show ? "" : "none";
@@ -7227,7 +7278,7 @@
                 clearTimeout(catalogIdleTimer);
                 worker.terminate();catalogWorker=null;
             } catch(_) { /* Idle cleanup never changes the current page. */ }
-        },250);
+        },mobileInfinite()?1500:250);
     }
     function workerRequest(type, value, progress) {
         clearTimeout(catalogIdleTimer);
@@ -7287,7 +7338,7 @@
         return { sources:selectedSources, text:activeAuthorFilter ? "" : searchInput.value.trim().toLowerCase(),
             author:activeAuthorFilter, status:statusSelect.value, audience:audienceSelect.value,
             and:spellings(andTags), or:spellings(orTags), exclude:spellings(excludeTags),
-            sort:sortOptions(), page:currentPage, size:BATCH, focus:diskFocus };
+            sort:sortOptions(), page:currentPage, size:catalogPageSize(), focus:diskFocus };
     }
     function diskQueryKey() { return JSON.stringify(diskQuery()); }
     async function queryDiskCatalog() {
@@ -7334,6 +7385,7 @@
             filtered = result.rows; allNovels = [];
             diskPageKey = diskQueryKey();
             render(false); warmSourcePreviews();
+            if(focus && mobileInfinite()) mobileFeed.jumpTo(result.page);
             if (focus) requestAnimationFrame(() => [...resultsEl.querySelectorAll('.novel-card')].find(c => c.dataset.novelId === focus.id && c.dataset.source === focus.source)?.scrollIntoView({block:"center",behavior:"smooth"}));
         } catch (error) {
             if (seq !== diskQuerySequence || error.name === "AbortError") return;
@@ -7925,6 +7977,7 @@
 
     async function loadSource(source, keepState = false) {
         if (cacheClearing) return;
+        mobileFeed.invalidate();
         cacheNeedsReload=false;
         if (source !== "all" && !SOURCES[source]) source = "all";
         // Terminate only unfinished imports. Completed source indexes remain

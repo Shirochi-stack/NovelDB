@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=39">
+    <link rel="stylesheet" href="style.css?v=40">
 </head>
 
 <body>
@@ -179,6 +179,7 @@
                 <label class="compression-quality" title="Card-image resolution: lower values use less memory. 100 keeps the 320 × 480 maximum. Details and downloads use the original image."><span>Resolution</span> <input type="range" id="imageResolution" aria-label="Card image resolution" min="20" max="100" step="1" value="72"><output id="imageResolutionValue" for="imageResolution">72%</output></label>
                 <label class="compression-quality" title="WebP encoding quality: lower values make smaller files without changing the card image's pixel dimensions."><span>WebP Quality</span> <input type="range" id="imageQuality" aria-label="WebP quality" min="20" max="100" step="1" value="72"><output id="imageQualityValue" for="imageQuality">72%</output></label>
             </div>
+            <label class="description-toggle"><input type="checkbox" id="mobileInfiniteScroll" checked> Infinite scrolling on mobile</label>
             <div class="card-compact-settings">
                 <label class="description-toggle"><input type="checkbox" id="compactCards" checked> Compact cards</label>
                 <label class="compression-quality"><span>Synopsis lines</span> <input type="range" id="synopsisLines" aria-label="Synopsis lines" min="1" max="12" step="1" value="5"><output id="synopsisLinesValue" for="synopsisLines">5</output></label>
@@ -191,10 +192,11 @@
 
     <script src="metadata-core.js?v=10"></script>
     <script src="source-picker.js?v=4"></script>
-    <script src="cover-loader.js?v=8"></script>
-    <script src="cover-save.js?v=10"></script>
+    <script src="cover-loader.js?v=9"></script>
+    <script src="cover-save.js?v=11"></script>
     <script src="site-tools.js?v=6"></script>
-    <script src="app.js?v=65"></script>
+    <script src="mobile-feed.js?v=1"></script>
+    <script src="app.js?v=66"></script>
 </body>
 
 </html>

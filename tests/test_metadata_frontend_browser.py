@@ -225,7 +225,7 @@ class FixtureSite:
         if url.hostname != "metadata.test":
             await route.fulfill(status=200, body="", content_type="text/plain")
             return
-        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/preview-worker.js", "/source-picker.js", "/cover-loader.js", "/cover-save.js", "/site-tools.js", "/cache-worker.js", "/style.css"):
+        if path in ("/", "/index.html", "/app.js", "/metadata-core.js", "/catalog-worker.js", "/catalog-import.js", "/catalog-parser.js", "/synopsis-worker.js", "/preview-worker.js", "/source-picker.js", "/mobile-feed.js", "/cover-loader.js", "/cover-save.js", "/site-tools.js", "/cache-worker.js", "/style.css"):
             name = "index.html" if path == "/" else path.lstrip("/")
             mime = "text/html" if name.endswith("html") else "text/css" if name.endswith("css") else "text/javascript"
             await route.fulfill(status=200, body=(DOCS / name).read_bytes(), content_type=mime)
@@ -297,7 +297,7 @@ async def close_settings(page):
 
 
 async def wait_loaded(page):
-    await page.wait_for_function("document.body.dataset.catalogReady==='true' && !document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
+    await page.wait_for_function("document.body.dataset.catalogReady==='true' && (!document.body.classList.contains('mobile-infinite') || document.querySelector('#results').dataset.feedReady==='true') && !document.querySelector('#resultCount').textContent.includes('loading') && !/^(Loading|Searching)/.test(document.querySelector('#resultCount').textContent)")
 
 
 def test_startup_loads_only_the_complete_npia_catalog_once():
@@ -329,8 +329,8 @@ def test_startup_loads_only_the_complete_npia_catalog_once():
             await page.locator('#searchInput').fill('npia')
             site.release.set()
             await wait_loaded(page)
-            assert await page.locator('.novel-card').count() == 30
-            assert await page.evaluate('cardChanges') == 1
+            assert 4 <= await page.locator('.novel-card').count() <= 16
+            assert await page.evaluate('cardChanges') <= 4
             chunks = [url for url in site.requests if '_chunk_' in url and '_manifest' not in url]
             assert len(chunks) == 1 and 'npia_chunk_0' in chunks[0]
             assert await page.locator('#loadFullCatalog').count() == 0
