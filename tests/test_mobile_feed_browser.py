@@ -1,4 +1,4 @@
-"""A lazy, bounded mobile feed and its saved pagination fallback."""
+"""A lazy, bounded feed with independent mobile and desktop preferences."""
 import asyncio
 import gzip
 import json
@@ -25,6 +25,73 @@ class FeedSite(FixtureSite):
                 if self.covers:entry[3]=f'https://covers.test/npia/{entry[0]}.svg'
             await r.fulfill(body=gzip.compress(json.dumps({'novels':rows,'translations':{str(i):f'Novel {i:04}' for i in range(1,self.count+1)}}).encode()),content_type='application/gzip')
         else:await super().route(r)
+
+
+def test_desktop_feed_is_optional_responsive_and_saved_independently():
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':1440,'height':900})
+            errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+            await page.route('**/*',FeedSite(covers=True).route)
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            assert not await page.locator('#desktopInfiniteScroll').is_checked()
+            assert await page.locator('#paginationTop').is_visible()
+            assert await page.locator('.batch-control').is_visible()
+            await page.locator('#batchSelect').select_option('60')
+            await page.wait_for_function('document.querySelectorAll(".novel-card").length===60')
+            await page.locator('#desktopInfiniteScroll').check();await wait_loaded(page)
+            assert not await page.locator('#paginationTop').is_visible()
+            assert not await page.locator('.batch-control').is_visible()
+            assert await page.locator('.mobile-feed-grid').evaluate('g=>getComputedStyle(g).gridTemplateColumns.split(" ").length')==5
+            assert 10<=await page.locator('.novel-card').count()<=40
+            assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            await page.screenshot(path='artifacts/desktop-infinite-scrolling.png',full_page=False)
+            first=await page.locator('.novel-card').first.get_attribute('data-novel-id')
+            for _ in range(5):
+                before=int(await page.locator('#results').get_attribute('data-feed-end'))
+                await page.evaluate('scrollTo({top:document.documentElement.scrollHeight-innerHeight,behavior:"instant"})')
+                await page.wait_for_function('(n)=>Number(document.querySelector("#results").dataset.feedEnd)>n',arg=before)
+                assert await page.locator('.novel-card').count()<=40
+                assert int(await page.locator('#results').get_attribute('data-feed-cached'))<=4
+            assert int(await page.locator('#results').get_attribute('data-feed-start'))>30
+            await page.evaluate('scrollBy({top:-150,behavior:"instant"})')
+            await page.wait_for_function('document.querySelector(".controls").classList.contains("mobile-controls-floating")')
+            assert await page.locator('.controls').evaluate('c=>c.getBoundingClientRect().top===0')
+            # Resize a scrolled desktop feed across non-divisors of its 30-record slices.
+            for width,columns in ((1100,4),(1920,6)):
+                await page.set_viewport_size({'width':width,'height':900})
+                await page.wait_for_function('(n)=>getComputedStyle(document.querySelector(".mobile-feed-grid")).gridTemplateColumns.split(" ").length===n',arg=columns)
+                await page.wait_for_function('(n)=>Number(document.querySelector("#results").dataset.feedStart)%n===0',arg=columns)
+                indexes=await page.locator('.novel-card').evaluate_all('cs=>cs.map(c=>Number(c.dataset.feedIndex))')
+                assert indexes==list(range(indexes[0],indexes[-1]+1))
+            await page.evaluate('scrollTo({top:0,behavior:"instant"})')
+            await page.wait_for_function('document.querySelector("#results").dataset.feedStart==="0"')
+            assert await page.locator('.novel-card').first.get_attribute('data-novel-id')==first
+            await page.reload();await wait_loaded(page)
+            assert await page.locator('#desktopInfiniteScroll').is_checked()
+            assert not await page.locator('#paginationTop').is_visible()
+            # Changing the other device's preference leaves the active feed intact.
+            await page.evaluate('window.keptCard=document.querySelector(".novel-card")')
+            await page.locator('#mobileInfiniteScroll').uncheck()
+            assert await page.evaluate('keptCard.isConnected')
+            await page.set_viewport_size({'width':390,'height':844});await wait_loaded(page)
+            assert await page.locator('#paginationTop').is_visible()
+            await page.set_viewport_size({'width':1440,'height':900});await wait_loaded(page)
+            assert not await page.locator('#paginationTop').is_visible()
+            await page.locator('#desktopInfiniteScroll').uncheck();await wait_loaded(page)
+            assert await page.locator('#paginationTop').is_visible()
+            assert await page.locator('.batch-control').is_visible()
+            assert await page.locator('#batchSelect').input_value()=='60'
+            assert await page.locator('.novel-card').count()==60
+            await page.locator('#paginationTop .next-page').click()
+            await page.wait_for_function('document.querySelector("#paginationTop [aria-current=page]")?.textContent==="2"')
+            await page.reload();await wait_loaded(page)
+            assert not await page.locator('#desktopInfiniteScroll').is_checked()
+            assert await page.locator('#paginationTop').is_visible()
+            assert not errors
+            await browser.close()
+    asyncio.run(scenario())
 
 
 def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_pages():

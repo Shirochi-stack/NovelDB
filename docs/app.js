@@ -5666,9 +5666,13 @@
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
     const mobileView = matchMedia('(max-width: 650px)');
     const infiniteScrollToggle = document.getElementById("mobileInfiniteScroll");
-    try {infiniteScrollToggle.checked = localStorage.getItem('noveldb.mobileInfiniteScroll') !== 'false';} catch (_) {}
-    const mobileInfinite = () => mobileView.matches && infiniteScrollToggle.checked;
-    const catalogPageSize = () => mobileInfinite() ? 30 : BATCH;
+    const desktopInfiniteScrollToggle = document.getElementById("desktopInfiniteScroll");
+    try {
+        infiniteScrollToggle.checked = localStorage.getItem('noveldb.mobileInfiniteScroll') !== 'false';
+        desktopInfiniteScrollToggle.checked = localStorage.getItem('noveldb.desktopInfiniteScroll') === 'true';
+    } catch (_) {}
+    const infiniteScrollEnabled = () => mobileView.matches ? infiniteScrollToggle.checked : desktopInfiniteScrollToggle.checked;
+    const catalogPageSize = () => infiniteScrollEnabled() ? 30 : BATCH;
     let BATCH = 30;
     let currentPage = 1;
     const BATCH_OPTIONS = new Set(["30", "60", "90", "120", "250"]);
@@ -6609,7 +6613,7 @@
         return JSON.stringify(query);
     }
     async function mobileFeedPage(page, identity) {
-        const check = () => {if (!mobileInfinite() || identity !== mobileFeedKey()) throw new DOMException('Feed changed', 'AbortError');};
+        const check = () => {if (!infiniteScrollEnabled() || identity !== mobileFeedKey()) throw new DOMException('Feed changed', 'AbortError');};
         check();
         if(cacheNeedsReload){await loadSource(currentSource,true);throw new DOMException("Catalog reloaded", "AbortError");}
         const query = {...diskQuery(), page, size:30, focus:null}, key = JSON.stringify(query);
@@ -6631,7 +6635,7 @@
         if (diskCatalog && diskPageKey !== diskQueryKey()) { queryDiskCatalog(); return; }
         function doRender() {
             const total = diskCatalog ? diskTotal : filtered.length;
-            if (mobileInfinite()) {
+            if (infiniteScrollEnabled()) {
                 resultCount.textContent = `${total.toLocaleString()} novel(s) found${catalogStatusSuffix()}`;
                 mobileFeed.accept(mobileFeedKey(), {rows:filtered, total, page:currentPage});
                 updatePagination(1); return;
@@ -6678,16 +6682,20 @@
         mounted:mountedCards,
         activity:()=>{if(catalogWorker&&!activeCatalogController&&!workerRequests.size)scheduleCatalogIdle();}
     });
-    mobileFeed.setEnabled(mobileInfinite());
+    mobileFeed.setEnabled(infiniteScrollEnabled());
     function updateMobileFeedMode() {
-        try {localStorage.setItem('noveldb.mobileInfiniteScroll',String(infiniteScrollToggle.checked));} catch (_) {}
-        if(mobileFeed.enabled===mobileInfinite())return;
+        try {
+            localStorage.setItem('noveldb.mobileInfiniteScroll',String(infiniteScrollToggle.checked));
+            localStorage.setItem('noveldb.desktopInfiniteScroll',String(desktopInfiniteScrollToggle.checked));
+        } catch (_) {}
+        if(mobileFeed.enabled===infiniteScrollEnabled())return;
         const details=document.querySelector('.novel-details[open]');
         if(details){details.addEventListener('close',updateMobileFeedMode,{once:true});return;}
-        mobileFeed.setEnabled(mobileInfinite()); currentPage=1; diskPageKey='';
+        mobileFeed.setEnabled(infiniteScrollEnabled()); currentPage=1; diskPageKey='';
         applyFilters();
     }
     infiniteScrollToggle.addEventListener('change',updateMobileFeedMode);
+    desktopInfiniteScrollToggle.addEventListener('change',updateMobileFeedMode);
     mobileView.addEventListener('change',updateMobileFeedMode);
     const compactPagination = mobileView;
     compactPagination.addEventListener('change', () => {
@@ -6696,7 +6704,7 @@
         }
     });
     function updatePagination(totalPages) {
-        const show = !mobileInfinite() && totalPages > 1;
+        const show = !infiniteScrollEnabled() && totalPages > 1;
         const pages = buildPageRange(currentPage, totalPages);
         for (const bar of paginationBars) {
             bar.style.display = show ? "" : "none";
@@ -7278,7 +7286,7 @@
                 clearTimeout(catalogIdleTimer);
                 worker.terminate();catalogWorker=null;
             } catch(_) { /* Idle cleanup never changes the current page. */ }
-        },mobileInfinite()?1500:250);
+        },infiniteScrollEnabled()?1500:250);
     }
     function workerRequest(type, value, progress) {
         clearTimeout(catalogIdleTimer);
@@ -7385,7 +7393,7 @@
             filtered = result.rows; allNovels = [];
             diskPageKey = diskQueryKey();
             render(false); warmSourcePreviews();
-            if(focus && mobileInfinite()) mobileFeed.jumpTo(result.page);
+            if(focus && infiniteScrollEnabled()) mobileFeed.jumpTo(result.page);
             if (focus) requestAnimationFrame(() => [...resultsEl.querySelectorAll('.novel-card')].find(c => c.dataset.novelId === focus.id && c.dataset.source === focus.source)?.scrollIntoView({block:"center",behavior:"smooth"}));
         } catch (error) {
             if (seq !== diskQuerySequence || error.name === "AbortError") return;

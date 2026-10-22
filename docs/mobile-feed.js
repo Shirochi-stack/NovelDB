@@ -1,10 +1,10 @@
-/* Mobile feed: a bounded card window over lazily requested catalog slices. */
+/* Responsive feed: a bounded card window over lazily requested catalog slices. */
 (function () {
     'use strict';
     window.NovelMobileFeed = class {
         constructor({host,controls,load,card,mounted,activity}) {
             Object.assign(this,{host,controls,load,card,mounted,activity});
-            this.size=30;this.enabled=false;this.epoch=0;this.frame=0;this.cache=new Map();this.pending=new Map();
+            this.size=30;this.columns=2;this.enabled=false;this.epoch=0;this.frame=0;this.cache=new Map();this.pending=new Map();
             this.heights=[];this.prefix=[0];this.estimate=660;this.extent=0;this.total=0;this.identity=null;
             this.handoff=new Map();
             this.top=document.createElement('div');this.top.className='mobile-feed-space';this.top.setAttribute('aria-hidden','true');
@@ -15,7 +15,7 @@
             this.placeholder=document.createElement('div');this.placeholder.hidden=true;controls.before(this.placeholder);
             this.lastY=scrollY;this.direction=0;
             window.addEventListener('scroll',()=>{if(this.enabled)this.activity?.();this.menu();this.schedule();},{passive:true});
-            window.addEventListener('resize',()=>{this.heights=[];this.rebuild();this.schedule();});
+            window.addEventListener('resize',()=>{this.heights=[];this.dirty=true;this.rebuild();this.schedule();});
             document.addEventListener('close',()=>this.schedule(),true);
             this.resize=new ResizeObserver(()=>this.measure());this.resize.observe(this.grid);
         }
@@ -25,11 +25,12 @@
             this.floatMenu(false);this.host.classList.toggle('mobile-feed',enabled);
             document.body.classList.toggle('mobile-infinite',enabled);
             const cards=[...this.host.querySelectorAll('.novel-card')];
-            if(enabled){this.grid.replaceChildren(...cards);this.host.replaceChildren(this.top,this.grid,this.bottom,this.status);}
+            if(enabled){this.columns=this.columnCount();this.grid.replaceChildren(...cards);this.host.replaceChildren(this.top,this.grid,this.bottom,this.status);}
             else {this.host.replaceChildren(...cards);this.grid.replaceChildren();this.handoff.clear();}
         }
         invalidate() {this.epoch++;this.identity=null;this.busy=false;this.pending.clear();}
-        jumpTo(page) {this.jumpRow=(page-1)*this.size/2;this.dirty=true;this.schedule();}
+        columnCount() {return Math.max(1,parseInt(getComputedStyle(this.host).getPropertyValue('--feed-columns'),10)||2);}
+        jumpTo(page) {this.jumpRow=Math.floor((page-1)*this.size/this.columns);this.dirty=true;this.schedule();}
         reset(identity) {
             this.epoch++;this.identity=identity;this.cache.clear();this.pending.clear();this.failed=null;
             this.heights=[];this.prefix=[0];this.extent=0;this.total=0;this.start=0;this.end=0;this.busy=false;
@@ -47,11 +48,11 @@
             // Preview rows stay locked while the full catalog finishes importing.
             if(!this.cache.has(page))this.cache.set(page,result.rows);
             this.extent=Math.max(this.extent,Math.min(this.total,page*this.size));
-            if(fresh&&page>1)this.jumpRow=(page-1)*this.size/2;
+            if(fresh&&page>1)this.jumpRow=Math.floor((page-1)*this.size/this.columns);
             this.dirty=true;this.rebuild();this.schedule();
         }
         rebuild() {
-            const count=Math.ceil(this.extent/2);this.prefix=[0];
+            const count=Math.ceil(this.extent/this.columns);this.prefix=[0];
             for(let i=0;i<count;i++)this.prefix.push(this.prefix[i]+(this.heights[i]||this.estimate));
         }
         rowAt(y) {
@@ -79,13 +80,19 @@
         }
         async update() {
             if(!this.enabled||!this.identity||this.busy||document.querySelector('dialog[open]'))return;
+            const columns=this.columnCount();
+            if(columns!==this.columns){
+                const index=this.rowAt(Math.max(0,-this.host.getBoundingClientRect().top))*this.columns;
+                this.columns=columns;this.heights=[];this.jumpRow=Math.floor(index/columns);this.dirty=true;this.rebuild();
+            }
             if(!this.total){for(const card of [...this.grid.children,...this.handoff.values()]){card.remove();window.NovelCovers.release?.(card);}this.handoff.clear();this.grid.replaceChildren();this.mounted();this.status.hidden=false;this.status.disabled=true;this.status.textContent='No novels match these filters.';this.host.dataset.feedReady='true';return;}
             const epoch=this.epoch;
             const local=Math.max(0,-this.host.getBoundingClientRect().top);
-            const row=this.jumpRow ?? this.rowAt(local),rows=Math.min(8,Math.max(4,Math.ceil(innerHeight/this.estimate)+4));
-            const start=this.jumpRow ?? Math.max(0,row-2),last=Math.min(Math.ceil(this.total/2),start+rows);
+            const overscan=matchMedia('(max-width: 650px)').matches?2:1;
+            const row=this.jumpRow ?? this.rowAt(local),rows=Math.min(8,Math.max(2*overscan,Math.ceil(innerHeight/this.estimate)+2*overscan));
+            const start=this.jumpRow ?? Math.max(0,row-overscan),last=Math.min(Math.ceil(this.total/columns),start+rows);
             if(start===this.start&&last===this.end&&this.grid.children.length&&!this.dirty)return;
-            const firstPage=Math.floor(start*2/this.size)+1,lastPage=Math.floor(Math.max(0,last*2-1)/this.size)+1;
+            const firstPage=Math.floor(start*columns/this.size)+1,lastPage=Math.floor(Math.max(0,last*columns-1)/this.size)+1;
             this.busy=true;
             try {
                 // One request at a time respects the catalog worker's query cancellation.
@@ -97,7 +104,7 @@
                 }
                 const previous=new Map([...this.handoff,...[...this.grid.children].map(c=>[`${c.dataset.source}:${c.dataset.novelId}`,c])]);
                 const wanted=[];
-                for(let index=start*2;index<Math.min(this.total,last*2);index++){
+                for(let index=start*columns;index<Math.min(this.total,last*columns);index++){
                     const record=this.cache.get(Math.floor(index/this.size)+1)?.[index%this.size];
                     if(!record)break;
                     const key=`${record.source}:${record.id}`;
@@ -112,7 +119,7 @@
                 this.bottom.style.height=Math.max(0,(this.prefix[this.prefix.length-1]||0)-(this.prefix[last]||0))+'px';
                 this.status.hidden=!this.failed&&this.extent<this.total;this.status.disabled=!this.failed;
                 this.status.textContent=this.failed?this.failureText:this.extent>=this.total?'End of results':'';
-                this.host.dataset.feedStart=start*2;this.host.dataset.feedEnd=Math.min(this.total,last*2);this.host.dataset.feedCached=this.cache.size;
+                this.host.dataset.feedStart=start*columns;this.host.dataset.feedEnd=Math.min(this.total,last*columns);this.host.dataset.feedCached=this.cache.size;
                 this.handoff.clear();this.dirty=false;this.host.dataset.feedReady="true";
                 this.mounted();this.measure();
                 if(this.jumpRow!=null){window.scrollTo({top:scrollY+this.host.getBoundingClientRect().top+(this.prefix[this.jumpRow]||0),behavior:"instant"});this.jumpRow=null;}
@@ -120,12 +127,13 @@
         }
         measure() {
             if(!this.enabled||!this.grid.children.length)return;
+            if(this.columns!==this.columnCount()){this.schedule();return;}
             const children=[...this.grid.children],gap=parseFloat(getComputedStyle(this.grid).rowGap)||0;
             const local=Math.max(0,-this.host.getBoundingClientRect().top),anchor=this.rowAt(local),old=this.prefix[anchor]||0;
             let changed=false;
-            for(let i=0;i<children.length;i+=2){
-                const height=Math.max(children[i].getBoundingClientRect().height,children[i+1]?.getBoundingClientRect().height||0)+gap;
-                const row=this.start+i/2;
+            for(let i=0;i<children.length;i+=this.columns){
+                const height=Math.max(...children.slice(i,i+this.columns).map(card=>card.getBoundingClientRect().height))+gap;
+                const row=this.start+i/this.columns;
                 if(Math.abs((this.heights[row]||this.estimate)-height)>1){this.heights[row]=height;changed=true;}
             }
             if(!changed)return;
