@@ -1342,7 +1342,14 @@ button.synopsis-status {
 .mobile-feed-status { display: block; width: 100%; min-height: 44px; padding: .75rem; color: var(--text-secondary); background: transparent; border: 0; font: inherit; font-size: .8rem; }
 .mobile-feed-status[hidden] { display: none; }
 .mobile-infinite .pagination, .mobile-infinite .batch-control { display: none !important; }
-.mobile-controls-floating { position: fixed; z-index: 80; top: 0; left: 2rem; right: 2rem; max-height: 75dvh; overflow-y: auto; box-shadow: var(--shadow); margin: 0; }
+.mobile-controls-floating { position: fixed; z-index: 80; top: 0; left: 2rem; right: 2rem; max-height: 75dvh; overflow-y: auto; box-shadow: var(--shadow); margin: 0; animation: controls-slide-down 220ms cubic-bezier(.2,.7,.25,1); }
+@keyframes controls-slide-down {
+    from { transform: translateY(calc(-100% - 8px)); }
+    to { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .mobile-controls-floating { animation: none; }
+}
 .mobile-controls-floating:has(.source-picker-menu:not([hidden])) { overflow: visible; max-height: none; }
 @media (max-width: 650px) {
     .mobile-infinite .secondary-controls { grid-template-columns: minmax(0,1fr) 48px; }
