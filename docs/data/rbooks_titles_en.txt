@@ -414,9 +414,14 @@
 1007142159|||화룡 가문의 천재가 돌아왔다|||The Fire Dragon Clan's Genius Returns
 1007142334|||제갈세가의 패왕|||The Overlord of the Zhuge Clan
 1007143054|||너무 잘 아는 게임에 소환됐다|||Summoned into a Game I Know Too Well
+1007143921|||망한 가문의 검술 천재가 되었다|||The Sword Genius of a Ruined Family
 1007144404|||게임 속 초긍정 엑스트라가 되었다|||I Became an Extremely Optimistic Extra in a Game
+1007144584|||더 이상 가르칠 게 없대서 하산했습니다|||Left the Mountain Since There Was Nothing Left to Teach
+1007144784|||천마손주|||The Heavenly Demon's Grandson
 1007144984|||마도공학 통신장교가 전장을 캐리함|||The Magitech Communications Officer Carries the Battlefield
 1007145114|||대서양 횡단 중 아포칼립스가 터졌다|||The Apocalypse Broke Out Midway Across the Atlantic
+1007145287|||검혼기행|||Travels of the Sword Spirit
+1007145530|||개정판 \u007c 검은 머리 미국 대재벌|||Revised Edition \u007c Black-Haired Tycoon of America
 1020008656|||남주와 파혼하겠습니다.|||I Will Break Off My Engagement with the Male Lead
 102001742|||오리진 1st|||Origin 1st
 102002674|||학원 나웰론에 오신 것을 환영합니다!|||Welcome to Nawellon Academy!
@@ -726,6 +731,7 @@
 102134815|||귀농하니 AI 나노봇이 농사를 해 준다|||After Moving to the Country, AI Nanobots Farm for Me
 102135107|||마법 가문의 무신이 되었다|||I Became the Martial God of a Magic Family
 102135510|||쉰 살의 포르노(Pornography)|||Fifty-Year-Old Pornography
+102136143|||흙수저, 중세에서 왕이 되다|||Dirt Spoon: Becoming King in the Medieval Era
 111017160|||상수리나무 아래 팬아트북|||Under the Oak Tree Fan Artbook
 111035982|||상수리나무 아래 팬아트북 시즌2|||Under the Oak Tree Fan Artbook Season 2
 111062151|||2023년 메가 마크다운 돌발 이벤트|||2023 Mega Markdown Surprise Event
@@ -828,6 +834,7 @@
 1190022255|||격랑의 바다|||Sea of Turmoil
 1190022723|||이것이 국가다!|||This Is a Nation!
 1190023552|||퓨전삼국지 천하를 화평하게 하라!|||Fusion Romance of the Three Kingdoms: Bring Peace to the Realm!
+1190024308|||의원님이 보우하사|||By the Grace of the Councilor
 120031409|||절대검귀|||Absolute Sword Demon
 120031633|||원스 어폰 어 타임 인 무림|||Once Upon a Time in the Martial World
 120035477|||천강기협전|||Chronicle of the Heavenly Gang Hero
@@ -1197,15 +1204,22 @@
 120111357|||용이 없는 용기사를 위한 반려용 길들이기 지침서 (15세 개정판)|||A Guide to Taming a Companion Dragon for a Dragon Knight Without a Dragon (15+ Revised Edition)
 120111756|||바람난 아내 때문에 전 세계가 난리 남|||My Cheating Wife Caused Chaos Worldwide
 120111942|||고도의 유전자를 숨김|||Hiding My Superior Genes
+120112333|||국선 변호사, 절대 지지 않는다|||The Court-Appointed Lawyer Never Loses
 120112518|||그 밀밭에 늑대가 서 있다|||A Wolf Stands in That Wheat Field
 120112755|||감정을 못 느끼는 남편을 버렸더니|||After I Abandoned My Emotionless Husband
 120112757|||감정을 못 느끼는 남편을 버렸더니 (15세 개정판)|||After I Abandoned My Emotionless Husband (15+ Revised Edition)
 120113323|||야한 보상 받는 헌터|||The Hunter Who Gets Steamy Rewards
 120113456|||여전사 전용 SSS급 힐러가 되었다|||I Became an SSS-Rank Healer for Female Warriors
+120113658|||편의점 알바가 이세계 포션을 가져옴|||Convenience Store Part-Timer Brings Otherworldly Potions
+120113831|||대장간 차릴 돈으로 몰락 영애를 샀다|||Bought the Fallen Noble Lady With Money Meant for a Forge
+120114328|||게이트 안 닫고 개발했더니 100조 부자|||Developed Without Closing the Gate, Now a 100 Trillion Won Tycoon
+120114625|||회귀한 서울대생 특전사가 일을 너무 잘함|||The Regressed Seoul National Student Special Forces Is Too Good at Its Job
 120114866|||반석부터 시작하는 영지 생활 백서|||A Complete Guide to Estate Management, Starting from Bedrock
 120114867|||반석부터 시작하는 영지 생활 백서 (15세 개정판)|||The Lord’s Guide to Life, Starting from Bedrock (15+ Edition)
 120115046|||멸망에서 보호해 드립니다 외전 2|||I’ll Protect You from the Apocalypse: Side Story 2
+120115165|||사체처리반은 죽일수록 강해진다.|||The Corpse Disposal Squad Grows Stronger the More They Kill.
 120115723|||강아지가 세상을 구한다|||The Puppy Saves the World
+120115724|||강아지가 세상을 구한다 (15세 개정판)|||The Puppy Saves the World (Revised Edition, 15+)
 1239001461|||계약|||Contract
 1239001510|||해적: 제왕의 포로|||Pirate: Captive of the Emperor
 1239001855|||은밀한 유희|||Secret Amusement
@@ -2146,6 +2160,7 @@
 1483042465|||가장 완벽한 타인 (15세 개정판)|||The Perfect Stranger (15+ Revised Edition)
 1483042755|||무진천하|||The World Under Heaven
 1483043041|||지존무한|||The Supreme One Is Infinite
+1483043338|||남편이 가출했다|||My Husband Ran Away From Home
 1525000411|||레이드 만물상점|||The Raid General Store
 1525000569|||스트라이커|||Striker
 1525000924|||스피릿 소드|||Spirit Sword
@@ -3523,6 +3538,9 @@
 1811279596|||도왕협제|||The Blade King and the Martial Emperor
 1811280108|||꼴찌 고교야구부의 감독이 되었다|||I Became the Coach of the Worst High School Baseball Team
 1811280251|||발해가 몽골제국 포지션을 먹음|||Balhae Takes the Mongol Empire’s Place
+1811280508|||최강 유령함대가 내 피규어|||The Strongest Ghost Fleet Is My Figure Collection
+1811280835|||하데스의 시한부 아내|||Hades' Terminally Ill Wife
+1811280910|||하데스의 시한부 아내 (15세 개정판)|||Hades' Terminally Ill Wife (Revised Edition, 15+)
 1818003815|||첫사랑 코디네이터|||First Love Coordinator
 1818003937|||잠자는 꿈속의 배우님|||The Actor Sleeping in a Dream
 1818004219|||힘센 로맨스|||Strong Romance
@@ -4669,6 +4687,7 @@
 2036107038|||아포칼립스의 경호원|||Bodyguard of the Apocalypse
 2036107353|||퓨전펑크에서 마법사로 사는 법|||How to Live as a Mage in Fusionpunk
 2036107742|||2회차 광고의 신이 영화를 찍으면|||When the God of Advertising Makes a Movie in His Second Life
+2036107946|||미국 서부의 해결사로 살아가는 법|||How to Live as a Fixer of the American West
 2036108197|||차원여행자의 경제학개론|||Introduction to Economics for the Dimension Traveler
 2036108399|||흑도검선|||Black Blade Immortal
 2037000040|||거울에 비친 왕관|||The Crown in the Mirror
@@ -5803,6 +5822,7 @@
 2057342966|||명가의 역대급 재능천재로 환생했다|||Reborn as the Greatest Prodigy of a Prestigious Family
 2057343922|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||My Ex-Wife and Former Company Go Under While I Live the American Dream
 2057344115|||쇼팽 콘체르토|||Chopin Concerto
+2057344364|||국가대표 아이돌|||National Team Idol
 2065000061|||영업사원 김유빈|||Salesman Kim Yu-bin
 2065000225|||미티어 스트라이커|||Meteor Striker
 2065000386|||전능의 지배자|||Ruler of Omnipotence
@@ -8572,6 +8592,7 @@
 2313075401|||비정규직 매니저|||The Temporary Manager
 2313076114|||검은머리 미 국세청 SWAT요원|||The Black-Haired IRS SWAT Agent
 2313076484|||조선이 제국주의를 배움|||Joseon Learns Imperialism
+2313076859|||회귀한 요리사는 구원자가 되기로 했습니다|||The Regressed Chef Decided to Become a Savior
 2314000029|||미친 남자|||The Mad Man
 2314001023|||대단한 아가씨|||The Magnificent Young Lady
 2324000127|||톱스타가 내 꿈을 꾸는 이유|||Why a Top Star Dreams of Me
@@ -8928,6 +8949,7 @@
 2336052352|||가난한 척했더니 후견인이 집착한다|||I Pretended to Be Poor, and My Patron Became Obsessed With Me
 2336052422|||가난한 척했더니 후견인이 집착한다 (15세 개정판)|||I Pretended to Be Poor, and My Patron Became Obsessed (15+ Version)
 2336052848|||심해 납치|||Deep Sea Abduction
+2336052918|||심해 납치 (15세 개정판)|||Deep Sea Abduction (Revised Edition, 15+)
 2351000198|||배구 마에스트로|||Volleyball Maestro
 2351001414|||괴수 세계의 한의사|||The Oriental Doctor in the Monster World
 2351001673|||레이드 커맨더|||Raid Commander
@@ -9362,6 +9384,7 @@
 2378081637|||변발머리 망나니가 아시아를 키움|||The Queue-Haired Scion Develops Asia
 2378081802|||반로환동했으니 학관에 가련다|||I Returned to Youth, So I'll Go to the Academy
 2378082420|||반지성주의 마왕의 세계침략|||The Anti-Intellectual Demon King Invades the World
+2378083222|||메카 전선 속 고인물 단역|||The Veteran Extra in the Mecha Front Lines
 2384000011|||상은|||Sang-eun
 2391000001|||무한공포|||Infinite Horror
 2391000199|||질풍러너 어쌔신|||Gale Runner Assassin
@@ -11012,6 +11035,7 @@
 3076064006|||게이트 제거대원이 되었다|||I Became a Gate Removal Specialist
 3076064222|||늑대의 힘으로 부활했습니다|||I Came Back with the Power of a Wolf
 3076064442|||미국 노동자는 천재 프로듀서|||The American Worker Is a Genius Producer
+3076064643|||무한한 마법을 만드는 융합의 천재 마탑주|||The Fusion Genius Tower Master Who Creates Infinite Magic
 3078000002|||아스텔|||Astel
 3086000832|||망천의 새|||The Bird of Mangcheon
 3086001161|||망천의 새 외전|||The Bird of Mangcheon: Side Story
@@ -11186,6 +11210,7 @@
 3092054911|||B급 헌터로 살아남기|||Surviving as a B-Rank Hunter
 3092055162|||방구석 천재 배우|||The Shut-In Genius Actor
 3092055406|||출근 중 사건 발생 보고서|||Incident Report: On My Way to Work
+3092055675|||아카데미의 피해자|||The Victim of the Academy
 3094000001|||노오력의 투수|||The Pitcher of Pure Effort
 3096000001|||베키엄가 막내딸|||The Beckham Family's Youngest Daughter
 3098000001|||여왕의 가호를|||By the Queen's Grace
@@ -11289,6 +11314,7 @@
 3170055906|||회귀한 성기사는 대악마의 특성을 얻었다|||The Regressed Holy Knight Gained the Traits of an Archdemon
 3170056186|||점창파 낙양지부|||Luyang Branch of the Jeomchang Sect
 3170056458|||키메라|||Chimera
+3170056783|||천마가 무림맹주를 너무 잘함|||The Heavenly Demon Is Too Good at Being the Martial Alliance Leader
 3171000550|||입술 아래 송곳니|||Fangs Beneath the Lips
 3171000951|||아포칼립스에서 AI를 주웠다|||I Picked Up an AI in the Apocalypse
 3175000004|||럭키 펀치|||Lucky Punch
@@ -11422,6 +11448,7 @@
 3214040986|||전생자에게 보너스 능력이 생김|||The Reincarnator Gained a Bonus Ability
 3214041330|||다크 판타지 속 먼치킨이 되었다|||I Became a Powerhouse in a Dark Fantasy
 3214041578|||선악마도|||The Path of Good and Evil
+3214041787|||무당장문|||Head of the Wudang Sect
 3216000002|||삼국지 맹장소환|||Summoning Fierce Generals of the Three Kingdoms
 3222001104|||리퍼-무공수확자|||Reaper: The Martial Arts Harvester
 3222001322|||사기당해 지구최강|||Scammed into Becoming Earth's Strongest
@@ -12299,6 +12326,10 @@
 3302059118|||무림대종사|||The Grand Master of the Martial World
 3302059219|||호주 농장주 아들은 역대급 세계깡패|||The Australian Farmer’s Son Is the Greatest Gangster in the World
 3302059561|||신내림 받았더니 대장장이 신이 들어왔다|||I Received a Divine Revelation, and the God of Blacksmiths Took Over
+3302059928|||여우 후궁이 꼬리를 숨김|||The Fox Consort Hides Her Tail
+3302059930|||여우 후궁이 꼬리를 숨김 (15세 이용가)|||The Fox Consort Hides Her Tail (Ages 15+)
+3302060098|||역대급 특성 강탈자의 회귀|||The Regression of the Greatest Trait Thief in History
+3302060298|||동화 속 꿀벌이 되었다|||I Became a Honeybee in a Fairy Tale
 3305000001|||그러므로, 사랑|||Therefore, Love
 3305000084|||검은 발 아래 은빛 눈|||Silver Snow Beneath Black Feet
 3325000001|||웨펀 마스터|||Weapon Master
@@ -12838,6 +12869,7 @@
 3586126866|||1972년 바둑계 전설들이 기다리던 천재가 되었다|||I Became the Go Genius the Legends of 1972 Had Been Waiting For
 3586126990|||퓨전펑크 유일의 네크로맨서가 되었다|||I Became the Only Necromancer in Fusionpunk
 3586127112|||골렘군단으로 딸깍함|||Clicking My Way with a Golem Legion
+3586127352|||전직 용사가 엔딩 후 살아가는 방법|||How a Former Hero Lives After the Ending
 3586127559|||미국갔더니 마법사로 인생이 너무 쉬움|||Life Is Too Easy as a Wizard in America
 3586127700|||멸망 후 정령 농사로 꿀 빱니다|||After the Apocalypse, I’m Living the Good Life Farming Spirits
 3589000001|||독사|||Viper
@@ -13127,6 +13159,8 @@
 3685040409|||특수부대원이 프로듀싱을 너무 잘함|||The Special Forces Soldier Is Too Good at Producing
 3685040410|||레벨업 건달 강대풍|||Level-Up Tough Guy Kang Daepung
 3685040411|||마계인천 일진 풍운록|||Chronicles of the Demon Realm’s Incheon Gangster
+3685041799|||EX급 전생 헌터|||EX-Rank Reincarnated Hunter
+3685042026|||적천기|||Chronicle of the Red Heaven
 3688000001|||코럴(Coral)|||Coral
 3698000001|||뱀의 혀|||The Serpent's Tongue
 3708000005|||마계의 달|||Moon of the Demon Realm
@@ -13372,6 +13406,7 @@
 3822012459|||북부 여우를 임시 보호 중입니다(15세 이용가)|||I’m Fostering a Northern Fox (15+ Edition)
 3822012775|||강남 건물주인데 취직합니다|||I’m a Gangnam Landlord, but I’m Getting a Job
 3822012982|||취업했는데 저작권료가 대박났다|||I Got a Job, Then Made a Fortune in Royalties
+3822013234|||미국 깡촌에서 전당포로 대박났다|||Hit It Big With a Pawnshop in an American Backwater
 3846012330|||그 서브공의 발목이 위험하다|||That Second Male Lead's Ankle Is in Danger
 3846012448|||여주인공의 세계에서 벗어나는 법|||How to Escape the Heroine's World
 3846012734|||그 서브공의 발목이 위험하다 외전|||That Second Male Lead's Ankle Is in Danger: Side Story
@@ -16734,6 +16769,28 @@
 425691734|||스위밍 인투 유어 트랩|||Swimming Into Your Trap
 425691809|||스위밍 인투 유어 트랩(15세 개정판)|||Swimming Into Your Trap (15+ Edition)
 425692069|||전생을 그리는 개발자|||The Developer Who Draws Reincarnation
+425692628|||탑스타의 비밀상점|||The Top Star's Secret Shop
+425692834|||대본의 목소리가 들려!|||I Can Hear the Voice of the Script!
+425692870|||몰락한 남작가의 회귀자|||The Regressor of the Fallen Baron's House
+425693191|||악기의 목소리가 들려!|||I Can Hear the Voices of Instruments!
+425693366|||밸런스 붕괴, 무기상점|||Balance Breaker: The Weapons Shop
+425693557|||먼치킨 아이돌의 역대급 서바이벌|||The Munchkin Idol's Legendary Survival
+425693998|||화산파 천재는 게이트에서 레벨업한다|||The Huashan Sect Genius Levels Up in Gates
+425694148|||전능의 노가다꾼이 되었다|||I Became an Almighty Grinder
+425694356|||재해급 각성자가 된 쌍둥이 아빠|||The Twin Dad Who Became a Disaster-Class Awakened
+425694558|||인생 치트키 얻고 로또 1등의 힐링 라이프|||Life Cheat Key and a Lotto Jackpot: A Healing Life
+425694768|||재벌의 설계자|||The Architect of the Chaebol
+425694878|||종말게임 속 고인물이 시간을 멈춤|||The Veteran in the Apocalypse Game Stops Time
+425695012|||선협에서 각성을 숨김|||Hiding My Awakening in the Immortal Chivalry World
+425695436|||나 홀로 힐링하며 산다|||Living Alone and Healing
+425695902|||공매도 쳤더니 백악관에서 전화 옴|||I Shorted Stocks and the White House Called
+425696174|||미친 용병단장이 연예계로 출근함|||The Crazed Mercenary Captain Clocks In at Entertainment
+425696375|||선협 게임에 빠지다|||Caught in an Immortal Chivalry Game
+425696675|||천재 총기제작자는 방산업이 너무 쉽다|||The Genius Gunsmith Finds the Defense Industry Too Easy
+425697106|||저작권료 부자인데 아무도 나를 모름|||Rich From Royalties, Yet Nobody Knows Me
+425697307|||해고 후, 전생들이 나를 도움|||After Being Fired, My Past Lives Help Me
+425697459|||레벨업하면 죽는 헌터|||The Hunter Who Dies When Leveling Up
+425697612|||초월자들의 창고지기가 되었다|||I Became the Warehouse Keeper of the Transcendents
 4267000001|||오르카 맨션(ORCA MANSION)|||ORCA MANSION
 4274000001|||윈터 헌팅|||Winter Hunting
 4287000267|||새벽달 이울다|||The Dawn Moon Wanes
@@ -17627,6 +17684,7 @@
 4943003719|||핵 먹고 헬 난이도 탑 내려갑니다|||I Ate a Nuke and Am Descending the Hell-Difficulty Tower
 4943003910|||자동사냥 사냥꾼|||The Auto-Hunting Hunter
 4943004107|||회귀했는데 세상이 안 망함|||I Regressed, but the World Didn’t End
+4943004518|||천재 감정사가 그리스에서 복원을 너무 잘함|||The Genius Appraiser Is Too Good at Restoration in Greece
 4944000001|||요정님, 계약해 주세요|||Fairy, Please Sign a Contract
 4948001055|||그분이 오신다|||The One Is Coming
 4948001115|||그분이 오신다 (15세 개정판)|||The One Is Coming (15+ Revised Edition)
@@ -17715,6 +17773,7 @@
 4954017465|||굴려라! 용병단!|||Roll On! Mercenary Corps!
 4954017821|||타이틀을 수집하는 배우|||The Actor Who Collects Titles
 4954018021|||잘못 소환된 줄 알았던 초월급 용사|||The Transcendent Hero Who Thought He’d Been Summoned by Mistake
+4954018304|||전뇌의 마법사|||The Wizard of the Electric Brain
 4956000001|||빙의했더니 괴담이 돼 버렸다|||I Possessed Someone and Became a Ghost Story
 4967000001|||사랑하는 나의 늑대에게|||To My Beloved Wolf
 4969000001|||악당의 여동생에게 집착하지 마세요!|||Don't Obsess Over the Villain's Sister!
@@ -17877,6 +17936,8 @@
 505110245|||좌천당한 영주가 사령술로 영지 떡상시킴|||Demoted Lord Makes His Territory Soar with Necromancy
 505110375|||이혼했더니 초월급 헌터가 되어버렸다|||I Got Divorced and Became a Transcendent Hunter
 505110575|||EX급 소환사는 관심이 필요해요!|||EX-Rank Summoners Need Attention!
+505111183|||세상을 멸망시킨 딸과 요리합니다|||I Cook With the Daughter Who Destroyed the World
+505111383|||무신회귀|||Regression of the War God
 5054000001|||강철마법사|||The Steel Mage
 5054000122|||기갑 마도사|||The Armored Mage
 5054000618|||강호유협전|||Chronicles of a Wandering Hero
@@ -18232,6 +18293,7 @@
 5453000924|||아가씨는 그 개가 갖고 싶다(15세 개정판)|||The Young Lady Wants That Dog (Age-Rated Edition)
 5454000001|||그 아카데미의 근무 수칙|||The Work Rules of That Academy
 5454000002|||그 아카데미의 근무 수칙(15세 개정판)|||The Work Rules of That Academy (15+ Revised Edition)
+5456000013|||설계자의 마스터피스|||The Architect's Masterpiece
 5468000001|||무협 소설에 빙의하면 마감 안 해도 되나요|||If I Possess a Murim Novel, Do I Not Have to Meet Deadlines?
 5468000002|||무협 소설에 빙의하면 마감 안 해도 되나요(15세 개정판)|||If I Possess a Murim Novel, Do I Not Have to Meet Deadlines? (15+ Revised Edition)
 5473000001|||모래 위에 누운 밤|||The Night Lying on Sand
@@ -18453,6 +18515,7 @@
 5701002353|||제천마영|||The Heavenly Demon Shadow
 5701002478|||무기 개발의 신|||God of Weapon Development
 5701002786|||형사팀 막내는 범인을 알고 있다|||The Rookie of the Homicide Squad Knows the Culprit
+5701003023|||퇴사 후 로켓으로 우주를 찢었다|||After Quitting, I Tore Through Space With a Rocket
 5703000001|||착란적 운명|||Delirious Fate
 5712000001|||묵화(墨花)|||Ink Flower
 5712000002|||묵화(墨花)(15세 개정판)|||Ink Flower (15+ Revised Edition)
@@ -18470,6 +18533,7 @@
 5734000070|||이렇게 유기하시면 안 됩니다|||You Can't Abandon Me Like This
 5734000198|||인성무림|||The Human-Nature Murim
 5734000609|||99번 사는 천재 배우|||The Genius Actor Who Lives 99 Times
+5734000926|||사이버펑크의 뱀파이어|||The Cyberpunk Vampire
 5734001219|||사신|||Reaper
 5739000001|||도련님은 하녀에게 입을 맞추고 싶어서|||The Young Master Wants to Kiss the Maid
 5739000002|||도련님은 하녀에게 입을 맞추고 싶어서(15세 개정판)|||The Young Master Wants to Kiss the Maid (15+ Revised Edition)
@@ -18668,6 +18732,7 @@
 5958042283|||미국 씹어먹는 야구 천재|||The Baseball Genius Who Dominates America
 5958043483|||역대급 좋소기업 성공기|||The Greatest Small Business Success Story
 5958043984|||흑도전생|||Reborn on the Black Path
+5958044145|||무신으로 살아남기|||Surviving as the War God
 5959000001|||정치의 일기장|||The Political Diary
 5959000209|||40살까지 못 해본 남자|||The Man Who Has Never Done It by Forty
 5959000259|||회장님의 핵몽둥이|||The Chairman's Nuclear Club
@@ -18675,6 +18740,7 @@
 5959001117|||삼전도의 헤드샷 조선왕자|||The Joseon Prince's Headshot at Samjeondo
 5959001425|||이혼했더니 돈과 여자가 칙칙폭폭|||After Divorce, Money and Women Come Chugging In
 5959001820|||빅 보스(Big Boss) 회귀 재벌 전설 [개정판]|||Big Boss: The Regressed Chaebol Legend [Revised Edition]
+5963000082|||사부님, 장례는 한 번만|||Master, Only One Funeral Please
 5970000001|||불패검선|||The Unbeatable Sword Immortal
 5970000264|||개혁 군주|||The Reformist Lord
 5970000654|||상왕흥선|||The Retired King Heungseon
@@ -18944,6 +19010,11 @@
 6038063013|||드래곤이 여배우를 함|||The Dragon Takes the Actress
 6038063260|||배드 엔딩 이후의 세계|||The World After the Bad Ending
 6038063541|||퇴근한 히어로가 내 가게에 자꾸 찾아온다|||The Hero Keeps Showing Up at My Shop After Work
+6038063790|||삼국지 : 꿀물황제가 되었다|||Three Kingdoms: I Became the Honey-Water Emperor
+6038064046|||다크 판타지의 흑막 수장이 되었다|||I Became the Mastermind Leader of a Dark Fantasy
+6038064204|||이세계 갤러리 유일한 SF빙의자|||The Only Sci-Fi Possessor in the Otherworld Gallery
+6038064398|||후원하던 세계가 진짜였다|||The World I Sponsored Was Real
+6038064697|||소설 속 악역 골키퍼가 되었다|||I Became the Villain Goalkeeper in a Novel
 6042000001|||나를 배신할 연인에게|||To the Lover Who Will Betray Me
 6042000002|||나를 배신할 연인에게(15세 개정판)|||To the Lover Who Will Betray Me (15+ Revised Edition)
 6043000001|||차라리 이용해 주세요|||Please Use Me Instead
@@ -19038,6 +19109,7 @@
 6203000560|||제독님과 해적 선장이 나를 귀찮게 한다|||The Admiral and Pirate Captain Keep Bothering Me
 6203000714|||제독님과 해적 선장이 나를 귀찮게 한다 외전|||The Admiral and Pirate Captain Keep Bothering Me: Side Story
 6207000001|||소진수선전|||The Tale of Sojin's Cultivation
+6207000861|||천영|||Heavenly Shadow
 6210000001|||타인의 타인의 타인|||Someone Else's Someone Else
 6210000002|||타인의 타인의 타인(15세 개정판)|||Someone Else's Someone Else (15+ Revised Edition)
 6211000001|||시더우드 서머|||Cedarwood Summer
@@ -19463,6 +19535,7 @@
 6311137252|||개정판 \u007c 투자 만능 재벌 3세는 1경 달러를 벌었다|||Revised Edition \u007c The All-Purpose Investment Chaebol Heir Made One Quadrillion Dollars
 6311137875|||초월급 아공간을 각성했다|||I Awakened a Transcendent Subspace
 6311138360|||사냥개는 반역을 꿈꾼다|||The Hound Dreams of Rebellion
+6311138566|||폐S급 재활용 전문 기쁨엔터테인먼트|||Joy Entertainment: Recycling Specialist for Discarded S-Rank Hunters
 6314000001|||빙의를 끝내고 돌아왔더니|||When I Returned After Ending My Possession
 6314000002|||빙의를 끝내고 돌아왔더니 (15세 개정판)|||When I Returned After Ending My Possession (15+ Revised Edition)
 6315000001|||무인지대에서|||In the No-Man's-Land
@@ -20059,6 +20132,9 @@
 777189687|||낙양진가 막내아들|||The Youngest Son of the Luoyang Jin Family
 777190192|||창천무제|||Azure Heaven Martial Emperor
 777191855|||은퇴한 헌터가 드래곤 하트를 얻음|||A Retired Hunter Gets a Dragon Heart
+777192049|||퇴근 후 소소하게 힐링함|||Quietly Healing After Work
+777192167|||배신당한 축구천재가 SSS급 공격수로 각성함|||The Betrayed Soccer Genius Awakens as an SSS-Rank Striker
+777192317|||자본주의 스트라이커|||Capitalist Striker
 777192531|||천재 통역사가 되었다|||I Became a Genius Interpreter
 793002786|||머신|||Machine
 793002996|||푸른 늑대|||Blue Wolf
@@ -20974,6 +21050,7 @@
 875184072|||세계 유일 직업 마도사|||The World’s Only Mage
 875184336|||불멸의 데빌헌터|||The Immortal Devil Hunter
 875184620|||남궁세가 거지공자|||Namgung Family's Beggar Young Master
+875184994|||내일을 읽는 변호사|||The Lawyer Who Reads Tomorrow
 933000242|||윙포워드|||Wing Forward
 933000895|||레벨업 재능마법사|||The Level-Up Genius Mage
 933001025|||NPC 공략해서 먼치킨|||I Became Overpowered by Conquering NPCs
