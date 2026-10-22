@@ -440,6 +440,7 @@ main {
 
 /* === Results Grid === */
 .results-grid {
+    --feed-columns: 6;
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 1rem;
@@ -448,18 +449,21 @@ main {
 
 @media (max-width: 1500px) {
     .results-grid {
+        --feed-columns: 5;
         grid-template-columns: repeat(5, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 1240px) {
     .results-grid {
+        --feed-columns: 4;
         grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 980px) {
     .results-grid {
+        --feed-columns: 3;
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
@@ -957,6 +961,7 @@ a.card-cover-wrap.cover-ready {
 
     /* Results grid — 2 columns for mobile */
     .results-grid {
+        --feed-columns: 2;
         grid-template-columns: repeat(2, 1fr);
         gap: 0.6rem;
     }
@@ -1330,15 +1335,16 @@ button.synopsis-status {
     .novel-details-content .details-tags { max-height: 120px; overflow: auto; }
 }
 
-/* Mobile infinite scrolling retains only a viewport-sized card window. */
+/* Infinite scrolling retains only a viewport-sized card window. */
 .results-grid.mobile-feed { display: block; overflow-anchor: none; }
-.mobile-feed-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .6rem; padding-bottom: .6rem; }
+.mobile-feed-grid { display: grid; grid-template-columns: repeat(var(--feed-columns,2),minmax(0,1fr)); gap: inherit; padding-bottom: .6rem; }
 .mobile-feed-space { pointer-events: none; }
 .mobile-feed-status { display: block; width: 100%; min-height: 44px; padding: .75rem; color: var(--text-secondary); background: transparent; border: 0; font: inherit; font-size: .8rem; }
 .mobile-feed-status[hidden] { display: none; }
+.mobile-infinite .pagination, .mobile-infinite .batch-control { display: none !important; }
+.mobile-controls-floating { position: fixed; z-index: 80; top: 0; left: 2rem; right: 2rem; max-height: 75dvh; overflow-y: auto; box-shadow: var(--shadow); margin: 0; }
+.mobile-controls-floating:has(.source-picker-menu:not([hidden])) { overflow: visible; max-height: none; }
 @media (max-width: 650px) {
-    .mobile-infinite .pagination, .mobile-infinite .batch-control { display: none !important; }
     .mobile-infinite .secondary-controls { grid-template-columns: minmax(0,1fr) 48px; }
-    .mobile-controls-floating:has(.source-picker-menu:not([hidden])) { overflow: visible; max-height: none; }
-    .mobile-controls-floating { position: fixed; z-index: 80; top: 0; left: .5rem; right: .5rem; max-height: 75dvh; overflow-y: auto; box-shadow: var(--shadow); margin: 0; }
+    .mobile-controls-floating { left: .5rem; right: .5rem; }
 }
