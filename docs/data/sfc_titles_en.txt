@@ -224427,7 +224427,7 @@
 51668|||我的师尊是个惹祸精|||My Master Is a Troublemaker
 60145|||遗族迷梦|||Lost Clan Dream
 58490|||神见异闻录|||God-Seeing Strange Tales
-60208|||时祸：我不能杀任何人|||||Time Calamity: I Can't Kill Anyone
+60208|||时祸：我不能杀任何人||||||Time Calamity: I Can't Kill Anyone
 59942|||精灵的律动|||Rhythm of the Elf
 58319|||五界|||Five Worlds
 46528|||你的微笑明日依见|||I'll See Your Smile Again Tomorrow
@@ -277757,6 +277757,7 @@
 779417|||爱丽丝梦境狂想|||Alice’s Dreamland Reverie
 782279|||转生成你的千金小蛋糕|||Reincarnated as Your Young Lady Cupcake
 782501|||高冷仙子和我合租，突然黏上我了|||The Aloof Immortal Sharing My Apartment Suddenly Clung to Me
+782493|||攻略:姐姐们轻点爱|||Strategy: Big Sisters, Go Gentle on Me
 782570|||雨夜初逢的星光念想|||Starlit Longing from Our First Meeting on a Rainy Night
 782379|||变成魔女的我才不想被宿敌饲养|||I Became a Witch, but I Refuse to Be Raised by My Nemesis
 782107|||从今天开始闯荡江湖|||Starting Today, I’ll Roam the Martial World
@@ -285762,7 +285763,6 @@
 786449|||我想过关副本，大佬却馋我身子|||I Want to Clear the Dungeon, but the Boss Is Lusting After Me
 786391|||兔兔侦探社|||Bunny Detective Agency
 786877|||心与血|||Heart and Blood
-782493|||攻略:姐姐们轻点爱|||Strategy: Big Sisters, Go Gentle on Me
 747626|||111644646|||
 743906|||13948284|||
 724846|||123114514|||
