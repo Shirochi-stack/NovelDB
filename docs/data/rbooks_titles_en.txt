@@ -19094,6 +19094,7 @@
 6167000563|||신그릇 (15세 개정판)|||The Divine Vessel (15+ Revised Edition)
 6167000759|||빙산|||Iceberg
 6167000760|||빙산 (15세 개정판)|||Iceberg (15+ Revised Edition)
+6167000940|||올리브는 겨울에도 푸르다|||Olive Stays Green in Winter
 6175000001|||나의 고결한 포식자에게|||To My Noble Predator
 6175000002|||나의 고결한 포식자에게(15세 개정판)|||To My Noble Predator (15+ Revised Edition)
 6176000001|||악역 소장은 육아 중!|||The Villainous Major Is Raising a Child!
@@ -21371,6 +21372,7 @@
 945099059|||굴러들어온 아저씨 (15세 개정판)|||The Uncle Who Came Rolling In (15+ Edition)
 945099267|||언럭키 스위치 (15세 개정판)|||Unlucky Switch (15+ Version)
 945099325|||언럭키 스위치|||Unlucky Switch
+945099502|||첫사랑 영업 일지|||First Love Sales Log
 961068701|||너의 마음이 보여 (15세 개정판)|||I Can See Your Heart (15+ Revised Edition)
 961068781|||너의 마음이 보여|||I Can See Your Heart
 961068874|||탑 아이돌, 한 번 더 데뷔합니다|||Top Idol Debuts Once Again
@@ -21383,6 +21385,4 @@
 1190004304|||36.5|||
 425606091|||1903|||
 425629250|||1973|||
-6167000940|||올리브는 겨울에도 푸르다|||
 945008054|||40,41|||
-945099502|||첫사랑 영업 일지|||
