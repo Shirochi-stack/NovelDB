@@ -22,9 +22,9 @@
 21|||->|||
 22|||.....|||
 23|||blog.\u006e\u0061\u0076\u0065\u0072.com|||blog.nweb.com
-24|||×|||
-25|||​|||
-26|||삼천월|||Samcheonwol
+24|||·|||
+25|||×|||
+26|||​|||
 27|||﻿|||
 28|||1.|||
 29|||15+|||
@@ -33,54 +33,54 @@
 32|||????|||
 33|||?????|||
 34|||[]|||
-35|||·|||
-36|||다따먹|||Take It All
-37|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Early Release
-38|||!!|||
-39|||!!!|||
-40|||\"|||
-41|||(???)|||
-42|||(_|||
-43|||***|||
-44|||+1|||
-45|||+@|||
-46|||--|||
-47|||-_-|||
-48|||....|||
-49|||.......|||
-50|||................|||
-51|||...~|||
-52|||0%|||
-53|||0.|||
-54|||01.|||
-55|||1%|||
-56|||1-1|||
-57|||100%|||
-58|||11.|||
-59|||19+|||
+35|||남성향남주|||Male-Oriented Male Lead
+36|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Early Release
+37|||!!|||
+38|||!!!|||
+39|||\"|||
+40|||(???)|||
+41|||(_|||
+42|||***|||
+43|||+1|||
+44|||+@|||
+45|||--|||
+46|||-_-|||
+47|||....|||
+48|||.......|||
+49|||................|||
+50|||...~|||
+51|||0%|||
+52|||0.|||
+53|||01.|||
+54|||1%|||
+55|||1-1|||
+56|||100%|||
+57|||11.|||
+58|||19+|||
+59|||1998년|||
 60|||2+2=5|||
 61|||2-8|||
 62|||2.|||
-63|||2D|||2D
+63|||2004년|||
 64|||3-1|||
 65|||30%|||
 66|||4.3|||
 67|||4.5|||
 68|||45461;|||
 69|||4858-9715|||
-70|||4차산업혁명|||Fourth Industrial Revolution
-71|||5%|||
-72|||5.18|||
-73|||50%|||
-74|||50524;|||
-75|||50751;&|||
-76|||50751;~|||
-77|||51053;??|||
-78|||51760;|||
-79|||53192;|||
-80|||53349;|||
-81|||54643;|||
-82|||5@|||
+70|||5%|||
+71|||5.18|||
+72|||50%|||
+73|||50524;|||
+74|||50751;&|||
+75|||50751;~|||
+76|||51053;??|||
+77|||51760;|||
+78|||53192;|||
+79|||53349;|||
+80|||54643;|||
+81|||5@|||
+82|||625전쟁|||625 War
 83|||70%|||
 84|||7:1|||
 85|||8.15|||
@@ -99,176 +99,105 @@
 98|||?....|||
 99|||??????|||
 100|||?????????????????|||
-101|||FAET|||FAET
-102|||JOAT기업|||JOAT Corp
-103|||MM|||MM
-104|||QA|||QA
-105|||TS빔있음|||TS Beam Present
-106|||TS요소거의없음|||Minimal TS Elements
-107|||[-]|||
-108|||^^*|||
-109|||_|||
-110|||_)|||
-111|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
-112|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
-113|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
-114|||\u007c서리\u007c|||Seori
-115|||~?|||
-116|||~~|||
-117|||¿?|||
-118|||ᯣ_ᯣ|||
-119|||…|||
-120|||■※□¿¤|||
-121|||■■■■■|||
-122|||□□□|||
-123|||●|||
-124|||☁️☁️☁️|||
-125|||★|||
-126|||★★|||
-127|||♃|||
-128|||♡|||
-129|||♡♡|||
-130|||♥|||
-131|||♥♥♥♪|||
-132|||✅|||
-133|||》|||
-134|||ㅈㄷ|||
-135|||갓겜충|||God Game Addict
-136|||게임아닐수도있음|||Might Not Be a Game
-137|||과징금|||Penalty Fine
-138|||국립공원|||National Park
-139|||궤나부는사나이|||Gwenabu Man
-140|||귀도술|||Ghost Art
-141|||그낭|||Just Because
-142|||그정도|||That Much
-143|||그정도는|||Only That Much
-144|||근첩|||Geunjeop
-145|||기갈|||Starvation
-146|||기잔치|||Qi Feast
-147|||꺼지세요|||Get Lost
-148|||끼야악|||Eek
-149|||남자난입없음|||No Male Intruders
-150|||내가왜|||Why Me
-151|||냉혹|||Ruthless
-152|||넌손해좀보자|||Let's Take a Loss Together
-153|||\ub178\ubca8\ud53c\uc544공식|||npia Official
-154|||농농이|||Nongnongi
-155|||뉴노멀|||New Normal
-156|||니가써|||You Wrote It
-157|||니가해|||You Do It
-158|||단순노동의비생산성|||Unproductivity of Simple Labor
-159|||단체전이|||Team Battle
-160|||대제사장|||High Priest
-161|||대충잡다한거|||Miscellaneous Stuff
-162|||대화불가능|||Can't Communicate
-163|||더쓸게없네|||Nothing More to Write
-164|||데공황|||Dae Gonghwang
-165|||돈빨|||Money Power
-166|||듀얼은없다|||No Duels
-167|||랫킨|||Ratkin
-168|||러브코디미|||Love Comedy
-169|||레바리지|||Leverage
-170|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, Magic Fiction, Magic, Magic Arts, Novel, Personal Novel, jara Novel, Fantasy Magic School
-171|||마요괴|||Ma Yogoe
-172|||마요치키|||Mayo Chiki
-173|||메리베드엔드|||Merry Bad End
-174|||메세지를|||Send a Message
-175|||메인어|||Mainer
-176|||멘탈가출|||Mental Runaway
-177|||모기지론|||Mortgage Loan
-178|||모르겠네|||No Idea
-179|||몬스터역전|||Monster Reversal
-180|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Martial Arts, Wuxia, New Wuxia, Wuxia Novel, New Wuxia Novel, Genre Novel, Jianghu, Murim, Action, Novel, jara Wuxia, jara New Wuxia
-181|||물어보세요|||Ask Away
-182|||반인반룡|||Half-Human Half-Dragon
-183|||받아드립니다|||Accepted
-184|||변동확율|||Variable Probability
-185|||부분유료화|||Partial Paywall
-186|||분탕이든|||Trolling Included
-187|||블루아키이브|||Blue Archive
-188|||빙의사절|||No Possession
-189|||빙의자사양|||No Possessors
-190|||살인\u007c|||Murder|
-191|||샤리아|||Sharia
-192|||설명을해봐|||Explain It
-193|||소드월드|||Sword World
-194|||소설가의전망|||Novelist Outlook
-195|||소설이지|||It's a Novel
-196|||솔직하게|||Honestly
-197|||수집품|||Collectibles
-198|||승경도|||Seunggyeongdo
-199|||시고르자브종|||Sigorjabjong
-200|||신선도|||Freshness
-201|||아니지|||Nope
-202|||아씨|||Ugh
-203|||악역미화X|||No Villain Glorification
-204|||알트코인|||Altcoin
-205|||야알못|||Baseball Noob
-206|||야한거없음|||No Smut
-207|||어반오컬트|||Urban Occult
-208|||엘든링조금|||Some Elden Ring
-209|||엮은이AI|||AI Editor
-210|||오르페골|||Orpegol
-211|||오토배틀|||Auto Battle
-212|||오픈업|||Open Up
-213|||왜소설을써야만|||Why Must I Write Novels
-214|||왜필요한지|||Why It's Needed
-215|||외전한정먼치킨|||Spin-off Only Munchkin
-216|||요호|||Yoho
-217|||우주생존|||Space Survival
-218|||웹소설의현주소|||State of Web Novels
-219|||육체적피폐|||Physical Degradation
-220|||은근유리대포아님|||Subtly Not a Glass Cannon
-221|||임시교수|||Temporary Professor
-222|||자신에게|||To Oneself
-223|||작가무협모름|||Author Doesn't Know Wuxia
-224|||작은세상|||Small World
-225|||잡지식|||Trivia
-226|||전문직의도태|||Professional Obsolescence
-227|||정직원|||Full-Time Employee
-228|||정통포간|||Jeongtong Pogan
-229|||\uc870\uc544\ub77c_투베도전|||jara Tube Challenge
-230|||\uc870\uc544\ub77c공모전|||jara Contest
-231|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
-232|||\uc870\uc544\ub77c소설|||jara Novel
-233|||\uc870\uc544\ub77c신입사원|||jara New Employee
-234|||\uc870\uc544\ub77c여|||jara Female
-235|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
-236|||\uc870\uc544\ub77c의|||jara's
-237|||\uc870\uc544\ub77c첫작|||jara Debut
-238|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
-239|||좃빨|||Brown-Nosing
-240|||종이세상|||Paper World
-241|||좆반인은|||Crude Half-Human
-242|||좌우통합|||Left-Right Unification
-243|||죠죠한스푼|||JoJo Flavor
-244|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Everyone Around rbooks Author
-245|||주사위선택|||Dice Choice
-246|||지루해|||Boring
-247|||지루헤|||Boring
-248|||지루혜|||Boring
-249|||지은이AI|||AI Author
-250|||지하시설|||Underground Facility
-251|||천헤룡|||Cheonhaeryong
-252|||초반워해머|||Early Warhammer
-253|||촛불시위|||Candlelight Protest
-254|||쾌락타락|||Pleasure Torture
-255|||키부츠치|||Kibutsuchi
-256|||태그가|||Tags
-257|||태그없음|||No Tags
-258|||테마마크|||Theme Mark
-259|||트럭시위|||Truck Protest
-260|||파운드푸티지|||Found Footage
-261|||판엎기|||Flipping the Table
-262|||팔콤시리즈|||Falcom Series
-263|||포항항|||Pohang Port
-264|||프문한스푼|||Pmoon Flavor
-265|||하꼬방송|||Hakko Broadcast
-266|||학생회구멍|||Student Council Loophole
-267|||헬스장|||Gym
-268|||혀대판타지|||Modern Fantasy
-269|||협회장|||Association President
-270|||환생사절|||No Reincarnation
-271|||회귀사절|||No Regression
-272|||회빙환사절|||No Transmigration
-273|||／|||
+101|||SERENADE|||Serenade
+102|||VIOLENCE|||Violence
+103|||[-]|||
+104|||^^*|||
+105|||_|||
+106|||_)|||
+107|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
+108|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
+109|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
+110|||\u007c서리\u007c|||\|Frost\|
+111|||~?|||
+112|||~~|||
+113|||¿?|||
+114|||ᯣ_ᯣ|||
+115|||…|||
+116|||■※□¿¤|||
+117|||■■■■■|||
+118|||□□□|||
+119|||●|||
+120|||☁️☁️☁️|||
+121|||★|||
+122|||★★|||
+123|||♃|||
+124|||♡|||
+125|||♡♡|||
+126|||♥|||
+127|||♥♥♥♪|||
+128|||✅|||
+129|||》|||
+130|||ㅈㄷ|||
+131|||개구리장군|||Frog General
+132|||개굴|||Ribbit
+133|||거점물|||Stronghold
+134|||게임삼태창가끔나옴|||Occasional Game Spear
+135|||공지사항|||Announcement
+136|||관전플|||Spectator Style
+137|||김종서|||Kim Jong-seo
+138|||내용없음|||No Content
+139|||\ub178\ubca8\ud53c\uc544공식|||npia Official
+140|||노스토리|||No Story
+141|||더블히로인|||Double Heroine
+142|||디편스|||Dipyeonseu
+143|||똘똘|||Smart
+144|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, jara Novel, Fantasy Magic Academy
+145|||망한인생|||Ruined Life
+146|||무골|||Martial Talent
+147|||무림정복|||Conquering the Martial World
+148|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Wuxia, Martial Arts Novel, New Wuxia, Genre Novel, Jianghu, Martial World, Action, jara Wuxia, jara New Wuxia
+149|||발기부전치료|||Erectile Dysfunction Treatment
+150|||발리우드|||Bollywood
+151|||배경만조선|||Joseon Setting Only
+152|||변이진화|||Mutation Evolution
+153|||불건전|||Mature
+154|||비정기작|||Irregular Updates
+155|||쁘띠미뇽|||Petit Mignon
+156|||살인\u007c|||Murder\|
+157|||상사의아내|||Boss's Wife
+158|||섹스천재|||Sex Genius
+159|||쇼타엘프|||Shota Elf
+160|||수호대|||Guardian Corps
+161|||스모그펑크|||Smogpunk
+162|||시신소년|||Corpse Boy
+163|||식당운영|||Restaurant Management
+164|||쌉|||Ssap
+165|||악덕영애|||Villainess
+166|||애무천재|||Petting Genius
+167|||야쓰|||Yassu
+168|||약빨고씀|||Written High
+169|||엣지러너2|||Edgerunner 2
+170|||오늘은너로정했다|||Today I Chose You
+171|||오버액션할수록강해짐|||Stronger with Overacting
+172|||오지콤로맨스|||Country Comedy Romance
+173|||인도성좌|||Indian Constellation
+174|||잘살아보자|||Let's Live Well
+175|||잠깐여장|||Brief Cross-Dressing
+176|||전환빙회차원표류|||Transmigration, Dimensional Drift
+177|||조선배경|||Joseon Setting
+178|||\uc870\uc544\ub77c_투베도전|||jara Today's Best Challenge
+179|||\uc870\uc544\ub77c공모전|||jara Contest
+180|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
+181|||\uc870\uc544\ub77c소설|||jara Novel
+182|||\uc870\uc544\ub77c신입사원|||jara Newbie
+183|||\uc870\uc544\ub77c여|||jara Female
+184|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
+185|||\uc870\uc544\ub77c의|||jara's
+186|||\uc870\uc544\ub77c첫작|||jara Debut
+187|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
+188|||조연빈|||Jo Yeon-bin
+189|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Everyone Around Me
+190|||준비중|||In Preparation
+191|||집안에갇힌|||Trapped at Home
+192|||창잭물속으로|||Into the Water
+193|||초반부아카데미|||Early Academy
+194|||큐티|||Cutie
+195|||탈부착|||Detachable
+196|||통기타|||Acoustic Guitar
+197|||패러디의패러디야르|||Parody of Parody
+198|||포리너(전환차표회)|||Foreigner (Transfer)
+199|||퓨전무협판타지현대|||Fusion Wuxia Fantasy Modern
+200|||퓨전판타지무협현대|||Fusion Fantasy Wuxia Modern
+201|||후피집약간|||Thick-Skinned
+202|||／|||
