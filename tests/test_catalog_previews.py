@@ -144,6 +144,89 @@ def test_generated_previews_match_full_worker_order_for_every_profile(previews):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize('feed',[False,True])
+def test_first_page_order_uses_ready_catalog_when_sort_preview_is_stalled(previews,feed):
+    class StalledSortPreview(PreviewSite):
+        def __init__(self):
+            super().__init__(previews)
+            self.sort_release=asyncio.Event()
+        async def route(self,route):
+            if urlsplit(route.request.url).path.endswith('npia_chunk_preview_sorts.json.gz'):
+                await self.sort_release.wait()
+            await super().route(route)
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':390 if feed else 1440,'height':900})
+            site=StalledSortPreview()
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            before=await page.locator('.novel-card').first.get_attribute('data-novel-id')
+            try:
+                await page.select_option('#orderSelect','asc')
+                await page.wait_for_function('(before)=>document.querySelector(".novel-card")?.dataset.novelId!==before',arg=before,timeout=3000)
+                assert await page.locator('.novel-card').first.get_attribute('data-novel-id')=='100'
+            finally:
+                site.sort_release.set()
+                await browser.close()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('feed',[False,True])
+def test_order_preview_does_not_wait_for_background_warming(previews,feed):
+    class StalledWarmup(PreviewSite):
+        def __init__(self):
+            super().__init__(previews,blocked=True)
+            self.warming=asyncio.Event()
+            self.warm_release=asyncio.Event()
+        async def route(self,route):
+            if urlsplit(route.request.url).path.endswith('npia_chunk_preview_sorts.json.gz') and not self.warming.is_set():
+                self.warming.set()
+                await self.warm_release.wait()
+            await super().route(route)
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':390 if feed else 1440,'height':900})
+            site=StalledWarmup()
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/')
+            await page.wait_for_function('document.querySelectorAll(".novel-card").length>0')
+            try:
+                await asyncio.wait_for(site.warming.wait(),timeout=10)
+                await page.select_option('#orderSelect','asc')
+                await page.wait_for_function('document.querySelector(".novel-card")?.dataset.novelId==="100"',timeout=3000)
+                assert await page.locator('body').get_attribute('data-catalog-ready')=='false'
+            finally:
+                site.warm_release.set();site.release.set()
+                await browser.close()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('feed',[False,True])
+def test_first_preview_page_changes_order_without_page_navigation(previews,feed):
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':390 if feed else 1440,'height':900})
+            site=PreviewSite(previews,blocked=True)
+            await page.route('**/*',site.route)
+            await page.goto('https://metadata.test/#sort=likes')
+            await page.wait_for_function('document.querySelectorAll(".novel-card").length>0')
+            bundle=json.loads(gzip.decompress((previews/'npia_chunk_preview_sorts.json.gz').read_bytes()))
+            for ready in (False,True):
+                if ready:site.release.set();await wait_loaded(page)
+                for sort in ('likes','updated','daily'):
+                    await page.select_option('#sortSelect',sort)
+                    for order in ('asc','desc','asc'):
+                        expected=[str(bundle['novels'][i][0]) for i in bundle['profiles'][json.dumps([sort,order],separators=(',',':'))][:30]]
+                        await page.select_option('#orderSelect',order)
+                        await page.wait_for_function('(expected)=>{const ids=[...document.querySelectorAll(".novel-card")].map(c=>c.dataset.novelId);return ids.length>0&&ids.every((id,i)=>id===expected[i]);}',arg=expected)
+                        if not feed:assert await page.locator('#paginationTop [aria-current=page]').inner_text()=='1'
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_unused_previews_warm_on_disk_without_expanding_or_replacing_cards(previews):
     async def scenario():
         async with async_playwright() as p:
@@ -162,15 +245,16 @@ def test_unused_previews_warm_on_disk_without_expanding_or_replacing_cards(previ
             }""")
             stats=await page.evaluate('testPreviewStats()')
             assert stats['rows']<=900 and stats['profiles']==1
+            retained_stats=stats
             assert await page.evaluate('savedCards.every((c,i)=>c===document.querySelectorAll(".novel-card")[i])')
             requests=len(site.preview_requests)
             await page.select_option('#sortSelect','views')
             bundle=json.loads(gzip.decompress((previews/'npia_chunk_preview_sorts.json.gz').read_bytes()))
             first=str(bundle['novels'][bundle['profiles'][json.dumps(['views','desc'],separators=(',',':'))][0]][0])
             await page.wait_for_function('(id)=>document.querySelector(".novel-card")?.dataset.novelId===id',arg=first)
-            assert len(site.preview_requests)==requests  # Expanded sort bytes came from disk.
+            assert len(site.preview_requests)==requests  # The ready index needs no additional preview download.
             stats=await page.evaluate('testPreviewStats()')
-            assert stats['rows']==300 and stats['profiles']==2
+            assert stats==retained_stats  # Unused previews stay compressed on disk.
             await browser.close()
     asyncio.run(scenario())
 

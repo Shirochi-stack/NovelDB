@@ -6619,7 +6619,7 @@
         const query = {...diskQuery(), page, size:30, focus:null}, key = JSON.stringify(query);
         const cached = resultPages.get(key);
         let result = cached?.result || previewResult(query);
-        if (!result && previewEligible(query) && page*30<=300) {
+        if (!result && shouldLoadQueryPreview(query)) {
             await loadQueryPreview(query,activeCatalogController?.signal); check(); result=previewResult(query);
         }
         if (!result) {
@@ -7089,6 +7089,11 @@
         return !query.text && !query.author && !query.focus && query.status==='all' && query.audience==='all'
             && !query.and.length && !query.or.length && !query.exclude.length;
     }
+    function shouldLoadQueryPreview(query) {
+        // A ready index answers changed controls without waiting for another preview download.
+        return previewEligible(query) && query.page*query.size<=300
+            && (!!activeCatalogController || document.body.dataset.catalogReady!=='true');
+    }
     function sourcePreviewSort(source,query) {
         const sort=query.sort.sortBy,order=query.sort.order;
         if (query.sort.defaultSource!=='all') return [sort,order];
@@ -7180,7 +7185,9 @@
             if (previewRequests.get(key)?._signal?.aborted) previewRequests.delete(key);
             if (!previewRequests.has(key)) {
                 const other=[...previewRequests.values()].find(p=>p._source===source && p._signature===signature && p._cacheOnly!==cacheOnly && !p._signal?.aborted);
-                if(other) {try {await other;} catch(_) {} if(cacheOnly) return;}
+                // Background warming can reuse an active selection's download;
+                // an active selection must never wait behind background warming.
+                if(other && cacheOnly) {try {await other;} catch(_) {} return;}
                 const pending = (async()=>{
                     let bundle;
                     const target=new URL(`${versionedDataUrl(url)}&preview=${signature}`,location.href).href;
@@ -7357,7 +7364,7 @@
         const seq = ++diskQuerySequence;
         const cached = resultPages.get(key);
         let immediate=cached?.result || previewResult(query);
-        if (!immediate && previewEligible(query) && query.page*query.size<=300) {
+        if (!immediate && shouldLoadQueryPreview(query)) {
             if (!activeCatalogController) {
                 catalogLoadStatus.hidden=false;catalogLoadStatus.textContent='Loading preview…';
             }
