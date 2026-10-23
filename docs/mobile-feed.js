@@ -154,7 +154,7 @@
             this.direction+=delta;
             const edge=this.placeholder.hidden?this.controls.getBoundingClientRect().bottom+y:this.placeholder.offsetTop+this.placeholder.offsetHeight;
             if(y<=edge){this.floatMenu(false);return;}
-            if(this.direction<-120)this.floatMenu(true);
+            if(this.direction<-240)this.floatMenu(true);
             else if(this.direction>12&&!(this.controls.contains(document.activeElement)&&document.activeElement.matches('input[type=text],input[type=search],select,textarea')))this.floatMenu(false);
         }
         floatMenu(show) {
