@@ -145181,6 +145181,7 @@
 1889351|||[원신] 열국귀담집|||[Genshin Impact] Tales of the Nations
 1889353|||파르파파의 귀신 이야기|||Parpapa's Ghost Stories
 1889354|||칼끝에서 피어난 혼인|||A Marriage Blooming at the Sword's Edge
+1889355|||미국 깡촌에 입양당한 천재 고아는 세계 부자 랭킹 1위|||The Genius Orphan Adopted into a Backwater American Town Is Ranked World's Richest No. 1
 1889357|||약해빠진 마법사라 다행입니다.|||Fortunately, I'm a Pathetically Weak Wizard
 1889359|||랭커 힐러에게 집착당하는 중|||I'm Being Obsessively Pursued by a Ranker Healer
 1889360|||하늘의 빛 세상의 끝|||Light of the Sky, End of the World
@@ -238440,7 +238441,6 @@
 1886519|||ㆍ|||
 1887427|||.|||
 1888696|||일인군단(一人軍團)|||
-1889355|||미국 깡촌에 입양당한 천재 고아는 세계 부자 랭킹 1위|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
