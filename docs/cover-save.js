@@ -146,7 +146,8 @@
     dialog.append(header,body);document.body.append(dialog);
     let detailCard=null;
     const labels={title:'Original title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
-        synopsis:'Synopsis',id:'ID',complete:'Complete',age:'Age',metrics:'Other details',rankings:'Rankings'};
+        synopsis:'Synopsis',id:'ID',complete:'Complete',age:'Age',metrics:'Other details',rankings:'Rankings',
+        startDate:'Start date',contributors:'Credits',isbn:'ISBN',paused:'Paused',publicationFlags:'Publication'};
     const fieldLabel=key=>labels[key] || key.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
     function renderMetadata(record) {
         clearMetadata();
@@ -208,11 +209,11 @@
             } else definition.textContent=value==null || value==='' ? 'Not available' : typeof value==='boolean' ? (value ? 'Yes' : 'No')
                 : Array.isArray(value) ? value.join(', ') : typeof value==='number' ? value.toLocaleString('en') : String(value);
             group.style.order=priority.includes(key) ? priority.indexOf(key) : priority.length;
-            const target=['author','source','id','complete','age','updated','views','likes','chapters','tier'].includes(key) ? facts
+            const target=['author','source','id','complete','age','startDate','updated','paused','publisher','isbn','views','likes','chapters','tier'].includes(key) ? facts
                 : content;
             group.append(term,definition);target.append(group);
         }
-        const priority=['title','canonicalUrl','author','source','id','complete','age','updated','views','likes','chapters','tier','tags','rankings','synopsis'];
+        const priority=['title','canonicalUrl','author','source','id','complete','age','startDate','updated','paused','publisher','isbn','views','likes','chapters','tier','contributors','publicationFlags','tags','rankings','synopsis'];
         for(const key of new Set([...priority,...Object.keys(record)])) {
             const value=record[key];
             if(!(key in record) || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings'].includes(key) || isRank(key)) continue;

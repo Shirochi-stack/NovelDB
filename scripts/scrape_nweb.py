@@ -18,12 +18,14 @@ try:
         BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult,
         run_cli, source_date, utc_now,
     )
+    from .publication_dates import explicit_publication_date, structured_publication_date
 except ImportError:  # Direct ``python scripts/scrape_nweb.py`` invocation.
     from nweb_collection_policy import IncrementalPolicy
     from metadata_common import (
         BudgetExceeded, CatalogPage, FetchError, MetadataResult, RankingResult,
         run_cli, source_date, utc_now,
     )
+    from publication_dates import explicit_publication_date, structured_publication_date
 
 
 BASE = "https://novel.\u006e\u0061\u0076\u0065\u0072.com"
@@ -116,6 +118,16 @@ def _latest_episode(soup, today):
         if value is not None:
             dates.append((value, _text(stamp)))
     return max(dates) if dates else None
+
+
+def _earliest_episode(soup, today):
+    dates = []
+    for row in soup.select("ul.list_type2 > li[id^=volume]"):
+        stamp = row.select_one(".date")
+        value = _episode_date(_text(stamp), today) if stamp else None
+        if value is not None:
+            dates.append((value, _text(stamp)))
+    return min(dates) if dates else None
 
 
 def _completion(node):
@@ -234,6 +246,11 @@ def parse_detail(html, previous, response_url, today=None):
     if image:
         record["cover"] = urljoin(BASE, image["src"])
     record["complete"] = 1 if _completion(info) else record.get("complete")
+    published = structured_publication_date(soup)
+    if published:
+        record["created"] = published
+        record["source_dates"] = {**(record.get("source_dates") or {}),
+                                  "created": source_date(published)}
     metrics = dict(record.get("metrics") or {})
     rating = _number(_text(info.select_one(".score_area")))
     if rating is not None:
@@ -333,6 +350,9 @@ def parse_bulk(payload, tier, key):
                 except (ValueError, TypeError):
                     updated = None
             genre = row.get("genreName")
+            published = explicit_publication_date(
+                row, "serviceStartYmdt", "firstVolumeYmdt", "novelOpenYmdt", "registerYmdt"
+            )
             genres = [genre] if isinstance(genre, str) and genre else []
             keywords = row.get("hashtagList")
             keywords = [v.lstrip("#") for v in keywords if isinstance(v, str)] if isinstance(keywords, list) else []
@@ -350,7 +370,9 @@ def parse_bulk(payload, tier, key):
                 "episodes": count("totalVolumeCount"), "views": count("readCountSum"),
                 "likes": count("likeCount"), "complete": 1 if row.get("terminationYn") == "Y" else None,
                 "updated": updated,
-                "source_dates": {"updated": source_date(row["volumeUpdateYmdt"])} if updated else {},
+                "created": published,
+                "source_dates": ({**({"updated": source_date(row["volumeUpdateYmdt"])} if updated else {}),
+                                  **({"created": source_date(published)} if published else {})}),
                 "metrics": {"favorites": count("concernCount"), "rating": count("starScoreTotalAverage"),
                             "rating_scale": 10},
             }
@@ -364,7 +386,7 @@ class NwebAdapter(IncrementalPolicy):
     # values can mean the detail page (synopsis, keywords, newest episode) moved.
     detail_fields = ("title", "author", "cover", "episodes", "complete", "tier")
     detail_refresh_days = 90
-    detail_version = 2  # Version 2 records the newest episode date.
+    detail_version = 3  # Version 3 also records the original episode/publication date.
     resolves_skipped_rows = True
 
     def bulk_metadata(self, client, *, skip_keys=()):
@@ -455,7 +477,24 @@ class NwebAdapter(IncrementalPolicy):
         try:
             # Series Edition lists episodes oldest first unless asked otherwise.
             response = client.get(canonical, params={"order": "Update"})
-            return parse_detail(response.text, record, response.url)
+            result = parse_detail(response.text, record, response.url)
+            if result.status != "success" or result.record.get("created"):
+                return result
+            # The default/oldest ordering exposes the first published episode.
+            # This is a separate request so it can never be confused with the
+            # newest episode used for the last-updated field above.
+            try:
+                oldest = client.get(canonical, params={"order": "Oldest"})
+                if _detail_identity(oldest.url) == _detail_identity(response.url):
+                    first = _earliest_episode(BeautifulSoup(oldest.text, "html.parser"), datetime.now(KST).date())
+                    if first:
+                        value, raw = first
+                        result.record["created"] = value.date().isoformat() if raw.count(".") >= 2 else value.isoformat()
+                        result.record["source_dates"] = {**(result.record.get("source_dates") or {}),
+                                                         "created": source_date(raw)}
+            except (FetchError, ValueError, TypeError):
+                pass
+            return result
         except BudgetExceeded:
             raise
         except FetchError as error:

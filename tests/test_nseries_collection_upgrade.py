@@ -14,7 +14,8 @@ from test_metadata_nseries import HTML
 
 def wire(ident=123, grade="G19"):
     return {"productNo": ident, "productTypeCode": "NOVEL", "seeingGradeTypeCode": grade,
-            "starScore": 9.6, "starScoreEvaluatorCount": 150, "synopsis": None}
+            "starScore": 9.6, "starScoreEvaluatorCount": 150, "synopsis": None,
+            "serviceStartDate": "2024.03.04"}
 
 
 def ago(days):
@@ -44,6 +45,7 @@ def test_batch_preserves_explicit_ages_and_rating_counts(grade, age):
     result = parse_catalog_metadata({"productList": [wire(grade=grade)]})["123"]
     assert result["age"] == age
     assert result["metrics"] == {"rating": 9.6, "rating_scale": 10, "rating_count": 150}
+    assert result["published"] == "2024-03-04"
     assert "synopsis" not in result
 
 
@@ -70,6 +72,7 @@ def test_second_catalog_page_uses_zero_based_json_offset():
     row = result.records[0]
     assert row["nseries_batch_complete"]
     assert row["metrics"]["rating_count"] == 150
+    assert row["published"] == "2024-03-04"
     assert row["synopsis"] == "Public synopsis preview.." and row["synopsis_is_preview"]
 
 

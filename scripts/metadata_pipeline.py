@@ -28,6 +28,9 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ("nweb", "jara", "mpia", "rbooks", "nseries")
 SHARDS = 128
+PUBLIC_DETAIL_FIELDS = frozenset({
+    "startDate", "contributors", "publisher", "isbn", "paused", "publicationFlags",
+})
 FIELDS = {
     "title": ("titles_en.txt", "titles_untranslated.txt"),
     "synopsis": ("descriptions.txt", "descriptions_untranslated.txt"),
@@ -47,6 +50,71 @@ def source_name(source):
     if source not in SOURCES:
         raise ValueError(f"Unknown metadata source: {source}")
     return source
+
+
+def public_details(record):
+    """Return compact, user-facing metadata that belongs in the Details dialog."""
+    details = {}
+    start_date = record.get("created") or record.get("published")
+    if isinstance(start_date, str) and start_date.strip():
+        details["startDate"] = start_date.strip()
+
+    credits = {}
+    author = str(record.get("author") or "").strip()
+    for contributor in record.get("contributors") or []:
+        if not isinstance(contributor, dict):
+            continue
+        name = str(contributor.get("name") or "").strip()
+        role = str(contributor.get("role") or "contributor").strip().lower()
+        if not name or (role == "author" and name == author):
+            continue
+        credits.setdefault(role, [])
+        if name not in credits[role]:
+            credits[role].append(name)
+    if credits:
+        details["contributors"] = {role: ", ".join(names) for role, names in credits.items()}
+
+    for source_key, public_key in (("publisher", "publisher"), ("isbn", "isbn"), ("paused", "paused")):
+        value = record.get(source_key)
+        if value is not None and value != "":
+            details[public_key] = value
+    flags = record.get("publication_flags")
+    if isinstance(flags, dict):
+        selected = {str(key): value for key, value in flags.items() if isinstance(value, bool)}
+        if selected:
+            details["publicationFlags"] = selected
+    return details
+
+
+def shard_index(novel_id, count=SHARDS):
+    try:
+        return abs(int(novel_id)) % count
+    except ValueError:
+        value = 0
+        for char in str(novel_id):
+            value = ((value * 31) + ord(char)) & 0xFFFFFFFF
+        return value % count
+
+
+def write_detail_shards(source, state, output_dir):
+    buckets = [dict() for _ in range(SHARDS)]
+    populated = 0
+    for novel_id, record in state.get("records", {}).items():
+        details = public_details(record)
+        if details:
+            buckets[shard_index(novel_id)][str(novel_id)] = details
+            populated += 1
+    files = []
+    for index, bucket in enumerate(buckets):
+        name = f"{source}_details_shard_{index:03d}.json.gz"
+        gzip_json(output_dir / name, bucket)
+        files.append(name)
+    manifest = {
+        "shards": SHARDS, "records": populated, "algorithm": "numeric-modulo-v1",
+        "format": "id-to-details-json", "files": files,
+    }
+    common().atomic_json(output_dir / f"{source}_details_shard_manifest.json", manifest)
+    return files
 
 
 def clean_field(text):
@@ -375,6 +443,12 @@ def build(source, output_dir, state_dir):
     state = state_for(source, state_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = common().export_rows(state)
+    start_date_count = 0
+    for row in rows:
+        start_date = public_details(state["records"][str(row[0])]).get("startDate")
+        if start_date:
+            row[14] = {**(row[14] or {}), "start_date": start_date}
+            start_date_count += 1
     publication_state = state
     if source == "nweb":
         # Publish discovery records too; the browser hides them only while synopses are enabled.
@@ -408,6 +482,7 @@ def build(source, output_dir, state_dir):
     run_python("gzip_text_files.py", [synopsis])
     run_python("chunk_descriptions.py", [synopsis, "--prefix", f"{source}_descriptions_shard",
                "--output-dir", output_dir, "-n", SHARDS])
+    write_detail_shards(source, state, output_dir)
     run_python("chunk_and_compress.py", ["--input", catalog, "--prefix", f"{source}_chunk",
                "--output-dir", output_dir, "-n", max(1, math.ceil(len(rows) / 20000)),
                "--translations", output_dir / f"{source}_titles_en.txt"])
@@ -435,6 +510,9 @@ def build(source, output_dir, state_dir):
         "chunkHashes": [hashlib.sha256((output_dir / name).read_bytes()).hexdigest() for name in manifest["files"]],
         "descriptionShardCount": SHARDS,
         "descriptionShardPrefix": f"{source}_descriptions_shard_",
+        "detailsShardCount": SHARDS,
+        "detailsShardPrefix": f"{source}_details_shard_",
+        "startDateCount": start_date_count,
         "topUrl": f"{source}_top.json.gz",
         "boards": {key: {field: board.get(field) for field in ("label", "observed_at", "stale")}
                    for key, board in state.get("boards", {}).items()},
@@ -527,6 +605,27 @@ def validate_artifacts(source, output_dir):
         for row in rows:
             if row[14].get("synopsis_available") is not (str(row[0]) in synopsis_ids):
                 raise ValueError("Nweb synopsis availability disagrees with shards: record without a synopsis or incorrect flag")
+    detail_manifest_name = f"{source}_details_shard_manifest.json"
+    detail_manifest = json.loads((output_dir / detail_manifest_name).read_text(encoding="utf-8"))
+    expected_detail_shards = [f"{source}_details_shard_{index:03d}.json.gz" for index in range(SHARDS)]
+    if (detail_manifest.get("shards") != SHARDS or detail_manifest.get("files") != expected_detail_shards
+            or detail_manifest.get("algorithm") != "numeric-modulo-v1"
+            or detail_manifest.get("format") != "id-to-details-json"
+            or manifest.get("detailsShardCount") != SHARDS
+            or manifest.get("detailsShardPrefix") != f"{source}_details_shard_"):
+        raise ValueError("Invalid details shard manifest")
+    detail_records = 0
+    for index, name in enumerate(expected_detail_shards):
+        details = read_gzip_json(output_dir / name)
+        if not isinstance(details, dict) or not set(details).issubset(known_ids):
+            raise ValueError("A details shard contains unknown source IDs")
+        for nid, payload in details.items():
+            if (shard_index(nid) != index or not isinstance(payload, dict) or not payload
+                    or not set(payload).issubset(PUBLIC_DETAIL_FIELDS)):
+                raise ValueError("Invalid record in details shard")
+            detail_records += 1
+    if detail_manifest.get("records") != detail_records:
+        raise ValueError("Details shard count disagrees with manifest")
     top_name = f"{source}_top.json.gz"
     if manifest.get("topUrl") != top_name:
         raise ValueError("Invalid top artifact path")
@@ -540,7 +639,7 @@ def validate_artifacts(source, output_dir):
     if not set(top.get("translations", {})).issubset(top_ids) or not set(top.get("descriptions", {})).issubset(top_ids):
         raise ValueError("Top translations or synopses have unknown IDs")
     required = [f"{source}_novels.json", f"{source}_titles_en.txt", f"{source}_descriptions.txt",
-                f"{source}_descriptions.txt.gz", *files, *expected_shards, top_name]
+                f"{source}_descriptions.txt.gz", *files, *expected_shards, *expected_detail_shards, top_name]
     if manifest.get('previewUrl'):
         preview_name = f'{source}_chunk_preview.json.gz'
         if manifest['previewUrl'] != preview_name:
@@ -571,7 +670,7 @@ def validate_artifacts(source, output_dir):
         if (output_dir / name).resolve().parent != output_dir:
             raise ValueError("Artifact resolves outside its source directory")
     # Copy manifests last so their referenced data has already been installed.
-    return required + [shard_manifest_name, manifest_name], manifest
+    return required + [shard_manifest_name, detail_manifest_name, manifest_name], manifest
 
 
 def promote(source, output_dir, target_dir, include_tags=False, allow_partial=False):

@@ -9,7 +9,7 @@ BATCH = 1000
 BOOK_MAP = re.compile(r"https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073\.com/sitemap-books-[1-9][0-9]*\.xml\.gz\Z")
 IDS_QUERY = "query($bookIds:[String!]!){books(bookIds:$bookIds){id categories{id parentId} series{id}}}"
 DETAIL_QUERY = """query($bookIds:[String!]!){books(bookIds:$bookIds){id categories{id parentId name}
- title{main} authors{name role} introduction{description} isAdultOnly publicationInfo{name}
+ title{main} authors{name role} introduction{description} isAdultOnly publicationDate publicationInfo{name}
  ratings{count rating} series{id title totalEpisodeCount isCompleted lastOpenedDate thumbnail{large}}}}"""
 
 
@@ -71,6 +71,7 @@ def as_catalog_item(book):
     return {"book": {"bookId": series.get("id") or book["id"], "title": (book.get("title") or {}).get("main"),
             "authors": book.get("authors"), "categories": book.get("categories"),
             "introduction": book.get("introduction"), "adultsOnly": book.get("isAdultOnly"),
+            "publicationDate": book.get("publicationDate"),
             "publisher": book.get("publicationInfo"), "ratings": book.get("ratings"),
             "serial": {"serialId": series.get("id"), "title": series.get("title"),
                        "total": series.get("totalEpisodeCount"), "completion": series.get("isCompleted"),

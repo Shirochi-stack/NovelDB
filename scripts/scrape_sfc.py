@@ -15,8 +15,10 @@ Output: docs/data/sfc_novels.json
 
 try:
     from . import source_names
+    from .publication_dates import explicit_publication_date
 except ImportError:
     import source_names
+    from publication_dates import explicit_publication_date
 
 
 import sys, os, json, time, re, threading, requests
@@ -116,6 +118,7 @@ def novel_row_to_dict(row):
         "latest_chapter_title": row[18] if len(row) > 18 else "",
         "latest_chapter_id": row[19] if len(row) > 19 else 0,
         "latest_chapter_time": row[20] if len(row) > 20 else "",
+        "published": row[21] if len(row) > 21 else None,
     }
 
 
@@ -147,6 +150,9 @@ def merge_with_existing_novels(scraped_novels, path=None, tag_deleted=True):
         return scraped_novels
 
     merged = dict(existing)
+    for sid in set(existing) & set(scraped_novels):
+        if not scraped_novels[sid].get("published"):
+            scraped_novels[sid]["published"] = existing[sid].get("published")
     merged.update(scraped_novels)
 
     preserved_ids = set(existing) - set(scraped_novels)
@@ -273,6 +279,11 @@ def novel_item_to_dict(item, skip_synopsis=False):
         "chapters": item.get("charCount", 0),
         "complete": 1 if item.get("isFinish", False) else 0,
         "updated": item.get("lastUpdateTime", ""),
+        "published": explicit_publication_date(
+            item, "createTime", "novelCreateTime", "addTime", "createDate"
+        ) or explicit_publication_date(
+            expand, "createTime", "novelCreateTime", "addTime", "createDate"
+        ),
         "age": 19 if item.get("allowDown", 0) == 0 else 0,
         "synopsis": synopsis,
         "latest_chapter_title": latest_chapter.get("title", ""),
@@ -718,14 +729,15 @@ def main():
 def save_novels(all_novels, rankings=None):
     """Save novels to disk.
 
-    Output format per entry (up to 21 fields, trailing zeros stripped):
+    Output format per entry (up to 22 fields, trailing zeros stripped):
         [id, title, author, cover, tags, views, likes, chapters, complete, updated, age,
          popularityRank, bestSellerRank, newBooksRank, bookmarksRank, jpRank, ticketRank, synopsis,
-         latestChapterTitle, latestChapterId, latestChapterTime]
+         latestChapterTitle, latestChapterId, latestChapterTime, originalPublicationDate]
 
     Indices 11-16 are SFC ranking positions (1-20, or 0 if unranked).
     Index 17 is the Chinese synopsis string.
-    Indices 18-20 are optional latest chapter metadata.
+    Indices 18-20 are optional latest chapter metadata; index 21 is the
+    source-declared original publication date.
     """
     if rankings is None:
         rankings = {}
@@ -761,6 +773,7 @@ def save_novels(all_novels, rankings=None):
             pop_rank, sale_rank, new_rank, bm_rank,
             jp_rank, ticket_rank, synopsis,
             latest_chapter_title, latest_chapter_id, latest_chapter_time,
+            n.get("published") or "",
         ]
         # Strip trailing zeros/empty values to save space
         while entry and (entry[-1] == 0 or entry[-1] == "" or entry[-1] == []):

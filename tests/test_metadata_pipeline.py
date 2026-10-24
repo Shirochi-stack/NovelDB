@@ -109,14 +109,38 @@ def test_build_schema_manifest_shards_and_top(built):
     assert row[14] == {"favorites": 12, "synopsis_available": True} and row[15] == {"best": 1}
     assert manifest["format"] == "metadata-v1"
     assert manifest["descriptionShardCount"] == 128
+    assert manifest["detailsShardCount"] == 128
     assert manifest['chunkHashes'] == [hashlib.sha256((output / name).read_bytes()).hexdigest() for name in manifest['files']]
     assert len([name for name in files if "descriptions_shard_" in name and name.endswith(".gz")]) == 128
+    assert len([name for name in files if "details_shard_" in name and name.endswith(".gz")]) == 128
     shard = pipeline.read_gzip_json(output / "nweb_descriptions_shard_001.json.gz")
     assert shard == {"129": record()["synopsis"]}
     top = pipeline.read_gzip_json(output / "nweb_top.json.gz")
     assert top["novels"] == [row]
     assert top["translations"] == {"129": "English title"}
     assert top["descriptions"]["129"] == record()["synopsis"]
+
+
+def test_details_shards_publish_only_user_facing_metadata(tmp_path):
+    item = record("mpia")
+    item.update({
+        "published": "2020-06-29T19:00:00", "paused": False, "isbn": "9780000000000",
+        "contributors": [{"name": item["author"], "role": "author"},
+                         {"name": "Illustrator", "role": "illustrator"}],
+        "publication_flags": {"free": True, "rental": False},
+        "source_dates": {"published": {"raw": "2020-06-29T19:00:00"}},
+    })
+    state_dir = save(tmp_path, "mpia", {"129": item})
+    output = tmp_path / "mpia-stage"
+    pipeline.prepare("mpia", output, state_dir, shared_tags=tmp_path / "none")
+    pipeline.build("mpia", output, state_dir)
+    pipeline.validate_artifacts("mpia", output)
+    row = json.loads((output / "mpia_novels.json").read_text(encoding="utf-8"))[0]
+    assert row[14]["start_date"] == "2020-06-29T19:00:00"
+    shard = pipeline.read_gzip_json(output / "mpia_details_shard_001.json.gz")
+    assert shard == {"129": {"startDate": "2020-06-29T19:00:00",
+        "contributors": {"illustrator": "Illustrator"}, "isbn": "9780000000000",
+        "paused": False, "publicationFlags": {"free": True, "rental": False}}}
 
 
 def test_rejects_chunk_replaced_without_matching_manifest_hash(built):

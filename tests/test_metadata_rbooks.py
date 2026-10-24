@@ -17,6 +17,7 @@ def item(ident=123):
                    "cover": {"large": "https://img.\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net/cover/123/large"}},
         "authors": [{"name": "Writer", "role": "author"}, {"name": "Artist", "role": "illustrator"}],
         "categories": [{"name": "Fantasy", "useSeries": "Y"}], "adultsOnly": False,
+        "publicationDate": "2024-02-03T11:12:13+09:00",
         "ratings": [{"rating": 4, "count": 3}, {"rating": 5, "count": 1}],
         "introduction": {"description": "First line<br>Second line"}}}
 
@@ -42,6 +43,8 @@ def test_normalization_uses_whole_work_and_native_rating_without_invented_views(
     assert record["views"] is record["likes"] is record["updated"] is None
     assert record["synopsis"] == "First line\nSecond line" and record["_detail_complete"]
     assert record["canonical_url"] == "https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/123"
+    assert record["published"] == "2024-02-03T11:12:13"
+    assert record["source_dates"]["published"]["timezone"] == "+09:00"
 
 
 def test_sparse_values_remain_unknown():
@@ -50,6 +53,7 @@ def test_sparse_values_remain_unknown():
     assert record["metrics"] == {"rating": None, "rating_count": None}
     assert not record["_detail_complete"]
     assert record["updated"] is None
+    assert record["published"] is None
 
 
 def test_newest_episode_date_from_both_metadata_shapes():

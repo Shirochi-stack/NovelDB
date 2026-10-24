@@ -42,16 +42,36 @@ test('metadata-v1 keeps null distinct from measured zero and explicit status', (
     assert.equal(core.matchesAudience(known, 'general'), true);
 });
 
-test('legacy positions and SFC audience behavior remain unchanged', () => {
-    const npia = [7, 'N', 'A', '/cover.jpg', [], 100, 8, 3, 1, '2026-01-01', 4, 19, 5, 6, 7, 8, 9, 10, 11, 12];
+test('new sorts by original publication date and not the update date', () => {
+    const parsed = core.parseRows([
+        row(1, {9: '2026-10-24', 14: {start_date: '2020-01-01'}}),
+        row(2, {9: '2020-01-01', 14: {start_date: '2026-10-24'}}),
+        row(3, {9: '2026-10-25'}),
+    ], 'nweb', cfg);
+    assert.equal(parsed[0].startDate, '2020-01-01');
+    assert.equal(parsed[0].metrics.start_date, undefined);
+    assert.deepEqual(core.sortRecords(parsed.slice(), {sortBy: 'new', order: 'desc'}).map(n => n.id), ['2', '1', '3']);
+    assert.deepEqual(core.sortRecords(parsed.slice(), {sortBy: 'updated', order: 'desc'}).map(n => n.id), ['3', '1', '2']);
+});
+
+test('legacy positions, start dates, and SFC audience behavior remain unchanged', () => {
+    const npia = [7, 'N', 'A', '/cover.jpg', [], 100, 8, 3, 1, '2026-01-01', 4, 19, 5, 6, 7, 8, 9, 10, 11, 12, '2020-02-03'];
     const [n] = core.parseRows([npia], 'npia', {coverPrefix: 'https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com'});
     assert.equal(n.id, '7'); assert.equal(n.dailyRankTeen, 12); assert.equal(n.monthlyRankAdult, 8);
     assert.equal(n.cover, 'https://images.\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/cover.jpg');
+    assert.equal(n.startDate, '2020-02-03');
     assert.equal(core.matchesAudience(n, 'adult'), true);
     const sfc = [7, 'S', 'A', 'cover.jpg', [], 100, 8, 9000, 0, '', 19, 1, 2, 3, 4, 5, 6, '第一行\\n第二行', '最新話', 9, '2026-01-01'];
+    sfc.push('2019-08-07');
     const [s] = core.parseRows([sfc], 'sfc', {sfcRanks: true, coverPrefix: 'https://example.test/'});
     assert.equal(s.chapters, 9000); assert.equal(s.ticketRank, 6); assert.equal(s.synopsis, '第一行\n第二行');
+    assert.equal(s.startDate, '2019-08-07');
     assert.equal(core.matchesAudience(s, 'r15'), true); assert.equal(core.matchesAudience(s, 'adult'), false);
+    const kpage = [8, 'K', 'A', '', [], 100, 0, 1012, 0, '2026-10-25', 0, 0, '2024-07-01',
+        {rating: 9.6, rating_count: 16981, rating_scale: 10}];
+    const [k] = core.parseRows([kpage], 'kpage', {});
+    assert.equal(k.startDate, '2024-07-01'); assert.equal(k.chapters, 1012);
+    assert.deepEqual(k.metrics, {rating: 9.6, rating_count: 16981, rating_scale: 10});
     assert.ok(core.compareNullable('', '2026-01-01', 'asc', true) < 0);
     assert.equal(core.matchesStatus(n, ''), true);
     assert.equal(core.matchesAudience(n, ''), true);
@@ -88,9 +108,11 @@ test('canonical destinations and manifests reject unrelated or executable URLs',
     assert.throws(() => core.parseRows([row(7, {11: 'https://attacker.test/book/7'})], 'nweb', cfg));
     assert.throws(() => core.parseRows([row().slice(0, 12)], 'nweb', cfg));
     const manifest = {format: 'metadata-v1', files: ['nweb_chunk_0.json.gz'], chunks: 1, totalEntries: 1,
-        descriptionShardCount: 128, descriptionShardPrefix: 'nweb_descriptions_shard_', topUrl: 'nweb_top.json.gz',
+        descriptionShardCount: 128, descriptionShardPrefix: 'nweb_descriptions_shard_',
+        detailsShardCount: 128, detailsShardPrefix: 'nweb_details_shard_', topUrl: 'nweb_top.json.gz',
         boards: {best: {label: 'Best', observed_at: '2026-09-13T00:00:00Z', stale: false}}};
     assert.equal(core.manifestConfig(manifest, 'nweb').chunkFiles[0], 'data/nweb_chunk_0.json.gz');
+    assert.equal(core.manifestConfig(manifest, 'nweb').detailsShardPrefix, 'data/nweb_details_shard_');
     assert.throws(() => core.manifestConfig({...manifest, files: ['../npia_chunk_0.json.gz']}, 'nweb'));
     assert.throws(() => core.manifestConfig({...manifest, descriptionShardPrefix: 'jara_descriptions_shard_'}, 'nweb'));
     const hash = 'a'.repeat(64);

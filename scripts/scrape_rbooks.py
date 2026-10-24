@@ -74,6 +74,13 @@ def normalize(item, tier):
         synopsis = synopsis.replace("\r\n", "\n").replace("\r", "\n")
     cover = obj(serial.get("cover")) or obj(book.get("cover"))
     url = "https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/" + ident
+    published = opened(book.get("publicationDate"))
+    updated = opened(serial.get("lastOpenedEpisodeDate"))
+    source_dates = {}
+    if published:
+        source_dates["published"] = source_date(book["publicationDate"])
+    if updated:
+        source_dates["updated"] = source_date(serial["lastOpenedEpisodeDate"])
     return {"id": ident, "title": title.strip(),
             "author": ", ".join(a["name"] for a in authors if a["role"] in {"author", "story_writer"}),
             "contributors": authors, "cover": cover.get("large") or cover.get("small") or "",
@@ -81,9 +88,8 @@ def normalize(item, tier):
             "views": None, "likes": None, "episodes": number(serial.get("total")),
             "complete": int(serial["completion"]) if isinstance(serial.get("completion"), bool) else None,
             "age": 19 if book.get("adultsOnly") is True else 0 if book.get("adultsOnly") is False else None,
-            "updated": opened(serial.get("lastOpenedEpisodeDate")),
-            "source_dates": ({"updated": source_date(serial["lastOpenedEpisodeDate"])}
-                             if opened(serial.get("lastOpenedEpisodeDate")) else {}),
+            "updated": updated, "published": published,
+            "source_dates": source_dates,
             "canonical_url": url, "purchase_url": url, "tier": tier,
             "metrics": {"rating": rating, "rating_count": rating_count},
             "publisher": obj(book.get("publisher")).get("name"),

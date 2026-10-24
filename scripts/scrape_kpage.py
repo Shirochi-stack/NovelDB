@@ -14,11 +14,13 @@ Output: docs/data/kpage_novels.json
 
 try:
     from . import source_names
+    from .publication_dates import explicit_publication_date
 except ImportError:
     import source_names
+    from publication_dates import explicit_publication_date
 
 
-import sys, os, json, time, re, argparse, gzip, threading
+import sys, os, json, time, re, argparse, gzip, threading, math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
@@ -26,7 +28,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 BFF_SEARCH_URL = 'https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/api/v1/search/series'
 BFF_GENRE_URL = 'https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/view/v1/landing/genre'
-BFF_PRODUCT_LIST_URL = 'https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/api/v2/content/product/list'
+BFF_CONTENT_OVERVIEW_URL = 'https://bff-page.\u006b\u0061\u006b\u0061\u006f.com/api/gateway/api/v1/content/overview'
 KPAGE_NOVELS_PATH = os.path.join("docs", "data", "kpage_novels.json")
 try:
     from .kpage_descriptions import open_text as open_descriptions, read_rows
@@ -153,66 +155,121 @@ def load_existing_descriptions(path=KPAGE_DESCRIPTIONS_PATH):
     return rows
 
 
-def fetch_series_description(series_id, retries=DEFAULT_RETRIES):
-    """Fetch one Kpage series description from the product-list BFF API."""
+def _nonnegative_number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return value
+
+
+def extract_series_detail(payload):
+    """Normalize native detail counters from one content-overview response."""
+    result = payload.get("result") if isinstance(payload, dict) else None
+    content = result.get("content") if isinstance(result, dict) else None
+    if not isinstance(content, dict):
+        return {}
+
+    detail = {}
+    chapters = _nonnegative_number(content.get("on_sale_count"))
+    if chapters is not None and float(chapters).is_integer():
+        detail["chapters"] = int(chapters)
+
+    service = content.get("service_property") or {}
+    views = _nonnegative_number(service.get("view_count"))
+    if views is not None and float(views).is_integer():
+        detail["views"] = int(views)
+
+    rating_count = _nonnegative_number(service.get("rating_count"))
+    rating_sum = _nonnegative_number(service.get("rating_sum"))
+    if rating_count is not None and float(rating_count).is_integer():
+        rating_count = int(rating_count)
+        detail["metrics"] = {"rating_count": rating_count}
+        if rating_count > 0 and rating_sum is not None:
+            # The first-party UI displays this aggregate on a ten-point scale.
+            rating = math.floor((rating_sum / rating_count) * 10 + 0.5) / 10
+            detail["metrics"].update(rating=rating, rating_scale=10)
+
+    description = normalize_description(content.get("description", ""))
+    if description:
+        detail["description"] = description
+    published = explicit_publication_date(
+        content, "start_sale_dt", "first_slide_added_dt", "series_open_dt",
+        "open_dt", "create_dt"
+    )
+    if published:
+        detail["published"] = published
+    return detail
+
+
+def fetch_series_detail(series_id, retries=DEFAULT_RETRIES):
+    """Fetch one Kpage series' native rating, chapter count and description."""
     session = get_thread_session()
-    r = get_with_retries(session, BFF_PRODUCT_LIST_URL, params={
-        'series_id': series_id,
-        'cursor_index': 0,
-        'cursor_direction': 'ANCHOR',
-        'window_size': 0,
-    }, timeout=15, attempts=retries)
+    r = get_with_retries(
+        session, BFF_CONTENT_OVERVIEW_URL, params={'series_id': series_id},
+        timeout=15, attempts=retries
+    )
     if r.status_code != 200:
-        return ""
-    result = r.json().get("result", {})
-    series_item = result.get("series_item", {})
-    return normalize_description(series_item.get("description", ""))
+        return {}
+    return extract_series_detail(r.json())
 
 
-def fetch_descriptions(all_novels, existing, workers=12, retries=DEFAULT_RETRIES):
-    """Fill descriptions, using existing rows as a cache on rescrapes."""
+def fetch_series_description(series_id, retries=DEFAULT_RETRIES):
+    """Backward-compatible description-only wrapper around the detail API."""
+    return fetch_series_detail(series_id, retries).get("description", "")
+
+
+def fetch_series_details(
+        all_novels, existing, workers=12, retries=DEFAULT_RETRIES,
+        include_descriptions=True):
+    """Refresh native detail metadata, retaining cached synopsis text as backup."""
     workers = max(1, workers)
-    cached = 0
-    missing = []
-
+    targets = []
     for sid, novel in all_novels.items():
-        cached_raw = existing.get(sid, ("", ""))[0]
-        if cached_raw:
-            novel["description"] = normalize_description(cached_raw)
-            cached += 1
-        else:
-            missing.append(sid)
+        if include_descriptions:
+            cached_raw = existing.get(sid, ("", ""))[0]
+            if cached_raw:
+                novel["description"] = normalize_description(cached_raw)
+        if DELETED_TAG not in novel.get("tags", []):
+            targets.append(sid)
 
-    print(f"\nDescriptions: {cached:,} cached, {len(missing):,} to fetch")
-    if not missing:
+    print(f"\nDetails: {len(targets):,} current series to refresh")
+    if not targets:
         return
 
     fetched = 0
     failed = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(fetch_series_description, sid, retries): sid
-            for sid in missing
+            pool.submit(fetch_series_detail, sid, retries): sid
+            for sid in targets
         }
         for i, fut in enumerate(as_completed(futures), 1):
             sid = futures[fut]
             try:
-                desc = fut.result()
+                detail = fut.result()
             except Exception:
-                desc = ""
+                detail = {}
 
-            if desc:
-                all_novels[sid]["description"] = desc
+            if detail:
+                if not include_descriptions:
+                    detail.pop("description", None)
+                all_novels[sid].update(detail)
                 fetched += 1
             else:
                 failed += 1
 
-            if i % 500 == 0 or i == len(missing):
+            if i % 500 == 0 or i == len(targets):
                 print(
-                    f"  descriptions {i:,}/{len(missing):,} "
+                    f"  details {i:,}/{len(targets):,} "
                     f"fetched={fetched:,} empty/failed={failed:,}",
                     flush=True,
                 )
+
+
+def fetch_descriptions(all_novels, existing, workers=12, retries=DEFAULT_RETRIES):
+    """Backward-compatible entry point; detail metadata is refreshed as well."""
+    return fetch_series_details(all_novels, existing, workers, retries, True)
 
 
 def normalize_thumbnail(thumb):
@@ -257,9 +314,14 @@ def add_kpage_item(all_novels, item):
         "tags": [sub_category] if sub_category else [],
         "views": sp.get("view_count", 0),
         "likes": 0,
-        "chapters": 0,
+        "chapters": None,
         "complete": is_complete_item(item),
         "updated": item.get("last_slide_added_dt", ""),
+        "published": explicit_publication_date(
+            item, "start_sale_dt", "first_slide_added_dt", "series_open_dt",
+            "open_dt", "create_dt"
+        ),
+        "metrics": {},
         "age": 19 if age_grade >= 19 else 0,
     }
     return True
@@ -284,6 +346,8 @@ def novel_row_to_dict(row):
         "complete": row[8] if len(row) > 8 else 0,
         "updated": row[9] if len(row) > 9 else "",
         "age": row[11] if len(row) > 11 else 0,
+        "published": row[12] if len(row) > 12 else None,
+        "metrics": row[13] if len(row) > 13 and isinstance(row[13], dict) else {},
     }
 
 
@@ -311,6 +375,13 @@ def merge_with_existing_novels(scraped_novels, path=KPAGE_NOVELS_PATH):
         return scraped_novels
 
     merged = dict(existing)
+    for sid in set(existing) & set(scraped_novels):
+        if not scraped_novels[sid].get("published"):
+            scraped_novels[sid]["published"] = existing[sid].get("published")
+        if scraped_novels[sid].get("chapters") is None:
+            scraped_novels[sid]["chapters"] = existing[sid].get("chapters")
+        if not scraped_novels[sid].get("metrics"):
+            scraped_novels[sid]["metrics"] = existing[sid].get("metrics", {})
     merged.update(scraped_novels)
 
     preserved_ids = set(existing) - set(scraped_novels)
@@ -540,6 +611,8 @@ def save_novels(all_novels, path=KPAGE_NOVELS_PATH):
             n.get('tags', []), n.get('views', 0), n.get('likes', 0),
             n.get('chapters', 0), n.get('complete', 0), n.get('updated', ''),
             0, n.get('age', 0),
+            n.get('published') or '',
+            n.get('metrics') or {},
         ])
 
     with open(path, "w", encoding="utf-8") as f:
@@ -608,9 +681,10 @@ def main():
     parser.add_argument("--page-size", type=int, default=100,
                         help="Search fallback page size (max 100)")
     parser.add_argument("--skip-descriptions", action="store_true",
-                        help="Only scrape catalog metadata; do not fetch raw synopsis text")
-    parser.add_argument("--description-workers", type=int, default=4,
-                        help="Parallel workers for fetching Kpage descriptions")
+                        help="Refresh detail metadata without storing raw synopsis text")
+    parser.add_argument("--detail-workers", "--description-workers", dest="detail_workers",
+                        type=int, default=4,
+                        help="Parallel workers for fetching Kpage detail metadata")
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
                         help="Retry attempts for transient Kpage/BFF failures")
     args = parser.parse_args()
@@ -665,12 +739,12 @@ def main():
     print(f"Total after preserving existing unique novels: {len(all_novels):,}")
 
     existing_descriptions = load_existing_descriptions()
-    if not args.skip_descriptions:
-        fetch_descriptions(
-            all_novels, existing_descriptions,
-            workers=args.description_workers,
-            retries=args.retries,
-        )
+    fetch_series_details(
+        all_novels, existing_descriptions,
+        workers=args.detail_workers,
+        retries=args.retries,
+        include_descriptions=not args.skip_descriptions,
+    )
     save_novels(all_novels)
     if not args.skip_descriptions:
         save_descriptions(all_novels, existing_descriptions)

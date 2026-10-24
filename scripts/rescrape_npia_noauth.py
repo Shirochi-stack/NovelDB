@@ -24,11 +24,13 @@ try:
     from .npia_public_metadata import enrich
     from .metadata_common import atomic_json
     from .npia_rankings import scrape_ranking, collect_rankings, patch_ranks
+    from .publication_dates import explicit_publication_date
 except ImportError:
     import source_names
     from npia_public_metadata import enrich
     from metadata_common import atomic_json
     from npia_rankings import scrape_ranking, collect_rankings, patch_ranks
+    from publication_dates import explicit_publication_date
 
 
 import sys, os, json, time, re, argparse, requests, uuid, copy, secrets
@@ -122,6 +124,9 @@ def extract_novel(item):
         "complete": item.get("is_complete", 0),
         "age": item.get("novel_age", 0),
         "updated": item.get("last_viewdate", ""),
+        "published": explicit_publication_date(
+            item, "novel_regdate", "first_viewdate", "regdate", "created_at"
+        ),
     }
 
 
@@ -601,7 +606,11 @@ def main():
             existing_entry = existing_data[existing_lookup[nid]]
             if len(existing_entry) > 3:
                 existing_site_cover = existing_entry[3]
-        existing_full_cover = (old_full_lookup.get(nid) or {}).get("cover", "")
+        existing_full = old_full_lookup.get(nid) or {}
+        existing_full_cover = existing_full.get("cover", "")
+        if not novel.get("published"):
+            novel["published"] = (existing_full.get("published")
+                                  or (existing_entry[20] if nid in existing_lookup and len(existing_entry) > 20 else None))
         cover_for_full = preserve_cover(novel["cover"], existing_site_cover, existing_full_cover)
         if cover_for_full != novel["cover"]:
             novel["cover"] = cover_for_full
@@ -614,7 +623,7 @@ def main():
             entry = existing_data[idx]
 
             # Ensure array is long enough
-            while len(entry) < 20:
+            while len(entry) < 21:
                 entry.append(0)
 
             entry[1] = novel["title"]
@@ -627,6 +636,8 @@ def main():
             entry[8] = novel["complete"]
             entry[9] = novel["updated"]
             entry[11] = novel["age"]
+            if novel.get("published"):
+                entry[20] = novel["published"]
             stats["updated"] += 1
         else:
             # New novel — append in array format
@@ -651,6 +662,7 @@ def main():
                 0,                        # [17] weeklyRankTeen
                 0,                        # [18] monthlyRankTeen
                 0,                        # [19] dailyRankTeen
+                novel.get("published") or "", # [20] original publication date
             ]
             existing_data.append(entry)
             existing_lookup[nid] = len(existing_data) - 1
@@ -695,7 +707,7 @@ def main():
             # Check if it's an R19 novel (age == 19 at index 11)
             idx = existing_lookup[nid]
             entry = existing_data[idx]
-            while len(entry) < 20:
+            while len(entry) < 21:
                 entry.append(0)
             age = entry[11] if len(entry) > 11 else 0
             if age == 19:

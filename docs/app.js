@@ -7211,7 +7211,7 @@
                         const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
                         bundle={...metadata.compactPreview(JSON.parse(await new Response(stream).text()),source,cfg),_signature:signature};
                     } else bundle=await new Promise((resolve,reject)=>{
-                        const worker=new Worker('preview-worker.js?v=1');
+const worker=new Worker('preview-worker.js?v=3');
                         const finish=(error,result)=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);worker.terminate();error?reject(error):resolve(result);};
                         const abort=()=>finish(new DOMException('Preview cancelled','AbortError'));
                         const timer=setTimeout(()=>finish(new Error('Preview timed out')),20000);
@@ -7298,7 +7298,7 @@
     function workerRequest(type, value, progress) {
         clearTimeout(catalogIdleTimer);
         if (!catalogWorker) {
-            const worker = new Worker("catalog-worker.js?v=11");
+const worker = new Worker("catalog-worker.js?v=14");
             catalogWorker = worker;
             catalogWorkerTagVersion=null;
             worker.onmessage = ({data}) => {
@@ -8151,6 +8151,26 @@
         metadata.canonicalUrl ||= cfg?.linkPrefix ? `${cfg.linkPrefix}${record.id}` : null;
         const cached=recallSynopsis(`${source}:${record.id}`);
         metadata.synopsis=card._synopsis || record.synopsis || cached || '';
+        if(cfg?.detailsShardCount && cfg.detailsShardPrefix) {
+            const shard=descriptionShardIndex(record.id,cfg.detailsShardCount);
+            const url=`${cfg.detailsShardPrefix}${String(shard).padStart(3,'0')}.json.gz`;
+            const details=await new Promise(resolve=>{
+                let worker,timer;
+                const finish=value=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);worker?.terminate();resolve(value);};
+                const abort=()=>finish({});
+                if(signal?.aborted) {finish({});return;}
+                try {
+                    worker=new Worker('synopsis-worker.js?v=3');
+                    signal?.addEventListener('abort',abort,{once:true});
+                    timer=setTimeout(abort,35000);
+                    worker.onmessage=({data})=>finish(data.error ? {} : data.result?.[String(record.id)] || {});
+                    worker.onerror=()=>finish({});
+                    worker.postMessage({id:1,url:new URL(versionedDataUrl(url),location.href).href,
+                        ids:[String(record.id)],kind:'details'});
+                } catch(_) {finish({});}
+            });
+            if(details && typeof details==='object' && !Array.isArray(details)) Object.assign(metadata,details);
+        }
         if(!metadata.synopsis && cached===undefined && cfg?.descriptionShardCount && cfg.descriptionShardPrefix) {
             const shard=descriptionShardIndex(record.id,cfg.descriptionShardCount);
             const url=`${cfg.descriptionShardPrefix}${String(shard).padStart(3,'0')}.json.gz`;
@@ -8160,7 +8180,7 @@
                 const abort=()=>finish(null);
                 if(signal?.aborted) {finish(null);return;}
                 try {
-                    worker=new Worker('synopsis-worker.js?v=2');
+                    worker=new Worker('synopsis-worker.js?v=3');
                     signal?.addEventListener('abort',abort,{once:true});
                     timer=setTimeout(abort,35000);
                     worker.onmessage=({data})=>finish(data.error ? null : data.result);
