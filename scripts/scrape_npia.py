@@ -12,8 +12,10 @@ Outputs: docs/data/novels.json
 
 try:
     from . import source_names
+    from .publication_dates import explicit_publication_date
 except ImportError:
     import source_names
+    from publication_dates import explicit_publication_date
 
 
 import sys, os, json, time, argparse, re, tempfile
@@ -101,6 +103,9 @@ def extract_novel(item):
         "complete": item.get("is_complete", 0),
         "age": item.get("novel_age", 0),
         "updated": item.get("last_viewdate", ""),
+        "published": explicit_publication_date(
+            item, "novel_regdate", "first_viewdate", "regdate", "created_at"
+        ),
     }
 
 
@@ -255,6 +260,7 @@ def full_from_site_row(row):
         "complete": row[8] if len(row) > 8 else 0,
         "age": row[11] if len(row) > 11 else 0,
         "updated": row[9] if len(row) > 9 else "",
+        "published": row[20] if len(row) > 20 else None,
     }
 
 def main():
@@ -373,7 +379,11 @@ def main():
         existing_site_row = existing_site_by_id.get(str(nid))
         if existing_site_row and len(existing_site_row) > 3:
             existing_site_cover = existing_site_row[3]
-        existing_full_cover = (existing_full_by_id.get(str(nid)) or {}).get("cover", "")
+        existing_full = existing_full_by_id.get(str(nid)) or {}
+        existing_full_cover = existing_full.get("cover", "")
+        if not novel.get("published"):
+            novel["published"] = (existing_full.get("published")
+                                  or (existing_site_row[20] if existing_site_row and len(existing_site_row) > 20 else None))
         cover = preserve_cover(novel.get("cover", ""), existing_site_cover, existing_full_cover)
         if cover != novel.get("cover", ""):
             novel["cover"] = cover
@@ -431,6 +441,7 @@ def main():
             get_rank(nid, "teen/plus", "weekly"), # [17] weeklyRankTeen
             get_rank(nid, "teen/plus", "month"),  # [18] monthlyRankTeen
             get_rank(nid, "teen/plus", "today"),  # [19] dailyRankTeen
+            n.get("published") or "",              # [20] original publication date
         ])
 
     optimized.extend(preserved_site_rows)

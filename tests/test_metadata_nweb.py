@@ -124,7 +124,8 @@ def test_outbound_purchase_link_is_recorded_without_fetching_it():
     client = FakeClient(lambda url, params: html)
     result = NwebAdapter().detail(client, {"id": "1161705", "canonical_url": CANONICAL})
     assert result.record["purchase_url"] == "https://series.\u006e\u0061\u0076\u0065\u0072.com/novel/detail.series?productNo=123"
-    assert client.calls == [(CANONICAL, {"order": "Update"})]
+    assert client.calls == [(CANONICAL, {"order": "Update"}),
+                            (CANONICAL, {"order": "Oldest"})]
 
 
 def test_ranking_uses_explicit_positions_and_separates_free_and_paid():
@@ -236,6 +237,13 @@ def test_detail_records_newest_episode_date_in_either_order():
     # Other lists on the page (recommendations) never supply a date.
     undated = parse_detail(html + _episode_rows(), {"id": "1161705", "updated": "2020-01-01"}, CANONICAL, today)
     assert undated.record["updated"] == "2020-01-01"
+
+
+def test_detail_records_only_an_explicit_structured_publication_date():
+    html = '<script type="application/ld+json">{"@type":"CreativeWork","datePublished":"2020-04-05"}</script>' + fixture("detail.html")
+    record = parse_detail(html, {"id": "1161705"}, CANONICAL).record
+    assert record["created"] == "2020-04-05"
+    assert record["source_dates"]["created"]["raw"] == "2020-04-05"
 
 
 def test_blank_title_card_is_skipped_and_settled_by_its_detail_page():

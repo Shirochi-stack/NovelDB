@@ -12,6 +12,7 @@ from scripts import npia_public_metadata as public
 
 def detail(nid=123, adult=True):
     return f'''<meta property="og:url" content="{public.ORIGIN}/novel/{nid}">
+    <script type="application/ld+json">{{"datePublished":"2020-01-02"}}</script>
     <div class="epnew-novel-info"><div class="epnew-novel-title">Title</div>
     <p class="in-writer"><a class="writer-name">Author</a></p>
     <p class="in-badge">{'<span class="b_19">19</span>' if adult else ''}</p>
@@ -27,7 +28,7 @@ def test_detail_fields_and_hidden_cover_preservation():
     parsed = public.parse_detail(detail(), "123")
     assert parsed == dict(id=123, title="Title", author="Author", age=19,
                           synopsis="Line one\nLine two", tags=["Tag"],
-                          views=1234, likes=12, chapters=20)
+                          views=1234, likes=12, chapters=20, published="2020-01-02")
     assert "cover" not in parsed and "updated" not in parsed and "complete" not in parsed
 
 

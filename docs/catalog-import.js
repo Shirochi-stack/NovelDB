@@ -1,6 +1,6 @@
 /* Shared catalog indexing and atomic chunk storage for import workers. */
 "use strict";
-importScripts("metadata-core.js?v=10");
+importScripts("metadata-core.js?v=13");
 const M = self.NovelMetadata;
 const BLOCK = 512;
 const RANK_FIELDS = ['weeklyRank','monthlyRank','dailyRank','weeklyRankAdult','monthlyRankAdult','dailyRankAdult','weeklyRankTeen','monthlyRankTeen','dailyRankTeen'];
@@ -13,8 +13,13 @@ async function db() {
     if (!database) database = new Promise((resolve, reject) => {
         let expired=false;
         const timer=setTimeout(()=>{expired=true;database=null;reject(new Error('Catalog storage did not open in time'));},8000);
-        const req = indexedDB.open("noveldb-catalog-v1", 1);
-        req.onupgradeneeded = () => { for (const store of ["meta", "index", "cards", "runs"]) req.result.createObjectStore(store); };
+        const req = indexedDB.open("noveldb-catalog-v1", 2);
+        req.onupgradeneeded = () => {
+            for (const store of ["meta", "index", "cards", "runs"]) {
+                if (!req.result.objectStoreNames.contains(store)) req.result.createObjectStore(store);
+                else req.transaction.objectStore(store).clear();
+            }
+        };
         req.onsuccess = () => {
             clearTimeout(timer);
             if(expired) {req.result.close();return;}
@@ -60,6 +65,8 @@ function pack(rows, translations, source, cfg) {
         const values = [n.views,n.likes,n.chapters,n.complete,n.updated,n.age,n.metadataV1,cfg.sfcRanks ? 1 : source==='npia' ? 2 : 0];
         if (n.metadataV1) values.push(n.metrics,n.rankings);
         else values.push(...(cfg.sfcRanks ? SFC_FIELDS : source==='npia' ? RANK_FIELDS : ['weeklyRank']).map(key=>n[key]));
+        values.push(n.startDate || null);
+        if (!n.metadataV1 && source === 'kpage') values.push(n.metrics || {});
         return [n.id, n.title, String(translations[n.id] || ""), author, tagList, values];
     });
     return { authors, tags, entries };
@@ -70,8 +77,13 @@ function unpack(entry, block, source) {
     let fields=values;
     if(Array.isArray(values)) {
         fields={views:values[0],likes:values[1],chapters:values[2],complete:values[3],updated:values[4],age:values[5],metadataV1:values[6]};
-        if(fields.metadataV1) {fields.metrics=values[8];fields.rankings=values[9];}
-        else (values[7]===1 ? SFC_FIELDS : values[7]===2 ? RANK_FIELDS : ['weeklyRank']).forEach((key,i)=>{fields[key]=values[8+i];});
+        if(fields.metadataV1) {fields.metrics=values[8];fields.rankings=values[9];fields.startDate=values[10] || null;}
+        else {
+            const rankFields=values[7]===1 ? SFC_FIELDS : values[7]===2 ? RANK_FIELDS : ['weeklyRank'];
+            rankFields.forEach((key,i)=>{fields[key]=values[8+i];});
+            fields.startDate=values[8+rankFields.length] || null;
+            if(source==='kpage') fields.metrics=values[9+rankFields.length] || {};
+        }
     }
     return { ...fields, id: entry[0], title: entry[1], titleEn: entry[2], author: block.authors[entry[3]],
         tags: entry[4].map(t => block.tags[t]), source };

@@ -1,6 +1,6 @@
 /* Parse and index one downloaded chunk at a time in each pool worker. */
 "use strict";
-importScripts("catalog-import.js?v=7");
+importScripts("catalog-import.js?v=10");
 const labelRequests=new Map();
 self.onmessage = async ({data}) => {
     if(data.kind==='labels') {labelRequests.get(data.id)?.(data.labels);labelRequests.delete(data.id);return;}

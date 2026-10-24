@@ -85,7 +85,9 @@
                 if (!novel.canonicalUrl) throw new Error(`Invalid ${source} official destination`);
                 novel.tier = row[12] || null;
                 novel.purchaseUrl = safeHttpUrl(row[13], cfg.purchaseHosts || cfg.linkHosts) || null;
-                novel.metrics = row[14] && typeof row[14] === "object" && !Array.isArray(row[14]) ? row[14] : {};
+                novel.metrics = row[14] && typeof row[14] === "object" && !Array.isArray(row[14]) ? {...row[14]} : {};
+                novel.startDate = typeof novel.metrics.start_date === "string" && novel.metrics.start_date ? novel.metrics.start_date : null;
+                delete novel.metrics.start_date;
                 novel.rankings = {};
                 for (const [board, rank] of Object.entries(row[15] || {})) {
                     if (Number.isInteger(rank) && rank > 0) novel.rankings[board] = rank;
@@ -94,11 +96,16 @@
                 ["popularityRank", "bestSellerRank", "newBooksRank", "bookmarksRank", "jpRank", "ticketRank"]
                     .forEach((field, index) => { novel[field] = row[11 + index] || 0; });
                 if (row[17]) novel.synopsis = String(row[17]).replace(/\\r\\n|\\n/g, "\n").trim();
+                novel.startDate = typeof row[21] === "string" && row[21] ? row[21] : null;
             } else {
                 novel.weeklyRank = row[10] || 0;
                 if (source === "npia") {
                     ["monthlyRank", "dailyRank", "weeklyRankAdult", "monthlyRankAdult", "dailyRankAdult", "weeklyRankTeen", "monthlyRankTeen", "dailyRankTeen"]
                         .forEach((field, index) => { novel[field] = row[12 + index] || 0; });
+                    novel.startDate = typeof row[20] === "string" && row[20] ? row[20] : null;
+                } else if (source === "kpage") {
+                    novel.startDate = typeof row[12] === "string" && row[12] ? row[12] : null;
+                    novel.metrics = row[13] && typeof row[13] === "object" && !Array.isArray(row[13]) ? {...row[13]} : {};
                 }
             }
             return novel;
@@ -197,6 +204,7 @@
     function previewSorts(source, boards = {}) {
         const sorts = [...supportedPeriods(source), 'likes', 'views', 'chapters',
             'metric:favorites', 'metric:recommendations', 'metric:rating', 'metric:downloads', 'updated', 'title'];
+        sorts.push('new');
         if (source === 'sfc' || source === 'all') sorts.push('sfc_popularity', 'sfc_bestseller',
             'sfc_newbooks', 'sfc_bookmarks', 'sfc_jp', 'sfc_ticket');
         if (source === 'all') {
@@ -281,6 +289,7 @@
         // lexical position. Code point order matches collation for them and
         // avoids millions of collator calls.
         if (sortBy === "updated") return [{ get: (novel) => novel.updated, dir, nullsLast: true, text: "plain" }];
+        if (sortBy === "new") return [{ get: (novel) => novel.startDate, dir, nullsLast: true, text: "plain" }];
         const field = sortBy === "likes" || sortBy === "chapters" ? sortBy : "views";
         return [{ get: (novel) => novel[field], dir, nullsLast: true }];
     }
@@ -425,6 +434,11 @@
         };
         const prefix = manifest.descriptionShardPrefix;
         if (prefix !== `${source}_descriptions_shard_`) throw new Error(`Invalid ${source} synopsis prefix`);
+        const detailsCount = manifest.detailsShardCount;
+        const detailsPrefix = manifest.detailsShardPrefix;
+        if ((detailsCount == null) !== (detailsPrefix == null)
+                || (detailsCount != null && (!Number.isInteger(detailsCount) || detailsCount < 1
+                    || detailsPrefix !== `${source}_details_shard_`))) throw new Error(`Invalid ${source} details shards`);
         const boards = {};
         for (const [key, value] of Object.entries(manifest.boards || {})) {
             if (value && typeof value.label === "string") boards[key] = value;
@@ -432,6 +446,8 @@
         return {
             ...catalogManifestConfig(manifest,source), format: "metadata-v1",
             descriptionShardCount: manifest.descriptionShardCount, descriptionShardPrefix: localFile(prefix),
+            detailsShardCount: detailsCount || 0, detailsShardPrefix: detailsPrefix ? localFile(detailsPrefix) : null,
+            startDateCount: Number.isInteger(manifest.startDateCount) && manifest.startDateCount >= 0 ? manifest.startDateCount : 0,
             topUrl: manifest.topUrl ? localFile(manifest.topUrl) : null,
             boards, coverage: manifest.coverage || {},
         };

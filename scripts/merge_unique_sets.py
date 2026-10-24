@@ -111,6 +111,7 @@ def main():
                 0,                           # [17] weeklyRankTeen
                 0,                           # [18] monthlyRankTeen
                 0,                           # [19] dailyRankTeen
+                n.get("published", ""),      # [20] original publication date
             ])
 
     print(f"novels_full.json: {added} new unique entries added")

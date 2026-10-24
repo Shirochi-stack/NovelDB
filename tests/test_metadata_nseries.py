@@ -69,3 +69,15 @@ def test_account_and_reader_routes_are_not_requested(url):
 def test_detail_base_and_prepared_url_are_allowed():
     assert NseriesAdapter.is_allowed_url(BASE+'/novel/detail.series')
     assert NseriesAdapter.is_allowed_url(BASE+'/novel/detail.series?productNo=123')
+
+
+def test_detail_reads_explicit_structured_publication_date():
+    class Client:
+        def get_text(self, *args, **kwargs):
+            return ('<script type="application/ld+json">{"datePublished":"2021-05-06"}</script>'
+                    '<div class="end_head"><h2>Title</h2></div><ul class="end_info"></ul>'
+                    '<div class="end_dsc"><div class="_synopsis">Full synopsis</div></div>')
+    result = NseriesAdapter().detail(Client(), {"id": "123"})
+    assert result.status == "success"
+    assert result.record["published"] == "2021-05-06"
+    assert result.record["source_dates"]["published"]["raw"] == "2021-05-06"

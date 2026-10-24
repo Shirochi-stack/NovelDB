@@ -13,9 +13,11 @@ from bs4 import BeautifulSoup
 try:
     from .metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, log_progress, run_cli, source_date
     from .nseries_collection_policy import CollectionPolicy
+    from .publication_dates import explicit_publication_date, structured_publication_date
 except ImportError:
     from metadata_common import BudgetExceeded, CatalogPage, FetchError, MetadataResult, log_progress, run_cli, source_date
     from nseries_collection_policy import CollectionPolicy
+    from publication_dates import explicit_publication_date, structured_publication_date
 
 BASE = "https://series.\u006e\u0061\u0076\u0065\u0072.com"
 CATALOG = BASE + "/novel/categoryProductList.series"
@@ -102,7 +104,10 @@ def parse_catalog_metadata(payload):
         if (isinstance(rating, (int, float)) and not isinstance(rating, bool)
                 and math.isfinite(rating) and 0 <= rating <= 10):
             metrics.update(rating=rating, rating_scale=10)
-        result[ident] = {"age": age, "metrics": metrics}
+        published = explicit_publication_date(
+            row, "publicationDate", "serviceStartDate", "openDate", "registerDate"
+        )
+        result[ident] = {"age": age, "metrics": metrics, "published": published}
     return result
 
 
@@ -124,8 +129,9 @@ class NseriesAdapter(CollectionPolicy):
     supports_rankings = False  # Catalog sort order is not a native ranking board.
     # A detail request only adds the full synopsis and age rating. New episodes,
     # dates and ratings arrive with every catalog row and need no detail request.
-    detail_fields = ("title", "synopsis", "age")
+    detail_fields = ("title", "synopsis", "age", "published")
     detail_refresh_days = 90
+    detail_version = 2
 
     @staticmethod
     def create_session():
@@ -194,6 +200,10 @@ class NseriesAdapter(CollectionPolicy):
                     if record["age"] != 19 and extra["age"] is not None:
                         record["age"] = extra["age"]
                     record["metrics"].update(extra["metrics"])
+                    if extra.get("published"):
+                        record["published"] = extra["published"]
+                        record["source_dates"] = {**record.get("source_dates", {}),
+                                                  "published": source_date(extra["published"])}
                 record["nseries_catalog_fingerprint"] = self.catalog_fingerprint(record)
             return result
         except BudgetExceeded:
@@ -216,6 +226,10 @@ class NseriesAdapter(CollectionPolicy):
         if not head or not info:
             return MetadataResult("failed", reason="Nseries detail markup unavailable")
         result = {"id": record["id"], "title": head.get_text(strip=True)}
+        published = structured_publication_date(soup)
+        if published:
+            result["published"] = published
+            result["source_dates"] = {"published": source_date(published)}
         age = re.search(r"(\d+)세\s*이용가", info.get_text(" ", strip=True))
         if age:
             result["age"] = int(age[1])

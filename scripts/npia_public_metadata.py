@@ -6,6 +6,11 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
+try:
+    from .publication_dates import structured_publication_date
+except ImportError:
+    from publication_dates import structured_publication_date
+
 ORIGIN = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 REFRESH_SECONDS = 7 * 86400
 
@@ -50,6 +55,9 @@ def parse_detail(html, nid):
         return None
     result = {"id": int(nid), "age": 19, "title": title.get_text(strip=True),
               "author": author.get_text(strip=True)}
+    published = structured_publication_date(soup)
+    if published:
+        result["published"] = published
     owner = re.fullmatch(r"/user/(\d+)/?", author.get("href", ""))
     if owner:
         result["author_id"] = owner[1]
@@ -148,7 +156,10 @@ def enrich(session, fresh, existing, old_full, state, *, listing_pages=10,
                 if row:
                     for field, index in (("title", 1), ("author", 2), ("cover", 3), ("tags", 4),
                                          ("views", 5), ("likes", 6), ("chapters", 7),
-                                         ("complete", 8), ("updated", 9), ("age", 11)):
+                                         ("complete", 8), ("updated", 9), ("age", 11),
+                                         ("published", 20)):
+                        if len(row) <= index:
+                            continue
                         base.setdefault(field, row[index])
                 base.update(fresh.get(nid, {}))
                 base.update(patch)
