@@ -5823,6 +5823,7 @@
 2057343922|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||My Ex-Wife and Former Company Go Under While I Live the American Dream
 2057344115|||쇼팽 콘체르토|||Chopin Concerto
 2057344364|||국가대표 아이돌|||National Team Idol
+2057345310|||EX급 마법사의 귀환|||Return of the EX-Class Mage
 2065000061|||영업사원 김유빈|||Salesman Kim Yu-bin
 2065000225|||미티어 스트라이커|||Meteor Striker
 2065000386|||전능의 지배자|||Ruler of Omnipotence
@@ -19095,6 +19096,7 @@
 6167000759|||빙산|||Iceberg
 6167000760|||빙산 (15세 개정판)|||Iceberg (15+ Revised Edition)
 6167000940|||올리브는 겨울에도 푸르다|||Olive Stays Green in Winter
+6167000941|||올리브는 겨울에도 푸르다 (15세 개정판)|||Olive Is Still Green in Winter (Age 15+ Revised Edition)
 6175000001|||나의 고결한 포식자에게|||To My Noble Predator
 6175000002|||나의 고결한 포식자에게(15세 개정판)|||To My Noble Predator (15+ Revised Edition)
 6176000001|||악역 소장은 육아 중!|||The Villainous Major Is Raising a Child!
@@ -21383,8 +21385,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-2057345310|||EX급 마법사의 귀환|||
 425606091|||1903|||
 425629250|||1973|||
-6167000941|||올리브는 겨울에도 푸르다 (15세 개정판)|||
 945008054|||40,41|||
