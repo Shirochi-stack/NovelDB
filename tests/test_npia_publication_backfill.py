@@ -1,4 +1,7 @@
 from copy import deepcopy
+import json
+
+import pytest
 
 from scripts.backfill_npia_publication_dates import apply_dates, collect_dates, ranked_authors
 from scripts import backfill_npia_publication_dates as backfill
@@ -51,3 +54,30 @@ def test_adult_author_scope_excludes_general_deleted_and_already_dated_rows():
     rows = [row(1, 0), row(2, 19), row(3, 19, ['deleted']), row(4, 19, date='2020-01-02')]
     registry = {'authors': {str(n): {'novel_ids': [str(n)]} for n in range(1, 5)}}
     assert ranked_authors(rows, registry, {}, 100, adult_only=True) == ['2']
+
+
+@pytest.mark.parametrize('error', [None, 'ValueError'])
+def test_author_only_cli_saves_dates_and_reports_partial_results(monkeypatch, tmp_path, error):
+    rows = [[7, 'Title', 'Writer', '', [], 123, 15, 4, 1, 'updated', 0, 19] + [0]*8]
+    (tmp_path/'novels.json').write_text(json.dumps(rows))
+    (tmp_path/'npia_authors.json').write_text(json.dumps({'authors': {'42': {'novel_ids': ['7']}}}))
+    checkpoint = tmp_path/'dates.json'
+    monkeypatch.setattr(backfill.sys, 'argv', ['backfill', '--data-dir', str(tmp_path), '--checkpoint', str(checkpoint),
+                                           '--skip-search', '--adult-authors', '--author-limit', '100'])
+    monkeypatch.setattr(backfill, 'make_search_session', lambda: object())
+    monkeypatch.setattr(backfill, 'login_metadata_session', lambda session: False)
+    monkeypatch.setattr(backfill, 'search_dates', lambda *args: pytest.fail('Search must be skipped'))
+    monkeypatch.setattr(backfill, 'author_dates', lambda *args: ({'7': '2025-02-04'}, error))
+    if error:
+        with pytest.raises(SystemExit) as result:
+            backfill.main()
+        assert result.value.code == 1
+    else:
+        backfill.main()
+    updated = json.loads((tmp_path/'novels.json').read_text())
+    assert updated[0][:20] == rows[0]
+    assert updated[0][20] == '2025-02-04'
+    state = json.loads(checkpoint.read_text())
+    assert state['dates'] == {'7': '2025-02-04'}
+    assert state['completed_authors'] == ([] if error else ['42'])
+    assert bool(state['failures']) == bool(error)
