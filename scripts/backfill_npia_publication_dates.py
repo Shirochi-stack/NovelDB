@@ -64,10 +64,11 @@ def search_dates(term, delay, retries, source_session=None):
         return dates, error
 
 
-def ranked_authors(rows, registry, dates, limit):
+def ranked_authors(rows, registry, dates, limit, adult_only=False):
     ranks = (10, 12, 13, 14, 15, 16, 17, 18, 19)
     missing = {str(row[0]): min((row[i] for i in ranks if len(row) > i and row[i] > 0), default=999999)
-               for row in rows if not (len(row) > 20 and row[20]) and str(row[0]) not in dates}
+               for row in rows if not (len(row) > 20 and row[20]) and str(row[0]) not in dates
+               and (not adult_only or (row[11] == 19 and 'deleted' not in row[4]))}
     scored = []
     for owner, entry in registry.get('authors', {}).items():
         relevant = [missing[nid] for nid in entry.get('novel_ids', []) if nid in missing]
@@ -95,6 +96,8 @@ def main():
     parser.add_argument('--delay', type=float, default=1)
     parser.add_argument('--retries', type=int, default=4)
     parser.add_argument('--author-limit', type=int, default=0)
+    parser.add_argument('--skip-search', action='store_true', help='Use author catalogs without repeating the search sweep')
+    parser.add_argument('--adult-authors', action='store_true', help='Target missing dates in live R19 entries only')
     args = parser.parse_args()
     if args.workers < 1 or args.delay < 0 or args.retries < 1 or args.author_limit < 0:
         parser.error('Invalid request limits')
@@ -129,10 +132,11 @@ def main():
                 print(f'{label}: {len(state[completed_key])}/{len(values)} complete; '
                       f'{len(dates)} dates retained; latest {"partial" if error else "success"}', flush=True)
 
-    run(ALL_SEARCH_TERMS, search_dates, 'completed_terms', 'search')
+    if not args.skip_search:
+        run(ALL_SEARCH_TERMS, search_dates, 'completed_terms', 'search')
     if args.author_limit:
         registry = json.loads((args.data_dir / 'npia_authors.json').read_text(encoding='utf-8'))
-        owners = ranked_authors(rows, registry, dates, args.author_limit)
+        owners = ranked_authors(rows, registry, dates, args.author_limit, args.adult_authors)
         run(owners, author_dates, 'completed_authors', 'author')
     # Re-read before writing so another metadata step's changes are retained.
     rows = json.loads((args.data_dir / 'novels.json').read_text(encoding='utf-8'))
