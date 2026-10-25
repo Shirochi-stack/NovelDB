@@ -20,7 +20,7 @@ from npia_search_http import PartialSearchError, paginated_search
 from npia_search_terms import ALL_SEARCH_TERMS
 from scripts.metadata_common import atomic_json
 from scripts.publication_dates import explicit_publication_date, normalize_publication_date
-from scripts.rescrape_npia_noauth import make_search_session, get_json_with_retry
+from scripts.rescrape_npia_noauth import make_search_session, get_json_with_retry, login_metadata_session
 
 
 def collect_dates(items, dates):
@@ -46,8 +46,8 @@ def apply_dates(rows, dates):
     return changed
 
 
-def search_dates(term, delay, retries):
-    with make_search_session() as session:
+def search_dates(term, delay, retries, source_session=None):
+    with make_search_session(source_session) as session:
         def fetch(params):
             time.sleep(delay)
             return get_json_with_retry(session, params, retries)
@@ -76,10 +76,10 @@ def ranked_authors(rows, registry, dates, limit):
     return [owner for _, _, owner in sorted(scored)[:limit]]
 
 
-def author_dates(owner, delay, retries):
+def author_dates(owner, delay, retries, source_session=None):
     dates = {}
     try:
-        with make_search_session() as session:
+        with make_search_session(source_session) as session:
             for _, items, _ in iter_author_pages(session, owner, page_size=100, delay=delay, retries=retries):
                 collect_dates(items, dates)
         return dates, None
@@ -104,11 +104,14 @@ def main():
     state.setdefault('completed_terms', [])
     state.setdefault('completed_authors', [])
     state.setdefault('failures', {})
+    session = make_search_session()
+    authenticated = login_metadata_session(session)
+    print('Metadata account login verified.' if authenticated else 'Anonymous metadata session.', flush=True)
 
     def run(values, worker, completed_key, label):
         pending = [value for value in values if value not in state[completed_key]]
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futures = {pool.submit(worker, value, args.delay, args.retries): value for value in pending}
+            futures = {pool.submit(worker, value, args.delay, args.retries, session): value for value in pending}
             for future in as_completed(futures):
                 value = futures[future]
                 try:
