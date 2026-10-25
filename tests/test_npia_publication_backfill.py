@@ -43,3 +43,11 @@ def test_search_clones_the_verified_metadata_session(monkeypatch):
     monkeypatch.setattr(backfill, 'paginated_search', lambda fetch, params: [{'novel_no': 7, 'start_date': '2025-02-04'}])
     assert backfill.search_dates('query', 0, 1, source_session) == ({'7': '2025-02-04'}, None)
     assert received == [source_session]
+
+
+def test_adult_author_scope_excludes_general_deleted_and_already_dated_rows():
+    def row(nid, age, tags=None, date=''):
+        return [nid, 'Title', 'Writer', '', tags or [], 123, 15, 4, 1, 'updated', 0, age] + [0]*8 + [date]
+    rows = [row(1, 0), row(2, 19), row(3, 19, ['deleted']), row(4, 19, date='2020-01-02')]
+    registry = {'authors': {str(n): {'novel_ids': [str(n)]} for n in range(1, 5)}}
+    assert ranked_authors(rows, registry, {}, 100, adult_only=True) == ['2']

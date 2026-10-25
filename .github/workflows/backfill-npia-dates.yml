@@ -2,6 +2,19 @@ name: Backfill Npia Publication Dates
 
 on:
   workflow_dispatch:
+    inputs:
+      author_limit:
+        description: 'Maximum author catalogs to check for missing live R19 dates'
+        type: number
+        default: 0
+      skip_search:
+        description: 'Skip search and use author catalogs only'
+        type: boolean
+        default: false
+      workers:
+        description: 'Concurrent metadata workers'
+        type: number
+        default: 4
 
 permissions:
   contents: read
@@ -9,7 +22,7 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,7 +36,13 @@ jobs:
         env:
           NPIA_METADATA_EMAIL: ${{ secrets.NPIA_METADATA_EMAIL }}
           NPIA_METADATA_PASSWORD: ${{ secrets.NPIA_METADATA_PASSWORD }}
-        run: python scripts/backfill_npia_publication_dates.py --checkpoint .cache/npia-publication-dates.json --workers 4
+          AUTHOR_LIMIT: ${{ inputs.author_limit }}
+          SKIP_SEARCH: ${{ inputs.skip_search }}
+          METADATA_WORKERS: ${{ inputs.workers }}
+        run: |
+          EXTRA_ARGS=()
+          if [ "$SKIP_SEARCH" = "true" ]; then EXTRA_ARGS+=(--skip-search); fi
+          python scripts/backfill_npia_publication_dates.py --checkpoint .cache/npia-publication-dates.json --workers "$METADATA_WORKERS" --author-limit "$AUTHOR_LIMIT" --adult-authors "${EXTRA_ARGS[@]}"
       - name: Preserve collected dates
         if: always()
         uses: actions/upload-artifact@v4
