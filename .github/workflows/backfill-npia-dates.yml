@@ -1,0 +1,35 @@
+name: Backfill Npia Publication Dates
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+      - name: Collect source-declared publication dates
+        env:
+          NPIA_METADATA_EMAIL: ${{ secrets.NPIA_METADATA_EMAIL }}
+          NPIA_METADATA_PASSWORD: ${{ secrets.NPIA_METADATA_PASSWORD }}
+        run: python scripts/backfill_npia_publication_dates.py --checkpoint .cache/npia-publication-dates.json --workers 4
+      - name: Preserve collected dates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npia-publication-dates
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+          path: .cache/npia-publication-dates.json
