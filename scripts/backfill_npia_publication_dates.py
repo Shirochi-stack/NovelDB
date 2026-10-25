@@ -146,6 +146,8 @@ def main():
     known = sum(len(row) > 20 and bool(row[20]) for row in rows)
     print(f'Updated {changed} publication dates; {known}/{len(rows)} catalog entries have dates; '
           f'{len(state["failures"])} requests need retry.', flush=True)
+    if state['failures']:
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':
