@@ -313,7 +313,7 @@ def add_kpage_item(all_novels, item):
         "cover": normalize_thumbnail(item.get("thumbnail", "")),
         "tags": [sub_category] if sub_category else [],
         "views": sp.get("view_count", 0),
-        "likes": 0,
+        "likes": None,
         "chapters": None,
         "complete": is_complete_item(item),
         "updated": item.get("last_slide_added_dt", ""),

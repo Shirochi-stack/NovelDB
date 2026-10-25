@@ -42,6 +42,8 @@ def test_source_logo_is_the_only_transparent_badge_and_opens_details_for_each_so
                 await badge.click()
                 dialog=page.get_by_role('dialog');await dialog.wait_for()
                 assert await dialog.locator('[data-field=source]').inner_text()==source
+                assert await dialog.locator('[data-field=startDate]').inner_text()=='Not available'
+                assert await dialog.locator('[data-field=startDate]').locator('..').locator('dt').inner_text()=='Publication date'
                 assert await dialog.get_by_role('button',name='Download Image').is_visible()
                 if source=='npia':
                     await page.get_by_role('button',name='Close Details').click()

@@ -77,6 +77,20 @@ test('legacy positions, start dates, and SFC audience behavior remain unchanged'
     assert.equal(core.matchesAudience(n, ''), true);
 });
 
+test('kpage placeholder counters stay unknown while measured chapters and ratings survive', () => {
+    const old = [7, 'K', 'A', '', [], 100, 0, 0, 0, '', 0, 0];
+    const [unknown, known] = core.parseRows([old, [...old.slice(0, 7), 12, ...old.slice(8),
+        '2024-07-01', {rating: 9.6, rating_scale: 10}]], 'kpage', {});
+    assert.equal(unknown.likes, null);
+    assert.equal(unknown.chapters, null);
+    assert.deepEqual(core.metricEntries(unknown).map(m => m.key), ['views']);
+    assert.equal(known.chapters, 12);
+    assert.equal(known.startDate, '2024-07-01');
+    assert.deepEqual(core.metricEntries(known).map(m => m.key), ['views', 'episodes', 'rating']);
+    const measuredZero = [...old, '', {}];
+    assert.equal(core.parseRows([measuredZero], 'kpage', {})[0].chapters, 0);
+});
+
 test('source-qualified identity deduplicates top/chunk numeric IDs without crossing providers', () => {
     const old = [{id: 7, source: 'nweb', title: 'old', synopsis: 'cached'}, {id: 7, source: 'jara', title: 'J'}];
     const merged = core.mergeRecords(old, [{id: '7', source: 'nweb', title: 'new'}]);

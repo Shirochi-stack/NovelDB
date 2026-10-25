@@ -104,7 +104,7 @@ def extract_novel(item):
         "age": item.get("novel_age", 0),
         "updated": item.get("last_viewdate", ""),
         "published": explicit_publication_date(
-            item, "novel_regdate", "first_viewdate", "regdate", "created_at"
+            item, "start_date", "novel_regdate", "first_viewdate", "regdate", "created_at"
         ),
     }
 

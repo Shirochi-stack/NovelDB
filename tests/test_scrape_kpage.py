@@ -16,6 +16,7 @@ def test_catalog_item_uses_native_sale_start_and_leaves_detail_counts_unknown():
     novel = novels["64496504"]
     assert novel["published"] == "2024-07-01T14:48:21+09:00"
     assert novel["chapters"] is None
+    assert novel["likes"] is None
     assert novel["metrics"] == {}
 
 

@@ -1,6 +1,6 @@
 /* Disk-backed catalog import and bounded-memory query execution. */
 "use strict";
-importScripts("catalog-import.js?v=10");
+importScripts("catalog-import.js?v=11");
 const PAGE_CACHE = 3, HEAP_LIMIT = 5000, RUN_BLOCK = 32, FAN_IN = 16, DOWNLOADS = 8, PARSERS = 4;
 let serial = Promise.resolve(), latestQuery = 0;
 const configs = new Map(), blocks = new Map(), pages = new Map();
@@ -27,7 +27,7 @@ function createParserPool(size=PARSERS) {
             if (slot.job || !queue.length) continue;
             if (!slot.worker) {
                 try {
-const worker = slot.worker = new Worker('catalog-parser.js?v=9');
+const worker = slot.worker = new Worker('catalog-parser.js?v=10');
                     worker.onmessage = ({data}) => {
                         if (closed || slot.worker !== worker || data.id !== slot.job?.id) return;
                         if(data.tags) {
@@ -101,7 +101,7 @@ async function importSource(source, cfg, progress, labels, recovered=false) {
             // Plain HTTP preview servers may lack the checksum API. They keep
             // the original per-file validation path instead of failing to load.
             const hash = crypto.subtle ? cfg.chunkHashes?.[chunk] : null;
-            const signature = version => JSON.stringify([3,url, version, cfg.format, cfg.coverPrefix, cfg.linkHosts,cfg.purchaseHosts,cfg.sfcRanks,cfg.tagVersion]);
+            const signature = version => JSON.stringify([source === 'kpage' ? 4 : 3,url, version, cfg.format, cfg.coverPrefix, cfg.linkHosts,cfg.purchaseHosts,cfg.sfcRanks,cfg.tagVersion]);
             const hashedFingerprint = hash ? signature(hash) : null;
             // The freshly fetched manifest identifies unchanged content without
             // revalidating or downloading each catalog chunk on repeat visits.
