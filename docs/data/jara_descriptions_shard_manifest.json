@@ -1,7 +1,7 @@
 {
   "shards": 128,
-  "totalRows": 228025,
-  "descriptions": 228024,
+  "totalRows": 228028,
+  "descriptions": 228027,
   "algorithm": "numeric-modulo-v1",
   "format": "id-to-synopsis-json",
   "files": [
@@ -134,5 +134,5 @@
     "jara_descriptions_shard_126.json.gz",
     "jara_descriptions_shard_127.json.gz"
   ],
-  "source": "C:/Users/ADMIN/Projects/NpiaDownloader67/.cache/metadata-build/jara/jara_descriptions.txt.gz"
+  "source": "/home/runner/work/NovelDB/NovelDB/.cache/metadata-build/jara/jara_descriptions.txt.gz"
 }
