@@ -19,7 +19,7 @@ self.onmessage=async({data:{source,cfg,url,signature,profile,cacheOnly}})=>{
         // interface. A source/sort change reuses its content-addressed download.
         if(downloaded) try {await cache?.put(url,new Response(compressed));} catch(_) { /* Disk cache is optional. */ }
         if(cacheOnly) {self.postMessage({result:null});return;}
-importScripts('metadata-core.js?v=13');
+importScripts('metadata-core.js?v=14');
         const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
         const bundle=JSON.parse(await new Response(stream).text());
         self.postMessage({result:{...self.NovelMetadata.compactPreview(bundle,source,cfg,profile),_signature:signature}});

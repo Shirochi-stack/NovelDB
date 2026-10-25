@@ -147,7 +147,7 @@
     let detailCard=null;
     const labels={title:'Original title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
         synopsis:'Synopsis',id:'ID',complete:'Complete',age:'Age',metrics:'Other details',rankings:'Rankings',
-        startDate:'Start date',contributors:'Credits',isbn:'ISBN',paused:'Paused',publicationFlags:'Publication'};
+        startDate:'Publication date',contributors:'Credits',isbn:'ISBN',paused:'Paused',publicationFlags:'Publication'};
     const fieldLabel=key=>labels[key] || key.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
     function renderMetadata(record) {
         clearMetadata();
@@ -216,9 +216,9 @@
         const priority=['title','canonicalUrl','author','source','id','complete','age','startDate','updated','paused','publisher','isbn','views','likes','chapters','tier','contributors','publicationFlags','tags','rankings','synopsis'];
         for(const key of new Set([...priority,...Object.keys(record)])) {
             const value=record[key];
-            if(!(key in record) || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings'].includes(key) || isRank(key)) continue;
+            if((!(key in record) && key!=='startDate') || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings'].includes(key) || isRank(key)) continue;
             if(key==='title' && !record.titleEn) continue;
-            if((value==null || value==='' || (typeof value==='object' && !Object.keys(value).length)) && !['complete','age'].includes(key)) continue;
+            if((value==null || value==='' || (typeof value==='object' && !Object.keys(value).length)) && !['complete','age','startDate','likes','chapters'].includes(key)) continue;
             add(key,value,['title','canonicalUrl','synopsis','tags','metrics'].includes(key) || (value!==null && typeof value==='object'));
         }
         if(rankEntries.length) add('rankings',rankEntries,true);

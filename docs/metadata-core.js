@@ -104,6 +104,9 @@
                         .forEach((field, index) => { novel[field] = row[12 + index] || 0; });
                     novel.startDate = typeof row[20] === "string" && row[20] ? row[20] : null;
                 } else if (source === "kpage") {
+                    // Old exports used placeholder zeroes for unavailable counters.
+                    novel.likes = row[6] > 0 ? nullableNumber(row[6]) : null;
+                    novel.chapters = row.length <= 12 ? null : nullableNumber(row[7]);
                     novel.startDate = typeof row[12] === "string" && row[12] ? row[12] : null;
                     novel.metrics = row[13] && typeof row[13] === "object" && !Array.isArray(row[13]) ? {...row[13]} : {};
                 }
