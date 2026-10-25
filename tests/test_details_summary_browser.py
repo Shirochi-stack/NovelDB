@@ -24,6 +24,7 @@ def test_details_promote_ratings_and_format_dates_in_both_render_phases(width):
                         updated:'2024-04-26T18:01:10+09:00',
                         startDate:'2014-12-08T14:21:24+09:00',
                         metrics:{rating:9.6,rating_scale:10,rating_count:2997067},
+                        likes:null,
                         synopsis:'A short synopsis.'
                     });
                     window.NovelDetailsData=card=>new Promise(resolve=>{
@@ -39,6 +40,7 @@ def test_details_promote_ratings_and_format_dates_in_both_render_phases(width):
 
                 async def check(rating):
                     assert await dialog.locator('[data-field=rating]').inner_text() == rating
+                    assert await dialog.locator('[data-field=likes]').count() == 0
                     assert await dialog.locator('.novel-details-facts dd').first.get_attribute('data-field') == 'rating'
                     assert await dialog.locator('[data-field=metrics]').count() == 0
                     assert 'Other details' not in await dialog.inner_text()
@@ -76,7 +78,7 @@ def test_details_missing_ratings_and_invalid_dates(metrics, expected):
             await page.goto('https://metadata.test/')
             await wait_loaded(page)
             await page.locator('.novel-card').first.evaluate('''(card,metrics)=>{
-                Object.assign(card._record,{metrics,updated:'not a date',startDate:'2024-02-30'});
+                Object.assign(card._record,{metrics,likes:null,updated:'not a date',startDate:'2024-02-30'});
                 window.NovelDetailsData=async card=>card._record;
             }''', metrics)
             await page.locator('.cover-details').first.click()
@@ -84,8 +86,15 @@ def test_details_missing_ratings_and_invalid_dates(metrics, expected):
             rating = dialog.locator('[data-field=rating]')
             if expected is None:
                 assert await rating.count() == 0
+                assert await dialog.locator('[data-field=likes]').inner_text() == 'Not available'
             else:
                 assert await rating.inner_text() == expected
+                assert await dialog.locator('[data-field=likes]').count() == 0
+                for likes in (0, 17):
+                    await page.get_by_role('button', name='Close Details').click()
+                    await page.locator('.novel-card').first.evaluate('(card,likes)=>{card._record.likes=likes}', likes)
+                    await page.locator('.cover-details').first.click()
+                    assert await dialog.locator('[data-field=likes]').inner_text() == str(likes)
             for field in ('updated', 'startDate'):
                 assert await dialog.locator(f'[data-field={field}]').inner_text() == 'Not available'
             await browser.close()

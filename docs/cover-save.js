@@ -236,6 +236,7 @@
             const value=key==='rating' ? (rating ? `${Math.floor(rating.value*10+1e-9)/10}${rating.scale>0 ? `/${rating.scale}` : ''}` : null) : record[key];
             if((!(key in record) && key!=='rating' && key!=='startDate') || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings','metrics','rating_count','rating_scale'].includes(key) || isRank(key)) continue;
             if(key==='title' && !record.titleEn) continue;
+            if(key==='likes' && rating && (value==null || value==='')) continue;
             if((value==null || value==='' || (typeof value==='object' && !Object.keys(value).length)) && !['complete','age','startDate','likes','chapters'].includes(key)) continue;
             add(key,value,['title','canonicalUrl','synopsis','tags'].includes(key) || (value!==null && typeof value==='object'));
         }
