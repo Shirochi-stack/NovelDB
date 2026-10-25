@@ -4340,6 +4340,7 @@ TS스킨|||TS Skin
 TS스킨아님|||Not a TS Skin
 TS시킴|||Causes TS
 TS심리물|||TS Psychology
+TS아니고|||Not TS
 TS아닐지도|||Maybe No TS
 TS아님|||Not TS
 TS아마도|||Possible Gender Bender
@@ -5966,7 +5967,6 @@ black|||Black
 blblblbl주의!!!|||BL Warning!!!
 bleach|||Bleach
 blog.nweb.com|||blog.nweb.com
-blog.nweb.com|||blog.nweb.com
 blood|||blood
 blood-c|||Blood-C
 bloodborne|||Bloodborne
@@ -6031,7 +6031,6 @@ cacher|||Cacher
 cadilet|||Cadilet
 cafe|||Cafe
 cafe.daum.net|||cafe.daum.net
-cafe.nweb.com|||cafe.nweb.com
 cafe.nweb.com|||cafe.nweb.com
 calamity|||Calamity
 caliopea|||Caliopea
@@ -7312,7 +7311,6 @@ touhou|||Touhou
 tow|||Tow
 tower|||Tower
 tpfla077@nweb.com|||tpfla077@nweb.com
-tpfla077@nweb.com|||tpfla077@nweb.com
 travelers|||Travelers
 trek|||Trek
 tri|||Tri
@@ -7439,7 +7437,6 @@ wudf|||wudf
 www|||WWW
 www.cyworld.com|||www.cyworld.com
 www.google.co.kr|||www.google.co.kr
-www.jara.com|||www.jara.com
 www.jara.com|||www.jara.com
 www.pixiv.net|||www.pixiv.net
 x|||X
@@ -7669,6 +7666,7 @@ z커리어우먼|||Z Career Woman
 ㅇ역하렘|||Reverse Harem
 ㅈㄴ|||J N
 ㅈㄴ빠름|||Crazy Bastard
+ㅈㄷ|||JD
 ㅈㄷㄱ|||JDG
 ㅈ망함|||Fucked Up
 ㅈ세계물|||J World
@@ -16981,6 +16979,7 @@ z커리어우먼|||Z Career Woman
 가공낙원|||Faux Paradise
 가공식품|||Processed Food
 가공의기술|||Fictional Tech
+가공전기|||Manufactured Electricity
 가구|||Furniture
 가구라|||Kagura
 가구야|||Kaguya
@@ -21947,6 +21946,7 @@ z커리어우먼|||Z Career Woman
 공지보관함|||Notice Archive
 공지사항|||Announcement
 공지사항참고|||See Notice
+공지확인|||Notice Checked
 공지확인필수|||Must Read Notices
 공진충|||Gongjinchung
 공찬|||Gongchan
@@ -22278,6 +22278,7 @@ z커리어우먼|||Z Career Woman
 관료|||Bureaucrat
 관료물|||Bureaucrat Story
 관료여주|||Bureaucrat Female Lead
+관료코미디|||Bureaucrat Comedy
 관리|||Control
 관리국|||Management Bureau
 관리위원|||Management Committee Member
@@ -24575,6 +24576,7 @@ z커리어우먼|||Z Career Woman
 근성수|||Tenacious Bottom
 근세|||Early Modern
 근세물|||Early Modern Story
+근세판타지|||Early Modern Fantasy
 근세풍|||Early Modern Style
 근소백합|||Slight Yuri
 근수저|||Silver Spoon
@@ -26542,6 +26544,7 @@ z커리어우먼|||Z Career Woman
 나가스미|||Nagasumi
 나가신다|||He’s Leaving
 나가신다!!|||He’s Leaving!!
+나가요|||Nagayo
 나가토|||Nagato
 나가토유키|||Nagato Yuki
 나간|||Gone Out
@@ -27577,6 +27580,7 @@ z커리어우먼|||Z Career Woman
 남모르는것|||Unknown To Others
 남모르는취미|||Secret Hobby
 남몰래덕질중|||Secretly Fangirling
+남미새|||Namisae
 남미새공|||Simp Male Lead
 남부|||Southern
 남부공작|||Southern Duke
@@ -27962,6 +27966,7 @@ z커리어우먼|||Z Career Woman
 남주조련|||Training the ML
 남주조지기|||Destroying The Male Lead
 남주존잘|||Extremely Handsome Male Lead
+남주주도|||Male Lead Driven
 남주줍기|||Picking Up The Male Lead
 남주줍줍|||Picking Up The Male Lead
 남주중심|||Male Lead-Centered
@@ -29178,7 +29183,6 @@ z커리어우먼|||Z Career Woman
 노벨상|||Nobel Prize
 노벨의제자|||Nobel's Disciple
 노벨쨩|||Novel-chan
-npia|||npia
 노벰버|||November
 노병|||Old Soldier
 노병귀환|||Return Of The Old Soldier
@@ -30277,6 +30281,7 @@ npia|||npia
 니므롯|||Nimrod
 니벨룽겐|||Nibelungen
 니벨룽겐의노래|||Nibelungenlied
+니비루|||Nibiru
 니삭스|||Nisax
 니세|||Nise
 니세모노가타리|||Nisemonogatari
@@ -31772,6 +31777,7 @@ npia|||npia
 대나무남주|||Bamboo Male Lead
 대나무수|||Bamboo Bottom
 대나무숲|||Bamboo Grove
+대나무숲의관리자|||Bamboo Forest Administrator
 대낚|||Big Fishing
 대녀|||Goddaughter
 대농장주|||Grand Plantation Owner
@@ -36426,6 +36432,7 @@ npia|||npia
 레이튼|||Layton
 레이튼교수|||Professor Layton
 레이프|||Rape
+레이프물|||Non-Con
 레이피어|||Rapier
 레이피어.룬.|||Rapier, Rune
 레인|||Rain
@@ -36449,6 +36456,7 @@ npia|||npia
 레일워즈|||Rail Wars
 레임덕|||Lame Duck
 레저렉션|||Resurrection
+레전더리무기|||Legendary Weapon
 레전더리수비수|||Legendary Defender
 레전드|||Legend
 레전드네진짜|||Real Legend
@@ -37286,6 +37294,8 @@ npia|||npia
 롤|||LoL
 롤.|||LOL
 롤X|||LoL x
+롤대남|||LoL Male
+롤대녀|||LoL Female
 롤드컵|||Worlds
 롤라|||Lola
 롤랑|||Roland
@@ -38784,7 +38794,6 @@ npia|||npia
 마법소녀특수전아스카|||Magical Girl Special Ops Asuka
 마법소년|||Magic Boy
 마법소설|||Magic Novel
-마법소설.마술소설.마법.마술.소설.개인소설.jara소설.공상마법학교|||Magic Novel. Sorcery Novel. Magic. Sorcery. Novel. Personal Novel. jara Novel. Fantasy Magic Academy
 마법소설.마술소설.마법.마술.소설.개인소설.jara소설.공상마법학교|||Magic Novel. Sorcery Novel. Magic. Sorcery. Novel. Personal Novel. jara Novel. Fantasy Magic Academy
 마법소품|||Magical Items
 마법쇠퇴세계관|||Magic-Declining World
@@ -41820,6 +41829,7 @@ npia|||npia
 몬스터볼|||Monster Ball
 몬스터볼을|||Monster Ball
 몬스터부리는남자|||Man Who Commands Monsters
+몬스터사냥|||Monster Hunting
 몬스터아포칼립스|||Monster Apocalypse
 몬스터역전|||Monster Reversal
 몬스터육성|||Monster Raising
@@ -42792,6 +42802,7 @@ npia|||npia
 무장한민간인전멸시키기|||Annihilating Armed Civilians
 무장한민간인죽이기|||Killing Armed Civilians
 무재능|||Talentless
+무저갱|||Bottomless Pit
 무적|||Invincible
 무적군림보|||Invincible Dominion Step
 무적도|||Invincible Island
@@ -42967,7 +42978,6 @@ npia|||npia
 무협-범죄-수사-서문세가|||Wuxia-Crime-Investigation-Seomun Clan
 무협.|||Murim
 무협.로맨스|||Wuxia. Romance
-무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.jara무협.jara신무협.|||Wuxia. Wuxia Fiction. New Wuxia. Wuxia Novel. New Wuxia Novel. Genre Fiction. Jianghu. Martial World. Action. Novel. jara Wuxia. jara New Wuxia.
 무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.jara무협.jara신무협.|||Wuxia. Wuxia Fiction. New Wuxia. Wuxia Novel. New Wuxia Novel. Genre Fiction. Jianghu. Martial World. Action. Novel. jara Wuxia. jara New Wuxia.
 무협.역사.대체역사.퓨전|||Wuxia. History. Alternate History. Fusion
 무협.지존.|||Wuxia. Supreme Master.
@@ -43207,7 +43217,6 @@ npia|||npia
 문파전쟁|||Sect War
 문평|||Literature Average
 문풍당당|||Proudly Literary
-mpia|||mpia
 문학|||Literature
 문학.|||Literature
 문학가|||Literary Figure
@@ -43351,6 +43360,7 @@ mpia|||mpia
 뭐여.|||What.
 뭐여이건|||What Is This
 뭐였수|||What Was It, Bottom
+뭐요|||Huh?
 뭐임?|||What Is It?
 뭐적는거예요?|||What Are You Writing?
 뭐졍?|||What Is It?
@@ -48400,6 +48410,7 @@ mpia|||mpia
 불가살이|||Unkillable 2
 불가하다고|||Saying It's Impossible
 불가항력|||Irresistible Force
+불가항력관계|||Force Majeure Relationship
 불감공|||Insensitive Top
 불감증|||Anorgasmia
 불감증수|||Frigid Bottom
@@ -51226,6 +51237,7 @@ mpia|||mpia
 사이버스페이스|||Cyberspace
 사이버십|||Cybership
 사이버웨어|||Cyberware
+사이버웨이|||Cyberway
 사이버커플|||Cyber Couple
 사이버트론|||Cybertron
 사이버펑크|||Cyberpunk
@@ -52311,6 +52323,7 @@ mpia|||mpia
 상실|||Loss
 상실과기억|||Loss And Memory
 상실극복|||Overcoming Loss
+상실의슬픔|||Grief of Loss
 상아|||Ivory
 상애|||Mutual Love
 상어|||Shark
@@ -57249,6 +57262,7 @@ mpia|||mpia
 숨어|||Hide
 숨어있는|||Hidden
 숨은|||Hidden
+숨은고수|||Hidden Master
 숨은능력수|||Bottom with Hidden Ability
 숨은실력자|||Hidden Powerhouse
 숨을|||Breath
@@ -57845,6 +57859,7 @@ mpia|||mpia
 스킬을|||The Skill
 스킬의|||Of the Skill
 스킬작성|||Skill Creation
+스킬창조|||Skill Creation
 스킬파밍|||Skill Farming
 스킬펑크|||Skillpunk
 스킬합성|||Skill Fusion
@@ -64038,6 +64053,7 @@ mpia|||mpia
 야구장|||Baseball Stadium
 야구전쟁|||Baseball War
 야구처돌이수|||Baseball-Crazy Bottom
+야구천재|||Baseball Genius
 야구천재수|||Baseball Genius Bottom
 야구초보|||Baseball Beginner
 야구판타지|||Baseball Fantasy
@@ -68183,6 +68199,7 @@ mpia|||mpia
 연반|||Yeonban
 연반뱃가|||Half-Blood Bat Family
 연방|||Federation
+연방제국|||Federal Empire
 연방해군|||Federation Navy
 연백|||Yeonbaek
 연백파|||Yeonbaek Sect
@@ -70432,6 +70449,7 @@ mpia|||mpia
 완결가능...?|||Can It Be Completed...?
 완결기원|||Praying for Completion
 완결까지|||To Completion
+완결까지4화|||Complete in 4 Chapters
 완결까지6편남음|||6 Chapters Left
 완결까지힘내자아아아|||Finish Cheer
 완결됬다|||Completed
@@ -74097,6 +74115,7 @@ mpia|||mpia
 은|||Silver
 은.초.중|||Silver, Elementary, Middle
 은거기인|||Reclusive Genius
+은거마려움|||Wants to Retire
 은교|||Eungyo
 은근|||Subtle
 은근강단있수|||Quietly Strong-Willed Bottom
@@ -78415,6 +78434,7 @@ mpia|||mpia
 자칼|||Jackal
 자캐|||Original Character
 자캐(사레메|||Original Character (Sareme
+자캐X|||OC X
 자캐ㅇ|||Original Character
 자캐나옴|||Original Character Appears
 자캐다수|||Many Self-Inserts
@@ -78607,6 +78627,7 @@ mpia|||mpia
 작곡가와|||With the Composer
 작곡천재공|||Composing Genius Top
 작관거|||Author-Manager Relationship
+작다|||Small
 작두|||Chopping Block
 작명센스|||Naming Sense
 작명소|||Naming Shop
@@ -78725,6 +78746,7 @@ mpia|||mpia
 잔인묘사|||Cruel Description
 잔인묘사주의|||Cruelty Depictions Warning
 잔인수|||Cruel Bottom
+잔인암흑|||Cruel Dark
 잔인요소주의|||Cruel Elements Warning
 잔인주의|||Brutality Warning
 잔인피폐폭력|||Cruelty, Angst, Violence
@@ -79080,6 +79102,7 @@ mpia|||mpia
 장난끼많은남주>계략남주|||Mischievous Male Lead > Scheming Male Lead
 장난많수|||Playful Bottom
 장난반진심반|||Half Joke, Half Serious
+장난삼아|||For Fun
 장난스런연애물|||Playful Romance
 장난심한|||Heavy Teasing
 장난의|||Of Mischief
@@ -80839,6 +80862,7 @@ mpia|||mpia
 정규직|||Permanent Employee
 정극|||Pure Extreme
 정글|||Jungle
+정글에서살아남기|||Surviving the Jungle
 정글이라생각하면편해|||Think of It as a Jungle
 정글쥬스|||Jungle Juice
 정기|||Regular
@@ -81335,6 +81359,7 @@ mpia|||mpia
 정치BL|||Political BL
 정치가|||Politician
 정치가여주|||Politician Heroine
+정치개혁|||Political Reform
 정치군상극|||Political Ensemble
 정치권|||Political Sphere
 정치권력|||Political Power
@@ -82223,19 +82248,6 @@ mpia|||mpia
 조심하세요|||Be Careful
 조씨와원중|||Jo and Won-jung
 조씨이야기|||Jo's Story
-jara|||jara
-jaraBorn|||jara Born
-jara_투베도전|||jara Best Challenge
-jara공모전|||jara Contest
-jara단독선공개|||jara Exclusive Early Release
-jara세계관|||jara Universe
-jara소설|||jara Novel
-jara신입사원|||jara New Employee
-jara여|||jara Woman
-jara연재소설|||jara Serialized Novel
-jara의|||jara's
-jara첫작|||jara Debut
-jara판타지소설|||jara Fantasy Novel
 조아리|||Jo Ari
 조아미|||Jo Ami
 조안페레로|||Joan Ferrero
@@ -83011,7 +83023,6 @@ jara판타지소설|||jara Fantasy Novel
 주변사람|||People Around Them
 주변사람들도|||People Around Them Too
 주변사람들이다rbooks공|||Everyone Around Them Is a rbooks Top
-주변사람들이다rbooks공|||Everyone Around Them Is a rbooks Top
 주변사람이적응안돼|||Can't Adjust to the People Around Me
 주변약피폐|||Side Character Mild Yandere
 주변에|||Around
@@ -83488,6 +83499,7 @@ jara판타지소설|||jara Fantasy Novel
 죽음리뉴얼|||Death Renewal
 죽음면역|||Death Immune
 죽음에|||To Death
+죽음위장|||Faked Death
 죽음으로|||Into Death
 죽음을|||Death
 죽음을_먹는_자|||Death Eater
@@ -87239,6 +87251,7 @@ jara판타지소설|||jara Fantasy Novel
 체코슬로바키아|||Czechoslovakia
 체크|||Check
 체크메이트!|||Checkmate!
+체크포인트|||Checkpoint
 체크하다|||Check
 체키|||Cheki
 체페쉬|||Tsepesh
@@ -87436,6 +87449,7 @@ jara판타지소설|||jara Fantasy Novel
 초반성장|||Early Growth
 초반성장괴물|||Early-Growing Monster
 초반성장물|||Early Coming-of-Age
+초반쇼타|||Early Shota
 초반스릴러|||Early Thriller
 초반시리어스주의|||Serious Beginning Warning
 초반아기시점|||Baby POV Early
@@ -87455,6 +87469,7 @@ jara판타지소설|||jara Fantasy Novel
 초반업보구간|||Early Karmic Punishment
 초반에|||Early On
 초반에는미미함|||Mild Early On
+초반여장|||Early Crossdressing
 초반여주고구마중반사이다|||Frustrating Early Heroine, Cathartic Middle
 초반여주구름|||Early Heroine Fluff
 초반여주시점|||Early Heroine POV
@@ -91531,6 +91546,7 @@ jara판타지소설|||jara Fantasy Novel
 타천사|||Fallen Angel
 타츠마키|||Tatsumaki
 타츠야TS|||Tatsuya TS
+타치바나노조미|||Tachibana Nozomi
 타치바나타키|||Tachibana Taki
 타카가키|||Takahaki
 타카가키카에데|||Takahaki Kaede
@@ -95598,6 +95614,7 @@ jara판타지소설|||jara Fantasy Novel
 프문세계관|||Pro Moon Worldview
 프문식성별|||France Mun Gender
 프문식일상|||Priestess Daily Life
+프문아님|||Not Pmoon
 프문약간|||Slight NTR
 프문요소|||Fate Moon Elements
 프문한스푼|||Pmoon Flavor
@@ -95721,6 +95738,7 @@ jara판타지소설|||jara Fantasy Novel
 플릭피|||Flickpy
 플린스|||Plins
 플밀레|||Plmile
+플썰|||Play Story
 플팅은수에도망은수가|||Flirting Uke Escaping Uke
 픎|||Peum
 피|||Blood
@@ -96772,6 +96790,7 @@ jara판타지소설|||jara Fantasy Novel
 하이드리히|||Heydrich
 하이드리히.|||Heydrich
 하이라|||Hira
+하이랜더|||Highlander
 하이랭커|||High-Ranker
 하이랭커입니다.|||I'm a High Ranker
 하이레이|||High Ray
@@ -98609,6 +98628,7 @@ jara판타지소설|||jara Fantasy Novel
 헤도니즘|||Hedonism
 헤드|||Head
 헤드헌터|||Headhunter
+헤드헌팅|||Headhunting
 헤라클레스|||Heracles
 헤랄드|||Herald
 헤러시|||Heresy
@@ -101326,6 +101346,7 @@ jara판타지소설|||jara Fantasy Novel
 후타나리백합순애|||Futanari Yuri Pure Love
 후타나리여주|||Futanari FL
 후타나리의술|||Futanari Art
+후타나리조금|||A Bit of Futanari
 후타나리주의|||Futanari Warning
 후타나리주인공|||Futanari MC
 후타나리핑크|||Futanari Pink
@@ -101759,6 +101780,7 @@ jara판타지소설|||jara Fantasy Novel
 흑심공|||Black-Hearted Top
 흑아인|||Black Ain
 흑안청안|||Black Eyes, Blue Eyes
+흑암|||Darkness
 흑야|||Black Night
 흑엘프|||Black Elf
 흑역사|||Dark Past
