@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from playwright.async_api import async_playwright
 
+import test_metadata_frontend_browser as fixtures
 from test_metadata_frontend_browser import FixtureSite, SOURCES, wait_loaded
 
 
@@ -87,5 +88,38 @@ def test_details_missing_ratings_and_invalid_dates(metrics, expected):
                 assert await rating.inner_text() == expected
             for field in ('updated', 'startDate'):
                 assert await dialog.locator(f'[data-field={field}]').inner_text() == 'Not available'
+            await browser.close()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('width', [320, 1200])
+def test_npia_publication_date_survives_catalog_worker_and_details(monkeypatch, width):
+    original_row = fixtures.row
+
+    def dated_row(source, ident=7, known=False, completed=False):
+        row = original_row(source, ident, known, completed)
+        if source == 'npia':
+            row.append('2025-02-04T21:24:15')
+        return row
+    monkeypatch.setattr(fixtures, 'row', dated_row)
+
+    async def scenario():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={'width': width, 'height': 900})
+            await page.route('**/*', FixtureSite().route)
+            await page.goto('https://metadata.test/')
+            for source in ('npia', 'all'):
+                if source == 'all':
+                    await page.select_option('#sourceSelect', source)
+                await wait_loaded(page)
+                card = page.locator('.novel-card[data-source=npia]').first
+                assert await card.evaluate('card=>card._record.startDate') == '2025-02-04T21:24:15'
+                await card.locator('.cover-details').click()
+                date = page.get_by_role('dialog').locator('[data-field=startDate]')
+                assert await date.inner_text() == '4 Feb 2025'
+                await page.wait_for_function('!document.querySelector("[data-field=synopsis]")?.textContent.includes("Loading")')
+                assert await date.inner_text() == '4 Feb 2025'
+                await page.get_by_role('button', name='Close Details').click()
             await browser.close()
     asyncio.run(scenario())
