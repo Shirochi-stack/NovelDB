@@ -97,90 +97,46 @@
 96|||?....|||
 97|||??????|||
 98|||?????????????????|||
-99|||TS아니고|||Not TS
-100|||[-]|||
-101|||^^*|||
-102|||_|||
-103|||_)|||
-104|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
-105|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
-106|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
-107|||\u007c서리\u007c||||Seori|
-108|||~?|||
-109|||~~|||
-110|||¿?|||
-111|||ᯣ_ᯣ|||
-112|||…|||
-113|||■※□¿¤|||
-114|||■■■■■|||
-115|||□□□|||
-116|||●|||
-117|||☁️☁️☁️|||
-118|||★|||
-119|||★★|||
-120|||♃|||
-121|||♡|||
-122|||♡♡|||
-123|||♥|||
-124|||♥♥♥♪|||
-125|||✅|||
-126|||》|||
-127|||ㅈㄷ|||JD
-128|||가공전기|||Manufactured Electricity
-129|||공지확인|||Notice Checked
-130|||관료코미디|||Bureaucrat Comedy
-131|||근세판타지|||Early Modern Fantasy
-132|||나가요|||Nagayo
-133|||남미새|||Namisae
-134|||남주주도|||Male Lead Driven
-135|||\ub178\ubca8\ud53c\uc544공식|||npia Official
-136|||니비루|||Nibiru
-137|||대나무숲의관리자|||Bamboo Forest Administrator
-138|||레이프물|||Non-Con
-139|||레전더리무기|||Legendary Weapon
-140|||롤대남|||LoL Male
-141|||롤대녀|||LoL Female
-142|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, jara Novel, Fantasy Magic School
-143|||몬스터사냥|||Monster Hunting
-144|||무저갱|||Bottomless Pit
-145|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Martial Arts, Wuxia, New Wuxia, jara Wuxia, Jianghu, Murim, Action
-146|||뭐요|||Huh?
-147|||불가항력관계|||Force Majeure Relationship
-148|||사이버웨이|||Cyberway
-149|||살인\u007c|||Murder|
-150|||상실의슬픔|||Grief of Loss
-151|||숨은고수|||Hidden Master
-152|||스킬창조|||Skill Creation
-153|||야구천재|||Baseball Genius
-154|||연방제국|||Federal Empire
-155|||완결까지4화|||Complete in 4 Chapters
-156|||은거마려움|||Wants to Retire
-157|||자캐X|||OC X
-158|||작다|||Small
-159|||잔인암흑|||Cruel Dark
-160|||장난삼아|||For Fun
-161|||정글에서살아남기|||Surviving the Jungle
-162|||정치개혁|||Political Reform
-163|||\uc870\uc544\ub77c_투베도전|||jara_Tuber Challenge
-164|||\uc870\uc544\ub77c공모전|||jara Contest
-165|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
-166|||\uc870\uc544\ub77c소설|||jara Novel
-167|||\uc870\uc544\ub77c신입사원|||jara Newbie
-168|||\uc870\uc544\ub77c여|||jara Female
-169|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
-170|||\uc870\uc544\ub77c의|||jara's
-171|||\uc870\uc544\ub77c첫작|||jara Debut
-172|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
-173|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Surrounding People Lidi Bots
-174|||죽음위장|||Faked Death
-175|||체크포인트|||Checkpoint
-176|||초반쇼타|||Early Shota
-177|||초반여장|||Early Crossdressing
-178|||타치바나노조미|||Tachibana Nozomi
-179|||프문아님|||Not Pmoon
-180|||플썰|||Play Story
-181|||하이랜더|||Highlander
-182|||헤드헌팅|||Headhunting
-183|||후타나리조금|||A Bit of Futanari
-184|||흑암|||Darkness
-185|||／|||
+99|||[-]|||
+100|||^^*|||
+101|||_|||
+102|||_)|||
+103|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
+104|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
+105|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
+106|||\u007c서리\u007c|||Seori
+107|||~?|||
+108|||~~|||
+109|||¿?|||
+110|||ᯣ_ᯣ|||
+111|||…|||
+112|||■※□¿¤|||
+113|||■■■■■|||
+114|||□□□|||
+115|||●|||
+116|||☁️☁️☁️|||
+117|||★|||
+118|||★★|||
+119|||♃|||
+120|||♡|||
+121|||♡♡|||
+122|||♥|||
+123|||♥♥♥♪|||
+124|||✅|||
+125|||》|||
+126|||\ub178\ubca8\ud53c\uc544공식|||npia Official
+127|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, Magic Fiction, Magic, Sorcery, Novel, Personal Novel, jara Novel, Fantasy Magic School
+128|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Martial Arts, Murim Novel, New Martial Arts, Martial Arts Novel, New Martial Arts Novel, Genre Novel, Gangho, Murim, Action, Novel, jara Martial Arts, jara New Martial Arts
+129|||살인\u007c|||Murder|
+130|||\uc870\uc544\ub77c_투베도전|||jara_Tube Challenge
+131|||\uc870\uc544\ub77c공모전|||jara Contest
+132|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
+133|||\uc870\uc544\ub77c소설|||jara Novel
+134|||\uc870\uc544\ub77c신입사원|||jara Rookie
+135|||\uc870\uc544\ub77c여|||jara Female
+136|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
+137|||\uc870\uc544\ub77c의|||jara's
+138|||\uc870\uc544\ub77c첫작|||jara First Work
+139|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
+140|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Those Around Me Ridibongseu-gong
+141|||／|||
