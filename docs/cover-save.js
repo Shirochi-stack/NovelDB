@@ -146,9 +146,19 @@
     dialog.append(header,body);document.body.append(dialog);
     let detailCard=null;
     const labels={title:'Original title',canonicalUrl:'Novel URL',purchaseUrl:'Purchase URL',
-        synopsis:'Synopsis',id:'ID',complete:'Complete',age:'Age',metrics:'Other details',rankings:'Rankings',
+        synopsis:'Synopsis',id:'ID',complete:'Complete',age:'Age',rating:'Rating',rankings:'Rankings',
         startDate:'Publication date',contributors:'Credits',isbn:'ISBN',paused:'Paused',publicationFlags:'Publication'};
     const fieldLabel=key=>labels[key] || key.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+    const dateFormat=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+    function readableDate(value) {
+        // Keep the source's calendar day even when its timestamp has a timezone.
+        const match=typeof value==='string' && value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+        if(!match) return null;
+        const [,year,month,day]=match, date=new Date(`${year}-${month}-${day}T00:00:00Z`);
+        if(!Number.isFinite(date.getTime()) || date.getUTCFullYear()!==Number(year)
+                || date.getUTCMonth()+1!==Number(month) || date.getUTCDate()!==Number(day)) return null;
+        return {label:dateFormat.format(date),iso:`${year}-${month}-${day}`};
+    }
     function renderMetadata(record) {
         clearMetadata();
         const adult=window.NovelMetadata.matchesAudience(record,'adult');
@@ -171,7 +181,14 @@
             group.className='novel-details-field'+(wide ? ' details-wide' : '');
             if(['title','canonicalUrl','synopsis','tags','rankings'].includes(key)) group.classList.add(`details-${key}`);
             term.textContent=fieldLabel(key);definition.dataset.field=key;
-            if(key==='purchaseUrl') {
+            if(key==='startDate' || key==='updated') {
+                group.classList.add('details-date');
+                const date=readableDate(value);
+                if(date) {
+                    const time=document.createElement('time');time.dateTime=date.iso;time.textContent=date.label;
+                    definition.append(time);
+                } else definition.textContent='Not available';
+            } else if(key==='purchaseUrl') {
                 if(!/^https?:\/\//i.test(String(value))) return;
                 const link=document.createElement('a');link.href=value;link.textContent='Purchase ↗';
                 link.target='_blank';link.rel='noopener';definition.append(link);
@@ -209,17 +226,18 @@
             } else definition.textContent=value==null || value==='' ? 'Not available' : typeof value==='boolean' ? (value ? 'Yes' : 'No')
                 : Array.isArray(value) ? value.join(', ') : typeof value==='number' ? value.toLocaleString('en') : String(value);
             group.style.order=priority.includes(key) ? priority.indexOf(key) : priority.length;
-            const target=['author','source','id','complete','age','startDate','updated','paused','publisher','isbn','views','likes','chapters','tier'].includes(key) ? facts
+            const target=['rating','author','source','id','complete','age','startDate','updated','paused','publisher','isbn','views','likes','chapters','tier'].includes(key) ? facts
                 : content;
             group.append(term,definition);target.append(group);
         }
-        const priority=['title','canonicalUrl','author','source','id','complete','age','startDate','updated','paused','publisher','isbn','views','likes','chapters','tier','contributors','publicationFlags','tags','rankings','synopsis'];
+        const priority=['title','canonicalUrl','rating','author','source','id','complete','age','startDate','updated','paused','publisher','isbn','views','likes','chapters','tier','contributors','publicationFlags','tags','rankings','synopsis'];
+        const rating=window.NovelMetadata.metricEntries(record).find(metric=>metric.key==='rating');
         for(const key of new Set([...priority,...Object.keys(record)])) {
-            const value=record[key];
-            if((!(key in record) && key!=='startDate') || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings'].includes(key) || isRank(key)) continue;
+            const value=key==='rating' ? (rating ? `${Math.floor(rating.value*10+1e-9)/10}${rating.scale>0 ? `/${rating.scale}` : ''}` : null) : record[key];
+            if((!(key in record) && key!=='rating' && key!=='startDate') || key.startsWith('_') || ['cover','metadataV1','titleEn','rankings','metrics','rating_count','rating_scale'].includes(key) || isRank(key)) continue;
             if(key==='title' && !record.titleEn) continue;
             if((value==null || value==='' || (typeof value==='object' && !Object.keys(value).length)) && !['complete','age','startDate','likes','chapters'].includes(key)) continue;
-            add(key,value,['title','canonicalUrl','synopsis','tags','metrics'].includes(key) || (value!==null && typeof value==='object'));
+            add(key,value,['title','canonicalUrl','synopsis','tags'].includes(key) || (value!==null && typeof value==='object'));
         }
         if(rankEntries.length) add('rankings',rankEntries,true);
     }

@@ -160,7 +160,7 @@ def test_original_download_keeps_original_dimensions_and_pixels_while_display_is
     asyncio.run(scenario())
 
 
-def test_details_show_all_available_fields_and_original_image_without_enabling_card_synopses():
+def test_details_show_primary_fields_and_original_image_without_enabling_card_synopses():
     async def scenario():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
@@ -180,7 +180,7 @@ def test_details_show_all_available_fields_and_original_image_without_enabling_c
                 window.originalCard=card;window.originalCover=card.querySelector('.card-cover');
                 card._record.metrics.test_zero=0;card._record.metrics.test_false=false;
                 card._record.metrics.test_html='<img src=x onerror="window.injected=true">';
-                window.metadataKeys=Object.keys(card._record).filter(key=>!key.startsWith('_') && !['metadataV1','cover'].includes(key)
+                window.metadataKeys=Object.keys(card._record).filter(key=>!key.startsWith('_') && !['metadataV1','cover','metrics'].includes(key)
                         && (['age','complete'].includes(key) || (card._record[key]!=null && card._record[key]!=='' && (typeof card._record[key]!=='object' || Object.keys(card._record[key]).length))));
             }''')
             await card.locator('.card-cover-wrap').click(button='right',position={'x':10,'y':10})
@@ -189,9 +189,7 @@ def test_details_show_all_available_fields_and_original_image_without_enabling_c
             await page.wait_for_function('document.querySelector(".novel-details-image img")?.naturalWidth===800')
             await page.wait_for_function('document.querySelector("[data-field=synopsis]")?.textContent.includes("nweb synopsis")')
             assert await page.evaluate('metadataKeys.every(key=>document.querySelector(`[data-field="${key}"]`))')
-            assert 'Test zero' in await dialog.locator('[data-field=metrics]').inner_text()
-            assert '<img src=x' in await dialog.locator('[data-field=metrics]').inner_text()
-            assert await dialog.locator('[data-field=metrics] img').count()==0
+            assert await dialog.locator('[data-field=metrics]').count()==0
             assert not await page.evaluate('!!window.injected')
             positions=await dialog.locator('[data-field=author],[data-field=source]').evaluate_all('(nodes)=>nodes.map(n=>n.getBoundingClientRect().top)')
             assert abs(positions[0]-positions[1])<2
@@ -266,7 +264,7 @@ def test_mobile_details_and_settings_fit_small_phones_without_outer_scrolling():
                 await page.evaluate('finishDetails()')
                 await page.wait_for_function('document.querySelector("[data-field=synopsis]").textContent.startsWith("A short synopsis")')
                 assert await dialog.locator('[data-field=synopsis]').is_visible()
-                assert 'Additional metadata' in await dialog.locator('[data-field=metrics]').inner_text()
+                assert await dialog.locator('[data-field=metrics]').count()==0
                 assert await dialog.get_by_role('link',name='Open novel').is_visible()
                 await fits()
                 assert await dialog.evaluate('el=>el.getBoundingClientRect().height<600')
@@ -275,7 +273,7 @@ def test_mobile_details_and_settings_fit_small_phones_without_outer_scrolling():
                 if width==390:
                     await page.set_viewport_size({'width':1200,'height':900})
                     assert await dialog.locator('[data-field=synopsis]').is_visible()
-                    assert await dialog.locator('[data-field=metrics]').is_visible()
+                    assert await dialog.locator('[data-field=metrics]').count()==0
                     assert await dialog.get_by_role('tab').count()==0
                     await page.set_viewport_size({'width':width,'height':height});await fits()
                 await page.get_by_role('button',name='Close Details').click()

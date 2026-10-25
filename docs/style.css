@@ -520,6 +520,8 @@ main {
 .novel-details-field.details-wide { grid-column: 1 / -1; }
 .novel-details-fields dt { color: var(--text-secondary); font-size: .75rem; margin: 0; }
 .novel-details-fields dd { margin: .15rem 0 0; font-size: .9rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.novel-details-fields .details-date dd { font-size: .8rem; line-height: 1.35; }
+.novel-details-facts [data-field=rating] { font-weight: 600; }
 .novel-details-fields a { color: var(--accent-hover); }
 .novel-details-fields .details-properties { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: .2rem .7rem; }
 .novel-details-fields .details-properties dd { margin: 0; }
@@ -1171,6 +1173,7 @@ a.card-cover-wrap.cover-ready {
     .novel-details-facts { display: grid; grid-column: 2; grid-row: 1; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .3rem .4rem; align-content: start; }
     .novel-details-fields dt { font-size: .625rem; line-height: 1.25; }
     .novel-details-fields dd { margin-top: .1rem; font-size: .675rem; line-height: 1.35; }
+    .novel-details-fields .details-date dd { font-size: .625rem; }
     .novel-details-content { display: grid; grid-column: 1 / -1; grid-row: 3; grid-template-columns: repeat(2,minmax(0,1fr)); align-content: start; gap: .4rem .6rem; border-top: 1px solid var(--border); padding-top: .5rem; }
     .novel-details-content [data-field=synopsis] { max-height: min(25dvh,150px); overflow: auto; overscroll-behavior: contain; }
     .details-rank { font-size: .625rem; margin: .1rem .2rem .1rem 0; padding: .1rem .3rem; }
