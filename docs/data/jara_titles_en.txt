@@ -63449,12 +63449,14 @@
 1492199|||기적의 사제|||The Miracle Priest
 14922|||┼명성고언니와 유림고동생┼|||┼The Older Sister from Myeongseong High and the Younger Brother from Yurim High┼
 1492200|||샤먼 포프|||Shaman Pope
+1492202|||용(龍)|||Dragon (Yong)
 1492215|||다시 태어난 베토벤|||Beethoven Reborn
 1492228|||트로피 허즈번드|||Trophy Husband
 1492229|||진심이 닿다|||True Feelings Reach
 1492231|||내가 마왕 아들이다|||I Am the Demon King’s Son
 1492233|||온 에어 24|||On Air 24
 1492234|||이세계로 환생한 나는 사망회귀 하고있다|||Reincarnated in Another World, I’m Regressing Through Death
+1492236|||용(龍) 2|||Dragon (Yong) 2
 1492237|||야생의 땅, 헤스페라|||Land of the Wild, Hespera
 1492246|||활쟁이는 민첩이 아닌 힘이다|||Archers Need Strength, Not Agility
 1492247|||[TS] 성녀님은 말년병장|||[TS] The Saint Is a Veteran Sergeant
@@ -142353,6 +142355,7 @@
 1882012|||친구따라 강남가지 마세요|||Don't Follow Your Friend to Gangnam
 1882018|||오차와 경계 그 사이 균열|||The Rift Between Error and Boundary
 1882019|||거짓된 낙원의 밤|||Night of the False Paradise
+1882020|||[히로아카] Oㅏz—ㅁDa0ィㄴ 2 ^ㅓISang|||[My Hero Academia] Oaz—mDa0in 2 ^eISang
 1882023|||흑표범 팀장이 눈토끼를 키우는 법|||How the Black Panther Team Leader Raises a Snow Rabbit
 1882025|||못생긴 게 귀여워 보이면 답도 없다.|||If Ugly Starts Looking Cute, There's No Hope
 1882029|||[괴담출근] 모범사원A|||[Office of Horror Stories] Model Employee A
@@ -144852,6 +144855,7 @@
 1888598|||보스의 속사정|||The Boss's Hidden Circumstances
 1888600|||숙면의 조건|||The Conditions for a Good Night's Sleep
 1888602|||곧 망할 대기업의 오너 일가가 되었다|||I Became an Heir to a Conglomerate on the Brink of Collapse
+1888603|||버려진 황자로 편하게 사는 법|||How to Live Comfortably as an Abandoned Prince
 1888604|||배드? 배드!|||Bad? Bad!
 1888606|||46억년 : 내 신령님은 티라노|||4.6 Billion Years: My Spirit Is a T-Rex
 1888613|||[괴담출근] ♡두근두근 오싹오싹 회전초밥집 괴담♡|||[Working the Horror Shift] ♡Thump-Thump, Chilling Conveyor-Belt Sushi Restaurant Horror♡
@@ -144913,6 +144917,7 @@
 1888751|||서류만 봐도 돈이 벌림|||I Earn Money Just By Looking at Documents
 1888754|||[블리치] 나비가 잠드는 곳 (完)|||[Bleach] Where the Butterflies Sleep (Complete)
 1888758|||전생 도서관으로 만능 배우가 되었다|||I Became a Versatile Actor Thanks to Reincarnating into a Library
+1888759|||메가밀리언즈 1등인데 오늘도 출근했다|||I Won the Mega Millions Jackpot and Still Went to Work Today
 1888760|||골렘을 만들었을 뿐인데, 모두가 나를 두려워한다|||I Only Made a Golem, but Everyone Fears Me
 1888761|||걸그룹 아내와 몰래 육아 중입니다|||I'm Secretly Raising a Child with My Girl-Group Wife
 1888765|||파르파파의 낭만 이야기|||Parpapa's Romantic Tale
@@ -148034,6 +148039,7 @@
 189629|||김웅기 단편집1|||Kim Woong-gi Short Stories 1
 18963|||술법사(術法士)|||Spellcaster
 189636|||W.O.O|||W.O.O
+1896364|||[셜록 홈즈] 조앤 왓슨|||[Sherlock Holmes] Joan Watson
 189638|||미의 여신|||Goddess of Beauty
 189640|||한편의 꿈같은 이야기|||A Dreamlike Story
 189652|||자기 사랑은 자기가 지켜!|||Protect Your Own Love!
@@ -237959,8 +237965,6 @@
 1488714|||111111|||
 1488997|||.|||
 1490433|||.|||
-1492202|||용(龍)|||
-1492236|||용(龍) 2|||
 1494465|||ㅇㅁㄹㅇㄻㅇㅇ|||
 1497893|||..|||
 1498615|||@@@|||
@@ -238431,7 +238435,6 @@
 1878797|||.|||
 1879394|||逆(거스를역)|||
 1881530|||.|||
-1882020|||[히로아카] Oㅏz—ㅁDa0ィㄴ 2 ^ㅓISang|||
 1882825|||-|||
 1884587|||.|||
 1885463|||ㅌ|||
@@ -238440,9 +238443,7 @@
 1886312|||ㄴ|||
 1886519|||ㆍ|||
 1887427|||.|||
-1888603|||버려진 황자로 편하게 사는 법|||
 1888696|||일인군단(一人軍團)|||
-1888759|||메가밀리언즈 1등인데 오늘도 출근했다|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
@@ -238482,7 +238483,6 @@
 1895647|||청연전(淸淵傳)|||
 1895668|||[주술회전] 만연지연(晩後之緣)|||
 1895696|||기화氣化|||
-1896364|||[셜록 홈즈] 조앤 왓슨|||
 193749|||200.|||
 198509|||6666666666|||
 20001|||득 <<得>>|||
