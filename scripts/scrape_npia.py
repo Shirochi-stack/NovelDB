@@ -179,7 +179,10 @@ def merge_term_results(terms, results, novels_by_id):
             novel_id = item.get("novel_no")
             if not novel_id:
                 continue
-            novels_by_id.setdefault(str(novel_id), extract_novel(item))
+            novel = extract_novel(item)
+            existing = novels_by_id.setdefault(str(novel_id), novel)
+            if not existing.get("published") and novel.get("published"):
+                existing["published"] = novel["published"]
     return total_results, len(novels_by_id) - before
 
 

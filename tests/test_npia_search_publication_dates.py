@@ -43,3 +43,22 @@ def test_registration_and_latest_update_do_not_invent_a_publication_date(scraper
 def test_previous_explicit_publication_fields_remain_supported(scraper):
     novel = scraper.extract_novel({'novel_no': 7, 'novel_regdate': '2020-01-02'})
     assert novel['published'] == '2020-01-02'
+
+
+def test_duplicate_search_result_can_fill_an_earlier_missing_date(scraper):
+    fresh = {}
+    scraper.merge_term_results(['first', 'second'], {
+        'first': [{'novel_no': 7, 'novel_name': 'Keep this title'}],
+        'second': [{'novel_no': 7, 'start_date': '2025-02-04 21:24:15'}],
+    }, fresh)
+    assert fresh['7']['published'] == '2025-02-04T21:24:15'
+    assert fresh['7']['title'] == 'Keep this title'
+
+
+def test_later_missing_search_date_never_clears_a_known_date(scraper):
+    fresh = {}
+    scraper.merge_term_results(['first', 'second'], {
+        'first': [{'novel_no': 7, 'start_date': '2025-02-04'}],
+        'second': [{'novel_no': 7, 'start_date': None}],
+    }, fresh)
+    assert fresh['7']['published'] == '2025-02-04'

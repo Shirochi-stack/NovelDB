@@ -242,7 +242,10 @@ def merge_term_results(terms, results, fresh_novels):
             novel_id = item.get("novel_no")
             if not novel_id:
                 continue
-            fresh_novels.setdefault(str(novel_id), extract_novel(item))
+            novel = extract_novel(item)
+            existing = fresh_novels.setdefault(str(novel_id), novel)
+            if not existing.get("published") and novel.get("published"):
+                existing["published"] = novel["published"]
     return raw_count, len(fresh_novels) - before
 
 
@@ -352,7 +355,7 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
             row = compact.get(nid, [])
             for field, index in (("title", 1), ("author", 2), ("cover", 3), ("tags", 4),
                                  ("views", 5), ("likes", 6), ("chapters", 7),
-                                 ("complete", 8), ("updated", 9), ("age", 11)):
+                                 ("complete", 8), ("updated", 9), ("age", 11), ("published", 20)):
                 if len(row) > index:
                     base.setdefault(field, row[index])
             base.update(fresh.get(nid, {}))
@@ -369,6 +372,10 @@ def enrich_author_catalogs(session, fresh, old_full, state, page_limit=None, del
             for field in ("cover", "tags"):
                 if not patch[field] and base.get(field):
                     patch[field] = base[field]
+            if not patch.get("published"):
+                patch["published"] = (base.get("published")
+                                      or (row[20] if len(row) > 20 else None)
+                                      or (old_full.get(nid) or {}).get("published"))
             base.update(patch)
             fresh[nid] = base
             updated += 1

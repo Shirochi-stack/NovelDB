@@ -192,6 +192,23 @@ def test_metadata_partial_author_page_preserves_compact_metadata():
     assert fresh["1"]["views"] == 100 and fresh["1"]["cover"] == "/saved-cover"
 
 
+@pytest.mark.parametrize('known_in', ['fresh', 'full', 'compact'])
+def test_author_response_without_start_date_preserves_publication_date(known_in):
+    scraper = scraper_module()
+    fresh = {'1': dict(id=1, author_id='42', age=19, published=None)}
+    compact = [[1, 'Title', 'Writer', '', [], 100, 20, 8, 1, 'updated', 0, 19] + [0]*8 + ['']]
+    old_full = {}
+    if known_in == 'fresh':
+        fresh['1']['published'] = '2025-02-04'
+    elif known_in == 'full':
+        old_full['1'] = {'published': '2025-02-04'}
+    else:
+        compact[0][20] = '2025-02-04'
+    scraper.enrich_author_catalogs(Session([page([novel(1)])]), fresh, old_full, {},
+                                   existing=compact, page_limit=1, delay=0, now=1_000_000)
+    assert fresh['1']['published'] == '2025-02-04'
+
+
 def public_author_session(calls, fail=()):
     def post(url, **kwargs):
         owner = kwargs['data']['mem_no']
