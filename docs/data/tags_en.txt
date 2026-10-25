@@ -5966,6 +5966,7 @@ black|||Black
 blblblbl주의!!!|||BL Warning!!!
 bleach|||Bleach
 blog.nweb.com|||blog.nweb.com
+blog.nweb.com|||blog.nweb.com
 blood|||blood
 blood-c|||Blood-C
 bloodborne|||Bloodborne
@@ -6030,6 +6031,7 @@ cacher|||Cacher
 cadilet|||Cadilet
 cafe|||Cafe
 cafe.daum.net|||cafe.daum.net
+cafe.nweb.com|||cafe.nweb.com
 cafe.nweb.com|||cafe.nweb.com
 calamity|||Calamity
 caliopea|||Caliopea
@@ -7310,6 +7312,7 @@ touhou|||Touhou
 tow|||Tow
 tower|||Tower
 tpfla077@nweb.com|||tpfla077@nweb.com
+tpfla077@nweb.com|||tpfla077@nweb.com
 travelers|||Travelers
 trek|||Trek
 tri|||Tri
@@ -7436,6 +7439,7 @@ wudf|||wudf
 www|||WWW
 www.cyworld.com|||www.cyworld.com
 www.google.co.kr|||www.google.co.kr
+www.jara.com|||www.jara.com
 www.jara.com|||www.jara.com
 www.pixiv.net|||www.pixiv.net
 x|||X
@@ -29174,6 +29178,7 @@ z커리어우먼|||Z Career Woman
 노벨상|||Nobel Prize
 노벨의제자|||Nobel's Disciple
 노벨쨩|||Novel-chan
+npia|||npia
 노벰버|||November
 노병|||Old Soldier
 노병귀환|||Return Of The Old Soldier
@@ -38780,6 +38785,7 @@ z커리어우먼|||Z Career Woman
 마법소년|||Magic Boy
 마법소설|||Magic Novel
 마법소설.마술소설.마법.마술.소설.개인소설.jara소설.공상마법학교|||Magic Novel. Sorcery Novel. Magic. Sorcery. Novel. Personal Novel. jara Novel. Fantasy Magic Academy
+마법소설.마술소설.마법.마술.소설.개인소설.jara소설.공상마법학교|||Magic Novel. Sorcery Novel. Magic. Sorcery. Novel. Personal Novel. jara Novel. Fantasy Magic Academy
 마법소품|||Magical Items
 마법쇠퇴세계관|||Magic-Declining World
 마법수|||Magic Bottom
@@ -42962,6 +42968,7 @@ z커리어우먼|||Z Career Woman
 무협.|||Murim
 무협.로맨스|||Wuxia. Romance
 무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.jara무협.jara신무협.|||Wuxia. Wuxia Fiction. New Wuxia. Wuxia Novel. New Wuxia Novel. Genre Fiction. Jianghu. Martial World. Action. Novel. jara Wuxia. jara New Wuxia.
+무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.jara무협.jara신무협.|||Wuxia. Wuxia Fiction. New Wuxia. Wuxia Novel. New Wuxia Novel. Genre Fiction. Jianghu. Martial World. Action. Novel. jara Wuxia. jara New Wuxia.
 무협.역사.대체역사.퓨전|||Wuxia. History. Alternate History. Fusion
 무협.지존.|||Wuxia. Supreme Master.
 무협;|||Murim
@@ -43200,6 +43207,7 @@ z커리어우먼|||Z Career Woman
 문파전쟁|||Sect War
 문평|||Literature Average
 문풍당당|||Proudly Literary
+mpia|||mpia
 문학|||Literature
 문학.|||Literature
 문학가|||Literary Figure
@@ -82215,6 +82223,19 @@ z커리어우먼|||Z Career Woman
 조심하세요|||Be Careful
 조씨와원중|||Jo and Won-jung
 조씨이야기|||Jo's Story
+jara|||jara
+jaraBorn|||jara Born
+jara_투베도전|||jara Best Challenge
+jara공모전|||jara Contest
+jara단독선공개|||jara Exclusive Early Release
+jara세계관|||jara Universe
+jara소설|||jara Novel
+jara신입사원|||jara New Employee
+jara여|||jara Woman
+jara연재소설|||jara Serialized Novel
+jara의|||jara's
+jara첫작|||jara Debut
+jara판타지소설|||jara Fantasy Novel
 조아리|||Jo Ari
 조아미|||Jo Ami
 조안페레로|||Joan Ferrero
@@ -82989,6 +83010,7 @@ z커리어우먼|||Z Career Woman
 주변만피폐|||Surroundings Only Ruined
 주변사람|||People Around Them
 주변사람들도|||People Around Them Too
+주변사람들이다rbooks공|||Everyone Around Them Is a rbooks Top
 주변사람들이다rbooks공|||Everyone Around Them Is a rbooks Top
 주변사람이적응안돼|||Can't Adjust to the People Around Me
 주변약피폐|||Side Character Mild Yandere
