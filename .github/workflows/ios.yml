@@ -1,0 +1,68 @@
+name: iOS App
+
+on:
+  push:
+    branches: ['ios/**']
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Attach the unsigned IPA to this existing release tag (optional)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: xcodebuild -version && swift --version
+      - name: Test NpiaKit
+        working-directory: ios/NpiaKit
+        run: swift test
+
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Build for device (unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/NpiaMobile.app Payload/
+          zip -qry NpiaMobile-unsigned.ipa Payload
+          ls -lh NpiaMobile-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NpiaMobile-unsigned-ipa
+          path: ios/NpiaMobile-unsigned.ipa
+          retention-days: 14
+      - name: Attach to release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.release_tag }}" ios/NpiaMobile-unsigned.ipa --clobber --repo "${{ github.repository }}"

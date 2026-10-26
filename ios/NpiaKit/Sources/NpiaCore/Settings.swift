@@ -1,0 +1,163 @@
+import Foundation
+
+public enum OutputFormat: String, Codable, CaseIterable, Sendable {
+    case epub, txt, pdf, html
+}
+
+public enum ImageFormat: String, Codable, CaseIterable, Sendable {
+    case webp = "WEBP"
+    case jpeg = "JPEG"
+    case png = "PNG"
+    case original = "ORIGINAL"
+}
+
+public enum NamingMode: String, Codable, CaseIterable, Sendable {
+    case title, id
+}
+
+/// Settings both desktop downloaders had, under one name. Per-source differences go in
+/// `AppSettings.overrides`.
+public struct SharedSettings: Codable, Sendable, Equatable {
+    public var threads = 4
+    public var intervalMin = 1.0
+    public var intervalMax = 1.0
+    public var maxRetries = 10
+    public var formats: [OutputFormat] = [.epub]
+    public var rangeFrom: Int?
+    public var rangeTo: Int?
+    public var useCache = true
+    public var cacheImages = true
+    public var numberChapters = false
+    public var separateTXT = false
+    public var skipPaid = false
+    public var imageWorkers = 6
+    public var generateOnStop = false
+    public var namingMode: NamingMode = .title
+    public var appendRange = false
+
+    public init() {}
+}
+
+/// Optional replacements for `SharedSettings` fields on one source; nil keeps the shared value.
+public struct SharedOverrides: Codable, Sendable, Equatable {
+    public var threads: Int?
+    public var intervalMin: Double?
+    public var intervalMax: Double?
+    public var formats: [OutputFormat]?
+    public var rangeFrom: Int?
+    public var rangeTo: Int?
+    public var useCache: Bool?
+    public var cacheImages: Bool?
+    public var numberChapters: Bool?
+    public var separateTXT: Bool?
+
+    public init() {}
+
+    public var isEmpty: Bool { self == SharedOverrides() }
+
+    func apply(to base: SharedSettings) -> SharedSettings {
+        var value = base
+        if let threads { value.threads = threads }
+        if let intervalMin { value.intervalMin = intervalMin }
+        if let intervalMax { value.intervalMax = intervalMax }
+        if let formats { value.formats = formats }
+        if let rangeFrom { value.rangeFrom = rangeFrom }
+        if let rangeTo { value.rangeTo = rangeTo }
+        if let useCache { value.useCache = useCache }
+        if let cacheImages { value.cacheImages = cacheImages }
+        if let numberChapters { value.numberChapters = numberChapters }
+        if let separateTXT { value.separateTXT = separateTXT }
+        return value
+    }
+}
+
+public struct ImageSettings: Codable, Sendable, Equatable {
+    public var compress = true
+    public var quality = 90
+    public var format: ImageFormat = .webp
+    public var convertGIFs = false
+    public var staticOnly = false
+    public var recompressTargetMB: Double?
+    public var compressCover = false
+    public var coverQuality = 90
+    public var coverFormat: ImageFormat = .jpeg
+    public var zipCompressImages = false
+    public var compressionWorkers = 4
+    public var longImageLayout = false
+    public var saveImageURLsOnly = false
+
+    public init() {}
+}
+
+public struct TextSettings: Codable, Sendable, Equatable {
+    public var stripLeadingSpaces = false
+    public var removeNewlines = false
+    public var blankParagraphLines = false
+    public var saveHTML = false
+    public var pdfTOC = false
+    public var pdfPageNumbers = false
+    public var pdfCounterLayout = false
+
+    public init() {}
+}
+
+public struct NpiaSettings: Codable, Sendable, Equatable {
+    public var autoLogin = false
+    public var includeNotices = true
+    public var useBrowserFallback = true
+    public var tagAgeFilter = "15"
+    public var tagSelectedTags: [String] = []
+    public var tagCustomTags = ""
+    public var tagScrapeAll = false
+    public var scrapeMaxQueries = 165
+
+    public init() {}
+}
+
+public struct KpageSettings: Codable, Sendable, Equatable {
+    public var skipLastPage = false
+    public var keepFiller = false
+    public var dedupeImages = false
+    public var dedupeLeadingImages = 2
+
+    public init() {}
+}
+
+public struct SourceOptions: Codable, Sendable, Equatable {
+    public var kpage = KpageSettings()
+    /// ntk: use the npia cover when the novel exists there.
+    public var ntkNpiaCover = false
+    /// nweb: prefer the store cover image.
+    public var nwebStoreCover = false
+    public var koboHorizontalLayout = false
+
+    public init() {}
+}
+
+public struct UploadSettings: Codable, Sendable, Equatable {
+    public var autoUpload = false
+    /// `Uploader.id` values, tried in order.
+    public var hosts: [String] = ["tempsh", "gofile"]
+    public var googleDriveFolderID: String?
+    public var copyLinkToClipboard = true
+
+    public init() {}
+}
+
+public struct AppSettings: Codable, Sendable, Equatable {
+    public var schemaVersion = 1
+    public var shared = SharedSettings()
+    /// Keyed by `SourceID.rawValue`.
+    public var overrides: [String: SharedOverrides] = [:]
+    public var images = ImageSettings()
+    public var text = TextSettings()
+    public var npia = NpiaSettings()
+    public var sources = SourceOptions()
+    public var upload = UploadSettings()
+
+    public init() {}
+
+    public func effective(for source: SourceID) -> SharedSettings {
+        overrides[source.rawValue]?.apply(to: shared) ?? shared
+    }
+}
