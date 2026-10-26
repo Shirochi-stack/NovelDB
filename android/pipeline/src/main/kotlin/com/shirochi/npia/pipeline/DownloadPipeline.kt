@@ -12,21 +12,26 @@ import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.NullLogger
 import com.shirochi.npia.core.OutputFormat
 import com.shirochi.npia.core.PassthroughImages
+import com.shirochi.npia.core.ProcessedImage
 import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SharedSettings
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.UnavailableWebEngine
 import com.shirochi.npia.core.WebEngineProviding
+import com.shirochi.npia.core.sniffImageExtension
 import com.shirochi.npia.net.OkHttpFetcher
 import com.shirochi.npia.output.BookBundle
+import com.shirochi.npia.output.BookWriter
 import com.shirochi.npia.output.Writers
 import com.shirochi.npia.sources.SourceCatalog
 import com.shirochi.npia.upload.UploadContext
 import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploaderCatalog
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.coroutines.coroutineContext
 
@@ -87,19 +92,30 @@ class DownloadPipeline(
         }
         onPhase(JobPhase.FetchingChapters(chapters.size, selected.size))
 
-        val imageBytes = fetchImages(chapters, http, onPhase)
+        val imageOutput = ImageStage(http, settings, adapter.id, images, logger).run(chapters) { done, total ->
+            onPhase(JobPhase.DownloadingImages(done, total))
+        }
+        if (imageOutput.failed > 0) logger.log(LogLevel.WARNING, "${imageOutput.failed} images could not be downloaded")
+        chapters.clear()
+        chapters += imageOutput.chapters
         val cover = book.coverUrl?.let { coverUrl ->
-            runCatching { http.get(coverUrl).body }.getOrNull()?.let { data ->
-                val processed = images.process(data, isCover = true)
+            runCatching { http.get(coverUrl).body }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { data ->
+                val processed = runCatching { images.process(data, isCover = true) }.getOrElse { ProcessedImage(data, sniffImageExtension(data)) }
                 BookBundle.Cover(processed.data, processed.fileExtension)
             }
         }
 
-        val bundle = BookBundle(book, chapters, imageBytes, cover, settings)
+        val bundle = BookBundle(book, chapters, imageOutput.images, cover, settings)
         val baseName = Writers.baseName(book, shared)
         val files = shared.formats.map { format ->
             onPhase(JobPhase.Writing(format))
-            Writers.writer(format).write(bundle, baseName, outputDirectory)
+            val writer = Writers.writer(format)
+            var file = writer.write(bundle, baseName, outputDirectory)
+            val targetMb = settings.images.recompressTargetMb
+            if (targetMb != null && targetMb > 0 && (format == OutputFormat.EPUB || format == OutputFormat.PDF)) {
+                file = shrink(file, bundle, writer, baseName, (targetMb * 1_048_576).toLong())
+            }
+            file
         }
 
         val uploads = mutableListOf<UploadResult>()
@@ -121,22 +137,32 @@ class DownloadPipeline(
         return JobOutcome(book, files, uploads, skipped)
     }
 
-    // TODO(images workstream): bounded concurrency (`imageWorkers`) and rewriting filenames when
-    // recompression changes the extension.
-    private suspend fun fetchImages(chapters: List<ChapterContent>, http: HttpFetching, onPhase: (JobPhase) -> Unit): Map<String, ByteArray> {
-        val refs = chapters.flatMap { it.images }
-        val out = mutableMapOf<String, ByteArray>()
-        refs.forEachIndexed { index, ref ->
+    /**
+     * `recompressTargetMb`: re-encode images at falling quality and rewrite until the file fits,
+     * at most four passes (desktop `_recompress_to_target_size`).
+     */
+    private suspend fun shrink(file: File, bundle: BookBundle, writer: BookWriter, baseName: String, targetBytes: Long): File {
+        var current = file.length()
+        if (current <= targetBytes) return file
+        logger.log(LogLevel.INFO, "${file.name} is $current bytes; recompressing images toward $targetBytes")
+        var quality = maxOf(10, bundle.settings.images.quality)
+        var working = bundle
+        var output = file
+        for (pass in 1..4) {
             coroutineContext.ensureActive()
-            val data = ref.data ?: runCatching { http.get(ref.url).body }.getOrNull()
-            if (data != null) {
-                out[ref.filename] = runCatching { images.process(data).data }.getOrDefault(data)
-            } else {
-                logger.log(LogLevel.WARNING, "Image failed: ${ref.url}")
+            quality = ImageStage.nextRecompressQuality(quality, current, targetBytes) ?: break
+            val q = quality
+            val reencoded = withContext(Dispatchers.Default) {
+                working.images.mapValues { (name, data) -> images.reencode(data, ImageReferences.extension(name), q) }
             }
-            onPhase(JobPhase.DownloadingImages(index + 1, refs.size))
+            val cover = working.cover?.let { BookBundle.Cover(images.reencode(it.data, it.fileExtension, q), it.fileExtension) }
+            working = BookBundle(working.book, working.chapters, reencoded, cover, working.settings)
+            output = writer.write(working, baseName, outputDirectory)
+            current = output.length()
+            logger.log(LogLevel.INFO, "Pass $pass at quality $quality: $current bytes")
+            if (current <= targetBytes) break
         }
-        return out
+        return output
     }
 
     companion object {
