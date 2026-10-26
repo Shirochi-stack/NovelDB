@@ -95,6 +95,12 @@ extension UploadContext {
     }
 }
 
+/// The file's name in NFC. Apple file systems hand back decomposed Hangul and accents,
+/// which hosts would otherwise show as broken names.
+func uploadName(_ file: URL) -> String {
+    file.lastPathComponent.precomposedStringWithCanonicalMapping
+}
+
 func fileSize(_ file: URL) throws -> Int64 {
     let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
     return (attributes[.size] as? NSNumber)?.int64Value ?? 0
@@ -112,7 +118,7 @@ struct MultipartForm: Sendable {
     init(fileField: String, file: URL, fileName: String? = nil, fields: [(name: String, value: String)] = []) {
         self.fileField = fileField
         self.file = file
-        self.fileName = fileName ?? file.lastPathComponent
+        self.fileName = fileName ?? uploadName(file)
         self.fields = fields
     }
 

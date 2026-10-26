@@ -67,7 +67,7 @@ public struct GoogleDriveUploader: Uploader {
         request.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
         request.setValue(mimeType(for: file), forHTTPHeaderField: "X-Upload-Content-Type")
         request.setValue(String(size), forHTTPHeaderField: "X-Upload-Content-Length")
-        var metadata: [String: Any] = ["name": file.lastPathComponent]
+        var metadata: [String: Any] = ["name": uploadName(file)]
         if let folderID = folderID?.trimmingCharacters(in: .whitespaces), !folderID.isEmpty {
             metadata["parents"] = [folderID]
         }

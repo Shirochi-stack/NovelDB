@@ -139,7 +139,7 @@ public extension Uploader {
         let now = context.now()
         return UploadResult(
             hostID: id,
-            fileName: file.lastPathComponent,
+            fileName: uploadName(file),
             link: link,
             deleteLink: deleteLink,
             expiresAt: retention.map { now.addingTimeInterval($0) },
