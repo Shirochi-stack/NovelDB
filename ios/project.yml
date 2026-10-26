@@ -27,6 +27,8 @@ targets:
         product: NpiaPipeline
       - package: NpiaKit
         product: NpiaUpload
+      - package: NpiaKit
+        product: NpiaWebEngine
     info:
       path: App/Info.plist
       properties:

@@ -14,6 +14,8 @@ public enum JobPhase: Sendable, Equatable {
     case downloadingImages(done: Int, total: Int)
     case writing(OutputFormat)
     case uploading(String)
+    /// Waiting for the user to sign in to this host in the browser.
+    case signingIn(String)
     case finished
     case failed(String)
 }
@@ -49,7 +51,14 @@ public struct DownloadPipeline: Sendable {
         let context = SourceContext(http: client, web: web, secrets: secrets, settings: settings, logger: logger)
 
         onPhase(.fetchingBook)
-        let book = try await adapter.parseBook(url, context: context)
+        let book: BookInfo
+        do {
+            book = try await adapter.parseBook(url, context: context)
+        } catch SourceError.loginRequired(_) {
+            try await signIn(url: url, source: source, onPhase: onPhase)
+            onPhase(.fetchingBook)
+            book = try await adapter.parseBook(url, context: context)
+        }
         logger.log(.info, "\(book.title): \(book.chapters.count) chapters")
 
         var selected = Self.select(book.chapters, shared: shared)
@@ -113,6 +122,21 @@ public struct DownloadPipeline: Sendable {
         return JobOutcome(book: book, files: files, uploads: uploads, skipped: skipped)
     }
 
+    /// Opens the sign-in sheet on the book's site and waits for the user to finish. Without a
+    /// visible screen (app in the background) the job fails with instructions instead.
+    private func signIn(url: URL, source: SourceID, onPhase: @escaping @Sendable (JobPhase) -> Void) async throws {
+        let host = url.bareHost.isEmpty ? source.rawValue : url.bareHost
+        logger.log(.info, "Sign-in needed for \(host); opening the browser")
+        onPhase(.signingIn(host))
+        do {
+            try await web.presentLogin(url: url, profile: BrowserProfileName.value)
+        } catch is CancellationError {
+            throw SourceError.blocked("sign-in to \(host) was cancelled")
+        } catch {
+            throw SourceError.blocked("sign in to \(host) in the Browser tab, then retry")
+        }
+    }
+
     /// Applies the chapter range and paid filter.
     public static func select(_ chapters: [ChapterRef], shared: SharedSettings) -> [ChapterRef] {
         chapters.filter { chapter in
@@ -151,4 +175,9 @@ public struct DownloadPipeline: Sendable {
         }
         return output
     }
+}
+
+/// Sign-in prompts use the Browser tab's store, so a login made in either place is shared.
+enum BrowserProfileName {
+    static let value = "browser"
 }

@@ -50,6 +50,8 @@ struct JobItem: Identifiable, Codable {
             status = "Writing \(format.rawValue.uppercased())"; fraction = max(fraction, 0.92)
         case .uploading(let name):
             status = "Uploading \(name)"; fraction = max(fraction, 0.97)
+        case .signingIn(let host):
+            status = "Sign in to \(host) to continue"
         case .finished:
             status = "Done"; fraction = 1
         case .failed(let message):

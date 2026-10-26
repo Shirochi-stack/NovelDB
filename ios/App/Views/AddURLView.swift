@@ -92,8 +92,18 @@ struct AddURLView: View {
             }
         }
         .navigationTitle("Add")
-        .onAppear(perform: resetDraft)
+        .onAppear {
+            resetDraft()
+            takePendingText()
+        }
         .onChange(of: source) { resetDraft() }
+        .onChange(of: model.pendingAddText) { takePendingText() }
+    }
+
+    private func takePendingText() {
+        guard let pending = model.pendingAddText else { return }
+        model.pendingAddText = nil
+        text = text.isEmpty ? pending : text + "\n" + pending
     }
 
     @ViewBuilder

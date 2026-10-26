@@ -1,13 +1,15 @@
+import NpiaWebEngine
 import SwiftUI
 
 enum Panel: String, CaseIterable, Hashable, Identifiable {
-    case add, queue, uploads, settings
+    case add, browser, queue, uploads, settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .add: return "Add"
+        case .browser: return "Browser"
         case .queue: return "Queue"
         case .uploads: return "Uploads"
         case .settings: return "Settings"
@@ -17,6 +19,7 @@ enum Panel: String, CaseIterable, Hashable, Identifiable {
     var icon: String {
         switch self {
         case .add: return "plus.circle"
+        case .browser: return "globe"
         case .queue: return "arrow.down.circle"
         case .uploads: return "icloud.and.arrow.up"
         case .settings: return "gearshape"
@@ -59,6 +62,7 @@ struct RootView: View {
                 }
             }
         }
+        .webLoginSheet()
         .alert("Npia Mobile", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
             Button("OK", role: .cancel) { model.message = nil }
         } message: {
@@ -74,6 +78,7 @@ struct RootView: View {
     private func content(_ panel: Panel) -> some View {
         switch panel {
         case .add: AddURLView { selection = .queue }
+        case .browser: BrowserView { selection = .add }
         case .queue: QueueView()
         case .uploads: UploadHistoryView()
         case .settings: SettingsView()
