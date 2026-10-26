@@ -66,3 +66,63 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ inputs.release_tag }}" ios/NpiaMobile-unsigned.ipa --clobber --repo "${{ github.repository }}"
+
+  simulator-smoke:
+    # Installs the app on an iPhone simulator, launches it, and checks it stays up. Crash
+    # reports, the app's log, and a screenshot are uploaded either way.
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in data if "iOS" in r), reverse=True)
+          for runtime in runtimes:
+              for device in data[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); raise SystemExit
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+      - name: Build for the simulator
+        working-directory: ios
+        run: |
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Debug \
+            -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Launch and watch
+        working-directory: ios
+        run: |
+          udid=${{ steps.sim.outputs.udid }}
+          app=build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app
+          mkdir -p smoke
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl spawn "$udid" log stream --style compact --level debug --predicate 'process == "NpiaMobile"' > smoke/oslog.txt 2>&1 &
+          logger=$!
+          xcrun simctl launch --console-pty "$udid" com.shirochi.npiamobile > smoke/console.txt 2>&1 &
+          sleep 25
+          xcrun simctl io "$udid" screenshot smoke/screen.png || true
+          alive=$(xcrun simctl spawn "$udid" launchctl list | grep -c "com.shirochi.npiamobile" || true)
+          kill "$logger" || true
+          cp ~/Library/Logs/DiagnosticReports/NpiaMobile* smoke/ 2>/dev/null || true
+          echo "--- console"; tail -40 smoke/console.txt || true
+          echo "--- crash reports"; ls smoke/ | grep -i -E "ips|crash" || echo none
+          if [ "$alive" -eq 0 ]; then echo "::error::NpiaMobile is not running 25 s after launch"; exit 1; fi
+          echo "NpiaMobile is running."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-smoke
+          path: ios/smoke/
+          retention-days: 14
