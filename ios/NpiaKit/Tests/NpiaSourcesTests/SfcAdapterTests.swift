@@ -20,10 +20,12 @@ final class SfcAdapterTests: XCTestCase {
     }
 
     func testHeaders() {
-        let headers = SfcAppAPI.headers(nonce: "N", timestamp: 5, method: "POST")
+        let nonce = "0F6B2C1E-3A4D-4E5F-8A9B-112233445566"
+        let headers = SfcAppAPI.headers(nonce: nonce, timestamp: 1761456000000, method: "POST")
         XCTAssertEqual(headers["content-type"], "application/json; charset=UTF-8")
-        XCTAssertTrue(headers["sfsecurity"]!.hasPrefix("nonce=N&timestamp=5&devicetoken=\(SfcAppAPI.deviceToken)&sign="))
-        XCTAssertNil(SfcAppAPI.headers(nonce: "N", timestamp: 5)["content-type"])
+        XCTAssertEqual(headers["sfsecurity"], "nonce=\(nonce)&timestamp=1761456000000&devicetoken=\(SfcAppAPI.deviceToken)&sign=2D57B27662C6BA05B90E81A2AB992378")
+        XCTAssertNil(SfcAppAPI.headers(nonce: nonce, timestamp: 5)["content-type"])
+        XCTAssertEqual(SfcAppAPI.sign(nonce: "N", timestamp: 5).count, 32)
     }
 
     func testCharacterTableDecodes() {
