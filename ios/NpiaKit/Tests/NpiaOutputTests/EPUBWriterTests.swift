@@ -140,9 +140,9 @@ final class HTMLWriterTests: XCTestCase {
         let notice = try XCTUnwrap(html.range(of: "<h2>Notice: Hi</h2>"))
         let first = try XCTUnwrap(html.range(of: "<h2>1. Start</h2>"))
         XCTAssertLessThan(notice.lowerBound, first.lowerBound)
-        XCTAssertTrue(html.contains(#"<a href="#notice-1">Notice: Hi</a>"#))
+        XCTAssertTrue(html.contains(##"<a href="#notice-1">Notice: Hi</a>"##))
         XCTAssertTrue(html.contains(#"<section class="chapter" id="notice-1">"#))
-        XCTAssertTrue(html.contains(#"<a href="#chapter-2-3">2. Pictures</a>"#))
+        XCTAssertTrue(html.contains(##"<a href="#chapter-2-3">2. Pictures</a>"##))
         XCTAssertTrue(html.contains(#"id="chapter-2-3""#))
     }
 }
