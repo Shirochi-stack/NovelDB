@@ -31,7 +31,7 @@ let package = Package(
         // Share-link hosts (temp.sh, gofile, Google Drive, ...).
         .target(name: "NpiaUpload", dependencies: ["NpiaCore"]),
         // One adapter per source codename.
-        .target(name: "NpiaSources", dependencies: ["NpiaCore"]),
+        .target(name: "NpiaSources", dependencies: ["NpiaCore"], resources: [.copy("Reader/Resources")]),
         // Download queue that wires sources, images, writers, and uploads together.
         .target(
             name: "NpiaPipeline",
