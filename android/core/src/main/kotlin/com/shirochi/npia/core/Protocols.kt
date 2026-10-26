@@ -80,6 +80,12 @@ class ProcessedImage(val data: ByteArray, val fileExtension: String)
 /** Implemented by `:images` (Android Bitmap/ImageDecoder); the default passes bytes through. */
 interface ImageProcessing {
     fun process(data: ByteArray, isCover: Boolean = false): ProcessedImage
+
+    /**
+     * Re-encodes an already processed image at a lower quality for `recompressTargetMb`, keeping
+     * its container so file names stay valid. The default returns the bytes unchanged.
+     */
+    fun reencode(data: ByteArray, fileExtension: String, quality: Int): ByteArray = data
 }
 
 object PassthroughImages : ImageProcessing {

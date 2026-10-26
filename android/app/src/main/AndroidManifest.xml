@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:name=".NpiaApplication"
         android:allowBackup="false"
         android:label="Npia Mobile"
         android:supportsRtl="true"
