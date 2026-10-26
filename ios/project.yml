@@ -25,6 +25,8 @@ targets:
         product: NpiaSources
       - package: NpiaKit
         product: NpiaPipeline
+      - package: NpiaKit
+        product: NpiaUpload
     info:
       path: App/Info.plist
       properties:
@@ -32,6 +34,12 @@ targets:
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        UIBackgroundModes:
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.shirochi.npiamobile.download.*
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

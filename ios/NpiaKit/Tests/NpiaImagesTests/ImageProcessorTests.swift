@@ -214,7 +214,8 @@ final class ImageProcessorTests: XCTestCase {
     func testRecompressQualitySteps() {
         XCTAssertEqual(ImageProcessor.nextRecompressQuality(current: 90, size: 400, target: 100), 45)
         // Close to target still steps down by 10.
-        XCTAssertEqual(ImageProcessor.nextRecompressQuality(current: 90, size: 101, target: 100), 80)
+        XCTAssertEqual(ImageProcessor.nextRecompressQuality(current: 90, size: 100, target: 100), 80)
+        XCTAssertEqual(ImageProcessor.nextRecompressQuality(current: 90, size: 101, target: 100), 89)
         XCTAssertEqual(ImageProcessor.nextRecompressQuality(current: 15, size: 1000, target: 1), 10)
         XCTAssertNil(ImageProcessor.nextRecompressQuality(current: 10, size: 1000, target: 1))
     }
