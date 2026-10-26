@@ -12,13 +12,28 @@ android {
         applicationId = "com.shirochi.npiamobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
+        // CI run numbers only grow, so every CI build can update the previous one in place.
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "0.1.0"
+    }
+    // The release key comes from CI secrets (see .github/workflows/android.yml); without it,
+    // release builds fall back to the debug key so they still install.
+    val releaseKeystore = System.getenv("NPIA_KEYSTORE_PATH")?.let(::file)?.takeIf { it.exists() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storeType = "pkcs12"
+                storePassword = System.getenv("NPIA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("NPIA_KEY_ALIAS")
+                keyPassword = System.getenv("NPIA_KEYSTORE_PASSWORD")
+            }
+        }
     }
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Unsigned in CI; sign locally or with your own key before installing.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions {
