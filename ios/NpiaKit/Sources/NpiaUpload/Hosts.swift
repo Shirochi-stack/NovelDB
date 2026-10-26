@@ -129,7 +129,7 @@ public struct PixeldrainUploader: Uploader {
     static func request(for file: URL, apiKey: String, size: Int64) -> URLRequest {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#;:")
-        let name = file.lastPathComponent.addingPercentEncoding(withAllowedCharacters: allowed) ?? "file"
+        let name = uploadName(file).addingPercentEncoding(withAllowedCharacters: allowed) ?? "file"
         var request = URLRequest(url: URL(string: base.absoluteString + name) ?? base.appendingPathComponent("file"))
         request.httpMethod = "PUT"
         request.timeoutInterval = 300

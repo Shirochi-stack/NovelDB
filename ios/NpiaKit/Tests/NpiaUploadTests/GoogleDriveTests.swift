@@ -24,7 +24,7 @@ final class GoogleDriveTests: UploadTestCase {
 
     func testPKCEMatchesRFC7636Vector() {
         let pkce = PKCE(verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
-        XCTAssertEqual(pkce.challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuIUPHdTEUc")
+        XCTAssertEqual(pkce.challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
         let generated = PKCE.generate().verifier
         XCTAssertGreaterThanOrEqual(generated.count, 43)
         XCTAssertNil(generated.rangeOfCharacter(from: CharacterSet(charactersIn: "+/=")))
