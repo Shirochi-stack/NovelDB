@@ -1,0 +1,63 @@
+name: Android App
+
+on:
+  push:
+    branches: ['android/**']
+    paths: ['android/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Attach the APK to this existing release tag (optional)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Unit tests
+        run: gradle --no-daemon test
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Rename APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk NpiaMobile-debug.apk
+          ls -lh NpiaMobile-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NpiaMobile-debug-apk
+          path: android/NpiaMobile-debug.apk
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: android/**/build/reports/tests/
+          retention-days: 7
+      - name: Attach to release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.release_tag }}" NpiaMobile-debug.apk --clobber --repo "${{ github.repository }}"
