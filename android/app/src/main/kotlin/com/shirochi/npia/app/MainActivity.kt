@@ -1,119 +1,100 @@
 package com.shirochi.npia.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.shirochi.npia.pipeline.JobPhase
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.shirochi.npia.app.ui.RootScreen
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val model: AppViewModel by viewModels()
 
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val shared = intent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT)
+        if (savedInstanceState == null) handle(intent)
+        askForNotifications()
+        keepScreenAwakeWhileDownloading()
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                RootScreen(model, initialUrl = shared.orEmpty())
+            val dark = isSystemInDarkTheme()
+            val context = LocalContext.current
+            val colors = when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                dark -> darkColorScheme()
+                else -> lightColorScheme()
+            }
+            MaterialTheme(colorScheme = colors) {
+                RootScreen(model)
             }
         }
     }
-}
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RootScreen(model: AppViewModel, initialUrl: String) {
-    val jobs by model.jobs.collectAsStateWithLifecycle()
-    var urlText by rememberSaveable { mutableStateOf(initialUrl) }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handle(intent)
+    }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Npia Mobile") }) }) { padding ->
-        Column(Modifier.padding(padding).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(
-                value = urlText,
-                onValueChange = { urlText = it },
-                label = { Text("Novel URL") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = { model.enqueue(urlText); urlText = "" },
-                enabled = model.canDownload(urlText),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Download") }
-
-            if (jobs.isEmpty()) {
-                Text("No downloads yet", style = MaterialTheme.typography.bodyMedium)
+    /** Share-sheet text goes to the Add screen; notification taps open the queue. */
+    private fun handle(intent: Intent?) {
+        intent ?: return
+        if (intent.action == Intent.ACTION_SEND) {
+            val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_TEXT), intent.getStringExtra(Intent.EXTRA_SUBJECT)).joinToString("\n")
+            if (text.isNotBlank()) {
+                model.sharedText = text
+                model.select(Tab.ADD)
             }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(jobs, key = { it.id }) { job -> JobCard(job, onCancel = { model.cancel(job.id) }) }
+        } else if (intent.getBooleanExtra(EXTRA_OPEN_QUEUE, false)) {
+            model.tab = Tab.QUEUE
+        }
+    }
+
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val preferences = model.manager.preferences
+        if (preferences.askedForNotifications) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        preferences.askedForNotifications = true
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun keepScreenAwakeWhileDownloading() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(model.manager.jobs, model.manager.preferencesFlow) { jobs, _ -> jobs.any { it.state.isActive } }
+                    .collect { active ->
+                        if (active && model.manager.preferences.keepScreenAwake) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                    }
             }
         }
     }
-}
 
-@Composable
-private fun JobCard(job: JobItem, onCancel: () -> Unit) {
-    val context = LocalContext.current
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(job.title ?: job.url, maxLines = 1, style = MaterialTheme.typography.titleSmall)
-            Text(status(job), style = MaterialTheme.typography.bodySmall)
-            job.links.forEach { link ->
-                TextButton(onClick = {
-                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link)
-                    context.startActivity(Intent.createChooser(send, null))
-                }) { Text(link, maxLines = 1) }
-            }
-            val active = job.phase !is JobPhase.Finished && job.phase !is JobPhase.Failed
-            if (active) {
-                Row { TextButton(onClick = onCancel) { Text("Cancel") } }
-            }
-        }
+    companion object {
+        const val EXTRA_OPEN_QUEUE = "openQueue"
     }
-}
-
-private fun status(job: JobItem): String = when (val phase = job.phase) {
-    JobPhase.Queued -> "Queued"
-    JobPhase.FetchingBook -> "Reading book info"
-    is JobPhase.FetchingChapters -> "Chapters ${phase.done}/${phase.total}"
-    is JobPhase.DownloadingImages -> "Images ${phase.done}/${phase.total}"
-    is JobPhase.Writing -> "Writing ${phase.format.raw.uppercase()}"
-    is JobPhase.Uploading -> "Uploading ${phase.fileName}"
-    JobPhase.Finished -> "Done: ${job.files.joinToString()}"
-    is JobPhase.Failed -> phase.message
 }
