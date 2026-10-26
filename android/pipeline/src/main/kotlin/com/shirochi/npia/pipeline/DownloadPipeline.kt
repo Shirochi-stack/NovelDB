@@ -35,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 
 sealed class JobPhase {
@@ -89,7 +90,7 @@ class DownloadPipeline(
         var selected = select(book.chapters, shared)
         if (adapter.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
         onPhase(JobPhase.FetchingChapters(0, selected.size))
-        val results = adapter.parseChapters(selected, book, context)
+        val results = adapter.parseChapters(selected, book, chapterContext(context, selected.size, onPhase))
 
         val chapters = mutableListOf<ChapterContent>()
         val skipped = mutableListOf<Pair<ChapterRef, String>>()
@@ -173,6 +174,21 @@ class DownloadPipeline(
             if (current <= targetBytes) break
         }
         return output
+    }
+
+    /** A context whose `onChapter` advances the progress bar and logs each chapter as it lands. */
+    private fun chapterContext(base: SourceContext, total: Int, onPhase: (JobPhase) -> Unit): SourceContext {
+        val done = AtomicInteger()
+        return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger) { result ->
+            val count = done.incrementAndGet().coerceAtMost(total)
+            val label = "Chapter ${result.ref.index}: ${result.ref.title}"
+            when (result) {
+                is ChapterResult.Content -> logger.log(LogLevel.INFO, label)
+                is ChapterResult.Refused -> logger.log(LogLevel.WARNING, "$label skipped: ${result.reason}")
+                is ChapterResult.Failed -> logger.log(LogLevel.WARNING, "$label failed: ${result.message}")
+            }
+            onPhase(JobPhase.FetchingChapters(count, total))
+        }
     }
 
     /**

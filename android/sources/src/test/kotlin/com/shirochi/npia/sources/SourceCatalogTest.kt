@@ -40,7 +40,10 @@ class SourceCatalogTest {
 
     @Test
     fun defaultParseChaptersKeepsOrderLimitsConcurrencyAndCapturesFailures() = runTest {
-        val context = SourceContext(StubHttp, UnavailableWebEngine, InMemorySecretStore(), AppSettings(shared = SharedSettings(threads = 3)))
+        val reported = java.util.concurrent.atomic.AtomicInteger()
+        val context = SourceContext(StubHttp, UnavailableWebEngine, InMemorySecretStore(), AppSettings(shared = SharedSettings(threads = 3))) {
+            reported.incrementAndGet()
+        }
         val refs = (1..10).map { ChapterRef("$it", it, "Chapter $it") }
         val book = BookInfo(SourceId.READER, "b", "https://example.com", "Book", chapters = refs)
         val adapter = FakeAdapter()
@@ -50,6 +53,7 @@ class SourceCatalogTest {
         assertEquals((1..10).toList(), results.map { it.ref.index })
         assertTrue(results[6] is ChapterResult.Failed)
         assertTrue("at most 3 at once", adapter.maxActive.get() <= 3)
+        assertEquals("every chapter reports progress, failures included", 10, reported.get())
     }
 
     private class FakeAdapter : SourceAdapter {

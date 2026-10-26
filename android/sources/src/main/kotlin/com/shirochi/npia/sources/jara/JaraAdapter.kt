@@ -218,12 +218,15 @@ class JaraAdapter : SourceAdapter {
                 throw e
             } catch (e: JaraAbort) {
                 // Bot check still active: stop asking, report the rest as failed.
+                val start = results.size
                 results += ChapterResult.Failed(ref, e.message.orEmpty())
                 for (rest in refs.drop(results.size)) results += ChapterResult.Failed(rest, e.message.orEmpty())
+                results.subList(start, results.size).forEach(context.onChapter)
                 return results
             } catch (e: Exception) {
                 results += ChapterResult.Failed(ref, e.message ?: e.toString())
             }
+            context.onChapter(results.last())
         }
         return results
     }
