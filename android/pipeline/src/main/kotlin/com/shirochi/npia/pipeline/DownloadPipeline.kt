@@ -17,6 +17,8 @@ import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SharedSettings
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
+import com.shirochi.npia.core.bareHost
+import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.UnavailableWebEngine
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.sniffImageExtension
@@ -42,6 +44,8 @@ sealed class JobPhase {
     data class DownloadingImages(val done: Int, val total: Int) : JobPhase()
     data class Writing(val format: OutputFormat) : JobPhase()
     data class Uploading(val fileName: String) : JobPhase()
+    /** Waiting for the user to sign in to `host` in the browser. */
+    data class SigningIn(val host: String) : JobPhase()
     data object Finished : JobPhase()
     data class Failed(val message: String) : JobPhase()
 }
@@ -73,7 +77,13 @@ class DownloadPipeline(
         val context = SourceContext(http, web, secrets, settings, logger)
 
         onPhase(JobPhase.FetchingBook)
-        val book = adapter.parseBook(url, context)
+        val book = try {
+            adapter.parseBook(url, context)
+        } catch (e: SourceException.LoginRequired) {
+            signIn(url, adapter.id, onPhase)
+            onPhase(JobPhase.FetchingBook)
+            adapter.parseBook(url, context)
+        }
         logger.log(LogLevel.INFO, "${book.title}: ${book.chapters.size} chapters")
 
         var selected = select(book.chapters, shared)
@@ -163,6 +173,23 @@ class DownloadPipeline(
             if (current <= targetBytes) break
         }
         return output
+    }
+
+    /**
+     * Opens the sign-in browser on the book's site and waits for the user to finish. Without a
+     * visible screen (app in the background) the job fails with instructions instead.
+     */
+    private suspend fun signIn(url: String, source: SourceId, onPhase: (JobPhase) -> Unit) {
+        val host = bareHost(url).ifEmpty { source.raw }
+        logger.log(LogLevel.INFO, "Sign-in needed for $host; opening the browser")
+        onPhase(JobPhase.SigningIn(host))
+        try {
+            web.presentLogin(url, source.raw)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw SourceException.Blocked("sign in to $host in the Browser tab, then retry (${e.message})")
+        }
     }
 
     companion object {

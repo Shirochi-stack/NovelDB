@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -100,6 +101,7 @@ fun RootScreen(model: AppViewModel) {
             when (route) {
                 null -> when (model.tab) {
                     Tab.ADD -> AddScreen(model, onQueued = { model.select(Tab.QUEUE) })
+                    Tab.BROWSER -> BrowserScreen(model, topBar)
                     Tab.QUEUE -> QueueScreen(model, topBar)
                     Tab.UPLOADS -> UploadsScreen(model, topBar)
                     Tab.SETTINGS -> SettingsScreen(model)
@@ -115,14 +117,17 @@ fun RootScreen(model: AppViewModel) {
                 Route.Upload -> UploadSettingsScreen(model)
                 Route.Background -> BackgroundSettingsScreen(model)
                 Route.Transfer -> ConfigTransferScreen(model)
+                Route.Sites -> SitesScreen(model)
             }
         }
     }
+    SignInPrompt()
 }
 
 private val Tab.icon
     get() = when (this) {
         Tab.ADD -> Icons.Filled.Add
+        Tab.BROWSER -> Icons.Filled.AccountCircle
         Tab.QUEUE -> Icons.AutoMirrored.Filled.List
         Tab.UPLOADS -> Icons.Filled.Share
         Tab.SETTINGS -> Icons.Filled.Settings

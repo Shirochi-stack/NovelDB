@@ -63,6 +63,7 @@ fun SettingsScreen(model: AppViewModel) {
         NavRow("Per-source overrides") { model.push(Route.Overrides) }
         NavRow("Source options", "kpage, ntk, nweb, kobo") { model.push(Route.SourceOptions) }
         NavRow("npia", "Account, notices, tag search") { model.push(Route.Npia) }
+        NavRow("Signed-in sites", "Logins saved by the Browser tab") { model.push(Route.Sites) }
         SectionHeader("Output")
         NavRow("Images", "Compression, cover, size target") { model.push(Route.Images) }
         NavRow("Text and PDF") { model.push(Route.Text) }
