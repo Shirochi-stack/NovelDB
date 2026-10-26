@@ -196,12 +196,7 @@ public final class GoogleDriveAuth: @unchecked Sendable {
 
     /// Returns a cached access token, refreshing it when it is about to expire.
     public func accessToken(forceRefresh: Bool = false) async throws -> String {
-        if !forceRefresh {
-            lock.lock()
-            let current = cached
-            lock.unlock()
-            if let current, current.expiry > Date() { return current.token }
-        }
+        if !forceRefresh, let current = validCachedToken() { return current }
         guard let refresh = secrets.string(for: .googleDriveRefreshToken), !refresh.isEmpty else {
             throw UploadError.notSignedIn("Google Drive")
         }
@@ -220,7 +215,18 @@ public final class GoogleDriveAuth: @unchecked Sendable {
             _ = try? await session.data(for: request)
         }
         secrets.set(nil, for: .googleDriveRefreshToken)
-        lock.lock(); cached = nil; lock.unlock()
+        clearCache()
+    }
+
+    private func validCachedToken() -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let cached, cached.expiry > Date() else { return nil }
+        return cached.token
+    }
+
+    private func clearCache() {
+        lock.lock(); defer { lock.unlock() }
+        cached = nil
     }
 }
 
