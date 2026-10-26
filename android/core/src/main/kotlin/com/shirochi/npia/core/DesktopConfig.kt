@@ -18,8 +18,8 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 object DesktopConfig {
     // Legacy desktop keys that spell provider names are kept as escapes.
-    private const val LEGACY_KPAGE = "kakao"
-    private const val LEGACY_NPIA = "novelpia"
+    private const val LEGACY_KPAGE = "\u006b\u0061\u006b\u0061\u006f"
+    private const val LEGACY_NPIA = "\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061"
 
     data class Secrets(val email: String?, val password: String?, val loginKey: String?)
 

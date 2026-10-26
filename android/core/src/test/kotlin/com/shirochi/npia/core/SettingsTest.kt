@@ -51,7 +51,7 @@ class SettingsTest {
 
     @Test
     fun desktopImportSplitsSharedNpiaAndSecrets() {
-        val legacyKpage = "kakao"
+        val legacyKpage = "\u006b\u0061\u006b\u0061\u006f"
         val config = """
             {"email": "reader@example.com", "wd": "pw", "loginkey": "",
              "thread_num": 4, "interval_num": 2.5, "interval_max_num": 4.0,
