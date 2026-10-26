@@ -73,7 +73,8 @@ final class NwebAdapterTests: XCTestCase {
         http.on("/webnovel/detail?novelId=55", "<html></html>", finalURL: URL(string: "https://nid.\(domain)/login")!)
         let ref = ChapterRef(id: "1", index: 1, title: "1화", url: URL(string: "https://novel.\(domain)/webnovel/detail?novelId=55&volumeNo=1"))
         let book = BookInfo(source: .nweb, id: "55", url: URL(string: "https://novel.\(domain)/webnovel/list?novelId=55")!, title: "t")
-        XCTAssertTrue(isRefused(try await NwebAdapter().parseChapter(ref, book: book, context: makeContext(http))))
+        let awaited1 = try await NwebAdapter().parseChapter(ref, book: book, context: makeContext(http))
+        XCTAssertTrue(isRefused(awaited1))
     }
 
     func testChapterDropsRepeatedTitle() async throws {
@@ -81,7 +82,8 @@ final class NwebAdapterTests: XCTestCase {
         http.on("/webnovel/detail?novelId=55", episodeHTML("1화 제목 1"))
         let ref = ChapterRef(id: "1", index: 1, title: "1화 제목 1", url: URL(string: "https://novel.\(domain)/webnovel/detail?novelId=55&volumeNo=1"))
         let book = BookInfo(source: .nweb, id: "55", url: URL(string: "https://novel.\(domain)/webnovel/list?novelId=55")!, title: "t")
-        let body = try XCTUnwrap(content(try await NwebAdapter().parseChapter(ref, book: book, context: makeContext(http))))
+        let awaited2 = try await NwebAdapter().parseChapter(ref, book: book, context: makeContext(http))
+        let body = try XCTUnwrap(content(awaited2))
         XCTAssertEqual(body.html, "<div class=\"nweb-novel-content\">\n<p>둘째 문단</p>\n</div>")
     }
 
@@ -137,7 +139,8 @@ final class NwebAdapterTests: XCTestCase {
         let adapter = NwebAdapter()
         let context = makeContext(http)
         let book = try await adapter.parseBook(URL(string: "https://novel.\(domain)/webnovel/list?novelId=55")!, context: context)
-        let body = try XCTUnwrap(content(try await adapter.parseChapter(book.chapters[1], book: book, context: context)))
+        let awaited3 = try await adapter.parseChapter(book.chapters[1], book: book, context: context)
+        let body = try XCTUnwrap(content(awaited3))
         XCTAssertEqual(body.images.map(\.url.lastPathComponent), ["illust.png"])
         XCTAssertFalse(body.html.contains("logo_end"))
     }

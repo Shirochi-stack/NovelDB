@@ -104,7 +104,8 @@ final class SfcAdapterTests: XCTestCase {
         let http = RoutedHTTP()
         http.on("/Novel/12345/600/7001/", "<h1 class=\"article-title\">第一章 开端</h1><div class=\"article-content\"><p>正文</p><p><img src=\"/pic/1.png\"></p></div>")
         let ref = ChapterRef(id: "7001", index: 1, title: "第一章", url: URL(string: "https://\(host)/Novel/12345/600/7001/"))
-        let body = try XCTUnwrap(content(try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http))))
+        let awaited1 = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http))
+        let body = try XCTUnwrap(content(awaited1))
         XCTAssertEqual(body.ref.title, "第一章 开端")
         XCTAssertEqual(body.images.map(\.url.absoluteString), ["https://\(host)/pic/1.png"])
         XCTAssertTrue(http.requested(SfcAppAPI.host).isEmpty)
@@ -114,10 +115,12 @@ final class SfcAdapterTests: XCTestCase {
         let http = RoutedHTTP()
         http.on("/Novel/12345/600/7002/", "<div class=\"article-content\"><p>预览</p></div><div class=\"pay-section\">购买</div>")
         let ref = ChapterRef(id: "7002", index: 2, title: "第二章", url: URL(string: "https://\(host)/Novel/12345/600/7002/"), isPaid: true)
-        XCTAssertTrue(isRefused(try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http))))
+        let awaited2 = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http))
+        XCTAssertTrue(isRefused(awaited2))
 
         http.on("/Novel/12345/600/7002/", "<div class=\"user-bar\"><div class=\"top-link\"><span class=\"normal-link\">您好，SF游客</span></div></div><div class=\"article-content\"><p>预览</p></div>")
-        XCTAssertTrue(isRefused(try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http))))
+        let awaited3 = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http))
+        XCTAssertTrue(isRefused(awaited3))
     }
 
     func testVIPChapterThroughAppAPI() async throws {
@@ -125,14 +128,16 @@ final class SfcAdapterTests: XCTestCase {
         http.on("/Chaps/7002", json: ["status": ["httpCode": 200], "data": ["title": "第二章 付费", "expand": ["content": "\u{5ba6}一行\n二行"]]])
         let secrets = InMemorySecretStore([SfcAppAPI.cookieKey: ".SFCommunity=a; session_APP=b"])
         let ref = ChapterRef(id: "7002", index: 2, title: "第二章", url: URL(string: "https://\(host)/Novel/12345/600/7002/"), isPaid: true)
-        let body = try XCTUnwrap(content(try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http, secrets: secrets))))
+        let awaited4 = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http, secrets: secrets))
+        let body = try XCTUnwrap(content(awaited4))
         XCTAssertEqual(body.html, "<div><p>\u{554a}一行</p><p>二行</p></div>")
         XCTAssertEqual(body.ref.title, "第二章 付费")
         XCTAssertEqual(http.requested("/Chaps/7002").first?.headers["Cookie"], ".SFCommunity=a; session_APP=b")
 
         http.on("/Chaps/7002", json: ["status": ["httpCode": 403]])
         http.on("/Novel/12345/600/7002/", "<div class=\"pay-section\">购买</div>")
-        XCTAssertTrue(isRefused(try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http, secrets: secrets))))
+        let awaited5 = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http, secrets: secrets))
+        XCTAssertTrue(isRefused(awaited5))
     }
 }
 
@@ -147,6 +152,10 @@ final class SequenceHTTP: HTTPFetching, @unchecked Sendable {
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        try respond(request)
+    }
+
+    private func respond(_ request: HTTPRequest) throws -> HTTPResponse {
         lock.lock(); defer { lock.unlock() }
         requests.append(request)
         let (json, headers) = replies.isEmpty ? ([:], [:]) : replies.removeFirst()
