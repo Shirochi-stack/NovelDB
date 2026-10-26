@@ -10,6 +10,7 @@ import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.NullLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
@@ -42,6 +43,8 @@ import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * One QuickJS context running the desktop rules bundle.
@@ -90,7 +93,7 @@ internal class ReaderRuntime private constructor(
         calls.clear()
         for (deferred in pending) deferred.completeExceptionally(ScriptError.closed)
         executor.execute {
-            runCatching { if (::js.isInitialized) js.close() }
+            if (::js.isInitialized) QuickJsInstances.release(js)
             executor.shutdown()
         }
     }
@@ -138,7 +141,7 @@ internal class ReaderRuntime private constructor(
      * through `__npia_native.settle`.
      */
     private suspend fun eval(code: String, filename: String): Any? = try {
-        js.evaluate<Any?>(code, filename)
+        QuickJsInstances.lock.withLock { js.evaluate<Any?>(code, filename) }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -163,9 +166,11 @@ internal class ReaderRuntime private constructor(
     // Setup
 
     private suspend fun setUp() {
-        js = QuickJs.create(dispatcher)
-        js.maxStackSize = JS_STACK
-        defineNative()
+        js = QuickJsInstances.create(dispatcher)
+        QuickJsInstances.lock.withLock {
+            js.maxStackSize = JS_STACK
+            defineNative()
+        }
         val failures = mutableListOf<String>()
         for (script in ReaderScripts.load()) {
             lastException = null
@@ -331,6 +336,34 @@ internal class ReaderRuntime private constructor(
             is Array<*> -> JsonArray(value.map(::toJson))
             else -> JsonPrimitive(value.toString())
         }
+    }
+}
+
+/**
+ * Every QuickJS instance in the process, behind one lock.
+ *
+ * quickjs-kt 1.0.0-alpha13 keeps the JavaVM pointer and its JNI class and method caches in
+ * process-wide statics and clears them whenever any instance is released, which leaves the other
+ * live instances unable to call back into Kotlin. (Fixed upstream in 1.0.x, which needs Kotlin
+ * 2.3.) So all native calls are serialized here, and after a release that leaves instances alive,
+ * a fresh idle instance restores the VM pointer; the class caches refill on demand.
+ */
+internal object QuickJsInstances {
+    val lock = ReentrantLock()
+    private var live = 0
+    private var keeper: QuickJs? = null
+
+    fun create(dispatcher: CoroutineDispatcher): QuickJs = lock.withLock {
+        QuickJs.create(dispatcher).also { live++ }
+    }
+
+    fun release(js: QuickJs) = lock.withLock {
+        if (js.isClosed) return@withLock
+        runCatching { js.close() }
+        live--
+        keeper?.let { runCatching { it.close() } }
+        keeper = null
+        if (live > 0) keeper = runCatching { QuickJs.create(Dispatchers.Default) }.getOrNull()
     }
 }
 
