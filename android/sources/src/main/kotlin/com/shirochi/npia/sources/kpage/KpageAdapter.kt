@@ -163,13 +163,15 @@ class KpageAdapter : SourceAdapter {
             refs.map { ref ->
                 async {
                     permits.withPermit {
-                        try {
+                        val result = try {
                             readChapter(ref, context, leading)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             ChapterResult.Failed(ref, e.message ?: e.toString())
                         }
+                        context.onChapter(result)
+                        result
                     }
                 }
             }.awaitAll()

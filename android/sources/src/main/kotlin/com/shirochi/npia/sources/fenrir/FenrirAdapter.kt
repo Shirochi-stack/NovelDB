@@ -91,7 +91,7 @@ class FenrirAdapter : SourceAdapter {
      */
     override suspend fun parseChapters(refs: List<ChapterRef>, book: BookInfo, context: SourceContext): List<ChapterResult> {
         if (refs.isEmpty()) return emptyList()
-        val state = BatchState(refs)
+        val state = BatchState(refs, context.onChapter)
         refs.forEachIndexed { offset, ref ->
             when {
                 ref.isPaid -> state.results[offset] = ChapterResult.Refused(ref, PAID_REASON)
@@ -126,8 +126,8 @@ class FenrirAdapter : SourceAdapter {
         }
     }
 
-    private class BatchState(val refs: List<ChapterRef>) {
-        val results: Array<ChapterResult?> = arrayOfNulls(refs.size)
+    private class BatchState(val refs: List<ChapterRef>, notify: (ChapterResult) -> Unit) {
+        val results = Results(refs.size, notify)
         val refusals = mutableMapOf<Int, String>()
         var pending = mutableListOf<Int>()
     }
@@ -400,5 +400,18 @@ class FenrirAdapter : SourceAdapter {
               return clicked;
             }
         """.trimIndent()
+    }
+}
+
+/** Chapter slots that report each result to the progress hook the first time it is set. */
+private class Results(size: Int, private val notify: (ChapterResult) -> Unit) {
+    private val items = arrayOfNulls<ChapterResult>(size)
+
+    operator fun get(index: Int): ChapterResult? = items[index]
+
+    operator fun set(index: Int, value: ChapterResult) {
+        val first = items[index] == null
+        items[index] = value
+        if (first) notify(value)
     }
 }

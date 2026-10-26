@@ -15,6 +15,11 @@ class SourceContext(
     val secrets: SecretStore,
     val settings: AppSettings,
     val logger: JobLogging = NullLogger,
+    /**
+     * Called once per chapter as soon as its result is known, from any thread. Adapters that
+     * override `parseChapters` must call it too, or progress jumps from 0 to done at the end.
+     */
+    val onChapter: (ChapterResult) -> Unit = {},
 ) {
     fun shared(source: SourceId): SharedSettings = settings.effective(source)
 }
@@ -41,13 +46,15 @@ interface SourceAdapter {
             refs.map { ref ->
                 async {
                     permits.withPermit {
-                        try {
+                        val result = try {
                             parseChapter(ref, book, context)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             ChapterResult.Failed(ref, e.message ?: e.toString())
                         }
+                        context.onChapter(result)
+                        result
                     }
                 }
             }.awaitAll()
