@@ -42,5 +42,6 @@ let package = Package(
         .testTarget(name: "NpiaSourcesTests", dependencies: ["NpiaSources", "NpiaCore"]),
         .testTarget(name: "NpiaOutputTests", dependencies: ["NpiaOutput", "NpiaCore", "ZIPFoundation"]),
         .testTarget(name: "NpiaUploadTests", dependencies: ["NpiaUpload", "NpiaCore", "ZIPFoundation"]),
+        .testTarget(name: "NpiaWebEngineTests", dependencies: ["NpiaWebEngine", "NpiaCore"]),
     ]
 )
