@@ -12,7 +12,6 @@ lifecycle = "2.8.7"
 coreKtx = "1.15.0"
 securityCrypto = "1.1.0-alpha06"
 robolectric = "4.14.1"
-workRuntime = "2.10.0"
 
 [libraries]
 coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -29,7 +28,6 @@ androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "securityCrypto" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
-androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "workRuntime" }
 compose-material-icons = { module = "androidx.compose.material:material-icons-core" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
