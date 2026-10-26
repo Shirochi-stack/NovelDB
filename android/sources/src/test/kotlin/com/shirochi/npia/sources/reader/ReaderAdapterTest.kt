@@ -14,6 +14,8 @@ import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.UnavailableWebEngine
 import com.shirochi.npia.sources.SourceCatalog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -161,7 +163,7 @@ class ReaderAdapterTest {
         println("DIAG open " + runCatching { runtime.call("openBook", open, 15).take(40) })
         println("DIAG ch1 " + runCatching { runtime.call("parseChapter", listOf("/1001/1.html", "x", false, null), 15).take(80) })
         val pair = listOf("/1001/2.html", "/1001/3.html").map { url ->
-            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.Default) { runCatching { runtime.call("parseChapter", listOf(url, "x", false, null), 15).take(80) } }
+            async(Dispatchers.Default) { runCatching { runtime.call("parseChapter", listOf(url, "x", false, null), 15).take(80) } }
         }.map { it.await() }
         println("DIAG pair $pair")
         println("DIAG again " + runCatching { runtime.call("parseChapter", listOf("/1001/3.html", "x", false, null), 15).take(80) })
