@@ -206,14 +206,17 @@ public struct JaraAdapter: SourceAdapter {
                 throw CancellationError()
             } catch let error as JaraAbort {
                 // Bot check still active: stop asking, report the rest as failed.
+                let start = results.count
                 results.append(.failed(ref, message: error.message))
                 for rest in refs.dropFirst(results.count) {
                     results.append(.failed(rest, message: error.message))
                 }
+                results[start...].forEach(context.onChapter)
                 return results
             } catch {
                 results.append(.failed(ref, message: error.localizedDescription))
             }
+            if let last = results.last { context.onChapter(last) }
         }
         return results
     }

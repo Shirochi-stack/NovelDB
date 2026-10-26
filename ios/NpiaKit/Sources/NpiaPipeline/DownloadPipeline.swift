@@ -66,7 +66,7 @@ public struct DownloadPipeline: Sendable {
             selected = book.notices + selected
         }
         onPhase(.fetchingChapters(done: 0, total: selected.count))
-        let results = try await adapter.parseChapters(selected, book: book, context: context)
+        let results = try await adapter.parseChapters(selected, book: book, context: chapterContext(context, total: selected.count, onPhase: onPhase))
 
         var chapters: [ChapterContent] = []
         var skipped: [(ChapterRef, String)] = []
@@ -120,6 +120,24 @@ public struct DownloadPipeline: Sendable {
 
         onPhase(.finished)
         return JobOutcome(book: book, files: files, uploads: uploads, skipped: skipped)
+    }
+
+    /// A context whose `onChapter` advances the progress bar and logs each chapter as it lands.
+    private func chapterContext(_ base: SourceContext, total: Int, onPhase: @escaping @Sendable (JobPhase) -> Void) -> SourceContext {
+        var context = base
+        let counter = ChapterCounter()
+        let logger = self.logger
+        context.onChapter = { result in
+            let done = min(counter.next(), total)
+            let label = "Chapter " + String(result.ref.index) + ": " + result.ref.title
+            switch result {
+            case .content: logger.log(.info, label)
+            case .refused(_, let reason): logger.log(.warning, label + " skipped: " + reason)
+            case .failed(_, let message): logger.log(.warning, label + " failed: " + message)
+            }
+            onPhase(.fetchingChapters(done: done, total: total))
+        }
+        return context
     }
 
     /// Opens the sign-in sheet on the book's site and waits for the user to finish. Without a
@@ -180,4 +198,16 @@ public struct DownloadPipeline: Sendable {
 /// Sign-in prompts use the Browser tab's store, so a login made in either place is shared.
 enum BrowserProfileName {
     static let value = "browser"
+}
+
+/// Thread-safe chapter counter for progress callbacks that arrive from concurrent tasks.
+final class ChapterCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func next() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        value += 1
+        return value
+    }
 }

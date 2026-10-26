@@ -7,13 +7,18 @@ public struct SourceContext: Sendable {
     public var secrets: any SecretStore
     public var settings: AppSettings
     public var logger: any JobLogging
+    /// Called once per chapter as soon as its result is known, from any task. Adapters that
+    /// override `parseChapters` must call it too, or progress jumps from 0 to done at the end.
+    public var onChapter: @Sendable (ChapterResult) -> Void
 
-    public init(http: any HTTPFetching, web: any WebEngineProviding, secrets: any SecretStore, settings: AppSettings, logger: any JobLogging = NullLogger()) {
+    public init(http: any HTTPFetching, web: any WebEngineProviding, secrets: any SecretStore, settings: AppSettings,
+                logger: any JobLogging = NullLogger(), onChapter: @escaping @Sendable (ChapterResult) -> Void = { _ in }) {
         self.http = http
         self.web = web
         self.secrets = secrets
         self.settings = settings
         self.logger = logger
+        self.onChapter = onChapter
     }
 
     public func shared(for source: SourceID) -> SharedSettings {
@@ -46,6 +51,7 @@ public extension SourceAdapter {
             }
             while let (position, result) = try await group.next() {
                 results[position] = result
+                context.onChapter(result)
                 if let item = pending.popLast() {
                     group.addTask { try await self.chapterTask(item.offset, item.element, book: book, context: context) }
                 }
