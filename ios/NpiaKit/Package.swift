@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.19"),
+        .package(url: "https://github.com/SDWebImage/libwebp-Xcode.git", exact: "1.5.0"),
     ],
     targets: [
         // Models, settings, secrets, and the protocols every other module implements.
@@ -24,8 +25,8 @@ let package = Package(
         .target(name: "NpiaNet", dependencies: ["NpiaCore"]),
         // Offscreen WKWebView pages that replace the desktop Playwright/CDP driver.
         .target(name: "NpiaWebEngine", dependencies: ["NpiaCore"]),
-        // Image recompression (ImageIO; libwebp is added by the images workstream).
-        .target(name: "NpiaImages", dependencies: ["NpiaCore"]),
+        // Image recompression: ImageIO decode, JPEG/PNG/GIF encode, libwebp for WebP.
+        .target(name: "NpiaImages", dependencies: ["NpiaCore", .product(name: "libwebp", package: "libwebp-Xcode")]),
         // EPUB, TXT, and PDF writers.
         .target(name: "NpiaOutput", dependencies: ["NpiaCore", "ZIPFoundation"]),
         // Share-link hosts (temp.sh, gofile, Google Drive, ...).
@@ -41,5 +42,7 @@ let package = Package(
         .testTarget(name: "NpiaSourcesTests", dependencies: ["NpiaSources", "NpiaCore"]),
         .testTarget(name: "NpiaOutputTests", dependencies: ["NpiaOutput", "NpiaCore"]),
         .testTarget(name: "NpiaUploadTests", dependencies: ["NpiaUpload", "NpiaCore"]),
+        .testTarget(name: "NpiaImagesTests", dependencies: ["NpiaImages", "NpiaCore"]),
+        .testTarget(name: "NpiaPipelineTests", dependencies: ["NpiaPipeline", "NpiaImages", "NpiaCore"]),
     ]
 )
