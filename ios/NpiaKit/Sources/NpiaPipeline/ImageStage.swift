@@ -148,7 +148,11 @@ public struct ImageStage: Sendable {
             remote[ref.filename] = ref.url.absoluteString
         }
         if !remote.isEmpty {
-            chapter.html = ImageReferences.rewrite(chapter.html, renames: remote)
+            // The whole value becomes the remote URL, including any `../` prefix.
+            chapter.html = ImageReferences.rewriteValues(chapter.html) { value in
+                if let exact = remote[value] { return exact }
+                return remote.first { value.hasSuffix("/" + $0.key) }?.value
+            }
         }
         chapter.images = []
         return chapter
