@@ -153,8 +153,9 @@ class ImageStageTest {
     fun recompressQualityFollowsDesktopHeuristic() {
         // sqrt(25/100) halves the quality.
         assertEquals(45, ImageStage.nextRecompressQuality(90, 100, 25))
-        // Close to the target still steps down by 10.
-        assertEquals(80, ImageStage.nextRecompressQuality(90, 101, 100))
+        assertEquals(89, ImageStage.nextRecompressQuality(90, 101, 100))
+        // A ratio above 1 still steps down by 10.
+        assertEquals(80, ImageStage.nextRecompressQuality(90, 100, 200))
         assertEquals(10, ImageStage.nextRecompressQuality(15, 1000, 1))
         assertNull(ImageStage.nextRecompressQuality(10, 1000, 1))
     }
