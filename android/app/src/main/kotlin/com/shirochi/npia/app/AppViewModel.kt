@@ -9,7 +9,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.AndroidViewModel
 import com.shirochi.npia.core.SourceId
 
-enum class Tab(val title: String) { ADD("Add"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
+enum class Tab(val title: String) { ADD("Add"), BROWSER("Browser"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
 
 /** Screens pushed on top of a tab's root. */
 sealed class Route(val title: String) {
@@ -24,11 +24,16 @@ sealed class Route(val title: String) {
     data object Upload : Route("Upload")
     data object Background : Route("Screen and background")
     data object Transfer : Route("Import / export")
+    data object Sites : Route("Signed-in sites")
 }
 
 /** Navigation state that survives rotation; the data lives in `DownloadManager`. */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     val manager: DownloadManager get() = getApplication<NpiaApplication>().downloads
+    val sites: com.shirochi.npia.app.model.KnownSites get() = getApplication<NpiaApplication>().sites
+
+    /** Last page open in the Browser tab, so switching tabs does not lose it. */
+    var browserUrl: String? = null
 
     var tab by mutableStateOf(Tab.ADD)
     private val stacks: Map<Tab, SnapshotStateList<Route>> = Tab.entries.associateWith { mutableStateListOf() }

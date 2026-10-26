@@ -61,6 +61,7 @@ data class JobItem(
         )
         is JobPhase.Writing -> copy(status = "Writing ${phase.format.raw.uppercase()}", fraction = maxOf(fraction, 0.92))
         is JobPhase.Uploading -> copy(status = "Uploading ${phase.fileName}", fraction = maxOf(fraction, 0.97))
+        is JobPhase.SigningIn -> copy(status = "Sign in to ${phase.host} to continue")
         JobPhase.Finished -> copy(status = "Done", fraction = 1.0)
         is JobPhase.Failed -> copy(status = phase.message, error = phase.message)
     }
