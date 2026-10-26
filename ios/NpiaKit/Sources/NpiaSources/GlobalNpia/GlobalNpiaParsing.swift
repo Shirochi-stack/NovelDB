@@ -467,6 +467,7 @@ enum GlobalNpiaParsing {
         var html = try body.html().trimmingCharacters(in: .whitespacesAndNewlines)
         if html.isEmpty { return nil }
         html = WebRegex.replace("<(br|hr|img)((?:\\s[^>]*?)?)\\s*/?>", in: html, with: "<$1$2/>", options: [.caseInsensitive])
+        html = WebRegex.replace("\s+/>", in: html, with: "/>")
         html = html.replacingOccurrences(of: "&nbsp;", with: "&#160;")
         return ProcessedChapter(html: "<div class=\"global-npia-content\">" + html + "</div>", assets: ordered)
     }
