@@ -144755,6 +144755,7 @@
 1888322|||붉은 인장(-11/5 까지 공개)|||The Red Seal (Available Until 11/5)
 1888323|||[원피스X이디오크러시]토트랜드에 떨어진 미국인들|||[One Piece × Idiocracy] Americans Who Fell into Totto Land
 1888324|||중생지독비|||Rebirth of the Poisonous Consort
+1888325|||중생 후 다섯 명의 권신을 거두었다|||After Rebirth, I Gathered Five Powerful Ministers
 1888327|||소꿉장난의 함정|||The Trap of Playing House
 1888329|||인외의 애완인간이 되었습니다|||I Became a Nonhuman's Pet Human
 1888330|||[코난] 흐르는 물처럼|||[Conan] Like Flowing Water
@@ -145818,6 +145819,7 @@
 1890730|||(가면라이더X명일방주)칼날에 비친 너구리|||[Kamen Rider x Arknights] A Raccoon Reflected on the Blade
 1890731|||평범한 괴이가 각성자를 주웠다|||An Ordinary Abnormality Picked Up an Awakened
 1890733|||친애하는 나의 소꿉친구를 위하여|||For My Dear Childhood Friend
+1890735|||[인소의 법칙] 과잉사고(過剩思考).|||[Law of Insta Novels] Excessive Thinking.
 1890737|||쓰레기 서브공에 빙의했다|||I Possessed the Trash Second Male Lead
 1890738|||천조국 방산기밀을 다크웹에서 주움|||I Found U.S. Defense Secrets on the Dark Web
 1890740|||역대급 특성 강탈자의 회귀|||The Return of the Greatest Trait Stealer
@@ -146698,6 +146700,7 @@
 1892628|||공작님의 꽃으로 키워지게 되었습니다.|||I Was Raised to Be the Duke's Flower.
 1892630|||월하신은 연애를 모른다|||The Moon God Knows Nothing About Love
 1892631|||옆집 아저씨는 처음이라|||My First Time with the Man Next Door
+1892633|||鬼門錄 (귀문록, 귀신의 세계)|||Gwimunrok: Record of the Ghost Gate (Realm of Spirits)
 1892634|||임시|||Temporary
 1892638|||어느날 갑자기 회귀했다.|||One Day, I Suddenly Regressed.
 1892639|||없었던 일이 되지 않도록|||So It Doesn't All Disappear
@@ -238443,11 +238446,9 @@
 1886312|||ㄴ|||
 1886519|||ㆍ|||
 1887427|||.|||
-1888325|||중생 후 다섯 명의 권신을 거두었다|||
 1888696|||일인군단(一人軍團)|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
-1890735|||[인소의 법칙] 과잉사고(過剩思考).|||
 1890983|||[화산귀환] 천하제일 (天下第一)|||
 1891144|||설 하 : 偰 河|||
 1891200|||1|||
@@ -238460,7 +238461,6 @@
 1892227|||무귀 (無歸) : 돌아갈 곳이 없는|||
 1892425|||[의다살/메이플] 雪中梅|||
 1892428|||[도리벤/오란고교] 하니노즈카의 무도(武道)|||
-1892633|||鬼門錄 (귀문록, 귀신의 세계)|||
 1892665|||번학무사 (番學武士)|||
 1892741|||망지기담(蟒之奇譚)|||
 1892819|||상산(常山)|||
