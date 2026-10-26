@@ -153,6 +153,18 @@ class ReaderAdapterTest {
         }
     }
 
+    @Test
+    fun diagnosticRepeatedChapter() = runBlocking {
+        val log = com.shirochi.npia.core.JobLogging { level, message -> println("DIAG $level $message") }
+        val runtime = ReaderRuntime.create(FixtureHttp(Fixtures.sudugu), log, verbose = true)
+        println("DIAG open " + runtime.call("openBook", listOf("https://www.sudugu.com/1001/", null, null, emptyMap<String, String>()), 30).take(200))
+        for (url in listOf("/1001/3.html", "/1001/3.html", "https://www.sudugu.com/1001/2.html", "/1001/2.html")) {
+            val outcome = runCatching { runtime.call("parseChapter", listOf(url, "x", false, null), 15) }
+            println("DIAG chapter $url -> ${outcome.getOrNull()?.take(200) ?: outcome.exceptionOrNull()}")
+        }
+        runtime.close()
+    }
+
     // Chapter HTML
 
     @Test
