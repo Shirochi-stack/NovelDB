@@ -18,27 +18,92 @@ public struct UploadResult: Codable, Sendable, Hashable {
         self.expiresAt = expiresAt
         self.uploadedAt = uploadedAt
     }
+
+    public func isExpired(at date: Date = Date()) -> Bool {
+        guard let expiresAt else { return false }
+        return expiresAt <= date
+    }
 }
 
-public struct UploadProgress: Sendable {
+public struct UploadProgress: Sendable, Equatable {
     public var sentBytes: Int64
     public var totalBytes: Int64
+
+    public init(sentBytes: Int64, totalBytes: Int64) {
+        self.sentBytes = sentBytes
+        self.totalBytes = totalBytes
+    }
+
+    public var fraction: Double {
+        totalBytes > 0 ? min(1, Double(sentBytes) / Double(totalBytes)) : 0
+    }
 }
 
 public enum UploadError: Error, Equatable, LocalizedError {
     case notImplemented(String)
     case tooLarge(host: String, limitBytes: Int64)
     case notSignedIn(String)
+    case notConfigured(String)
     case rejected(host: String, message: String)
+    case badResponse(host: String, status: Int, body: String)
 
     public var errorDescription: String? {
         switch self {
         case .notImplemented(let host): return "\(host) upload is not available in this build yet."
         case .tooLarge(let host, let limit): return "\(host) accepts files up to \(ByteCountFormatter.string(fromByteCount: limit, countStyle: .file))."
         case .notSignedIn(let host): return "Sign in to \(host) first."
+        case .notConfigured(let what): return "\(what) is not configured in this build."
         case .rejected(let host, let message): return "\(host) rejected the upload: \(message)"
+        case .badResponse(let host, let status, let body): return "\(host) returned HTTP \(status): \(body)"
         }
     }
+}
+
+/// Credentials for account-based hosts, kept in `SecretStore` next to the core keys.
+public extension SecretKey {
+    /// Pixeldrain API key (pixeldrain.com/user/api_keys). Anonymous uploads were removed.
+    static let pixeldrainAPIKey = SecretKey(rawValue: "upload.pixeldrain.key")
+    /// Optional Gofile account token; guest uploads work without it.
+    static let gofileToken = SecretKey(rawValue: "upload.gofile.token")
+    /// Optional Catbox user hash so uploads show up in the account.
+    static let catboxUserHash = SecretKey(rawValue: "upload.catbox.userhash")
+}
+
+/// Everything an uploader needs besides the file. Tests swap the session for a stub `URLProtocol`.
+public struct UploadContext: Sendable {
+    public var session: URLSession
+    public var secrets: any SecretStore
+    public var settings: UploadSettings
+    /// nil until the Google OAuth client ID is filled in (see `GoogleOAuthConfig`).
+    public var googleOAuth: GoogleOAuthConfig?
+    /// Where multipart bodies and folder zips are staged.
+    public var temporaryDirectory: URL
+    public var now: @Sendable () -> Date
+
+    public init(
+        session: URLSession = UploadContext.defaultSession,
+        secrets: any SecretStore = KeychainSecretStore(),
+        settings: UploadSettings = UploadSettings(),
+        googleOAuth: GoogleOAuthConfig? = GoogleOAuthConfig.fromBundle(),
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.session = session
+        self.secrets = secrets
+        self.settings = settings
+        self.googleOAuth = googleOAuth
+        self.temporaryDirectory = temporaryDirectory
+        self.now = now
+    }
+
+    /// Long resource timeout so multi-GB uploads on slow links are not cut off.
+    public static let defaultSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 24 * 3_600
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
 }
 
 /// One share-link host. Ports of the `_upload_to_*` helpers in the desktop `bot.py`, plus
@@ -52,57 +117,94 @@ public protocol Uploader: Sendable {
     /// How long anonymous uploads stay up; nil for permanent or account storage.
     var retention: TimeInterval? { get }
     var requiresAccount: Bool { get }
-    func upload(_ file: URL, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> UploadResult
+    /// False when an account host has no credentials yet, so the UI can show "Sign in".
+    func isReady(_ context: UploadContext) -> Bool
+    func upload(_ file: URL, context: UploadContext, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> UploadResult
 }
 
 public extension Uploader {
+    func isReady(_ context: UploadContext) -> Bool { true }
+
     func check(_ file: URL) throws {
         guard let maxBytes else { return }
         let size = Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         if size > maxBytes { throw UploadError.tooLarge(host: displayName, limitBytes: maxBytes) }
     }
-}
 
-/// Placeholder until the upload workstream ports the host.
-public struct PendingUploader: Uploader {
-    public let id: String
-    public let displayName: String
-    public let maxBytes: Int64?
-    public let retention: TimeInterval?
-    public let requiresAccount: Bool
+    func upload(_ file: URL, progress: (@Sendable (UploadProgress) -> Void)? = nil) async throws -> UploadResult {
+        try await upload(file, context: UploadContext(), progress: progress)
+    }
 
-    public func upload(_ file: URL, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> UploadResult {
-        throw UploadError.notImplemented(displayName)
+    func result(for file: URL, link: URL, deleteLink: URL? = nil, context: UploadContext) -> UploadResult {
+        let now = context.now()
+        return UploadResult(
+            hostID: id,
+            fileName: file.lastPathComponent,
+            link: link,
+            deleteLink: deleteLink,
+            expiresAt: retention.map { now.addingTimeInterval($0) },
+            uploadedAt: now
+        )
     }
 }
 
 public enum UploaderCatalog {
-    // TODO(upload workstream): replace each placeholder with a real uploader and confirm the
-    // current limits; bot.py's gofile code uses a retired server-lookup endpoint.
+    // Limits checked against each host's docs in October 2026. 0x0.st, file.io and
+    // transfer.sh from bot.py are gone or closed to anonymous uploads and are not ported.
     public static let all: [any Uploader] = [
-        PendingUploader(id: "tempsh", displayName: "temp.sh", maxBytes: 4_000_000_000, retention: 3 * 86_400, requiresAccount: false),
-        PendingUploader(id: "gofile", displayName: "Gofile", maxBytes: nil, retention: nil, requiresAccount: false),
-        PendingUploader(id: "catbox", displayName: "Catbox", maxBytes: 200_000_000, retention: nil, requiresAccount: false),
-        PendingUploader(id: "pixeldrain", displayName: "Pixeldrain", maxBytes: nil, retention: nil, requiresAccount: false),
-        PendingUploader(id: "tmpfiles", displayName: "tmpfiles", maxBytes: 100_000_000, retention: 3_600, requiresAccount: false),
-        PendingUploader(id: "krakenfiles", displayName: "KrakenFiles", maxBytes: nil, retention: nil, requiresAccount: false),
-        PendingUploader(id: "sendcm", displayName: "Send.cm", maxBytes: nil, retention: nil, requiresAccount: false),
-        PendingUploader(id: "gdrive", displayName: "Google Drive", maxBytes: nil, retention: nil, requiresAccount: true),
+        TempShUploader(),
+        GofileUploader(),
+        CatboxUploader(),
+        PixeldrainUploader(),
+        TmpfilesUploader(),
+        KrakenFilesUploader(),
+        SendNowUploader(),
+        GoogleDriveUploader(),
     ]
 
+    /// Ids that were renamed; old settings keep working.
+    static let aliases = ["sendcm": "sendnow", "google_drive": "gdrive"]
+
     public static func uploader(id: String) -> (any Uploader)? {
-        all.first { $0.id == id }
+        let id = aliases[id] ?? id
+        return all.first { $0.id == id }
     }
 
-    /// Tries each configured host in order and returns the first success.
-    public static func upload(_ file: URL, settings: UploadSettings, progress: (@Sendable (UploadProgress) -> Void)? = nil) async throws -> UploadResult {
-        var lastError: Error = UploadError.notImplemented("upload")
+    /// Tries each configured host in order and returns the first success. Folders (separate
+    /// TXT output) are zipped first. Successful uploads are added to `history`.
+    public static func upload(
+        _ file: URL,
+        settings: UploadSettings,
+        context: UploadContext? = nil,
+        history: UploadHistoryStore? = .shared,
+        progress: (@Sendable (UploadProgress) -> Void)? = nil
+    ) async throws -> UploadResult {
+        var context = context ?? UploadContext(settings: settings)
+        context.settings = settings
+
+        var payload = file
+        var staged: URL?
+        if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            payload = try FolderArchiver.zip(file, in: context.temporaryDirectory)
+            staged = payload.deletingLastPathComponent()
+        }
+        defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
+
+        var lastError: Error = UploadError.notConfigured("No upload host")
         for id in settings.hosts {
             guard let uploader = uploader(id: id) else { continue }
+            guard uploader.isReady(context) else {
+                lastError = UploadError.notSignedIn(uploader.displayName)
+                continue
+            }
             do {
-                try uploader.check(file)
-                return try await uploader.upload(file, progress: progress)
+                try uploader.check(payload)
+                let result = try await uploader.upload(payload, context: context, progress: progress)
+                history?.add(result)
+                return result
             } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as URLError where error.code == .cancelled {
                 throw CancellationError()
             } catch {
                 lastError = error
