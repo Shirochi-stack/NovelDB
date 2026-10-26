@@ -91,14 +91,17 @@ final class MaruAdapterTests: XCTestCase {
         XCTAssertEqual(body.images.map(\.filename), ["images/0001_01.webp"])
 
         http.on("episodes/11", json: ["ok": true, "item": ["body": [["kind": "paid"]]]])
-        XCTAssertTrue(isRefused(try await MaruAdapter().parseChapter(ref, book: book, context: makeContext(http))))
+        let awaited1 = try await MaruAdapter().parseChapter(ref, book: book, context: makeContext(http))
+        XCTAssertTrue(isRefused(awaited1))
 
         http.on("episodes/11", json: ["ok": true, "item": ["ready": false, "body": []]])
-        XCTAssertTrue(isRefused(try await MaruAdapter().parseChapter(ref, book: book, context: makeContext(http))))
+        let awaited2 = try await MaruAdapter().parseChapter(ref, book: book, context: makeContext(http))
+        XCTAssertTrue(isRefused(awaited2))
 
         http.on("episodes/11", json: ["ok": true, "item": ["embed_url": "/files/11.txt", "body": []]])
         http.on("files/11.txt", "\u{feff}임베드 본문\n끝")
-        let embedded = try XCTUnwrap(content(try await MaruAdapter().parseChapter(ref, book: book, context: makeContext(http))))
+        let awaited3 = try await MaruAdapter().parseChapter(ref, book: book, context: makeContext(http))
+        let embedded = try XCTUnwrap(content(awaited3))
         XCTAssertTrue(embedded.html.contains("<p>임베드 본문</p>"))
     }
 }
@@ -159,7 +162,8 @@ final class YedujiAdapterTests: XCTestCase {
         paid.isPaid = true
         let http = RoutedHTTP()
         let book = BookInfo(source: .yeduji, id: "77", url: URL(string: "https://yeduji.com/book/77/")!, title: "t")
-        XCTAssertTrue(isRefused(try await YedujiAdapter().parseChapter(paid, book: book, context: makeContext(http))))
+        let awaited4 = try await YedujiAdapter().parseChapter(paid, book: book, context: makeContext(http))
+        XCTAssertTrue(isRefused(awaited4))
         XCTAssertTrue(http.requests.isEmpty)
     }
 }

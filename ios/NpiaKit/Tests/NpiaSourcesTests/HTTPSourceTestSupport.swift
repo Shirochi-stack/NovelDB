@@ -42,11 +42,14 @@ final class RoutedHTTP: HTTPFetching, @unchecked Sendable {
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        lock.lock()
+        respond(request)
+    }
+
+    private func respond(_ request: HTTPRequest) -> HTTPResponse {
+        lock.lock(); defer { lock.unlock() }
         requests.append(request)
         let key = routes.keys.filter { request.url.absoluteString.contains($0) }.max { $0.count < $1.count }
         let reply = key.flatMap { routes[$0] }
-        lock.unlock()
         guard let reply else {
             return HTTPResponse(url: request.url, status: 404, headers: [:], body: Data())
         }

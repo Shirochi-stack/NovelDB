@@ -98,7 +98,8 @@ final class JaraAdapterTests: XCTestCase {
         ])
         let ref = ChapterRef(id: "902", index: 2, title: "2화 - 만남", url: URL(string: "https://www.\(host)/viewer?cid=902&bookCode=77&sortno=2"))
         let book = BookInfo(source: .jara, id: "77", url: URL(string: "https://www.\(host)/book/77")!, title: "t")
-        let body = try XCTUnwrap(content(try await JaraAdapter().parseChapter(ref, book: book, context: makeContext(http))))
+        let awaited1 = try await JaraAdapter().parseChapter(ref, book: book, context: makeContext(http))
+        let body = try XCTUnwrap(content(awaited1))
         XCTAssertEqual(body.html, """
         <div class="jara-content">
         <p>본문 첫 줄</p>
@@ -116,7 +117,8 @@ final class JaraAdapterTests: XCTestCase {
         http.on("/v1/book/chapter.joa", json: ["status": 0, "error_code": 9200, "message": "로그인"])
         let ref = ChapterRef(id: "902", index: 2, title: "2화", isPaid: true)
         let book = BookInfo(source: .jara, id: "77", url: URL(string: "https://www.\(host)/book/77")!, title: "t")
-        XCTAssertTrue(isRefused(try await JaraAdapter().parseChapter(ref, book: book, context: makeContext(http))))
+        let awaited2 = try await JaraAdapter().parseChapter(ref, book: book, context: makeContext(http))
+        XCTAssertTrue(isRefused(awaited2))
     }
 
     func testPlainTextHTMLChapter() throws {
