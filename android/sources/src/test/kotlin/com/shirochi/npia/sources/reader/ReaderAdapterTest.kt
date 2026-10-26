@@ -154,15 +154,21 @@ class ReaderAdapterTest {
     }
 
     @Test
-    fun diagnosticRepeatedChapter() = runBlocking {
+    fun diagnosticCloseThenReopen() = runBlocking {
         val log = com.shirochi.npia.core.JobLogging { level, message -> println("DIAG $level $message") }
-        val runtime = ReaderRuntime.create(FixtureHttp(Fixtures.sudugu), log, verbose = true)
-        println("DIAG open " + runtime.call("openBook", listOf("https://www.sudugu.com/1001/", null, null, emptyMap<String, String>()), 30).take(200))
-        for (url in listOf("/1001/3.html", "/1001/3.html", "https://www.sudugu.com/1001/2.html", "/1001/2.html")) {
-            val outcome = runCatching { runtime.call("parseChapter", listOf(url, "x", false, null), 15) }
-            println("DIAG chapter $url -> ${outcome.getOrNull()?.take(200) ?: outcome.exceptionOrNull()}")
-        }
-        runtime.close()
+        val open = listOf("https://www.sudugu.com/1001/", null, null, emptyMap<String, String>())
+        val first = ReaderRuntime.create(FixtureHttp(Fixtures.sudugu), log, verbose = true)
+        println("DIAG first open " + runCatching { first.call("openBook", open, 15).take(60) })
+        first.close()
+        println("DIAG first closed")
+        val second = ReaderRuntime.create(FixtureHttp(Fixtures.sudugu), log, verbose = true)
+        println("DIAG second created")
+        println("DIAG second open " + runCatching { second.call("openBook", open, 15).take(60) })
+        println("DIAG second chapter " + runCatching { second.call("parseChapter", listOf("/1001/3.html", "x", false, null), 15).take(100) })
+        second.close()
+        val session = ReaderBookSession.open("https://www.sudugu.com/1001/", makeContext(Fixtures.sudugu))
+        println("DIAG session chapter " + runCatching { session.chapter(session.book.chapters[2]) })
+        session.close()
     }
 
     // Chapter HTML
