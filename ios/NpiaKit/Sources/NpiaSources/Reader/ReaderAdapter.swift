@@ -54,12 +54,12 @@ final class ReaderRules: @unchecked Sendable {
     }
 
     /// Splits chapter HTML into text and image blocks (`_reader_html_blocks`).
-    func blocks(html: String, baseURL: URL, attachments: [String: String] = [:]) throws -> [ReaderBlock] {
+    func blocks(html: String, baseURL: URL, attachments: [String: String] = [:]) throws -> [RuleBlock] {
         lock.lock()
         defer { lock.unlock() }
         guard let runtime = loadedRuntime() else { throw ReaderRuntime.RuntimeError.loadFailed("rules unavailable") }
         let json = try runtime.callSync("htmlBlocks", [html, baseURL.absoluteString, attachments])
-        return try ReaderBlock.decodeList(json)
+        return try RuleBlock.decodeList(json)
     }
 
     /// Lock held.
@@ -223,7 +223,7 @@ final class ReaderBookSession: @unchecked Sendable {
         guard let info = chapters[ref.id] else {
             return .failed(ref, message: "Chapter \(ref.index) is not in the book's chapter list.")
         }
-        let blocks: [ReaderBlock]
+        let blocks: [RuleBlock]
         do {
             switch engine {
             case .script(let runtime):
@@ -301,7 +301,7 @@ struct ReaderBookPayload: Decodable {
 
 struct ReaderChapterPayload: Decodable {
     var chapterName: String?
-    var blocks: [ReaderBlock]
+    var blocks: [RuleBlock]
 
     static func decode(_ json: String) throws -> ReaderChapterPayload {
         try JSONDecoder().decode(ReaderChapterPayload.self, from: Data(json.utf8))
@@ -309,7 +309,7 @@ struct ReaderChapterPayload: Decodable {
 }
 
 /// One `('text'|'img', value)` pair from `reader_host.js`.
-enum ReaderBlock: Decodable, Equatable {
+enum RuleBlock: Decodable, Equatable {
     case text(String)
     case image(URL)
 
@@ -324,8 +324,8 @@ enum ReaderBlock: Decodable, Equatable {
         }
     }
 
-    static func decodeList(_ json: String) throws -> [ReaderBlock] {
-        try JSONDecoder().decode([ReaderBlock].self, from: Data(json.utf8))
+    static func decodeList(_ json: String) throws -> [RuleBlock] {
+        try JSONDecoder().decode([RuleBlock].self, from: Data(json.utf8))
     }
 }
 
@@ -335,7 +335,7 @@ enum ReaderBlock: Decodable, Equatable {
 enum ReaderChapterBuilder {
     static let cssClass = "reader-content"
 
-    static func content(_ ref: ChapterRef, blocks: [ReaderBlock]) -> ChapterContent? {
+    static func content(_ ref: ChapterRef, blocks: [RuleBlock]) -> ChapterContent? {
         var blocks = blocks
         if case .text(let first)? = blocks.first, normalizedTitle(first) == normalizedTitle(ref.title) {
             blocks.removeFirst()
