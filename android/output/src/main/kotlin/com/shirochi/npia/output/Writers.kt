@@ -55,15 +55,3 @@ object Writers {
 class PendingWriter(override val format: OutputFormat) : BookWriter {
     override suspend fun write(bundle: BookBundle, baseName: String, directory: File): File = throw OutputNotImplemented(format)
 }
-
-/** TODO(npia core workstream): EPUB 3 via java.util.zip, matching the desktop `epub_generator.py` and the iOS `EPUBWriter`. */
-class EpubWriter : BookWriter {
-    override val format = OutputFormat.EPUB
-    override suspend fun write(bundle: BookBundle, baseName: String, directory: File): File = throw OutputNotImplemented(format)
-}
-
-/** TODO(npia core workstream): single-file HTML with embedded images. */
-class HtmlWriter : BookWriter {
-    override val format = OutputFormat.HTML
-    override suspend fun write(bundle: BookBundle, baseName: String, directory: File): File = throw OutputNotImplemented(format)
-}
