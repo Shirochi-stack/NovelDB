@@ -127,12 +127,12 @@ final class SfcAdapterTests: XCTestCase {
 
     func testVIPChapterThroughAppAPI() async throws {
         let http = RoutedHTTP()
-        http.on("/Chaps/7002", json: ["status": ["httpCode": 200], "data": ["title": "第二章 付费", "expand": ["content": "\u{5ba6}一行\n二行"]]])
+        http.on("/Chaps/7002", json: ["status": ["httpCode": 200], "data": ["title": "第二章 付费", "expand": ["content": "\u{5ba6}ab\ncd"]]])
         let secrets = InMemorySecretStore([SfcAppAPI.cookieKey: ".SFCommunity=a; session_APP=b"])
         let ref = ChapterRef(id: "7002", index: 2, title: "第二章", url: URL(string: "https://\(host)/Novel/12345/600/7002/"), isPaid: true)
         let awaited4 = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http, secrets: secrets))
         let body = try XCTUnwrap(content(awaited4))
-        XCTAssertEqual(body.html, "<div><p>\u{554a}一行</p><p>二行</p></div>")
+        XCTAssertEqual(body.html, "<div><p>\u{554a}ab</p><p>cd</p></div>")
         XCTAssertEqual(body.ref.title, "第二章 付费")
         XCTAssertEqual(http.requested("/Chaps/7002").first?.headers["Cookie"], ".SFCommunity=a; session_APP=b")
 
