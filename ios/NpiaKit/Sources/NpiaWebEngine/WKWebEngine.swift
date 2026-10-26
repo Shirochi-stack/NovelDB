@@ -67,7 +67,7 @@ public final class WKWebEngine: WebEngineProviding, @unchecked Sendable {
         await CookieBridge.shared.copyToShared(from: store.httpCookieStore)
     }
 
-    @MainActor private static var stores: [String: WKWebsiteDataStore] = [:]
+    @MainActor static var stores: [String: WKWebsiteDataStore] = [:]
 
     @MainActor
     static func dataStore(for profile: String, persistent: Bool) -> WKWebsiteDataStore {

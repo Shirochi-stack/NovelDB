@@ -17,6 +17,8 @@ final class AppModel {
     private(set) var uploadHistory: [UploadResult] = []
     /// Shown as an alert by the root view.
     var message: String?
+    /// URL handed to the Add screen (from the Browser tab's "Download this book").
+    var pendingAddText: String?
     /// Downloads that run at once; the rest wait in the queue.
     var maxConcurrentJobs = 1
 
