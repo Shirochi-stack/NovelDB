@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.19"),
+        .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.7.0"),
     ],
     targets: [
         // Models, settings, secrets, and the protocols every other module implements.
@@ -31,7 +32,7 @@ let package = Package(
         // Share-link hosts (temp.sh, gofile, Google Drive, ...).
         .target(name: "NpiaUpload", dependencies: ["NpiaCore", "ZIPFoundation"]),
         // One adapter per source codename.
-        .target(name: "NpiaSources", dependencies: ["NpiaCore"]),
+        .target(name: "NpiaSources", dependencies: ["NpiaCore", "SwiftSoup"]),
         // Download queue that wires sources, images, writers, and uploads together.
         .target(
             name: "NpiaPipeline",
