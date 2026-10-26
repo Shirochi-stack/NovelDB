@@ -9,7 +9,7 @@ kotlin {
 
 dependencies {
     api(project(":core"))
-    implementation(libs.okhttp)
+    api(libs.okhttp)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
