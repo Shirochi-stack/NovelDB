@@ -141,7 +141,13 @@ internal class ReaderRuntime private constructor(
      * through `__npia_native.settle`.
      */
     private suspend fun eval(code: String, filename: String): Any? = try {
-        QuickJsInstances.lock.withLock { js.evaluate<Any?>(code, filename) }
+        // evaluate() only suspends on quickjs-kt's own mutexes, and resumes on this runtime's thread.
+        QuickJsInstances.lock.lock()
+        try {
+            js.evaluate<Any?>(code, filename)
+        } finally {
+            QuickJsInstances.lock.unlock()
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
