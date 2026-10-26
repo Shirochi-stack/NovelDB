@@ -154,21 +154,19 @@ class ReaderAdapterTest {
     }
 
     @Test
-    fun diagnosticCloseThenReopen() = runBlocking {
-        val log = com.shirochi.npia.core.JobLogging { level, message -> println("DIAG $level $message") }
+    fun diagnosticReuseAfterConcurrentChapters() = runBlocking {
+        val log = com.shirochi.npia.core.JobLogging { level, message -> println("DIAG ${System.currentTimeMillis() % 100000} $level $message") }
         val open = listOf("https://www.sudugu.com/1001/", null, null, emptyMap<String, String>())
-        val first = ReaderRuntime.create(FixtureHttp(Fixtures.sudugu), log, verbose = true)
-        println("DIAG first open " + runCatching { first.call("openBook", open, 15).take(60) })
-        first.close()
-        println("DIAG first closed")
-        val second = ReaderRuntime.create(FixtureHttp(Fixtures.sudugu), log, verbose = true)
-        println("DIAG second created")
-        println("DIAG second open " + runCatching { second.call("openBook", open, 15).take(60) })
-        println("DIAG second chapter " + runCatching { second.call("parseChapter", listOf("/1001/3.html", "x", false, null), 15).take(100) })
-        second.close()
-        val session = ReaderBookSession.open("https://www.sudugu.com/1001/", makeContext(Fixtures.sudugu))
-        println("DIAG session chapter " + runCatching { session.chapter(session.book.chapters[2]) })
-        session.close()
+        val runtime = ReaderRuntime.create(FixtureHttp(Fixtures.sudugu), log, verbose = true)
+        println("DIAG open " + runCatching { runtime.call("openBook", open, 15).take(40) })
+        println("DIAG ch1 " + runCatching { runtime.call("parseChapter", listOf("/1001/1.html", "x", false, null), 15).take(80) })
+        val pair = listOf("/1001/2.html", "/1001/3.html").map { url ->
+            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.Default) { runCatching { runtime.call("parseChapter", listOf(url, "x", false, null), 15).take(80) } }
+        }.map { it.await() }
+        println("DIAG pair $pair")
+        println("DIAG again " + runCatching { runtime.call("parseChapter", listOf("/1001/3.html", "x", false, null), 15).take(80) })
+        println("DIAG again2 " + runCatching { runtime.call("parseChapter", listOf("/1001/1.html", "x", false, null), 15).take(80) })
+        runtime.close()
     }
 
     // Chapter HTML
