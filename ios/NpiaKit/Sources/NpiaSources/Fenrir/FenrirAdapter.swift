@@ -91,10 +91,11 @@ public struct FenrirAdapter: SourceAdapter {
         if !pending.isEmpty {
             let slug = book.id
             let logger = context.logger
+            let report = context.onChapter
             do {
                 try await context.web.withPage(profile: WebProfile.external) { (page: any WebPageDriving) -> Void in
                     try await Self.run(page: page, refs: refs, slug: slug, pending: &pending,
-                                       results: &results, refusals: &refusals, logger: logger)
+                                       results: &results, refusals: &refusals, logger: logger, report: report)
                 }
             } catch is CancellationError {
                 throw CancellationError()
@@ -126,7 +127,8 @@ public struct FenrirAdapter: SourceAdapter {
 
     private static func run(
         page: any WebPageDriving, refs: [ChapterRef], slug: String, pending: inout [Int],
-        results: inout [ChapterResult?], refusals: inout [Int: String], logger: any JobLogging
+        results: inout [ChapterResult?], refusals: inout [Int: String], logger: any JobLogging,
+        report: @Sendable (ChapterResult) -> Void
     ) async throws {
         guard let firstURL = refs[pending[0]].url else { return }
         try await page.load(firstURL, until: .domContentLoaded, timeout: 45)
@@ -178,6 +180,7 @@ public struct FenrirAdapter: SourceAdapter {
                 }
                 if FenrirParsing.paidLocked(payload) {
                     results[offset] = .refused(ref, reason: "Paid chapter that this account does not own")
+                    report(.refused(ref, reason: "Paid chapter that this account does not own"))
                     continue
                 }
                 let format = FenrirParsing.string(payload["content_format"])
@@ -188,9 +191,11 @@ public struct FenrirAdapter: SourceAdapter {
                 }
                 if let content = FenrirParsing.buildChapter(payload: payload, ref: ref) {
                     results[offset] = .content(content)
+                    report(.content(content))
                 } else {
                     logger.log(.warning, "[fenrir] Empty chapter: \(ref.title)")
                     results[offset] = .failed(ref, message: "Chapter content was empty")
+                    report(.failed(ref, message: "Chapter content was empty"))
                 }
             }
             pending = retry

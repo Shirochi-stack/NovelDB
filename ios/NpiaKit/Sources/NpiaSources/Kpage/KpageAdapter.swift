@@ -156,6 +156,7 @@ public struct KpageAdapter: SourceAdapter {
             }
             while let (position, result) = try await group.next() {
                 results[position] = result
+                context.onChapter(result)
                 if let item = pending.popLast() {
                     group.addTask { try await self.chapterTask(item.offset, item.element, context: context, leading: leading) }
                 }
