@@ -108,7 +108,7 @@ abstract class UploadTestBase {
             headers.forEach { (key, value) -> setHeader(key, value) }
         }
 
-    protected fun reply(text: String, status: Int = 200, headers: Map<String, String> = emptyMap()) =
+    internal fun reply(text: String, status: Int = 200, headers: Map<String, String> = emptyMap()) =
         HttpReply(status, headers, text.toByteArray(Charsets.UTF_8))
 
     companion object {
