@@ -1,57 +1,121 @@
 package com.shirochi.npia.webengine
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import com.shirochi.npia.core.SharedCookies
 import com.shirochi.npia.core.WebEngineException
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.WebLoadState
 import com.shirochi.npia.core.WebPageDriving
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.json.JSONArray
+import kotlinx.coroutines.withTimeoutOrNull
+import java.lang.ref.WeakReference
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.resume
 
 /**
- * Offscreen Android WebView pages, the replacement for the desktop Playwright/CDP driver.
+ * Offscreen Android WebView pages, the replacement for the desktop Playwright/CDP driver and the
+ * iOS `WKWebEngine`.
  *
- * TODO(webengine workstream): per-profile isolation (WebView `setDataDirectorySuffix` only works
- * per process, so profiles share one cookie store unless split by process), a `CookieJar` for
- * `:net` backed by `CookieManager`, fetch/XHR capture, `presentLogin` as a visible screen, and a
- * page pool honouring `threads`.
+ * Profiles: WebView keeps one cookie store and one storage directory per process
+ * (`WebView.setDataDirectorySuffix` can only be called once, before the first WebView), so every
+ * profile name shares the same `CookieManager`, localStorage and cache. The desktop external
+ * downloader already used one browser profile for all login sources, so the only real split is
+ * npia against the rest, and both sign in to different hosts. `clearProfile` therefore clears
+ * everything. A true split would need a second process with its own suffix.
+ *
+ * Cookies: `WebViewCookieJar` lets OkHttp read and write `CookieManager` directly, so `:net`
+ * requests and pages share one login with nothing to copy.
+ *
+ * Offscreen pages are attached behind the current activity's content (like the hidden window on
+ * iOS), so Chromium treats them as visible and keeps timers and animation frames running. With no
+ * activity they run detached with a manual layout.
  */
-class AndroidWebEngine(private val context: Context) : WebEngineProviding {
+class AndroidWebEngine(
+    context: Context,
+    private val loginPresenter: WebLoginPresenting = WebLoginCoordinator,
+) : WebEngineProviding {
+    private val appContext = context.applicationContext
+
+    init {
+        (appContext as? Application)?.let { HiddenHost.install(it) }
+        SharedCookies.store = BackendSharedCookies()
+    }
+
+    /** A `CookieJar` for `OkHttpFetcher` that shares this engine's cookies. */
+    fun cookieJar(): WebViewCookieJar = WebViewCookieJar()
+
     override suspend fun newPage(profile: String): WebPageDriving = withContext(Dispatchers.Main) {
-        AndroidWebPage(WebView(context.applicationContext))
+        AndroidWebPage(WebView(appContext))
     }
 
     override suspend fun presentLogin(url: String, profile: String) {
-        throw WebEngineException("Login screens are not available in this build yet.")
+        withContext(Dispatchers.Main) { WebLoginSession(url, profile).run(loginPresenter) }
+        flushCookies()
+    }
+
+    /** Writes cookies to disk so a login survives the app being killed. */
+    suspend fun flushCookies() = withContext(Dispatchers.Main) { CookieManager.getInstance().flush() }
+
+    /**
+     * Signs out of every site. All profiles share one store on Android (see the class comment), so
+     * `profile` is accepted for parity with iOS and does not narrow what is removed.
+     */
+    suspend fun clearProfile(@Suppress("UNUSED_PARAMETER") profile: String) = withContext(Dispatchers.Main) {
+        suspendCancellableCoroutine { continuation ->
+            CookieManager.getInstance().removeAllCookies { continuation.resume(Unit) }
+        }
+        CookieManager.getInstance().flush()
+        WebStorage.getInstance().deleteAllData()
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
     private var pending: CompletableDeferred<Unit>? = null
+    private var navigationToken = 0
     private var waitFor = WebLoadState.LOAD
-    private val initScripts = mutableListOf<String>()
+    private val fallbackInitScripts = mutableListOf<String>()
+    private val results = ConcurrentHashMap<String, CompletableDeferred<Result<String>>>()
+    private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
     init {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
-        webView.layout(0, 0, 1080, 2400)
+        webView.settings.mediaPlaybackRequiresUserGesture = false
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        webView.addJavascriptInterface(Bridge(), ScriptBridge.BRIDGE_NAME)
+        webView.measure(
+            View.MeasureSpec.makeMeasureSpec(WIDTH, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(HEIGHT, View.MeasureSpec.EXACTLY),
+        )
+        webView.layout(0, 0, WIDTH, HEIGHT)
+        HiddenHost.attach(webView)
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                initScripts.forEach { view.evaluateJavascript(it, null) }
-            }
-
-            override fun onPageCommitVisible(view: WebView, url: String?) {
-                if (waitFor == WebLoadState.DOM_CONTENT_LOADED) pending?.complete(Unit)
+                if (!documentStart) fallbackInitScripts.forEach { view.evaluateJavascript(it, null) }
+                if (waitFor == WebLoadState.DOM_CONTENT_LOADED) watchReadyState(navigationToken)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
@@ -59,66 +123,155 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) pending?.completeExceptionally(WebEngineException(error.description.toString()))
+                if (request.isForMainFrame) {
+                    pending?.completeExceptionally(WebEngineException("Navigation failed: ${error.description}"))
+                }
+            }
+
+            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                pending?.completeExceptionally(WebEngineException("Web content process terminated"))
+                return true
             }
         }
+    }
+
+    /** JavaScript interface; called on a WebView binder thread. */
+    private inner class Bridge {
+        @JavascriptInterface
+        fun resolve(id: String, ok: Boolean, payload: String?) {
+            results.remove(id)?.complete(ScriptBridge.outcome(ok, payload ?: "null"))
+        }
+    }
+
+    // Commit happens before DOMContentLoaded; poll readyState briefly, as on iOS.
+    private fun watchReadyState(token: Int) {
+        var attempts = 0
+        fun check() {
+            if (token != navigationToken || pending == null || attempts++ > 200) return
+            webView.evaluateJavascript("document.readyState") { raw ->
+                if (token != navigationToken) return@evaluateJavascript
+                val state = ScriptBridge.decodeString(raw)
+                if (state != null && state != "loading") pending?.complete(Unit) else webView.postDelayed({ check() }, 50)
+            }
+        }
+        check()
     }
 
     override suspend fun load(url: String, until: WebLoadState, timeoutSeconds: Long) {
         val done = CompletableDeferred<Unit>()
         withContext(Dispatchers.Main) {
-            pending?.cancel()
+            pending?.completeExceptionally(WebEngineException("Navigation superseded"))
             pending = done
+            navigationToken++
             waitFor = until
+            webView.settings.allowFileAccess = url.startsWith("file:")
             webView.loadUrl(url)
         }
         try {
-            withTimeout(timeoutSeconds * 1000) { done.await() }
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            withTimeout(timeoutSeconds.coerceAtLeast(1) * 1000) { done.await() }
+        } catch (e: TimeoutCancellationException) {
             throw WebEngineException("Timed out loading $url")
+        } finally {
+            withContext(Dispatchers.Main) { if (pending === done) pending = null }
         }
     }
 
     override suspend fun evaluateJson(functionBody: String): String {
-        // evaluateJavascript cannot await promises, so the result is parked on window and polled.
-        val slot = "__npia_" + System.nanoTime()
-        val start = "window.$slot = undefined; (async () => { $functionBody })()" +
-            ".then(v => { window.$slot = JSON.stringify(v === undefined ? null : v) ?? 'null'; })" +
-            ".catch(e => { window.$slot = JSON.stringify({__error: String(e)}); }); true;"
-        evaluate(start)
-        repeat(300) {
-            val raw = evaluate("window.$slot === undefined ? null : window.$slot")
-            if (raw != "null") {
-                val value = JSONArray("[$raw]").getString(0)
-                if (value.startsWith("{\"__error\"")) throw WebEngineException("Script failed: $value")
-                evaluate("delete window.$slot")
-                return value
+        val id = UUID.randomUUID().toString()
+        val result = CompletableDeferred<Result<String>>()
+        results[id] = result
+        try {
+            evaluate(ScriptBridge.wrap(id, functionBody))
+            // The bridge answers at once; polling covers pages that predate the interface.
+            repeat(SCRIPT_TIMEOUT_MS / POLL_MS) {
+                withTimeoutOrNull(POLL_MS.toLong()) { result.await() }?.let { return it.getOrThrow() }
+                ScriptBridge.decodePolled(evaluate(ScriptBridge.pollScript(id)))?.let { return it.getOrThrow() }
             }
-            kotlinx.coroutines.delay(100)
+            throw WebEngineException("Script timed out")
+        } finally {
+            results.remove(id)
         }
-        throw WebEngineException("Script timed out")
     }
 
-    override suspend fun addInitScript(source: String) {
-        withContext(Dispatchers.Main) { initScripts += source }
+    override suspend fun addInitScript(source: String) = withContext(Dispatchers.Main) {
+        if (documentStart) {
+            WebViewCompat.addDocumentStartJavaScript(webView, source, setOf("*"))
+        } else {
+            fallbackInitScripts += source
+        }
+        Unit
     }
 
     override suspend fun currentUrl(): String? = withContext(Dispatchers.Main) { webView.url }
 
     override suspend fun html(): String {
         val json = evaluateJson("return document.documentElement.outerHTML;")
-        return JSONArray("[$json]").getString(0)
+        return ScriptBridge.decodeString(json) ?: ""
     }
 
     override suspend fun close() = withContext(Dispatchers.Main) {
-        pending?.cancel()
+        pending?.completeExceptionally(WebEngineException("Page closed"))
+        pending = null
+        results.values.forEach { it.cancel() }
+        results.clear()
         webView.stopLoading()
+        HiddenHost.detach(webView)
+        webView.removeJavascriptInterface(ScriptBridge.BRIDGE_NAME)
         webView.destroy()
+        CookieManager.getInstance().flush()
     }
 
     private suspend fun evaluate(script: String): String = withContext(Dispatchers.Main) {
         val result = CompletableDeferred<String>()
         webView.evaluateJavascript(script) { result.complete(it ?: "null") }
         result.await()
+    }
+
+    private companion object {
+        const val WIDTH = 1280
+        const val HEIGHT = 2000
+        const val POLL_MS = 250
+        const val SCRIPT_TIMEOUT_MS = 60_000
+    }
+}
+
+/**
+ * Keeps offscreen pages inside the current activity's window, below its content view, so they
+ * count as visible. Tracks the resumed activity through lifecycle callbacks.
+ */
+internal object HiddenHost {
+    private var installed = false
+    private var activity: WeakReference<Activity>? = null
+
+    fun install(application: Application) {
+        if (installed) return
+        installed = true
+        application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: Activity) {
+                this@HiddenHost.activity = WeakReference(activity)
+            }
+
+            override fun onActivityDestroyed(activity: Activity) {
+                if (this@HiddenHost.activity?.get() === activity) this@HiddenHost.activity = null
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+        })
+    }
+
+    fun attach(view: WebView) {
+        val decor = activity?.get()?.window?.decorView as? ViewGroup ?: return
+        view.isFocusable = false
+        view.isClickable = false
+        view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        runCatching { decor.addView(view, 0, ViewGroup.LayoutParams(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1))) }
+    }
+
+    fun detach(view: WebView) {
+        (view.parent as? ViewGroup)?.removeView(view)
     }
 }

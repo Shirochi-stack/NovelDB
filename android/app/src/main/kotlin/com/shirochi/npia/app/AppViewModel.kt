@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.SettingsCoding
 import com.shirochi.npia.images.AndroidImageProcessor
+import com.shirochi.npia.net.OkHttpFetcher
 import com.shirochi.npia.pipeline.DownloadPipeline
 import com.shirochi.npia.pipeline.JobPhase
 import com.shirochi.npia.sources.SourceCatalog
@@ -66,6 +67,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             outputDirectory = outputDirectory,
             web = web,
             images = AndroidImageProcessor(_settings.value.images),
+            // Shares cookies with the web engine, so web-view logins apply to HTTP requests.
+            httpFactory = { OkHttpFetcher(it, web.cookieJar()) },
         )
         val settings = _settings.value
         running[job.id] = viewModelScope.launch(Dispatchers.Default) {

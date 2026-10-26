@@ -61,6 +61,25 @@ class OkHttpFetcher(
     private val client = client ?: OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .connectTimeout(20, TimeUnit.SECONDS)
+        // OkHttp replaces a caller's `Cookie` header with the jar's cookies; keep both instead.
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val explicit = request.header("Cookie")
+            if (explicit == null) {
+                chain.proceed(request)
+            } else {
+                chain.proceed(request.newBuilder().tag(ExplicitCookie::class.java, ExplicitCookie(explicit)).build())
+            }
+        }
+        .addNetworkInterceptor { chain ->
+            val request = chain.request()
+            val explicit = request.tag(ExplicitCookie::class.java)
+            if (explicit == null) {
+                chain.proceed(request)
+            } else {
+                chain.proceed(request.newBuilder().header("Cookie", mergeCookieHeaders(request.header("Cookie"), explicit.value)).build())
+            }
+        }
         .build()
 
     override suspend fun send(request: HttpRequest): HttpResponse {
@@ -97,10 +116,21 @@ class OkHttpFetcher(
 
         fun isRetryable(status: Int) = status == 429 || status in 500..599
 
+        /** Joins jar cookies with an explicit `Cookie` header; explicit values win by name. */
+        fun mergeCookieHeaders(jar: String?, explicit: String): String {
+            fun pairs(header: String?) = header.orEmpty().split(';').map { it.trim() }.filter { it.isNotEmpty() }
+            val explicitPairs = pairs(explicit)
+            val explicitNames = explicitPairs.map { it.substringBefore('=').trim() }.toSet()
+            val kept = pairs(jar).filter { it.substringBefore('=').trim() !in explicitNames }
+            return (explicitPairs + kept).joinToString("; ")
+        }
+
         fun backoffMillis(attempt: Int): Long =
             (min(30.0, 2.0.pow(attempt - 1)) * 1000).toLong() + Random.nextLong(0, 500)
     }
 }
+
+private class ExplicitCookie(val value: String)
 
 private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     enqueue(object : Callback {
