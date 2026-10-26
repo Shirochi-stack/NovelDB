@@ -32,6 +32,8 @@ targets:
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Google OAuth iOS client id for Drive uploads; see docs/upload.md.
+        NpiaGoogleDriveClientID: ""
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

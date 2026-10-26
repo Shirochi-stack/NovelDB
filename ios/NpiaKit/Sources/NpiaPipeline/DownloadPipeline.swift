@@ -87,7 +87,7 @@ public struct DownloadPipeline: Sendable {
 
         var uploads: [UploadResult] = []
         if settings.upload.autoUpload {
-            for file in files where !file.hasDirectoryPath {
+            for file in files {
                 onPhase(.uploading(file.lastPathComponent))
                 do {
                     uploads.append(try await UploaderCatalog.upload(file, settings: settings.upload))
