@@ -52,4 +52,24 @@ class OkHttpFetcherTest {
         assertEquals("POST", request.method)
         assertEquals("x=1", request.body.readUtf8())
     }
+
+    @Test
+    fun explicitCookieHeaderIsMergedWithJarCookies() = runTest {
+        server.enqueue(MockResponse().setBody("ok"))
+        val jar = object : okhttp3.CookieJar {
+            override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {}
+            override fun loadForRequest(url: okhttp3.HttpUrl) = listOf(
+                okhttp3.Cookie.Builder().name("sid").value("jar").hostOnlyDomain(url.host).build(),
+                okhttp3.Cookie.Builder().name("token").value("old").hostOnlyDomain(url.host).build(),
+            )
+        }
+        OkHttpFetcher(cookieJar = jar).get(server.url("/d").toString(), mapOf("Cookie" to "token=new; extra=1"))
+        assertEquals("token=new; extra=1; sid=jar", server.takeRequest().getHeader("Cookie"))
+    }
+
+    @Test
+    fun mergeCookieHeadersKeepsExplicitValues() {
+        assertEquals("a=1", OkHttpFetcher.mergeCookieHeaders(null, "a=1"))
+        assertEquals("a=1; b=2", OkHttpFetcher.mergeCookieHeaders("a=0; b=2", "a=1"))
+    }
 }

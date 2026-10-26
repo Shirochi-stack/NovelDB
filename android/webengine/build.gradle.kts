@@ -16,11 +16,18 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
     api(project(":core"))
+    // OkHttpFetcher and the CookieJar type the app wires to `WebViewCookieJar`.
+    api(project(":net"))
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.webkit)
     implementation(libs.coroutines.android)
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
 }
