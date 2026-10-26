@@ -1,99 +1,57 @@
 package com.shirochi.npia.app
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import com.shirochi.npia.core.AppSettings
-import com.shirochi.npia.core.SettingsCoding
-import com.shirochi.npia.images.AndroidImageProcessor
-import com.shirochi.npia.pipeline.DownloadPipeline
-import com.shirochi.npia.pipeline.JobPhase
-import com.shirochi.npia.sources.SourceCatalog
-import com.shirochi.npia.webengine.AndroidWebEngine
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import java.io.File
-import java.util.UUID
+import com.shirochi.npia.core.SourceId
 
-data class JobItem(
-    val id: String = UUID.randomUUID().toString(),
-    val url: String,
-    val title: String? = null,
-    val phase: JobPhase = JobPhase.Queued,
-    val files: List<String> = emptyList(),
-    val links: List<String> = emptyList(),
-)
+enum class Tab(val title: String) { ADD("Add"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
 
-/** App-wide state. The UI workstream grows this into the full queue and settings screens. */
+/** Screens pushed on top of a tab's root. */
+sealed class Route(val title: String) {
+    data class JobDetail(val id: String) : Route("Download")
+    data object General : Route("General")
+    data object Overrides : Route("Per-source overrides")
+    data class OverrideForm(val source: SourceId) : Route(source.raw)
+    data object SourceOptions : Route("Source options")
+    data object Npia : Route("npia")
+    data object Images : Route("Images")
+    data object Text : Route("Text and PDF")
+    data object Upload : Route("Upload")
+    data object Background : Route("Screen and background")
+    data object Transfer : Route("Import / export")
+}
+
+/** Navigation state that survives rotation; the data lives in `DownloadManager`. */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
-    private val settingsFile = File(application.filesDir, "settings.json")
-    private val secrets by lazy { EncryptedSecretStore(application) }
-    private val web = AndroidWebEngine(application)
-    private val running = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    val manager: DownloadManager get() = getApplication<NpiaApplication>().downloads
 
-    private val _settings = MutableStateFlow(loadSettings())
-    val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+    var tab by mutableStateOf(Tab.ADD)
+    private val stacks: Map<Tab, SnapshotStateList<Route>> = Tab.entries.associateWith { mutableStateListOf() }
 
-    private val _jobs = MutableStateFlow<List<JobItem>>(emptyList())
-    val jobs: StateFlow<List<JobItem>> = _jobs.asStateFlow()
+    /** Text handed over by the share sheet, consumed by the Add screen. */
+    var sharedText by mutableStateOf<String?>(null)
 
-    /** App-specific external storage, visible over USB and in the Files app under Android/data. */
-    val outputDirectory: File get() = getApplication<Application>().getExternalFilesDir(null) ?: getApplication<Application>().filesDir
+    fun stack(tab: Tab): List<Route> = stacks.getValue(tab)
 
-    private fun loadSettings(): AppSettings =
-        runCatching { SettingsCoding.decode(settingsFile.readText()) }.getOrDefault(AppSettings())
-
-    fun updateSettings(change: (AppSettings) -> AppSettings) {
-        val next = change(_settings.value)
-        _settings.value = next
-        settingsFile.writeText(SettingsCoding.encode(next))
+    fun push(route: Route) {
+        stacks.getValue(tab).add(route)
     }
 
-    fun canDownload(text: String) = SourceCatalog.adapterFor(text.trim()) != null
-
-    fun enqueue(text: String) {
-        val url = text.trim()
-        val job = JobItem(url = url)
-        _jobs.update { listOf(job) + it }
-        val pipeline = DownloadPipeline(
-            secrets = secrets,
-            outputDirectory = outputDirectory,
-            web = web,
-            images = AndroidImageProcessor(_settings.value.images),
-        )
-        val settings = _settings.value
-        running[job.id] = viewModelScope.launch(Dispatchers.Default) {
-            try {
-                val outcome = pipeline.run(url, settings) { phase -> update(job.id) { it.copy(phase = phase) } }
-                update(job.id) { item ->
-                    item.copy(
-                        title = outcome.book.title,
-                        files = outcome.files.map { it.name },
-                        links = outcome.uploads.map { it.link },
-                    )
-                }
-            } catch (e: CancellationException) {
-                update(job.id) { it.copy(phase = JobPhase.Failed("Cancelled")) }
-                throw e
-            } catch (e: Exception) {
-                update(job.id) { it.copy(phase = JobPhase.Failed(e.message ?: e.toString())) }
-            } finally {
-                running.remove(job.id)
-            }
-        }
+    fun pop(): Boolean {
+        val stack = stacks.getValue(tab)
+        if (stack.isEmpty()) return false
+        stack.removeAt(stack.lastIndex)
+        return true
     }
 
-    fun cancel(id: String) {
-        running[id]?.cancel()
-    }
-
-    private fun update(id: String, change: (JobItem) -> JobItem) {
-        _jobs.update { list -> list.map { if (it.id == id) change(it) else it } }
+    fun select(next: Tab) {
+        // Tapping the current tab returns to its root.
+        if (next == tab) stacks.getValue(tab).clear()
+        tab = next
     }
 }
