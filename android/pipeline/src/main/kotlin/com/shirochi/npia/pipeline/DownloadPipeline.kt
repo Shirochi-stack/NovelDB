@@ -22,6 +22,7 @@ import com.shirochi.npia.net.OkHttpFetcher
 import com.shirochi.npia.output.BookBundle
 import com.shirochi.npia.output.Writers
 import com.shirochi.npia.sources.SourceCatalog
+import com.shirochi.npia.upload.UploadContext
 import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploaderCatalog
 import kotlinx.coroutines.CancellationException
@@ -103,10 +104,11 @@ class DownloadPipeline(
 
         val uploads = mutableListOf<UploadResult>()
         if (settings.upload.autoUpload) {
-            for (file in files.filter { it.isFile }) {
+            // Folder outputs (separate TXT) are zipped by the catalog.
+            for (file in files) {
                 onPhase(JobPhase.Uploading(file.name))
                 try {
-                    uploads += UploaderCatalog.upload(file, settings.upload)
+                    uploads += UploaderCatalog.upload(file, settings.upload, UploadContext(secrets, settings.upload))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
