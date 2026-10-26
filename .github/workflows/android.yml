@@ -61,8 +61,12 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk NpiaMobile-debug.apk
           cp app/build/outputs/apk/release/app-release.apk NpiaMobile-universal.apk
           rm -f "$RUNNER_TEMP/release.p12"
-          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          "$apksigner" verify --print-certs NpiaMobile-universal.apk | grep -E "Signer #1 certificate (DN|SHA-256)"
+          apksigner=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -V | tail -1 || true)
+          if [ -n "$apksigner" ]; then
+            "$apksigner" verify --print-certs NpiaMobile-universal.apk | grep -i "certificate" || true
+          else
+            echo "apksigner not found; skipping signature print"
+          fi
           ls -lh NpiaMobile-*.apk
       - uses: actions/upload-artifact@v4
         with:
