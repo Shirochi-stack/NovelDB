@@ -64,12 +64,3 @@ public enum Writers {
         return trimmed.isEmpty ? book.id : String(trimmed.prefix(180))
     }
 }
-
-/// TODO(images/UI workstream): PDF via PDFKit with TOC, page numbers, and counter layout.
-public struct PDFWriter: BookWriter {
-    public let format = OutputFormat.pdf
-    public init() {}
-    public func write(_ bundle: BookBundle, baseName: String, to directory: URL) async throws -> URL {
-        throw OutputError.notImplemented(.pdf)
-    }
-}

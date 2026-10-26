@@ -25,6 +25,8 @@ targets:
         product: NpiaSources
       - package: NpiaKit
         product: NpiaPipeline
+      - package: NpiaKit
+        product: NpiaUpload
     info:
       path: App/Info.plist
       properties:
@@ -34,6 +36,12 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         # Google OAuth iOS client id for Drive uploads; see docs/upload.md.
         NpiaGoogleDriveClientID: ""
+        UIBackgroundModes:
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.shirochi.npiamobile.download.*
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
