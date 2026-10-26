@@ -17,8 +17,9 @@ enum SfcAppAPI {
 
     /// The app's request signature (MD5 over a nonce-scrambled auth string).
     static func sign(nonce: String, timestamp: Int64, deviceToken: String = deviceToken, salt: String = salt) -> String {
-        let longNonce = Array((String(repeating: nonce, count: 4)).utf8)
-        func index(_ position: Int) -> Int { Int(longNonce[position]) % 36 }
+        // Real nonces are 36-character UUIDs; the modulo only keeps odd input from trapping.
+        let longNonce = Array((String(repeating: nonce.isEmpty ? "0" : nonce, count: 4)).utf8)
+        func index(_ position: Int) -> Int { Int(longNonce[position % longNonce.count]) % 36 }
         func slice(_ start: Int, _ length: Int) -> ArraySlice<UInt8> {
             longNonce[min(start, longNonce.count)..<min(start + length, longNonce.count)]
         }
