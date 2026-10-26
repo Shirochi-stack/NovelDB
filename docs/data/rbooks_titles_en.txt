@@ -2161,6 +2161,7 @@
 1483042755|||무진천하|||The World Under Heaven
 1483043041|||지존무한|||The Supreme One Is Infinite
 1483043338|||남편이 가출했다|||My Husband Ran Away From Home
+1483043607|||재혼은 셋이서 합니다!|||We're Remarrying as Three!
 1525000411|||레이드 만물상점|||The Raid General Store
 1525000569|||스트라이커|||Striker
 1525000924|||스피릿 소드|||Spirit Sword
@@ -5823,6 +5824,7 @@
 2057343922|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||My Ex-Wife and Former Company Go Under While I Live the American Dream
 2057344115|||쇼팽 콘체르토|||Chopin Concerto
 2057344364|||국가대표 아이돌|||National Team Idol
+2057344930|||1레벨 커스터마이징 대마법사|||The Level 1 Customized Grand Mage
 2057345310|||EX급 마법사의 귀환|||Return of the EX-Class Mage
 2065000061|||영업사원 김유빈|||Salesman Kim Yu-bin
 2065000225|||미티어 스트라이커|||Meteor Striker
@@ -11212,6 +11214,7 @@
 3092055162|||방구석 천재 배우|||The Shut-In Genius Actor
 3092055406|||출근 중 사건 발생 보고서|||Incident Report: On My Way to Work
 3092055675|||아카데미의 피해자|||The Victim of the Academy
+3092056055|||멸망한 세상 오직 나만 함선급 요트가 있다|||In a Ruined World, I Alone Have a Warship-Class Yacht
 3094000001|||노오력의 투수|||The Pitcher of Pure Effort
 3096000001|||베키엄가 막내딸|||The Beckham Family's Youngest Daughter
 3098000001|||여왕의 가호를|||By the Queen's Grace
@@ -17209,6 +17212,7 @@
 4516012564|||세 번의 밤|||Three Nights
 4516012704|||거절은 거절해|||I Refuse to Take No for an Answer
 4516012777|||거절은 거절해 (15세 개정판)|||I Refuse to Take No for an Answer (15+ Revised Edition)
+4516012869|||바른 생활 연애|||Righteous Living Romance
 4529000001|||텐세그리티(Tensegrity)|||Tensegrity
 4529000151|||텐세그리티(Tensegrity) 외전|||Tensegrity: Side Story
 4529000176|||라그랑주 포인트|||Lagrange Point
@@ -21375,6 +21379,7 @@
 945099267|||언럭키 스위치 (15세 개정판)|||Unlucky Switch (15+ Version)
 945099325|||언럭키 스위치|||Unlucky Switch
 945099502|||첫사랑 영업 일지|||First Love Sales Log
+945099564|||첫사랑 영업 일지 (15세 개정판)|||First Love Sales Diary (Age 15 Revised Edition)
 961068701|||너의 마음이 보여 (15세 개정판)|||I Can See Your Heart (15+ Revised Edition)
 961068781|||너의 마음이 보여|||I Can See Your Heart
 961068874|||탑 아이돌, 한 번 더 데뷔합니다|||Top Idol Debuts Once Again
@@ -21385,11 +21390,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-1483043607|||재혼은 셋이서 합니다!|||
-2057344930|||1레벨 커스터마이징 대마법사|||
-3092056055|||멸망한 세상 오직 나만 함선급 요트가 있다|||
 425606091|||1903|||
 425629250|||1973|||
-4516012869|||바른 생활 연애|||
 945008054|||40,41|||
-945099564|||첫사랑 영업 일지 (15세 개정판)|||
