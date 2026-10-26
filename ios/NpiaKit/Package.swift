@@ -29,7 +29,7 @@ let package = Package(
         // EPUB, TXT, and PDF writers.
         .target(name: "NpiaOutput", dependencies: ["NpiaCore", "ZIPFoundation"]),
         // Share-link hosts (temp.sh, gofile, Google Drive, ...).
-        .target(name: "NpiaUpload", dependencies: ["NpiaCore"]),
+        .target(name: "NpiaUpload", dependencies: ["NpiaCore", "ZIPFoundation"]),
         // One adapter per source codename.
         .target(name: "NpiaSources", dependencies: ["NpiaCore"]),
         // Download queue that wires sources, images, writers, and uploads together.
@@ -40,6 +40,6 @@ let package = Package(
         .testTarget(name: "NpiaCoreTests", dependencies: ["NpiaCore"]),
         .testTarget(name: "NpiaSourcesTests", dependencies: ["NpiaSources", "NpiaCore"]),
         .testTarget(name: "NpiaOutputTests", dependencies: ["NpiaOutput", "NpiaCore", "ZIPFoundation"]),
-        .testTarget(name: "NpiaUploadTests", dependencies: ["NpiaUpload", "NpiaCore"]),
+        .testTarget(name: "NpiaUploadTests", dependencies: ["NpiaUpload", "NpiaCore", "ZIPFoundation"]),
     ]
 )
