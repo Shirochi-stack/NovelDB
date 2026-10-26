@@ -70,19 +70,31 @@ public struct DownloadPipeline: Sendable {
         onPhase(.fetchingChapters(done: chapters.count, total: selected.count))
 
         let processor = ImageProcessor(settings: settings.images)
-        let images = try await fetchImages(chapters.flatMap(\.images), http: client, processor: processor, onPhase: onPhase)
+        let stage = ImageStage(http: client, settings: settings, source: source, logger: logger)
+        let imageOutput = try await stage.run(chapters) { done, total in
+            onPhase(.downloadingImages(done: done, total: total))
+        }
+        if imageOutput.failed > 0 {
+            logger.log(.warning, "\(imageOutput.failed) images could not be downloaded")
+        }
+        chapters = imageOutput.chapters
         var cover: ProcessedCover?
-        if let coverURL = book.coverURL, let data = try? await client.get(coverURL).body {
+        if let coverURL = book.coverURL, let data = try? await client.get(coverURL).body, !data.isEmpty {
             let processed = try processor.process(data, isCover: true)
             cover = ProcessedCover(data: processed.data, fileExtension: processed.fileExtension)
         }
 
-        let bundle = BookBundle(book: book, chapters: chapters, images: images, cover: cover, settings: settings)
+        let bundle = BookBundle(book: book, chapters: chapters, images: imageOutput.images, cover: cover, settings: settings)
         let baseName = Writers.baseName(for: book, settings: shared)
         var files: [URL] = []
         for format in shared.formats {
             onPhase(.writing(format))
-            files.append(try await Writers.writer(for: format).write(bundle, baseName: baseName, to: outputDirectory))
+            let writer = Writers.writer(for: format)
+            var file = try await writer.write(bundle, baseName: baseName, to: outputDirectory)
+            if let targetMB = settings.images.recompressTargetMB, targetMB > 0, format == .epub || format == .pdf {
+                file = try await shrink(file, bundle: bundle, writer: writer, baseName: baseName, targetBytes: Int(targetMB * 1_048_576))
+            }
+            files.append(file)
         }
 
         var uploads: [UploadResult] = []
@@ -111,27 +123,32 @@ public struct DownloadPipeline: Sendable {
         }
     }
 
-    private func fetchImages(_ refs: [ImageRef], http: any HTTPFetching, processor: ImageProcessor, onPhase: @escaping @Sendable (JobPhase) -> Void) async throws -> [String: Data] {
-        var images: [String: Data] = [:]
-        var done = 0
-        // TODO(images workstream): bounded concurrency (`imageWorkers`) and rewriting filenames
-        // when recompression changes the extension.
-        for ref in refs {
+    /// `recompressTargetMB`: re-encode images at falling quality and rewrite until the file
+    /// fits, at most four passes (desktop `_recompress_to_target_size`).
+    private func shrink(_ file: URL, bundle: BookBundle, writer: any BookWriter, baseName: String, targetBytes: Int) async throws -> URL {
+        func size(_ url: URL) -> Int { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+        var current = size(file)
+        guard current > targetBytes else { return file }
+        logger.log(.info, "\(file.lastPathComponent) is \(current) bytes; recompressing images toward \(targetBytes)")
+        let processor = ImageProcessor(settings: bundle.settings.images)
+        var quality = max(10, bundle.settings.images.quality)
+        var working = bundle
+        var output = file
+        for pass in 1...4 {
             try Task.checkCancellation()
-            let data: Data?
-            if let bytes = ref.data {
-                data = bytes
-            } else {
-                data = try? await http.get(ref.url).body
+            guard let next = ImageProcessor.nextRecompressQuality(current: quality, size: current, target: targetBytes) else { break }
+            quality = next
+            for (name, data) in working.images {
+                working.images[name] = processor.reencode(data, fileExtension: (name as NSString).pathExtension, quality: quality)
             }
-            if let data {
-                images[ref.filename] = (try? processor.process(data))?.data ?? data
-            } else {
-                logger.log(.warning, "Image failed: \(ref.url.absoluteString)")
+            if let cover = working.cover {
+                working.cover?.data = processor.reencode(cover.data, fileExtension: cover.fileExtension, quality: quality)
             }
-            done += 1
-            onPhase(.downloadingImages(done: done, total: refs.count))
+            output = try await writer.write(working, baseName: baseName, to: outputDirectory)
+            current = size(output)
+            logger.log(.info, "Pass \(pass) at quality \(quality): \(current) bytes")
+            if current <= targetBytes { break }
         }
-        return images
+        return output
     }
 }

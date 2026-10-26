@@ -1,0 +1,366 @@
+import NpiaCore
+import NpiaSources
+import SwiftUI
+
+struct SettingsView: View {
+    var body: some View {
+        List {
+            Section("Downloads") {
+                NavigationLink { SharedSettingsForm() } label: { Label("General", systemImage: "slider.horizontal.3") }
+                NavigationLink { SourceOverridesList() } label: { Label("Per-source overrides", systemImage: "square.stack.3d.up") }
+                NavigationLink { SourceOptionsForm() } label: { Label("Source options", systemImage: "puzzlepiece") }
+                NavigationLink { NpiaSettingsForm() } label: { Label("npia", systemImage: "person.crop.circle") }
+            }
+            Section("Output") {
+                NavigationLink { ImageSettingsForm() } label: { Label("Images", systemImage: "photo") }
+                NavigationLink { TextSettingsForm() } label: { Label("Text and PDF", systemImage: "doc.text") }
+            }
+            Section("Sharing") {
+                NavigationLink { UploadSettingsForm() } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
+            }
+            Section("App") {
+                NavigationLink { BackgroundSettingsForm() } label: { Label("Screen and background", systemImage: "moon.zzz") }
+                NavigationLink { ConfigTransferView() } label: { Label("Import / export", systemImage: "arrow.up.arrow.down") }
+            }
+        }
+        .navigationTitle("Settings")
+    }
+}
+
+// MARK: - General
+
+struct SharedSettingsForm: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Output") {
+                FormatPicker(formats: $model.settings.shared.formats)
+                Picker("File names", selection: $model.settings.shared.namingMode) {
+                    Text("Title").tag(NamingMode.title)
+                    Text("Book ID").tag(NamingMode.id)
+                }
+                Toggle("Append chapter range to name", isOn: $model.settings.shared.appendRange)
+                Toggle("One TXT file per chapter", isOn: $model.settings.shared.separateTXT)
+                Toggle("Number chapter titles", isOn: $model.settings.shared.numberChapters)
+            }
+            Section("Chapters") {
+                OptionalNumberField(title: "From chapter", value: $model.settings.shared.rangeFrom, defaultValue: 1)
+                OptionalNumberField(title: "To chapter", value: $model.settings.shared.rangeTo, defaultValue: model.settings.shared.rangeFrom ?? 1)
+                Toggle("Skip paid chapters", isOn: $model.settings.shared.skipPaid)
+                Toggle("Write output when stopped", isOn: $model.settings.shared.generateOnStop)
+            }
+            Section("Speed") {
+                Stepper("Chapter threads: \(model.settings.shared.threads)", value: $model.settings.shared.threads, in: 1...16)
+                Stepper("Image downloads: \(model.settings.shared.imageWorkers)", value: $model.settings.shared.imageWorkers, in: 1...16)
+                DecimalField(title: "Delay min (s)", value: $model.settings.shared.intervalMin)
+                DecimalField(title: "Delay max (s)", value: $model.settings.shared.intervalMax)
+                Stepper("Retries: \(model.settings.shared.maxRetries)", value: $model.settings.shared.maxRetries, in: 0...30)
+                Stepper("Downloads at once: \(model.maxConcurrentJobs)", value: $model.maxConcurrentJobs, in: 1...3)
+            }
+            Section("Cache") {
+                Toggle("Cache chapters", isOn: $model.settings.shared.useCache)
+                Toggle("Cache images", isOn: $model.settings.shared.cacheImages)
+            }
+        }
+        .navigationTitle("General")
+    }
+}
+
+// MARK: - Per-source overrides
+
+struct SourceOverridesList: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        List(SourceID.allCases, id: \.self) { source in
+            NavigationLink {
+                SourceOverrideForm(source: source)
+            } label: {
+                HStack {
+                    Text(source.rawValue)
+                    Spacer()
+                    if let count = overrideCount(source), count > 0 {
+                        Text("\(count) changed").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Per-source overrides")
+    }
+
+    private func overrideCount(_ source: SourceID) -> Int? {
+        guard let value = model.settings.overrides[source.rawValue] else { return nil }
+        let fields: [Bool] = [
+            value.threads != nil, value.intervalMin != nil, value.intervalMax != nil, value.formats != nil,
+            value.rangeFrom != nil, value.rangeTo != nil, value.useCache != nil, value.cacheImages != nil,
+            value.numberChapters != nil, value.separateTXT != nil,
+        ]
+        return fields.filter { $0 }.count
+    }
+}
+
+struct SourceOverrideForm: View {
+    @Environment(AppModel.self) private var model
+    let source: SourceID
+
+    private var overrides: Binding<SharedOverrides> {
+        Binding(
+            get: { model.settings.overrides[source.rawValue] ?? SharedOverrides() },
+            set: { model.settings.overrides[source.rawValue] = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    var body: some View {
+        let shared = model.settings.shared
+        Form {
+            Section {
+                OverrideRow(title: "Formats", value: overrides.formats, shared: shared.formats, describe: { $0.map { $0.rawValue.uppercased() }.joined(separator: ", ") }) { binding in
+                    FormatPicker(formats: binding)
+                }
+                OverrideRow(title: "Chapter threads", value: overrides.threads, shared: shared.threads, describe: { "\($0)" }) { binding in
+                    Stepper("\(binding.wrappedValue)", value: binding, in: 1...16)
+                }
+                OverrideRow(title: "Delay min", value: overrides.intervalMin, shared: shared.intervalMin, describe: { "\($0) s" }) { binding in
+                    DecimalField(title: "Seconds", value: binding)
+                }
+                OverrideRow(title: "Delay max", value: overrides.intervalMax, shared: shared.intervalMax, describe: { "\($0) s" }) { binding in
+                    DecimalField(title: "Seconds", value: binding)
+                }
+                OverrideRow(title: "From chapter", value: overrides.rangeFrom, shared: shared.rangeFrom ?? 1, describe: { "\($0)" }) { binding in
+                    Stepper("\(binding.wrappedValue)", value: binding, in: 1...100_000)
+                }
+                OverrideRow(title: "To chapter", value: overrides.rangeTo, shared: shared.rangeTo ?? 1, describe: { "\($0)" }) { binding in
+                    Stepper("\(binding.wrappedValue)", value: binding, in: 1...100_000)
+                }
+                OverrideRow(title: "Cache chapters", value: overrides.useCache, shared: shared.useCache, describe: onOff) { binding in
+                    Toggle("Enabled", isOn: binding)
+                }
+                OverrideRow(title: "Cache images", value: overrides.cacheImages, shared: shared.cacheImages, describe: onOff) { binding in
+                    Toggle("Enabled", isOn: binding)
+                }
+                OverrideRow(title: "Number chapter titles", value: overrides.numberChapters, shared: shared.numberChapters, describe: onOff) { binding in
+                    Toggle("Enabled", isOn: binding)
+                }
+                OverrideRow(title: "One TXT per chapter", value: overrides.separateTXT, shared: shared.separateTXT, describe: onOff) { binding in
+                    Toggle("Enabled", isOn: binding)
+                }
+            } footer: {
+                Text("Switched-off rows follow General settings.")
+            }
+            if model.settings.overrides[source.rawValue] != nil {
+                Section {
+                    Button("Reset \(source.rawValue) to shared", role: .destructive) {
+                        model.settings.overrides[source.rawValue] = nil
+                    }
+                }
+            }
+        }
+        .navigationTitle(source.rawValue)
+    }
+
+    private func onOff(_ value: Bool) -> String { value ? "on" : "off" }
+}
+
+// MARK: - Source options
+
+struct SourceOptionsForm: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("kpage") {
+                Toggle("Skip last page", isOn: $model.settings.sources.kpage.skipLastPage)
+                Toggle("Keep filler pages", isOn: $model.settings.sources.kpage.keepFiller)
+                Toggle("Remove duplicate images", isOn: $model.settings.sources.kpage.dedupeImages)
+                Stepper("Leading images to compare: \(model.settings.sources.kpage.dedupeLeadingImages)", value: $model.settings.sources.kpage.dedupeLeadingImages, in: 1...10)
+                    .disabled(!model.settings.sources.kpage.dedupeImages)
+            }
+            Section("ntk") {
+                Toggle("Use npia cover when available", isOn: $model.settings.sources.ntkNpiaCover)
+            }
+            Section("nweb") {
+                Toggle("Prefer store cover", isOn: $model.settings.sources.nwebStoreCover)
+            }
+            Section("kobo") {
+                Toggle("Horizontal layout", isOn: $model.settings.sources.koboHorizontalLayout)
+            }
+        }
+        .navigationTitle("Source options")
+    }
+}
+
+// MARK: - npia
+
+struct NpiaSettingsForm: View {
+    @Environment(AppModel.self) private var model
+    @State private var email = ""
+    @State private var password = ""
+    @State private var hasPassword = false
+    @State private var hasLoginKey = false
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Downloads") {
+                Toggle("Include notices", isOn: $model.settings.npia.includeNotices)
+                Toggle("Browser fallback", isOn: $model.settings.npia.useBrowserFallback)
+                Toggle("Sign in automatically", isOn: $model.settings.npia.autoLogin)
+            }
+            Section {
+                TextField("Email", text: $email)
+                    .textContentType(.username)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField(hasPassword ? "Password (saved)" : "Password", text: $password)
+                    .textContentType(.password)
+                Button("Save to Keychain") {
+                    model.secrets.set(email.trimmingCharacters(in: .whitespaces), for: .npiaEmail)
+                    if !password.isEmpty { model.secrets.set(password, for: .npiaPassword) }
+                    password = ""
+                    reload()
+                }
+                if hasLoginKey {
+                    Button("Forget saved session key", role: .destructive) {
+                        model.secrets.set(nil, for: .npiaLoginKey)
+                        reload()
+                    }
+                }
+                if hasPassword || !email.isEmpty {
+                    Button("Remove account", role: .destructive) {
+                        model.secrets.set(nil, for: .npiaEmail)
+                        model.secrets.set(nil, for: .npiaPassword)
+                        model.secrets.set(nil, for: .npiaLoginKey)
+                        reload()
+                    }
+                }
+            } header: {
+                Text("Account")
+            } footer: {
+                Text("Stored only in the iOS Keychain, never in settings files or exports.")
+            }
+            Section("Tag search") {
+                Picker("Age filter", selection: $model.settings.npia.tagAgeFilter) {
+                    Text("All").tag("")
+                    Text("Non-adult").tag("15")
+                    Text("Adult").tag("19")
+                }
+                TextField("Custom tags", text: $model.settings.npia.tagCustomTags)
+                Toggle("Scrape all tags", isOn: $model.settings.npia.tagScrapeAll)
+                Stepper("Max queries: \(model.settings.npia.scrapeMaxQueries)", value: $model.settings.npia.scrapeMaxQueries, in: 1...1000, step: 5)
+            }
+        }
+        .navigationTitle("npia")
+        .onAppear(perform: reload)
+    }
+
+    private func reload() {
+        email = model.secrets.string(for: .npiaEmail) ?? ""
+        hasPassword = model.secrets.string(for: .npiaPassword) != nil
+        hasLoginKey = model.secrets.string(for: .npiaLoginKey) != nil
+    }
+}
+
+// MARK: - Images
+
+struct ImageSettingsForm: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Chapter images") {
+                Toggle("Save image URLs only", isOn: $model.settings.images.saveImageURLsOnly)
+                Toggle("Compress images", isOn: $model.settings.images.compress)
+                Group {
+                    Picker("Format", selection: $model.settings.images.format) {
+                        ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    Stepper("Quality: \(model.settings.images.quality)", value: $model.settings.images.quality, in: 10...100, step: 5)
+                    Toggle("Convert GIFs", isOn: $model.settings.images.convertGIFs)
+                    Toggle("Static images only", isOn: $model.settings.images.staticOnly)
+                    Stepper("Compression workers: \(model.settings.images.compressionWorkers)", value: $model.settings.images.compressionWorkers, in: 1...8)
+                }
+                .disabled(!model.settings.images.compress || model.settings.images.saveImageURLsOnly)
+            }
+            Section("Cover") {
+                Toggle("Compress cover", isOn: $model.settings.images.compressCover)
+                Group {
+                    Picker("Cover format", selection: $model.settings.images.coverFormat) {
+                        ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    Stepper("Cover quality: \(model.settings.images.coverQuality)", value: $model.settings.images.coverQuality, in: 10...100, step: 5)
+                }
+                .disabled(!model.settings.images.compressCover)
+            }
+            Section {
+                OptionalNumberField(title: "Shrink EPUB/PDF to target size (MB)", value: $model.settings.images.recompressTargetMB, defaultValue: 20)
+                Toggle("Long image layout", isOn: $model.settings.images.longImageLayout)
+                Toggle("Compress images inside EPUB zip", isOn: $model.settings.images.zipCompressImages)
+            } header: {
+                Text("Book")
+            } footer: {
+                Text("The size target re-encodes JPEG and WebP images at lower quality, up to four passes. Long image layout shows webtoon strips edge to edge without chapter titles.")
+            }
+        }
+        .navigationTitle("Images")
+    }
+}
+
+// MARK: - Text and PDF
+
+struct TextSettingsForm: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Text") {
+                Toggle("Strip leading spaces", isOn: $model.settings.text.stripLeadingSpaces)
+                Toggle("Remove blank lines", isOn: $model.settings.text.removeNewlines)
+                Toggle("Blank line between paragraphs", isOn: $model.settings.text.blankParagraphLines)
+                Toggle("Also save HTML", isOn: $model.settings.text.saveHTML)
+            }
+            Section("PDF") {
+                Toggle("Table of contents", isOn: $model.settings.text.pdfTOC)
+                Toggle("TOC page numbers", isOn: $model.settings.text.pdfCounterLayout)
+                    .disabled(!model.settings.text.pdfTOC)
+                Toggle("Page numbers", isOn: $model.settings.text.pdfPageNumbers)
+            }
+        }
+        .navigationTitle("Text and PDF")
+    }
+}
+
+// MARK: - Screen and background
+
+struct BackgroundSettingsForm: View {
+    @AppStorage(BackgroundActivity.keepAwakeKey) private var keepAwake = true
+    @AppStorage(BackgroundActivity.continuedProcessingKey) private var continueInBackground = true
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Keep screen awake while downloading", isOn: $keepAwake)
+            } footer: {
+                Text("iOS pauses apps soon after the screen locks; keeping it awake is the most reliable way to finish long downloads.")
+            }
+            Section {
+                Toggle("Continue in background", isOn: $continueInBackground)
+                    .disabled(!BackgroundActivity.supportsContinuedProcessing)
+            } footer: {
+                if BackgroundActivity.supportsContinuedProcessing {
+                    Text("Downloads keep running with a system progress indicator after you leave the app. iOS may still stop them under heavy load.")
+                } else {
+                    Text("Needs iOS 26. On earlier versions downloads get a short grace period after you leave the app.")
+                }
+            }
+        }
+        .navigationTitle("Screen and background")
+        .onChange(of: keepAwake) { model.background.settingsChanged() }
+    }
+}
