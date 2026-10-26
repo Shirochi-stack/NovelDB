@@ -45,7 +45,7 @@ final class ReaderWebFallback: @unchecked Sendable {
         }
     }
 
-    func chapter(_ info: ReaderBookSession.ChapterInfo) async throws -> [ReaderBlock] {
+    func chapter(_ info: ReaderBookSession.ChapterInfo) async throws -> [RuleBlock] {
         let isPaid = info.isPaid.map { $0 ? "true" : "false" } ?? "undefined"
         let body = """
         return JSON.parse(await window.__ND_parseChapter(\(Self.jsonLiteral(info.url)), \(Self.jsonLiteral(info.name)), \(info.isVIP), \(isPaid)));
@@ -63,7 +63,7 @@ final class ReaderWebFallback: @unchecked Sendable {
             return text.components(separatedBy: .newlines)
                 .map { $0.replacingOccurrences(of: "\u{a0}", with: " ").trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
-                .map(ReaderBlock.text)
+                .map(RuleBlock.text)
         }
         return blocks
     }
