@@ -79,17 +79,17 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                canBack = view.canGoBack()
+                this@CatalogWeb.canBack = view.canGoBack()
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
-                canBack = view.canGoBack()
+                this@CatalogWeb.canBack = view.canGoBack()
                 if (!documentStart) view.evaluateJavascript(bridge, null)
             }
         }
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) {
-                progress = newProgress
+                this@CatalogWeb.progress = newProgress
             }
         }
         loadUrl(CATALOG_URL)
