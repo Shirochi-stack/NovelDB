@@ -404,8 +404,12 @@ struct CatalogSiteForm: View {
                     .keyboardType(.URL)
                     .submitLabel(.done)
                     .onSubmit(save)
+                if !address.trimmingCharacters(in: .whitespaces).isEmpty && candidate == nil {
+                    Text("Enter a full site address, like https://example.com")
+                        .font(.caption).foregroundStyle(.red)
+                }
                 Button("Save", action: save)
-                    .disabled(address.trimmingCharacters(in: .whitespaces).isEmpty || address == site)
+                    .disabled(candidate == nil || candidate?.absoluteString == site)
                 Button("Use NovelDB") {
                     site = CatalogSite.defaultAddress
                     address = site
@@ -420,10 +424,17 @@ struct CatalogSiteForm: View {
         .onAppear { address = site }
     }
 
+    /// "example.com" becomes "https://example.com"; incomplete addresses such as "https://" give nil.
+    private var candidate: URL? {
+        var text = address.trimmingCharacters(in: .whitespaces)
+        if !text.contains("://") { text = "https://" + text }
+        return CatalogSite.valid(text)
+    }
+
     private func save() {
         var text = address.trimmingCharacters(in: .whitespaces)
         if !text.contains("://") { text = "https://" + text }
-        guard let url = URL(string: text), url.host != nil else { return }
+        guard let url = CatalogSite.valid(text) else { return }
         site = url.absoluteString
         address = site
     }

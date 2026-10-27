@@ -10,7 +10,15 @@ enum CatalogSite {
     static let defaultAddress = "https://shirochi-stack.github.io/NovelDB/"
 
     static var current: URL {
-        UserDefaults.standard.string(forKey: storageKey).flatMap(URL.init(string:)) ?? URL(string: defaultAddress)!
+        valid(UserDefaults.standard.string(forKey: storageKey)) ?? URL(string: defaultAddress)!
+    }
+
+    /// An address the Catalog tab can open: http or https with a site name ("https://" alone is not).
+    static func valid(_ text: String?) -> URL? {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), let url = URL(string: text),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty else { return nil }
+        return url
     }
 }
 
@@ -24,10 +32,12 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     let webView: WKWebView
     @Published private(set) var progress = 0.0
     @Published private(set) var isLoading = false
+    /// Why the catalog site failed to load; shown instead of a blank page.
+    @Published private(set) var error: String?
     private var observations: [NSKeyValueObservation] = []
     weak var model: AppModel?
     private(set) var site = CatalogSite.current
-    private var isNovelDB: Bool { site.absoluteString == CatalogSite.defaultAddress }
+    private var isNovelDB: Bool { site.absoluteString.trimmingCharacters(in: ["/"]) == CatalogSite.defaultAddress.trimmingCharacters(in: ["/"]) }
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -55,6 +65,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     func load(_ url: URL) {
         guard url != site else { return }
         site = url
+        error = nil
         webView.load(URLRequest(url: url))
     }
 
@@ -70,7 +81,24 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     }
 
     func reload() {
+        error = nil
         if webView.url == nil { webView.load(URLRequest(url: site)) } else { webView.reload() }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        failed(error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        failed(error)
+    }
+
+    /// Navigation cancelled on purpose (a link sent to the cart or the Browser tab) is not a failure.
+    private func failed(_ error: any Error) {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
+        if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 { return }
+        self.error = nsError.localizedDescription
     }
 
     /// A link out of the catalog: the Browser tab on NovelDB, the link cart on other sites.
@@ -163,16 +191,34 @@ struct CatalogView: View {
             }
             CatalogWebView(state: state)
         }
+        .overlay {
+            if let error = state.error {
+                VStack(spacing: 10) {
+                    Text("The catalog site could not load").font(.headline)
+                    Text(state.site.absoluteString).font(.caption).multilineTextAlignment(.center)
+                    Text(error).font(.caption).foregroundStyle(.red).multilineTextAlignment(.center)
+                    HStack {
+                        Button("Retry") { state.reload() }.buttonStyle(.borderedProminent)
+                        if state.site != URL(string: CatalogSite.defaultAddress) {
+                            Button("Use NovelDB") { site = CatalogSite.defaultAddress }.buttonStyle(.bordered)
+                        }
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(uiColor: .systemBackground))
+            }
+        }
         .navigationTitle("Catalog")
         // The catalog site has its own header; pull down to reload.
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             state.model = model
+            // The site may have changed in Settings before this tab was first shown.
+            state.load(CatalogSite.current)
             state.showCart(model.cart.items)
         }
         .onChange(of: model.cart.items) { _, items in state.showCart(items) }
-        .onChange(of: site) { _, address in
-            if let url = URL(string: address) { state.load(url) }
-        }
+        .onChange(of: site) { _, _ in state.load(CatalogSite.current) }
     }
 }
