@@ -93,6 +93,11 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean("catalogCartLinks", true)
         set(value) = prefs.edit().putBoolean("catalogCartLinks", value).apply()
 
+    /** The one-time "Before you share" agreement shown before the first upload. */
+    var shareAgreementAccepted: Boolean
+        get() = prefs.getBoolean("shareAgreementAccepted", false)
+        set(value) = prefs.edit().putBoolean("shareAgreementAccepted", value).apply()
+
     var askedForNotifications: Boolean
         get() = prefs.getBoolean("askedForNotifications", false)
         set(value) = prefs.edit().putBoolean("askedForNotifications", value).apply()
@@ -277,7 +282,7 @@ object Notifications {
      * The one notification after a run of the queue: "Downloaded N books" with every file ready to
      * share or upload at once. Failures are counted in its text.
      */
-    fun runSummary(context: Context, summary: RunSummary) {
+    fun runSummary(context: Context, summary: RunSummary, agreed: Boolean) {
         val builder = NotificationCompat.Builder(context, CHANNEL_RESULTS)
             .setSmallIcon(if (summary.succeeded > 0) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
             .setLargeIcon(artwork(context))
@@ -287,7 +292,7 @@ object Notifications {
             .setContentIntent(openApp(context))
         if (summary.hasFiles) {
             builder.addAction(0, "Share", ShareActivity.pending(context, summary.id, ShareActivity.ACTION_SHARE_FILES))
-            builder.addAction(0, "Upload", NotificationActionReceiver.pending(context, summary.id, NotificationActionReceiver.ACTION_UPLOAD_RUN))
+            builder.addAction(0, "Upload", NotificationActionReceiver.uploadAction(context, summary.id, agreed))
         }
         notify(context, SUMMARY_ID, builder.build())
     }

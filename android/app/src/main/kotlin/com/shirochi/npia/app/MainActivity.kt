@@ -65,7 +65,14 @@ class MainActivity : ComponentActivity() {
     /** Share-sheet text goes to the Add screen; notification taps open the queue. */
     private fun handle(intent: Intent?) {
         intent ?: return
-        if (intent.action == Intent.ACTION_SEND) {
+        val uploadRun = intent.getStringExtra(EXTRA_UPLOAD_RUN)
+        if (uploadRun != null) {
+            // The summary notification's Upload button, before the sharing agreement was accepted.
+            model.select(Tab.QUEUE)
+            model.requestUpload {
+                if (!model.manager.uploadRun(uploadRun)) model.manager.message("Those downloads are no longer available to upload.")
+            }
+        } else if (intent.action == Intent.ACTION_SEND) {
             val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_TEXT), intent.getStringExtra(Intent.EXTRA_SUBJECT)).joinToString("\n")
             if (text.isNotBlank()) {
                 model.sharedText = text
@@ -102,5 +109,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_QUEUE = "openQueue"
+        const val EXTRA_UPLOAD_RUN = "uploadRun"
     }
 }

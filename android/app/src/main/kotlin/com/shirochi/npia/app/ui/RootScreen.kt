@@ -148,6 +148,16 @@ fun RootScreen(model: AppViewModel) {
         }
     }
     SignInPrompt()
+    model.pendingUpload?.let { upload ->
+        ShareAgreementDialog(
+            onAgree = {
+                manager.preferences.shareAgreementAccepted = true
+                model.pendingUpload = null
+                upload()
+            },
+            onCancel = { model.pendingUpload = null },
+        )
+    }
 }
 
 private val Tab.icon
