@@ -11591,6 +11591,7 @@
 106380|||너랑원하지않은결혼.|||A Marriage I Never Wanted with You
 1063801|||당신이 살아가야 하는 이유|||The Reason You Must Keep Living
 1063802|||그 여름이 다시 온다면|||If That Summer Comes Again
+1063823|||폭군의 계약직 구세주|||The Tyrant's Contract Savior
 1063831|||내 옆에 있는 사람|||The Person Beside Me
 1063834|||고등학생을 위한 생기부 세특 팁|||Student Record Tips for High Schoolers
 1063835|||CCTV|||CCTV
@@ -62748,6 +62749,7 @@
 1233809|||소유 악당은 주인공을 고문하고 싶어|||The Possessive Villain Wants to Torture the Protagonist
 1233810|||드래곤에게 잡혀가도 정신만 차리면 가족이 된다|||Even If a Dragon Takes You, Keep Your Wits and Become Family
 1233811|||오늘 로맨스는 장르가 다릅니다.|||Today’s Romance Is a Different Genre
+1233813|||《학교 술래잡기 : 여기서 죽으면 결석처리됩니다》|||《School Tag: If You Die Here, You're Marked Absent》
 1233814|||찬란한 여름 날|||A Radiant Summer Day
 1233819|||소설속 아카이브|||Archive in the Novel
 1233820|||한 여름 복숭아?|||A Midsummer Peach?
@@ -66684,6 +66686,7 @@
 1241279|||언제나 그 자리에, 스탠드 바이 유|||Always There, Stand by You
 1241280|||회귀했더니 미래가 보인다|||After Regressing, I Can See the Future
 1241285|||호구의 동거|||Living with a Pushover
+1241286|||여동생을 죽인놈을 찾으러 갔는데, 그놈이 신임|||I Went to Find My Sister's Killer, and He Became My New...
 1241287|||꽃이 지기 전에 사랑하리|||I Will Love You Before the Flowers Fall
 1241290|||사귀는건 아닌데|||We're Not Dating, Though
 1241291|||《동창회에서 재회한 그놈이 재벌이었다》|||The Guy I Reunited with at the Reunion Was a Chaebol
@@ -67058,6 +67061,7 @@
 1241959|||이상한 나라의 남편님|||My Husband in Wonderland
 1241960|||도미누스 에덴-평범한 빵집에서 시작된 모험|||Dominus Eden: An Adventure Beginning at an Ordinary Bakery
 1241962|||<<메시지>>|||<<Message>>
+1241963|||그럼에도 너|||Even So, You
 1241964|||지겹도록 평범했던 하루가 사라졌다.|||The Tediously Ordinary Day Disappeared
 1241967|||『라이브 걸!』|||『Live Girl!』
 1241968|||where 나는 계속 묻는다.|||where I Keep Asking
@@ -67344,6 +67348,7 @@
 1242455|||발칙한  영애의 결혼 사용법|||The Brazen Lady's Guide to Marriage
 1242457|||AI ZERO: AI가 사라진 날|||AI ZERO: The Day AI Disappeared
 1242459|||마나공학자의 행성공장|||The Mana Engineer's Planet Factory
+1242460|||이름이 먹는 밤|||The Night Eaten by a Name
 1242463|||기계 무림의 유일한 천마|||The Only Heavenly Demon in the Machine Martial World
 1242464|||황실 디자이너 데뷔, 할머니만 믿을게요!|||Debuting as the Imperial Designer: I'll Trust Grandma!
 1242465|||내가 단군이 되겠다!|||I Will Become Dangun!
@@ -67411,6 +67416,7 @@
 1242565|||퇴사했더니 괴물 민원 담당입니다|||I Quit, and Now I Handle Monster Complaints
 1242567|||죽은 황태자의 약혼녀가 되었다|||I Became the Dead Crown Prince's Fiancée
 1242570|||운명의 달|||The Moon of Fate
+1242573|||꿈파는 남자|||The Dream Seller
 1242576|||미역 양식장|||The Seaweed Farm
 1242577|||아름다운 계약결혼|||The Beautiful Contract Marriage
 1242578|||SS-000 무명함: 이름 없는 전설|||SS-000 Nameless Ship: A Legend Without a Name
@@ -67486,6 +67492,7 @@
 1242690|||통증을 만지는 아이|||The Child Who Touches Pain
 1242691|||피해값|||The Price of Harm
 1242694|||영희뎐|||The Tale of Yeonghui
+1242696|||마녀와 공작의 여름|||Summer of the Witch and the Duke
 1242699|||행운중독|||Luck Addict
 1242701|||b급헌터 청하진가 셋째로 환생하다|||B-Rank Hunter Reborn as the Third Son of the Cheongha Jin Clan
 1242702|||退魔回歸(퇴마회귀)|||Exorcist Regression
@@ -67792,12 +67799,14 @@
 1243212|||평범한 낭만|||Ordinary Romance
 1243213|||내 첫사랑은 날 모른다|||My First Love Doesn't Know Me
 1243214|||월광과 흑야|||Moonlight and Black Night
+1243215|||아이돌 입니다?|||Are You an Idol?
 1243216|||제사주도 봐주세요 웨딩플래너님|||Wedding Planner, Please Read My Fortune Too
 1243217|||여름의 끝에서 울음을 그치다|||Stop Crying at Summer's End
 1243218|||백작가의 위선자는 이번 생엔 효도한다|||The Count's Hypocrite Will Be a Dutiful Child in This Life
 1243219|||포닝|||Phoning
 124322|||한걸음 한걸음 조심스럽게|||One Careful Step at a Time
 1243228|||나를 버린 세상에서 살아남는 법|||How to Survive in the World That Abandoned Me
+1243230|||애착인형  여행|||Journey of the Attachment Doll
 1243237|||<< 사랑이 아니라고 하기에는 >>|||<<Too Much to Say It's Not Love>>
 1243240|||미쳐도 너였다|||Even in Madness, It Was You
 1243241|||그 해, 찬란했던|||That Brilliant Year
@@ -68020,6 +68029,7 @@
 1243615|||██의 이야기|||The Story of ██
 1243616|||당신이 버린 방식으로.|||The Way You Abandoned Me
 1243622|||동물들의 일상 I- 미옹, 귀염이, 닭의 일상|||Animals' Daily Lives I: Mieong, Gwiyeomi, and the Chicken
+1243623|||푸른 꽃|||Blue Flower
 1243624|||인생웨딩드레스|||The Wedding Dress of a Lifetime
 1243626|||첫 눈|||First Snow
 1243627|||이혼은 유물 복구 후에|||Divorce After Restoring the Relic
@@ -68181,6 +68191,7 @@
 1243879|||그저, 사랑받고 싶을 뿐.|||I Just Want to Be Loved
 1243880|||《블립: 사라진 자들》|||《BLIP: The Vanished》
 1243881|||선생님이 죽기 전날로 돌아왔다|||I Returned to the Day Before the Teacher Died
+1243882|||시그널이 울릴 때면, 나는 동감한다|||When the Signal Rings, I Sympathize
 1243884|||파문검신(破門劍神)|||The Excommunicated Sword God
 1243886|||인어의전설|||Legend of the Mermaid
 1243887|||취직시키겠다던 형들에게 취집하겠습니다|||I'll Marry the Brothers Who Promised to Get Me a Job
@@ -68200,6 +68211,7 @@
 1243911|||왕자님, 바다는 당신의 것이 아닙니다.|||Prince, the Sea Does Not Belong to You
 1243913|||붉은 달|||Red Moon
 1243914|||사랑할 줄 몰라서|||Because I Didn't Know How to Love
+1243915|||《검선 남궁천 : 사파왕과 검선》|||《Sword Immortal Namgung Cheon: The Demon King and the Sword Immortal》
 1243921|||복서가 무림을 평정하는법|||How a Boxer Conquers Murim
 1243922|||상대방의 마음이 상태창으로 보인다.|||I Can See the Other Person's Heart on a Status Window
 1243924|||망가진 나|||The Broken Me
@@ -68592,6 +68604,7 @@
 124454|||계약|||Contract
 1244541|||탱킹팀에 6개월짜리 초능력자가 왔다|||A Six-Month Superpowered Hire Joins the Tanking Team
 1244542|||말하는 흑요석으로 재벌가를 길들입니다|||I Tame a Chaebol Family With a Talking Obsidian
+1244543|||자천일몽|||Self-Proclaimed Dream
 1244544|||황태자의 부고를 내가 썼다|||I Wrote the Crown Prince's Obituary
 1244545|||모두가 무시한 스승님의 제자는 세계 최강|||The Master Everyone Ignored Has the World's Strongest Disciple
 1244546|||거짓말의 세계|||World of Lies
@@ -69060,6 +69073,7 @@
 1245263|||망돌(망한 아이돌)의 10회차 매니저|||The Failed Idol's Tenth-Time Manager
 1245265|||멸망된 세계의 기록|||Records of a Ruined World
 1245266|||축복받은 강아지들|||Blessed Puppies
+1245267|||한 소녀의 일기|||Diary of a Girl
 1245268|||능금나무|||The Crabapple Tree
 1245271|||가족에게 죽을 때마다 월요일로 회귀한다.|||Every Time My Family Kills Me, I Regress to Monday
 1245272|||변호사시험 5탈 원장, 착취 공장 뒤집기|||A Five-Time Bar Exam Failure Turns the Exploitation Mill Upside Down
@@ -69700,6 +69714,7 @@
 1246219|||이 학교, 뭔가 이상하다 제7장: 사라진 레시피|||Something's Wrong with This School, Chapter 7: The Missing Recipe
 1246220|||출근하는 데 일곱 달이 걸렸다|||It Took Seven Months to Get to Work
 1246221|||오행운:평범함이 재능이 되는순간 15회|||Oh Haengun: When Ordinary Becomes a Talent, Episode 15
+1246222|||초콜릿 두 개면 샤워 앞자리 삽니다|||Two Chocolates Buy You the Front Shower Spot
 1246224|||테힐라|||Tehila
 1246225|||미완성 연인|||Unfinished Lovers
 1246228|||깊은 원한|||Deep Resentment
@@ -69803,6 +69818,7 @@
 1246370|||서바이벌게임 : 지옥의 섬|||Survival Game: Island of Hell
 1246371|||요괴부림|||Monster Tamer
 1246375|||그때는 집이 싫었다|||Back Then, I Hated Home
+1246376|||\"나를 죽인 자들에게 두 번째 무대를...\"|||\"Second Stage for Those Who Killed Me...\"
 1246378|||무화과의 정원|||The Fig Garden
 1246379|||루시엘의 완전범죄|||Luciel's Perfect Crime
 1246380|||운로(運路), 빅데이터로 사주팔자를 엿보다.|||Unro (Fate Path): Peeking at Destiny with Big Data
@@ -69851,6 +69867,7 @@
 1246453|||폐지 줍는 노인|||The Old Man Who Collects Scrap Paper
 1246454|||신님, 환생했는데 드래곤 알이라뇨?|||God, I Reincarnated as a Dragon Egg?!
 1246455|||그 날, AI가 말을 걸었다|||That Day, the AI Spoke to Me
+1246456|||백수에서 최강까지|||From Unemployed to Strongest
 1246457|||나의 가증스러운 간병인에게|||To My Detestable Caregiver
 1246459|||《우리는 너무 늦게 만났다》|||We Met Too Late
 1246460|||감각수사대|||The Sensory Investigation Unit
@@ -69871,6 +69888,7 @@
 1246492|||Pawn  shop 49|||Pawn  shop 49
 1246493|||우리 동아리 정상 아닙니다|||Our Club Is Not Normal
 1246494|||작가님을 좋아하는 건 아니에요|||It's Not Like I Like the Author
+1246495|||어쩌다 보니 7급 공무원인 내가 최강 히어로|||Somehow, I'm a Grade 7 Civil Servant and the Strongest Hero
 1246496|||내가 만든 앱이 미래에서 다운로드됐다|||The App I Made Was Downloaded from the Future
 1246497|||신님, 책임지고 죽어주세요|||God, Take Responsibility and Die
 1246498|||전 세계에서 나만 광고가 없다|||I'm the Only One in the World Without Ads
@@ -70014,6 +70032,7 @@
 1246735|||멱살 한번 잡혀 봅시다.|||Let's Get You by the Collar
 1246736|||로맨스 참고 문헌|||A Reference Guide to Romance
 1246738|||그 복수, 제가 대신 해드립니다.|||I'll Take Revenge for You
+1246739|||강철의 천마|||The Steel Heavenly Demon
 1246743|||멸망을 막기 위해 북부 대공과 계약결혼했습니다|||I Entered a Contract Marriage with the Northern Grand Duke to Stop the Apocalypse
 1246744|||산에서 내려온  구미호|||The Nine-Tailed Fox Who Came Down from the Mountain
 1246748|||류빈|||Ryubin
@@ -70084,6 +70103,7 @@
 1246877|||고행전(孤行傳)|||The Tale of the Lone Pilgrim
 1246880|||드림랜드|||Dreamland
 1246881|||결혼은 계약부터|||Marriage Starts with a Contract
+1246883|||과거의 애인에게서 문자가 왔다|||I Got a Text from My Ex
 1246884|||《배달라이더》|||The Delivery Rider
 1246886|||그때의 노래|||The Song from Back Then
 1246887|||셔터가 내려지고...|||When the Shutters Came Down...
@@ -70309,6 +70329,7 @@
 1247224|||더스크 블루(Dusk Blue)|||Dusk Blue
 1247225|||칼날의 검객|||The Blade-Wielding Swordsman
 1247227|||돈이면 안되는게 어딨어, 특히 중세 판타지 세계에서는.|||What Can't Money Buy? Especially in a Medieval Fantasy World
+1247229|||기억상실 영애의 품격있는 시골 생활|||The Dignified Countryside Life of an Amnesiac Noble Lady
 1247230|||임진왜란 2072 - 제1부 노량대전|||Imjin War 2072: Part 1, Battle of Noryang
 1247231|||<형법 제10조 > 저는 누구일까요, 그게 중요한가요?|||<Criminal Act, Article 10> Who Am I? Does It Matter?
 1247234|||곁에 있던 사람 — 돌아오지 않은 너|||The One Who Was by My Side — You Never Came Back
@@ -70332,6 +70353,7 @@
 1247264|||차이니깐 어때?|||So What If We’re Different?
 1247265|||비혼이라니까 왜 비명을지르세요?|||Why Are You Screaming When I Say I Don't Want to Marry?
 1247266|||나는 너무 오래 괜찮다고 말했다|||I Said \"I'm Fine\" for Too Long
+1247269|||망나니 회귀록|||Record of a Rogue's Regression
 1247271|||잠식|||Encroachment
 1247272|||홍염|||Crimson Flame
 1247278|||무무|||Mumu
@@ -70438,6 +70460,7 @@
 1247430|||마에스트로|||Maestro
 1247433|||너를 사랑하지 않은  것이 아니었어|||It's Not That I Didn't Love You
 1247434|||시한부 환자가 흡수 능력을 각성함|||A Terminal Patient Awakens an Absorption Ability
+1247435|||죽기 전에 최애를 만났다(완결)|||I Met My Bias Before I Died (Completed)
 1247436|||탈주 성녀를 남편으로 삼았더니|||I Made the Runaway Saint My Husband
 1247439|||청와대의 각하가 내게만 다정하다|||The President at the Blue House Is Kind Only to Me
 1247440|||투팝스|||Two Pops
@@ -70510,6 +70533,7 @@
 1247546|||대표님 죄송한데 야한소설 주인공이세요.|||CEO, Sorry, but You're the Hero of an Erotic Novel
 1247547|||끝내 당신을 잊지 못한 생|||A Life That Never Forgot You
 1247548|||악의 비밀결사는 가면의 히어로를 탄생시킨다|||An Evil Secret Society Creates a Masked Hero
+1247549|||서한연의(유방과 항우의 초한지)|||Romance of Western Han (Liu Bang and Xiang Yu's Chu-Han Contention)
 124755|||사랑해,이정환|||I Love You, Lee Jeong-hwan
 1247550|||루스케이션|||Luscation
 1247551|||악깡통합 45회|||Unified Grit and Guts, Episode 45
@@ -70533,6 +70557,7 @@
 1247589|||잘못 선택했어|||You Chose Wrong
 1247591|||우리의 결혼식은 아직 끝나지 않았다|||Our Wedding Isn't Over Yet
 1247598|||폐급 헌터가 회귀했다|||The Useless Hunter Regressed
+1247599|||봉합선(縫合線) : 유라시안 익스프레스|||Suture Line: Eurasian Express
 1247600|||실리아가 화가가 되는 방법|||How Celia Became a Painter
 1247601|||마이 리틀 퍼스트 레이디|||My Little First Lady
 1247602|||완벽한 전남친의 연프 도장깨기|||My Perfect Ex-Boyfriend Is Conquering Every Dating Show
@@ -70606,6 +70631,7 @@
 1247716|||NEXUS : 기다리는 자|||NEXUS: The One Who Waits
 1247717|||4대 고전 삼국|||The Three Kingdoms in Four Great Classics
 1247718|||재벌이 됐는데, 아무도 나를 모르더라|||I Became a Chaebol, but Nobody Knows Me
+1247719|||별의 제자|||Disciple of the Stars
 1247722|||퇴근하면 무림으로 출근합니다|||When I Clock Out, I Clock In to Murim
 1247723|||경계가 무너진 세계에서, 당신을 다시 사랑하게 되었다|||In a World Where Boundaries Have Fallen, I Fell in Love with You Again
 1247726|||별, 소년, 기억|||Stars, Boys, Memories
@@ -70629,6 +70655,7 @@
 1247756|||힘든 이에게 □□를.|||For Those Going Through Hard Times, □□.
 1247757|||천마의 자리|||The Heavenly Demon's Seat
 1247759|||X가 아닌 사람|||Someone Other Than X
+1247764|||오빠를 죽인 놈을 찾을 때까지, 나는 황태자다.|||Until I Find My Brother's Killer, I Am the Crown Prince.
 1247765|||라스트 트레인: 돌아오지 못한 사람들|||Last Train: Those Who Never Came Back
 1247766|||짐승들은 나를 버리지 않았다|||The Beasts Never Abandoned Me
 1247767|||디어 로맨스|||Dear Romance
@@ -70796,6 +70823,7 @@
 1248034|||월야선유도|||Moonlit Immortal's Journey
 1248035|||주군,명령만 하십시오|||My Lord, Just Give the Order
 1248036|||성녀님은 정년퇴직을 원하신다|||The Saint Wants to Retire
+1248037|||피로+회복제|||Fatigue + Recovery Potion
 1248038|||로그아웃, 서울|||Log Out, Seoul
 1248039|||무채색의 밤|||A Colorless Night
 1248041|||그럼에도 불구하고|||Nevertheless
@@ -70879,6 +70907,7 @@
 1248158|||불멸의 여행자|||The Immortal Traveler
 1248159|||S.U.N_내가 흘린 피가 구원이 되었다.|||S.U.N: The Blood I Shed Became Salvation
 124816|||여인(女人)의 꿈|||A Woman’s Dream
+1248160|||어떤 계절은 두 번 오지 않는다|||Some Seasons Don't Come Twice
 1248161|||시간의 굴레|||The Shackles of Time
 1248163|||이것은 왜 이것일까?|||Why Is This This?
 1248164|||백수, 사장되다|||Unemployed to CEO
@@ -71057,6 +71086,7 @@
 1248403|||무너진 미래를 짓는 회귀자|||The Regressor Building a Future from Ruins
 1248404|||세계의 끝에는 바다가 없었다.|||There Was No Sea at the End of the World
 1248405|||《저 헬린이인데요?》|||I'm a Gym Newbie, You Know?
+1248406|||잊지 못한다는 것|||The Inability to Forget
 1248407|||내일 죽을 손님이 온다|||A Guest Who Will Die Tomorrow Is Coming
 1248408|||엑스트라 시녀|||The Extra Maid
 1248410|||사기꾼 점술사로 살아남기|||Surviving as a Fraudulent Fortune Teller
@@ -71264,6 +71294,7 @@
 1248723|||태왕이 나를 기다린다.|||The Emperor Is Waiting for Me.
 1248724|||제가 쓴 BL 소설의 주인공들이 찾아왔습니다.|||The Protagonists of the BL Novel I Wrote Came to Find Me.
 1248725|||헤테로크로미아|||Heterochromia
+1248726|||내가 해먹은 게임에 빙의했다|||I Possessed the Game I Used to Play
 1248727|||Perfect Storm / 한반도가 요동친다|||Perfect Storm / The Korean Peninsula Is in Turmoil
 1248728|||그 남자는 나를 잊지 않았다|||That Man Never Forgot Me
 1248730|||황궁을 떠났더니 제국의 마력이 꺼졌다|||I Left the Imperial Palace, and the Empire’s Magic Went Out
@@ -71310,6 +71341,7 @@
 1248786|||안티의 첫사랑|||An Anti’s First Love
 1248787|||신화에서 살고있다|||Living in Mythology
 1248788|||심장이 붉게 물들면|||When the Heart Turns Red
+1248789|||불구 판정 내린 의학계, 바늘로 짓밟음|||The Medical World Declared Me Disabled, So I Trampled It With Needles
 1248792|||타오르는 달빛은 멈추지 않는다|||The Burning Moonlight Never Stops
 1248793|||비인경(非人境) : 인간이 아닌 자들의 세계|||Non-Human Realm: The World of Those Who Are Not Human
 1248794|||<<첫사랑은 오류를 부른다>>|||First Love Causes Errors
@@ -71326,6 +71358,7 @@
 1248805|||해동 무협록|||Haedong Martial Arts Chronicle
 1248807|||저승 배송기사|||Underworld Delivery Driver
 1248808|||란도셀|||Randoseru
+1248811|||《기억세탁소, 르 메르》|||Memory Laundry, Le Mer
 1248814|||《왕세자의 계절》|||The Crown Prince’s Season
 1248815|||테라의 사랑|||Terra’s Love
 1248816|||이세계에서 복수를 꿈꾼다|||Dreaming of Revenge in Another World
@@ -71335,6 +71368,7 @@
 1248824|||불치병을 고쳤더니 날 버린 병원이 매달린다|||After I Cured an Incurable Disease, the Hospital That Abandoned Me Clings On
 1248825|||내 댓글대로 소설이 진행된다|||The Novel Follows My Comments
 1248827|||그노시아 신들의 유희: 짐승의 터 테리안|||Gnosia: Gods’ Game—Terian, the Beast’s Den
+1248828|||인간 소굴|||Human Den
 1248830|||대나무꽃은 전장에서 핀다|||Bamboo Flowers Bloom on the Battlefield
 1248831|||AI연주와 현실남자의 사랑이야기|||A Love Story Between AI Yeonju and a Real Man
 1248832|||코어워커|||Core Walker
@@ -71406,6 +71440,7 @@
 1248934|||너에게|||To You
 1248935|||퓨전펑크 아카데미 수재는 해결사|||The Fusion-Punk Academy Prodigy Is a Fixer
 1248936|||운명사진관|||Destiny Photo Studio
+1248938|||초능력 아기 (부자가 된 부부의 평범?한 일상)|||Psychic Baby: The Ordinary(?) Daily Life of a Newly Rich Couple
 1248941|||면제 사유|||Reason for Exemption
 1248942|||용을 죽인 범인은 용사가 아니다|||The Dragon Slayer Is Not the Hero
 1248943|||유언에 없는 당신에게|||To You, Not in the Will
@@ -71417,6 +71452,7 @@
 1248952|||지상에 지옥은 없다|||There Is No Hell on Earth
 1248953|||혈내궁 穴內宮|||Hyeolnaegung: Inner Palace of Blood
 1248956|||사람으로 사는 법|||How to Live as a Human
+1248957|||오페라의 유령은 연애가 처음이라...|||The Phantom of the Opera Is New to Romance...
 1248959|||삼국지|||Romance of the Three Kingdoms
 1248960|||삼국지 연의|||Romance of the Three Kingdoms Retold
 1248961|||아무것도 안 했는데 다들 제가 흑막이래요|||I Didn't Do Anything, but Everyone Says I'm the Mastermind
@@ -71446,6 +71482,7 @@
 1248992|||피는 비를 부른다|||Blood Calls the Rain
 1248993|||지하 3층은 없습니다.|||There Is No Third Basement.
 1248994|||아직 한 명이 살아 있다|||One Is Still Alive
+1248995|||강철의 천마|||The Steel Heavenly Demon
 1248997|||두 번 통하는 무공은 없다|||No Martial Art Works Twice
 1248998|||검의 나라에서 반역자가 되었다 : 휘담국 이야기|||Became a Traitor in the Kingdom of Swords: Tale of Hwidam
 1249|||[단편] 꿈 이야기.|||[Short Story] A Dream Story
@@ -71455,6 +71492,7 @@
 1249004|||슬기로운 고딩 생활|||A Wise High School Life
 1249005|||화운화우(化雲化雨)|||Turning Clouds, Turning Rain
 1249006|||탈북한 여자에게 반하지 마세요|||Don't Fall for the Woman Who Defected from the North
+1249007|||소원을 빌었더니 남편이 딸려왔다|||I Made a Wish and Got a Husband Thrown In
 1249008|||소원을 모르는 아이-세상에서 유일하게 능력이 없는 사람|||The Child Who Doesn't Know Wishes: The Only Person in the World Without Power
 1249009|||< 아델하이트는 단정하지 않는다 >|||Adelheit Does Not Conclude
 1249011|||《천사, 악마의 입술을 훔치다》|||An Angel Steals a Devil's Lips
@@ -71473,6 +71511,7 @@
 1249029|||강철소년(STEEL BOY)|||Steel Boy
 1249030|||원나잇 상대가 옆자리에 입사했다.|||My One-Night Stand Joined as My Desk Neighbor.
 1249031|||천 일 간격의 화성 연쇄살인|||Mars Serial Murders at Thousand-Day Intervals
+1249036|||바뀐 별 — 천마의 딸로 자랐는데, 바뀐 아이였다|||Switched Star: Raised as the Heavenly Demon's Daughter, Only to Be the Switched Child
 1249037|||바다의 아이 그리고 하늘 남작|||The Child of the Sea and the Sky Baron
 1249041|||구원받지 못한 자들의 약제사|||The Apothecary of the Unsaved
 1249043|||무림 요양원|||Martial World Nursing Home
@@ -71503,6 +71542,7 @@
 1249078|||화산 막내는 검을 들지 않는다|||The Youngest of Hwasan Doesn't Hold a Sword
 1249079|||내 동생이 망나니 황자란다|||My Little Brother Is Said to Be a Good-for-Nothing Prince
 1249080|||하얀 교복의 싸움꾼|||The Brawler in the White Uniform
+1249081|||무인도 교도소에서 괴물이 되었다|||I Became a Monster in a Desert Island Prison
 1249083|||천하제일객잔|||Tianhacheil Inn
 1249085|||추가 수당 주시면 악령도 잡습니다|||I'll Exorcise Evil Spirits for Extra Pay
 1249086|||7 Regrets|||7 Regrets
@@ -71530,6 +71570,7 @@
 1249123|||부산행|||Busan Train
 1249125|||환상의 세계|||A World of Illusion
 1249127|||부러지지 않는 칼|||The Blade That Doesn't Break
+1249128|||푸른 비단끈|||Blue Silk Cord
 1249129|||《내가 쓰지 않은 결말이 매일 업로드된다》|||An Ending I Didn't Write Is Uploaded Every Day
 1249130|||새벽 1시, 마지막 편지를 배달합니다.|||At 1 AM, I Deliver the Last Letter.
 1249131|||18개월: 백악관 지하의 한국인|||18 Months: The Korean Beneath the White House
@@ -71550,6 +71591,7 @@
 1249156|||내 세계가 사라져도, 나는 너를 기억할 거야|||Even If My World Disappears, I'll Remember You
 1249160|||하루 전 2|||One Day Before 2
 1249162|||「남편의 첫사랑이 돌아왔다, 나는 떠나기로 했다」|||My Husband's First Love Returned, So I Decided to Leave
+1249163|||연가|||Love Song
 1249164|||비 오는날|||Rainy Day
 1249166|||데뷔탕트에는 검은 드레스를|||A Black Dress for the Debutante
 1249170|||대림 RPG: 기적의 영웅|||Daelim RPG: Hero of Miracles
@@ -71581,6 +71623,7 @@
 1249208|||한성이와레몬의만남|||Hanseong Meets Lemon
 1249209|||실현가능성 0.0001% 짝사랑|||0.0001% Chance Unrequited Love
 1249210|||종의 지배|||Dominion of the Species
+1249212|||노력|||Effort
 1249213|||기억의 파편: 두 세계의 경계에서|||Fragments of Memory: At the Border of Two Worlds
 1249214|||현장에서는 원수입니다|||On Site, We Are Enemies
 1249215|||비밀|||Secret
@@ -71589,6 +71632,7 @@
 1249218|||대군 마마의 명줄은 제가 쥐었습니다|||I Hold the Grand Prince's Lifeline
 1249219|||폐기되지 않은 아이|||The Child Who Was Not Discarded
 1249222|||EXIT|||EXIT
+1249223|||연하남은 원래 이렇게 위험한가요?|||Are Younger Men This Dangerous Normally?
 1249224|||혈관|||Blood Vessel
 1249225|||우리의 계절이 오면|||When Our Season Comes
 1249226|||우리 신령님은 공수를 난해시로 내려주신다|||Our Spirit Delivers Divine Messages in Difficult Poetry
@@ -71627,11 +71671,13 @@
 1249275|||귀(신)(포)켓몬|||Ghost Pokemon
 1249276|||범이 내려온다.|||The Tiger Comes Down.
 1249278|||초능력 특수 기관의 막내 요원이 되었다.|||I Became the Youngest Agent of a Psychic Special Agency.
+1249281|||접속 3분만에 공식 랭킹 1위가 됬다.|||Reached Official Ranking #1 Within 3 Minutes of Logging In
 1249282|||어느 수호자의 이야기|||The Tale of a Certain Guardian
 1249283|||악깡통합 47회|||Evil Kang Merge Episode 47
 1249284|||용사 파티에서 탈퇴하게 해 주세요!|||Please Let Me Quit the Hero's Party!
 1249285|||말하는 동물들의 고민 상담소|||Counseling Office for Talking Animals
 1249286|||구조기술사는 사고사를 믿지 않는다|||The Structural Engineer Doesn't Believe in Accidental Deaths
+1249287|||환상과 현실의 경계의, 언령|||Word Spirit on the Border of Fantasy and Reality
 1249288|||신들의 전쟁|||War of the Gods
 1249289|||우리 동아리 왜 이래?|||What's Wrong With Our Club?
 1249290|||우울증인 줄 알았던 아내가 이상하다.|||My Wife, Whom I Thought Was Depressed, Is Strange.
@@ -71729,6 +71775,7 @@
 1249436|||복수하려고 가장 나쁜 남자를 골랐다|||I Chose the Worst Man to Take Revenge
 1249437|||백세린은 그런 애가 아니야|||Baek Se-rin Isn't That Kind of Person
 1249439|||나의 독은 그녀의 발밑에서 달콤해진다|||My Poison Turns Sweet at Her Feet
+1249440|||국수 말며 배운 무공이 천하제일임|||Martial Arts Learned While Making Noodles Is the World's Best
 1249442|||내 소원은..|||My Wish...
 1249444|||세계기록|||World Record
 1249445|||복수를 원하는 자들의 만남|||A Meeting of Those Who Seek Revenge
@@ -71744,6 +71791,7 @@
 1249456|||무서운 아빠에게 교환일기를 건넸다|||I Handed a Diary Exchange to My Scary Dad
 1249457|||폐급 능력 밀도 조절로 이세계 최강|||Useless Ability, Density Control Makes Me the Strongest in Another World
 1249458|||나혼자만 요괴도감이 보인다.|||Only I Can See the Yokai Encyclopedia.
+1249460|||둘째의 방식(평범하게 살고 싶었던 둘째의 생존기)|||The Second Child's Way: Survival Story of a Second Child Who Just Wanted a Normal Life
 1249461|||오늘 이 시간부로 팀 언데드를 해체합니다.|||Effective now, Team Undead Is Disbanded.
 1249462|||꼴찌 헌터팀 감독은 퇴출된 에이스|||The Last-Place Hunter Team's Coach Is a Discarded Ace
 1249463|||투 벤드(To bend)|||To Bend
@@ -71780,7 +71828,10 @@
 1249513|||완벽한 셰프를 망치는 법|||How to Ruin a Perfect Chef
 1249514|||환승한 너를 아직 사랑해서|||Because I Still Love You, Who Transferred
 1249516|||백일초|||Hundred-Day Grass
+1249517|||시추선 : 심해의 위협|||Drilling Ship: Threat of the Deep Sea
 124952|||Ether-the key|||Ether—the key
+1249520|||아이스크림 콘 : 녀석의 핸디캡은 나라밖에 없다.|||Ice Cream Cone: His Only Handicap Is His Country
+1249521|||공부는 전교1등|||Top of the School in Studying
 1249522|||헬창 스님|||Hell-Training Monk
 1249523|||불멸(不滅)|||Immortality
 1249524|||영웅이 되고 싶었는데 빌런이 되어버렸다|||I Wanted to Be a Hero, but I Became a Villain
@@ -71804,6 +71855,7 @@
 1249550|||그렇게 너는 내가 되었다|||That's How You Became Me
 1249551|||노 크라운 13회|||No Crown Episode 13
 1249552|||우리에게 주어진 시간|||The Time Given to Us
+1249553|||살아남으려면 황좌가 필요하다|||To Survive, I Need the Throne
 1249555|||무당인데, 남자 영물들이 자꾸 꼬인다|||I'm a Shaman, but Male Spirit Beasts Keep Flirting With Me
 1249556|||폴라리스의 죽음에 대하여|||On the Death of Polaris
 1249558|||벚꽃이 피면 끝나는 봄|||A Spring That Ends When Cherry Blossoms Bloom
@@ -71816,6 +71868,7 @@
 1249567|||이것은 나의 철없고 청춘이던 나의 고등학교 생활 BL|||This Is My Immature Youth: A High School BL
 1249568|||너를 죽이지 못한 밤|||The Night I Couldn't Kill You
 1249569|||편의점 사장님은 오늘도 탑에 배달 간다|||The Convenience Store Owner Delivers to the Tower Again Today
+1249570|||미천록(迷天錄)|||Record of Lost Heaven
 1249572|||신의 분노::이라헤로이스|||Wrath of the Gods: Irahe Lois
 1249573|||진짜 완벽한 아이돌|||The Truly Perfect Idol
 1249575|||우산 두 개|||Two Umbrellas
@@ -71843,6 +71896,7 @@
 1249610|||가짜 보스|||Fake Boss
 1249612|||처음부터 사랑은 아니었어|||It Wasn't Love From the Start
 1249614|||여행|||Travel
+1249618|||M1 제1부 - 악마의 탑|||M1 Part 1: Tower of Demons
 1249619|||로또 1등 행동요령|||How to Act When You Win the Lottery
 1249620|||곱게 키울 예정은 없습니다|||I Have No Plans to Raise You Gently
 1249621|||한반도의 설계자들|||The Architects of the Korean Peninsula
@@ -71889,6 +71943,7 @@
 1249695|||만년 대리였는데 공주가 됐다|||A Perpetual Assistant Manager Became a Princess
 1249696|||적국의 황태자비가 되었다.|||I Became the Enemy Nation's Crown Princess Consort.
 1249701|||내 어머니는 구미호입니다.|||My Mother Is a Nine-Tailed Fox.
+1249703|||첫사랑이 99.7% 쓰레기로 나타났다|||My First Love Turned Out to Be 99.7% Trash
 1249704|||윙래시아 WINGLESSIA|||Wingless Sia
 1249705|||조선 말기 한량 종친이 되었다.|||I Became a Leisurely Royal Relative in Late Joseon.
 1249706|||따뜻한 위로 뒤 싸늘한 죽음을 가로막는 법|||How to Block a Cold Death Behind Warm Comfort
@@ -71911,19 +71966,43 @@
 1249730|||동트는 언덕|||Hill at Dawn
 124975|||그 순간을 담는, 셔터|||The Shutter That Captures That Moment
 124978|||알레|||Ale
+1249783|||태어나보니 AI가 되어 있었다|||I Was Born as an AI
+1249784|||유비 : 천하를 읽는 짚신 장수|||Liu Bei: The Straw Sandal Seller Who Reads the World
+1249838|||실종된 내 남편이 다른 여자와 결혼한다|||My Missing Husband Is Marrying Another Woman
+1249856|||서울에서 두려움이 사라진 날|||The Day Fear Vanished in Seoul
 124986|||[엑소]니가있는곳|||[EXO] Where You Are
+1249869|||가짜 딸을 그만뒀더니 공작가가 진짜로 망하기 시작했다|||After I Stopped Being the Fake Daughter, the Duke's Family Began Truly Falling
+1249913|||헤어진 남편이 내 상사가 되었다|||My Ex-Husband Became My Boss
+1249975|||푸른 노을빛|||Blue Twilight
 124998|||MGSS|||MGSS
+1249984|||집착녀가 남친들을 사귀었다|||The Obsessive Woman Dated Her Boyfriends
+1249988|||거대한 재난|||Massive Disaster
+1249990|||우리 집에 위험한 순정이 산다|||A Dangerous Devoted Man Lives in My House
+1249997|||하룻밤 상대가 옆집 팀장이다|||My One-Night Stand Is My Neighbor's Team Leader
 125000|||루비로 채워진 석류|||A Pomegranate Filled with Rubies
 125001|||잿빛마을 실종사건 (灰色村的失踪事件)|||The Ashen Village Disappearance
+1250018|||못된 버릇|||Bad Habit
+1250053|||미녀로 변신해야 세계 1위 히어로가 된다|||Transform Into a Beauty to Become the World's No. 1 Hero
+1250064|||황금마차를 훔치는 방법|||How to Steal a Golden Carriage
 125007|||적색 고리|||Red Ring
+1250082|||내 아공간에는 하늘이 있다.|||My Pocket Dimension Has a Sky
 12501|||The incredible story|||The incredible story
 125011|||[단편]분만대기실|||[Short Story] The Delivery Waiting Room
+1250116|||빌어먹을 놈|||That Damn Bastard
+1250159|||내가 당신의 마음을 알았더라면...|||If Only I Had Known Your Heart...
 125018|||[엑소 빙의글] 내 마음을 알아줘|||[EXO Possession Fic] Understand My Heart
 125021|||막나가는 그녀를 길들이는 잘나가는 그|||The Popular Guy Tames the Wild Girl
 125024|||데쓰 플라워|||Death Flower
 125027|||꽃미남과의 동거|||Living with a Handsome Guy
+1250280|||유령산장|||Ghost Mountain Villa
 125029|||한발 물러선 사람 이야기 - 뱀여자|||The Story of the Person Who Stepped Back—Snake Woman
+1250300|||북위 38도의 검|||Sword of 38 Degrees North
 125031|||잊혀진과거속에도 그들은존재했다|||They Existed Even in the Forgotten Past
+1250315|||환생 탐험대|||Reincarnation Expedition Team
+1250362|||마루가 들려준 이야기|||The Story Maru Told
+1250378|||리미트리스: AI안경|||Limitless: AI Glasses
+1250414|||별을 죽여 밥을 지었다|||I Killed a Star to Cook a Meal
+1250460|||모르스: 어느 용병단의 기록|||Morse: Record of a Mercenary Company
 125050|||함께 닦는 기본기, 함께 느는 필력|||Building Fundamentals Together, Improving Writing Together
 125052|||예그리나의 벨|||Yegrina's Bell
 125056|||아름다운 꽃|||Beautiful Flower
@@ -245601,7 +245680,6 @@
 1058025|||/|||
 1063428|||123213|||
 1063548|||ㅇㄴㅇㄹㄹㄴㅇㄴㅇㄹ|||
-1063823|||폭군의 계약직 구세주|||
 1065561|||.|||
 1065705|||.|||
 1065970|||..|||
@@ -245821,7 +245899,6 @@
 1231981|||■■|||
 1232844|||.|||
 1233244|||354867|||
-1233813|||《학교 술래잡기 : 여기서 죽으면 결석처리됩니다》|||
 1233972|||.|||
 1234822|||<2652>|||
 1234830|||....|||
@@ -245832,87 +245909,10 @@
 1238873|||ㅜㅁ닝ㄹ|||
 1238989|||.|||
 1239886|||?|||
-1241286|||여동생을 죽인놈을 찾으러 갔는데, 그놈이 신임|||
-1241963|||그럼에도 너|||
-1242460|||이름이 먹는 밤|||
-1242573|||꿈파는 남자|||
-1242696|||마녀와 공작의 여름|||
-1243215|||아이돌 입니다?|||
-1243230|||애착인형  여행|||
-1243623|||푸른 꽃|||
 1243630|||1960|||
-1243882|||시그널이 울릴 때면, 나는 동감한다|||
-1243915|||《검선 남궁천 : 사파왕과 검선》|||
 1244519|||9.99|||
-1244543|||자천일몽|||
 1245105|||87.2314%|||
 1245239|||-|||
-1245267|||한 소녀의 일기|||
-1246222|||초콜릿 두 개면 샤워 앞자리 삽니다|||
-1246376|||\"나를 죽인 자들에게 두 번째 무대를...\"|||
-1246456|||백수에서 최강까지|||
-1246495|||어쩌다 보니 7급 공무원인 내가 최강 히어로|||
-1246739|||강철의 천마|||
-1246883|||과거의 애인에게서 문자가 왔다|||
-1247229|||기억상실 영애의 품격있는 시골 생활|||
-1247269|||망나니 회귀록|||
-1247435|||죽기 전에 최애를 만났다(완결)|||
-1247549|||서한연의(유방과 항우의 초한지)|||
-1247599|||봉합선(縫合線) : 유라시안 익스프레스|||
-1247719|||별의 제자|||
-1247764|||오빠를 죽인 놈을 찾을 때까지, 나는 황태자다.|||
-1248037|||피로+회복제|||
-1248160|||어떤 계절은 두 번 오지 않는다|||
-1248406|||잊지 못한다는 것|||
-1248726|||내가 해먹은 게임에 빙의했다|||
-1248789|||불구 판정 내린 의학계, 바늘로 짓밟음|||
-1248811|||《기억세탁소, 르 메르》|||
-1248828|||인간 소굴|||
-1248938|||초능력 아기 (부자가 된 부부의 평범?한 일상)|||
-1248957|||오페라의 유령은 연애가 처음이라...|||
-1248995|||강철의 천마|||
-1249007|||소원을 빌었더니 남편이 딸려왔다|||
-1249036|||바뀐 별 — 천마의 딸로 자랐는데, 바뀐 아이였다|||
-1249081|||무인도 교도소에서 괴물이 되었다|||
-1249128|||푸른 비단끈|||
-1249163|||연가|||
-1249212|||노력|||
-1249223|||연하남은 원래 이렇게 위험한가요?|||
-1249281|||접속 3분만에 공식 랭킹 1위가 됬다.|||
-1249287|||환상과 현실의 경계의, 언령|||
-1249440|||국수 말며 배운 무공이 천하제일임|||
-1249460|||둘째의 방식(평범하게 살고 싶었던 둘째의 생존기)|||
-1249517|||시추선 : 심해의 위협|||
-1249520|||아이스크림 콘 : 녀석의 핸디캡은 나라밖에 없다.|||
-1249521|||공부는 전교1등|||
-1249553|||살아남으려면 황좌가 필요하다|||
-1249570|||미천록(迷天錄)|||
-1249618|||M1 제1부 - 악마의 탑|||
-1249703|||첫사랑이 99.7% 쓰레기로 나타났다|||
-1249783|||태어나보니 AI가 되어 있었다|||
-1249784|||유비 : 천하를 읽는 짚신 장수|||
-1249838|||실종된 내 남편이 다른 여자와 결혼한다|||
-1249856|||서울에서 두려움이 사라진 날|||
-1249869|||가짜 딸을 그만뒀더니 공작가가 진짜로 망하기 시작했다|||
-1249913|||헤어진 남편이 내 상사가 되었다|||
-1249975|||푸른 노을빛|||
-1249984|||집착녀가 남친들을 사귀었다|||
-1249988|||거대한 재난|||
-1249990|||우리 집에 위험한 순정이 산다|||
-1249997|||하룻밤 상대가 옆집 팀장이다|||
-1250018|||못된 버릇|||
-1250053|||미녀로 변신해야 세계 1위 히어로가 된다|||
-1250064|||황금마차를 훔치는 방법|||
-1250082|||내 아공간에는 하늘이 있다.|||
-1250116|||빌어먹을 놈|||
-1250159|||내가 당신의 마음을 알았더라면...|||
-1250280|||유령산장|||
-1250300|||북위 38도의 검|||
-1250315|||환생 탐험대|||
-1250362|||마루가 들려준 이야기|||
-1250378|||리미트리스: AI안경|||
-1250414|||별을 죽여 밥을 지었다|||
-1250460|||모르스: 어느 용병단의 기록|||
 125690|||127|||
 127430|||1|||
 130976|||.|||
