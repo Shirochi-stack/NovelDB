@@ -3,8 +3,10 @@
  * - Tapping a card opens View Details instead of the novel page.
  * - "Open novel" and other outside links go to the app (Browser tab).
  * - A link-cart button on each card adds or removes its URL from the app's cart. NovelDB Next
- *   cards hold no link, so their button (card's bottom right) reads it from the card's details, opened
- *   out of sight, and remembers it.
+ *   cards hold no link, so their button (bottom right of the cover, above the title) reads it from
+ *   the card's details, opened out of sight, and remembers it.
+ * - When the app sends outside links to the cart (sites other than NovelDB, setMode cartLinks),
+ *   links to other sites that show text are renamed "🔗 Download".
  * - Taps show no highlight flash, and the NovelDB header is slimmer.
  * - Dialog heights use the window height: some Android WebViews resolve dvh units to 0.
  */
@@ -59,7 +61,12 @@
         for (var i = 0; i < cards.length; i++) {
             var card = cards[i];
             if (!card.querySelector('.card-btn')) continue;
-            var button = cartButton(card, 'noveldb-cart-next');
+            var cover = card.querySelector('.bg-raised') || card;
+            var button = cartButton(cover, 'noveldb-cart-next');
+            // The compact layout prints the title on a strip across the bottom of the cover.
+            var strip = cover.querySelector('.bg-gradient-to-t');
+            var bottom = strip ? (strip.offsetHeight + 4) + 'px' : '';
+            if (button.style.bottom !== bottom) button.style.bottom = bottom;
             var url = nextLinks[nextKey(card)] || '';
             if (button.dataset.url !== url) button.dataset.url = url;
             paint(button);
@@ -95,7 +102,33 @@
         paint(button);
         send({type: adding ? 'cartAdd' : 'cartRemove', url: url, title: title, source: source});
     }
+    // Outside links renamed while the app sends them to the cart; their original text, to restore.
+    var mode = {cartLinks: false};
+    var DOWNLOAD_LABEL = '🔗 Download';
+    var renamed = new Map();
+    function shownText(anchor) {
+        var nodes = [], walker = document.createTreeWalker(anchor, NodeFilter.SHOW_TEXT), node;
+        while ((node = walker.nextNode())) if (node.nodeValue.trim()) nodes.push(node);
+        return nodes;
+    }
+    function renameLinks() {
+        var anchors = document.querySelectorAll('a[href]');
+        for (var i = 0; i < anchors.length; i++) {
+            var anchor = anchors[i];
+            if (!mode.cartLinks || !external(anchor)) continue;
+            var nodes = shownText(anchor);
+            if (!nodes.length || anchor.textContent.trim() === DOWNLOAD_LABEL) continue;
+            if (!renamed.has(anchor)) renamed.set(anchor, nodes.map(function (n) { return [n, n.nodeValue]; }));
+            nodes.forEach(function (n, index) { n.nodeValue = index === 0 ? DOWNLOAD_LABEL : ''; });
+        }
+        renamed.forEach(function (originals, anchor) { if (!anchor.isConnected) renamed.delete(anchor); });
+        if (!mode.cartLinks && renamed.size) {
+            renamed.forEach(function (originals) { originals.forEach(function (pair) { pair[0].nodeValue = pair[1]; }); });
+            renamed.clear();
+        }
+    }
     function decorate() {
+        renameLinks();
         decorateNext();
         var areas = document.querySelectorAll('.novel-card .card-cover-area');
         for (var i = 0; i < areas.length; i++) {
@@ -189,7 +222,7 @@
         'padding:0;border:0;border-radius:.4rem;background:rgba(0,0,0,.55);font-size:17px;line-height:1;cursor:pointer;' +
         'filter:grayscale(1);opacity:.8;-webkit-tap-highlight-color:transparent}' +
         '.noveldb-cart[aria-pressed="true"]{background:#E18F98;filter:none;opacity:1;box-shadow:0 0 0 2px #fff}' +
-        '.noveldb-cart-next{left:auto;right:.25rem;bottom:.25rem;z-index:40;width:24px;height:22px;font-size:12px;border-radius:.3rem}' +
+        '.noveldb-cart-next{left:auto;right:.3rem;bottom:.3rem;z-index:40;width:30px;height:30px;font-size:15px}' +
         '.noveldb-cart:disabled{opacity:.5}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
         '{visibility:hidden!important;animation:none!important;transition:none!important}' +
@@ -201,12 +234,13 @@
     (document.head || document.documentElement).appendChild(style);
     function start() {
         viewport();
-        new MutationObserver(schedule).observe(document.body, {childList: true, subtree: true});
+        new MutationObserver(schedule).observe(document.body, {childList: true, subtree: true, characterData: true});
         schedule();
     }
     if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
     window.NovelDBApp = {
-        setCart: function (urls) { cart = new Set(urls || []); schedule(); }
+        setCart: function (urls) { cart = new Set(urls || []); schedule(); },
+        setMode: function (next) { mode = {cartLinks: !!(next && next.cartLinks)}; schedule(); }
     };
     send({type: 'ready'});
 })();

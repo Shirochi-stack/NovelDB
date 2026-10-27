@@ -33,12 +33,11 @@ import kotlinx.coroutines.launch
 /** The NovelDB catalog website, hosted on GitHub Pages. */
 const val DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 
-/** NovelDB Next, offered as a suggestion; it also gets link-cart buttons (bottom right of each card). */
+/** NovelDB Next, offered as a suggestion; its cards get link-cart buttons too. */
 const val NOVELDB_NEXT_URL = "https://noveldb.pages.dev/"
 
-/** The NovelDB sites: links out of them open in the Browser tab instead of going to the cart. */
-fun isNovelDbSite(url: String): Boolean =
-    url.trimEnd('/') == DEFAULT_CATALOG_URL.trimEnd('/') || url.trimEnd('/') == NOVELDB_NEXT_URL.trimEnd('/')
+/** The NovelDB website: "Open novel" goes to the Browser tab and links are never sent to the cart. */
+fun isNovelDbSite(url: String): Boolean = url.trimEnd('/') == DEFAULT_CATALOG_URL.trimEnd('/')
 
 /**
  * `text` when it is an address the Catalog tab can open: http or https with a site name.
@@ -79,6 +78,14 @@ class AppPreferences(context: Context) {
     var catalogUrl: String
         get() = validCatalogUrl(prefs.getString("catalogUrl", null)) ?: DEFAULT_CATALOG_URL
         set(value) = prefs.edit().putString("catalogUrl", validCatalogUrl(value) ?: DEFAULT_CATALOG_URL).apply()
+
+    /**
+     * On catalog sites other than NovelDB, links to other sites go to the link cart (and read
+     * "🔗 Download"); off, they open in the Browser tab.
+     */
+    var catalogCartLinks: Boolean
+        get() = prefs.getBoolean("catalogCartLinks", true)
+        set(value) = prefs.edit().putBoolean("catalogCartLinks", value).apply()
 
     var askedForNotifications: Boolean
         get() = prefs.getBoolean("askedForNotifications", false)

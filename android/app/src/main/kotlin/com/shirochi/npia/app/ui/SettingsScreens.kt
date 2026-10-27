@@ -467,10 +467,15 @@ fun CatalogSiteSettingsScreen(model: AppViewModel) {
                 enabled = current != NOVELDB_NEXT_URL,
             ) { Text("Use NovelDB Next") }
         }
+        SwitchRow(
+            "Send outside links to the link cart",
+            manager.preferences.catalogCartLinks,
+            { manager.setCatalogCartLinks(it) },
+            subtitle = "On sites other than NovelDB, links to other sites read \"🔗 Download\" and add the link to the cart. Off: they open in the Browser tab.",
+        )
         Footnote(
-            "On NovelDB and NovelDB Next, cards open their details and the link-cart button on each card adds the book to the Add tab " +
-                "(bottom left on NovelDB, bottom right on NovelDB Next). " +
-                "Other catalog sites have no cart buttons, so tapping a link that leaves the site adds that link to the cart instead of opening it.",
+            "On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. " +
+                "NovelDB Next cards have a link-cart button too, at the bottom right of the cover.",
         )
     }
 }

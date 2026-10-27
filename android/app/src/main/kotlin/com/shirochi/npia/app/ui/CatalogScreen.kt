@@ -88,6 +88,8 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     var site = model.manager.preferences.catalogUrl
         private set
     private val isNovelDb get() = isNovelDbSite(site)
+    /** Outside links go to the cart (and are renamed on the page) on sites other than NovelDB. */
+    private val cartLinks get() = !isNovelDb && model.manager.preferences.catalogCartLinks
 
     @SuppressLint("SetJavaScriptEnabled")
     val view: WebView = WebView(context).apply {
@@ -154,7 +156,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
 
     /** A link out of the catalog: the Browser tab on NovelDB, the link cart on other sites. */
     private fun leave(url: String, title: String) {
-        if (isNovelDb) {
+        if (!cartLinks) {
             model.openInBrowser(url)
         } else {
             model.cart.add(CartItem(url, title, SourceCatalog.adapterFor(url)?.id?.raw.orEmpty()))
@@ -163,6 +165,10 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     }
 
     /** Tells the page which cards are in the cart, so their buttons show it. */
+    fun showMode() {
+        view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setMode({cartLinks: $cartLinks})", null)
+    }
+
     fun showCart(items: List<CartItem>) {
         val urls = JsonArray(items.map { JsonPrimitive(it.url) })
         view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setCart($urls)", null)
@@ -182,7 +188,10 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
             fun field(name: String) = message[name]?.jsonPrimitive?.content.orEmpty()
             main.post {
                 when (field("type")) {
-                    "ready" -> showCart(model.cart.items.value)
+                    "ready" -> {
+                        showMode()
+                        showCart(model.cart.items.value)
+                    }
                     "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { url ->
                         val source = field("source").ifBlank { SourceCatalog.adapterFor(url)?.id?.raw.orEmpty() }
                         model.cart.add(CartItem(url, field("title"), source))
@@ -209,7 +218,11 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     val cart by model.cart.items.collectAsStateWithLifecycle()
     model.manager.preferencesFlow.collectAsStateWithLifecycle().value
     val site = model.manager.preferences.catalogUrl
-    LaunchedEffect(site) { web.load(site) }
+    val cartLinks = model.manager.preferences.catalogCartLinks
+    LaunchedEffect(site, cartLinks) {
+        web.load(site)
+        web.showMode()
+    }
     LaunchedEffect(cart) { web.showCart(cart) }
     BackHandler(enabled = web.canBack) { web.view.goBack() }
     Box(Modifier.fillMaxSize()) {
