@@ -245522,6 +245522,7 @@
 999444|||1인 마법사|||The One-Man Mage
 999453|||우한 바이러스|||Wuhan Virus
 999454|||도시소녀의 농촌 일기|||A City Girl’s Country Diary
+999461|||lovely희girl|||Lovely Hee Girl
 999462|||이세계를 파괴 한 악으로 환생해버렸다!|||I Reincarnated as the Evil That Destroyed Another World!
 999476|||아멜리의 심장|||Amelie’s Heart
 999483|||태초의 왕|||King of the Beginning
@@ -246600,6 +246601,5 @@
 995183|||.|||
 998093|||001|||
 998469|||1111111|||
-999461|||lovely희girl|||
 999640|||18:43|||
 999951|||~~~~~~|||
