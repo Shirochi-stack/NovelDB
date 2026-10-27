@@ -85,6 +85,19 @@ final class AppModel {
         }
     }
 
+    /// Jobs a "Stop all" would stop: everything queued or running.
+    var activeJobCount: Int {
+        jobs.filter { $0.state.isActive }.count
+    }
+
+    /// Cancels every queued and running job through the per-job path. Queued jobs are marked
+    /// first, so a finishing job cannot start one of them in between.
+    func cancelAll() {
+        for id in jobs.filter({ $0.state.isActive }).map(\.id) {
+            cancel(id)
+        }
+    }
+
     func retry(_ id: UUID) {
         guard let index = jobs.firstIndex(where: { $0.id == id }), !jobs[index].state.isActive else { return }
         var job = jobs[index]
