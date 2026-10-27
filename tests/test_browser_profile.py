@@ -123,3 +123,68 @@ def test_download_button_releases_profile_before_parsing(monkeypatch, batch):
         ExternalNovelDialog._do_fetch_and_download(
             dialog, 'https://example.com/book', 0, 1, False)
     assert events == ['release', 'parse']
+
+
+def test_macos_and_linux_browser_names_and_argument_lists(tmp_path):
+    profile = str(tmp_path / 'saved profile')
+    command = browser_profile._command_line
+    records = [
+        {'pid': 5, 'parent': 1, 'name': 'Google Chrome',
+         'command': command(['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                             f'--user-data-dir={profile}'])},
+        {'pid': 6, 'parent': 5, 'name': 'Google Chrome Helper (Renderer)',
+         'command': command(['helper', '--type=renderer'])},
+        {'pid': 7, 'parent': 1, 'name': 'chromium',
+         'command': command(['chromium', '--user-data-dir', profile])},
+        {'pid': 8, 'parent': 1, 'name': 'Finder', 'command': f'--user-data-dir={profile}'},
+        {'pid': 9, 'parent': 1, 'name': 'chrome',
+         'command': command(['chrome', f'--user-data-dir={profile}-other'])},
+    ]
+    assert [r['pid'] for r in browser_profile._select_profile_processes(records, profile)] == [5, 6, 7]
+
+
+def test_posix_close_signals_only_the_main_browser_process(monkeypatch):
+    killed = []
+    monkeypatch.setattr(browser_profile.sys, 'platform', 'linux')
+    monkeypatch.setattr(browser_profile.os, 'kill', lambda pid, sig: killed.append((pid, sig)))
+    records = [{'pid': 5, 'parent': 1}, {'pid': 6, 'parent': 5}, {'pid': 7, 'parent': 6}]
+    browser_profile.close_profile_windows(records)
+    assert killed == [(5, browser_profile.signal.SIGTERM)]
+
+
+def test_terminate_skips_a_recycled_pid(monkeypatch):
+    killed = []
+
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def create_time(self):
+            return 100.0 if self.pid == 5 else 999.0
+
+        def name(self):
+            return 'chrome'
+
+        def kill(self):
+            killed.append(self.pid)
+
+    fake = SimpleNamespace(Process=FakeProcess, NoSuchProcess=Exception, AccessDenied=Exception)
+    monkeypatch.setattr(browser_profile, 'psutil', fake)
+    browser_profile.terminate_profile_processes([
+        {'pid': 5, 'created': 100.0}, {'pid': 6, 'created': 100.0},
+    ])
+    assert killed == [5]
+
+
+def test_psutil_records_finds_this_profile(monkeypatch, tmp_path):
+    profile = str(tmp_path / 'p')
+    procs = [
+        SimpleNamespace(info={'pid': 40, 'ppid': 1, 'name': 'msedge.exe',
+                              'cmdline': ['msedge.exe', f'--user-data-dir={profile}'], 'create_time': 1.0}),
+        SimpleNamespace(info={'pid': 41, 'ppid': 40, 'name': 'msedge.exe',
+                              'cmdline': ['msedge.exe', '--type=gpu-process'], 'create_time': 2.0}),
+        SimpleNamespace(info={'pid': 50, 'ppid': 1, 'name': 'python.exe', 'cmdline': [], 'create_time': 3.0}),
+    ]
+    fake = SimpleNamespace(process_iter=lambda attrs: procs)
+    monkeypatch.setattr(browser_profile, 'psutil', fake)
+    assert [r['pid'] for r in browser_profile.profile_processes(profile)] == [40, 41]

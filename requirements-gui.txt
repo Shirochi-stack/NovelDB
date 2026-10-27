@@ -1,0 +1,7 @@
+# TurboLite: the PySide6 interface without QtWebEngine (the Catalog opens in the system browser).
+-r requirements.txt
+PySide6-Essentials==6.11.1
+shiboken6==6.11.1
+# Google login when QtWebEngine is not available.
+pywebview>=4.4 ; sys_platform == "win32" or sys_platform == "darwin"
+pythonnet>=3.0.5 ; sys_platform == "win32"

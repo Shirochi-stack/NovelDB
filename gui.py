@@ -42,6 +42,10 @@ def _get_base_dir():
 def _writable_data_dir(kind):
     """Return a writable directory path for `kind` ('logs' or '.cache').
 
+    Delegates to `noveldb.core.paths`: `<base_dir>/<kind>` while the app folder is writable,
+    otherwise the per-user folder on every OS. The older notes below describe the fallback
+    chain this replaces; it is still used if the paths module cannot be imported.
+
     Windows / Linux: uses `<base_dir>/<kind>` like before. If os.makedirs
     fails (unusual — Program Files install, read-only filesystem, etc.)
     we return None instead of crashing so the caller can skip file I/O
@@ -53,6 +57,14 @@ def _writable_data_dir(kind):
 
     The caller is expected to treat None as "no file I/O for this kind".
     """
+    try:
+        from noveldb.core import paths as _paths
+        if kind == "logs":
+            return str(_paths.logs_dir(_get_base_dir()))
+        if kind == ".cache":
+            return str(_paths.cache_dir(_get_base_dir()))
+    except Exception:
+        pass
     if sys.platform != "darwin":
         # Windows / Linux: single candidate, same as before the fix — but
         # swallow makedirs errors so the app still launches.
@@ -4250,7 +4262,11 @@ table, th, td {
                 self.log_message(f"Could not load config.json: {e}")
 
     def _config_path(self):
-        return os.path.join(_get_base_dir(), "config.json")
+        try:
+            from noveldb.core import paths as _paths
+            return str(_paths.config_path(_get_base_dir()))
+        except Exception:
+            return os.path.join(_get_base_dir(), "config.json")
 
     def _ensure_config_exists(self):
         """Create config.json on first launch using current default settings."""

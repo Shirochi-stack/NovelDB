@@ -5,6 +5,7 @@ import threading
 import html
 import base64
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
@@ -72,7 +73,11 @@ def _prepare_weasyprint_windows_dll_path():
         dll_directories = [item for item in configured.split(';') if item]
         if not dll_directories:
             gtk_folder = os.environ.get('GTK_FOLDER', '')
+            # A frozen build ships its own GTK runtime; prefer it over an MSYS2
+            # install on the user's PC, whose DLL versions may not match.
+            bundle = getattr(sys, '_MEIPASS', '') if getattr(sys, 'frozen', False) else ''
             candidates = [
+                bundle,
                 os.path.join(gtk_folder, 'bin') if gtk_folder else '',
                 r'C:\msys64\mingw64\bin',
                 r'C:\msys64\ucrt64\bin',

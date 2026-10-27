@@ -43,6 +43,23 @@ def _get_base_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _config_file():
+    """config.json next to the app, or in the per-user folder when that is read-only."""
+    try:
+        from noveldb.core import paths as _paths
+        return str(_paths.config_path(_get_base_dir()))
+    except Exception:
+        return os.path.join(_get_base_dir(), "config.json")
+
+
+def _external_cache_dir():
+    try:
+        from noveldb.core import paths as _paths
+        return os.path.join(str(_paths.cache_dir(_get_base_dir())), 'external')
+    except Exception:
+        return os.path.join(_get_base_dir(), '.cache', 'external')
+
+
 def _sanitize_filename(name):
     """Remove characters that are invalid in filenames."""
     name = re.sub(r'[<>:"/\\|?*]', '_', name)
@@ -673,13 +690,13 @@ class ExternalNovelDialog(tk.Toplevel):
         """Return the per-book external cache file without exposing the URL."""
         book_url = (self._book_data or {}).get('bookUrl') or self._url_var.get()
         digest = hashlib.sha256(str(book_url).encode('utf-8')).hexdigest()[:24]
-        cache_dir = os.path.join(_get_base_dir(), '.cache', 'external')
+        cache_dir = _external_cache_dir()
         os.makedirs(cache_dir, exist_ok=True)
         return os.path.join(cache_dir, f'{digest}.json')
 
     def _open_external_cache_folder(self):
         """Open the external downloader cache directory in the file explorer."""
-        cache_dir = os.path.join(_get_base_dir(), '.cache', 'external')
+        cache_dir = _external_cache_dir()
         try:
             os.makedirs(cache_dir, exist_ok=True)
             if sys.platform == 'win32':
@@ -3887,7 +3904,7 @@ img { display: block; max-width: 100%; max-height: 100%;
     # ------------------------------------------------------------------
     def _load_ext_config(self):
         """Load external dialog settings from config.json (ext_* keys)."""
-        cfg_path = os.path.join(_get_base_dir(), "config.json")
+        cfg_path = _config_file()
         if not os.path.exists(cfg_path):
             return
         try:
@@ -3978,7 +3995,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         Merges with the existing config so the main GUI's settings are
         not overwritten.
         """
-        cfg_path = os.path.join(_get_base_dir(), "config.json")
+        cfg_path = _config_file()
         cfg = {}
         if os.path.exists(cfg_path):
             try:
@@ -4035,7 +4052,11 @@ img { display: block; max-width: 100%; max-height: 100%;
             1, min(10, self._var_kpage_dedupe_leading_images.get())
         )
         try:
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                dump_source_json(cfg, f, indent=2)
+            from noveldb.core.settings.store import write_raw
+            write_raw(cfg, cfg_path)
         except Exception:
-            pass
+            try:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    dump_source_json(cfg, f, indent=2)
+            except Exception:
+                pass
