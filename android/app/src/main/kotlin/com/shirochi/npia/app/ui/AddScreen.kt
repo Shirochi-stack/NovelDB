@@ -81,8 +81,7 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             TextButton(onClick = {
                 clipboardText(context)?.let { clip ->
                     val found = SourceInfo.extractUrls(clip).ifEmpty { listOf(clip.trim()) }
-                    text = (text.lines().filter { it.isNotBlank() } + found).joinToString("
-")
+                    text = (text.lines().filter { it.isNotBlank() } + found).joinToString("\n")
                 }
             }) { Text("Paste") }
             if (text.isNotEmpty()) TextButton(onClick = { text = "" }) { Text("Clear") }
