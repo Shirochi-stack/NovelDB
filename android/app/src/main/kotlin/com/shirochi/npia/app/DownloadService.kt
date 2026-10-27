@@ -33,6 +33,18 @@ import kotlinx.coroutines.launch
 /** The NovelDB catalog website, hosted on GitHub Pages. */
 const val DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 
+/**
+ * `text` when it is an address the Catalog tab can open: http or https with a site name.
+ * "https://" alone, a search phrase or another scheme give null.
+ */
+fun validCatalogUrl(text: String?): String? {
+    val value = text?.trim().orEmpty()
+    val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
+    if (uri.host.isNullOrBlank()) return null
+    return value
+}
+
 /** App-level preferences that are not part of the portable `AppSettings` JSON. */
 class AppPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("app", Context.MODE_PRIVATE)
@@ -58,8 +70,8 @@ class AppPreferences(context: Context) {
 
     /** Address the Catalog tab opens; the NovelDB website unless the user picked another site. */
     var catalogUrl: String
-        get() = prefs.getString("catalogUrl", null)?.takeIf { it.isNotBlank() } ?: DEFAULT_CATALOG_URL
-        set(value) = prefs.edit().putString("catalogUrl", value.trim().ifEmpty { DEFAULT_CATALOG_URL }).apply()
+        get() = validCatalogUrl(prefs.getString("catalogUrl", null)) ?: DEFAULT_CATALOG_URL
+        set(value) = prefs.edit().putString("catalogUrl", validCatalogUrl(value) ?: DEFAULT_CATALOG_URL).apply()
 
     var askedForNotifications: Boolean
         get() = prefs.getBoolean("askedForNotifications", false)

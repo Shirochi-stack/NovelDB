@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -32,12 +33,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
+import com.shirochi.npia.app.validCatalogUrl
 import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.model.count
 import com.shirochi.npia.core.AppSettings
@@ -422,23 +425,32 @@ fun CatalogSiteSettingsScreen(model: AppViewModel) {
     manager.preferencesFlow.collectAsStateWithLifecycle().value
     val current = manager.preferences.catalogUrl
     var address by remember { mutableStateOf(current) }
+    // "example.com" becomes "https://example.com"; incomplete addresses such as "https://" cannot be saved.
+    val candidate = validCatalogUrl(com.shirochi.npia.webengine.VisibleBrowser.normalize(address))
+    fun save() {
+        val url = candidate ?: return
+        manager.setCatalogUrl(url)
+        address = manager.preferences.catalogUrl
+    }
     SettingsColumn {
         OutlinedTextField(
             value = address,
             onValueChange = { address = it },
             label = { Text("Catalog site") },
+            placeholder = { Text("https://example.com") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            isError = address.isNotBlank() && candidate == null,
+            supportingText = if (address.isNotBlank() && candidate == null) {
+                { Text("Enter a full site address, like https://example.com") }
+            } else {
+                null
+            },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { save() }),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         )
         Row(Modifier.padding(horizontal = 8.dp)) {
-            TextButton(
-                onClick = {
-                    manager.setCatalogUrl(com.shirochi.npia.webengine.VisibleBrowser.normalize(address))
-                    address = manager.preferences.catalogUrl
-                },
-                enabled = address.isNotBlank() && address.trim() != current,
-            ) { Text("Save") }
+            TextButton(onClick = ::save, enabled = candidate != null && candidate != current) { Text("Save") }
             TextButton(
                 onClick = {
                     manager.setCatalogUrl(DEFAULT_CATALOG_URL)
