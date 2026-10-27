@@ -4,6 +4,7 @@ import UIKit
 
 struct QueueView: View {
     @Environment(AppModel.self) private var model
+    @State private var confirmStopAll = false
 
     var body: some View {
         List {
@@ -52,6 +53,22 @@ struct QueueView: View {
                     Button("Clear finished") { model.clearFinished() }
                 }
             }
+            if model.activeJobCount > 0 {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Stop all", role: .destructive) {
+                        if model.activeJobCount > 1 {
+                            confirmStopAll = true
+                        } else {
+                            model.cancelAll()
+                        }
+                    }
+                }
+            }
+        }
+        .confirmationDialog("Stop \(model.activeJobCount) downloads?", isPresented: $confirmStopAll, titleVisibility: .visible) {
+            Button("Stop all", role: .destructive) { model.cancelAll() }
+        } message: {
+            Text("Running downloads are cancelled and queued ones will not start.")
         }
     }
 }
