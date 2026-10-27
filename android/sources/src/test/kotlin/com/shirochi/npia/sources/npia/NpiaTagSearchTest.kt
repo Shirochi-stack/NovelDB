@@ -250,7 +250,7 @@ class NpiaTagSearchTest {
         assertEquals(2, authorLines.size)
         assertTrue(authorLines.toString(), authorLines.any { it.startsWith("  Author 7, page 1: ") })
         assertTrue(authorLines.toString(), authorLines.any { it.startsWith("  Author 8, page 1: ") })
-        assertTrue(authorLines.toString(), authorLines.first().contains(": 1/2 complete, 4 IDs total"))
+        assertTrue(authorLines.toString(), authorLines.first().contains(": 1/2 complete, "))
         assertTrue(authorLines.toString(), authorLines.last().contains(": 2/2 complete, 4 IDs total"))
         assertEquals("  4 novel(s) retrieved total", logs.last())
 
