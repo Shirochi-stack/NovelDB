@@ -55,6 +55,17 @@ enum CatalogBridgeScript {
         queued = true;
         requestAnimationFrame(function () { queued = false; decorate(); });
     }
+    /** A name for a link going to the cart: its text, or the nearest heading when the text is generic ("Source page"). */
+    function linkTitle(anchor) {
+        var text = (anchor.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text.length > 15 && !/^(open|view|read|source|link|visit|go)\b/i.test(text)) return text.slice(0, 200);
+        for (var node = anchor.parentElement, depth = 0; node && depth < 8; node = node.parentElement, depth++) {
+            var heading = node.querySelector('h1, h2, h3');
+            var name = heading && heading.textContent.replace(/\s+/g, ' ').trim();
+            if (name) return name.slice(0, 200);
+        }
+        return text.slice(0, 200);
+    }
     function external(anchor) {
         if (!anchor || !anchor.href || anchor.hasAttribute('download')) return false;
         if (!/^https?:/i.test(anchor.href)) return false;
@@ -90,7 +101,7 @@ enum CatalogBridgeScript {
         if (external(anchor)) {
             event.preventDefault();
             event.stopPropagation();
-            send({type: 'open', url: anchor.href, title: (anchor.textContent || '').trim().slice(0, 200)});
+            send({type: 'open', url: anchor.href, title: linkTitle(anchor)});
         }
     }, true);
     function viewport() {
