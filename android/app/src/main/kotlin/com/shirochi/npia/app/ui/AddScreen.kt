@@ -95,35 +95,41 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
         }
 
         CompactHeader("Download")
-        CompactRow {
-            MiniLabel("Threads", Modifier.weight(1f))
-            MiniStepper(run.threads, 1..16) { v -> edit { it.copy(threads = v) } }
-        }
-        CompactRow {
-            MiniLabel("Image Workers", Modifier.weight(1f))
-            MiniStepper(run.imageWorkers, 1..16) { v -> edit { it.copy(imageWorkers = v) } }
-        }
-        CompactRow {
-            MiniLabel("Rate Limiting", Modifier.weight(1f))
-            MiniLabel("Min")
-            MiniNumberField(formatNumber(run.intervalMin), "0", decimal = true) { t ->
-                t.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 }?.let { v -> edit { it.copy(intervalMin = v) } }
+        FieldFlow {
+            FieldGroup {
+                MiniLabel("Threads")
+                MiniStepper(run.threads, 1..16) { v -> edit { it.copy(threads = v) } }
             }
-            MiniLabel("Max")
-            MiniNumberField(formatNumber(run.intervalMax), "0", decimal = true) { t ->
-                t.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 }?.let { v -> edit { it.copy(intervalMax = v) } }
+            FieldGroup {
+                MiniLabel("Image Workers")
+                MiniStepper(run.imageWorkers, 1..16) { v -> edit { it.copy(imageWorkers = v) } }
             }
-            MiniLabel("s")
         }
-        CompactRow {
-            MiniLabel("Chapter Range", Modifier.weight(1f))
-            MiniLabel("From")
-            MiniNumberField(run.rangeFrom?.toString().orEmpty(), "1", decimal = false) { t ->
-                if (t.isBlank()) edit { it.copy(rangeFrom = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeFrom = v) } }
+        FieldFlow {
+            FieldGroup {
+                MiniLabel("Rate Limiting")
+                MiniLabel("Min")
+                MiniNumberField(formatNumber(run.intervalMin), "0", decimal = true) { t ->
+                    t.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 }?.let { v -> edit { it.copy(intervalMin = v) } }
+                }
+                MiniLabel("Max")
+                MiniNumberField(formatNumber(run.intervalMax), "0", decimal = true) { t ->
+                    t.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 }?.let { v -> edit { it.copy(intervalMax = v) } }
+                }
+                MiniLabel("s")
             }
-            MiniLabel("To")
-            MiniNumberField(run.rangeTo?.toString().orEmpty(), "end", decimal = false) { t ->
-                if (t.isBlank()) edit { it.copy(rangeTo = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeTo = v) } }
+        }
+        FieldFlow {
+            FieldGroup {
+                MiniLabel("Chapter Range")
+                MiniLabel("From")
+                MiniNumberField(run.rangeFrom?.toString().orEmpty(), "1", decimal = false) { t ->
+                    if (t.isBlank()) edit { it.copy(rangeFrom = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeFrom = v) } }
+                }
+                MiniLabel("To")
+                MiniNumberField(run.rangeTo?.toString().orEmpty(), "end", decimal = false) { t ->
+                    if (t.isBlank()) edit { it.copy(rangeTo = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeTo = v) } }
+                }
             }
         }
         ChipFlow {
@@ -221,9 +227,11 @@ fun SourceOptions(source: SourceId, draft: AppSettings, onChange: (AppSettings) 
         }
     }
     if (SourceOptionGroup.KPAGE in groups && s.kpage.dedupeImages) {
-        CompactRow {
-            MiniLabel("Leading images to compare", Modifier.weight(1f))
-            MiniStepper(s.kpage.dedupeLeadingImages, 1..10) { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(dedupeLeadingImages = it)))) }
+        FieldFlow {
+            FieldGroup {
+                MiniLabel("Leading images to compare")
+                MiniStepper(s.kpage.dedupeLeadingImages, 1..10) { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(dedupeLeadingImages = it)))) }
+            }
         }
     }
 }

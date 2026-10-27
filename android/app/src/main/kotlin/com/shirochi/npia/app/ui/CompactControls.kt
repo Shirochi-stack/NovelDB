@@ -53,6 +53,26 @@ fun CompactRow(content: @Composable RowScope.() -> Unit) {
     )
 }
 
+/**
+ * Left-aligned groups of label + control that sit side by side and wrap onto a new line only
+ * when the screen is too narrow.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun FieldFlow(content: @Composable () -> Unit) {
+    FlowRow(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) { content() }
+}
+
+/** A label kept right next to its control(s). */
+@Composable
+fun FieldGroup(content: @Composable RowScope.() -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), content = content)
+}
+
 /** Toggle chips that wrap onto more lines when needed. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
