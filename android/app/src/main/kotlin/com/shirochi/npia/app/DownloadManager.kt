@@ -109,6 +109,11 @@ class DownloadManager(private val app: Application) {
         _preferencesFlow.update { it + 1 }
     }
 
+    fun setCatalogUrl(value: String) {
+        preferences.catalogUrl = value
+        _preferencesFlow.update { it + 1 }
+    }
+
     fun setTheme(value: String) {
         preferences.theme = value
         _preferencesFlow.update { it + 1 }

@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.DEFAULT_CATALOG_URL
 import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.model.count
 import com.shirochi.npia.core.AppSettings
@@ -77,6 +78,7 @@ fun SettingsScreen(model: AppViewModel) {
         NavRow("Upload", "Hosts and automatic upload") { model.push(Route.Upload) }
         SectionHeader("App")
         NavRow("Appearance", "Theme and accent colour") { model.push(Route.Appearance) }
+        NavRow("Catalog site", "The website shown in the Catalog tab") { model.push(Route.CatalogSite) }
         NavRow("Screen and background") { model.push(Route.Background) }
         NavRow("Import / export", "Desktop config.json and app settings") { model.push(Route.Transfer) }
     }
@@ -410,6 +412,46 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000_000 -> "${formatNumber(bytes / 100_000_000 / 10.0)} GB"
     bytes >= 1_000_000 -> "${bytes / 1_000_000} MB"
     else -> "${bytes / 1_000} KB"
+}
+
+// Catalog site
+
+@Composable
+fun CatalogSiteSettingsScreen(model: AppViewModel) {
+    val manager = model.manager
+    manager.preferencesFlow.collectAsStateWithLifecycle().value
+    val current = manager.preferences.catalogUrl
+    var address by remember { mutableStateOf(current) }
+    SettingsColumn {
+        OutlinedTextField(
+            value = address,
+            onValueChange = { address = it },
+            label = { Text("Catalog site") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        Row(Modifier.padding(horizontal = 8.dp)) {
+            TextButton(
+                onClick = {
+                    manager.setCatalogUrl(com.shirochi.npia.webengine.VisibleBrowser.normalize(address))
+                    address = manager.preferences.catalogUrl
+                },
+                enabled = address.isNotBlank() && address.trim() != current,
+            ) { Text("Save") }
+            TextButton(
+                onClick = {
+                    manager.setCatalogUrl(DEFAULT_CATALOG_URL)
+                    address = DEFAULT_CATALOG_URL
+                },
+                enabled = current != DEFAULT_CATALOG_URL,
+            ) { Text("Use NovelDB") }
+        }
+        Footnote(
+            "On the NovelDB website, tapping a card opens View Details and the link-cart button on each card adds the book to the Add tab. " +
+                "Other catalog sites have no cart buttons, so tapping a link that leaves the site adds that link to the cart instead of opening it.",
+        )
+    }
 }
 
 // Appearance

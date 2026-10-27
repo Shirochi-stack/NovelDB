@@ -36,22 +36,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.DEFAULT_CATALOG_URL
 import com.shirochi.npia.app.model.CartItem
+import com.shirochi.npia.sources.SourceCatalog
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** The NovelDB catalog website, hosted on GitHub Pages. */
-const val CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
-private val catalogOrigin = Uri.parse(CATALOG_URL).let { "${it.scheme}://${it.host}" }
+private fun origin(url: String): String = Uri.parse(url).let { "${it.scheme}://${it.host}${if (it.port > 0) ":${it.port}" else ""}" }
 
 /**
  * The catalog website in a WebView that outlives tab switches (the site keeps a large catalog in
- * memory, so reloading it on every visit would be slow). `catalog-bridge.js` makes cards open
- * View Details instead of the novel page, sends outside links to the Browser tab and adds the
- * link-cart button.
+ * memory, so reloading it on every visit would be slow). On the NovelDB website
+ * `catalog-bridge.js` makes cards open View Details instead of the novel page, sends outside
+ * links to the Browser tab and adds the link-cart button. Another site picked in Settings has no
+ * cart buttons, so every link that leaves it goes to the cart instead.
  */
 class CatalogWeb(context: Context, private val model: AppViewModel) {
     var progress by mutableIntStateOf(0)
@@ -61,6 +62,9 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     private val main = Handler(Looper.getMainLooper())
     private val bridge = context.assets.open("catalog-bridge.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+    var site = model.manager.preferences.catalogUrl
+        private set
+    private val isNovelDb get() = site == DEFAULT_CATALOG_URL
 
     @SuppressLint("SetJavaScriptEnabled")
     val view: WebView = WebView(context).apply {
@@ -69,12 +73,13 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         @Suppress("DEPRECATION")
         settings.databaseEnabled = true
         addJavascriptInterface(Bridge(), "NovelDBAndroid")
-        if (documentStart) WebViewCompat.addDocumentStartJavaScript(this, bridge, setOf(catalogOrigin))
+        if (documentStart) WebViewCompat.addDocumentStartJavaScript(this, bridge, setOf("*"))
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
-                if (url.startsWith(CATALOG_URL)) return false
-                if (request.url.scheme == "http" || request.url.scheme == "https") model.openInBrowser(url)
+                if (request.url.scheme != "http" && request.url.scheme != "https") return true
+                if (origin(url) == origin(site)) return false
+                leave(url, "")
                 return true
             }
 
@@ -92,7 +97,24 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                 this@CatalogWeb.progress = newProgress
             }
         }
-        loadUrl(CATALOG_URL)
+        loadUrl(site)
+    }
+
+    /** Opens another catalog site (from Settings). */
+    fun load(url: String) {
+        if (url == site) return
+        site = url
+        view.loadUrl(url)
+    }
+
+    /** A link out of the catalog: the Browser tab on NovelDB, the link cart on other sites. */
+    private fun leave(url: String, title: String) {
+        if (isNovelDb) {
+            model.openInBrowser(url)
+        } else {
+            model.cart.add(CartItem(url, title, SourceCatalog.adapterFor(url)?.id?.raw.orEmpty()))
+            model.manager.message("Added to link cart")
+        }
     }
 
     /** Tells the page which cards are in the cart, so their buttons show it. */
@@ -115,7 +137,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                     "ready" -> showCart(model.cart.items.value)
                     "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { model.cart.add(CartItem(it, field("title"), field("source"))) }
                     "cartRemove" -> model.cart.remove(field("url"))
-                    "open" -> field("url").takeIf { it.startsWith("http") }?.let(model::openInBrowser)
+                    "open" -> field("url").takeIf { it.startsWith("http") }?.let { leave(it, field("title")) }
                 }
             }
         }
@@ -134,6 +156,9 @@ fun rememberCatalogWeb(model: AppViewModel): CatalogWeb {
 @Composable
 fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     val cart by model.cart.items.collectAsStateWithLifecycle()
+    model.manager.preferencesFlow.collectAsStateWithLifecycle().value
+    val site = model.manager.preferences.catalogUrl
+    LaunchedEffect(site) { web.load(site) }
     LaunchedEffect(cart) { web.showCart(cart) }
     LaunchedEffect(Unit) {
         topBar.actions = {

@@ -3,6 +3,7 @@
  * - Tapping a card opens View Details instead of the novel page.
  * - "Open novel" and other outside links go to the app (Browser tab).
  * - A link-cart button on each card adds or removes its URL from the app's cart.
+ * - Dialog heights use the window height: some Android WebViews resolve dvh units to 0.
  */
 (function () {
     'use strict';
@@ -51,7 +52,7 @@
     function external(anchor) {
         if (!anchor || !anchor.href || anchor.hasAttribute('download')) return false;
         if (!/^https?:/i.test(anchor.href)) return false;
-        try { return new URL(anchor.href).origin !== location.origin || anchor.target === '_blank'; } catch (_) { return false; }
+        try { return new URL(anchor.href).origin !== location.origin; } catch (_) { return false; }
     }
     document.addEventListener('click', function (event) {
         var target = event.target;
@@ -72,6 +73,7 @@
         }
         var cover = target.closest('.card-cover-wrap');
         if (cover) {
+            viewport();
             event.preventDefault();
             event.stopPropagation();
             var details = cover.closest('.novel-card').querySelector('.cover-details');
@@ -82,17 +84,27 @@
         if (external(anchor)) {
             event.preventDefault();
             event.stopPropagation();
-            send({type: 'open', url: anchor.href});
+            send({type: 'open', url: anchor.href, title: (anchor.textContent || '').trim().slice(0, 200)});
         }
     }, true);
+    function viewport() {
+        if (innerHeight > 100) document.documentElement.style.setProperty('--noveldb-vh', innerHeight + 'px');
+    }
+    addEventListener('resize', viewport);
     var style = document.createElement('style');
     style.textContent =
         '.noveldb-cart{position:absolute;left:.4rem;bottom:.4rem;z-index:2;display:grid;place-items:center;width:32px;height:32px;' +
         'padding:0;border:0;border-radius:.4rem;background:rgba(0,0,0,.55);font-size:17px;line-height:1;cursor:pointer;' +
         'filter:grayscale(1);opacity:.8;-webkit-tap-highlight-color:transparent}' +
-        '.noveldb-cart[aria-pressed="true"]{background:#E18F98;filter:none;opacity:1;box-shadow:0 0 0 2px #fff}';
+        '.noveldb-cart[aria-pressed="true"]{background:#E18F98;filter:none;opacity:1;box-shadow:0 0 0 2px #fff}' +
+        '.novel-details{max-height:calc(var(--noveldb-vh,100vh) - 1rem)!important}' +
+        '.novel-details-image img{max-height:min(calc(var(--noveldb-vh,100vh) * .2),140px)!important}' +
+        '.novel-details-content [data-field=synopsis]{max-height:min(calc(var(--noveldb-vh,100vh) * .25),150px)!important}' +
+        '.site-settings-dialog{max-height:min(calc(var(--noveldb-vh,100vh) * .9),560px)!important}' +
+        '.mobile-controls-floating{max-height:calc(var(--noveldb-vh,100vh) * .75)!important}';
     (document.head || document.documentElement).appendChild(style);
     function start() {
+        viewport();
         new MutationObserver(schedule).observe(document.body, {childList: true, subtree: true});
         schedule();
     }
