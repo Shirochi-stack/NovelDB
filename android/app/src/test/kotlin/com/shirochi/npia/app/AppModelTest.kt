@@ -4,6 +4,8 @@ import com.shirochi.npia.app.model.ConfigTransfer
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
 import com.shirochi.npia.app.model.SourceInfo
+import com.shirochi.npia.app.model.UploadBatch
+import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.app.model.count
 import com.shirochi.npia.app.model.difference
 import com.shirochi.npia.app.ui.toggleFormat
@@ -79,6 +81,32 @@ class AppModelTest {
         )
         assertEquals(listOf("b", "d", "a", "e"), JobItem.stopOrder(jobs))
         assertTrue(JobItem.stopOrder(listOf(job("x", JobState.FINISHED), job("y", JobState.CANCELLED))).isEmpty())
+    }
+
+    @Test
+    fun uploadStatusShowsHostPercentAndSizes() {
+        val mib = 1024L * 1024
+        val running = UploadState("/out/book.epub", "book.epub", host = "Gofile", sentBytes = (6.3 * mib).toLong(), totalBytes = 15 * mib)
+        assertEquals("Uploading to Gofile… 42% (6.3 / 15 MB)", running.statusLine)
+        assertEquals("Preparing upload…", UploadState("/out/book.epub", "book.epub").statusLine)
+        assertEquals(99, running.copy(sentBytes = 15 * mib - 1).percent)
+        assertEquals(100, running.copy(sentBytes = 15 * mib).percent)
+        assertEquals("512 / 900 KB", UploadState.sizeProgress(512 * 1024, 900 * 1024))
+        assertEquals("200 / 900 B", UploadState.sizeProgress(200, 900))
+
+        val done = running.copy(phase = UploadState.Phase.DONE, link = "https://example.com/d/1")
+        assertEquals("Uploaded — https://example.com/d/1", done.statusLine)
+        val failed = running.copy(phase = UploadState.Phase.FAILED, error = "Gofile returned HTTP 503")
+        assertEquals("Upload failed: Gofile returned HTTP 503", failed.statusLine)
+    }
+
+    @Test
+    fun uploadBatchReportsFileIndexAndOverallPercent() {
+        val batch = UploadBatch("run", total = 5, done = 1)
+        val current = UploadState("/out/b.epub", "b.epub", sentBytes = 85, totalBytes = 100)
+        assertEquals("Uploading 2/5 files… 37%", batch.statusLine(current))
+        assertEquals(0.2f, batch.fraction(null), 1e-6f)
+        assertEquals("Uploading 5/5 files… 99%", UploadBatch("run", 5, 4).statusLine(current.copy(sentBytes = 99)))
     }
 
     @Test

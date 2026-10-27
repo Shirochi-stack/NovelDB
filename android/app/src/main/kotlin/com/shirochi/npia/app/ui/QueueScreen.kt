@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +41,7 @@ import com.shirochi.npia.app.FileActions
 import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
+import com.shirochi.npia.app.model.UploadState
 import java.io.File
 
 @Composable
@@ -226,7 +226,8 @@ fun JobDetailScreen(model: AppViewModel, id: String) {
 fun FileRow(model: AppViewModel, file: File, jobId: String?) {
     val manager = model.manager
     val context = LocalContext.current
-    val uploading by manager.uploadsInFlight.collectAsStateWithLifecycle()
+    val uploads by manager.uploadStates.collectAsStateWithLifecycle()
+    val upload = uploads[file.absolutePath]
     val saveCopy = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(FileActions.mimeType(file))) { target ->
         if (target != null) manager.message(if (FileActions.copyTo(context, file, target)) "Saved ${file.name}" else "Could not save ${file.name}")
     }
@@ -244,12 +245,11 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
             AssistChip(onClick = { FileActions.share(context, listOf(file)) }, label = { Text("Share") })
             if (file.isFile) {
                 AssistChip(onClick = { saveCopy.launch(file.name) }, label = { Text("Save copy") })
-                if (file.absolutePath in uploading) {
-                    CircularProgressIndicator(Modifier.padding(4.dp))
-                } else {
+                if (upload?.phase != UploadState.Phase.RUNNING) {
                     AssistChip(onClick = { manager.upload(file, jobId) }, label = { Text("Upload") })
                 }
             }
         }
+        upload?.let { UploadStatus(model, it, onRetry = { manager.upload(file, jobId) }) }
     }
 }

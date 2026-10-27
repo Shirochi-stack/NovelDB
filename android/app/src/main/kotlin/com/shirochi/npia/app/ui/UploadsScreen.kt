@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,18 +27,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.DownloadManager
 import com.shirochi.npia.app.FileActions
+import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploaderCatalog
+import java.io.File
 
 @Composable
 fun UploadsScreen(model: AppViewModel, topBar: TopBarState) {
     val manager = model.manager
     val history by manager.uploadHistory.collectAsStateWithLifecycle()
+    val states by manager.uploadStates.collectAsStateWithLifecycle()
+    // Uploads that are running or failed; finished ones are in the history below.
+    val pending = states.values.filter { it.phase != UploadState.Phase.DONE }
     var confirmClear by remember { mutableStateOf(false) }
     val hasHistory = history.isNotEmpty()
     LaunchedEffect(hasHistory) {
@@ -45,7 +52,7 @@ fun UploadsScreen(model: AppViewModel, topBar: TopBarState) {
         topBar.actions = if (hasHistory) clear else null
     }
 
-    if (history.isEmpty()) {
+    if (history.isEmpty() && pending.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
             Text(
                 "No uploads yet. Finished files can be uploaded from the queue, or automatically in Settings > Upload.",
@@ -55,6 +62,13 @@ fun UploadsScreen(model: AppViewModel, topBar: TopBarState) {
         }
     } else {
         LazyColumn(Modifier.fillMaxSize()) {
+            items(pending, key = { "pending|${it.path}" }) { state ->
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(state.fileName, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    UploadStatus(model, state, onRetry = { manager.upload(File(state.path), state.jobId) })
+                }
+                HorizontalDivider()
+            }
             items(history, key = { "${it.hostId}|${it.link}|${it.uploadedAt}" }) { upload ->
                 UploadRow(model, upload, onRemove = { manager.removeUpload(upload) })
                 HorizontalDivider()
@@ -104,6 +118,46 @@ fun UploadRow(model: AppViewModel, upload: UploadResult, onRemove: (() -> Unit)?
                 if (delete.startsWith("http")) TextButton(onClick = { FileActions.openUrl(context, delete) }) { Text("Delete page") }
             }
             onRemove?.let { TextButton(onClick = it) { Text("Remove") } }
+        }
+    }
+}
+
+/**
+ * One upload's progress, result or failure: a determinate bar and "Uploading to <host>… 42%
+ * (6.3 / 15 MB)" while it runs, the link with Copy and Share when done, the reason with Retry
+ * when it failed.
+ */
+@Composable
+fun UploadStatus(model: AppViewModel, state: UploadState, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Column(modifier.fillMaxWidth()) {
+        when (state.phase) {
+            UploadState.Phase.RUNNING -> {
+                if (state.totalBytes > 0) {
+                    LinearProgressIndicator(progress = { state.fraction }, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                Text(state.statusLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            UploadState.Phase.DONE -> {
+                Text(state.statusLine, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    TextButton(onClick = {
+                        state.link?.let { DownloadManager.copyToClipboard(context, it) }
+                        model.manager.message("Link copied")
+                    }) { Text("Copy") }
+                    TextButton(onClick = { state.link?.let { FileActions.shareText(context, it) } }) { Text("Share") }
+                    TextButton(onClick = { model.manager.dismissUpload(state.path) }) { Text("Dismiss") }
+                }
+            }
+            UploadState.Phase.FAILED -> {
+                Text(state.statusLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    TextButton(onClick = onRetry) { Text("Retry") }
+                    TextButton(onClick = { model.manager.dismissUpload(state.path) }) { Text("Dismiss") }
+                }
+            }
         }
     }
 }
