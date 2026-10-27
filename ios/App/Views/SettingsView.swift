@@ -393,6 +393,7 @@ struct TextSettingsForm: View {
 
 struct CatalogSiteForm: View {
     @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.defaultAddress
+    @AppStorage(CatalogSite.cartLinksKey) private var cartLinks = true
     @State private var address = ""
 
     var body: some View {
@@ -421,7 +422,12 @@ struct CatalogSiteForm: View {
                 }
                 .disabled(site == CatalogSite.nextAddress)
             } footer: {
-                Text("On NovelDB and NovelDB Next, cards open their details and the link-cart button on each card adds the book to the Add tab (bottom left on NovelDB, bottom right on NovelDB Next). Other catalog sites have no cart buttons, so tapping a link that leaves the site adds that link to the cart instead of opening it.")
+                Text("On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. NovelDB Next cards have a link-cart button too, at the bottom right of the cover.")
+            }
+            Section {
+                Toggle("Send outside links to the link cart", isOn: $cartLinks)
+            } footer: {
+                Text("On sites other than NovelDB, links to other sites read \"🔗 Download\" and add the link to the cart. Off: they open in the Browser tab.")
             }
         }
         .themedBackground()
