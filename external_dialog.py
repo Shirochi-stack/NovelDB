@@ -203,7 +203,7 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
         int_frame = ttk.LabelFrame(settings_frame, text="Rate Limiting", padding=4)
         int_frame.pack(side="left", padx=(0, 10))
         ttk.Label(int_frame, text="Min:").pack(side="left", padx=(0, 3))
-        self._var_interval = tk.DoubleVar(value=0.5)
+        self._var_interval = tk.DoubleVar(value=2.0)
         ttk.Spinbox(
             int_frame, from_=0.0, to=300.0, increment=0.1,
             textvariable=self._var_interval, width=5,
@@ -211,7 +211,7 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
         ttk.Label(int_frame, text="Max:").pack(
             side="left", padx=(6, 3)
         )
-        self._var_interval_max = tk.DoubleVar(value=0.5)
+        self._var_interval_max = tk.DoubleVar(value=5.0)
         ttk.Spinbox(
             int_frame, from_=0.0, to=300.0, increment=0.1,
             textvariable=self._var_interval_max, width=5,
@@ -1060,9 +1060,9 @@ class ExternalNovelDialog(ExternalPipelineMixin, tk.Toplevel):
                 self._var_separate_txt.set(cfg.get("ext_separate_txt", False))
             self._var_ext_threads.set(cfg.get("ext_threads", 4))
             self._var_ext_image_workers.set(cfg.get("ext_image_workers", 8))
-            self._var_interval.set(cfg.get("ext_interval", 0.5))
+            self._var_interval.set(cfg.get("ext_interval", 2.0))
             self._var_interval_max.set(
-                cfg.get("ext_interval_max", cfg.get("ext_interval", 0.5))
+                cfg.get("ext_interval_max", cfg.get("ext_interval", 5.0))
             )
             self._var_from_enabled.set(cfg.get("ext_from_enabled", False))
             self._var_to_enabled.set(cfg.get("ext_to_enabled", False))
