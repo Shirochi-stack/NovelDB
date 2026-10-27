@@ -91,6 +91,7 @@ struct AddURLView: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Add")
         .onAppear {
             resetDraft()
