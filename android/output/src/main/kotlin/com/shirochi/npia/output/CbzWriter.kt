@@ -84,7 +84,7 @@ class CbzWriter : BookWriter {
 
         /** `_sanitize_filename`: path and reserved characters become `_`. */
         internal fun safeName(name: String): String {
-            val cleaned = name.map { if (it in "/\:*?\"<>|" || it.isISOControl()) '_' else it }.joinToString("").trim().trimEnd('.')
+            val cleaned = name.map { if (it in "/\\:*?\"<>|" || it.isISOControl()) '_' else it }.joinToString("").trim().trimEnd('.')
             return cleaned.ifEmpty { "chapter" }.take(100)
         }
     }
