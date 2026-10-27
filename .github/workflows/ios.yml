@@ -12,6 +12,14 @@ on:
         description: 'Attach the unsigned IPA to this existing release tag (optional)'
         required: false
         default: ''
+  # Called by Mobile Release on main, which builds both apps and attaches them to a release.
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Branch or commit to build'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -26,6 +34,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - name: Show toolchain
         run: xcodebuild -version && swift --version
       - name: Test NpiaKit
@@ -38,6 +48,8 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
@@ -75,6 +87,8 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
