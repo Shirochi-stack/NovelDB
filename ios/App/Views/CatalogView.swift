@@ -1,5 +1,6 @@
 import NpiaSources
 import SwiftUI
+import UIKit
 import WebKit
 
 /// The catalog site the Catalog tab opens (Settings > Catalog site).
@@ -37,6 +38,9 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         super.init()
+        let refresh = UIRefreshControl()
+        refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
+        webView.scrollView.refreshControl = refresh
         controller.add(WeakMessageHandler(self), name: "noveldb")
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -60,6 +64,11 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         webView.evaluateJavaScript("window.NovelDBApp && window.NovelDBApp.setCart(\(urls))", completionHandler: nil)
     }
 
+    @objc private func pulled(_ control: UIRefreshControl) {
+        reload()
+        control.endRefreshing()
+    }
+
     func reload() {
         if webView.url == nil { webView.load(URLRequest(url: site)) } else { webView.reload() }
     }
@@ -75,8 +84,10 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         }
     }
 
+    /// Same site as the page on screen (a site may have moved to www. or another host on load).
     private func sameSite(_ url: URL) -> Bool {
-        url.scheme == site.scheme && url.host == site.host && url.port == site.port
+        let page = webView.url ?? site
+        return url.scheme == page.scheme && url.host == page.host && url.port == page.port
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -100,7 +111,9 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     /// Pages outside the catalog site leave it (see `leave`).
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        // Redirects and script navigation load here; only a tapped link to another site leaves.
         guard let url = navigationAction.request.url, navigationAction.targetFrame?.isMainFrame ?? true,
+              navigationAction.navigationType == .linkActivated,
               url.scheme == "http" || url.scheme == "https", !sameSite(url) else {
             decisionHandler(.allow)
             return
@@ -151,10 +164,8 @@ struct CatalogView: View {
             CatalogWebView(state: state)
         }
         .navigationTitle("Catalog")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            Button { state.reload() } label: { Image(systemName: "arrow.clockwise") }
-        }
+        // The catalog site has its own header; pull down to reload.
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             state.model = model
             state.showCart(model.cart.items)
