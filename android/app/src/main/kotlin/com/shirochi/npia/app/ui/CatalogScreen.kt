@@ -47,6 +47,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
+import com.shirochi.npia.app.isNovelDbSite
 import com.shirochi.npia.app.model.CartItem
 import com.shirochi.npia.sources.SourceCatalog
 import kotlinx.serialization.json.Json
@@ -86,7 +87,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     var site = model.manager.preferences.catalogUrl
         private set
-    private val isNovelDb get() = site.trimEnd('/') == DEFAULT_CATALOG_URL.trimEnd('/')
+    private val isNovelDb get() = isNovelDbSite(site)
 
     @SuppressLint("SetJavaScriptEnabled")
     val view: WebView = WebView(context).apply {
@@ -182,7 +183,10 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
             main.post {
                 when (field("type")) {
                     "ready" -> showCart(model.cart.items.value)
-                    "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { model.cart.add(CartItem(it, field("title"), field("source"))) }
+                    "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { url ->
+                        val source = field("source").ifBlank { SourceCatalog.adapterFor(url)?.id?.raw.orEmpty() }
+                        model.cart.add(CartItem(url, field("title"), source))
+                    }
                     "cartRemove" -> model.cart.remove(field("url"))
                     "open" -> field("url").takeIf { it.startsWith("http") }?.let { leave(it, field("title")) }
                 }

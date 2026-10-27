@@ -33,6 +33,13 @@ import kotlinx.coroutines.launch
 /** The NovelDB catalog website, hosted on GitHub Pages. */
 const val DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 
+/** NovelDB Next, offered as a suggestion; it also gets link-cart buttons (bottom right of each card). */
+const val NOVELDB_NEXT_URL = "https://noveldb.pages.dev/"
+
+/** The NovelDB sites: links out of them open in the Browser tab instead of going to the cart. */
+fun isNovelDbSite(url: String): Boolean =
+    url.trimEnd('/') == DEFAULT_CATALOG_URL.trimEnd('/') || url.trimEnd('/') == NOVELDB_NEXT_URL.trimEnd('/')
+
 /**
  * `text` when it is an address the Catalog tab can open: http or https with a site name.
  * "https://" alone, a search phrase or another scheme give null.
