@@ -22,6 +22,7 @@ sealed class Route(val title: String) {
     data object Images : Route("Images")
     data object Text : Route("Text and PDF")
     data object Upload : Route("Upload")
+    data object LinkCart : Route("Link cart")
     data object Appearance : Route("Appearance")
     data object CatalogSite : Route("Catalog site")
     data object Background : Route("Screen and background")
