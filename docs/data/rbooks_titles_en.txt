@@ -10267,6 +10267,7 @@
 297091474|||그 공포 게임의 진엔딩을 보는 법|||How to See the True Ending of That Horror Game
 297091939|||내 에스퍼와의 안전이별법|||How to Safely Break Up with My Esper
 297091999|||내 에스퍼와의 안전이별법 (15세 개정판)|||How to Safely Break Up with My Esper (15+ Revised Edition)
+297093248|||대공님의 저주가 맛있습니다|||The Duke's Curse Is Delicious
 2977000030|||중독자 김출중이 악령을 이기는 방법(연재)|||How Addict Kim Chuljung Defeats Evil Spirits (Serialization)
 2991000001|||언더그라운드 피셔맨 클럽|||Underground Fisherman Club
 2997000002|||마귀|||The Demon
@@ -11937,6 +11938,7 @@
 3228125942|||버려진 황자로 편하게 사는 법|||How to Live Comfortably as an Abandoned Prince
 3228126379|||인성이 부족한 천재배우|||The Genius Actor Lacks Basic Decency
 3228126580|||깡촌 한의사인데 AI가 보임|||I’m a Rural Doctor of Korean Medicine, and I Can See AI
+3228126822|||북부대공의 데릴사위가 미쳐날뜀|||The Northern Duke's Live-In Son-in-Law Goes Berserk
 323000376|||폭군과 나비|||The Tyrant and the Butterfly
 323000681|||크랭크 인|||Crank In
 323000785|||알파에게 사로잡히다|||Captured by an Alpha
@@ -13228,6 +13230,7 @@
 372016273|||너희가 무(武)를 아느냐|||Do You Know Martial Arts?
 372016669|||망겜의 중심에서 듀얼을 외치다|||I Shout “Duel!” at the Center of a Dead Game
 372016917|||취미로 배운 검술이 종말에 유용하다|||The Swordsmanship I Learned as a Hobby Is Useful at the End of the World
+372017192|||귀환했는데 회귀했다|||I Returned, but I Regressed
 3721000001|||브렐린 : 작가는 시한부 악역의 삶을 산다|||Brellin: The Writer Lives as a Terminally Ill Villain
 3754000001|||개정판 \u007c 아키에이지 연대기|||Revised Edition \u007c ArcheAge Chronicles
 3756000502|||영의 노래|||Song of the Spirit
@@ -21390,9 +21393,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-297093248|||대공님의 저주가 맛있습니다|||
-3228126822|||북부대공의 데릴사위가 미쳐날뜀|||
-372017192|||귀환했는데 회귀했다|||
 425606091|||1903|||
 425629250|||1973|||
 945008054|||40,41|||
