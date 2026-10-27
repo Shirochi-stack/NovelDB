@@ -39,6 +39,17 @@ public struct UploadProgress: Sendable, Equatable {
     }
 }
 
+/// What `UploaderCatalog.upload` reports while it works through the configured hosts, so the
+/// UI can say which host is being tried and how many bytes it has taken.
+public enum UploadEvent: Sendable, Equatable {
+    /// A host is about to receive the file; `position` counts from 1 among the hosts that can be tried.
+    case trying(host: String, position: Int, of: Int)
+    /// Bytes the host being tried has received.
+    case progress(host: String, UploadProgress)
+    /// The host did not take the file; the next one is tried, or the upload fails.
+    case failed(host: String, message: String)
+}
+
 public enum UploadError: Error, Equatable, LocalizedError {
     case notImplemented(String)
     case tooLarge(host: String, limitBytes: Int64)
@@ -178,13 +189,15 @@ public enum UploaderCatalog {
     /// TXT output) are zipped first. Successful uploads are added to `history`.
     ///
     /// `nameID` is the book id used to name files whose title is not plain ASCII; the result
-    /// keeps the original name.
+    /// keeps the original name. `events` reports the host being tried, its byte progress, and
+    /// each failure that makes the next host run.
     public static func upload(
         _ file: URL,
         settings: UploadSettings,
         context: UploadContext? = nil,
         history: UploadHistoryStore? = .shared,
         nameID: String? = nil,
+        events: (@Sendable (UploadEvent) -> Void)? = nil,
         progress: (@Sendable (UploadProgress) -> Void)? = nil
     ) async throws -> UploadResult {
         var context = context ?? UploadContext(settings: settings)
@@ -200,15 +213,24 @@ public enum UploaderCatalog {
         defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
 
         var lastError: Error = UploadError.notConfigured("No upload host")
-        for id in settings.hosts {
-            guard let uploader = uploader(id: id) else { continue }
+        let candidates = settings.hosts.compactMap { uploader(id: $0) }
+        var position = 0
+        for uploader in candidates {
+            position += 1
+            let host = uploader.displayName
             guard uploader.isReady(context) else {
-                lastError = UploadError.notSignedIn(uploader.displayName)
+                lastError = UploadError.notSignedIn(host)
+                events?(.failed(host: host, message: lastError.localizedDescription))
                 continue
+            }
+            events?(.trying(host: host, position: position, of: candidates.count))
+            let relay: (@Sendable (UploadProgress) -> Void)? = (progress == nil && events == nil) ? nil : { value in
+                progress?(value)
+                events?(.progress(host: host, value))
             }
             do {
                 try uploader.check(payload)
-                let result = try await uploader.upload(payload, context: context, progress: progress)
+                let result = try await uploader.upload(payload, context: context, progress: relay)
                 history?.add(result)
                 return result
             } catch is CancellationError {
@@ -217,6 +239,7 @@ public enum UploaderCatalog {
                 throw CancellationError()
             } catch {
                 lastError = error
+                events?(.failed(host: host, message: error.localizedDescription))
             }
         }
         throw lastError

@@ -40,6 +40,8 @@ final class AppModel {
     private let desktopBaseStore = JSONFileStore<[String: JSONValue]>(name: "desktop-config-base.json")
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var uploadsInFlight: Set<String> = []
+    /// Uploads started from the queue, with their progress; finished and failed ones stay until dismissed.
+    private(set) var uploadActivities: [UploadActivity] = []
 
     init() {
         settings = store.load()
@@ -228,27 +230,54 @@ final class AppModel {
         uploadsInFlight.contains(file.path)
     }
 
+    func uploadActivity(for file: URL) -> UploadActivity? {
+        uploadActivities.first { $0.file.path == file.path }
+    }
+
+    func dismissUploadActivity(_ file: URL) {
+        guard !isUploading(file) else { return }
+        uploadActivities.removeAll { $0.file.path == file.path }
+    }
+
     func upload(_ file: URL, jobID: UUID? = nil) {
         guard !uploadsInFlight.contains(file.path) else { return }
         uploadsInFlight.insert(file.path)
+        uploadActivities.removeAll { $0.file.path == file.path }
+        uploadActivities.insert(UploadActivity(file: file, jobID: jobID), at: 0)
+
         let uploadSettings = settings.upload
-        var nameID: String?
-        if let jobID, let item = job(jobID) {
-            nameID = UploadNaming.nameID(bookID: item.bookID, url: item.url)
+        let nameID = jobID.flatMap { job($0) }.map { UploadNaming.nameID(bookID: $0.bookID, url: $0.url) }
+        let (stream, continuation) = AsyncStream<UploadEvent>.makeStream()
+        let relay = Task { @MainActor [weak self] in
+            for await event in stream { self?.updateActivity(file) { $0.apply(event) } }
         }
         Task {
             defer { uploadsInFlight.remove(file.path) }
             do {
-                let result = try await UploaderCatalog.upload(file, settings: uploadSettings, nameID: nameID)
+                let result = try await UploaderCatalog.upload(
+                    file, settings: uploadSettings, nameID: nameID, events: { continuation.yield($0) }
+                )
+                continuation.finish()
+                await relay.value
                 recordUpload(result)
                 if let jobID { update(jobID) { $0.uploads.append(result) } }
                 persistJobs()
-                message = "Uploaded \(result.fileName)"
+                updateActivity(file) { $0.phase = .finished(result) }
             } catch is CancellationError {
+                continuation.finish()
+                await relay.value
+                updateActivity(file) { $0.phase = .failed("cancelled") }
             } catch {
-                message = "Upload failed: \(error.localizedDescription)"
+                continuation.finish()
+                await relay.value
+                updateActivity(file) { $0.phase = .failed(error.localizedDescription) }
             }
         }
+    }
+
+    private func updateActivity(_ file: URL, _ change: (inout UploadActivity) -> Void) {
+        guard let index = uploadActivities.firstIndex(where: { $0.file.path == file.path }) else { return }
+        change(&uploadActivities[index])
     }
 
     private func recordUpload(_ result: UploadResult) {

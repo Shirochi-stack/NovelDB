@@ -8,7 +8,27 @@ struct UploadHistoryView: View {
 
     var body: some View {
         List {
-            if model.uploadHistory.isEmpty {
+            // Finished uploads move to the history below; running and failed ones stay here.
+            let pending = model.uploadActivities.filter { activity in
+                if case .finished = activity.phase { return false }
+                return true
+            }
+            if !pending.isEmpty {
+                Section("In progress") {
+                    ForEach(pending) { activity in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(activity.fileName).lineLimit(2)
+                            UploadActivityView(
+                                activity: activity,
+                                retry: { model.upload(activity.file, jobID: activity.jobID) },
+                                dismiss: { model.dismissUploadActivity(activity.file) }
+                            )
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+            if model.uploadHistory.isEmpty && pending.isEmpty {
                 ContentUnavailableView(
                     "No uploads yet", systemImage: "icloud.and.arrow.up",
                     description: Text("Finished files can be uploaded from the queue, or automatically in Settings > Upload.")

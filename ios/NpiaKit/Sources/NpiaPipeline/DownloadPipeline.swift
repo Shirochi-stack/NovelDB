@@ -7,6 +7,40 @@ import NpiaSources
 import NpiaUpload
 import NpiaWebEngine
 
+/// Turns upload events into short job status text such as "book.epub - Gofile 42%", so the
+/// queue shows which host is being tried and how far it got.
+private final class UploadStatusRelay: @unchecked Sendable {
+    private let name: String
+    private let logger: any JobLogging
+    private let onPhase: @Sendable (JobPhase) -> Void
+    private let lock = NSLock()
+    private var lastText = ""
+
+    init(name: String, logger: any JobLogging, onPhase: @escaping @Sendable (JobPhase) -> Void) {
+        self.name = name
+        self.logger = logger
+        self.onPhase = onPhase
+    }
+
+    func handle(_ event: UploadEvent) {
+        let text: String
+        switch event {
+        case .trying(let host, _, _):
+            text = "\(name) \u{b7} \(host)"
+        case .progress(let host, let progress):
+            text = "\(name) \u{b7} \(host) \(Int(progress.fraction * 100))%"
+        case .failed(let host, let message):
+            logger.log(.warning, "Upload to \(host) failed: \(message)")
+            return
+        }
+        lock.lock()
+        let changed = text != lastText
+        lastText = text
+        lock.unlock()
+        if changed { onPhase(.uploading(text)) }
+    }
+}
+
 public enum JobPhase: Sendable, Equatable {
     case queued
     case fetchingBook
@@ -122,8 +156,11 @@ public struct DownloadPipeline: Sendable {
         if settings.upload.autoUpload {
             for file in files {
                 onPhase(.uploading(file.lastPathComponent))
+                let status = UploadStatusRelay(name: file.lastPathComponent, logger: logger, onPhase: onPhase)
                 do {
-                    uploads.append(try await UploaderCatalog.upload(file, settings: settings.upload, nameID: UploadNaming.sanitizedID(book.id)))
+                    uploads.append(try await UploaderCatalog.upload(
+                        file, settings: settings.upload, nameID: UploadNaming.sanitizedID(book.id), events: { status.handle($0) }
+                    ))
                 } catch {
                     logger.log(.warning, "Upload failed for \(file.lastPathComponent): \(error.localizedDescription)")
                 }
