@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
+import com.shirochi.npia.app.NOVELDB_NEXT_URL
 import com.shirochi.npia.app.validCatalogUrl
 import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.model.count
@@ -458,9 +459,17 @@ fun CatalogSiteSettingsScreen(model: AppViewModel) {
                 },
                 enabled = current != DEFAULT_CATALOG_URL,
             ) { Text("Use NovelDB") }
+            TextButton(
+                onClick = {
+                    manager.setCatalogUrl(NOVELDB_NEXT_URL)
+                    address = NOVELDB_NEXT_URL
+                },
+                enabled = current != NOVELDB_NEXT_URL,
+            ) { Text("Use NovelDB Next") }
         }
         Footnote(
-            "On the NovelDB website, tapping a card opens View Details and the link-cart button on each card adds the book to the Add tab. " +
+            "On NovelDB and NovelDB Next, cards open their details and the link-cart button on each card adds the book to the Add tab " +
+                "(bottom left on NovelDB, bottom right on NovelDB Next). " +
                 "Other catalog sites have no cart buttons, so tapping a link that leaves the site adds that link to the cart instead of opening it.",
         )
     }

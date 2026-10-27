@@ -2,7 +2,9 @@
  * NovelDB app bridge for the catalog website, injected by the mobile app.
  * - Tapping a card opens View Details instead of the novel page.
  * - "Open novel" and other outside links go to the app (Browser tab).
- * - A link-cart button on each card adds or removes its URL from the app's cart.
+ * - A link-cart button on each card adds or removes its URL from the app's cart. NovelDB Next
+ *   cards hold no link, so their button (card's bottom right) reads it from the card's details, opened
+ *   out of sight, and remembers it.
  * - Taps show no highlight flash, and the NovelDB header is slimmer.
  * - Dialog heights use the window height: some Android WebViews resolve dvh units to 0.
  */
@@ -27,19 +29,79 @@
         button.title = inCart ? 'Remove from link cart' : 'Add to link cart';
         button.setAttribute('aria-label', button.title);
     }
+    function cartButton(parent, extraClass) {
+        var button = parent.querySelector('.noveldb-cart');
+        if (!button) {
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'noveldb-cart' + (extraClass ? ' ' + extraClass : '');
+            button.textContent = '🔗';
+            parent.appendChild(button);
+        }
+        return button;
+    }
+    // NovelDB Next: links read from details, keyed by title and author, kept between visits.
+    var nextLinks = {};
+    try { nextLinks = JSON.parse(localStorage.getItem('noveldb-app-links') || '{}') || {}; } catch (_) {}
+    function nextKey(card) {
+        var title = card.querySelector('.line-clamp-2');
+        var author = card.querySelector('.text-ink-2 .truncate');
+        return (title ? title.textContent.trim() : '') + '|' + (author ? author.textContent.trim() : '');
+    }
+    function rememberNext(card, url) {
+        nextLinks[nextKey(card)] = url;
+        var keys = Object.keys(nextLinks);
+        if (keys.length > 2000) keys.slice(0, keys.length - 2000).forEach(function (key) { delete nextLinks[key]; });
+        try { localStorage.setItem('noveldb-app-links', JSON.stringify(nextLinks)); } catch (_) {}
+    }
+    function decorateNext() {
+        var cards = document.querySelectorAll('div.card[data-gid]');
+        for (var i = 0; i < cards.length; i++) {
+            var card = cards[i];
+            if (!card.querySelector('.card-btn')) continue;
+            var button = cartButton(card, 'noveldb-cart-next');
+            var url = nextLinks[nextKey(card)] || '';
+            if (button.dataset.url !== url) button.dataset.url = url;
+            paint(button);
+        }
+    }
+    /** Opens a NovelDB Next card's details out of sight and reads its source link and title. */
+    function peekNext(card) {
+        return new Promise(function (resolve) {
+            var opener = card.querySelector('.card-btn');
+            if (!opener) { resolve(null); return; }
+            var root = document.documentElement;
+            root.classList.add('noveldb-peek');
+            opener.click();
+            var tries = 0;
+            function finish(result) {
+                var close = document.querySelector('button[aria-label="Close details"]');
+                if (close) close.click(); else history.back();
+                setTimeout(function () { root.classList.remove('noveldb-peek'); }, 350);
+                resolve(result);
+            }
+            (function poll() {
+                var links = document.querySelectorAll('#app > aside a[title^="Open source"]');
+                var link = links[links.length - 1];
+                if (link && link.href) finish({url: link.href, title: linkTitle(link)});
+                else if (++tries > 60) finish(null);
+                else setTimeout(poll, 50);
+            })();
+        });
+    }
+    function toggleCart(button, url, title, source) {
+        var adding = !cart.has(url);
+        if (adding) cart.add(url); else cart.delete(url);
+        paint(button);
+        send({type: adding ? 'cartAdd' : 'cartRemove', url: url, title: title, source: source});
+    }
     function decorate() {
+        decorateNext();
         var areas = document.querySelectorAll('.novel-card .card-cover-area');
         for (var i = 0; i < areas.length; i++) {
             var area = areas[i], card = area.closest('.novel-card'), url = cardUrl(card);
             if (!url) continue;
-            var button = area.querySelector('.noveldb-cart');
-            if (!button) {
-                button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'noveldb-cart';
-                button.textContent = '🔗';
-                area.appendChild(button);
-            }
+            var button = cartButton(area);
             if (button.dataset.url !== url) button.dataset.url = url;
             paint(button);
         }
@@ -69,18 +131,30 @@
     document.addEventListener('click', function (event) {
         var target = event.target;
         if (!target || !target.closest) return;
-        var cartButton = target.closest('.noveldb-cart');
-        if (cartButton) {
+        var pressed = target.closest('.noveldb-cart');
+        if (pressed) {
             event.preventDefault();
             event.stopPropagation();
-            var card = cartButton.closest('.novel-card');
-            var url = cartButton.dataset.url || cardUrl(card);
+            var nextCard = pressed.closest('div.card[data-gid]');
+            if (nextCard) {
+                var known = pressed.dataset.url;
+                var titleNode = nextCard.querySelector('.line-clamp-2');
+                if (known) { toggleCart(pressed, known, titleNode ? titleNode.textContent.trim() : '', ''); return; }
+                if (pressed.disabled) return;
+                pressed.disabled = true;
+                peekNext(nextCard).then(function (found) {
+                    pressed.disabled = false;
+                    if (!found) return;
+                    rememberNext(nextCard, found.url);
+                    pressed.dataset.url = found.url;
+                    toggleCart(pressed, found.url, found.title, '');
+                });
+                return;
+            }
+            var card = pressed.closest('.novel-card');
             var titleEl = card && card.querySelector('.card-title');
-            var adding = !cart.has(url);
-            if (adding) cart.add(url); else cart.delete(url);
-            paint(cartButton);
-            send({type: adding ? 'cartAdd' : 'cartRemove', url: url,
-                  title: titleEl ? titleEl.textContent.trim() : '', source: card ? card.dataset.source || '' : ''});
+            toggleCart(pressed, pressed.dataset.url || cardUrl(card), titleEl ? titleEl.textContent.trim() : '',
+                       card ? card.dataset.source || '' : '');
             return;
         }
         var cover = target.closest('.card-cover-wrap');
@@ -115,6 +189,10 @@
         'padding:0;border:0;border-radius:.4rem;background:rgba(0,0,0,.55);font-size:17px;line-height:1;cursor:pointer;' +
         'filter:grayscale(1);opacity:.8;-webkit-tap-highlight-color:transparent}' +
         '.noveldb-cart[aria-pressed="true"]{background:#E18F98;filter:none;opacity:1;box-shadow:0 0 0 2px #fff}' +
+        '.noveldb-cart-next{left:auto;right:.25rem;bottom:.25rem;z-index:40;width:24px;height:22px;font-size:12px;border-radius:.3rem}' +
+        '.noveldb-cart:disabled{opacity:.5}' +
+        'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
+        '{visibility:hidden!important;animation:none!important;transition:none!important}' +
         '.novel-details{max-height:calc(var(--noveldb-vh,100vh) - 1rem)!important}' +
         '.novel-details-image img{max-height:min(calc(var(--noveldb-vh,100vh) * .2),140px)!important}' +
         '.novel-details-content [data-field=synopsis]{max-height:min(calc(var(--noveldb-vh,100vh) * .25),150px)!important}' +
