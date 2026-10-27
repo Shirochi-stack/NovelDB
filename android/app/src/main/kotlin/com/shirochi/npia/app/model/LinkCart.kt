@@ -20,6 +20,12 @@ class LinkCart(file: File) {
 
     fun add(item: CartItem) = change { list -> if (list.any { it.url == item.url }) list else list + item }
 
+    /** Adds several books with one save, skipping links already in the cart (and repeats within `items`). */
+    fun addAll(items: List<CartItem>) = change { list ->
+        val known = list.mapTo(HashSet()) { it.url }
+        list + items.filter { known.add(it.url) }
+    }
+
     fun remove(url: String) = change { list -> list.filterNot { it.url == url } }
 
     fun removeAll(urls: Collection<String>) = change { list -> list.filterNot { it.url in urls } }

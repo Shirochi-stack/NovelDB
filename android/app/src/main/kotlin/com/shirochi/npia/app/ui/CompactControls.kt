@@ -85,10 +85,11 @@ fun ChipFlow(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun ToggleChip(label: String, selected: Boolean, onChange: (Boolean) -> Unit) {
+fun ToggleChip(label: String, selected: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     FilterChip(
         selected = selected,
         onClick = { onChange(!selected) },
+        enabled = enabled,
         label = { Text(label, style = MaterialTheme.typography.labelMedium) },
         modifier = Modifier.height(32.dp),
         colors = FilterChipDefaults.filterChipColors(),

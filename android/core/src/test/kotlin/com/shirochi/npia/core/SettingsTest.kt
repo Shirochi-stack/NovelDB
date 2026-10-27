@@ -150,6 +150,40 @@ class SettingsTest {
     }
 
     @Test
+    fun queryGroupsRoundTripThroughDesktopConfig() {
+        val (imported, _) = DesktopConfig.import("""{"tag_query_groups": [["TS"], ["약피폐", "피폐"], []], "tag_selected_tags": ["백합"]}""")
+        assertEquals(listOf(listOf("TS"), listOf("약피폐", "피폐")), imported.npia.tagQueryGroups)
+        assertEquals(listOf("백합"), imported.npia.tagSelectedTags)
+
+        val exported = DesktopConfig.export(imported)
+        val groups = exported["tag_query_groups"] as kotlinx.serialization.json.JsonArray
+        assertEquals(2, groups.size)
+        assertEquals(listOf("약피폐", "피폐"), (groups[1] as kotlinx.serialization.json.JsonArray).map { it.jsonPrimitive.content })
+        val (again, _) = DesktopConfig.import(exported)
+        assertEquals(imported.npia.tagQueryGroups, again.npia.tagQueryGroups)
+
+        // A file without the key keeps the groups already stored.
+        val (kept, _) = DesktopConfig.import("""{"ext_threads": 2}""", imported)
+        assertEquals(imported.npia.tagQueryGroups, kept.npia.tagQueryGroups)
+        // The app's own settings file carries them too.
+        assertEquals(imported, SettingsCoding.decode(SettingsCoding.encode(imported)))
+    }
+
+    @Test
+    fun searchQueriesAreClampedToTheTermCount() {
+        assertEquals(165, NpiaSettings().scrapeMaxQueries)
+        assertEquals(165, DesktopConfig.import("""{"scrape_max_queries": 1000}""").first.npia.scrapeMaxQueries)
+        assertEquals(1, DesktopConfig.import("""{"scrape_max_queries": 0}""").first.npia.scrapeMaxQueries)
+        assertEquals(42, DesktopConfig.import("""{"scrape_max_queries": 42}""").first.npia.scrapeMaxQueries)
+        // The desktop's old default of 100 means "all" again.
+        assertEquals(165, DesktopConfig.import("""{"scrape_max_queries": 100}""").first.npia.scrapeMaxQueries)
+        // A stored value from the old 1..1000 stepper is limited wherever it is used and exported.
+        val old = NpiaSettings(scrapeMaxQueries = 800)
+        assertEquals(165, old.queryCount)
+        assertEquals(165, DesktopConfig.export(AppSettings(npia = old))["scrape_max_queries"]!!.jsonPrimitive.int)
+    }
+
+    @Test
     fun cbzFormatRoundTripsThroughDesktopConfig() {
         val (settings, _) = DesktopConfig.import("""{"ext_formats": ["epub", "cbz"]}""")
         assertEquals(listOf(OutputFormat.EPUB, OutputFormat.CBZ), settings.shared.formats)

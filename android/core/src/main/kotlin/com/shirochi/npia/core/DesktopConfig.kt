@@ -101,7 +101,8 @@ object DesktopConfig {
             tagSelectedTags = c.strings("tag_selected_tags") ?: n.tagSelectedTags,
             tagCustomTags = c.string("tag_custom_tags") ?: n.tagCustomTags,
             tagScrapeAll = c.bool("tag_scrape_all") ?: n.tagScrapeAll,
-            scrapeMaxQueries = c.int("scrape_max_queries") ?: n.scrapeMaxQueries,
+            tagQueryGroups = c.stringLists("tag_query_groups") ?: n.tagQueryGroups,
+            scrapeMaxQueries = searchQueries(c.int("scrape_max_queries") ?: n.scrapeMaxQueries),
         )
 
         // The kpage-named keys win over legacy ones.
@@ -141,7 +142,9 @@ object DesktopConfig {
                 is Boolean -> JsonPrimitive(value)
                 is Number -> JsonPrimitive(value)
                 is String -> JsonPrimitive(value)
-                is List<*> -> JsonArray(value.map { JsonPrimitive(it.toString()) })
+                is List<*> -> JsonArray(value.map { item ->
+                    if (item is List<*>) JsonArray(item.map { JsonPrimitive(it.toString()) }) else JsonPrimitive(item.toString())
+                })
                 else -> error("unsupported $value")
             }
         }
@@ -214,7 +217,8 @@ object DesktopConfig {
         put("tag_selected_tags", s.npia.tagSelectedTags)
         put("tag_custom_tags", s.npia.tagCustomTags)
         put("tag_scrape_all", s.npia.tagScrapeAll)
-        put("scrape_max_queries", s.npia.scrapeMaxQueries)
+        put("tag_query_groups", s.npia.tagQueryGroups)
+        put("scrape_max_queries", s.npia.queryCount)
 
         put("ext_kpage_skip_last_page", s.sources.kpage.skipLastPage)
         put("ext_kpage_keep_filler", s.sources.kpage.keepFiller)
@@ -238,6 +242,16 @@ object DesktopConfig {
     private fun JsonObject.string(key: String): String? = this[key].prim()?.takeIf { it.isString }?.content
     private fun JsonObject.strings(key: String): List<String>? =
         (this[key] as? JsonArray)?.mapNotNull { it.prim()?.content }
+
+    /** A list of tag lists (the Query Builder groups); empty groups are dropped. */
+    private fun JsonObject.stringLists(key: String): List<List<String>>? =
+        (this[key] as? JsonArray)?.mapNotNull { group ->
+            (group as? JsonArray)?.mapNotNull { it.prim()?.content }?.takeIf { it.isNotEmpty() }
+        }
+
+    /** "Search queries" within 1..165; the desktop's old default of 100 means "all" again. */
+    private fun searchQueries(value: Int): Int =
+        if (value == 100) NpiaSettings.MAX_QUERIES else value.coerceIn(1, NpiaSettings.MAX_QUERIES)
 
     private fun formats(list: JsonElement?, fallback: JsonElement?): List<OutputFormat>? {
         val values = (list as? JsonArray)?.mapNotNull { it.prim()?.content?.let(OutputFormat::fromRaw) }

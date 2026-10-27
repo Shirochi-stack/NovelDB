@@ -95,6 +95,15 @@ class DownloadManager(private val app: Application) {
 
     private val running = ConcurrentHashMap<String, Job>()
 
+    /** The npia tag search, which keeps running (and logging) while its screen is closed. */
+    val tagSearch: TagSearchManager = TagSearchManager(
+        scope = scope,
+        settings = { _settings.value },
+        // The search does its own retries and logging, so the HTTP layer must not retry behind its back.
+        contextFor = { logger -> sourceContext(logger, maxRetries = 0) },
+        onStarted = { DownloadService.start(app) },
+    )
+
     /** The run summary the notification buttons act on; see `RunSummary`. */
     private val lastRunStore = JsonFileStore(File(app.filesDir, "last-run.json"), RunSummary.serializer())
 
