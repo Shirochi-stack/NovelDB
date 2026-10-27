@@ -12,6 +12,14 @@ on:
         description: 'Attach the APK to this existing release tag (optional)'
         required: false
         default: ''
+  # Called by Mobile Release on main, which builds both apps and attaches them to a release.
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Branch or commit to build'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -29,6 +37,8 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
