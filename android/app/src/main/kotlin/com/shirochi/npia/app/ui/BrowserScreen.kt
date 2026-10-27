@@ -151,7 +151,7 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
         if (pageUrl == null) {
             BrowserStartPage(model) { url -> webView.loadUrl(url) }
         } else {
-            AndroidView(factory = { webView }, modifier = Modifier.weight(1f).fillMaxWidth())
+            AndroidView(factory = { webView.fillingParent() }, modifier = Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
@@ -282,7 +282,7 @@ private fun SignInDialog(session: WebLoginSession) {
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 Footnote("Log in, then tap Done. The download continues with your login.")
                 AndroidView(
-                    factory = { context -> WebLoginWebView.create(context, session) },
+                    factory = { context -> WebLoginWebView.create(context, session).fillingParent() },
                     onRelease = { it.destroy() },
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )

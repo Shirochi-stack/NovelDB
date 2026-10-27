@@ -55,6 +55,15 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+/**
+ * Sizes a WebView to fill its Compose host. `AndroidView` otherwise gives it WRAP_CONTENT, and a
+ * WebView with wrap-content height reports every viewport unit (vh, dvh, svh, lvh) as 0, which
+ * collapses pages laid out with `height: 100dvh` into a blank screen.
+ */
+fun WebView.fillingParent(): WebView = apply {
+    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+}
+
 private fun origin(url: String): String = Uri.parse(url).let { "${it.scheme}://${it.host}${if (it.port > 0) ":${it.port}" else ""}" }
 
 /**
@@ -203,7 +212,7 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
         Column(Modifier.fillMaxSize()) {
             if (web.progress in 1..99) LinearProgressIndicator(progress = { web.progress / 100f }, modifier = Modifier.fillMaxWidth())
             AndroidView(
-                factory = { web.view.also { (it.parent as? ViewGroup)?.removeView(it) } },
+                factory = { web.view.also { (it.parent as? ViewGroup)?.removeView(it) }.fillingParent() },
                 modifier = Modifier.fillMaxSize(),
             )
         }
