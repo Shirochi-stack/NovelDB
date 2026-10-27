@@ -1,9 +1,9 @@
-"""Single source of truth for Npia Downloader build/version names."""
+"""Single source of truth for NovelDB build/version names."""
 
 VERSION_NUMBER = 97
 VERSION = str(VERSION_NUMBER)
 
-APP_NAME = f"ND{VERSION}"
+APP_NAME = f"NovelDB{VERSION}"
 APP_NAME_LITE = f"{APP_NAME}_Lite"
 
 RELEASE_TAG = f"v{VERSION}"
