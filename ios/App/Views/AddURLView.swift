@@ -11,7 +11,11 @@ struct AddURLView: View {
 
     @State private var text = ""
 
-    private var urls: [URL] { SourceInfo.urls(in: text) }
+    private var urls: [URL] {
+        var seen = Set<String>()
+        return (SourceInfo.urls(in: text) + model.cart.items.compactMap { URL(string: $0.url) })
+            .filter { seen.insert($0.absoluteString).inserted }
+    }
     private var supported: [URL] { urls.filter { SourceCatalog.adapterType(for: $0) != nil } }
     private var source: SourceID? { supported.first.flatMap { SourceCatalog.adapterType(for: $0)?.id } }
     private var effective: SharedSettings { source.map { model.settings.effective(for: $0) } ?? model.settings.shared }
@@ -41,6 +45,30 @@ struct AddURLView: View {
                 }
             } footer: {
                 detectionSummary
+            }
+
+            if !model.cart.items.isEmpty {
+                Section {
+                    ForEach(model.cart.items) { item in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title.isEmpty ? item.url : item.title).lineLimit(1)
+                            Text([item.source, URL(string: item.url)?.host ?? ""].filter { !$0.isEmpty }.joined(separator: " \u{00B7} "))
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .swipeActions {
+                            Button("Remove", role: .destructive) { model.cart.remove(item.url) }
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("🔗 Link cart (\(model.cart.items.count))")
+                        Spacer()
+                        Button("Clear cart", role: .destructive) { model.cart.clear() }
+                            .font(.caption).textCase(nil)
+                    }
+                } footer: {
+                    Text("Swipe a book to remove it. Download queues these with the URLs above.")
+                }
             }
 
             Section {
@@ -211,6 +239,7 @@ struct AddURLView: View {
     private func queue() {
         let settings = model.settings
         model.enqueue(supported) { _ in settings }
+        model.cart.removeAll(Set(supported.map(\.absoluteString)))
         text = ""
         onQueued()
     }

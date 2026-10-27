@@ -19,6 +19,10 @@ final class AppModel {
     var message: String?
     /// URL handed to the Add screen (from the Browser tab's "Download this book").
     var pendingAddText: String?
+    /// Page handed to the Browser tab (from the Catalog tab's "Open novel").
+    var pendingBrowserURL: URL?
+    /// Books collected with the Catalog tab's link-cart button.
+    let cart = LinkCart()
     /// Downloads that run at once; the rest wait in the queue.
     var maxConcurrentJobs = 1
 
