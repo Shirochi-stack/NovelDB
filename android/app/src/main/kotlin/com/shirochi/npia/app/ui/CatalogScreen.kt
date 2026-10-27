@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -16,10 +17,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -70,6 +67,14 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     val view: WebView = WebView(context).apply {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
+        settings.javaScriptCanOpenWindowsAutomatically = true
+        settings.setSupportMultipleWindows(false)
+        settings.loadWithOverviewMode = true
+        settings.useWideViewPort = true
+        // Some sites refuse embedded browsers that announce themselves with "; wv".
+        settings.userAgentString = settings.userAgentString.replace("; wv)", ")")
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
         @Suppress("DEPRECATION")
         settings.databaseEnabled = true
         addJavascriptInterface(Bridge(), "NovelDBAndroid")
@@ -78,7 +83,10 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url.toString()
                 if (request.url.scheme != "http" && request.url.scheme != "https") return true
-                if (origin(url) == origin(site)) return false
+                // Redirects and script navigation (a site moving to www., a sign-in check) load here;
+                // only a tapped link to another site leaves the catalog.
+                if (!request.isForMainFrame || request.isRedirect || !request.hasGesture()) return false
+                if (origin(url) == origin(view.url ?: site)) return false
                 leave(url, "")
                 return true
             }
@@ -160,11 +168,6 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     val site = model.manager.preferences.catalogUrl
     LaunchedEffect(site) { web.load(site) }
     LaunchedEffect(cart) { web.showCart(cart) }
-    LaunchedEffect(Unit) {
-        topBar.actions = {
-            IconButton(onClick = web::reload) { Icon(Icons.Filled.Refresh, contentDescription = "Reload") }
-        }
-    }
     BackHandler(enabled = web.canBack) { web.view.goBack() }
     Column(Modifier.fillMaxSize()) {
         if (web.progress in 1..99) LinearProgressIndicator(progress = { web.progress / 100f }, modifier = Modifier.fillMaxWidth())
