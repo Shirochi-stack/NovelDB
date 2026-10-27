@@ -21,6 +21,28 @@ Oracle bucket (needs a private pre-authenticated URL).
 Multipart bodies are written to a temp file in 1 MiB pieces and streamed with
 `URLSession.upload(fromFile:)`; Drive sends 8 MiB chunks. Memory stays flat for multi-GB files.
 
+## File names
+
+Some hosts (temp.sh among them) drop non-ASCII characters from the multipart file name, so a
+Korean title arrived as ".epub". A name that is plain printable ASCII is sent unchanged.
+Anything else goes up as `<id>.<ext>`, where `<id>` is the `nameID` given to
+`UploaderCatalog.upload` (the job's book id; for npia the novel number), else the last numeric
+path segment of the job URL, else a short ASCII slug, else `book` (`UploadNaming`). The multipart
+header carries that name in `filename` and the real one in the RFC 5987 `filename*` parameter,
+Pixeldrain's URL uses the ASCII name, and `UploadResult.fileName` keeps the real name.
+
+## Progress
+
+`UploaderCatalog.upload(..., events:)` reports `UploadEvent` values: `trying` (the host about to
+receive the file and its position among the configured hosts), `progress` (bytes sent to that
+host), and `failed` (why a host did not take the file before the next one is tried). The queue
+and the Uploads screen show them as a bar and a status line.
+
+## Sharing agreement
+
+The first time Upload is tapped the app asks the user to confirm they may share the file, and
+remembers the answer (`shareAgreementAccepted`). Automatic uploads stay off until it is accepted.
+
 ## Google Drive setup
 
 The app uses OAuth 2.0 with PKCE through `ASWebAuthenticationSession`, so there is no Google

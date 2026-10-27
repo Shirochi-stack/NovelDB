@@ -69,6 +69,9 @@ struct RootView: View {
         .onChange(of: model.pendingBrowserURL) { _, url in
             if url != nil { selection = .browser }
         }
+        .sheet(item: Binding(get: { model.pendingUpload }, set: { model.pendingUpload = $0 })) { pending in
+            ShareAgreementView(pending: pending)
+        }
         .alert("NovelDB", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
             Button("OK", role: .cancel) { model.message = nil }
         } message: {
