@@ -8,6 +8,7 @@ enum CatalogBridgeScript {
  * - Tapping a card opens View Details instead of the novel page.
  * - "Open novel" and other outside links go to the app (Browser tab).
  * - A link-cart button on each card adds or removes its URL from the app's cart.
+ * - Taps show no highlight flash.
  * - Dialog heights use the window height: some Android WebViews resolve dvh units to 0.
  */
 (function () {
@@ -98,6 +99,8 @@ enum CatalogBridgeScript {
     addEventListener('resize', viewport);
     var style = document.createElement('style');
     style.textContent =
+        '*{-webkit-tap-highlight-color:transparent!important}' +
+        ':focus:not(:focus-visible){outline:none!important}' +
         '.noveldb-cart{position:absolute;left:.4rem;bottom:.4rem;z-index:2;display:grid;place-items:center;width:32px;height:32px;' +
         'padding:0;border:0;border-radius:.4rem;background:rgba(0,0,0,.55);font-size:17px;line-height:1;cursor:pointer;' +
         'filter:grayscale(1);opacity:.8;-webkit-tap-highlight-color:transparent}' +
