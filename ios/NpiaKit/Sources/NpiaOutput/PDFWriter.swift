@@ -31,7 +31,7 @@ public struct PDFWriter: BookWriter {
         }
 
         var mediaBox = CGRect(origin: .zero, size: PDFRenderer.pageSize)
-        var info: [CFString: Any] = [kCGPDFContextTitle: bundle.book.title, kCGPDFContextCreator: "Npia Mobile"]
+        var info: [CFString: Any] = [kCGPDFContextTitle: bundle.book.title, kCGPDFContextCreator: "NovelDB"]
         if let author = bundle.book.author { info[kCGPDFContextAuthor] = author }
         try? FileManager.default.removeItem(at: url)
         guard let context = CGContext(url as CFURL, mediaBox: &mediaBox, info as CFDictionary) else {
