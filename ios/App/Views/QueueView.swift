@@ -210,16 +210,19 @@ struct FileRow: View {
             HStack(spacing: 16) {
                 ShareLink(item: file) { Label("Share", systemImage: "square.and.arrow.up") }
                 Button { FilesApp.reveal(file) } label: { Label("Files", systemImage: "folder") }
-                if !file.hasDirectoryPath {
-                    if model.isUploading(file) {
-                        ProgressView()
-                    } else {
-                        Button { model.upload(file, jobID: jobID) } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
-                    }
+                if !file.hasDirectoryPath, !model.isUploading(file) {
+                    Button { model.upload(file, jobID: jobID) } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
                 }
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
+            if let activity = model.uploadActivity(for: file) {
+                UploadActivityView(
+                    activity: activity,
+                    retry: { model.upload(file, jobID: activity.jobID ?? jobID) },
+                    dismiss: { model.dismissUploadActivity(file) }
+                )
+            }
         }
     }
 
