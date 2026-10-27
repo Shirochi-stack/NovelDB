@@ -12,6 +12,8 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -198,6 +200,13 @@ object Notifications {
     private const val CHANNEL_PROGRESS = "downloads"
     private const val CHANNEL_RESULTS = "results"
 
+    @Volatile private var artwork: Bitmap? = null
+
+    /** The Halgakos artwork shown as the large icon of every notification; decoded once. */
+    private fun artwork(context: Context): Bitmap? =
+        artwork ?: runCatching { BitmapFactory.decodeResource(context.applicationContext.resources, R.drawable.notification_artwork) }
+            .getOrNull()?.also { artwork = it }
+
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -228,6 +237,7 @@ object Notifications {
         }.joinToString(", ")
         return NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setLargeIcon(artwork(context))
             .setContentTitle(first?.displayTitle ?: "Preparing downloads")
             .setContentText(listOfNotNull(first?.status, extra.ifEmpty { null }).joinToString(" \u00b7 "))
             .setProgress(1000, ((first?.fraction ?: 0.0) * 1000).toInt(), first == null)
@@ -245,6 +255,7 @@ object Notifications {
         val ok = job.state == JobState.FINISHED
         val notification = NotificationCompat.Builder(context, CHANNEL_RESULTS)
             .setSmallIcon(if (ok) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
+            .setLargeIcon(artwork(context))
             .setContentTitle(if (ok) "Downloaded ${job.displayTitle}" else "Download failed")
             .setContentText(if (ok) job.status else "${job.displayTitle}: ${job.status}")
             .setAutoCancel(true)
