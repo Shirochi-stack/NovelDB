@@ -82,16 +82,21 @@ public enum NpiaAuth {
         return key
     }
 
-    /// Mirrors the desktop `_auto_login`: with `autoLogin` and saved credentials, sign in for a
-    /// fresh session; otherwise inject the saved key. Without either, a throwaway key is used
-    /// and only free chapters will be readable.
+    /// Picks the session for a job. Order: (a) auto-login with saved credentials, (b) the saved
+    /// session key, (c) a sign-in with saved credentials even though auto-login is off, (d) a
+    /// throwaway key, which reads free chapters only. A failed sign-in logs a warning and falls
+    /// through to the next step.
     @discardableResult
     public static func prepare(context: SourceContext, cookies: any NpiaCookieSetting) async throws -> String {
         let secrets = context.secrets
-        if context.settings.npia.autoLogin,
-           let email = secrets.string(for: .npiaEmail), !email.isEmpty,
-           let password = secrets.string(for: .npiaPassword), !password.isEmpty {
-            if let key = try await login(email: email, password: password, context: context, cookies: cookies) {
+        let email = secrets.string(for: .npiaEmail) ?? ""
+        let password = secrets.string(for: .npiaPassword) ?? ""
+        let hasCredentials = !email.isEmpty && !password.isEmpty
+        var triedSignIn = false
+
+        if context.settings.npia.autoLogin, hasCredentials {
+            triedSignIn = true
+            if let key = try await signIn(email: email, password: password, context: context, cookies: cookies) {
                 return key
             }
         }
@@ -99,9 +104,28 @@ public enum NpiaAuth {
             cookies.setLoginKey(key)
             return key
         }
+        if hasCredentials, !triedSignIn {
+            if let key = try await signIn(email: email, password: password, context: context, cookies: cookies) {
+                return key
+            }
+        }
         let key = generateLoginKey()
         cookies.setLoginKey(key)
         context.logger.log(.info, "npia: no saved login; only free chapters can be read.")
         return key
+    }
+
+    /// `login` that reports every failure, a network error included, as a warning and nil.
+    private static func signIn(email: String, password: String, context: SourceContext, cookies: any NpiaCookieSetting) async throws -> String? {
+        do {
+            if let key = try await login(email: email, password: password, context: context, cookies: cookies) {
+                return key
+            }
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            context.logger.log(.warning, "npia sign-in error: \(error.localizedDescription)")
+        }
+        context.logger.log(.warning, "npia sign-in failed; check the email and password in Settings > npia")
+        return nil
     }
 }

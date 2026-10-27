@@ -29,6 +29,8 @@ targets:
         product: NpiaUpload
       - package: NpiaKit
         product: NpiaWebEngine
+      - package: NpiaKit
+        product: NpiaNet
     info:
       path: App/Info.plist
       properties:
