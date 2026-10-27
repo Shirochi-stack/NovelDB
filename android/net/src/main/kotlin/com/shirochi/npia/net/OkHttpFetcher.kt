@@ -55,8 +55,13 @@ class OkHttpFetcher(
     private val userAgent: String = DEFAULT_USER_AGENT,
     client: OkHttpClient? = null,
 ) : HttpFetching {
+    /**
+     * No request pacing: like the desktop scraper, the rate limit is a pause each chapter worker
+     * takes after a chapter (`SharedSettings.pauseBetweenChapters`), so threads and images run
+     * in parallel.
+     */
     constructor(settings: SharedSettings, cookieJar: CookieJar = CookieJar.NO_COOKIES) :
-        this(cookieJar, RequestPacer(settings.intervalMin, settings.intervalMax), settings.maxRetries)
+        this(cookieJar, null, settings.maxRetries)
 
     private val client = client ?: OkHttpClient.Builder()
         .cookieJar(cookieJar)

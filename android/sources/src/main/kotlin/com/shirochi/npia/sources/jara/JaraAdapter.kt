@@ -227,6 +227,7 @@ class JaraAdapter : SourceAdapter {
                 results += ChapterResult.Failed(ref, e.message ?: e.toString())
             }
             context.onChapter(results.last())
+            if (ref !== refs.last()) context.shared(id).pauseBetweenChapters()
         }
         return results
     }

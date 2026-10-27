@@ -95,7 +95,6 @@ class XiyuwxAdapter : SourceAdapter {
         val site = XiyuwxParser.siteName(url)
 
         val lines = httpChapter(url, book.url, context, shared) ?: browserChapter(url, context, shared)
-        pause(shared)
         if (lines == null) {
             if (ref.isPaid) return ChapterResult.Refused(ref, "This chapter is locked for the signed-in account.")
             context.logger.log(LogLevel.WARNING, "[$site] Could not read ${ref.title}")
@@ -193,12 +192,6 @@ class XiyuwxAdapter : SourceAdapter {
         }
 
         /** `_sleep_interval`: a random pause between `intervalMin` and `intervalMax` seconds. */
-        suspend fun pause(shared: SharedSettings) {
-            val low = maxOf(0.0, shared.intervalMin)
-            val high = maxOf(low, shared.intervalMax)
-            val seconds = if (high > low) Random.nextDouble(low, high) else low
-            if (seconds <= 0) return
-            delay((seconds * 1000).toLong())
-        }
+        suspend fun pause(shared: SharedSettings) = shared.pauseBetweenChapters()
     }
 }

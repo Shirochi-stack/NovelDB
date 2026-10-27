@@ -112,13 +112,7 @@ class FenrirAdapter : SourceAdapter {
                 }
             }
         }
-        val shared = context.shared(id)
-        if (shared.intervalMax > 0) {
-            val low = maxOf(0.0, minOf(shared.intervalMin, shared.intervalMax))
-            val high = maxOf(low, shared.intervalMax)
-            val pause = if (high > low) Random.nextDouble(low, high) else low
-            if (pause > 0) delay((pause * 1000).toLong())
-        }
+        context.shared(id).pauseBetweenChapters()
         return refs.mapIndexed { offset, ref ->
             state.results[offset]
                 ?: state.refusals[offset]?.let { ChapterResult.Refused(ref, it) }

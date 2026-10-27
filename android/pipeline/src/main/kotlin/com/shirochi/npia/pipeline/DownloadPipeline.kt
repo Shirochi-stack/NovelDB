@@ -25,6 +25,7 @@ import com.shirochi.npia.core.sniffImageExtension
 import com.shirochi.npia.net.OkHttpFetcher
 import com.shirochi.npia.output.BookBundle
 import com.shirochi.npia.output.BookWriter
+import com.shirochi.npia.output.OutputSkipped
 import com.shirochi.npia.output.Writers
 import com.shirochi.npia.sources.SourceCatalog
 import com.shirochi.npia.upload.UploadContext
@@ -118,10 +119,15 @@ class DownloadPipeline(
 
         val bundle = BookBundle(book, chapters, imageOutput.images, cover, settings)
         val baseName = Writers.baseName(book, shared)
-        val files = shared.formats.map { format ->
+        val files = shared.formats.mapNotNull { format ->
             onPhase(JobPhase.Writing(format))
             val writer = Writers.writer(format)
-            var file = writer.write(bundle, baseName, outputDirectory)
+            var file = try {
+                writer.write(bundle, baseName, outputDirectory)
+            } catch (e: OutputSkipped) {
+                logger.log(LogLevel.WARNING, e.message.orEmpty())
+                return@mapNotNull null
+            }
             val targetMb = settings.images.recompressTargetMb
             if (targetMb != null && targetMb > 0 && (format == OutputFormat.EPUB || format == OutputFormat.PDF)) {
                 file = shrink(file, bundle, writer, baseName, (targetMb * 1_048_576).toLong())

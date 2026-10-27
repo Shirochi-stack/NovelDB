@@ -124,4 +124,22 @@ class SettingsTest {
         assertEquals("example.com", bareHost("https://WWW.Example.com/a"))
         assertEquals("", bareHost("not a url"))
     }
+
+    @Test
+    fun intervalRangeMatchesDesktopNormalization() {
+        assertEquals(0.5 to 2.0, SharedSettings(intervalMin = 2.0, intervalMax = 0.5).intervalRange)
+        assertEquals(0.0 to 300.0, SharedSettings(intervalMin = -1.0, intervalMax = 999.0).intervalRange)
+        assertEquals(1.5, SharedSettings(intervalMin = 1.5, intervalMax = 1.5).chapterDelay(), 0.0)
+        assertEquals(0.0, SharedSettings(intervalMin = 0.0, intervalMax = 0.0).chapterDelay(), 0.0)
+        repeat(50) {
+            val d = SharedSettings(intervalMin = 0.5, intervalMax = 1.0).chapterDelay()
+            assertTrue(d in 0.5..1.0)
+        }
+    }
+
+    @Test
+    fun cbzFormatRoundTripsThroughDesktopConfig() {
+        val (settings, _) = DesktopConfig.import("""{"ext_formats": ["epub", "cbz"]}""")
+        assertEquals(listOf(OutputFormat.EPUB, OutputFormat.CBZ), settings.shared.formats)
+    }
 }

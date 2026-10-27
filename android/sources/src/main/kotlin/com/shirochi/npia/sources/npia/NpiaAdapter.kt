@@ -156,6 +156,7 @@ class NpiaAdapter(
                         removeNewlines = context.settings.text.removeNewlines,
                         saveImageUrlsOnly = context.settings.images.saveImageUrlsOnly,
                         imagePrefix = (if (ref.isNotice) "n" else "") + ref.index.toString().padStart(4, '0'),
+                        fontMapping = NpiaFontMapping.mapping,
                     )
                     val rendered = NpiaParser.renderSegments(payload.segments, options)
                     return ChapterResult.Content(ChapterContent(ref, rendered.html, rendered.images))
