@@ -27,6 +27,8 @@ final class AppModel {
     let cart = LinkCart()
     /// Downloads that run at once; the rest wait in the queue.
     var maxConcurrentJobs = 1
+    /// The npia tag search, scrape-all, and Top 100 runs of the Tag search screen.
+    let tagSearch = TagSearchController()
 
     let secrets: any SecretStore = KeychainSecretStore()
     let background = BackgroundActivity()

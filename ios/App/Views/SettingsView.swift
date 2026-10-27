@@ -273,15 +273,18 @@ struct NpiaSettingsForm: View {
             } footer: {
                 Text("Stored only in the iOS Keychain, never in settings files or exports. Downloads sign in with these when no session key is saved.")
             }
-            Section("Tag search") {
-                Picker("Age filter", selection: $model.settings.npia.tagAgeFilter) {
-                    Text("All").tag("")
-                    Text("Non-adult").tag("15")
-                    Text("Adult").tag("19")
+            Section {
+                NavigationLink { TagSearchView() } label: {
+                    HStack {
+                        Label("Tag search", systemImage: "tag")
+                        if model.tagSearch.isRunning {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
                 }
-                TextField("Custom tags", text: $model.settings.npia.tagCustomTags)
-                Toggle("Scrape all tags", isOn: $model.settings.npia.tagScrapeAll)
-                Stepper("Max queries: \(model.settings.npia.scrapeMaxQueries)", value: $model.settings.npia.scrapeMaxQueries, in: 1...1000, step: 5)
+            } footer: {
+                Text("Find novel IDs by tags, scrape the whole catalog, or read the Top 100 lists. Save the IDs or send them to the link cart.")
             }
         }
         .themedBackground()

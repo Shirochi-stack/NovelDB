@@ -26,6 +26,17 @@ final class LinkCart {
         store.save(items)
     }
 
+    /// Adds many items with one write; returns how many were new.
+    @discardableResult
+    func add(contentsOf newItems: [CartItem]) -> Int {
+        var known = Set(items.map(\.url))
+        let fresh = newItems.filter { known.insert($0.url).inserted }
+        guard !fresh.isEmpty else { return 0 }
+        items.append(contentsOf: fresh)
+        store.save(items)
+        return fresh.count
+    }
+
     func remove(_ url: String) {
         items.removeAll { $0.url == url }
         store.save(items)
