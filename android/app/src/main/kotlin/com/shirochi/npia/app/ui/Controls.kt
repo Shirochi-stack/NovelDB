@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -134,21 +133,9 @@ fun OptionalDecimalRow(title: String, value: Double?, defaultValue: Double, onCh
     if (value != null) DecimalField(title, value, { onChange(it) })
 }
 
-/** Multi-select for output formats; at least one stays selected. */
+/** Multi-select for output formats as wrapping chips; at least one stays selected. */
 @Composable
-fun FormatPicker(formats: List<OutputFormat>, onChange: (List<OutputFormat>) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutputFormat.entries.forEach { format ->
-            Row(
-                Modifier.weight(1f).clickable { onChange(toggleFormat(formats, format)) },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(checked = format in formats, onCheckedChange = { onChange(toggleFormat(formats, format)) })
-                Text(format.raw.uppercase())
-            }
-        }
-    }
-}
+fun FormatPicker(formats: List<OutputFormat>, onChange: (List<OutputFormat>) -> Unit) = FormatChips(formats, onChange)
 
 fun toggleFormat(formats: List<OutputFormat>, format: OutputFormat): List<OutputFormat> = when {
     format !in formats -> OutputFormat.entries.filter { it in formats || it == format }
