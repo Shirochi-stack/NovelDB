@@ -208,6 +208,7 @@ struct NpiaSettingsForm: View {
     @State private var password = ""
     @State private var hasPassword = false
     @State private var hasLoginKey = false
+    @State private var signingIn = false
     @State private var mappedCharacters = 0
     @State private var importingMapping = false
     @State private var mappingError: String?
@@ -248,12 +249,11 @@ struct NpiaSettingsForm: View {
                     .autocorrectionDisabled()
                 SecureField(hasPassword ? "Password (saved)" : "Password", text: $password)
                     .textContentType(.password)
-                Button("Save to Keychain") {
-                    model.secrets.set(email.trimmingCharacters(in: .whitespaces), for: .npiaEmail)
-                    if !password.isEmpty { model.secrets.set(password, for: .npiaPassword) }
-                    password = ""
-                    reload()
-                }
+                Button(signingIn ? "Signing in..." : "Save and sign in") { saveAndSignIn() }
+                    .disabled(signingIn || email.trimmingCharacters(in: .whitespaces).isEmpty || (password.isEmpty && !hasPassword))
+                Text(hasLoginKey ? "Signed in (session key saved)" : "Not signed in")
+                    .font(.caption)
+                    .foregroundStyle(hasLoginKey ? Color.green : Color.secondary)
                 if hasLoginKey {
                     Button("Forget saved session key", role: .destructive) {
                         model.secrets.set(nil, for: .npiaLoginKey)
@@ -271,7 +271,7 @@ struct NpiaSettingsForm: View {
             } header: {
                 Text("Account")
             } footer: {
-                Text("Stored only in the iOS Keychain, never in settings files or exports.")
+                Text("Stored only in the iOS Keychain, never in settings files or exports. Downloads sign in with these when no session key is saved.")
             }
             Section("Tag search") {
                 Picker("Age filter", selection: $model.settings.npia.tagAgeFilter) {
@@ -289,6 +289,20 @@ struct NpiaSettingsForm: View {
         .onAppear {
             reload()
             reloadMapping()
+        }
+    }
+
+    private func saveAndSignIn() {
+        model.secrets.set(email.trimmingCharacters(in: .whitespaces), for: .npiaEmail)
+        if !password.isEmpty { model.secrets.set(password, for: .npiaPassword) }
+        password = ""
+        reload()
+        signingIn = true
+        Task { @MainActor in
+            let signedIn = await model.signInToNpia()
+            signingIn = false
+            reload()
+            model.message = signedIn ? "Signed in to npia" : "npia sign-in failed — check the email and password"
         }
     }
 

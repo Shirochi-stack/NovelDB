@@ -1,8 +1,10 @@
 import Foundation
 import NpiaCore
+import NpiaNet
 import NpiaPipeline
 import NpiaSources
 import NpiaUpload
+import NpiaWebEngine
 import Observation
 import UIKit
 
@@ -245,6 +247,21 @@ final class AppModel {
     func clearUploadHistory() {
         uploadHistory = []
         historyStore.save(uploadHistory)
+    }
+
+    // MARK: - npia account
+
+    /// Signs in with the saved email and password; on success the session key is stored in the
+    /// Keychain for later downloads.
+    func signInToNpia() async -> Bool {
+        guard let email = secrets.string(for: .npiaEmail), !email.isEmpty,
+              let password = secrets.string(for: .npiaPassword), !password.isEmpty else { return false }
+        let context = SourceContext(http: URLSessionHTTPClient(maxRetries: 1), web: WKWebEngine(), secrets: secrets, settings: settings)
+        do {
+            return try await NpiaAuth.login(email: email, password: password, context: context, cookies: SharedCookieStorageJar()) != nil
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Desktop config
