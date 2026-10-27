@@ -46,7 +46,7 @@ fun MiniLabel(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun CompactRow(content: @Composable RowScope.() -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
@@ -58,8 +58,9 @@ fun CompactRow(content: @Composable RowScope.() -> Unit) {
 @Composable
 fun ChipFlow(content: @Composable () -> Unit) {
     FlowRow(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) { content() }
 }
 

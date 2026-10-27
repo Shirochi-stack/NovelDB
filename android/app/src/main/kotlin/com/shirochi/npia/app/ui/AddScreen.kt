@@ -98,7 +98,9 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
         CompactRow {
             MiniLabel("Threads", Modifier.weight(1f))
             MiniStepper(run.threads, 1..16) { v -> edit { it.copy(threads = v) } }
-            MiniLabel("Image Workers", Modifier.weight(1f).padding(start = 8.dp))
+        }
+        CompactRow {
+            MiniLabel("Image Workers", Modifier.weight(1f))
             MiniStepper(run.imageWorkers, 1..16) { v -> edit { it.copy(imageWorkers = v) } }
         }
         CompactRow {
