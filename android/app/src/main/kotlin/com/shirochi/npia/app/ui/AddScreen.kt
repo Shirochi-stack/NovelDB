@@ -133,7 +133,7 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
 @Composable
 private fun DetectionSummary(urls: List<String>) {
     if (urls.isEmpty()) {
-        Footnote("Paste a book page or chapter list URL. The source is detected automatically. You can also share a link to Npia Mobile from your browser.")
+        Footnote("Paste a book page or chapter list URL. The source is detected automatically. You can also share a link to NovelDB from your browser.")
         return
     }
     Column(Modifier.padding(horizontal = 16.dp)) {

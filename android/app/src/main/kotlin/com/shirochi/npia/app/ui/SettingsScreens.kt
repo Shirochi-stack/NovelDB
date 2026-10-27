@@ -393,7 +393,7 @@ fun BackgroundSettingsScreen(model: AppViewModel) {
         Footnote("Applies while the app is open.")
         Footnote(
             "Downloads keep running in a foreground service with a progress notification after you leave the app or lock the screen. " +
-                "Some phones still stop background work to save battery; if downloads stop, allow Npia Mobile to run unrestricted in the system battery settings.",
+                "Some phones still stop background work to save battery; if downloads stop, allow NovelDB to run unrestricted in the system battery settings.",
         )
     }
 }
