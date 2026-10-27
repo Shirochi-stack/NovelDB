@@ -21,6 +21,7 @@ struct SettingsView: View {
             }
             Section("App") {
                 NavigationLink { AppearanceSettingsForm() } label: { Label("Appearance", systemImage: "paintpalette") }
+                NavigationLink { CatalogSiteForm() } label: { Label("Catalog site", systemImage: "books.vertical") }
                 NavigationLink { BackgroundSettingsForm() } label: { Label("Screen and background", systemImage: "moon.zzz") }
                 NavigationLink { ConfigTransferView() } label: { Label("Import / export", systemImage: "arrow.up.arrow.down") }
             }
@@ -385,6 +386,46 @@ struct TextSettingsForm: View {
         }
         .themedBackground()
         .navigationTitle("Text and PDF")
+    }
+}
+
+// MARK: - Catalog site
+
+struct CatalogSiteForm: View {
+    @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.defaultAddress
+    @State private var address = ""
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Catalog site", text: $address)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .submitLabel(.done)
+                    .onSubmit(save)
+                Button("Save", action: save)
+                    .disabled(address.trimmingCharacters(in: .whitespaces).isEmpty || address == site)
+                Button("Use NovelDB") {
+                    site = CatalogSite.defaultAddress
+                    address = site
+                }
+                .disabled(site == CatalogSite.defaultAddress)
+            } footer: {
+                Text("On the NovelDB website, tapping a card opens View Details and the link-cart button on each card adds the book to the Add tab. Other catalog sites have no cart buttons, so tapping a link that leaves the site adds that link to the cart instead of opening it.")
+            }
+        }
+        .themedBackground()
+        .navigationTitle("Catalog site")
+        .onAppear { address = site }
+    }
+
+    private func save() {
+        var text = address.trimmingCharacters(in: .whitespaces)
+        if !text.contains("://") { text = "https://" + text }
+        guard let url = URL(string: text), url.host != nil else { return }
+        site = url.absoluteString
+        address = site
     }
 }
 
