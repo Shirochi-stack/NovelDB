@@ -71,6 +71,17 @@ class AppModelTest {
     }
 
     @Test
+    fun stopAllCancelsQueuedJobsBeforeRunningOnes() {
+        fun job(id: String, state: JobState) = JobItem(id = id, url = "https://example.com/$id", state = state)
+        val jobs = listOf(
+            job("a", JobState.RUNNING), job("b", JobState.QUEUED), job("c", JobState.FINISHED),
+            job("d", JobState.QUEUED), job("e", JobState.RUNNING), job("f", JobState.FAILED),
+        )
+        assertEquals(listOf("b", "d", "a", "e"), JobItem.stopOrder(jobs))
+        assertTrue(JobItem.stopOrder(listOf(job("x", JobState.FINISHED), job("y", JobState.CANCELLED))).isEmpty())
+    }
+
+    @Test
     fun logIsCapped() {
         var job = JobItem(url = "u")
         repeat(JobItem.MAX_LOG_LINES + 20) { job = job.appendingLog("line $it") }
