@@ -1,0 +1,105 @@
+name: Mobile Release
+
+# Builds the Android APK and the unsigned iOS IPA from their integration branches and attaches
+# both to a release. A published release gets the plain names (NovelDB-universal.apk,
+# NovelDB-unsigned.ipa); a manual run adds a label, by default the next hotfix number
+# (NovelDB-universal_hotfix11.apk, NovelDB-unsigned_hotfix11.ipa).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to attach to (empty: the latest release)'
+        required: false
+        default: ''
+      label:
+        description: 'Asset label: auto (next hotfixN), none (plain names), or a label such as hotfix12'
+        required: false
+        default: 'auto'
+      android_ref:
+        description: 'Android branch or commit to build'
+        required: false
+        default: 'android/integration'
+      ios_ref:
+        description: 'iOS branch or commit to build'
+        required: false
+        default: 'ios/integration'
+      dry_run:
+        description: 'Build and name the files without uploading them'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  android:
+    uses: Shirochi-stack/NovelDB/.github/workflows/android.yml@android/integration
+    with:
+      ref: ${{ inputs.android_ref || 'android/integration' }}
+    secrets: inherit
+
+  ios:
+    uses: Shirochi-stack/NovelDB/.github/workflows/ios.yml@ios/integration
+    with:
+      ref: ${{ inputs.ios_ref || 'ios/integration' }}
+
+  attach:
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: NovelDB-universal-apk
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: NovelDB-unsigned-ipa
+          path: out
+      - name: Name and attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG_INPUT: ${{ github.event.release.tag_name || inputs.release_tag }}
+          LABEL_INPUT: ${{ github.event_name == 'release' && 'none' || inputs.label || 'auto' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          tag="$TAG_INPUT"
+          if [ -z "$tag" ]; then tag=$(gh release view --repo "$REPO" --json tagName -q .tagName); fi
+          label="$LABEL_INPUT"
+          if [ "$label" = auto ]; then
+            last=$(gh release view "$tag" --repo "$REPO" --json assets -q '.assets[].name' \
+              | sed -nE 's/^NovelDB-.*_hotfix([0-9]+)\.(apk|ipa)$/\1/p' | sort -n | tail -1)
+            label="hotfix$(( ${last:-0} + 1 ))"
+          fi
+          if ! printf '%s' "$label" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+            echo "::error::Label '$label' may only use letters, digits, '.', '_' and '-'."
+            exit 1
+          fi
+          suffix=""
+          if [ "$label" != none ]; then suffix="_$label"; fi
+          apk="NovelDB-universal${suffix}.apk"
+          ipa="NovelDB-unsigned${suffix}.ipa"
+          mv out/NovelDB-universal.apk "out/$apk"
+          mv out/NovelDB-unsigned.ipa "out/$ipa"
+          ls -l out
+          {
+            echo "### Release $tag"
+            echo "- $apk ($(stat -c %s "out/$apk") bytes)"
+            echo "- $ipa ($(stat -c %s "out/$ipa") bytes)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DRY_RUN" = true ]; then
+            echo "Dry run: built and named, not uploaded." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release upload "$tag" "out/$apk" "out/$ipa" --clobber --repo "$REPO"
+          echo "Attached to https://github.com/$REPO/releases/tag/$tag" | tee -a "$GITHUB_STEP_SUMMARY"
