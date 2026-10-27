@@ -163,8 +163,7 @@ struct CompactStepper: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(title).font(.subheadline).lineLimit(1).minimumScaleFactor(0.8)
-            Spacer(minLength: 2)
+            Text(title).font(.subheadline).lineLimit(1)
             Button { value = max(range.lowerBound, value - 1) } label: { Image(systemName: "minus.circle") }
                 .disabled(value <= range.lowerBound)
             Text("\(value)").font(.subheadline.monospacedDigit()).frame(minWidth: 22)
@@ -172,7 +171,7 @@ struct CompactStepper: View {
                 .disabled(value >= range.upperBound)
         }
         .buttonStyle(.borderless)
-        .frame(maxWidth: .infinity)
+        .fixedSize()
     }
 }
 
