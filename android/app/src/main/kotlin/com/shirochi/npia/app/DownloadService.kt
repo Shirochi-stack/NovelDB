@@ -103,6 +103,9 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putBoolean("askedForNotifications", value).apply()
 }
 
+/** What keeps the service alive: downloads, uploads, or a tag search. */
+private data class ServiceWork(val jobs: List<JobItem>, val uploads: List<UploadState>, val batch: UploadBatch?, val searching: Boolean)
+
 /**
  * Foreground service that keeps the process alive while downloads run, with a progress
  * notification. It holds partial wake and Wi-Fi locks so downloads continue with the screen off,
@@ -119,20 +122,26 @@ class DownloadService : Service() {
     @OptIn(FlowPreview::class)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val manager = (application as NpiaApplication).downloads
-        if (intent?.action == ACTION_CANCEL_ALL) manager.cancelAll()
+        if (intent?.action == ACTION_CANCEL_ALL) {
+            manager.cancelAll()
+            manager.tagSearch.stop()
+        }
         if (collector == null) {
-            goForeground(Notifications.progress(this, manager.jobs.value, manager.runningUploads(), manager.uploadBatch.value))
+            goForeground(Notifications.progress(this, manager.jobs.value, manager.runningUploads(), manager.uploadBatch.value, manager.tagSearch.running.value))
             acquireLocks()
             // Notification updates are throttled; the system drops faster ones anyway. Uploads
             // keep the service alive too, so they finish with the screen off.
             collector = scope.launch {
-                combine(manager.jobs, manager.uploadStates, manager.uploadBatch) { jobs, uploads, batch ->
-                    Triple(jobs, uploads.values.filter { it.phase == UploadState.Phase.RUNNING }, batch)
-                }.sample(750).collect { (jobs, uploads, batch) ->
-                    if (jobs.none { it.state.isActive } && uploads.isEmpty() && batch == null) {
+                combine(manager.jobs, manager.uploadStates, manager.uploadBatch, manager.tagSearch.running) { jobs, uploads, batch, searching ->
+                    ServiceWork(jobs, uploads.values.filter { it.phase == UploadState.Phase.RUNNING }, batch, searching)
+                }.sample(750).collect { activity ->
+                    if (activity.jobs.none { it.state.isActive } && activity.uploads.isEmpty() && activity.batch == null && !activity.searching) {
                         stop()
                     } else {
-                        Notifications.notify(this@DownloadService, Notifications.PROGRESS_ID, Notifications.progress(this@DownloadService, jobs, uploads, batch))
+                        Notifications.notify(
+                            this@DownloadService, Notifications.PROGRESS_ID,
+                            Notifications.progress(this@DownloadService, activity.jobs, activity.uploads, activity.batch, activity.searching),
+                        )
                     }
                 }
             }
@@ -236,7 +245,13 @@ object Notifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    fun progress(context: Context, jobs: List<JobItem>, uploads: List<UploadState> = emptyList(), batch: UploadBatch? = null): Notification {
+    fun progress(
+        context: Context,
+        jobs: List<JobItem>,
+        uploads: List<UploadState> = emptyList(),
+        batch: UploadBatch? = null,
+        searching: Boolean = false,
+    ): Notification {
         val runningJobs = jobs.filter { it.state == JobState.RUNNING }
         val queued = jobs.count { it.state == JobState.QUEUED }
         val first = runningJobs.firstOrNull()
@@ -266,8 +281,14 @@ object Notifications {
         return NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setLargeIcon(artwork(context))
-            .setContentTitle(first?.displayTitle ?: (if (batch != null) "Uploading files" else upload?.fileName) ?: "Preparing downloads")
-            .setContentText(listOfNotNull(first?.status ?: uploadLine, extra.ifEmpty { null }).joinToString(" · "))
+            .setContentTitle(
+                first?.displayTitle ?: (if (batch != null) "Uploading files" else upload?.fileName)
+                    ?: (if (searching) "Searching npia" else "Preparing downloads"),
+            )
+            .setContentText(
+                listOfNotNull(first?.status ?: uploadLine ?: (if (searching) "Tag search running" else null), extra.ifEmpty { null })
+                    .joinToString(" · "),
+            )
             .setProgress(1000, (fraction * 1000).toInt(), indeterminate)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

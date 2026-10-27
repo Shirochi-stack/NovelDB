@@ -143,8 +143,19 @@ data class NpiaSettings(
     val tagSelectedTags: List<String> = emptyList(),
     val tagCustomTags: String = "",
     val tagScrapeAll: Boolean = false,
-    val scrapeMaxQueries: Int = 165,
-)
+    /** Query Builder groups: tags within a group are OR'd and the groups are AND'd. */
+    val tagQueryGroups: List<List<String>> = emptyList(),
+    /** "Search queries" of Scrape all novels, 1 to `MAX_QUERIES`. */
+    val scrapeMaxQueries: Int = MAX_QUERIES,
+) {
+    /** `scrapeMaxQueries` limited to the number of search terms, whatever an older file stored. */
+    val queryCount: Int get() = scrapeMaxQueries.coerceIn(1, MAX_QUERIES)
+
+    companion object {
+        /** The number of search terms (`NpiaSearchTerms.DEFAULT_SEARCH_QUERY_COUNT`; a test keeps them equal). */
+        const val MAX_QUERIES = 165
+    }
+}
 
 @Serializable
 data class KpageSettings(

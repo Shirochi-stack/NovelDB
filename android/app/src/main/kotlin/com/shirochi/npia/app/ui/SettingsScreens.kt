@@ -294,13 +294,7 @@ fun NpiaSettingsScreen(model: AppViewModel) {
         Footnote("Stored only in encrypted app storage, never in settings files or exports.")
 
         SectionHeader("Tag search")
-        ChoiceRow("Age filter", npia.tagAgeFilter, listOf("", "15", "19"), { when (it) { "" -> "All"; "15" -> "Non-adult"; else -> "Adult" } }, { v -> set { it.copy(tagAgeFilter = v) } })
-        OutlinedTextField(
-            value = npia.tagCustomTags, onValueChange = { v -> set { it.copy(tagCustomTags = v) } }, label = { Text("Custom tags") },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        SwitchRow("Scrape all tags", npia.tagScrapeAll, { v -> set { it.copy(tagScrapeAll = v) } })
-        StepperRow("Max queries", npia.scrapeMaxQueries, 1..1000, { v -> set { it.copy(scrapeMaxQueries = v) } }, step = 5)
+        NavRow("Tag search", "Find novel IDs by tag, scrape all novels or read the Top 100, with a live log") { model.push(Route.TagSearch) }
     }
 }
 
