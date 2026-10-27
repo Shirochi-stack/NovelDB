@@ -22,7 +22,7 @@ LEGACY_KPAGE = "".join(map(chr, (0x6B, 0x61, 0x6B, 0x61, 0x6F)))
 def test_defaults_are_the_desktop_ones():
     s = AppSettings()
     assert s.shared.threads == 4
-    assert s.shared.interval_min == 0.5
+    assert (s.shared.interval_min, s.shared.interval_max) == (2.0, 5.0)
     assert s.shared.max_retries == 5
     assert s.shared.formats == ("epub",)
     assert s.images.quality == 50

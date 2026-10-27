@@ -322,8 +322,8 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         self.var_zip_compress_images = tk.BooleanVar(value=False)  # ZIP_STORED by default
         self.var_threads = tk.IntVar(value=1)
         self.var_image_compression_workers = tk.IntVar(value=1)
-        self.var_interval = tk.DoubleVar(value=0.5)
-        self.var_interval_max = tk.DoubleVar(value=0.5)
+        self.var_interval = tk.DoubleVar(value=2.0)
+        self.var_interval_max = tk.DoubleVar(value=5.0)
         self.var_shutdown_after_success = tk.BooleanVar(value=False)
         
         # Range vars
@@ -1942,9 +1942,9 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
                 # Thread and interval settings
                 self.var_threads.set(cfg.get("thread_num", 1))
                 self.var_image_compression_workers.set(cfg.get("image_compression_workers", 1))
-                self.var_interval.set(cfg.get("interval_num", 0.5))
+                self.var_interval.set(cfg.get("interval_num", 2.0))
                 self.var_interval_max.set(
-                    cfg.get("interval_max_num", cfg.get("interval_num", 0.5))
+                    cfg.get("interval_max_num", cfg.get("interval_num", 5.0))
                 )
                 self.var_shutdown_after_success.set(
                     cfg.get("shutdown_after_success", False)

@@ -36,8 +36,8 @@ class SharedSettings:
     """Settings both desktop downloaders had, under one name."""
 
     threads: int = 4
-    interval_min: float = 0.5
-    interval_max: float = 0.5
+    interval_min: float = 2.0
+    interval_max: float = 5.0
     max_retries: int = 5
     formats: tuple[str, ...] = ("epub",)
     range_from: Optional[int] = None
