@@ -58,6 +58,11 @@ data class UploadContext(
     val temporaryDirectory: File = File(System.getProperty("java.io.tmpdir")),
     /** Epoch millis. */
     val now: () -> Long = System::currentTimeMillis,
+    /**
+     * Book id for file names hosts would otherwise mangle: a name that is not plain ASCII is
+     * uploaded as `<fileId>.<extension>`. Set from the job; the display name is kept in results.
+     */
+    val fileId: String? = null,
 ) {
     companion object {
         /** Idle timeouts only, so multi-GB uploads on slow links are not cut off. */
@@ -131,6 +136,7 @@ object UploaderCatalog {
      * Tries each configured host in order and returns the first success. Folders (separate TXT
      * output) are zipped first. Successful uploads are added to `history`. `onHost` gets the
      * display name of each host just before it is tried, so the UI can show the fallback order.
+     * `bookId` names uploads whose file name is not plain ASCII (see `UploadContext.fileId`).
      */
     suspend fun upload(
         file: File,
@@ -139,8 +145,9 @@ object UploaderCatalog {
         history: UploadHistoryStore? = UploadHistoryStore.shared,
         progress: ((UploadProgress) -> Unit)? = null,
         onHost: ((String) -> Unit)? = null,
+        bookId: String? = null,
     ): UploadResult {
-        val ctx = context.copy(settings = settings)
+        val ctx = context.copy(settings = settings, fileId = bookId ?: context.fileId)
         var payload = file
         var staged: File? = null
         if (file.isDirectory) {

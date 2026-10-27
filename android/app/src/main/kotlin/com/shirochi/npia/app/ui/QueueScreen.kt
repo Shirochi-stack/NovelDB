@@ -250,6 +250,6 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
                 }
             }
         }
-        upload?.let { UploadStatus(model, it, onRetry = { manager.upload(file, jobId) }) }
+        upload?.let { UploadStatus(model, it, onRetry = { manager.upload(file, jobId, it.bookId) }) }
     }
 }

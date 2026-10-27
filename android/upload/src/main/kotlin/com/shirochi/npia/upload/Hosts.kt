@@ -33,7 +33,7 @@ class TempShUploader : Uploader {
     override val requiresAccount = false
 
     override suspend fun upload(file: File, context: UploadContext, progress: ((UploadProgress) -> Unit)?): UploadResult {
-        val reply = context.postMultipart(ENDPOINT, MultipartForm("file", file), progress = progress)
+        val reply = context.postMultipart(ENDPOINT, MultipartForm("file", file, name = context.nameFor(file)), progress = progress)
         return result(file, parse(reply), context)
     }
 
@@ -62,7 +62,7 @@ class GofileUploader : Uploader {
             val token = context.secrets.get(UploadSecrets.GOFILE_TOKEN)
             if (!token.isNullOrEmpty()) put("Authorization", "Bearer $token")
         }
-        val reply = context.postMultipart(ENDPOINT, MultipartForm("file", file), headers, progress)
+        val reply = context.postMultipart(ENDPOINT, MultipartForm("file", file, name = context.nameFor(file)), headers, progress)
         return result(file, parse(reply), context)
     }
 
@@ -100,7 +100,7 @@ class CatboxUploader : Uploader {
             val hash = context.secrets.get(UploadSecrets.CATBOX_USER_HASH)
             if (!hash.isNullOrEmpty()) add("userhash" to hash)
         }
-        val reply = context.postMultipart(ENDPOINT, MultipartForm("fileToUpload", file, fields = fields), progress = progress)
+        val reply = context.postMultipart(ENDPOINT, MultipartForm("fileToUpload", file, name = context.nameFor(file), fields = fields), progress = progress)
         return result(file, parse(reply), context)
     }
 
@@ -130,7 +130,7 @@ class PixeldrainUploader : Uploader {
     override suspend fun upload(file: File, context: UploadContext, progress: ((UploadProgress) -> Unit)?): UploadResult {
         val key = context.secrets.get(UploadSecrets.PIXELDRAIN_API_KEY)
         if (key.isNullOrEmpty()) throw UploadException.NotSignedIn(displayName)
-        val reply = context.client.send(request(file, key, progress))
+        val reply = context.client.send(request(file, key, progress, context.nameFor(file)))
         progress?.invoke(UploadProgress(file.length(), file.length()))
         return result(file, parse(reply), context)
     }
@@ -141,9 +141,10 @@ class PixeldrainUploader : Uploader {
         /** `PUT /api/file/{name}`, with `/?#;:` escaped in the name. */
         internal fun url(name: String): HttpUrl = "$BASE${percentEncode(name, extra = "!\$&'()*+,=@")}".toHttpUrl()
 
-        internal fun request(file: File, apiKey: String, progress: ((UploadProgress) -> Unit)? = null): Request =
+        /** The URL carries the ASCII upload name; the host would mangle anything else. */
+        internal fun request(file: File, apiKey: String, progress: ((UploadProgress) -> Unit)? = null, name: UploadName = UploadName.of(file)): Request =
             Request.Builder()
-                .url(url(uploadName(file)))
+                .url(url(name.ascii))
                 .header("Authorization", Credentials.basic("", apiKey))
                 .put(
                     StreamingBody(
@@ -178,7 +179,7 @@ class TmpfilesUploader : Uploader {
     override val requiresAccount = false
 
     override suspend fun upload(file: File, context: UploadContext, progress: ((UploadProgress) -> Unit)?): UploadResult {
-        val form = MultipartForm("file", file, fields = listOf("expire" to (2 * DAY).toString()))
+        val form = MultipartForm("file", file, name = context.nameFor(file), fields = listOf("expire" to (2 * DAY).toString()))
         val reply = context.postMultipart(ENDPOINT, form, progress = progress)
         return result(file, parse(reply), context)
     }
@@ -210,7 +211,7 @@ class KrakenFilesUploader : Uploader {
     override suspend fun upload(file: File, context: UploadContext, progress: ((UploadProgress) -> Unit)?): UploadResult {
         val lookup = Request.Builder().url(SERVER_LOOKUP).header("Accept", "application/json").build()
         val endpoint = uploadEndpoint(context.client.send(lookup))
-        val reply = context.postMultipart(endpoint, MultipartForm("files[]", file), progress = progress)
+        val reply = context.postMultipart(endpoint, MultipartForm("files[]", file, name = context.nameFor(file)), progress = progress)
         return result(file, parse(reply), context)
     }
 
@@ -256,7 +257,7 @@ class SendNowUploader : Uploader {
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
             .build()
         val endpoint = uploadEndpoint(context.client.send(page))
-        val reply = context.postMultipart(endpoint, MultipartForm("file_0", file), progress = progress)
+        val reply = context.postMultipart(endpoint, MultipartForm("file_0", file, name = context.nameFor(file)), progress = progress)
         return result(file, parse(reply), context)
     }
 

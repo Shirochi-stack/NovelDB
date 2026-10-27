@@ -9,6 +9,8 @@ data class UploadState(
     val path: String,
     val fileName: String,
     val jobId: String? = null,
+    /** Names the upload when the file name is not plain ASCII; kept so Retry uploads under the same name. */
+    val bookId: String? = null,
     val phase: Phase = Phase.RUNNING,
     /** Display name of the host being tried, which changes as the configured hosts are tried in order. */
     val host: String? = null,
