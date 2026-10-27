@@ -65,7 +65,7 @@ fun UploadsScreen(model: AppViewModel, topBar: TopBarState) {
             items(pending, key = { "pending|${it.path}" }) { state ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(state.fileName, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    UploadStatus(model, state, onRetry = { manager.upload(File(state.path), state.jobId, state.bookId) })
+                    UploadStatus(model, state, onRetry = { model.requestUpload { manager.upload(File(state.path), state.jobId, state.bookId) } })
                 }
                 HorizontalDivider()
             }

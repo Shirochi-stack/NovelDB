@@ -50,7 +50,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val manager = (context.applicationContext as NpiaApplication).downloads
         val runId = intent.getStringExtra(EXTRA_RUN)
         val text = when (intent.action) {
-            ACTION_UPLOAD_RUN -> if (manager.uploadRun(runId)) null else "Those downloads are no longer available to upload."
+            ACTION_UPLOAD_RUN -> when {
+                !manager.preferences.shareAgreementAccepted -> "Open NovelDB and agree to the sharing terms first."
+                manager.uploadRun(runId) -> null
+                else -> "Those downloads are no longer available to upload."
+            }
             ACTION_COPY_LINKS -> if (manager.copyRunLinks(runId)) "Links copied." else "No links to copy."
             else -> null
         }
@@ -61,6 +65,19 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val ACTION_UPLOAD_RUN = "com.shirochi.npiamobile.UPLOAD_RUN"
         const val ACTION_COPY_LINKS = "com.shirochi.npiamobile.COPY_LINKS"
         private const val EXTRA_RUN = "run"
+
+        /**
+         * The summary notification's Upload button. Until the one-time sharing agreement is
+         * accepted it opens the app (a receiver may not start an activity from a notification) so
+         * the dialog can be shown; afterwards it uploads in the background.
+         */
+        fun uploadAction(context: Context, runId: String, agreed: Boolean): PendingIntent {
+            if (agreed) return pending(context, runId, ACTION_UPLOAD_RUN)
+            val intent = Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(MainActivity.EXTRA_UPLOAD_RUN, runId)
+            return PendingIntent.getActivity(context, requestCode(runId, 4), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        }
 
         fun pending(context: Context, runId: String, action: String): PendingIntent {
             val intent = Intent(context, NotificationActionReceiver::class.java).setAction(action).putExtra(EXTRA_RUN, runId)

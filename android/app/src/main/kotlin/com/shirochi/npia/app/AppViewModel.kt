@@ -49,6 +49,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var tab by mutableStateOf(Tab.ADD)
     private val stacks: Map<Tab, SnapshotStateList<Route>> = Tab.entries.associateWith { mutableStateListOf() }
 
+    /** An upload held back until the one-time sharing agreement is accepted; the dialog shows while it is set. */
+    var pendingUpload by mutableStateOf<(() -> Unit)?>(null)
+
+    /** Runs `upload` now when the sharing agreement was accepted before, otherwise after the user accepts it. */
+    fun requestUpload(upload: () -> Unit) {
+        if (manager.preferences.shareAgreementAccepted) upload() else pendingUpload = upload
+    }
+
     /** Text handed over by the share sheet, consumed by the Add screen. */
     var sharedText by mutableStateOf<String?>(null)
 

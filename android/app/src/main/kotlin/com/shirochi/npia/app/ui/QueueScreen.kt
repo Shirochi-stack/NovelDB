@@ -246,10 +246,10 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
             if (file.isFile) {
                 AssistChip(onClick = { saveCopy.launch(file.name) }, label = { Text("Save copy") })
                 if (upload?.phase != UploadState.Phase.RUNNING) {
-                    AssistChip(onClick = { manager.upload(file, jobId) }, label = { Text("Upload") })
+                    AssistChip(onClick = { model.requestUpload { manager.upload(file, jobId) } }, label = { Text("Upload") })
                 }
             }
         }
-        upload?.let { UploadStatus(model, it, onRetry = { manager.upload(file, jobId, it.bookId) }) }
+        upload?.let { UploadStatus(model, it, onRetry = { model.requestUpload { manager.upload(file, jobId, it.bookId) } }) }
     }
 }

@@ -293,7 +293,7 @@ class DownloadManager(private val app: Application) {
         val ended = synchronized(runLock) { runJobs.values.toList().also { runJobs.clear() } }
         val summary = RunSummary.of(ended) ?: return
         lastRunStore.save(summary)
-        Notifications.runSummary(app, summary)
+        Notifications.runSummary(app, summary, preferences.shareAgreementAccepted)
     }
 
     fun lastRun(): RunSummary? = lastRunStore.load()
