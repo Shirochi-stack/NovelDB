@@ -273,6 +273,8 @@ enum NpiaParser {
         var stripLeadingSpaces = false
         var removeNewlines = false
         var saveImageURLsOnly = false
+        /// Desktop "Font Mapping": applied to text after entity decoding, like `font_mapper.decode`.
+        var fontMapping: [Character: String]? = nil
         /// Prefix for image file names, e.g. `0012` or `n0001`.
         var imagePrefix = "0001"
     }
@@ -331,6 +333,7 @@ enum NpiaParser {
             if options.stripLeadingSpaces {
                 text = NpiaRx.replace(#"^(?:[ \t\f\u000b ]|&nbsp;)+"#, in: text, with: "")
             }
+            if let map = options.fontMapping { text = FontMapping.decode(text, with: map) }
             guard !text.isEmpty else { continue }
             var safe = NpiaEntities.escape(text)
             if !options.removeNewlines { safe = safe.replacingOccurrences(of: "\n", with: "<br/>") }

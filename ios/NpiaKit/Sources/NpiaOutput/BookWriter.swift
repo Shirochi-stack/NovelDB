@@ -38,6 +38,8 @@ public protocol BookWriter: Sendable {
 
 public enum OutputError: Error, Equatable {
     case notImplemented(OutputFormat)
+    /// The format has nothing to hold for this book (e.g. CBZ without images); no file is written.
+    case nothingToWrite(String)
 }
 
 public enum Writers {
@@ -47,6 +49,7 @@ public enum Writers {
         case .txt: return TXTWriter()
         case .pdf: return PDFWriter()
         case .html: return HTMLWriter()
+        case .cbz: return CBZWriter()
         }
     }
 

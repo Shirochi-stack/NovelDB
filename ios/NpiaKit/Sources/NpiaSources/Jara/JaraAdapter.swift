@@ -198,8 +198,10 @@ public struct JaraAdapter: SourceAdapter {
     /// Chapters are fetched one at a time: the site counts quick chapter requests.
     public func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
         var results: [ChapterResult] = []
+        let shared = context.shared(for: Self.id)
         for ref in refs {
             try Task.checkCancellation()
+            if !results.isEmpty { try await shared.sleepChapterDelay() }
             do {
                 results.append(try await parseChapter(ref, book: book, context: context))
             } catch is CancellationError {

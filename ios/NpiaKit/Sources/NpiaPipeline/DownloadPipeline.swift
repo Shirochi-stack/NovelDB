@@ -98,8 +98,20 @@ public struct DownloadPipeline: Sendable {
         var files: [URL] = []
         for format in shared.formats {
             onPhase(.writing(format))
-            let writer = Writers.writer(for: format)
-            var file = try await writer.write(bundle, baseName: baseName, to: outputDirectory)
+            // Desktop "Save as HTML (instead of TXT)".
+            let writer: any BookWriter = format == .txt && settings.text.saveHTML ? HTMLWriter() : Writers.writer(for: format)
+            if format == .cbz {
+                for ref in CBZWriter.chaptersWithoutImages(bundle) {
+                    logger.log(.info, "Skipping CBZ chapter " + String(ref.index) + ": " + ref.title + " (no images)")
+                }
+            }
+            var file: URL
+            do {
+                file = try await writer.write(bundle, baseName: baseName, to: outputDirectory)
+            } catch OutputError.nothingToWrite(let reason) {
+                logger.log(.warning, reason)
+                continue
+            }
             if let targetMB = settings.images.recompressTargetMB, targetMB > 0, format == .epub || format == .pdf {
                 file = try await shrink(file, bundle: bundle, writer: writer, baseName: baseName, targetBytes: Int(targetMB * 1_048_576))
             }

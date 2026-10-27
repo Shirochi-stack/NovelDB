@@ -78,7 +78,7 @@ public struct XiyuwxAdapter: SourceAdapter {
         if lines == nil {
             lines = await Self.browserChapter(url, context: context, shared: shared)
         }
-        await Self.pause(shared)
+        // The chapter loop rests the per-chapter delay between chapters.
         guard let lines else {
             if ref.isPaid { return .refused(ref, reason: "This chapter is locked for the signed-in account.") }
             context.logger.log(.warning, "[\(site)] Could not read \(ref.title)")
@@ -171,10 +171,6 @@ public struct XiyuwxAdapter: SourceAdapter {
 
     /// `_sleep_interval`: a random pause between `intervalMin` and `intervalMax` seconds.
     static func pause(_ shared: SharedSettings) async {
-        let low = max(0, shared.intervalMin)
-        let high = max(low, shared.intervalMax)
-        let seconds = high > low ? Double.random(in: low...high) : low
-        guard seconds > 0 else { return }
-        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        try? await shared.sleepChapterDelay()
     }
 }

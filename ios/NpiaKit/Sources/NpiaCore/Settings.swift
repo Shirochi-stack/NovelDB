@@ -1,7 +1,7 @@
 import Foundation
 
 public enum OutputFormat: String, Codable, CaseIterable, Sendable {
-    case epub, txt, pdf, html
+    case epub, txt, pdf, html, cbz
 }
 
 public enum ImageFormat: String, Codable, CaseIterable, Sendable {
@@ -36,6 +36,28 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     public var appendRange = false
 
     public init() {}
+
+    /// Desktop `_normalize_interval_range`: each bound clamped to 0...300 s, swapped when
+    /// the maximum is below the minimum.
+    public var normalizedInterval: ClosedRange<Double> {
+        func clamp(_ value: Double) -> Double { value.isFinite ? Swift.max(0, Swift.min(300, value)) : 0 }
+        let low = clamp(intervalMin), high = clamp(intervalMax)
+        return Swift.min(low, high)...Swift.max(low, high)
+    }
+
+    /// One random chapter delay in seconds (desktop `_random_interval_delay`); fixed when
+    /// min equals max.
+    public func chapterDelay() -> Double {
+        let range = normalizedInterval
+        guard range.upperBound > 0 else { return 0 }
+        return range.lowerBound == range.upperBound ? range.lowerBound : Double.random(in: range)
+    }
+
+    /// Sleeps one chapter delay (desktop `_sleep_interval`), honouring cancellation.
+    public func sleepChapterDelay() async throws {
+        let delay = chapterDelay()
+        if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+    }
 }
 
 /// Optional replacements for `SharedSettings` fields on one source; nil keeps the shared value.

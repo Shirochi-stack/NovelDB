@@ -41,8 +41,10 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
         self.userAgent = userAgent
     }
 
+    /// Retries follow `maxRetries`. The chapter delay is not applied here: like the desktop
+    /// scraper, each chapter worker sleeps `SharedSettings.chapterDelay()` after a chapter.
     public convenience init(settings: SharedSettings) {
-        self.init(pacer: RequestPacer(min: settings.intervalMin, max: settings.intervalMax), maxRetries: settings.maxRetries)
+        self.init(maxRetries: settings.maxRetries)
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {

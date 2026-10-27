@@ -41,26 +41,29 @@ public protocol SourceAdapter: Sendable {
 
 public extension SourceAdapter {
     func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
-        let limit = max(1, context.shared(for: Self.id).threads)
+        let shared = context.shared(for: Self.id)
+        let limit = max(1, shared.threads)
         var results = [ChapterResult?](repeating: nil, count: refs.count)
         var pending: [(offset: Int, element: ChapterRef)] = refs.enumerated().reversed()
         try await withThrowingTaskGroup(of: (Int, ChapterResult).self) { group in
             for _ in 0..<limit {
                 guard let item = pending.popLast() else { break }
-                group.addTask { try await self.chapterTask(item.offset, item.element, book: book, context: context) }
+                group.addTask { try await self.chapterTask(item.offset, item.element, book: book, context: context, delay: nil) }
             }
             while let (position, result) = try await group.next() {
                 results[position] = result
                 context.onChapter(result)
                 if let item = pending.popLast() {
-                    group.addTask { try await self.chapterTask(item.offset, item.element, book: book, context: context) }
+                    // This worker slot rests one chapter delay before its next chapter.
+                    group.addTask { try await self.chapterTask(item.offset, item.element, book: book, context: context, delay: shared) }
                 }
             }
         }
         return results.compactMap { $0 }
     }
 
-    private func chapterTask(_ position: Int, _ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> (Int, ChapterResult) {
+    private func chapterTask(_ position: Int, _ ref: ChapterRef, book: BookInfo, context: SourceContext, delay: SharedSettings?) async throws -> (Int, ChapterResult) {
+        if let delay { try await delay.sleepChapterDelay() }
         do {
             return (position, try await parseChapter(ref, book: book, context: context))
         } catch is CancellationError {
