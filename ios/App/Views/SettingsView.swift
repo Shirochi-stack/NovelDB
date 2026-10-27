@@ -20,10 +20,12 @@ struct SettingsView: View {
                 NavigationLink { UploadSettingsForm() } label: { Label("Upload", systemImage: "icloud.and.arrow.up") }
             }
             Section("App") {
+                NavigationLink { AppearanceSettingsForm() } label: { Label("Appearance", systemImage: "paintpalette") }
                 NavigationLink { BackgroundSettingsForm() } label: { Label("Screen and background", systemImage: "moon.zzz") }
                 NavigationLink { ConfigTransferView() } label: { Label("Import / export", systemImage: "arrow.up.arrow.down") }
             }
         }
+        .themedBackground()
         .navigationTitle("Settings")
     }
 }
@@ -65,6 +67,7 @@ struct SharedSettingsForm: View {
                 Toggle("Cache Images", isOn: $model.settings.shared.cacheImages)
             }
         }
+        .themedBackground()
         .navigationTitle("General")
     }
 }
@@ -88,6 +91,7 @@ struct SourceOverridesList: View {
                 }
             }
         }
+        .themedBackground()
         .navigationTitle("Per-source overrides")
     }
 
@@ -158,6 +162,7 @@ struct SourceOverrideForm: View {
                 }
             }
         }
+        .themedBackground()
         .navigationTitle(source.rawValue)
     }
 
@@ -189,6 +194,7 @@ struct SourceOptionsForm: View {
                 Toggle("Horizontal Japanese text (kobo)", isOn: $model.settings.sources.koboHorizontalLayout)
             }
         }
+        .themedBackground()
         .navigationTitle("Source options")
     }
 }
@@ -277,6 +283,7 @@ struct NpiaSettingsForm: View {
                 Stepper("Max queries: \(model.settings.npia.scrapeMaxQueries)", value: $model.settings.npia.scrapeMaxQueries, in: 1...1000, step: 5)
             }
         }
+        .themedBackground()
         .navigationTitle("npia")
         .onAppear {
             reload()
@@ -350,6 +357,7 @@ struct ImageSettingsForm: View {
                 Text("The size target re-encodes JPEG and WebP images at lower quality, up to four passes. Long image layout shows webtoon strips edge to edge without chapter titles.")
             }
         }
+        .themedBackground()
         .navigationTitle("Images")
     }
 }
@@ -375,7 +383,53 @@ struct TextSettingsForm: View {
                 Toggle("Page Numbers", isOn: $model.settings.text.pdfPageNumbers)
             }
         }
+        .themedBackground()
         .navigationTitle("Text and PDF")
+    }
+}
+
+// MARK: - Appearance
+
+struct AppearanceSettingsForm: View {
+    @AppStorage(ThemeMode.storageKey) private var theme = ThemeMode.system.rawValue
+    @AppStorage(Accent.storageKey) private var accent = Accent.halgakosRose.rawValue
+
+    var body: some View {
+        Form {
+            Section {
+                FlowLayout(spacing: 8) {
+                    ForEach(ThemeMode.allCases) { mode in
+                        ChipToggle(title: mode.label, isOn: Binding(get: { theme == mode.rawValue }, set: { if $0 { theme = mode.rawValue } }))
+                    }
+                }
+            } header: {
+                Text("Theme")
+            } footer: {
+                Text("AMOLED is the dark theme with pure-black backgrounds.")
+            }
+            Section {
+                ForEach(Accent.allCases) { option in
+                    Button {
+                        accent = option.rawValue
+                    } label: {
+                        HStack(spacing: 10) {
+                            Circle().fill(option.seed).frame(width: 16, height: 16)
+                            Text(option.label).foregroundStyle(Color.primary)
+                            Spacer()
+                            if accent == option.rawValue {
+                                Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Accent")
+            } footer: {
+                Text("Halgakos Rose is the Glossarion theme.")
+            }
+        }
+        .themedBackground()
+        .navigationTitle("Appearance")
     }
 }
 
@@ -404,6 +458,7 @@ struct BackgroundSettingsForm: View {
                 }
             }
         }
+        .themedBackground()
         .navigationTitle("Screen and background")
         .onChange(of: keepAwake) { model.background.settingsChanged() }
     }

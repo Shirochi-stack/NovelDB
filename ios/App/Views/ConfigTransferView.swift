@@ -38,6 +38,7 @@ struct ConfigTransferView: View {
                 Button("Reset all settings", role: .destructive) { confirmReset = true }
             }
         }
+        .themedBackground()
         .navigationTitle("Import / export")
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .plainText, .data]) { result in
             handleImport(result)

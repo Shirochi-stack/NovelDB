@@ -8,6 +8,7 @@ struct NpiaMobileApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
+                .appTheme()
         }
     }
 }

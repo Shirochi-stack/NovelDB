@@ -19,6 +19,7 @@ struct UploadHistoryView: View {
             }
             .onDelete { model.removeUploads(at: $0) }
         }
+        .themedBackground()
         .navigationTitle("Uploads")
         .toolbar {
             if !model.uploadHistory.isEmpty {

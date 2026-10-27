@@ -38,6 +38,7 @@ struct QueueView: View {
                 }
             }
         }
+        .themedBackground()
         .navigationTitle("Queue")
         .navigationDestination(for: UUID.self) { id in
             JobDetailView(jobID: id)
@@ -153,6 +154,7 @@ struct JobDetailView: View {
                 }
             }
         }
+        .themedBackground()
         .navigationTitle(job.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("Remove this download?", isPresented: $confirmDelete, titleVisibility: .visible) {
