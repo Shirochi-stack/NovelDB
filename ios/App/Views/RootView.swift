@@ -43,6 +43,7 @@ struct RootView: View {
                                 .badge(panel == .queue ? activeCount : 0)
                         }
                     }
+                    .themedBackground()
                     .navigationTitle("NovelDB")
                 } detail: {
                     NavigationStack {

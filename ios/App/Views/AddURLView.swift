@@ -99,6 +99,7 @@ struct AddURLView: View {
                 .disabled(supported.isEmpty)
             }
         }
+        .themedBackground()
         .environment(\.defaultMinListRowHeight, 34)
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Add")

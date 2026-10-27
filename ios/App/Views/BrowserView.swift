@@ -97,6 +97,7 @@ private struct BrowserStartPage: View {
                 }
             }
         }
+        .themedBackground()
         .task { domains = await SiteCookies.domains() }
     }
 }
@@ -133,6 +134,7 @@ struct SitesView: View {
                 Button("Sign out of all sites", role: .destructive) { confirmAll = true }
             }
         }
+        .themedBackground()
         .navigationTitle("Signed-in sites")
         .task { domains = await SiteCookies.domains() }
         .refreshable { domains = await SiteCookies.domains() }

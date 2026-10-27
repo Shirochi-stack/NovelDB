@@ -54,6 +54,7 @@ struct UploadSettingsForm: View {
                 }
             }
         }
+        .themedBackground()
         .navigationTitle("Upload")
         .toolbar { EditButton() }
     }
