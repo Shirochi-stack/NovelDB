@@ -16,6 +16,8 @@ struct JobItem: Identifiable, Codable {
     var url: URL
     var source: SourceID?
     var title: String?
+    /// The adapter's book id (the novel number for npia); names uploaded files whose title is not ASCII.
+    var bookID: String?
     var settings: AppSettings
     var state: JobState = .queued
     var status = "Queued"

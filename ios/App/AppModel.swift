@@ -197,6 +197,7 @@ final class AppModel {
         let base = outputDirectory.standardizedFileURL.path
         update(id) { job in
             job.title = outcome.book.title
+            job.bookID = outcome.book.id
             job.fileNames = outcome.files.map { file in
                 let path = file.standardizedFileURL.path
                 return path.hasPrefix(base + "/") ? String(path.dropFirst(base.count + 1)) : file.lastPathComponent
@@ -231,10 +232,14 @@ final class AppModel {
         guard !uploadsInFlight.contains(file.path) else { return }
         uploadsInFlight.insert(file.path)
         let uploadSettings = settings.upload
+        var nameID: String?
+        if let jobID, let item = job(jobID) {
+            nameID = UploadNaming.nameID(bookID: item.bookID, url: item.url)
+        }
         Task {
             defer { uploadsInFlight.remove(file.path) }
             do {
-                let result = try await UploaderCatalog.upload(file, settings: uploadSettings)
+                let result = try await UploaderCatalog.upload(file, settings: uploadSettings, nameID: nameID)
                 recordUpload(result)
                 if let jobID { update(jobID) { $0.uploads.append(result) } }
                 persistJobs()

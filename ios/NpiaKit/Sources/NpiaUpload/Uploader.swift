@@ -78,6 +78,8 @@ public struct UploadContext: Sendable {
     public var googleOAuth: GoogleOAuthConfig?
     /// Where multipart bodies and folder zips are staged.
     public var temporaryDirectory: URL
+    /// The book id files are named with when their title is not plain ASCII ("<id>.epub").
+    public var nameID: String?
     public var now: @Sendable () -> Date
 
     public init(
@@ -86,6 +88,7 @@ public struct UploadContext: Sendable {
         settings: UploadSettings = UploadSettings(),
         googleOAuth: GoogleOAuthConfig? = GoogleOAuthConfig.fromBundle(),
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        nameID: String? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.session = session
@@ -93,6 +96,7 @@ public struct UploadContext: Sendable {
         self.settings = settings
         self.googleOAuth = googleOAuth
         self.temporaryDirectory = temporaryDirectory
+        self.nameID = nameID
         self.now = now
     }
 
@@ -172,15 +176,20 @@ public enum UploaderCatalog {
 
     /// Tries each configured host in order and returns the first success. Folders (separate
     /// TXT output) are zipped first. Successful uploads are added to `history`.
+    ///
+    /// `nameID` is the book id used to name files whose title is not plain ASCII; the result
+    /// keeps the original name.
     public static func upload(
         _ file: URL,
         settings: UploadSettings,
         context: UploadContext? = nil,
         history: UploadHistoryStore? = .shared,
+        nameID: String? = nil,
         progress: (@Sendable (UploadProgress) -> Void)? = nil
     ) async throws -> UploadResult {
         var context = context ?? UploadContext(settings: settings)
         context.settings = settings
+        if let nameID { context.nameID = nameID }
 
         var payload = file
         var staged: URL?

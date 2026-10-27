@@ -33,7 +33,7 @@ public struct TempShUploader: Uploader {
     public init() {}
 
     public func upload(_ file: URL, context: UploadContext, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> UploadResult {
-        let reply = try await context.postMultipart(Self.endpoint, form: MultipartForm(fileField: "file", file: file), progress: progress)
+        let reply = try await context.postMultipart(Self.endpoint, form: context.form(fileField: "file", file: file), progress: progress)
         return result(for: file, link: try Self.parse(reply), context: context)
     }
 
@@ -61,7 +61,7 @@ public struct GofileUploader: Uploader {
         if let token = context.secrets.string(for: .gofileToken), !token.isEmpty {
             headers["Authorization"] = "Bearer \(token)"
         }
-        let reply = try await context.postMultipart(Self.endpoint, form: MultipartForm(fileField: "file", file: file), headers: headers, progress: progress)
+        let reply = try await context.postMultipart(Self.endpoint, form: context.form(fileField: "file", file: file), headers: headers, progress: progress)
         return result(for: file, link: try Self.parse(reply), context: context)
     }
 
@@ -97,7 +97,7 @@ public struct CatboxUploader: Uploader {
         if let hash = context.secrets.string(for: .catboxUserHash), !hash.isEmpty {
             fields.append((name: "userhash", value: hash))
         }
-        let form = MultipartForm(fileField: "fileToUpload", file: file, fields: fields)
+        let form = context.form(fileField: "fileToUpload", file: file, fields: fields)
         let reply = try await context.postMultipart(Self.endpoint, form: form, progress: progress)
         return result(for: file, link: try Self.parse(reply), context: context)
     }
@@ -126,10 +126,11 @@ public struct PixeldrainUploader: Uploader {
         !(context.secrets.string(for: .pixeldrainAPIKey) ?? "").isEmpty
     }
 
-    static func request(for file: URL, apiKey: String, size: Int64) -> URLRequest {
+    /// `name` is the ASCII upload name; it defaults to the file's own name when that is plain ASCII.
+    static func request(for file: URL, apiKey: String, size: Int64, name: String? = nil) -> URLRequest {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#;:")
-        let name = uploadName(file).addingPercentEncoding(withAllowedCharacters: allowed) ?? "file"
+        let name = (name ?? asciiUploadName(file, id: nil)).addingPercentEncoding(withAllowedCharacters: allowed) ?? "file"
         var request = URLRequest(url: URL(string: base.absoluteString + name) ?? base.appendingPathComponent("file"))
         request.httpMethod = "PUT"
         request.timeoutInterval = 300
@@ -145,7 +146,8 @@ public struct PixeldrainUploader: Uploader {
             throw UploadError.notSignedIn(displayName)
         }
         let size = try fileSize(file)
-        let reply = try await context.send(Self.request(for: file, apiKey: key, size: size), fromFile: file, total: size, progress: progress)
+        let request = Self.request(for: file, apiKey: key, size: size, name: context.hostFileName(for: file))
+        let reply = try await context.send(request, fromFile: file, total: size, progress: progress)
         return result(for: file, link: try Self.parse(reply), context: context)
     }
 
@@ -174,7 +176,7 @@ public struct TmpfilesUploader: Uploader {
     public init() {}
 
     public func upload(_ file: URL, context: UploadContext, progress: (@Sendable (UploadProgress) -> Void)?) async throws -> UploadResult {
-        let form = MultipartForm(fileField: "file", file: file, fields: [(name: "expire", value: String(Int(2 * day)))])
+        let form = context.form(fileField: "file", file: file, fields: [(name: "expire", value: String(Int(2 * day)))])
         let reply = try await context.postMultipart(Self.endpoint, form: form, progress: progress)
         return result(for: file, link: try Self.parse(reply), context: context)
     }
@@ -208,7 +210,7 @@ public struct KrakenFilesUploader: Uploader {
         var lookup = URLRequest(url: Self.serverLookup)
         lookup.setValue("application/json", forHTTPHeaderField: "Accept")
         let endpoint = try Self.uploadEndpoint(from: try await context.send(lookup))
-        let reply = try await context.postMultipart(endpoint, form: MultipartForm(fileField: "files[]", file: file), progress: progress)
+        let reply = try await context.postMultipart(endpoint, form: context.form(fileField: "files[]", file: file), progress: progress)
         return result(for: file, link: try Self.parse(reply), context: context)
     }
 
@@ -258,7 +260,7 @@ public struct SendNowUploader: Uploader {
         var page = URLRequest(url: Self.home)
         page.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
         let endpoint = try Self.uploadEndpoint(fromHomePage: try await context.send(page))
-        let reply = try await context.postMultipart(endpoint, form: MultipartForm(fileField: "file_0", file: file), progress: progress)
+        let reply = try await context.postMultipart(endpoint, form: context.form(fileField: "file_0", file: file), progress: progress)
         return result(for: file, link: try Self.parse(reply), context: context)
     }
 
