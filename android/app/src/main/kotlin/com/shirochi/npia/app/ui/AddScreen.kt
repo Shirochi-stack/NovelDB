@@ -35,7 +35,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
-import com.shirochi.npia.app.model.CartItem
 import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.SourceOptionGroup
 import com.shirochi.npia.app.model.editRunSettings
@@ -93,7 +92,7 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             }) { Text("Paste") }
             if (text.isNotEmpty()) TextButton(onClick = { text = "" }) { Text("Clear") }
         }
-        LinkCartSection(cart, onRemove = model.cart::remove, onClear = model.cart::clear)
+        LinkCartRow(cart.size) { model.push(com.shirochi.npia.app.Route.LinkCart) }
         DetectionSummary(urls)
 
         CompactHeader("Format")
@@ -167,20 +166,24 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
     }
 }
 
-/** Books added with the link-cart button on the Catalog tab; Download queues them with the URLs above. */
+/** One row for the link cart; the books are listed on their own screen so Download stays in reach. */
 @Composable
-private fun LinkCartSection(items: List<CartItem>, onRemove: (String) -> Unit, onClear: () -> Unit) {
-    if (items.isEmpty()) return
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            "🔗 Link cart (${items.size})",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onClear) { Text("Clear cart") }
+private fun LinkCartRow(count: Int, onOpen: () -> Unit) {
+    if (count == 0) return
+    NavRow("🔗 Link cart ($count)", "Books from the Catalog tab; Download queues them too", onOpen)
+}
+
+/** The books in the link cart, each removable. */
+@Composable
+fun LinkCartScreen(model: AppViewModel, topBar: TopBarState) {
+    val items by model.cart.items.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        topBar.actions = {
+            TextButton(onClick = { model.cart.clear(); model.pop() }) { Text("Clear cart") }
+        }
     }
-    Column(Modifier.padding(start = 16.dp, end = 4.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 16.dp)) {
+        if (items.isEmpty()) Text("The cart is empty. Tap the 🔗 button on a card in the Catalog tab to add a book.", style = MaterialTheme.typography.bodyMedium)
         items.forEach { item ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -193,7 +196,7 @@ private fun LinkCartSection(items: List<CartItem>, onRemove: (String) -> Unit, o
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = { onRemove(item.url) }) { Icon(Icons.Filled.Close, contentDescription = "Remove from cart") }
+                IconButton(onClick = { model.cart.remove(item.url) }) { Icon(Icons.Filled.Close, contentDescription = "Remove from cart") }
             }
         }
     }
@@ -216,18 +219,15 @@ private fun DetectionSummary(urls: List<String>) {
         Footnote("Paste a book page or chapter list URL. The source is detected automatically. You can also share a link to NovelDB from your browser.")
         return
     }
+    val unsupported = urls.filter { SourceCatalog.adapterFor(it) == null }
+    if (unsupported.isEmpty()) return
     Column(Modifier.padding(horizontal = 16.dp)) {
-        urls.forEach { url ->
-            val adapter = SourceCatalog.adapterFor(url)
-            if (adapter != null) {
-                Text("\u2713 ${adapter.id.raw}: ${SourceInfo.tierLabel(adapter.id)}", style = MaterialTheme.typography.bodySmall)
-            } else {
-                Text(
-                    "\u2717 Not supported: ${com.shirochi.npia.core.bareHost(url).ifEmpty { url }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
+        unsupported.forEach { url ->
+            Text(
+                "\u2717 Not supported: ${com.shirochi.npia.core.bareHost(url).ifEmpty { url }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
