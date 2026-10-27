@@ -9,6 +9,7 @@ import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.ImageRef
 import com.shirochi.npia.core.InMemorySecretStore
+import com.shirochi.npia.core.SharedSettings
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
@@ -274,7 +275,8 @@ class ReaderAdapterTest {
     // Helpers
 
     private fun makeContext(pages: Map<String, String>) =
-        SourceContext(FixtureHttp(pages), UnavailableWebEngine, InMemorySecretStore(), AppSettings())
+        // No rate limiting pause: the default is a few real seconds per chapter.
+        SourceContext(FixtureHttp(pages), UnavailableWebEngine, InMemorySecretStore(), AppSettings(shared = SharedSettings(intervalMin = 0.0, intervalMax = 0.0)))
 }
 
 /** Serves fixture pages by absolute URL; anything else is a 404. */

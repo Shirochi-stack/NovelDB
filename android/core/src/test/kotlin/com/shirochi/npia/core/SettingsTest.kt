@@ -138,6 +138,18 @@ class SettingsTest {
     }
 
     @Test
+    fun rateLimitingDefaultsToTwoToFiveSeconds() {
+        val defaults = SharedSettings()
+        assertEquals(2.0 to 5.0, defaults.intervalRange)
+        // Missing desktop keys fall back to the same defaults; saved values are untouched.
+        val (settings, _) = DesktopConfig.import("""{"ext_threads": 3}""")
+        assertEquals(2.0, settings.shared.intervalMin, 0.0)
+        assertEquals(5.0, settings.shared.intervalMax, 0.0)
+        val (saved, _) = DesktopConfig.import("""{"ext_interval": 1.0, "ext_interval_max": 1.0}""")
+        assertEquals(1.0 to 1.0, saved.shared.intervalRange)
+    }
+
+    @Test
     fun cbzFormatRoundTripsThroughDesktopConfig() {
         val (settings, _) = DesktopConfig.import("""{"ext_formats": ["epub", "cbz"]}""")
         assertEquals(listOf(OutputFormat.EPUB, OutputFormat.CBZ), settings.shared.formats)

@@ -38,8 +38,8 @@ enum class NamingMode { @SerialName("title") TITLE, @SerialName("id") ID }
 @Serializable
 data class SharedSettings(
     val threads: Int = 4,
-    val intervalMin: Double = 1.0,
-    val intervalMax: Double = 1.0,
+    val intervalMin: Double = 2.0,
+    val intervalMax: Double = 5.0,
     val maxRetries: Int = 10,
     val formats: List<OutputFormat> = listOf(OutputFormat.EPUB),
     val rangeFrom: Int? = null,
