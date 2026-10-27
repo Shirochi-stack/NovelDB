@@ -7,22 +7,25 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.shirochi.npia.app.ui.Accent
 import com.shirochi.npia.app.ui.RootScreen
+import com.shirochi.npia.app.ui.ThemeMode
+import com.shirochi.npia.app.ui.appColorScheme
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -38,12 +41,15 @@ class MainActivity : ComponentActivity() {
         askForNotifications()
         keepScreenAwakeWhileDownloading()
         setContent {
-            val dark = isSystemInDarkTheme()
-            val context = LocalContext.current
-            val colors = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-                dark -> darkColorScheme()
-                else -> lightColorScheme()
+            model.manager.preferencesFlow.collectAsStateWithLifecycle().value
+            val preferences = model.manager.preferences
+            val colors = appColorScheme(LocalContext.current, Accent.of(preferences.accent), ThemeMode.of(preferences.theme), isSystemInDarkTheme())
+            val darkBars = colors.background.luminance() < 0.5f
+            DisposableEffect(darkBars) {
+                val style = if (darkBars) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose { }
             }
             MaterialTheme(colorScheme = colors) {
                 RootScreen(model)

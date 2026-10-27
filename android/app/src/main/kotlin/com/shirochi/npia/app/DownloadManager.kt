@@ -109,6 +109,16 @@ class DownloadManager(private val app: Application) {
         _preferencesFlow.update { it + 1 }
     }
 
+    fun setTheme(value: String) {
+        preferences.theme = value
+        _preferencesFlow.update { it + 1 }
+    }
+
+    fun setAccent(value: String) {
+        preferences.accent = value
+        _preferencesFlow.update { it + 1 }
+    }
+
     fun setMaxConcurrentJobs(value: Int) {
         preferences.maxConcurrentJobs = value
         _preferencesFlow.update { it + 1 }
