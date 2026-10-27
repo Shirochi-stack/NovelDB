@@ -56,20 +56,22 @@ struct AddURLView: View {
                             .font(.subheadline)
                     }
                 }
-                CompactStepper(title: "Threads", value: overridable(\.threads, \.threads), range: 1...16)
-                CompactStepper(title: "Image Workers", value: sharedOnly(\.imageWorkers), range: 1...16)
+                FlowLayout(spacing: 20) {
+                    CompactStepper(title: "Threads", value: overridable(\.threads, \.threads), range: 1...16)
+                    CompactStepper(title: "Image Workers", value: sharedOnly(\.imageWorkers), range: 1...16)
+                }
                 HStack(spacing: 8) {
                     Text("Rate Limiting").font(.subheadline)
-                    Spacer(minLength: 4)
                     CompactDecimal(title: "Min", value: overridable(\.intervalMin, \.intervalMin))
                     CompactDecimal(title: "Max", value: overridable(\.intervalMax, \.intervalMax))
                     Text("s").font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
                 }
                 HStack(spacing: 8) {
                     Text("Chapter Range").font(.subheadline)
-                    Spacer(minLength: 4)
                     CompactNumber(title: "From", value: rangeBinding(\.rangeFrom, \.rangeFrom))
                     CompactNumber(title: "To", value: rangeBinding(\.rangeTo, \.rangeTo))
+                    Spacer(minLength: 0)
                 }
                 FlowLayout(spacing: 8) {
                     ChipToggle(title: "Skip paid", isOn: sharedOnly(\.skipPaid))
