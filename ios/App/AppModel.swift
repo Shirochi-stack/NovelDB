@@ -19,6 +19,8 @@ final class AppModel {
     private(set) var uploadHistory: [UploadResult] = []
     /// Shown as an alert by the root view.
     var message: String?
+    /// An upload waiting for the one-time sharing agreement; the root view shows it as a sheet.
+    var pendingUpload: PendingUpload?
     /// URL handed to the Add screen (from the Browser tab's "Download this book").
     var pendingAddText: String?
     /// Page handed to the Browser tab (from the Catalog tab's "Open novel").
@@ -52,6 +54,13 @@ final class AppModel {
             jobs[index].state = .failed
             jobs[index].status = "Interrupted; tap Retry"
         }
+    }
+
+    /// UserDefaults key of the sharing agreement; the agreement sheet writes it with @AppStorage.
+    static let shareAgreementKey = "shareAgreementAccepted"
+
+    var hasAcceptedShareAgreement: Bool {
+        UserDefaults.standard.bool(forKey: Self.shareAgreementKey)
     }
 
     var outputDirectory: URL {
@@ -160,10 +169,18 @@ final class AppModel {
         let pipeline = DownloadPipeline(secrets: secrets, outputDirectory: outputDirectory, logger: logger)
         background.jobStarted(id, title: job.displayTitle) { [weak self] in self?.cancel(id) }
 
+        // Uploading publishes a link, so automatic uploads wait for the sharing agreement too.
+        var adjusted = job.settings
+        if adjusted.upload.autoUpload, !hasAcceptedShareAgreement {
+            adjusted.upload.autoUpload = false
+            update(id) { $0.appendLog("[info] Auto-upload skipped: tap Upload on a finished file once and accept the sharing notice first.") }
+        }
+        let runSettings = adjusted
+
         tasks[id] = Task { [weak self] in
             var success = false
             do {
-                let outcome = try await pipeline.run(url: job.url, settings: job.settings) { phase in
+                let outcome = try await pipeline.run(url: job.url, settings: runSettings) { phase in
                     Task { @MainActor in
                         guard let self else { return }
                         self.update(id) { $0.apply(phase) }
@@ -239,7 +256,16 @@ final class AppModel {
         uploadActivities.removeAll { $0.file.path == file.path }
     }
 
+    /// Starts an upload, or asks for the sharing agreement first when it has not been accepted.
     func upload(_ file: URL, jobID: UUID? = nil) {
+        guard hasAcceptedShareAgreement else {
+            pendingUpload = PendingUpload(file: file, jobID: jobID)
+            return
+        }
+        startUpload(file, jobID: jobID)
+    }
+
+    private func startUpload(_ file: URL, jobID: UUID?) {
         guard !uploadsInFlight.contains(file.path) else { return }
         uploadsInFlight.insert(file.path)
         uploadActivities.removeAll { $0.file.path == file.path }
