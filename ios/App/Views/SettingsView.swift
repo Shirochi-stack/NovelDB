@@ -415,8 +415,13 @@ struct CatalogSiteForm: View {
                     address = site
                 }
                 .disabled(site == CatalogSite.defaultAddress)
+                Button("Use NovelDB Next") {
+                    site = CatalogSite.nextAddress
+                    address = site
+                }
+                .disabled(site == CatalogSite.nextAddress)
             } footer: {
-                Text("On the NovelDB website, tapping a card opens View Details and the link-cart button on each card adds the book to the Add tab. Other catalog sites have no cart buttons, so tapping a link that leaves the site adds that link to the cart instead of opening it.")
+                Text("On NovelDB and NovelDB Next, cards open their details and the link-cart button on each card adds the book to the Add tab (bottom left on NovelDB, bottom right on NovelDB Next). Other catalog sites have no cart buttons, so tapping a link that leaves the site adds that link to the cart instead of opening it.")
             }
         }
         .themedBackground()
