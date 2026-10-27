@@ -10,14 +10,24 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,8 +36,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.webkit.WebViewCompat
@@ -56,12 +69,15 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         private set
     var canBack by mutableStateOf(false)
         private set
+    /** Why the catalog site failed to load; shown instead of a blank page. */
+    var error by mutableStateOf<String?>(null)
+        private set
     private val main = Handler(Looper.getMainLooper())
     private val bridge = context.assets.open("catalog-bridge.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     var site = model.manager.preferences.catalogUrl
         private set
-    private val isNovelDb get() = site == DEFAULT_CATALOG_URL
+    private val isNovelDb get() = site.trimEnd('/') == DEFAULT_CATALOG_URL.trimEnd('/')
 
     @SuppressLint("SetJavaScriptEnabled")
     val view: WebView = WebView(context).apply {
@@ -99,6 +115,16 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                 this@CatalogWeb.canBack = view.canGoBack()
                 if (!documentStart) view.evaluateJavascript(bridge, null)
             }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (!request.isForMainFrame) return
+                val description = error.description?.toString().orEmpty()
+                this@CatalogWeb.error = when {
+                    "CLEARTEXT" in description -> "Android only opens https:// sites here. Use the site's https:// address."
+                    description.isNotBlank() -> description
+                    else -> "The page could not load."
+                }
+            }
         }
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) {
@@ -112,6 +138,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     fun load(url: String) {
         if (url == site) return
         site = url
+        error = null
         view.loadUrl(url)
     }
 
@@ -131,7 +158,10 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setCart($urls)", null)
     }
 
-    fun reload() = view.reload()
+    fun reload() {
+        error = null
+        if (view.url.isNullOrEmpty() || view.url == "about:blank") view.loadUrl(site) else view.reload()
+    }
 
     fun destroy() = view.destroy()
 
@@ -169,11 +199,32 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     LaunchedEffect(site) { web.load(site) }
     LaunchedEffect(cart) { web.showCart(cart) }
     BackHandler(enabled = web.canBack) { web.view.goBack() }
-    Column(Modifier.fillMaxSize()) {
-        if (web.progress in 1..99) LinearProgressIndicator(progress = { web.progress / 100f }, modifier = Modifier.fillMaxWidth())
-        AndroidView(
-            factory = { web.view.also { (it.parent as? ViewGroup)?.removeView(it) } },
-            modifier = Modifier.fillMaxSize(),
-        )
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            if (web.progress in 1..99) LinearProgressIndicator(progress = { web.progress / 100f }, modifier = Modifier.fillMaxWidth())
+            AndroidView(
+                factory = { web.view.also { (it.parent as? ViewGroup)?.removeView(it) } },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        web.error?.let { message ->
+            Surface(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("The catalog site could not load", style = MaterialTheme.typography.titleMedium)
+                    Text(web.site, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = web::reload) { Text("Retry") }
+                        if (site != DEFAULT_CATALOG_URL) {
+                            OutlinedButton(onClick = { model.manager.setCatalogUrl(DEFAULT_CATALOG_URL) }) { Text("Use NovelDB") }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
