@@ -8,13 +8,19 @@ enum CatalogSite {
     static let storageKey = "catalogSite"
     /// The NovelDB catalog website, hosted on GitHub Pages.
     static let defaultAddress = "https://shirochi-stack.github.io/NovelDB/"
-    /// NovelDB Next, offered as a suggestion; it also gets link-cart buttons (bottom right of each card).
+    /// NovelDB Next, offered as a suggestion; its cards get link-cart buttons too.
     static let nextAddress = "https://noveldb.pages.dev/"
+    /// On sites other than NovelDB, links to other sites go to the link cart (and read
+    /// "🔗 Download"); off, they open in the Browser tab.
+    static let cartLinksKey = "catalogCartLinks"
 
-    /// The NovelDB sites: links out of them open in the Browser tab instead of going to the cart.
+    /// The NovelDB website: "Open novel" goes to the Browser tab and links are never sent to the cart.
     static func isNovelDB(_ url: URL) -> Bool {
-        let text = url.absoluteString.trimmingCharacters(in: ["/"])
-        return [defaultAddress, nextAddress].contains { $0.trimmingCharacters(in: ["/"]) == text }
+        url.absoluteString.trimmingCharacters(in: ["/"]) == defaultAddress.trimmingCharacters(in: ["/"])
+    }
+
+    static var cartLinksEnabled: Bool {
+        UserDefaults.standard.object(forKey: cartLinksKey) as? Bool ?? true
     }
 
     static var current: URL {
@@ -46,6 +52,12 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     weak var model: AppModel?
     private(set) var site = CatalogSite.current
     private var isNovelDB: Bool { CatalogSite.isNovelDB(site) }
+    /// Outside links go to the cart (and are renamed on the page) on sites other than NovelDB.
+    private var cartLinks: Bool { !isNovelDB && CatalogSite.cartLinksEnabled }
+
+    func showMode() {
+        webView.evaluateJavaScript("window.NovelDBApp && window.NovelDBApp.setMode({cartLinks: \(cartLinks)})", completionHandler: nil)
+    }
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -112,7 +124,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     /// A link out of the catalog: the Browser tab on NovelDB, the link cart on other sites.
     private func leave(_ url: URL, title: String = "") {
         guard url.scheme == "http" || url.scheme == "https" else { return }
-        if isNovelDB {
+        if !cartLinks {
             model?.pendingBrowserURL = url
         } else {
             let source = SourceCatalog.adapterType(for: url).map { $0.id.rawValue } ?? ""
@@ -132,6 +144,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         let field = { (name: String) in body[name] as? String ?? "" }
         switch field("type") {
         case "ready":
+            showMode()
             if let model { showCart(model.cart.items) }
         case "cartAdd":
             if field("url").hasPrefix("http") {
@@ -197,6 +210,7 @@ struct CatalogView: View {
     @Environment(AppModel.self) private var model
     @ObservedObject var state: CatalogState
     @AppStorage(CatalogSite.storageKey) private var site = CatalogSite.defaultAddress
+    @AppStorage(CatalogSite.cartLinksKey) private var cartLinks = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -233,6 +247,10 @@ struct CatalogView: View {
             state.showCart(model.cart.items)
         }
         .onChange(of: model.cart.items) { _, items in state.showCart(items) }
-        .onChange(of: site) { _, _ in state.load(CatalogSite.current) }
+        .onChange(of: site) { _, _ in
+            state.load(CatalogSite.current)
+            state.showMode()
+        }
+        .onChange(of: cartLinks) { _, _ in state.showMode() }
     }
 }
