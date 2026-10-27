@@ -8,6 +8,8 @@ import com.shirochi.npia.app.model.ConfigTransfer
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
 import com.shirochi.npia.app.model.JsonFileStore
+import com.shirochi.npia.app.model.RunSummary
+import com.shirochi.npia.app.model.UploadBatch
 import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.InMemorySecretStore
@@ -78,6 +80,10 @@ class DownloadManager(private val app: Application) {
     private val _uploadHistory = MutableStateFlow(historyStore.load().orEmpty())
     val uploadHistory: StateFlow<List<UploadResult>> = _uploadHistory.asStateFlow()
 
+    private val _uploadBatch = MutableStateFlow<UploadBatch?>(null)
+    /** The upload of a whole run, started from the summary notification, while it runs. */
+    val uploadBatch: StateFlow<UploadBatch?> = _uploadBatch.asStateFlow()
+
     private val _uploadStates = MutableStateFlow<Map<String, UploadState>>(emptyMap())
     /** Manual uploads by file path: running with byte progress, then done or failed until dismissed. */
     val uploadStates: StateFlow<Map<String, UploadState>> = _uploadStates.asStateFlow()
@@ -87,6 +93,13 @@ class DownloadManager(private val app: Application) {
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
     private val running = ConcurrentHashMap<String, Job>()
+
+    /** The run summary the notification buttons act on; see `RunSummary`. */
+    private val lastRunStore = JsonFileStore(File(app.filesDir, "last-run.json"), RunSummary.serializer())
+
+    private val runLock = Any()
+    /** Jobs that ended since the queue was last idle, as they ended; cleared when the summary is posted. */
+    private val runJobs = LinkedHashMap<String, JobItem>()
 
     /** App-specific external storage: visible over USB and to file managers under Android/data. */
     val outputDirectory: File get() = app.getExternalFilesDir(null) ?: app.filesDir
@@ -167,6 +180,8 @@ class DownloadManager(private val app: Application) {
         } else if (job(id)?.state == JobState.QUEUED) {
             update(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled") }
             persistJobs()
+            job(id)?.let { endedInRun(it) }
+            postRunSummaryIfIdle()
         }
     }
 
@@ -232,11 +247,14 @@ class DownloadManager(private val app: Application) {
                 val text = e.message ?: e.toString()
                 update(id) { it.copy(state = JobState.FAILED, status = text, error = text) }
             } finally {
-                running.remove(id)
                 update(id) { it.copy(finishedAt = System.currentTimeMillis()) }
                 persistJobs()
-                job(id)?.let { Notifications.jobEnded(app, it) }
+                // Recorded before leaving `running`, so a job that ends at the same moment cannot
+                // see an idle queue without this one in the summary.
+                job(id)?.let { endedInRun(it) }
+                running.remove(id)
                 startNext()
+                postRunSummaryIfIdle()
             }
         }
     }
@@ -259,6 +277,24 @@ class DownloadManager(private val app: Application) {
         }
         outcome.uploads.forEach { recordUpload(it) }
     }
+
+    private fun endedInRun(job: JobItem) {
+        synchronized(runLock) { runJobs[job.id] = job }
+    }
+
+    /**
+     * Posts the one "Downloaded" notification when the whole queue has gone idle, covering every
+     * job that ended since it was last idle (a stopped run reports what finished).
+     */
+    private fun postRunSummaryIfIdle() {
+        if (activeCount > 0 || running.isNotEmpty()) return
+        val ended = synchronized(runLock) { runJobs.values.toList().also { runJobs.clear() } }
+        val summary = RunSummary.of(ended) ?: return
+        lastRunStore.save(summary)
+        Notifications.runSummary(app, summary)
+    }
+
+    fun lastRun(): RunSummary? = lastRunStore.load()
 
     private fun update(id: String, change: (JobItem) -> JobItem) {
         _jobs.update { list -> list.map { if (it.id == id) change(it) else it } }
@@ -353,6 +389,63 @@ class DownloadManager(private val app: Application) {
         )
     }
 
+    /**
+     * Uploads every file of the run behind a summary notification, one after another through the
+     * configured hosts, then posts "Uploaded N files" with the links. Returns false when the run's
+     * files are gone.
+     */
+    fun uploadRun(runId: String?): Boolean {
+        val summary = lastRunStore.load()?.takeIf { it.id == runId } ?: return false
+        val files = summary.fileNames.map { File(outputDirectory, it) }.filter { it.exists() }
+        if (files.isEmpty()) return false
+        if (!_uploadBatch.compareAndSet(null, UploadBatch(summary.id, files.size))) return true
+        Notifications.cancel(app, Notifications.SUMMARY_ID)
+        DownloadService.start(app)
+        val uploadSettings = _settings.value.upload
+        scope.launch {
+            val links = mutableListOf<String>()
+            val failures = mutableListOf<String>()
+            try {
+                for (file in files) {
+                    val key = file.absolutePath
+                    _uploadStates.update { it + (key to UploadState(key, file.name)) }
+                    _uploadBatch.update { it?.copy(currentPath = key) }
+                    try {
+                        val result = uploadWithProgress(file, uploadSettings, key)
+                        recordUpload(result, copyLink = false)
+                        links += result.link
+                        setUpload(key) { it.copy(phase = UploadState.Phase.DONE, link = result.link, host = hostName(result.hostId)) }
+                    } catch (e: CancellationException) {
+                        _uploadStates.update { it - key }
+                        throw e
+                    } catch (e: Exception) {
+                        val reason = e.message ?: e.toString()
+                        failures += "${file.name}: $reason"
+                        setUpload(key) { it.copy(phase = UploadState.Phase.FAILED, error = reason) }
+                    }
+                    _uploadBatch.update { it?.copy(done = it.done + 1) }
+                }
+            } finally {
+                _uploadBatch.value = null
+            }
+            val finished = summary.copy(links = links)
+            lastRunStore.save(finished)
+            if (links.isNotEmpty() && _settings.value.upload.copyLinkToClipboard) {
+                withContext(Dispatchers.Main) { copyToClipboard(app, links.joinToString("\n")) }
+            }
+            Notifications.uploadResult(app, finished, uploaded = links.size, failures = failures)
+        }
+        return true
+    }
+
+    /** Copies the share links of the run's upload to the clipboard; false when it has none. */
+    fun copyRunLinks(runId: String?): Boolean {
+        val links = lastRunStore.load()?.takeIf { it.id == runId }?.links.orEmpty()
+        if (links.isEmpty()) return false
+        copyToClipboard(app, links.joinToString("\n"))
+        return true
+    }
+
     fun runningUploads(): List<UploadState> = _uploadStates.value.values.filter { it.phase == UploadState.Phase.RUNNING }
 
     private fun setUpload(key: String, change: (UploadState) -> UploadState) {
@@ -366,10 +459,10 @@ class DownloadManager(private val app: Application) {
         _uploadStates.update { map -> if (map[path]?.phase == UploadState.Phase.RUNNING) map else map - path }
     }
 
-    private suspend fun recordUpload(result: UploadResult) {
+    private suspend fun recordUpload(result: UploadResult, copyLink: Boolean = true) {
         _uploadHistory.update { listOf(result) + it }
         historyStore.save(_uploadHistory.value)
-        if (_settings.value.upload.copyLinkToClipboard) {
+        if (copyLink && _settings.value.upload.copyLinkToClipboard) {
             withContext(Dispatchers.Main) { copyToClipboard(app, result.link) }
         }
     }

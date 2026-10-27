@@ -3,6 +3,7 @@ package com.shirochi.npia.app
 import com.shirochi.npia.app.model.ConfigTransfer
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
+import com.shirochi.npia.app.model.RunSummary
 import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.UploadBatch
 import com.shirochi.npia.app.model.UploadState
@@ -107,6 +108,42 @@ class AppModelTest {
         assertEquals("Uploading 2/5 files… 37%", batch.statusLine(current))
         assertEquals(0.2f, batch.fraction(null), 1e-6f)
         assertEquals("Uploading 5/5 files… 99%", UploadBatch("run", 5, 4).statusLine(current.copy(sentBytes = 99)))
+    }
+
+    @Test
+    fun runSummaryReportsTheWholeRunOnce() {
+        fun job(id: String, state: JobState, title: String? = null, vararg files: String) =
+            JobItem(id = id, url = "https://example.com/$id", title = title, state = state, fileNames = files.toList())
+        val one = RunSummary.of(listOf(job("a", JobState.FINISHED, "Tower", "Tower.epub")))!!
+        assertEquals("Downloaded Tower", one.notificationTitle)
+        assertEquals("1 done", one.notificationText)
+        assertEquals(listOf("Tower.epub"), one.fileNames)
+        assertTrue(one.hasFiles)
+
+        val mixed = RunSummary.of(
+            listOf(
+                job("a", JobState.FINISHED, "A", "A.epub"), job("b", JobState.FINISHED, "B", "B.epub", "B.txt"),
+                job("c", JobState.FINISHED, "C", "C.epub"), job("d", JobState.FAILED),
+            ),
+        )!!
+        assertEquals("Downloaded 3 books", mixed.notificationTitle)
+        assertEquals("3 done, 1 failed", mixed.notificationText)
+        assertEquals(listOf("A.epub", "B.epub", "B.txt", "C.epub"), mixed.fileNames)
+
+        // Stop all: what finished is still reported, but nothing at all is skipped silently when it succeeded.
+        val stopped = RunSummary.of(listOf(job("a", JobState.FINISHED, "A", "A.epub"), job("b", JobState.CANCELLED), job("c", JobState.CANCELLED)))!!
+        assertEquals("1 done, 2 cancelled", stopped.notificationText)
+        assertNull(RunSummary.of(listOf(job("a", JobState.CANCELLED), job("b", JobState.FAILED), job("c", JobState.CANCELLED))))
+        assertNull(RunSummary.of(listOf(job("a", JobState.CANCELLED))))
+        assertNull(RunSummary.of(emptyList()))
+
+        val failedOnly = RunSummary.of(listOf(job("a", JobState.FAILED), job("b", JobState.FAILED)))!!
+        assertEquals("2 downloads failed", failedOnly.notificationTitle)
+        assertFalse(failedOnly.hasFiles)
+        assertEquals("Download failed", RunSummary.of(listOf(job("a", JobState.FAILED)))!!.notificationTitle)
+
+        val json = JobItem.json.encodeToString(RunSummary.serializer(), mixed.copy(links = listOf("https://example.com/d/1")))
+        assertEquals(mixed.copy(links = listOf("https://example.com/d/1")), JobItem.json.decodeFromString(RunSummary.serializer(), json))
     }
 
     @Test
