@@ -30,6 +30,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
@@ -50,6 +53,7 @@ fun RootScreen(model: AppViewModel) {
     val topBar = remember { TopBarState() }
     val stack = model.stack(model.tab)
     val route = stack.lastOrNull()
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(Unit) {
         manager.messages.collect { snackbar.showSnackbar(it) }
@@ -97,7 +101,13 @@ fun RootScreen(model: AppViewModel) {
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        // Taps that no button, text field or web page handles clear focus, which hides the keyboard.
+        Box(
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .pointerInput(focusManager) { detectTapGestures(onTap = { focusManager.clearFocus() }) },
+        ) {
             when (route) {
                 null -> when (model.tab) {
                     Tab.ADD -> AddScreen(model, onQueued = { model.select(Tab.QUEUE) })
