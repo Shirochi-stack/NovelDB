@@ -201,6 +201,17 @@ class QueueSettings:
 
 
 @dataclass(frozen=True)
+class UploadSettings:
+    """Cloud uploads, same hosts and order semantics as the mobile apps."""
+
+    auto_upload: bool = False
+    hosts: tuple[str, ...] = ("tempsh", "gofile")
+    copy_link: bool = True
+    # Asked once, the first time the user creates a share link.
+    agreement_accepted: bool = False
+
+
+@dataclass(frozen=True)
 class Secrets:
     """Credentials. Desktop keeps them in config.json as before; settings exports leave them out."""
 
@@ -210,6 +221,9 @@ class Secrets:
     sfc_cookie: str = ""
     sfc_user: str = ""
     sfc_pass: str = ""
+    pixeldrain_key: str = ""
+    gofile_token: str = ""
+    catbox_userhash: str = ""
 
 
 @dataclass(frozen=True)
@@ -231,6 +245,7 @@ class AppSettings:
     ui: UiSettings = field(default_factory=UiSettings)
     catalog: CatalogSettings = field(default_factory=CatalogSettings)
     queue: QueueSettings = field(default_factory=QueueSettings)
+    upload: UploadSettings = field(default_factory=UploadSettings)
     secrets: Secrets = field(default_factory=Secrets)
     last_input: LastInput = field(default_factory=LastInput)
 

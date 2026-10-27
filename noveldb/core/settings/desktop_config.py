@@ -345,6 +345,16 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
     concurrent = _int(c.get("max_concurrent_jobs"))
     queue = replace(base.queue, max_concurrent_jobs=int(_clamp(concurrent, 1, 3, base.queue.max_concurrent_jobs)))
 
+    up = base.upload
+    hosts = _strings(c.get("upload_hosts"))
+    upload = replace(
+        up,
+        auto_upload=_first_bool(c, "upload_auto", up.auto_upload),
+        hosts=tuple(h for h in hosts if h) if hosts else up.hosts,
+        copy_link=_first_bool(c, "upload_copy_link", up.copy_link),
+        agreement_accepted=_first_bool(c, "share_agreement_accepted", up.agreement_accepted),
+    )
+
     sec = base.secrets
     secrets = Secrets(
         email=_str(c.get("email")) if _str(c.get("email")) is not None else sec.email,
@@ -353,6 +363,9 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         sfc_cookie=_str(c.get("sfc_cookie")) if _str(c.get("sfc_cookie")) is not None else sec.sfc_cookie,
         sfc_user=_str(c.get("sfc_user")) if _str(c.get("sfc_user")) is not None else sec.sfc_user,
         sfc_pass=_str(c.get("sfc_pass")) if _str(c.get("sfc_pass")) is not None else sec.sfc_pass,
+        pixeldrain_key=_str(c.get("upload_pixeldrain_key")) or sec.pixeldrain_key,
+        gofile_token=_str(c.get("upload_gofile_token")) or sec.gofile_token,
+        catbox_userhash=_str(c.get("upload_catbox_userhash")) or sec.catbox_userhash,
     )
     last = LastInput(
         novel_id=_str(c.get("novel_id")) if _str(c.get("novel_id")) is not None else base.last_input.novel_id,
@@ -361,7 +374,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
 
     return AppSettings(
         shared=shared, overrides=overrides, images=images, text=text, npia=npia_settings,
-        sources=sources, output=output, ui=ui, catalog=catalog, queue=queue, secrets=secrets,
+        sources=sources, output=output, ui=ui, catalog=catalog, queue=queue, upload=upload, secrets=secrets,
         last_input=last,
     )
 
@@ -526,6 +539,11 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["catalog_cart_links"] = s.catalog.cart_links
     c["max_concurrent_jobs"] = s.queue.max_concurrent_jobs
 
+    c["upload_auto"] = s.upload.auto_upload
+    c["upload_hosts"] = list(s.upload.hosts)
+    c["upload_copy_link"] = s.upload.copy_link
+    c["share_agreement_accepted"] = s.upload.agreement_accepted
+
     c["novel_id"] = s.last_input.novel_id
     c["ext_url"] = s.last_input.ext_url
 
@@ -537,8 +555,14 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
             value = getattr(s.secrets, key)
             if value or key in c:
                 c[key] = value
+        for key, attr in (("upload_pixeldrain_key", "pixeldrain_key"), ("upload_gofile_token", "gofile_token"),
+                          ("upload_catbox_userhash", "catbox_userhash")):
+            value = getattr(s.secrets, attr)
+            if value or key in c:
+                c[key] = value
     else:
-        for key in ("email", "wd", "loginkey", "sfc_cookie", "sfc_user", "sfc_pass"):
+        for key in ("email", "wd", "loginkey", "sfc_cookie", "sfc_user", "sfc_pass",
+                    "upload_pixeldrain_key", "upload_gofile_token", "upload_catbox_userhash"):
             c.pop(key, None)
 
     c["source_overrides"] = {source: _encode_override(o) for source, o in sorted(s.overrides.items()) if not o.is_empty}
