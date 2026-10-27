@@ -66,7 +66,8 @@ fun RootScreen(model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            // The catalog site has its own header, so the Catalog tab skips the title bar.
+            if (route != null || model.tab != Tab.CATALOG) TopAppBar(
                 title = {
                     val title = when (route) {
                         null -> if (model.tab == Tab.SETTINGS) "Settings" else model.tab.title
@@ -88,7 +89,10 @@ fun RootScreen(model: AppViewModel) {
                 Tab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = model.tab == tab,
-                        onClick = { model.select(tab) },
+                        onClick = {
+                            if (tab == Tab.CATALOG && model.tab == Tab.CATALOG) catalog.reload()
+                            model.select(tab)
+                        },
                         label = { Text(tab.title) },
                         icon = {
                             val active = jobs.count { it.state.isActive }
