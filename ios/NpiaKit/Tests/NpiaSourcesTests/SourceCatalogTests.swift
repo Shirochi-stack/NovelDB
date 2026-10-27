@@ -20,6 +20,8 @@ final class SourceCatalogTests: XCTestCase {
     func testDefaultParseChaptersKeepsOrderAndCapturesFailures() async throws {
         var settings = AppSettings()
         settings.shared.threads = 3
+        settings.shared.intervalMin = 0
+        settings.shared.intervalMax = 0
         let context = SourceContext(http: StubHTTP(), web: StubWeb(), secrets: InMemorySecretStore(), settings: settings)
         let refs = (1...10).map { ChapterRef(id: "\($0)", index: $0, title: "Chapter \($0)") }
         let book = BookInfo(source: .reader, id: "b", url: URL(string: "https://example.com")!, title: "Book", chapters: refs)

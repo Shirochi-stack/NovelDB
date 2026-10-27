@@ -19,8 +19,8 @@ public enum NamingMode: String, Codable, CaseIterable, Sendable {
 /// `AppSettings.overrides`.
 public struct SharedSettings: Codable, Sendable, Equatable {
     public var threads = 4
-    public var intervalMin = 1.0
-    public var intervalMax = 1.0
+    public var intervalMin = 2.0
+    public var intervalMax = 5.0
     public var maxRetries = 10
     public var formats: [OutputFormat] = [.epub]
     public var rangeFrom: Int?

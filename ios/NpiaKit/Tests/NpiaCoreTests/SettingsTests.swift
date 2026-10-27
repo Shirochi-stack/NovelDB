@@ -83,6 +83,26 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(reimported.shared.threads, 6)
     }
 
+    func testRateLimitingDefaultsToTwoThroughFiveSeconds() throws {
+        let defaults = SharedSettings()
+        XCTAssertEqual(defaults.intervalMin, 2.0)
+        XCTAssertEqual(defaults.intervalMax, 5.0)
+        XCTAssertEqual(defaults.normalizedInterval, 2.0...5.0)
+
+        // A desktop config without the keys imports to the new defaults.
+        let (imported, _) = DesktopConfig.importConfig([:])
+        XCTAssertEqual(imported.shared.intervalMin, 2.0)
+        XCTAssertEqual(imported.shared.intervalMax, 5.0)
+
+        // Values that were saved stay as they are.
+        let saved = try SettingsCoding.decode(Data(#"{"shared": {"intervalMin": 1.0, "intervalMax": 1.0}}"#.utf8))
+        XCTAssertEqual(saved.shared.intervalMin, 1.0)
+        XCTAssertEqual(saved.shared.intervalMax, 1.0)
+        let untouched = try SettingsCoding.decode(Data(#"{"shared": {"threads": 3}}"#.utf8))
+        XCTAssertEqual(untouched.shared.intervalMin, 2.0)
+        XCTAssertEqual(untouched.shared.intervalMax, 5.0)
+    }
+
     func testInMemorySecretStore() {
         let store = InMemorySecretStore()
         store.set("abc", for: .npiaLoginKey)
