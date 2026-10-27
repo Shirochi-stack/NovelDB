@@ -112,13 +112,17 @@ struct MultipartForm: Sendable {
     var fields: [(name: String, value: String)] = []
     var fileField: String
     var file: URL
+    /// Sent as `filename="..."`; plain ASCII so every host keeps it.
     var fileName: String
+    /// The real name, sent as `filename*=UTF-8''...` when it differs from `fileName`.
+    var displayName: String
     var mimeType = "application/octet-stream"
 
-    init(fileField: String, file: URL, fileName: String? = nil, fields: [(name: String, value: String)] = []) {
+    init(fileField: String, file: URL, fileName: String? = nil, displayName: String? = nil, fields: [(name: String, value: String)] = []) {
         self.fileField = fileField
         self.file = file
-        self.fileName = fileName ?? uploadName(file)
+        self.fileName = fileName ?? asciiUploadName(file, id: nil)
+        self.displayName = displayName ?? uploadName(file)
         self.fields = fields
     }
 
@@ -138,7 +142,11 @@ struct MultipartForm: Sendable {
             text += "\(field.value)\r\n"
         }
         text += "--\(boundary)\r\n"
-        text += "Content-Disposition: form-data; name=\"\(Self.quoted(fileField))\"; filename=\"\(Self.quoted(fileName))\"\r\n"
+        text += "Content-Disposition: form-data; name=\"\(Self.quoted(fileField))\"; filename=\"\(Self.quoted(fileName))\""
+        if displayName != fileName {
+            text += "; filename*=UTF-8''\(UploadNaming.rfc5987(displayName))"
+        }
+        text += "\r\n"
         text += "Content-Type: \(mimeType)\r\n\r\n"
         return Data(text.utf8)
     }

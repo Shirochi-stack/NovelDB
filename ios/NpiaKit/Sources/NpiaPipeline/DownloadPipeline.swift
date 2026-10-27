@@ -123,7 +123,7 @@ public struct DownloadPipeline: Sendable {
             for file in files {
                 onPhase(.uploading(file.lastPathComponent))
                 do {
-                    uploads.append(try await UploaderCatalog.upload(file, settings: settings.upload))
+                    uploads.append(try await UploaderCatalog.upload(file, settings: settings.upload, nameID: UploadNaming.sanitizedID(book.id)))
                 } catch {
                     logger.log(.warning, "Upload failed for \(file.lastPathComponent): \(error.localizedDescription)")
                 }
