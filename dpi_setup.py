@@ -338,7 +338,11 @@ def _read_scale_factor():
             base_dir = os.path.dirname(os.path.abspath(sys.executable))
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-        cfg_path = os.path.join(base_dir, "config.json")
+        try:
+            from noveldb.core import paths as _paths
+            cfg_path = str(_paths.config_path(base_dir))
+        except Exception:
+            cfg_path = os.path.join(base_dir, "config.json")
         if os.path.isfile(cfg_path):
             with open(cfg_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)

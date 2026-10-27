@@ -38,7 +38,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt "pywebview>=4.4"
           pip install pyinstaller playwright greenlet pyee
 
       - name: Install Playwright Chromium

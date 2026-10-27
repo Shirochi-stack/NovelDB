@@ -64,12 +64,39 @@ if getattr(sys, 'frozen', False):
     if os.path.exists(_bundled_browsers):
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = _bundled_browsers
 
-from playwright.sync_api import (
-    sync_playwright,
-    Page,
-    Browser,
-    TimeoutError as PlaywrightTimeoutError,
-)
+# Lite and TurboLite builds ship without Playwright. HTTP-based sources still work there; a
+# source that needs a browser raises BrowserUnavailableError when it tries to start one.
+try:
+    if os.environ.get("NOVELDB_DISABLE_PLAYWRIGHT", "").strip().lower() in {"1", "true", "yes"}:
+        raise ImportError("Playwright disabled by NOVELDB_DISABLE_PLAYWRIGHT")
+    from playwright.sync_api import (
+        sync_playwright as _sync_playwright,
+        Page,
+        Browser,
+        TimeoutError as PlaywrightTimeoutError,
+    )
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    _sync_playwright = None
+    Page = Browser = object
+
+    class PlaywrightTimeoutError(Exception):
+        """Stand-in so `except PlaywrightTimeoutError` clauses work without Playwright."""
+
+
+class BrowserUnavailableError(RuntimeError):
+    """A source needs a browser, but this build of NovelDB has no Playwright."""
+
+
+def sync_playwright():
+    if _sync_playwright is None:
+        raise BrowserUnavailableError(
+            "This source needs a browser, which only the Full build of NovelDB includes."
+        )
+    return _sync_playwright()
+
+
 from downloader_core import parse_npia_notice_html, parse_npia_status
 
 APP_DATA_NAME = "NpiaDownloader"
@@ -585,7 +612,11 @@ class ExternalScraper:
 
         config = {}
         try:
-            cfg_path = os.path.join(_get_base_dir(), "config.json")
+            try:
+                from noveldb.core import paths as _paths
+                cfg_path = str(_paths.config_path(_get_base_dir()))
+            except Exception:
+                cfg_path = os.path.join(_get_base_dir(), "config.json")
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
