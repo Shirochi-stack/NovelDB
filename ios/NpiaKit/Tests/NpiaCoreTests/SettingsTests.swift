@@ -103,6 +103,65 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(untouched.shared.intervalMax, 5.0)
     }
 
+    func testTagQueryGroupsRoundTripThroughDesktopConfig() {
+        let config: [String: Any] = [
+            "tag_query_groups": [["TS"], ["a", "b"]], "tag_selected_tags": ["TS"], "tag_custom_tags": "x, y",
+            "tag_age_filter": "19", "tag_scrape_all": true, "scrape_max_queries": 120,
+        ]
+        let (settings, _) = DesktopConfig.importConfig(config)
+        XCTAssertEqual(settings.npia.tagQueryGroups, [["TS"], ["a", "b"]])
+        XCTAssertEqual(settings.npia.scrapeMaxQueries, 120)
+
+        let exported = DesktopConfig.exportConfig(settings)
+        XCTAssertEqual(exported["tag_query_groups"] as? [[String]], [["TS"], ["a", "b"]])
+        XCTAssertEqual(exported["scrape_max_queries"] as? Int, 120)
+
+        let (again, _) = DesktopConfig.importConfig(exported)
+        XCTAssertEqual(again.npia, settings.npia)
+
+        // Missing or malformed groups leave the existing ones alone; empty groups are dropped.
+        XCTAssertEqual(DesktopConfig.importConfig([:], into: settings).0.npia.tagQueryGroups, [["TS"], ["a", "b"]])
+        let cleaned = DesktopConfig.importConfig(["tag_query_groups": [["a"], [], ["b", 5]] as [Any]]).0
+        XCTAssertEqual(cleaned.npia.tagQueryGroups, [["a"], ["b"]])
+    }
+
+    func testSearchQueryCountIsClampedAndLegacyDefaultMoves() throws {
+        XCTAssertEqual(NpiaSettings().scrapeMaxQueries, 165)
+        func imported(_ value: Any) -> Int {
+            DesktopConfig.importConfig(["scrape_max_queries": value]).0.npia.scrapeMaxQueries
+        }
+        XCTAssertEqual(imported(500), 165)
+        XCTAssertEqual(imported(0), 1)
+        XCTAssertEqual(imported(-4), 1)
+        XCTAssertEqual(imported("80"), 80)
+        XCTAssertEqual(imported(100), 165, "the desktop treats the old default of 100 as the full sweep")
+
+        var settings = NpiaSettings()
+        settings.scrapeMaxQueries = 9_999
+        XCTAssertEqual(settings.scrapeMaxQueries, 165)
+        settings.scrapeMaxQueries = 0
+        XCTAssertEqual(settings.scrapeMaxQueries, 1)
+
+        let stored = try SettingsCoding.decode(Data(#"{"npia": {"scrapeMaxQueries": 4000}}"#.utf8))
+        XCTAssertEqual(stored.npia.scrapeMaxQueries, 165)
+    }
+
+    func testNpiaSettingsStoredBeforeQueryGroupsStillDecode() throws {
+        // A job saved by an older build has no tagQueryGroups key and decodes without the merge step.
+        let old = #"{"autoLogin": true, "includeNotices": false, "useBrowserFallback": true, "tagAgeFilter": "19", "tagSelectedTags": ["TS"], "tagCustomTags": "x", "tagScrapeAll": false, "scrapeMaxQueries": 50}"#
+        let decoded = try JSONDecoder().decode(NpiaSettings.self, from: Data(old.utf8))
+        XCTAssertTrue(decoded.autoLogin)
+        XCTAssertFalse(decoded.includeNotices)
+        XCTAssertEqual(decoded.tagSelectedTags, ["TS"])
+        XCTAssertEqual(decoded.tagQueryGroups, [])
+        XCTAssertEqual(decoded.scrapeMaxQueries, 50)
+        XCTAssertEqual(try JSONDecoder().decode(NpiaSettings.self, from: Data("{}".utf8)), NpiaSettings())
+
+        var settings = AppSettings()
+        settings.npia.tagQueryGroups = [["a", "b"], ["c"]]
+        XCTAssertEqual(try SettingsCoding.decode(SettingsCoding.encode(settings)).npia.tagQueryGroups, [["a", "b"], ["c"]])
+    }
+
     func testInMemorySecretStore() {
         let store = InMemorySecretStore()
         store.set("abc", for: .npiaLoginKey)

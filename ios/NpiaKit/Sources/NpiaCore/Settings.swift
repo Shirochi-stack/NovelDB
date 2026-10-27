@@ -124,16 +124,51 @@ public struct TextSettings: Codable, Sendable, Equatable {
 }
 
 public struct NpiaSettings: Codable, Sendable, Equatable {
+    /// Search terms the "scrape all novels" sweep has (`NpiaSearchTerms.defaultQueryCount`).
+    public static let maxSearchQueries = 165
+
     public var autoLogin = false
     public var includeNotices = true
     public var useBrowserFallback = true
     public var tagAgeFilter = "15"
     public var tagSelectedTags: [String] = []
     public var tagCustomTags = ""
+    /// Query builder groups: tags inside a group are OR'd, the groups are AND'd.
+    public var tagQueryGroups: [[String]] = []
     public var tagScrapeAll = false
-    public var scrapeMaxQueries = 165
+    /// Search terms the sweep uses, 1...`maxSearchQueries`.
+    public var scrapeMaxQueries = NpiaSettings.maxSearchQueries {
+        didSet {
+            let clamped = Self.clampQueries(scrapeMaxQueries)
+            if clamped != scrapeMaxQueries { scrapeMaxQueries = clamped }
+        }
+    }
 
     public init() {}
+
+    public static func clampQueries(_ value: Int) -> Int {
+        max(1, min(value, maxSearchQueries))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case autoLogin, includeNotices, useBrowserFallback, tagAgeFilter, tagSelectedTags
+        case tagCustomTags, tagQueryGroups, tagScrapeAll, scrapeMaxQueries
+    }
+
+    /// Every key is optional, so settings stored before a field existed still decode.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        autoLogin = try container.decodeIfPresent(Bool.self, forKey: .autoLogin) ?? autoLogin
+        includeNotices = try container.decodeIfPresent(Bool.self, forKey: .includeNotices) ?? includeNotices
+        useBrowserFallback = try container.decodeIfPresent(Bool.self, forKey: .useBrowserFallback) ?? useBrowserFallback
+        tagAgeFilter = try container.decodeIfPresent(String.self, forKey: .tagAgeFilter) ?? tagAgeFilter
+        tagSelectedTags = try container.decodeIfPresent([String].self, forKey: .tagSelectedTags) ?? tagSelectedTags
+        tagCustomTags = try container.decodeIfPresent(String.self, forKey: .tagCustomTags) ?? tagCustomTags
+        tagQueryGroups = try container.decodeIfPresent([[String]].self, forKey: .tagQueryGroups) ?? tagQueryGroups
+        tagScrapeAll = try container.decodeIfPresent(Bool.self, forKey: .tagScrapeAll) ?? tagScrapeAll
+        let queries = try container.decodeIfPresent(Int.self, forKey: .scrapeMaxQueries) ?? scrapeMaxQueries
+        scrapeMaxQueries = Self.clampQueries(queries)
+    }
 }
 
 public struct KpageSettings: Codable, Sendable, Equatable {

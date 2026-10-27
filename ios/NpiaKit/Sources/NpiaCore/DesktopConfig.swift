@@ -89,8 +89,12 @@ public enum DesktopConfig {
         s.npia.tagAgeFilter = (c["tag_age_filter"] as? String) ?? s.npia.tagAgeFilter
         s.npia.tagSelectedTags = (c["tag_selected_tags"] as? [String]) ?? s.npia.tagSelectedTags
         s.npia.tagCustomTags = (c["tag_custom_tags"] as? String) ?? s.npia.tagCustomTags
+        s.npia.tagQueryGroups = stringGroups(c["tag_query_groups"]) ?? s.npia.tagQueryGroups
         s.npia.tagScrapeAll = bool(c["tag_scrape_all"]) ?? s.npia.tagScrapeAll
-        s.npia.scrapeMaxQueries = int(c["scrape_max_queries"]) ?? s.npia.scrapeMaxQueries
+        var queries = int(c["scrape_max_queries"]) ?? s.npia.scrapeMaxQueries
+        // The desktop treats the old default of 100 as "not customised" and moves it to the full sweep.
+        if queries == 100 { queries = NpiaSettings.maxSearchQueries }
+        s.npia.scrapeMaxQueries = NpiaSettings.clampQueries(queries)
 
         // Source options; the kpage-named keys win over legacy ones.
         func kpageKey(_ suffix: String) -> Any? {
@@ -182,6 +186,7 @@ public enum DesktopConfig {
         c["tag_age_filter"] = s.npia.tagAgeFilter
         c["tag_selected_tags"] = s.npia.tagSelectedTags
         c["tag_custom_tags"] = s.npia.tagCustomTags
+        c["tag_query_groups"] = s.npia.tagQueryGroups
         c["tag_scrape_all"] = s.npia.tagScrapeAll
         c["scrape_max_queries"] = s.npia.scrapeMaxQueries
 
@@ -241,6 +246,12 @@ public enum DesktopConfig {
     static func differing<T: Equatable>(_ value: T?, _ shared: T) -> T? {
         guard let value, value != shared else { return nil }
         return value
+    }
+
+    /// A JSON array of tag arrays; empty groups and non-string tags are dropped.
+    static func stringGroups(_ value: Any?) -> [[String]]? {
+        guard let list = value as? [Any] else { return nil }
+        return list.compactMap { ($0 as? [Any])?.compactMap { $0 as? String } }.filter { !$0.isEmpty }
     }
 
     static func nonEmpty(_ value: Any?) -> String? {
