@@ -30,6 +30,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
+/** The NovelDB catalog website, hosted on GitHub Pages. */
+const val DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
+
 /** App-level preferences that are not part of the portable `AppSettings` JSON. */
 class AppPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("app", Context.MODE_PRIVATE)
@@ -52,6 +55,11 @@ class AppPreferences(context: Context) {
     var accent: String
         get() = prefs.getString("accent", null) ?: "halgakos_rose"
         set(value) = prefs.edit().putString("accent", value).apply()
+
+    /** Address the Catalog tab opens; the NovelDB website unless the user picked another site. */
+    var catalogUrl: String
+        get() = prefs.getString("catalogUrl", null)?.takeIf { it.isNotBlank() } ?: DEFAULT_CATALOG_URL
+        set(value) = prefs.edit().putString("catalogUrl", value.trim().ifEmpty { DEFAULT_CATALOG_URL }).apply()
 
     var askedForNotifications: Boolean
         get() = prefs.getBoolean("askedForNotifications", false)

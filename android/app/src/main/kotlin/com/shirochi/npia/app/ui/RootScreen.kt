@@ -135,6 +135,7 @@ fun RootScreen(model: AppViewModel) {
                 Route.Text -> TextSettingsScreen(model)
                 Route.Upload -> UploadSettingsScreen(model)
                 Route.Appearance -> AppearanceSettingsScreen(model)
+                Route.CatalogSite -> CatalogSiteSettingsScreen(model)
                 Route.Background -> BackgroundSettingsScreen(model)
                 Route.Transfer -> ConfigTransferScreen(model)
                 Route.Sites -> SitesScreen(model)
