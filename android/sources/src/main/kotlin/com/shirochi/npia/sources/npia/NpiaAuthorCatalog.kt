@@ -56,6 +56,8 @@ internal class NpiaAuthorCatalog(
         retries: Int = 4,
         acquireRequest: () -> Boolean = { true },
         signatures: MutableSet<List<String>> = mutableSetOf(),
+        /** Cancels the request in flight; `stopped` also covers the request budget, which must not cancel the request that used it up. */
+        abortRequest: () -> Boolean = stopped,
     ): Flow<AuthorPage> = flow {
         if (!author.isAsciiDigits() || author.all { it == '0' }) throw ValueError("invalid author ID")
         if (pageSize !in 1..100) throw ValueError("author page size must be between 1 and 100")
@@ -83,7 +85,7 @@ internal class NpiaAuthorCatalog(
                         ),
                     )
                     val request = HttpRequest(AUTHOR_URL, "POST", NpiaAuth.headers(loginKey, form = true), body, timeoutSeconds = 30)
-                    val reply = abortable(stopped) { http.send(request) }
+                    val reply = abortable(abortRequest) { http.send(request) }
                     if (reply == null) {
                         aborted = true
                         break
@@ -192,6 +194,7 @@ internal class NpiaAuthorCatalog(
                 val first = pages(
                     owner, startPage = page, maxPages = 1, delay = delay, delayMax = delayMax, retries = retries,
                     pageSize = pageSize, stopped = { exhausted() }, acquireRequest = acquire,
+                    abortRequest = { closing.get() || stopped() },
                     signatures = synchronized(lock) { signatures.getOrPut(owner) { mutableSetOf() } },
                 ).firstOrNull()
                 if (first == null) AuthorEvent(owner, page, null, false, null, attempts)
