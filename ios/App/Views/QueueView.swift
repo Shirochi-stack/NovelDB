@@ -44,8 +44,13 @@ struct QueueView: View {
             JobDetailView(jobID: id)
         }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink { UploadHistoryView() } label: { Label("Uploads", systemImage: "icloud.and.arrow.up") }
+            }
             if model.jobs.contains(where: { !$0.state.isActive }) {
-                Button("Clear finished") { model.clearFinished() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Clear finished") { model.clearFinished() }
+                }
             }
         }
     }

@@ -72,9 +72,17 @@ struct BrowserView: View {
                 NavigationLink("Sites") { SitesView { browser.open("https://" + $0) } }
             }
         }
+        .onAppear { takePendingURL() }
+        .onChange(of: model.pendingBrowserURL) { takePendingURL() }
         .onChange(of: browser.url) { _, url in
             if !editing, let url { address = url.absoluteString }
         }
+    }
+
+    private func takePendingURL() {
+        guard let url = model.pendingBrowserURL else { return }
+        model.pendingBrowserURL = nil
+        browser.webView.load(URLRequest(url: url))
     }
 }
 

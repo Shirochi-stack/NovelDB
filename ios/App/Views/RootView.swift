@@ -2,16 +2,16 @@ import NpiaWebEngine
 import SwiftUI
 
 enum Panel: String, CaseIterable, Hashable, Identifiable {
-    case add, browser, queue, uploads, settings
+    case add, catalog, browser, queue, settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .add: return "Add"
+        case .catalog: return "Catalog"
         case .browser: return "Browser"
         case .queue: return "Queue"
-        case .uploads: return "Uploads"
         case .settings: return "Settings"
         }
     }
@@ -19,9 +19,9 @@ enum Panel: String, CaseIterable, Hashable, Identifiable {
     var icon: String {
         switch self {
         case .add: return "plus.circle"
+        case .catalog: return "books.vertical"
         case .browser: return "globe"
         case .queue: return "arrow.down.circle"
-        case .uploads: return "icloud.and.arrow.up"
         case .settings: return "gearshape"
         }
     }
@@ -32,6 +32,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var selection: Panel? = .add
+    @StateObject private var catalog = CatalogState()
 
     var body: some View {
         Group {
@@ -40,7 +41,7 @@ struct RootView: View {
                     List(Panel.allCases, selection: $selection) { panel in
                         NavigationLink(value: panel) {
                             Label(panel.title, systemImage: panel.icon)
-                                .badge(panel == .queue ? activeCount : 0)
+                                .badge(badgeCount(panel))
                         }
                     }
                     .themedBackground()
@@ -57,7 +58,7 @@ struct RootView: View {
                             content(panel)
                         }
                         .tabItem { Label(panel.title, systemImage: panel.icon) }
-                        .badge(panel == .queue ? activeCount : 0)
+                        .badge(badgeCount(panel))
                         .tag(panel)
                     }
                 }
@@ -65,6 +66,9 @@ struct RootView: View {
         }
         .background(KeyboardDismissInstaller())
         .webLoginSheet()
+        .onChange(of: model.pendingBrowserURL) { _, url in
+            if url != nil { selection = .browser }
+        }
         .alert("NovelDB", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
             Button("OK", role: .cancel) { model.message = nil }
         } message: {
@@ -72,17 +76,21 @@ struct RootView: View {
         }
     }
 
-    private var activeCount: Int {
-        model.jobs.filter { $0.state.isActive }.count
+    private func badgeCount(_ panel: Panel) -> Int {
+        switch panel {
+        case .queue: return model.jobs.filter { $0.state.isActive }.count
+        case .add: return model.cart.items.count
+        default: return 0
+        }
     }
 
     @ViewBuilder
     private func content(_ panel: Panel) -> some View {
         switch panel {
         case .add: AddURLView { selection = .queue }
+        case .catalog: CatalogView(state: catalog)
         case .browser: BrowserView { selection = .add }
         case .queue: QueueView()
-        case .uploads: UploadHistoryView()
         case .settings: SettingsView()
         }
     }
