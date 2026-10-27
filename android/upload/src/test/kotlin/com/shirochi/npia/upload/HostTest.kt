@@ -21,7 +21,8 @@ class MultipartTest : UploadTestBase() {
         body.writeTo(out)
 
         val expectedHead = "--B\r\nContent-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n" +
-            "--B\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"소설 %221%22.epub\"\r\n" +
+            "--B\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"book.epub\"; " +
+            "filename*=UTF-8''%EC%86%8C%EC%84%A4%20%221%22.epub\r\n" +
             "Content-Type: application/octet-stream\r\n\r\n"
         val expected = expectedHead.toByteArray(Charsets.UTF_8) + file.readBytes() + "\r\n--B--\r\n".toByteArray(Charsets.UTF_8)
 
@@ -44,6 +45,43 @@ class MultipartTest : UploadTestBase() {
     @Test
     fun formEncodingEscapesReservedAndUnicode() {
         assertEquals("a%20b=x%26y%3Dz%2F%C3%A9~", formEncoded(listOf("a b" to "x&y=z/é~")))
+    }
+
+    @Test
+    fun plainAsciiNamesAreUploadedAsTheyAre() {
+        val file = makeFile("My Book (2).epub")
+        assertEquals(UploadName("My Book (2).epub", "My Book (2).epub"), UploadName.of(file, "419368"))
+        val head = MultipartForm("file", file, name = UploadName.of(file, "419368"), boundary = "B").head.toString(Charsets.UTF_8)
+        assertTrue(head, head.contains("filename=\"My Book (2).epub\"\r\n"))
+        assertFalse(head, head.contains("filename*"))
+    }
+
+    @Test
+    fun nonAsciiNamesBecomeIdAndExtension() {
+        val korean = "재앙급 진조는 방구석에서 꿀 빱니다.epub"
+        assertEquals("419368.epub", UploadName.of(korean, "419368").ascii)
+        assertEquals(korean, UploadName.of(korean, "419368").display)
+        assertEquals("book.epub", UploadName.of(korean, null).ascii)
+        assertEquals("book.epub", UploadName.of(korean, "../evil name").ascii)
+        assertEquals("77.zip", UploadName.of("소설 TXT.zip", "77").ascii)
+        assertEquals("77", UploadName.of("소설", "77").ascii)
+        assertEquals("77", UploadName.of("소설.책", "77").ascii)
+    }
+
+    @Test
+    fun multipartHeaderCarriesBothAsciiAndUtf8Names() {
+        val korean = "재앙급 진조.epub"
+        val file = makeFile(korean)
+        val form = MultipartForm("file", file, name = UploadName.of(file, "419368"), boundary = "B")
+        val head = form.head.toString(Charsets.UTF_8)
+        assertTrue(head, head.contains("filename=\"419368.epub\"; filename*=UTF-8''%EC%9E%AC%EC%95%99%EA%B8%89%20%EC%A7%84%EC%A1%B0.epub\r\n"))
+    }
+
+    @Test
+    fun pixeldrainUrlUsesTheAsciiName() {
+        val file = makeFile("소설 1.epub")
+        val request = PixeldrainUploader.request(file, "key", name = UploadName.of(file, "419368"))
+        assertEquals("https://pixeldrain.com/api/file/419368.epub", request.url.toString())
     }
 
     @Test

@@ -31,6 +31,8 @@ data class JobItem(
     val url: String,
     val source: SourceId? = null,
     val title: String? = null,
+    /** The adapter's id for the book (for npia the novel number); names uploaded files. */
+    val bookId: String? = null,
     /** The settings this job runs with (shared settings plus the Add screen's choices). */
     val settings: AppSettings = AppSettings(),
     val state: JobState = JobState.QUEUED,

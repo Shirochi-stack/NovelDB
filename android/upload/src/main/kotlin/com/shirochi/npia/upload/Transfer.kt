@@ -133,7 +133,7 @@ internal class StreamingBody(
 internal class MultipartForm(
     val fileField: String,
     val file: File,
-    val fileName: String = uploadName(file),
+    val name: UploadName = UploadName.of(file),
     val fields: List<Pair<String, String>> = emptyList(),
     val boundary: String = "NpiaBoundary-${UUID.randomUUID()}",
 ) {
@@ -150,7 +150,10 @@ internal class MultipartForm(
                 text.append("$value\r\n")
             }
             text.append("--$boundary\r\n")
-            text.append("Content-Disposition: form-data; name=\"${quoted(fileField)}\"; filename=\"${quoted(fileName)}\"\r\n")
+            text.append("Content-Disposition: form-data; name=\"${quoted(fileField)}\"; filename=\"${quoted(name.ascii)}\"")
+            // Hosts that read RFC 5987 keep the real title; the others fall back to the ASCII name.
+            if (!name.isPlain) text.append("; filename*=UTF-8''${percentEncode(name.display)}")
+            text.append("\r\n")
             text.append("Content-Type: $mimeType\r\n\r\n")
             return text.toString().toByteArray(Charsets.UTF_8)
         }
@@ -185,6 +188,33 @@ internal suspend fun UploadContext.postMultipart(
     progress?.invoke(UploadProgress(size, size))
     return reply
 }
+
+/**
+ * The names one upload goes by. `display` is the real (NFC) file name, shown in the Links list.
+ * Hosts strip non-ASCII from multipart file names ("책.epub" arrives as "epub.epub"), so `ascii` is
+ * what goes in `filename="..."` and in URLs: the display name itself when it is plain printable
+ * ASCII, otherwise `<book id>.<extension>`.
+ */
+internal data class UploadName(val display: String, val ascii: String) {
+    val isPlain: Boolean get() = display == ascii
+
+    companion object {
+        private val SAFE_ID = Regex("[A-Za-z0-9_-]{1,40}")
+        private val SAFE_EXTENSION = Regex("[A-Za-z0-9]{1,8}")
+
+        fun of(file: File, bookId: String? = null): UploadName = of(uploadName(file), bookId)
+
+        fun of(name: String, bookId: String?): UploadName {
+            if (name.isNotEmpty() && name.all { it in ' '..'~' }) return UploadName(name, name)
+            val id = bookId?.takeIf { SAFE_ID.matches(it) } ?: "book"
+            val extension = name.substringAfterLast('.', "").takeIf { SAFE_EXTENSION.matches(it) }
+            return UploadName(name, if (extension != null) "$id.$extension" else id)
+        }
+    }
+}
+
+/** The names for `file` in this upload; `fileId` supplies the id for names that are not plain ASCII. */
+internal fun UploadContext.nameFor(file: File): UploadName = UploadName.of(file, fileId)
 
 /**
  * The file's name in NFC. File systems and pickers can hand back decomposed Hangul and accents,

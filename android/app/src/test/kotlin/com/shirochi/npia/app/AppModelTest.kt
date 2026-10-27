@@ -6,6 +6,7 @@ import com.shirochi.npia.app.model.JobState
 import com.shirochi.npia.app.model.RunSummary
 import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.UploadBatch
+import com.shirochi.npia.app.model.UploadNaming
 import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.app.model.count
 import com.shirochi.npia.app.model.difference
@@ -144,6 +145,25 @@ class AppModelTest {
 
         val json = JobItem.json.encodeToString(RunSummary.serializer(), mixed.copy(links = listOf("https://example.com/d/1")))
         assertEquals(mixed.copy(links = listOf("https://example.com/d/1")), JobItem.json.decodeFromString(RunSummary.serializer(), json))
+    }
+
+    @Test
+    fun uploadNamesUseTheBookIdThenTheUrl() {
+        // The adapter's id wins (npia: the novel number).
+        assertEquals("419368", UploadNaming.bookId("https://example.com/novel/419368", "419368"))
+        // A book id that is not a safe token falls back to the URL.
+        assertEquals("419368", UploadNaming.bookId("https://example.com/novel/419368", "../x y"))
+        assertEquals("55", UploadNaming.bookId("https://example.com/book/55/chapters", null))
+        assertEquals("novel-abc-def", UploadNaming.bookId("https://example.com/novel/abc_def/", null))
+        assertEquals("book", UploadNaming.bookId("https://example.com/", null))
+        assertEquals("book", UploadNaming.bookId("not a url", null))
+        assertEquals("book", UploadNaming.bookId("https://example.com/%EC%B1%85", null))
+        assertEquals(32, UploadNaming.bookId("https://example.com/" + "a".repeat(80), null).length)
+
+        val job = JobItem(url = "https://example.com/novel/9", bookId = "419368", state = JobState.FINISHED, fileNames = listOf("Tower.epub", "Tower TXT"))
+        assertEquals("419368", UploadNaming.forJob(job))
+        assertEquals(mapOf("Tower.epub" to "419368", "Tower TXT" to "419368"), RunSummary.of(listOf(job))!!.fileIds)
+        assertEquals("9", UploadNaming.forJob(job.copy(bookId = null)))
     }
 
     @Test

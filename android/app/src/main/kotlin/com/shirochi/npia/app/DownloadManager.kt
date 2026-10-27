@@ -10,6 +10,7 @@ import com.shirochi.npia.app.model.JobState
 import com.shirochi.npia.app.model.JsonFileStore
 import com.shirochi.npia.app.model.RunSummary
 import com.shirochi.npia.app.model.UploadBatch
+import com.shirochi.npia.app.model.UploadNaming
 import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.InMemorySecretStore
@@ -264,6 +265,7 @@ class DownloadManager(private val app: Application) {
         update(id) { job ->
             job.copy(
                 title = outcome.book.title,
+                bookId = outcome.book.id,
                 fileNames = outcome.files.map { file ->
                     val path = file.canonicalPath
                     if (path.startsWith(base)) path.removePrefix(base) else file.name
@@ -342,16 +344,20 @@ class DownloadManager(private val app: Application) {
 
     // Uploads
 
-    fun upload(file: File, jobId: String? = null) {
+    /**
+     * Uploads `file`; `bookId` names it when its file name is not plain ASCII, and defaults to the
+     * id of the job it came from.
+     */
+    fun upload(file: File, jobId: String? = null, bookId: String? = jobId?.let { job(it) }?.let(UploadNaming::forJob)) {
         val key = file.absolutePath
         if (_uploadStates.value[key]?.phase == UploadState.Phase.RUNNING) return
-        _uploadStates.update { it + (key to UploadState(key, file.name, jobId)) }
+        _uploadStates.update { it + (key to UploadState(key, file.name, jobId, bookId)) }
         val uploadSettings = _settings.value.upload
         // Keeps the process alive and shows the progress while the app is in the background.
         DownloadService.start(app)
         scope.launch {
             try {
-                val result = uploadWithProgress(file, uploadSettings, key)
+                val result = uploadWithProgress(file, uploadSettings, key, bookId)
                 recordUpload(result)
                 if (jobId != null) {
                     update(jobId) { it.copy(uploads = it.uploads + result) }
@@ -374,10 +380,10 @@ class DownloadManager(private val app: Application) {
      * Uploads through the configured hosts in order, reporting the host being tried and byte
      * progress (at most every 200 ms) into `uploadStates[key]`.
      */
-    private suspend fun uploadWithProgress(file: File, uploadSettings: UploadSettings, key: String): UploadResult {
+    private suspend fun uploadWithProgress(file: File, uploadSettings: UploadSettings, key: String, bookId: String?): UploadResult {
         var lastReport = 0L
         return UploaderCatalog.upload(
-            file, uploadSettings, UploadContext(secrets, uploadSettings), history = null,
+            file, uploadSettings, UploadContext(secrets, uploadSettings), history = null, bookId = bookId,
             progress = { p ->
                 val now = System.nanoTime() / 1_000_000
                 if (p.sentBytes >= p.totalBytes || now - lastReport >= 200) {
@@ -408,10 +414,11 @@ class DownloadManager(private val app: Application) {
             try {
                 for (file in files) {
                     val key = file.absolutePath
-                    _uploadStates.update { it + (key to UploadState(key, file.name)) }
+                    val bookId = summary.fileIds[file.relativeTo(outputDirectory).path] ?: UploadNaming.bookId("", null)
+                    _uploadStates.update { it + (key to UploadState(key, file.name, bookId = bookId)) }
                     _uploadBatch.update { it?.copy(currentPath = key) }
                     try {
-                        val result = uploadWithProgress(file, uploadSettings, key)
+                        val result = uploadWithProgress(file, uploadSettings, key, bookId)
                         recordUpload(result, copyLink = false)
                         links += result.link
                         setUpload(key) { it.copy(phase = UploadState.Phase.DONE, link = result.link, host = hostName(result.hostId)) }
