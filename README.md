@@ -1,4 +1,4 @@
-# NpiaDownloader
+# NovelDB
 
 A fork of that enhances the user experience and output quality. This version adds comprehensive metadata (tags, author, synopsis), improves EPUB formatting with HTML tag and newline support, includes file size optimization, and much more\!
 
@@ -56,7 +56,7 @@ The website metadata pipeline is separate from the desktop novel downloader desc
 
 ## 🌐 External Novel Downloader
 
-In addition to Npia, NpiaDownloader supports downloading novels from **100+ external sites** via the built-in **External Novel** button. This feature is powered by the [novel-downloader](https://github.com/404-novel-project/novel-downloader) project's rule engine.
+In addition to Npia, NovelDB supports downloading novels from **100+ external sites** via the built-in **External Novel** button. This feature is powered by the [novel-downloader](https://github.com/404-novel-project/novel-downloader) project's rule engine.
 
 ### How it works
 
@@ -168,7 +168,7 @@ The main **Novel ID / URL** field in the single-download form also accepts a ful
 
 ## 🛠️ Command-Line Arguments
 
-The NpiaDownloader can be operated directly from the command line, ideal for automated and scripted downloads.
+NovelDB can be operated directly from the command line, ideal for automated and scripted downloads.
 
 *(Keep the table of arguments and usage examples exactly as you have them, they are very clear and well-formatted.)*
 
