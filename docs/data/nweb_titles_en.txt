@@ -62748,7 +62748,6 @@
 1233809|||소유 악당은 주인공을 고문하고 싶어|||The Possessive Villain Wants to Torture the Protagonist
 1233810|||드래곤에게 잡혀가도 정신만 차리면 가족이 된다|||Even If a Dragon Takes You, Keep Your Wits and Become Family
 1233811|||오늘 로맨스는 장르가 다릅니다.|||Today’s Romance Is a Different Genre
-1233813|||여기서 죽으면 결석 처리됩니다.|||If You Die Here, You’ll Be Marked Absent
 1233814|||찬란한 여름 날|||A Radiant Summer Day
 1233819|||소설속 아카이브|||Archive in the Novel
 1233820|||한 여름 복숭아?|||A Midsummer Peach?
@@ -66685,7 +66684,6 @@
 1241279|||언제나 그 자리에, 스탠드 바이 유|||Always There, Stand by You
 1241280|||회귀했더니 미래가 보인다|||After Regressing, I Can See the Future
 1241285|||호구의 동거|||Living with a Pushover
-1241286|||여동생을 죽인놈을 찾으러 갔는데, 그놈이 신이다|||I Went to Find the Man Who Killed My Sister, and He's a God
 1241287|||꽃이 지기 전에 사랑하리|||I Will Love You Before the Flowers Fall
 1241290|||사귀는건 아닌데|||We're Not Dating, Though
 1241291|||《동창회에서 재회한 그놈이 재벌이었다》|||The Guy I Reunited with at the Reunion Was a Chaebol
@@ -67060,7 +67058,6 @@
 1241959|||이상한 나라의 남편님|||My Husband in Wonderland
 1241960|||도미누스 에덴-평범한 빵집에서 시작된 모험|||Dominus Eden: An Adventure Beginning at an Ordinary Bakery
 1241962|||<<메시지>>|||<<Message>>
-1241963|||<그럼에도 너>|||<You, Nevertheless>
 1241964|||지겹도록 평범했던 하루가 사라졌다.|||The Tediously Ordinary Day Disappeared
 1241967|||『라이브 걸!』|||『Live Girl!』
 1241968|||where 나는 계속 묻는다.|||where I Keep Asking
@@ -245824,6 +245821,7 @@
 1231981|||■■|||
 1232844|||.|||
 1233244|||354867|||
+1233813|||《학교 술래잡기 : 여기서 죽으면 결석처리됩니다》|||
 1233972|||.|||
 1234822|||<2652>|||
 1234830|||....|||
@@ -245834,6 +245832,8 @@
 1238873|||ㅜㅁ닝ㄹ|||
 1238989|||.|||
 1239886|||?|||
+1241286|||여동생을 죽인놈을 찾으러 갔는데, 그놈이 신임|||
+1241963|||그럼에도 너|||
 1242460|||이름이 먹는 밤|||
 1242573|||꿈파는 남자|||
 1242696|||마녀와 공작의 여름|||
