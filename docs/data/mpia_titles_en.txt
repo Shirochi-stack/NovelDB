@@ -51679,6 +51679,7 @@
 472170|||무공 못 익히는데 악귀가 내 몸에 들어옴|||I Can't Learn Martial Arts, but an Evil Spirit Possessed Me
 472171|||비밀소설|||The Secret Novel
 472172|||자유의 불꽃, 기계의 심장: 프랑스 혁명과 산업 혁명|||Flame of Freedom, Heart of the Machine: The French and Industrial Revolutions
+472174|||기억의 저편에 잠든 전설|||Legend Sleeping Beyond the Edge of Memory
 472176|||데이터쪼가리에서 사람으로|||From Data Scrap to Human
 472198|||능력 대여소|||Ability Rental Shop
 47220|||필드의 신|||God of the Field
@@ -69084,6 +69085,7 @@
 565422|||경성콜렉터:책방을 샀더니 귀신이 딸려왔다|||Gyeongseong Collector: I Bought a Bookshop and Got a Ghost with It
 565423|||입금 완료, 과거로 다이브|||Payment Confirmed, Diving into the Past
 565429|||내가 재벌인줄은 나도 몰랐다|||Even I Didn't Know I Was a Chaebol
+565435|||나 혼자 아포칼립스 무한 보급|||Solo Apocalypse: Infinite Supply
 565436|||우당탕탕 정찰대가 두둥등장|||The Chaotic Scout Squad Makes Its Grand Entrance
 565443|||베러티 - 사라지는 선|||Verity: The Vanishing Line
 565445|||망겜에서 치트쓰다 전이|||I Used Cheats in a Trash Game and Got Transported
@@ -79093,6 +79095,7 @@
 598693|||40000년 조선에서 시한부 초능력자로 살아남기|||Surviving as a Terminal Superpowered Man in Joseon 40,000 Years Later
 598700|||종말 쉘터의 재앙급 AI가 되었다|||I Became the Calamity-Class AI of an End-Times Shelter
 598701|||그림자 우주|||Shadow Universe
+598702|||노량파왜병장傳 : 이순신, 시간을 건너 운명을 거스르다|||Legend of Noryang: Yi Sun-sin Crosses Time to Defy Fate
 598705|||안드로이드는 천하제일인의 꿈을 꾼다|||The Android Dreams of Becoming the Greatest Under Heaven
 598707|||미래가 나를 기억할 때|||When the Future Remembers Me
 598708|||당신의 이혼은 국가기밀입니다|||Your Divorce Is a State Secret
@@ -80553,6 +80556,7 @@
 601517|||그녀가 남긴 것|||What She Left Behind
 601518|||신을 먹는 흡혈귀가 되다|||I Became a God-Eating Vampire
 601520|||방울꽃이 울리면 .......,|||When the Bellflower Rings.......
+601521|||금환의식: 저문 별들의 제자|||Golden Ring Ritual: Disciple of the Fallen Stars
 601522|||2099 지상환기구역|||2099: The Surface Ventilation Zone
 601523|||재벌들이 집착하는 미래를 보는 박수 무당이 되었다|||I Became a Fortune-Telling Shaman Whom the Chaebols Obsess Over
 601530|||기연의 세입자 다시 쓰기|||The Tenant of Fortune: Rewritten
@@ -80812,6 +80816,7 @@
 602038|||파수 - 서라벌로 간 국가대표|||The Sentinel: The National Team Player Who Went to Seorabeol
 602040|||창천상단 둘째 아들|||The Second Son of the Changcheon Merchant Guild
 602042|||강제거래 능력으로 나혼자 악몽 탑 공략|||I Alone Conquer the Nightmare Tower with Forced Trading
+602043|||21세기 미해군 검은머리 스나이퍼. 6.25 하드캐리|||21st Century U.S. Navy Black-Haired Sniper: Carrying the Korean War
 602045|||스페이스 마린이 전쟁을 너무 잘함|||The Space Marine Is Too Good at War
 602046|||아포칼립스가 나만 보임|||Only I Can See the Apocalypse
 602052|||나만 마법으로 퇴마를 날먹함|||Only I Can Cheese Exorcisms with Magic
@@ -82779,6 +82784,7 @@
 605784|||세상이 망한거지 서울아파트가 망한건 아니잖아|||The World Ended, Not Seoul's Apartments
 605786|||군사의 눈|||The Strategist's Eye
 605787|||잘난 고블린|||The Great Goblin
+605789|||미 로봇 수주 1000조를 따 내었다|||Won a 1,000 Trillion Won American Robot Contract
 605796|||신이 내린 암살천재|||The God-Given Assassin Prodigy
 605797|||군인 세 번 살다|||A Soldier's Third Life
 605798|||검은 머리 노예는 죽지 않는다|||The Black-Haired Slave Doesn't Die
@@ -84038,6 +84044,7 @@
 608040|||회귀는 나 혼자 하는 줄 알았지|||I Thought I Was the Only One Who Regressed
 608041|||부동산 1타 강사 한도윤|||Han Do-yoon, the Top Real Estate Instructor
 608042|||잔청승|||Jancheongseung
+608043|||아포칼립스에 영지를 숨김|||Hiding My Territory in the Apocalypse
 608046|||S급 헌터를 3만2천원에 샀다|||I Bought an S-Rank Hunter for 32,000 Won
 608048|||사짜 무당인 줄 알았는데 신점이 다 맞아버림|||I Thought She Was a Fake Shaman, but Her Readings Came True
 608049|||이강전 후속본|||A Sequel to Lee Gang-jeon
@@ -85863,6 +85870,7 @@
 612050|||몰락한 영애의 집사는 고물이 아니다|||The Butler of the Fallen Noble Lady Is Not Scrap
 612051|||죽어도 퇴사 못 하는 천재 타자|||The Genius Batter Who Can't Quit Even in Death
 612054|||착하게 살았더니 죽었습니다 2부|||I Lived Kindly and Died, Part 2
+612055|||대칸의 고려인 사위가 천하를 정복한다|||The Great Khan's Goryeo Son-in-Law Conquers the World
 612056|||무림 염습사: 죽은 자의 장부|||Martial World Undertaker: The Ledger of the Dead
 612057|||승급용 비상용|||For Promotion Emergency Use
 612058|||인류를 품은 악마|||The Demon That Embraces Humanity
@@ -86148,6 +86156,7 @@
 612695|||오나의 세척|||Ona's Cleansing
 612698|||혈마가 심장 수술을 잘함|||The Blood Demon Is Good at Heart Surgery
 612699|||내 손은 차원도둑|||My Hand Is a Dimensional Thief
+612701|||해고당한 분석관은 신좌급 헌터였다|||The Fired Analyst Was a Divine-Seat Hunter
 612702|||군집: 은퇴용병|||Swarm: Retired Mercenary
 612704|||두 번째 인생은 사람부터 모으겠습니다|||In My Second Life, I'll Gather People First
 612705|||700억 생기고 망한 휴게소가 대박남|||The Ruined Rest Stop That Got 70 Billion Became a Huge Hit
@@ -86304,6 +86313,7 @@
 613060|||아재는 7살에 이세계 하드캐리 예정|||An Old Man Is Set to Hard Carry Another World at Seven
 613061|||고블린으로 환생했더니 EX급 네크로맨서|||Reincarnated as a Goblin, I Became an EX-Rank Necromancer
 613062|||탐정소|||Detective Office
+613063|||암살 아카데미에서 나만 게임 중|||I'm the Only One Playing the Game at the Assassin Academy
 613064|||멸망의 아이가 살아가는 법|||How the Child of Ruin Survives
 613065|||멸망한 세계에서 내 기차만 계속 달린다|||In a Ruined World, Only My Train Keeps Running
 613066|||신(神)|||God
@@ -86681,6 +86691,7 @@
 613860|||휴면계좌 털어서 금융제국|||A Financial Empire Built from Dormant Accounts
 613862|||회귀 후 부실기업으로 재벌이 됐다|||After Regressing, I Became a Chaebol with a Failing Company
 613863|||마법 명문학교의 수리 장학생|||The Math Scholarship Student at a Prestigious Magic School
+613865|||미궁도시|||Labyrinth City
 613869|||안 팔리는 소설을 적었다|||I Wrote a Novel That Doesn't Sell
 613871|||대기업 부장님으로 환생한 중앙정보부장님|||The Former KCIA Director Reincarnated as a Conglomerate Department Head
 613872|||난세정비소 : 관마(官魔)멸망기|||Chaos Repair Shop: The Fall of the Official Demons
@@ -86719,6 +86730,7 @@
 613940|||조폭 두목이 야구를 너무 잘함|||The Gang Boss Is Too Good at Baseball
 613941|||나를 해고하자 1조짜리 공장이 멈췄다|||After Firing Me, a Trillion-Won Factory Stopped
 613942|||죽음으로부터 돌아온 황자님|||The Prince Who Returned from Death
+613943|||평범한 선생님이 알고보니 구원자겸 국가를 만든사람임|||The Ordinary Teacher Turns Out to Be the Savior and the Founder of the Nation
 613944|||아포칼립스에 나혼자 개발자.|||The Only Developer in the Apocalypse
 613945|||18.44미터|||18.44 Meters
 613947|||남궁세가 역대급 권법 천재|||The Record-Breaking Fist Genius of the Namgung Family
@@ -86893,6 +86905,7 @@
 614228|||진짜 완벽한 아이돌|||The Truly Perfect Idol
 614230|||미친 마법 재능으로 초월급 헌터|||A Transcendent Hunter with Insane Magic Talent
 614236|||한전 10년 차, 이세계 전기를 독점함|||Ten Years at KEPCO, I Monopolize Otherworld Electricity
+614239|||얼굴 천재 신입이 퇴마도 잘함|||The Face-Genius Rookie Is Also Great at Exorcism
 614241|||파워볼 당첨되고 날 버린 팀을 사버렸다|||After Winning Powerball, I Bought the Team That Abandoned Me
 614243|||불완전한 독자의 삶|||The Life of an Imperfect Reader
 614249|||해고당한 마법사가 드래곤하트를 각성함|||The Fired Mage Awakens a Dragon Heart
@@ -87223,6 +87236,7 @@
 614848|||소멸의 힘을 숨긴 스승이 너무 유능함|||The Master Who Hid the Power of Annihilation Is Too Competent
 614849|||악마를 뽑았다|||I Drew a Demon
 61485|||한 여름 밤의 꿈 : 루시드|||A Midsummer Night's Dream: Lucid
+614851|||해고당한 K-방산 천재가 AI와 함께 회귀했다|||The Fired K-Defense Genius Regressed with AI
 614852|||혼맥|||Marriage Network
 614854|||퇴사후 웹소설로 연봉 1억 법니다|||After Quitting, I Earn 100 Million Won a Year from Web Novels
 614856|||해고당했더니 신의 설계도가 생겼다|||After Being Fired, I Got God's Blueprint
@@ -87263,33 +87277,99 @@
 614918|||아포칼립스에 나 혼자 삼국지를 소환한다|||I Alone Summon the Three Kingdoms into the Apocalypse
 614922|||날 버린 가문이 자꾸 집착한다|||The Family That Abandoned Me Keeps Clinging On
 614926|||추방된 지도제작자가 도시를 세움.|||An Exiled Cartographer Founds a City.
+614958|||세계란 거, 어차피 시뮬레이션이잖아|||The World Is Just a Simulation, After All
 61504|||쾌검협|||The Swift Sword Hero
 61505|||마나 마스터|||Mana Master
+615091|||종말의 영주는 오늘도 살아남는다|||The Apocalypse Lord Survives Again Today
+615104|||The Package from the Future|||The Package from the Future
+615147|||제국의 막내 황자는 낙제생입니다.|||The Imperial Youngest Prince Is a Failing Student
 61515|||퍼스트 카운트다운(외전추가)|||First Countdown
+615174|||해고당한 게임 기획자의 집이 몬스터 디펜스 거점이 됐다|||The Fired Game Planner's House Became a Monster Defense Base
+615190|||주식회사 이레안전관리|||Ire Safety Management Co., Ltd.
+615197|||멸망 후 100년, 내 연구소는 살아 있었다|||100 Years After the Fall, My Laboratory Was Still Alive
+615199|||게임에 접속되셨습니다|||You Have Logged Into the Game
+615229|||누운 신 (The Lying God)|||The Lying God
+615236|||신과함께 퇴마 스트리밍|||Exorcism Streaming with the Gods
 61529|||도지요요桃之夭夭|||Peach Blossoms in Full Bloom
 61532|||프로 야구 마스터|||Pro Baseball Master
 61537|||야성의 절대자|||The Absolute of the Wild
+615392|||바라 마지않는 그날의 여행|||The Journey of That Longed-For Day
+615402|||사랑은 개뿔, 일단 주사위부터 굴리겠습니다|||Love, My Foot, I'll Roll the Dice First
+615463|||단군왕검의 재벌집 막내아들|||Dangun Wanggeom's Chaebol Youngest Son
+615470|||해고당한 김대리가 천재 킬러라고?|||The Fired Assistant Manager Kim Is a Genius Killer?
 61549|||처음 시간의 규칙|||The Rules of First Time
+615562|||사제 판사|||The Priest Judge
+615574|||코딩에 미친애가 살인에도 미치면 생기는 일|||What Happens When a Coding-Obsessed Girl Goes Mad for Murder Too
+615579|||팔 하나로 기계신이 되었다|||I Became a Machine God With Just One Arm
+615599|||퇴사 후 작품당 100억 받는 현대 미술의 거장이 됨|||After Quitting, I Became a Master of Contemporary Art Earning 10 Billion Won Per Piece
+615618|||망한 괴담 유튜버가 조선의 마지막 사관이 됨|||The Failed Horror Youtuber Becomes Joseon's Last Historian
+615637|||태조 이순신|||Taejo Yi Sun-sin
+615645|||게이트의 주술사|||The Gate's Sorcerer
+615733|||나만 웜홀에서 기억을 잃지 않는다|||Only I Don't Lose My Memories in the Wormhole
+615772|||12층 빌딩, 13층 순찰 담당입니다|||Twelve-Story Building, Thirteenth-Floor Patrol Duty
 61578|||시리우스|||Sirius
 61580|||직업 : 전생자|||Occupation: Reincarnator
+615803|||영웅들에게 평범한 일주일을|||A Normal Week for the Heroes
+615806|||펜싱 국가대표가 게이트에서 나타났다|||The National Fencing Team Member Appeared From the Gate
+615889|||천억부자 됐는데 저승을 못벗어남|||Became a Hundred-Billion Tycoon but Can't Escape the Underworld
+615899|||해고당한 골렘제작자가 만든 동료는 전부 EX급|||The Fired Golem Maker's Companions Are All EX-Rank
 6159|||tomorrow|||Tomorrow
+615909|||이름을 듣는 아이.|||The Child Who Hears Names.
+615917|||강령술사가 된 박수무당 대악마를 구축(驅逐)하다!|||The Shaman Turned Necromancer Expels the Greater Demon!
+615920|||대한민국 육군 병기장교, 눈 떠보니 1590년 조선?|||Republic of Korea Army Ordnance Officer Wakes Up in Joseon, 1590?
+615947|||대한민국 유일 전능 각성자가 해고당함|||South Korea's Only Omnipotent Awakened Is Fired
+615948|||부활한 S급 힐러의 아포칼립스 해몽일지|||The Revived S-Rank Healer's Apocalypse Dream Journal
+615984|||에로이 칸타빌레|||Eroi Cantabile
+615994|||낮 6개월 밤 6개월, 멈춘 지구를 걷는 용병|||Six Months Day, Six Months Night: A Mercenary Walking the Frozen Earth
 616|||심장 튼튼한 놈|||The Tough-Hearted Guy
 61601|||엘리뉴크|||Elynuk
 61604|||독문무공 [E]|||Secret Sect Martial Arts [E]
 61605|||자연검로 [E]|||Natural Sword Path [E]
+616100|||마흔 일곱, AI와 다시 작곡합니다.|||Forty-Seven, Composing Again With AI.
 61611|||차원 어사|||Dimensional Inspector
+616137|||구매팀 부장이 과거 최저가로 다 사버림|||The Purchasing Manager Buys Everything at Past Lowest Prices
 61616|||백조황자의 로맨스|||The Swan Prince's Romance
+616213|||미래를 보고 돌아온 이순신, 정유재란을 준비하다|||Yi Sun-sin Returns From the Future and Prepares for the Jeong-yu War
+616228|||시스템 회귀자의 아포칼립스|||The System Regressor's Apocalypse
+616240|||빙하기 아포칼립스인데 나만 캠핑 중|||Ice Age Apocalypse, and I'm the Only One Camping
+616300|||이 마법사, 손버릇이 나쁘다|||This Mage Has Sticky Fingers
+616334|||잿빛잔영|||Ashen Afterimage
+616344|||개 같은 탑 또 오름|||The Damned Tower Climbs Again
+616367|||괴물한테 장사했더니 억만장자가 됐다|||I Did Business With Monsters and Became a Billionaire
+616379|||전설이다난|||I'm a Legend, Apparently
 61639|||태극진천하|||Taeguk Shakes Heaven and Earth
+616403|||좀비로 3년 살고 회귀했다|||Lived as a Zombie for Three Years Before Regressing
+616420|||모든 엔딩을 봤더니 게임 속 아카데미에 빙의함|||After Seeing Every Ending, I Possessed an Academy in the Game
 61652|||그런 짓은 하지 말아야 했는데|||I Shouldn't Have Done That
+616529|||해고당한 회사원의 아포칼립스|||The Fired Office Worker's Apocalypse
+616583|||이성계의 장남에게 조선은 없다|||The Eldest Son of Yi Seong-gye Has No Joseon
+616595|||죽은 사람의 내일을 배달합니다|||I Deliver Tomorrow for the Dead
 61660|||좀비로써의 삶을 객관적으로 기록한 일기|||An Objective Diary of Life as a Zombie
+616633|||자아도취에 빠진 벌꿀오소리|||The Narcissistic Honey Badger
 61664|||연기의 신 [E]|||God of Acting [E]
+616648|||망할 공장을 샀더니 멸망이 시작됐다|||I Bought a Doomed Factory and the End Began
+616649|||천재 기획자는 두 번 죽지 않는다|||The Genius Planner Doesn't Die Twice
 61665|||해피 투게더|||Happy Together
 61667|||형산검황(衡山劍皇) [E]|||Sword Emperor of Mount Heng [E]
 61674|||기회를 잡아라 럭마스터|||Seize the Chance, Luck Master
+616740|||천재 퇴마사(아님)|||The Genius Exorcist (Not Really)
+616746|||이혼후 아포칼립스에서 초월급 특성을 얻었다|||After Divorce, I Gained a Transcendent Trait in the Apocalypse
 61677|||드래곤 레이드|||Dragon Raid
+616770|||이세계의 치트키 영웅은 조용히 살고싶어!!|||The Otherworld's Cheat Hero Just Wants to Live Quietly!!
+616856|||괴담도 돈만 되면 털어 봅니다|||I'll Cash In on Horror Stories If They Pay
+616884|||좀비 세상에서 데스나이트 군단의 주인이 되었다|||I Became the Master of a Death Knight Legion in a Zombie World
+616954|||삼국지 마왕 동탁는 살기 위해 모두를 죽인다.|||Dong Zhuo, Demon King of the Three Kingdoms, Kills Everyone to Survive.
+616993|||세상이 감염된 날, 가족부터 지켜라|||The Day the World Was Infected, Protect Your Family First
 617|||자명|||Jamyung
+617009|||해고당한 내가 자고 일어나니 인류의 구원자라고?|||I Was Fired, Then Woke Up as Humanity's Savior?
+617048|||던전에서 야가다합니다|||Grinding in the Dungeon
 61705|||괴협|||Strange Hero
+617050|||내가 만든 AI가 톱스타가 되었다|||The AI I Made Became a Top Star
+617077|||죽으러 온 손님들이 자꾸 살아서 돌아갑니다|||The Customers Who Came to Die Keep Leaving Alive
 61712|||고독검 일전객 : 기묘한 낭인 해결사|||The Lone Sword and One-Strike Guest: Strange Wandering Troubleshooter
+617129|||아포칼립스에서 내 편의점만 안전하다|||Only My Convenience Store Is Safe in the Apocalypse
+617130|||유일한 힐러다.|||I'm the Only Healer.
+617150|||내가 떨어진 별세계에서 살아남기 위한 미덕|||The Virtues for Surviving in the Otherworld I Fell Into
 61736|||주인공이 힘을 숨김|||The Protagonist Hides His Power
 61737|||판게아대륙:용병|||Pangaea: Mercenary
 61744|||실제상황|||Real Situation
@@ -92509,7 +92589,6 @@
 435491|||240924|||
 435686|||20240925-13!|||
 435826|||20240926-8|||
-472174|||기억의 저편에 잠든 전설|||
 476128|||20250508|||
 48039|||40,41|||
 481225|||31|||
@@ -92534,7 +92613,6 @@
 55941|||0418|||
 559773|||20260427-4444|||
 564325|||.....3|||
-565435|||나 혼자 아포칼립스 무한 보급|||
 565765|||,,,,|||
 569530|||1592|||
 570221|||2083|||
@@ -92545,87 +92623,9 @@
 592002|||10시26분|||
 592010|||4095|||
 596700|||.............................|||
-598702|||노량파왜병장傳 : 이순신, 시간을 건너 운명을 거스르다|||
-601521|||금환의식: 저문 별들의 제자|||
-602043|||21세기 미해군 검은머리 스나이퍼. 6.25 하드캐리|||
 603137|||1-1|||
 603183|||13-017|||
 603458|||2012|||
-605789|||미 로봇 수주 1000조를 따 내었다|||
 606176|||52|||
-608043|||아포칼립스에 영지를 숨김|||
 610021|||2035|||
-612055|||대칸의 고려인 사위가 천하를 정복한다|||
-612701|||해고당한 분석관은 신좌급 헌터였다|||
-613063|||암살 아카데미에서 나만 게임 중|||
-613865|||미궁도시|||
-613943|||평범한 선생님이 알고보니 구원자겸 국가를 만든사람임|||
-614239|||얼굴 천재 신입이 퇴마도 잘함|||
-614851|||해고당한 K-방산 천재가 AI와 함께 회귀했다|||
-614958|||세계란 거, 어차피 시뮬레이션이잖아|||
-615091|||종말의 영주는 오늘도 살아남는다|||
-615104|||The Package from the Future|||
-615147|||제국의 막내 황자는 낙제생입니다.|||
-615174|||해고당한 게임 기획자의 집이 몬스터 디펜스 거점이 됐다|||
-615190|||주식회사 이레안전관리|||
-615197|||멸망 후 100년, 내 연구소는 살아 있었다|||
-615199|||게임에 접속되셨습니다|||
-615229|||누운 신 (The Lying God)|||
-615236|||신과함께 퇴마 스트리밍|||
-615392|||바라 마지않는 그날의 여행|||
-615402|||사랑은 개뿔, 일단 주사위부터 굴리겠습니다|||
-615463|||단군왕검의 재벌집 막내아들|||
-615470|||해고당한 김대리가 천재 킬러라고?|||
-615562|||사제 판사|||
-615574|||코딩에 미친애가 살인에도 미치면 생기는 일|||
-615579|||팔 하나로 기계신이 되었다|||
-615599|||퇴사 후 작품당 100억 받는 현대 미술의 거장이 됨|||
-615618|||망한 괴담 유튜버가 조선의 마지막 사관이 됨|||
-615637|||태조 이순신|||
-615645|||게이트의 주술사|||
-615733|||나만 웜홀에서 기억을 잃지 않는다|||
-615772|||12층 빌딩, 13층 순찰 담당입니다|||
-615803|||영웅들에게 평범한 일주일을|||
-615806|||펜싱 국가대표가 게이트에서 나타났다|||
-615889|||천억부자 됐는데 저승을 못벗어남|||
-615899|||해고당한 골렘제작자가 만든 동료는 전부 EX급|||
-615909|||이름을 듣는 아이.|||
-615917|||강령술사가 된 박수무당 대악마를 구축(驅逐)하다!|||
-615920|||대한민국 육군 병기장교, 눈 떠보니 1590년 조선?|||
-615947|||대한민국 유일 전능 각성자가 해고당함|||
-615948|||부활한 S급 힐러의 아포칼립스 해몽일지|||
-615984|||에로이 칸타빌레|||
-615994|||낮 6개월 밤 6개월, 멈춘 지구를 걷는 용병|||
-616100|||마흔 일곱, AI와 다시 작곡합니다.|||
-616137|||구매팀 부장이 과거 최저가로 다 사버림|||
-616213|||미래를 보고 돌아온 이순신, 정유재란을 준비하다|||
-616228|||시스템 회귀자의 아포칼립스|||
-616240|||빙하기 아포칼립스인데 나만 캠핑 중|||
-616300|||이 마법사, 손버릇이 나쁘다|||
-616334|||잿빛잔영|||
-616344|||개 같은 탑 또 오름|||
-616367|||괴물한테 장사했더니 억만장자가 됐다|||
-616379|||전설이다난|||
-616403|||좀비로 3년 살고 회귀했다|||
-616420|||모든 엔딩을 봤더니 게임 속 아카데미에 빙의함|||
-616529|||해고당한 회사원의 아포칼립스|||
-616583|||이성계의 장남에게 조선은 없다|||
-616595|||죽은 사람의 내일을 배달합니다|||
-616633|||자아도취에 빠진 벌꿀오소리|||
-616648|||망할 공장을 샀더니 멸망이 시작됐다|||
-616649|||천재 기획자는 두 번 죽지 않는다|||
-616740|||천재 퇴마사(아님)|||
-616746|||이혼후 아포칼립스에서 초월급 특성을 얻었다|||
-616770|||이세계의 치트키 영웅은 조용히 살고싶어!!|||
-616856|||괴담도 돈만 되면 털어 봅니다|||
-616884|||좀비 세상에서 데스나이트 군단의 주인이 되었다|||
-616954|||삼국지 마왕 동탁는 살기 위해 모두를 죽인다.|||
-616993|||세상이 감염된 날, 가족부터 지켜라|||
-617009|||해고당한 내가 자고 일어나니 인류의 구원자라고?|||
-617048|||던전에서 야가다합니다|||
-617050|||내가 만든 AI가 톱스타가 되었다|||
-617077|||죽으러 온 손님들이 자꾸 살아서 돌아갑니다|||
-617129|||아포칼립스에서 내 편의점만 안전하다|||
-617130|||유일한 힐러다.|||
-617150|||내가 떨어진 별세계에서 살아남기 위한 미덕|||
 63401|||49|||
