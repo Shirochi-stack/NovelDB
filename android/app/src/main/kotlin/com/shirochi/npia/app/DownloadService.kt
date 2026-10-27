@@ -43,6 +43,16 @@ class AppPreferences(context: Context) {
         get() = prefs.getInt("maxConcurrentJobs", 1).coerceIn(1, 3)
         set(value) = prefs.edit().putInt("maxConcurrentJobs", value.coerceIn(1, 3)).apply()
 
+    /** `ThemeMode.raw`: system, light, dark or amoled. */
+    var theme: String
+        get() = prefs.getString("theme", null) ?: "system"
+        set(value) = prefs.edit().putString("theme", value).apply()
+
+    /** `Accent.raw`; Halgakos Rose by default. */
+    var accent: String
+        get() = prefs.getString("accent", null) ?: "halgakos_rose"
+        set(value) = prefs.edit().putString("accent", value).apply()
+
     var askedForNotifications: Boolean
         get() = prefs.getBoolean("askedForNotifications", false)
         set(value) = prefs.edit().putBoolean("askedForNotifications", value).apply()

@@ -2,19 +2,24 @@ package com.shirochi.npia.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -71,6 +76,7 @@ fun SettingsScreen(model: AppViewModel) {
         SectionHeader("Sharing")
         NavRow("Upload", "Hosts and automatic upload") { model.push(Route.Upload) }
         SectionHeader("App")
+        NavRow("Appearance", "Theme and accent colour") { model.push(Route.Appearance) }
         NavRow("Screen and background") { model.push(Route.Background) }
         NavRow("Import / export", "Desktop config.json and app settings") { model.push(Route.Transfer) }
     }
@@ -404,6 +410,38 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000_000 -> "${formatNumber(bytes / 100_000_000 / 10.0)} GB"
     bytes >= 1_000_000 -> "${bytes / 1_000_000} MB"
     else -> "${bytes / 1_000} KB"
+}
+
+// Appearance
+
+@Composable
+fun AppearanceSettingsScreen(model: AppViewModel) {
+    val manager = model.manager
+    manager.preferencesFlow.collectAsStateWithLifecycle().value
+    val theme = ThemeMode.of(manager.preferences.theme)
+    val accent = Accent.of(manager.preferences.accent)
+    SettingsColumn {
+        SectionHeader("Theme")
+        ChipFlow {
+            ThemeMode.entries.forEach { mode -> ToggleChip(mode.label, mode == theme) { manager.setTheme(mode.raw) } }
+        }
+        Footnote("AMOLED is the dark theme with pure-black backgrounds.")
+        SectionHeader("Accent")
+        ChipFlow {
+            Accent.available.forEach { option ->
+                FilterChip(
+                    selected = option == accent,
+                    onClick = { manager.setAccent(option.raw) },
+                    label = { Text(option.label, style = MaterialTheme.typography.labelMedium) },
+                    leadingIcon = if (option == Accent.WALLPAPER) null else {
+                        { Box(Modifier.size(14.dp).background(option.seed, CircleShape)) }
+                    },
+                    modifier = Modifier.height(32.dp),
+                )
+            }
+        }
+        Footnote("Halgakos Rose is the Glossarion theme. Wallpaper follows your phone's wallpaper colours.")
+    }
 }
 
 // Screen and background
