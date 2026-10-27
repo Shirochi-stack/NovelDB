@@ -11,7 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -27,9 +31,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.model.CartItem
 import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.SourceOptionGroup
 import com.shirochi.npia.app.model.editRunSettings
@@ -58,7 +64,8 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
         if (found.isNotEmpty()) text = (text.lines().filter { it.isNotBlank() } + found).distinct().joinToString("\n")
     }
 
-    val urls = SourceInfo.urls(text)
+    val cart by model.cart.items.collectAsStateWithLifecycle()
+    val urls = (SourceInfo.urls(text) + cart.map { it.url }).distinct()
     val supported = urls.filter { SourceCatalog.adapterFor(it) != null }
     val source = supported.firstOrNull()?.let { SourceCatalog.adapterFor(it)?.id }
 
@@ -86,6 +93,7 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             }) { Text("Paste") }
             if (text.isNotEmpty()) TextButton(onClick = { text = "" }) { Text("Clear") }
         }
+        LinkCartSection(cart, onRemove = model.cart::remove, onClear = model.cart::clear)
         DetectionSummary(urls)
 
         CompactHeader("Format")
@@ -149,12 +157,45 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
         Button(
             onClick = {
                 manager.enqueue(supported) { manager.settings.value }
+                model.cart.removeAll(supported)
                 text = ""
                 onQueued()
             },
             enabled = supported.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         ) { Text(if (supported.size > 1) "Download ${supported.size} books" else "Download") }
+    }
+}
+
+/** Books added with the link-cart button on the Catalog tab; Download queues them with the URLs above. */
+@Composable
+private fun LinkCartSection(items: List<CartItem>, onRemove: (String) -> Unit, onClear: () -> Unit) {
+    if (items.isEmpty()) return
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "🔗 Link cart (${items.size})",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onClear) { Text("Clear cart") }
+    }
+    Column(Modifier.padding(start = 16.dp, end = 4.dp)) {
+        items.forEach { item ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.title.ifBlank { item.url }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOf(item.source, com.shirochi.npia.core.bareHost(item.url)).filter { it.isNotBlank() }.joinToString(" \u00B7 "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { onRemove(item.url) }) { Icon(Icons.Filled.Close, contentDescription = "Remove from cart") }
+            }
+        }
     }
 }
 
