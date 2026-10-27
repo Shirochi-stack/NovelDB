@@ -245,8 +245,13 @@ class NpiaTagSearchTest {
         assertTrue(logs.any { it.startsWith("Public intro default PARTIAL; discoveries retained: ValueError: public intro HTTP 404") })
         assertTrue(logs.contains("Public intro: 0 R19 novels discovered in 2 requests"))
         assertTrue(logs.contains("Checking 2 public author catalogs with 4 workers (1-2s random delay)..."))
-        assertTrue(logs.contains("  Author 7, page 1: 1/2 complete, 4 IDs total"))
-        assertTrue(logs.contains("  Author 8, page 1: 2/2 complete, 4 IDs total"))
+        // The authors answer in a random order (each waits 1 to 2 seconds first), so only the counts are fixed.
+        val authorLines = logs.filter { it.startsWith("  Author ") }
+        assertEquals(2, authorLines.size)
+        assertTrue(authorLines.toString(), authorLines.any { it.startsWith("  Author 7, page 1: ") })
+        assertTrue(authorLines.toString(), authorLines.any { it.startsWith("  Author 8, page 1: ") })
+        assertTrue(authorLines.toString(), authorLines.first().contains(": 1/2 complete, 4 IDs total"))
+        assertTrue(authorLines.toString(), authorLines.last().contains(": 2/2 complete, 4 IDs total"))
         assertEquals("  4 novel(s) retrieved total", logs.last())
 
         // Two queries only: the first two terms, with the age parameter left empty.

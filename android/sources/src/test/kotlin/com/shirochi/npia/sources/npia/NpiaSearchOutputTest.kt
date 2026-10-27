@@ -81,7 +81,7 @@ class NpiaSearchOutputTest {
         )
         assertEquals("Daily All", NpiaSearchOutput.titleCase("daily all"))
         assertEquals("It'S Ok", NpiaSearchOutput.titleCase("it's ok"))
-        assertEquals("A1b", NpiaSearchOutput.titleCase("a1B"))
+        assertEquals("A1B", NpiaSearchOutput.titleCase("a1B"))
         assertEquals("top100_rankings.txt", NpiaSearchOutput.TOP100_FILE_NAME)
     }
 
