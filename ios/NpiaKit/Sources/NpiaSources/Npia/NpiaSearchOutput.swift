@@ -33,13 +33,19 @@ public enum NpiaSearchOutput {
     /// their English grid name (spaces become underscores).
     public static func tagLabel(groups: [[String]]?) -> String {
         guard let groups else { return "all_novels" }
-        return groups.map { group in
-            group.map { tag in
-                tag.allSatisfy(\.isASCII)
-                    ? tag
-                    : (NpiaSearchTerms.commonTag(for: tag)?.english ?? tag).replacingOccurrences(of: " ", with: "_")
-            }.joined(separator: "_OR_")
-        }.joined(separator: "+")
+        var parts: [String] = []
+        for group in groups {
+            let names: [String] = group.map { labelName(forTag: $0) }
+            parts.append(names.joined(separator: "_OR_"))
+        }
+        return parts.joined(separator: "+")
+    }
+
+    /// An ASCII tag as it is; a Korean one as its English grid name with underscores.
+    private static func labelName(forTag tag: String) -> String {
+        if tag.allSatisfy({ $0.isASCII }) { return tag }
+        let english = NpiaSearchTerms.commonTag(for: tag)?.english ?? tag
+        return english.replacingOccurrences(of: " ", with: "_")
     }
 
     /// `tag_<label>.txt`, with characters a file name cannot hold replaced by "-".
@@ -92,7 +98,10 @@ public enum NpiaSearchOutput {
         return lines.joined(separator: "\n")
     }
 
+    /// Characters a file name cannot hold.
+    private static let illegalFileNameCharacters: Set<Character> = ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]
+
     private static func sanitized(_ name: String) -> String {
-        String(name.map { "/\:*?\"<>|".contains($0) ? "-" : $0 })
+        String(name.map { illegalFileNameCharacters.contains($0) ? "-" : $0 })
     }
 }

@@ -31,12 +31,21 @@ public enum NpiaSearchTerms {
     public static let searchTags: [String] = unique(baseTags + extraTags)
 
     /// `SWEEP_CHARS`: Hangul syllables, Hangul consonants, A-Z, then 0-9.
-    public static let sweepChars: [String] = unique(
-        Array("가나다라마바사아자차카타파하").map(String.init)
-            + Array("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ").map(String.init)
-            + Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
-            + Array("0123456789").map(String.init)
-    )
+    public static let sweepChars: [String] = {
+        let groups: [String] = [
+            "가나다라마바사아자차카타파하",
+            "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ",
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "0123456789",
+        ]
+        var characters: [String] = []
+        for group in groups {
+            for character in group {
+                characters.append(String(character))
+            }
+        }
+        return unique(characters)
+    }()
 
     /// `ALL_SEARCH_TERMS`: tags first, then the sweep characters.
     public static let allTerms: [String] = unique(searchTags + sweepChars)
