@@ -86,6 +86,13 @@ data class JobItem(
             coerceInputValues = true
         }
 
+        /**
+         * Ids "Stop all" cancels: queued jobs first, so a running job that ends cannot start the
+         * next queued one before it is cancelled.
+         */
+        fun stopOrder(jobs: List<JobItem>): List<String> =
+            jobs.filter { it.state == JobState.QUEUED }.map { it.id } + jobs.filter { it.state == JobState.RUNNING }.map { it.id }
+
         /** Jobs that were running when the process died cannot resume mid-way. */
         fun interrupted(jobs: List<JobItem>): List<JobItem> = jobs.map {
             if (it.state.isActive) it.copy(state = JobState.FAILED, status = "Interrupted; tap Retry") else it

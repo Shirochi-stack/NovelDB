@@ -167,8 +167,9 @@ class DownloadManager(private val app: Application) {
         }
     }
 
+    /** Cancels every queued and running job through the per-job path, so the service and notification follow. */
     fun cancelAll() {
-        _jobs.value.filter { it.state.isActive }.forEach { cancel(it.id) }
+        JobItem.stopOrder(_jobs.value).forEach { cancel(it) }
     }
 
     fun retry(id: String) {

@@ -49,9 +49,30 @@ fun QueueScreen(model: AppViewModel, topBar: TopBarState) {
     val manager = model.manager
     val jobs by manager.jobs.collectAsStateWithLifecycle()
     val hasFinished = jobs.any { !it.state.isActive }
-    LaunchedEffect(hasFinished) {
-        val clear: @Composable () -> Unit = { TextButton(onClick = { manager.clearFinished() }) { Text("Clear finished") } }
-        topBar.actions = if (hasFinished) clear else null
+    val activeCount = jobs.count { it.state.isActive }
+    var confirmStopAll by remember { mutableStateOf(false) }
+    LaunchedEffect(hasFinished, activeCount) {
+        val actions: @Composable () -> Unit = {
+            if (activeCount > 0) {
+                TextButton(onClick = { if (activeCount > 1) confirmStopAll = true else manager.cancelAll() }) { Text("Stop all") }
+            }
+            if (hasFinished) TextButton(onClick = { manager.clearFinished() }) { Text("Clear finished") }
+        }
+        topBar.actions = if (hasFinished || activeCount > 0) actions else null
+    }
+    if (confirmStopAll) {
+        AlertDialog(
+            onDismissRequest = { confirmStopAll = false },
+            title = { Text("Stop all $activeCount downloads?") },
+            text = { Text("Running and queued downloads are cancelled. Chapters already downloaded are kept in the cache.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmStopAll = false
+                    manager.cancelAll()
+                }) { Text("Stop all") }
+            },
+            dismissButton = { TextButton(onClick = { confirmStopAll = false }) { Text("Keep going") } },
+        )
     }
 
     if (jobs.isEmpty()) {
