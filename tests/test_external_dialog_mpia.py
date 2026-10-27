@@ -30,6 +30,7 @@ def make_download_dialog(scraper, book_data=None):
         _apply_scraper_options=lambda: None,
         _sleep_while_downloading=Mock(return_value=True),
         _log=Mock(),
+        _ui_fetch_done=Mock(),
     )
 
 
@@ -172,7 +173,7 @@ def test_mpia_metadata_uses_native_browser_startup(monkeypatch, entrypoint):
             })
             instances.append(self)
 
-    monkeypatch.setattr('external_dialog.ExternalScraper', Scraper)
+    monkeypatch.setattr('noveldb.core.external.pipeline.ExternalScraper', Scraper)
     dialog = make_download_dialog(None)
     dialog._get_output_dir = lambda: '.'
     dialog._var_from_enabled = Setting(False)
