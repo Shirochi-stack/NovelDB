@@ -106,12 +106,7 @@ public struct FenrirAdapter: SourceAdapter {
             }
         }
         let shared = context.shared(for: Self.id)
-        if shared.intervalMax > 0 {
-            let low = max(0, min(shared.intervalMin, shared.intervalMax))
-            let high = max(low, shared.intervalMax)
-            let delay = Double.random(in: low...high)
-            if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-        }
+        try await shared.sleepChapterDelay()
         var output: [ChapterResult] = []
         for (offset, ref) in refs.enumerated() {
             if let result = results[offset] {

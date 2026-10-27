@@ -143,7 +143,8 @@ public struct KpageAdapter: SourceAdapter {
 
     /// Concurrent like the default, plus the optional cross-chapter duplicate image removal.
     public func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
-        let limit = max(1, context.shared(for: Self.id).threads)
+        let shared = context.shared(for: Self.id)
+        let limit = max(1, shared.threads)
         let options = context.settings.sources.kpage
         let leading = options.dedupeImages ? max(1, min(10, options.dedupeLeadingImages)) : 0
 
@@ -152,13 +153,13 @@ public struct KpageAdapter: SourceAdapter {
         try await withThrowingTaskGroup(of: (Int, ChapterResult).self) { group in
             for _ in 0..<limit {
                 guard let item = pending.popLast() else { break }
-                group.addTask { try await self.chapterTask(item.offset, item.element, context: context, leading: leading) }
+                group.addTask { try await self.chapterTask(item.offset, item.element, context: context, leading: leading, delay: nil) }
             }
             while let (position, result) = try await group.next() {
                 results[position] = result
                 context.onChapter(result)
                 if let item = pending.popLast() {
-                    group.addTask { try await self.chapterTask(item.offset, item.element, context: context, leading: leading) }
+                    group.addTask { try await self.chapterTask(item.offset, item.element, context: context, leading: leading, delay: shared) }
                 }
             }
         }
@@ -184,7 +185,8 @@ public struct KpageAdapter: SourceAdapter {
         return ordered
     }
 
-    private func chapterTask(_ position: Int, _ ref: ChapterRef, context: SourceContext, leading: Int) async throws -> (Int, ChapterResult) {
+    private func chapterTask(_ position: Int, _ ref: ChapterRef, context: SourceContext, leading: Int, delay: SharedSettings?) async throws -> (Int, ChapterResult) {
+        if let delay { try await delay.sleepChapterDelay() }
         do {
             return (position, try await readChapter(ref, context: context, leadingImageBytes: leading))
         } catch is CancellationError {

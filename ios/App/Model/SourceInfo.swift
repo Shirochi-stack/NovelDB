@@ -70,3 +70,36 @@ extension SharedOverrides {
         return result
     }
 }
+
+extension AppSettings {
+    /// Where an Add-tab edit of an overridable field goes, mirroring the desktop split: npia
+    /// edits the main window keys (`overrides["npia"]`), a source that already overrides the
+    /// field keeps its override, and everything else edits the shared external-downloader keys.
+    func writesOverride<T>(_ path: KeyPath<SharedOverrides, T?>, for source: SourceID?) -> Bool {
+        guard let source else { return false }
+        return source == .npia || overrides[source.rawValue]?[keyPath: path] != nil
+    }
+
+    mutating func setShared<T>(_ sharedPath: WritableKeyPath<SharedSettings, T>, _ overridePath: WritableKeyPath<SharedOverrides, T?>, _ value: T, for source: SourceID?) {
+        if let source, writesOverride(overridePath, for: source) {
+            var override = overrides[source.rawValue] ?? SharedOverrides()
+            override[keyPath: overridePath] = value
+            overrides[source.rawValue] = override.isEmpty ? nil : override
+        } else {
+            shared[keyPath: sharedPath] = value
+        }
+    }
+
+    /// Chapter range ends are optional on both sides, so they need their own setter.
+    mutating func setRange(_ sharedPath: WritableKeyPath<SharedSettings, Int?>, _ overridePath: WritableKeyPath<SharedOverrides, Int?>, _ value: Int?, for source: SourceID?) {
+        if let source, writesOverride(overridePath, for: source) {
+            var override = overrides[source.rawValue] ?? SharedOverrides()
+            override[keyPath: overridePath] = value
+            overrides[source.rawValue] = override.isEmpty ? nil : override
+            // An override cannot say "no range", so clearing it also clears the shared end.
+            if value == nil { shared[keyPath: sharedPath] = nil }
+        } else {
+            shared[keyPath: sharedPath] = value
+        }
+    }
+}

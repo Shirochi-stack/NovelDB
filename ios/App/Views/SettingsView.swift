@@ -1,6 +1,7 @@
 import NpiaCore
 import NpiaSources
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     var body: some View {
@@ -41,27 +42,27 @@ struct SharedSettingsForm: View {
                     Text("Title").tag(NamingMode.title)
                     Text("Book ID").tag(NamingMode.id)
                 }
-                Toggle("Append chapter range to name", isOn: $model.settings.shared.appendRange)
-                Toggle("One TXT file per chapter", isOn: $model.settings.shared.separateTXT)
-                Toggle("Number chapter titles", isOn: $model.settings.shared.numberChapters)
+                Toggle("Append chapter range to title", isOn: $model.settings.shared.appendRange)
+                Toggle("Separate TXT files", isOn: $model.settings.shared.separateTXT)
+                Toggle("Number chapters", isOn: $model.settings.shared.numberChapters)
             }
             Section("Chapters") {
                 OptionalNumberField(title: "From chapter", value: $model.settings.shared.rangeFrom, defaultValue: 1)
                 OptionalNumberField(title: "To chapter", value: $model.settings.shared.rangeTo, defaultValue: model.settings.shared.rangeFrom ?? 1)
-                Toggle("Skip paid chapters", isOn: $model.settings.shared.skipPaid)
-                Toggle("Write output when stopped", isOn: $model.settings.shared.generateOnStop)
+                Toggle("Skip paid", isOn: $model.settings.shared.skipPaid)
+                Toggle("Generate on stop", isOn: $model.settings.shared.generateOnStop)
             }
-            Section("Speed") {
-                Stepper("Chapter threads: \(model.settings.shared.threads)", value: $model.settings.shared.threads, in: 1...16)
-                Stepper("Image downloads: \(model.settings.shared.imageWorkers)", value: $model.settings.shared.imageWorkers, in: 1...16)
-                DecimalField(title: "Delay min (s)", value: $model.settings.shared.intervalMin)
-                DecimalField(title: "Delay max (s)", value: $model.settings.shared.intervalMax)
+            Section("Speed (external downloader)") {
+                Stepper("Threads: \(model.settings.shared.threads)", value: $model.settings.shared.threads, in: 1...16)
+                Stepper("Image Workers: \(model.settings.shared.imageWorkers)", value: $model.settings.shared.imageWorkers, in: 1...16)
+                DecimalField(title: "Rate Limiting Min (s)", value: $model.settings.shared.intervalMin)
+                DecimalField(title: "Rate Limiting Max (s)", value: $model.settings.shared.intervalMax)
                 Stepper("Retries: \(model.settings.shared.maxRetries)", value: $model.settings.shared.maxRetries, in: 0...30)
                 Stepper("Downloads at once: \(model.maxConcurrentJobs)", value: $model.maxConcurrentJobs, in: 1...3)
             }
             Section("Cache") {
-                Toggle("Cache chapters", isOn: $model.settings.shared.useCache)
-                Toggle("Cache images", isOn: $model.settings.shared.cacheImages)
+                Toggle("Use Cache", isOn: $model.settings.shared.useCache)
+                Toggle("Cache Images", isOn: $model.settings.shared.cacheImages)
             }
         }
         .navigationTitle("General")
@@ -119,13 +120,13 @@ struct SourceOverrideForm: View {
                 OverrideRow(title: "Formats", value: overrides.formats, shared: shared.formats, describe: { $0.map { $0.rawValue.uppercased() }.joined(separator: ", ") }) { binding in
                     FormatPicker(formats: binding)
                 }
-                OverrideRow(title: "Chapter threads", value: overrides.threads, shared: shared.threads, describe: { "\($0)" }) { binding in
+                OverrideRow(title: "Threads", value: overrides.threads, shared: shared.threads, describe: { "\($0)" }) { binding in
                     Stepper("\(binding.wrappedValue)", value: binding, in: 1...16)
                 }
-                OverrideRow(title: "Delay min", value: overrides.intervalMin, shared: shared.intervalMin, describe: { "\($0) s" }) { binding in
+                OverrideRow(title: "Rate Limiting Min", value: overrides.intervalMin, shared: shared.intervalMin, describe: { "\($0) s" }) { binding in
                     DecimalField(title: "Seconds", value: binding)
                 }
-                OverrideRow(title: "Delay max", value: overrides.intervalMax, shared: shared.intervalMax, describe: { "\($0) s" }) { binding in
+                OverrideRow(title: "Rate Limiting Max", value: overrides.intervalMax, shared: shared.intervalMax, describe: { "\($0) s" }) { binding in
                     DecimalField(title: "Seconds", value: binding)
                 }
                 OverrideRow(title: "From chapter", value: overrides.rangeFrom, shared: shared.rangeFrom ?? 1, describe: { "\($0)" }) { binding in
@@ -134,16 +135,16 @@ struct SourceOverrideForm: View {
                 OverrideRow(title: "To chapter", value: overrides.rangeTo, shared: shared.rangeTo ?? 1, describe: { "\($0)" }) { binding in
                     Stepper("\(binding.wrappedValue)", value: binding, in: 1...100_000)
                 }
-                OverrideRow(title: "Cache chapters", value: overrides.useCache, shared: shared.useCache, describe: onOff) { binding in
+                OverrideRow(title: "Use Cache", value: overrides.useCache, shared: shared.useCache, describe: onOff) { binding in
                     Toggle("Enabled", isOn: binding)
                 }
-                OverrideRow(title: "Cache images", value: overrides.cacheImages, shared: shared.cacheImages, describe: onOff) { binding in
+                OverrideRow(title: "Cache Images", value: overrides.cacheImages, shared: shared.cacheImages, describe: onOff) { binding in
                     Toggle("Enabled", isOn: binding)
                 }
-                OverrideRow(title: "Number chapter titles", value: overrides.numberChapters, shared: shared.numberChapters, describe: onOff) { binding in
+                OverrideRow(title: "Number chapters", value: overrides.numberChapters, shared: shared.numberChapters, describe: onOff) { binding in
                     Toggle("Enabled", isOn: binding)
                 }
-                OverrideRow(title: "One TXT per chapter", value: overrides.separateTXT, shared: shared.separateTXT, describe: onOff) { binding in
+                OverrideRow(title: "Separate TXT files", value: overrides.separateTXT, shared: shared.separateTXT, describe: onOff) { binding in
                     Toggle("Enabled", isOn: binding)
                 }
             } footer: {
@@ -173,19 +174,19 @@ struct SourceOptionsForm: View {
         Form {
             Section("kpage") {
                 Toggle("Skip last page", isOn: $model.settings.sources.kpage.skipLastPage)
-                Toggle("Keep filler pages", isOn: $model.settings.sources.kpage.keepFiller)
-                Toggle("Remove duplicate images", isOn: $model.settings.sources.kpage.dedupeImages)
+                Toggle("Keep filler", isOn: $model.settings.sources.kpage.keepFiller)
+                Toggle("Dedupe images", isOn: $model.settings.sources.kpage.dedupeImages)
                 Stepper("Leading images to compare: \(model.settings.sources.kpage.dedupeLeadingImages)", value: $model.settings.sources.kpage.dedupeLeadingImages, in: 1...10)
                     .disabled(!model.settings.sources.kpage.dedupeImages)
             }
             Section("ntk") {
-                Toggle("Use npia cover when available", isOn: $model.settings.sources.ntkNpiaCover)
+                Toggle("Prefer source cover", isOn: $model.settings.sources.ntkNpiaCover)
             }
             Section("nweb") {
                 Toggle("Prefer store cover", isOn: $model.settings.sources.nwebStoreCover)
             }
             Section("kobo") {
-                Toggle("Horizontal layout", isOn: $model.settings.sources.koboHorizontalLayout)
+                Toggle("Horizontal Japanese text (kobo)", isOn: $model.settings.sources.koboHorizontalLayout)
             }
         }
         .navigationTitle("Source options")
@@ -200,14 +201,37 @@ struct NpiaSettingsForm: View {
     @State private var password = ""
     @State private var hasPassword = false
     @State private var hasLoginKey = false
+    @State private var mappedCharacters = 0
+    @State private var importingMapping = false
+    @State private var mappingError: String?
 
     var body: some View {
         @Bindable var model = model
         Form {
             Section("Downloads") {
-                Toggle("Include notices", isOn: $model.settings.npia.includeNotices)
+                Toggle("Download Author Notices", isOn: $model.settings.npia.includeNotices)
                 Toggle("Browser fallback", isOn: $model.settings.npia.useBrowserFallback)
-                Toggle("Sign in automatically", isOn: $model.settings.npia.autoLogin)
+                Toggle("Auto-login on startup", isOn: $model.settings.npia.autoLogin)
+            }
+            Section {
+                LabeledContent("Mapping", value: mappedCharacters > 0 ? "\(mappedCharacters) characters mapped" : "None")
+                Button("Import mapping JSON") { importingMapping = true }
+                if mappedCharacters > 0 {
+                    Button("Clear", role: .destructive) {
+                        FontMapping.clear()
+                        reloadMapping()
+                    }
+                }
+                if let mappingError {
+                    Text(mappingError).font(.caption).foregroundStyle(.red)
+                }
+            } header: {
+                Text("Font Mapping")
+            } footer: {
+                Text("The desktop font mapping file (a JSON object of character replacements). It is applied to npia chapter text and kept on this device only.")
+            }
+            .fileImporter(isPresented: $importingMapping, allowedContentTypes: [.json, .plainText, .data]) { result in
+                importMapping(result)
             }
             Section {
                 TextField("Email", text: $email)
@@ -254,13 +278,33 @@ struct NpiaSettingsForm: View {
             }
         }
         .navigationTitle("npia")
-        .onAppear(perform: reload)
+        .onAppear {
+            reload()
+            reloadMapping()
+        }
     }
 
     private func reload() {
         email = model.secrets.string(for: .npiaEmail) ?? ""
         hasPassword = model.secrets.string(for: .npiaPassword) != nil
         hasLoginKey = model.secrets.string(for: .npiaLoginKey) != nil
+    }
+
+    private func reloadMapping() {
+        mappedCharacters = FontMapping.load()?.count ?? 0
+    }
+
+    private func importMapping(_ result: Result<URL, Error>) {
+        mappingError = nil
+        do {
+            let url = try result.get()
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            try FontMapping.importFile(url)
+        } catch {
+            mappingError = "Could not import: " + error.localizedDescription
+        }
+        reloadMapping()
     }
 }
 
@@ -273,8 +317,8 @@ struct ImageSettingsForm: View {
         @Bindable var model = model
         Form {
             Section("Chapter images") {
-                Toggle("Save image URLs only", isOn: $model.settings.images.saveImageURLsOnly)
-                Toggle("Compress images", isOn: $model.settings.images.compress)
+                Toggle("Save Image URLs Only", isOn: $model.settings.images.saveImageURLsOnly)
+                Toggle("Compress Images", isOn: $model.settings.images.compress)
                 Group {
                     Picker("Format", selection: $model.settings.images.format) {
                         ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -282,12 +326,12 @@ struct ImageSettingsForm: View {
                     Stepper("Quality: \(model.settings.images.quality)", value: $model.settings.images.quality, in: 10...100, step: 5)
                     Toggle("Convert GIFs", isOn: $model.settings.images.convertGIFs)
                     Toggle("Static images only", isOn: $model.settings.images.staticOnly)
-                    Stepper("Compression workers: \(model.settings.images.compressionWorkers)", value: $model.settings.images.compressionWorkers, in: 1...8)
+                    Stepper("Image Compression Workers: \(model.settings.images.compressionWorkers)", value: $model.settings.images.compressionWorkers, in: 1...8)
                 }
                 .disabled(!model.settings.images.compress || model.settings.images.saveImageURLsOnly)
             }
             Section("Cover") {
-                Toggle("Compress cover", isOn: $model.settings.images.compressCover)
+                Toggle("Compress Cover", isOn: $model.settings.images.compressCover)
                 Group {
                     Picker("Cover format", selection: $model.settings.images.coverFormat) {
                         ForEach(ImageFormat.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -299,7 +343,7 @@ struct ImageSettingsForm: View {
             Section {
                 OptionalNumberField(title: "Shrink EPUB/PDF to target size (MB)", value: $model.settings.images.recompressTargetMB, defaultValue: 20)
                 Toggle("Long image layout", isOn: $model.settings.images.longImageLayout)
-                Toggle("Compress images inside EPUB zip", isOn: $model.settings.images.zipCompressImages)
+                Toggle("ZIP Compress", isOn: $model.settings.images.zipCompressImages)
             } header: {
                 Text("Book")
             } footer: {
@@ -319,16 +363,16 @@ struct TextSettingsForm: View {
         @Bindable var model = model
         Form {
             Section("Text") {
-                Toggle("Strip leading spaces", isOn: $model.settings.text.stripLeadingSpaces)
-                Toggle("Remove blank lines", isOn: $model.settings.text.removeNewlines)
-                Toggle("Blank line between paragraphs", isOn: $model.settings.text.blankParagraphLines)
-                Toggle("Also save HTML", isOn: $model.settings.text.saveHTML)
+                Toggle("Remove Leading Spaces", isOn: $model.settings.text.stripLeadingSpaces)
+                Toggle("Remove Newlines / <br>", isOn: $model.settings.text.removeNewlines)
+                Toggle("Blank line after each paragraph", isOn: $model.settings.text.blankParagraphLines)
+                Toggle("Save as HTML (instead of TXT)", isOn: $model.settings.text.saveHTML)
             }
             Section("PDF") {
-                Toggle("Table of contents", isOn: $model.settings.text.pdfTOC)
-                Toggle("TOC page numbers", isOn: $model.settings.text.pdfCounterLayout)
+                Toggle("Table of Contents", isOn: $model.settings.text.pdfTOC)
+                Toggle("TOC Page Numbers", isOn: $model.settings.text.pdfCounterLayout)
                     .disabled(!model.settings.text.pdfTOC)
-                Toggle("Page numbers", isOn: $model.settings.text.pdfPageNumbers)
+                Toggle("Page Numbers", isOn: $model.settings.text.pdfPageNumbers)
             }
         }
         .navigationTitle("Text and PDF")

@@ -136,6 +136,7 @@ public struct NpiaAdapter: SourceAdapter {
                     stripLeadingSpaces: context.settings.text.stripLeadingSpaces,
                     removeNewlines: context.settings.text.removeNewlines,
                     saveImageURLsOnly: context.settings.images.saveImageURLsOnly,
+                    fontMapping: FontMapping.load(),
                     imagePrefix: (ref.isNotice ? "n" : "") + String(format: "%04d", ref.index)
                 )
                 let rendered = NpiaParser.renderSegments(segments, options: options)

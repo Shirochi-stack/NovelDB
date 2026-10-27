@@ -91,7 +91,7 @@ public struct FlooAdapter: SourceAdapter {
         if Self.needsBrowser(outcome) {
             if let rendered = await Self.browserOutcome(url, context: context) { outcome = rendered }
         }
-        await Self.pause(shared)
+        // The chapter loop rests the per-chapter delay between chapters.
 
         switch outcome {
         case .text(let lines):
@@ -185,14 +185,5 @@ public struct FlooAdapter: SourceAdapter {
         }
         let html = FlooParser.imageHTML(images.map { $0.filename })
         return .content(ChapterContent(ref: ref, html: html, images: images))
-    }
-
-    /// `_sleep_interval`: a random pause between `intervalMin` and `intervalMax` seconds.
-    static func pause(_ shared: SharedSettings) async {
-        let low = max(0, shared.intervalMin)
-        let high = max(low, shared.intervalMax)
-        let seconds = high > low ? Double.random(in: low...high) : low
-        guard seconds > 0 else { return }
-        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 }
