@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -31,11 +32,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.SourceOptionGroup
-import com.shirochi.npia.app.model.difference
+import com.shirochi.npia.app.model.editRunSettings
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.ImageFormat
 import com.shirochi.npia.core.OutputFormat
-import com.shirochi.npia.core.SharedOverrides
+import com.shirochi.npia.core.SharedSettings
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.sources.SourceCatalog
 
@@ -61,73 +62,104 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
     val supported = urls.filter { SourceCatalog.adapterFor(it) != null }
     val source = supported.firstOrNull()?.let { SourceCatalog.adapterFor(it)?.id }
 
-    // Working copies: `shared` holds the effective values for the detected source.
-    var draft by remember(source) { mutableStateOf(settings) }
-    var shared by remember(source) { mutableStateOf(source?.let(settings::effective) ?: settings.shared) }
-    var rememberDefaults by remember(source) { mutableStateOf(false) }
-    var showMore by remember { mutableStateOf(false) }
+    // The desktop download options, saved as they change (npia keeps its own values like the
+    // desktop main window; other sources share the external downloader's).
+    val run = source?.let(settings::effective) ?: settings.shared
+    fun edit(change: (SharedSettings) -> SharedSettings) = manager.updateSettings { it.editRunSettings(source, change) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
             label = { Text("Novel URL (one per line)") },
-            minLines = 2,
-            maxLines = 6,
+            minLines = 1,
+            maxLines = 5,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
-        Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = {
                 clipboardText(context)?.let { clip ->
                     val found = SourceInfo.extractUrls(clip).ifEmpty { listOf(clip.trim()) }
-                    text = (text.lines().filter { it.isNotBlank() } + found).joinToString("\n")
+                    text = (text.lines().filter { it.isNotBlank() } + found).joinToString("
+")
                 }
             }) { Text("Paste") }
             if (text.isNotEmpty()) TextButton(onClick = { text = "" }) { Text("Clear") }
         }
         DetectionSummary(urls)
 
-        if (source == null) return@Column
-
-        SectionHeader("Output")
-        FormatPicker(shared.formats) { shared = shared.copy(formats = it) }
-        if (OutputFormat.TXT in shared.formats) {
-            SwitchRow("One TXT file per chapter", shared.separateTxt, { shared = shared.copy(separateTxt = it) })
+        CompactHeader("Format")
+        FormatChips(run.formats) { f -> edit { it.copy(formats = f) } }
+        if (OutputFormat.TXT in run.formats) {
+            ChipFlow { ToggleChip("Separate TXT files", run.separateTxt) { v -> edit { it.copy(separateTxt = v) } } }
         }
 
-        SectionHeader("Chapters")
-        OptionalIntRow("From chapter", shared.rangeFrom, 1) { shared = shared.copy(rangeFrom = it) }
-        OptionalIntRow("To chapter", shared.rangeTo, shared.rangeFrom ?: 1) { shared = shared.copy(rangeTo = it) }
-        SwitchRow("Skip paid chapters", shared.skipPaid, { shared = shared.copy(skipPaid = it) })
-        SwitchRow("Number chapter titles", shared.numberChapters, { shared = shared.copy(numberChapters = it) })
+        CompactHeader("Download")
+        CompactRow {
+            MiniLabel("Threads", Modifier.weight(1f))
+            MiniStepper(run.threads, 1..16) { v -> edit { it.copy(threads = v) } }
+            MiniLabel("Image Workers", Modifier.weight(1f).padding(start = 8.dp))
+            MiniStepper(run.imageWorkers, 1..16) { v -> edit { it.copy(imageWorkers = v) } }
+        }
+        CompactRow {
+            MiniLabel("Rate Limiting", Modifier.weight(1f))
+            MiniLabel("Min")
+            MiniNumberField(formatNumber(run.intervalMin), "0", decimal = true) { t ->
+                t.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 }?.let { v -> edit { it.copy(intervalMin = v) } }
+            }
+            MiniLabel("Max")
+            MiniNumberField(formatNumber(run.intervalMax), "0", decimal = true) { t ->
+                t.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 }?.let { v -> edit { it.copy(intervalMax = v) } }
+            }
+            MiniLabel("s")
+        }
+        CompactRow {
+            MiniLabel("Chapter Range", Modifier.weight(1f))
+            MiniLabel("From")
+            MiniNumberField(run.rangeFrom?.toString().orEmpty(), "1", decimal = false) { t ->
+                if (t.isBlank()) edit { it.copy(rangeFrom = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeFrom = v) } }
+            }
+            MiniLabel("To")
+            MiniNumberField(run.rangeTo?.toString().orEmpty(), "end", decimal = false) { t ->
+                if (t.isBlank()) edit { it.copy(rangeTo = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeTo = v) } }
+            }
+        }
+        ChipFlow {
+            ToggleChip("Skip paid", run.skipPaid) { v -> edit { it.copy(skipPaid = v) } }
+            ToggleChip("Number chapters", run.numberChapters) { v -> edit { it.copy(numberChapters = v) } }
+            ToggleChip("Generate on stop", run.generateOnStop) { v -> edit { it.copy(generateOnStop = v) } }
+            ToggleChip("Use Cache", run.useCache) { v -> edit { it.copy(useCache = v) } }
+            ToggleChip("Cache Images", run.cacheImages) { v -> edit { it.copy(cacheImages = v) } }
+        }
 
-        SourceOptions(source, draft) { draft = it }
-
-        SwitchRow("Speed and images", showMore, { showMore = it })
-        if (showMore) {
-            StepperRow("Chapter threads", shared.threads, 1..16, { shared = shared.copy(threads = it) })
-            StepperRow("Image downloads", shared.imageWorkers, 1..16, { shared = shared.copy(imageWorkers = it) })
-            DecimalField("Delay min (s)", shared.intervalMin, { shared = shared.copy(intervalMin = it) })
-            DecimalField("Delay max (s)", shared.intervalMax, { shared = shared.copy(intervalMax = it) })
-            SwitchRow("Use chapter cache", shared.useCache, { shared = shared.copy(useCache = it) })
-            SwitchRow("Compress images", draft.images.compress, { draft = draft.copy(images = draft.images.copy(compress = it)) })
-            if (draft.images.compress) {
-                ChoiceRow("Image format", draft.images.format, ImageFormat.entries, { it.label }, { draft = draft.copy(images = draft.images.copy(format = it)) })
+        if (source != null) {
+            SourceOptions(source, settings) { next ->
+                manager.updateSettings { it.copy(sources = next.sources, images = next.images, npia = next.npia) }
             }
         }
 
-        SwitchRow("Save as defaults for ${source.raw}", rememberDefaults, { rememberDefaults = it })
         Button(
             onClick = {
-                queue(model, supported, source, draft, shared, rememberDefaults)
+                manager.enqueue(supported) { manager.settings.value }
                 text = ""
                 onQueued()
             },
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            enabled = supported.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         ) { Text(if (supported.size > 1) "Download ${supported.size} books" else "Download") }
-        Footnote("Defaults are stored as per-source overrides; skip-paid and image choices apply to this download only.")
     }
+}
+
+/** A section title with less space than `SectionHeader`. */
+@Composable
+private fun CompactHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
+    )
 }
 
 @Composable
@@ -152,70 +184,45 @@ private fun DetectionSummary(urls: List<String>) {
     }
 }
 
-/** Per-source option groups (shared with the settings screens). */
+/** Per-source option groups as compact chips (shared with the settings screens). */
 @Composable
 fun SourceOptions(source: SourceId, draft: AppSettings, onChange: (AppSettings) -> Unit) {
     val groups = SourceInfo.groups(source)
     if (groups.isEmpty()) return
-    SectionHeader("${source.raw} options")
+    Text(
+        "${source.raw} options",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
+    )
     val s = draft.sources
-    for (group in groups) {
-        when (group) {
-            SourceOptionGroup.NPIA -> {
-                SwitchRow("Include notices", draft.npia.includeNotices, { onChange(draft.copy(npia = draft.npia.copy(includeNotices = it))) })
-                SwitchRow("Browser fallback", draft.npia.useBrowserFallback, { onChange(draft.copy(npia = draft.npia.copy(useBrowserFallback = it))) })
-            }
-            SourceOptionGroup.KPAGE -> {
-                SwitchRow("Skip last page", s.kpage.skipLastPage, { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(skipLastPage = it)))) })
-                SwitchRow("Keep filler pages", s.kpage.keepFiller, { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(keepFiller = it)))) })
-                SwitchRow("Remove duplicate images", s.kpage.dedupeImages, { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(dedupeImages = it)))) })
-                if (s.kpage.dedupeImages) {
-                    StepperRow("Leading images to compare", s.kpage.dedupeLeadingImages, 1..10, {
-                        onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(dedupeLeadingImages = it))))
-                    })
+    ChipFlow {
+        for (group in groups) {
+            when (group) {
+                SourceOptionGroup.NPIA -> {
+                    ToggleChip("Download Author Notices", draft.npia.includeNotices) { onChange(draft.copy(npia = draft.npia.copy(includeNotices = it))) }
+                    ToggleChip("Browser fallback", draft.npia.useBrowserFallback) { onChange(draft.copy(npia = draft.npia.copy(useBrowserFallback = it))) }
                 }
+                SourceOptionGroup.KPAGE -> {
+                    ToggleChip("Skip last page", s.kpage.skipLastPage) { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(skipLastPage = it)))) }
+                    ToggleChip("Keep filler", s.kpage.keepFiller) { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(keepFiller = it)))) }
+                    ToggleChip("Dedupe images", s.kpage.dedupeImages) { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(dedupeImages = it)))) }
+                }
+                SourceOptionGroup.NTK_COVER ->
+                    ToggleChip("Prefer source cover", s.ntkNpiaCover) { onChange(draft.copy(sources = s.copy(ntkNpiaCover = it))) }
+                SourceOptionGroup.NWEB_COVER ->
+                    ToggleChip("Prefer store cover", s.nwebStoreCover) { onChange(draft.copy(sources = s.copy(nwebStoreCover = it))) }
+                SourceOptionGroup.KOBO_LAYOUT ->
+                    ToggleChip("Horizontal Japanese text", s.koboHorizontalLayout) { onChange(draft.copy(sources = s.copy(koboHorizontalLayout = it))) }
+                SourceOptionGroup.LONG_IMAGES ->
+                    ToggleChip("Long image layout", draft.images.longImageLayout) { onChange(draft.copy(images = draft.images.copy(longImageLayout = it))) }
             }
-            SourceOptionGroup.NTK_COVER ->
-                SwitchRow("Use npia cover when available", s.ntkNpiaCover, { onChange(draft.copy(sources = s.copy(ntkNpiaCover = it))) })
-            SourceOptionGroup.NWEB_COVER ->
-                SwitchRow("Prefer store cover", s.nwebStoreCover, { onChange(draft.copy(sources = s.copy(nwebStoreCover = it))) })
-            SourceOptionGroup.KOBO_LAYOUT ->
-                SwitchRow("Horizontal layout", s.koboHorizontalLayout, { onChange(draft.copy(sources = s.copy(koboHorizontalLayout = it))) })
-            SourceOptionGroup.LONG_IMAGES ->
-                SwitchRow("Long image layout", draft.images.longImageLayout, { onChange(draft.copy(images = draft.images.copy(longImageLayout = it))) })
         }
     }
-}
-
-private fun queue(
-    model: AppViewModel,
-    urls: List<String>,
-    source: SourceId,
-    draft: AppSettings,
-    shared: com.shirochi.npia.core.SharedSettings,
-    rememberDefaults: Boolean,
-) {
-    model.manager.enqueue(urls) { jobSource ->
-        var settings = draft.copy(shared = draft.shared.copy(skipPaid = shared.skipPaid, imageWorkers = shared.imageWorkers))
-        if (jobSource != null) {
-            val difference = SharedOverrides.difference(shared, settings.shared)
-            settings = settings.copy(overrides = settings.overrides.toMutableMap().apply {
-                if (difference.isEmpty) remove(jobSource.raw) else put(jobSource.raw, difference)
-            })
-        }
-        settings
-    }
-    if (rememberDefaults) {
-        model.manager.updateSettings { saved ->
-            val difference = SharedOverrides.difference(shared, saved.shared)
-            saved.copy(
-                overrides = saved.overrides.toMutableMap().apply {
-                    if (difference.isEmpty) remove(source.raw) else put(source.raw, difference)
-                },
-                npia = draft.npia,
-                sources = draft.sources,
-                images = saved.images.copy(longImageLayout = draft.images.longImageLayout),
-            )
+    if (SourceOptionGroup.KPAGE in groups && s.kpage.dedupeImages) {
+        CompactRow {
+            MiniLabel("Leading images to compare", Modifier.weight(1f))
+            MiniStepper(s.kpage.dedupeLeadingImages, 1..10) { onChange(draft.copy(sources = s.copy(kpage = s.kpage.copy(dedupeLeadingImages = it)))) }
         }
     }
 }

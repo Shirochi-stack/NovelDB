@@ -39,6 +39,7 @@ object Writers {
         OutputFormat.TXT -> TxtWriter()
         OutputFormat.HTML -> HtmlWriter()
         OutputFormat.PDF -> pdfWriter
+        OutputFormat.CBZ -> CbzWriter()
     }
 
     /** Output file name without extension, following `namingMode` and `appendRange`. */

@@ -40,6 +40,7 @@ import com.shirochi.npia.core.NamingMode
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SharedOverrides
 import com.shirochi.npia.core.SourceId
+import com.shirochi.npia.sources.npia.NpiaFontMapping
 import com.shirochi.npia.upload.Uploader
 import com.shirochi.npia.upload.UploaderCatalog
 
@@ -59,7 +60,7 @@ private fun settingsState(model: AppViewModel): Pair<AppSettings, ((AppSettings)
 fun SettingsScreen(model: AppViewModel) {
     SettingsColumn {
         SectionHeader("Downloads")
-        NavRow("General", "Formats, chapters, speed, cache") { model.push(Route.General) }
+        NavRow("General", "Format, chapter range, threads, rate limiting, cache") { model.push(Route.General) }
         NavRow("Per-source overrides") { model.push(Route.Overrides) }
         NavRow("Source options", "kpage, ntk, nweb, kobo") { model.push(Route.SourceOptions) }
         NavRow("npia", "Account, notices, tag search") { model.push(Route.Npia) }
@@ -86,28 +87,28 @@ fun GeneralSettingsScreen(model: AppViewModel) {
     SettingsColumn {
         SectionHeader("Output")
         FormatPicker(shared.formats) { f -> set { it.copy(formats = f) } }
-        ChoiceRow("File names", shared.namingMode, NamingMode.entries, { if (it == NamingMode.TITLE) "Title" else "Book ID" }, { m -> set { it.copy(namingMode = m) } })
-        SwitchRow("Append chapter range to name", shared.appendRange, { v -> set { it.copy(appendRange = v) } })
-        SwitchRow("One TXT file per chapter", shared.separateTxt, { v -> set { it.copy(separateTxt = v) } })
-        SwitchRow("Number chapter titles", shared.numberChapters, { v -> set { it.copy(numberChapters = v) } })
+        ChoiceRow("File Naming", shared.namingMode, NamingMode.entries, { if (it == NamingMode.TITLE) "Save as Title" else "Save as ID" }, { m -> set { it.copy(namingMode = m) } })
+        SwitchRow("Append chapter range to title for ongoing novels", shared.appendRange, { v -> set { it.copy(appendRange = v) } })
+        SwitchRow("Separate TXT files", shared.separateTxt, { v -> set { it.copy(separateTxt = v) } })
+        SwitchRow("Number chapters", shared.numberChapters, { v -> set { it.copy(numberChapters = v) } })
 
-        SectionHeader("Chapters")
-        OptionalIntRow("From chapter", shared.rangeFrom, 1) { v -> set { it.copy(rangeFrom = v) } }
-        OptionalIntRow("To chapter", shared.rangeTo, shared.rangeFrom ?: 1) { v -> set { it.copy(rangeTo = v) } }
-        SwitchRow("Skip paid chapters", shared.skipPaid, { v -> set { it.copy(skipPaid = v) } })
-        SwitchRow("Write output when stopped", shared.generateOnStop, { v -> set { it.copy(generateOnStop = v) } })
+        SectionHeader("Chapter Range")
+        OptionalIntRow("From", shared.rangeFrom, 1) { v -> set { it.copy(rangeFrom = v) } }
+        OptionalIntRow("To", shared.rangeTo, shared.rangeFrom ?: 1) { v -> set { it.copy(rangeTo = v) } }
+        SwitchRow("Skip paid", shared.skipPaid, { v -> set { it.copy(skipPaid = v) } })
+        SwitchRow("Generate on stop", shared.generateOnStop, { v -> set { it.copy(generateOnStop = v) } })
 
-        SectionHeader("Speed")
-        StepperRow("Chapter threads", shared.threads, 1..16, { v -> set { it.copy(threads = v) } })
-        StepperRow("Image downloads", shared.imageWorkers, 1..16, { v -> set { it.copy(imageWorkers = v) } })
-        DecimalField("Delay min (s)", shared.intervalMin, { v -> set { it.copy(intervalMin = v) } })
-        DecimalField("Delay max (s)", shared.intervalMax, { v -> set { it.copy(intervalMax = v) } })
+        SectionHeader("Threads and Rate Limiting")
+        StepperRow("Threads", shared.threads, 1..16, { v -> set { it.copy(threads = v) } })
+        StepperRow("Image Workers", shared.imageWorkers, 1..16, { v -> set { it.copy(imageWorkers = v) } })
+        DecimalField("Rate Limiting Min (s)", shared.intervalMin, { v -> set { it.copy(intervalMin = v) } })
+        DecimalField("Rate Limiting Max (s)", shared.intervalMax, { v -> set { it.copy(intervalMax = v) } })
         StepperRow("Retries", shared.maxRetries, 0..30, { v -> set { it.copy(maxRetries = v) } })
         StepperRow("Downloads at once", model.manager.preferences.maxConcurrentJobs, 1..3, { model.manager.setMaxConcurrentJobs(it) })
 
         SectionHeader("Cache")
-        SwitchRow("Cache chapters", shared.useCache, { v -> set { it.copy(useCache = v) } })
-        SwitchRow("Cache images", shared.cacheImages, { v -> set { it.copy(cacheImages = v) } })
+        SwitchRow("Use Cache", shared.useCache, { v -> set { it.copy(useCache = v) } })
+        SwitchRow("Cache Images", shared.cacheImages, { v -> set { it.copy(cacheImages = v) } })
     }
 }
 
@@ -138,31 +139,31 @@ fun OverrideFormScreen(model: AppViewModel, source: SourceId) {
         OverrideRow("Formats", overrides.formats, shared.formats, { f -> f.joinToString { it.raw.uppercase() } }, { v -> set { it.copy(formats = v) } }) { value, change ->
             FormatPicker(value, change)
         }
-        OverrideRow("Chapter threads", overrides.threads, shared.threads, { "$it" }, { v -> set { it.copy(threads = v) } }) { value, change ->
+        OverrideRow("Threads", overrides.threads, shared.threads, { "$it" }, { v -> set { it.copy(threads = v) } }) { value, change ->
             StepperRow("Threads", value, 1..16, change)
         }
-        OverrideRow("Delay min", overrides.intervalMin, shared.intervalMin, { "${formatNumber(it)} s" }, { v -> set { it.copy(intervalMin = v) } }) { value, change ->
+        OverrideRow("Rate Limiting Min", overrides.intervalMin, shared.intervalMin, { "${formatNumber(it)} s" }, { v -> set { it.copy(intervalMin = v) } }) { value, change ->
             DecimalField("Seconds", value, change)
         }
-        OverrideRow("Delay max", overrides.intervalMax, shared.intervalMax, { "${formatNumber(it)} s" }, { v -> set { it.copy(intervalMax = v) } }) { value, change ->
+        OverrideRow("Rate Limiting Max", overrides.intervalMax, shared.intervalMax, { "${formatNumber(it)} s" }, { v -> set { it.copy(intervalMax = v) } }) { value, change ->
             DecimalField("Seconds", value, change)
         }
-        OverrideRow("From chapter", overrides.rangeFrom, shared.rangeFrom ?: 1, { "$it" }, { v -> set { it.copy(rangeFrom = v) } }) { value, change ->
+        OverrideRow("From", overrides.rangeFrom, shared.rangeFrom ?: 1, { "$it" }, { v -> set { it.copy(rangeFrom = v) } }) { value, change ->
             IntField("Chapter", value, change)
         }
-        OverrideRow("To chapter", overrides.rangeTo, shared.rangeTo ?: 1, { "$it" }, { v -> set { it.copy(rangeTo = v) } }) { value, change ->
+        OverrideRow("To", overrides.rangeTo, shared.rangeTo ?: 1, { "$it" }, { v -> set { it.copy(rangeTo = v) } }) { value, change ->
             IntField("Chapter", value, change)
         }
-        OverrideRow("Cache chapters", overrides.useCache, shared.useCache, onOff, { v -> set { it.copy(useCache = v) } }) { value, change ->
+        OverrideRow("Use Cache", overrides.useCache, shared.useCache, onOff, { v -> set { it.copy(useCache = v) } }) { value, change ->
             SwitchRow("Enabled", value, change)
         }
-        OverrideRow("Cache images", overrides.cacheImages, shared.cacheImages, onOff, { v -> set { it.copy(cacheImages = v) } }) { value, change ->
+        OverrideRow("Cache Images", overrides.cacheImages, shared.cacheImages, onOff, { v -> set { it.copy(cacheImages = v) } }) { value, change ->
             SwitchRow("Enabled", value, change)
         }
-        OverrideRow("Number chapter titles", overrides.numberChapters, shared.numberChapters, onOff, { v -> set { it.copy(numberChapters = v) } }) { value, change ->
+        OverrideRow("Number chapters", overrides.numberChapters, shared.numberChapters, onOff, { v -> set { it.copy(numberChapters = v) } }) { value, change ->
             SwitchRow("Enabled", value, change)
         }
-        OverrideRow("One TXT per chapter", overrides.separateTxt, shared.separateTxt, onOff, { v -> set { it.copy(separateTxt = v) } }) { value, change ->
+        OverrideRow("Separate TXT files", overrides.separateTxt, shared.separateTxt, onOff, { v -> set { it.copy(separateTxt = v) } }) { value, change ->
             SwitchRow("Enabled", value, change)
         }
         Footnote("Switched-off rows follow General settings.")
@@ -204,11 +205,34 @@ fun NpiaSettingsScreen(model: AppViewModel) {
     val npia = settings.npia
     fun set(change: (com.shirochi.npia.core.NpiaSettings) -> com.shirochi.npia.core.NpiaSettings) = update { it.copy(npia = change(it.npia)) }
 
+    val context = LocalContext.current
+    var mapped by remember { mutableStateOf(NpiaFontMapping.mapping.size) }
+    val mappingImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val message = runCatching {
+            val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } ?: error("Could not read the file")
+            mapped = NpiaFontMapping.import(text)
+            "Font mapping loaded: $mapped characters"
+        }.getOrElse { "Font mapping failed: ${it.message}" }
+        model.manager.message(message)
+    }
+
     SettingsColumn {
         SectionHeader("Downloads")
-        SwitchRow("Include notices", npia.includeNotices, { v -> set { it.copy(includeNotices = v) } })
+        SwitchRow("Download Author Notices", npia.includeNotices, { v -> set { it.copy(includeNotices = v) } })
         SwitchRow("Browser fallback", npia.useBrowserFallback, { v -> set { it.copy(useBrowserFallback = v) } })
-        SwitchRow("Sign in automatically", npia.autoLogin, { v -> set { it.copy(autoLogin = v) } })
+        SwitchRow("Auto-login on startup", npia.autoLogin, { v -> set { it.copy(autoLogin = v) } })
+
+        SectionHeader("Font Mapping")
+        NavRow("Open...", if (mapped > 0) "$mapped characters mapped" else "No mapping file") {
+            mappingImporter.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*"))
+        }
+        if (mapped > 0) {
+            TextButton(onClick = { NpiaFontMapping.clear(); mapped = 0 }, modifier = Modifier.padding(start = 8.dp)) {
+                Text("Clear", color = MaterialTheme.colorScheme.error)
+            }
+        }
+        Footnote("The desktop font mapping JSON; npia chapter text is decoded through it.")
 
         SectionHeader("Account")
         OutlinedTextField(
@@ -266,24 +290,24 @@ fun ImageSettingsScreen(model: AppViewModel) {
     val chapterEnabled = images.compress && !images.saveImageUrlsOnly
     SettingsColumn {
         SectionHeader("Chapter images")
-        SwitchRow("Save image URLs only", images.saveImageUrlsOnly, { v -> set { it.copy(saveImageUrlsOnly = v) } })
-        SwitchRow("Compress images", images.compress, { v -> set { it.copy(compress = v) } })
+        SwitchRow("Save Image URLs Only", images.saveImageUrlsOnly, { v -> set { it.copy(saveImageUrlsOnly = v) } })
+        SwitchRow("Compress Images", images.compress, { v -> set { it.copy(compress = v) } })
         ChoiceRow("Format", images.format, ImageFormat.entries, { it.label }, { v -> set { it.copy(format = v) } }, enabled = chapterEnabled)
         StepperRow("Quality", images.quality, 10..100, { v -> set { it.copy(quality = v) } }, step = 5, enabled = chapterEnabled)
         SwitchRow("Convert GIFs", images.convertGifs, { v -> set { it.copy(convertGifs = v) } }, enabled = chapterEnabled)
         SwitchRow("Static images only", images.staticOnly, { v -> set { it.copy(staticOnly = v) } }, enabled = chapterEnabled)
-        StepperRow("Compression workers", images.compressionWorkers, 1..8, { v -> set { it.copy(compressionWorkers = v) } }, enabled = chapterEnabled)
+        StepperRow("Image Compression Workers", images.compressionWorkers, 1..8, { v -> set { it.copy(compressionWorkers = v) } }, enabled = chapterEnabled)
         Footnote("Animated images keep their animation unless Static images only is on, since Android cannot encode animated WebP or PNG.")
 
         SectionHeader("Cover")
-        SwitchRow("Compress cover", images.compressCover, { v -> set { it.copy(compressCover = v) } })
+        SwitchRow("Compress Cover", images.compressCover, { v -> set { it.copy(compressCover = v) } })
         ChoiceRow("Cover format", images.coverFormat, ImageFormat.entries, { it.label }, { v -> set { it.copy(coverFormat = v) } }, enabled = images.compressCover)
         StepperRow("Cover quality", images.coverQuality, 10..100, { v -> set { it.copy(coverQuality = v) } }, step = 5, enabled = images.compressCover)
 
         SectionHeader("Book")
-        OptionalDecimalRow("Shrink EPUB/PDF to target size (MB)", images.recompressTargetMb, 20.0) { v -> set { it.copy(recompressTargetMb = v) } }
+        OptionalDecimalRow("Recompress to meet target size (MB)", images.recompressTargetMb, 20.0) { v -> set { it.copy(recompressTargetMb = v) } }
         SwitchRow("Long image layout", images.longImageLayout, { v -> set { it.copy(longImageLayout = v) } })
-        SwitchRow("Compress images inside EPUB zip", images.zipCompressImages, { v -> set { it.copy(zipCompressImages = v) } })
+        SwitchRow("ZIP Compress", images.zipCompressImages, { v -> set { it.copy(zipCompressImages = v) } })
         Footnote("The size target re-encodes JPEG and WebP images at lower quality, up to four passes. Long image layout shows webtoon strips edge to edge without chapter titles.")
     }
 }
@@ -297,14 +321,14 @@ fun TextSettingsScreen(model: AppViewModel) {
     fun set(change: (com.shirochi.npia.core.TextSettings) -> com.shirochi.npia.core.TextSettings) = update { it.copy(text = change(it.text)) }
     SettingsColumn {
         SectionHeader("Text")
-        SwitchRow("Strip leading spaces", text.stripLeadingSpaces, { v -> set { it.copy(stripLeadingSpaces = v) } })
-        SwitchRow("Remove blank lines", text.removeNewlines, { v -> set { it.copy(removeNewlines = v) } })
-        SwitchRow("Blank line between paragraphs", text.blankParagraphLines, { v -> set { it.copy(blankParagraphLines = v) } })
+        SwitchRow("Remove Leading Spaces", text.stripLeadingSpaces, { v -> set { it.copy(stripLeadingSpaces = v) } })
+        SwitchRow("Remove Newlines / <br>", text.removeNewlines, { v -> set { it.copy(removeNewlines = v) } })
+        SwitchRow("Blank line after each paragraph", text.blankParagraphLines, { v -> set { it.copy(blankParagraphLines = v) } })
         SwitchRow("Also save HTML", text.saveHtml, { v -> set { it.copy(saveHtml = v) } })
         SectionHeader("PDF")
-        SwitchRow("Table of contents", text.pdfToc, { v -> set { it.copy(pdfToc = v) } })
-        SwitchRow("TOC page numbers", text.pdfCounterLayout, { v -> set { it.copy(pdfCounterLayout = v) } }, enabled = text.pdfToc)
-        SwitchRow("Page numbers", text.pdfPageNumbers, { v -> set { it.copy(pdfPageNumbers = v) } })
+        SwitchRow("Table of Contents", text.pdfToc, { v -> set { it.copy(pdfToc = v) } })
+        SwitchRow("TOC Page Numbers", text.pdfCounterLayout, { v -> set { it.copy(pdfCounterLayout = v) } }, enabled = text.pdfToc)
+        SwitchRow("Page Numbers", text.pdfPageNumbers, { v -> set { it.copy(pdfPageNumbers = v) } })
     }
 }
 

@@ -26,6 +26,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.shirochi.npia.app.model.editRunSettings
 
 /** Plain JVM tests for the app's non-UI logic. */
 class AppModelTest {
@@ -108,5 +109,29 @@ class AppModelTest {
         assertEquals(listOf(OutputFormat.EPUB), toggleFormat(listOf(OutputFormat.EPUB), OutputFormat.EPUB))
         assertEquals(listOf(OutputFormat.EPUB, OutputFormat.PDF), toggleFormat(listOf(OutputFormat.PDF), OutputFormat.EPUB))
         assertEquals(listOf(OutputFormat.PDF), toggleFormat(listOf(OutputFormat.EPUB, OutputFormat.PDF), OutputFormat.EPUB))
+    }
+
+    @Test
+    fun addTabEditsFollowDesktopStorage() {
+        val base = AppSettings()
+        // Other sources write the shared (external downloader) values.
+        val shared = base.editRunSettings(com.shirochi.npia.core.SourceId.NWEB) { it.copy(threads = 7, intervalMin = 0.2, intervalMax = 0.9, skipPaid = true) }
+        assertEquals(7, shared.shared.threads)
+        assertEquals(0.2, shared.shared.intervalMin, 0.0)
+        assertEquals(0.9, shared.shared.intervalMax, 0.0)
+        assertTrue(shared.shared.skipPaid)
+        assertTrue(shared.overrides.isEmpty())
+        // npia keeps its own values, like the desktop main window.
+        val npia = base.editRunSettings(com.shirochi.npia.core.SourceId.NPIA) { it.copy(threads = 2, imageWorkers = 3) }
+        assertEquals(4, npia.shared.threads)
+        assertEquals(2, npia.overrides["npia"]?.threads)
+        assertEquals(3, npia.shared.imageWorkers)
+        // A field a source already overrides stays on the override.
+        val overridden = base.copy(overrides = mapOf("nweb" to SharedOverrides(intervalMax = 5.0)))
+            .editRunSettings(com.shirochi.npia.core.SourceId.NWEB) { it.copy(intervalMax = 6.0, intervalMin = 1.5) }
+        assertEquals(6.0, overridden.overrides["nweb"]?.intervalMax)
+        assertEquals(1.5, overridden.shared.intervalMin, 0.0)
+        // No source detected: shared.
+        assertEquals(9, base.editRunSettings(null) { it.copy(threads = 9) }.shared.threads)
     }
 }

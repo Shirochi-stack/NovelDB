@@ -129,7 +129,6 @@ class FlooAdapter : SourceAdapter {
         if (needsBrowser(outcome)) {
             browserOutcome(url, context)?.let { outcome = it }
         }
-        pause(shared)
 
         return when (val result = outcome) {
             is FlooChapterOutcome.Text -> ChapterResult.Content(ChapterContent(ref, FlooParser.chapterHtml(result.lines)))
@@ -219,12 +218,6 @@ class FlooAdapter : SourceAdapter {
         }
 
         /** `_sleep_interval`: a random pause between `intervalMin` and `intervalMax` seconds. */
-        internal suspend fun pause(shared: SharedSettings) {
-            val low = shared.intervalMin.coerceAtLeast(0.0)
-            val high = shared.intervalMax.coerceAtLeast(low)
-            val seconds = if (high > low) Random.nextDouble(low, high) else low
-            if (seconds <= 0) return
-            delay((seconds * 1000).toLong())
-        }
+        internal suspend fun pause(shared: SharedSettings) = shared.pauseBetweenChapters()
     }
 }

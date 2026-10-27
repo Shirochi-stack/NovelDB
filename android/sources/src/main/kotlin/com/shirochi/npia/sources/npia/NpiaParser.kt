@@ -287,6 +287,8 @@ internal object NpiaParser {
         val saveImageUrlsOnly: Boolean = false,
         /** Prefix for image file names, e.g. `0012` or `n0001`. */
         val imagePrefix: String = "0001",
+        /** Desktop "Font Mapping": obfuscated character to real character. */
+        val fontMapping: Map<String, String> = emptyMap(),
     )
 
     data class Rendered(val html: String, val images: List<ImageRef>)
@@ -352,6 +354,7 @@ internal object NpiaParser {
             if (options.stripLeadingSpaces) {
                 text = NpiaRx.replace("""^(?:[ \t\f\x0B\x{A0}]|&nbsp;)+""", text, "")
             }
+            text = NpiaFontMapping.decode(text, options.fontMapping)
             if (text.isEmpty()) continue
             var safe = NpiaEntities.escape(text)
             if (!options.removeNewlines) safe = safe.replace("\n", "<br/>")

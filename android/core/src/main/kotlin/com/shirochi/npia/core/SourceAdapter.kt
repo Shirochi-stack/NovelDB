@@ -39,26 +39,42 @@ interface SourceAdapter {
 
     suspend fun parseChapter(ref: ChapterRef, book: BookInfo, context: SourceContext): ChapterResult
 
-    /** Defaults to `parseChapter` with `threads` concurrent calls; override for batch APIs. */
+    /**
+     * Defaults to `parseChapter` with `threads` concurrent workers, each pausing for the rate
+     * limit after every chapter like the desktop scraper; override for batch APIs.
+     */
     suspend fun parseChapters(refs: List<ChapterRef>, book: BookInfo, context: SourceContext): List<ChapterResult> =
-        coroutineScope {
-            val permits = Semaphore(context.shared(id).threads.coerceAtLeast(1))
-            refs.map { ref ->
-                async {
-                    permits.withPermit {
-                        val result = try {
-                            parseChapter(ref, book, context)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            ChapterResult.Failed(ref, e.message ?: e.toString())
-                        }
-                        context.onChapter(result)
-                        result
-                    }
+        parseConcurrently(refs, context) { ref -> parseChapter(ref, book, context) }
+}
+
+/**
+ * Runs `read` over `refs` with `threads` workers. Each worker sleeps one rate-limit delay after a
+ * chapter (except the last), reports it through `onChapter`, and failures become `Failed`.
+ */
+suspend fun SourceAdapter.parseConcurrently(
+    refs: List<ChapterRef>,
+    context: SourceContext,
+    read: suspend (ChapterRef) -> ChapterResult,
+): List<ChapterResult> = coroutineScope {
+    val shared = context.shared(id)
+    val permits = Semaphore(shared.threads.coerceAtLeast(1))
+    val last = refs.lastOrNull()
+    refs.map { ref ->
+        async {
+            permits.withPermit {
+                val result = try {
+                    read(ref)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ChapterResult.Failed(ref, e.message ?: e.toString())
                 }
-            }.awaitAll()
+                context.onChapter(result)
+                if (ref !== last && result !is ChapterResult.Refused) shared.pauseBetweenChapters()
+                result
+            }
         }
+    }.awaitAll()
 }
 
 /** Lower-cased host without a leading `www.`, or "" when the URL has none. */

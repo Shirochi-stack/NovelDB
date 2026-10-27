@@ -11,7 +11,8 @@ enum class OutputFormat(val raw: String) {
     @SerialName("epub") EPUB("epub"),
     @SerialName("txt") TXT("txt"),
     @SerialName("pdf") PDF("pdf"),
-    @SerialName("html") HTML("html");
+    @SerialName("html") HTML("html"),
+    @SerialName("cbz") CBZ("cbz");
 
     companion object {
         fun fromRaw(raw: String): OutputFormat? = entries.firstOrNull { it.raw == raw.lowercase() }
@@ -52,7 +53,28 @@ data class SharedSettings(
     val generateOnStop: Boolean = false,
     val namingMode: NamingMode = NamingMode.TITLE,
     val appendRange: Boolean = false,
-)
+) {
+    /** `_normalize_interval_range`: each end clamped to 0..300 s, swapped when max < min. */
+    val intervalRange: Pair<Double, Double>
+        get() {
+            val low = intervalMin.coerceIn(0.0, 300.0)
+            val high = intervalMax.coerceIn(0.0, 300.0)
+            return if (high < low) high to low else low to high
+        }
+
+    /** One `_random_interval_delay` draw in seconds: the pause a worker takes after each chapter. */
+    fun chapterDelay(): Double {
+        val (low, high) = intervalRange
+        if (high <= 0) return 0.0
+        return if (high > low) kotlin.random.Random.nextDouble(low, high) else low
+    }
+
+    /** Sleeps one `chapterDelay`, like the desktop `_sleep_interval`. */
+    suspend fun pauseBetweenChapters() {
+        val seconds = chapterDelay()
+        if (seconds > 0) kotlinx.coroutines.delay((seconds * 1000).toLong())
+    }
+}
 
 /** Optional replacements for `SharedSettings` fields on one source; null keeps the shared value. */
 @Serializable

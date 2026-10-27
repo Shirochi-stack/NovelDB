@@ -21,6 +21,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import com.shirochi.npia.core.parseConcurrently
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.builtins.serializer
@@ -154,28 +155,10 @@ class KpageAdapter : SourceAdapter {
 
     /** Concurrent like the default, plus the optional cross-chapter duplicate image removal. */
     override suspend fun parseChapters(refs: List<ChapterRef>, book: BookInfo, context: SourceContext): List<ChapterResult> {
-        val limit = context.shared(id).threads.coerceAtLeast(1)
         val options = context.settings.sources.kpage
         val leading = if (options.dedupeImages) options.dedupeLeadingImages.coerceIn(1, 10) else 0
 
-        val ordered: List<ChapterResult> = coroutineScope {
-            val permits = Semaphore(limit)
-            refs.map { ref ->
-                async {
-                    permits.withPermit {
-                        val result = try {
-                            readChapter(ref, context, leading)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            ChapterResult.Failed(ref, e.message ?: e.toString())
-                        }
-                        context.onChapter(result)
-                        result
-                    }
-                }
-            }.awaitAll()
-        }
+        val ordered = parseConcurrently(refs, context) { ref -> readChapter(ref, context, leading) }
         if (leading <= 0) return ordered
 
         val contents = ordered.mapNotNull { (it as? ChapterResult.Content)?.content }
