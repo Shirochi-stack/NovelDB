@@ -46,7 +46,7 @@ struct AddURLView: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Format").font(.caption).foregroundStyle(.secondary)
-                    FlowLayout(spacing: 6) {
+                    FlowLayout(spacing: 8) {
                         ForEach(OutputFormat.allCases, id: \.self) { format in
                             ChipToggle(title: format.rawValue.uppercased(), isOn: formatBinding(format))
                         }
@@ -56,10 +56,8 @@ struct AddURLView: View {
                             .font(.subheadline)
                     }
                 }
-                HStack(spacing: 12) {
-                    CompactStepper(title: "Threads", value: overridable(\.threads, \.threads), range: 1...16)
-                    CompactStepper(title: "Image Workers", value: sharedOnly(\.imageWorkers), range: 1...16)
-                }
+                CompactStepper(title: "Threads", value: overridable(\.threads, \.threads), range: 1...16)
+                CompactStepper(title: "Image Workers", value: sharedOnly(\.imageWorkers), range: 1...16)
                 HStack(spacing: 8) {
                     Text("Rate Limiting").font(.subheadline)
                     Spacer(minLength: 4)
@@ -73,7 +71,7 @@ struct AddURLView: View {
                     CompactNumber(title: "From", value: rangeBinding(\.rangeFrom, \.rangeFrom))
                     CompactNumber(title: "To", value: rangeBinding(\.rangeTo, \.rangeTo))
                 }
-                FlowLayout(spacing: 6) {
+                FlowLayout(spacing: 8) {
                     ChipToggle(title: "Skip paid", isOn: sharedOnly(\.skipPaid))
                     ChipToggle(title: "Number chapters", isOn: overridable(\.numberChapters, \.numberChapters))
                     ChipToggle(title: "Generate on stop", isOn: sharedOnly(\.generateOnStop))
@@ -179,7 +177,7 @@ struct AddURLView: View {
         let groups = SourceInfo.groups(for: source)
         if !groups.isEmpty {
             Section("\(source.rawValue) options") {
-                FlowLayout(spacing: 6) {
+                FlowLayout(spacing: 8) {
                     ForEach(groups, id: \.self) { group in
                         switch group {
                         case .npia:
