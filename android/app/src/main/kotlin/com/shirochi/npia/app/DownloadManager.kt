@@ -114,6 +114,11 @@ class DownloadManager(private val app: Application) {
         _preferencesFlow.update { it + 1 }
     }
 
+    fun setCatalogCartLinks(value: Boolean) {
+        preferences.catalogCartLinks = value
+        _preferencesFlow.update { it + 1 }
+    }
+
     fun setTheme(value: String) {
         preferences.theme = value
         _preferencesFlow.update { it + 1 }
