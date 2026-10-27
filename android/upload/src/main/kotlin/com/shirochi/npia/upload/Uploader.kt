@@ -129,7 +129,8 @@ object UploaderCatalog {
 
     /**
      * Tries each configured host in order and returns the first success. Folders (separate TXT
-     * output) are zipped first. Successful uploads are added to `history`.
+     * output) are zipped first. Successful uploads are added to `history`. `onHost` gets the
+     * display name of each host just before it is tried, so the UI can show the fallback order.
      */
     suspend fun upload(
         file: File,
@@ -137,6 +138,7 @@ object UploaderCatalog {
         context: UploadContext,
         history: UploadHistoryStore? = UploadHistoryStore.shared,
         progress: ((UploadProgress) -> Unit)? = null,
+        onHost: ((String) -> Unit)? = null,
     ): UploadResult {
         val ctx = context.copy(settings = settings)
         var payload = file
@@ -155,6 +157,7 @@ object UploaderCatalog {
                 }
                 try {
                     uploader.check(payload)
+                    onHost?.invoke(uploader.displayName)
                     val result = uploader.upload(payload, ctx, progress)
                     history?.add(result)
                     return result

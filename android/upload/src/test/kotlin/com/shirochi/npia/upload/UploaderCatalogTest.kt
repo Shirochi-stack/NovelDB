@@ -70,6 +70,28 @@ class UploaderCatalogTest : UploadTestBase() {
     }
 
     @Test
+    fun reportsEachHostAndByteProgress() = runBlocking<Unit> {
+        val file = makeFile(bytes = 4096)
+        handler = { request ->
+            when (request.url.host) {
+                "temp.sh" -> text("busy", status = 503)
+                "upload.gofile.io" -> json("""{"status":"ok","data":{"downloadPage":"https://gofile.io/d/AbC123","guestToken":"t"}}""")
+                else -> unexpected("unexpected ${request.url}")
+            }
+        }
+        val settings = UploadSettings(hosts = listOf("tempsh", "gofile"))
+        val hosts = mutableListOf<String>()
+        val progress = mutableListOf<UploadProgress>()
+
+        UploaderCatalog.upload(file, settings, context(settings = settings), history = null, progress = { progress += it }, onHost = { hosts += it })
+
+        assertEquals(listOf("tempsh", "gofile").map { UploaderCatalog.uploader(it)!!.displayName }, hosts)
+        assertTrue(progress.isNotEmpty())
+        assertTrue(progress.all { it.sentBytes <= it.totalBytes })
+        assertEquals(progress.last().totalBytes, progress.last().sentBytes)
+    }
+
+    @Test
     fun allHostsFailingThrowsLastError() = runBlocking<Unit> {
         handler = { text("nope", status = 500) }
         val settings = UploadSettings(hosts = listOf("tempsh"))

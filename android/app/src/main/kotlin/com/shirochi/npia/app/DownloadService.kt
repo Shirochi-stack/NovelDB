@@ -23,12 +23,14 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
+import com.shirochi.npia.app.model.UploadState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
@@ -112,15 +114,18 @@ class DownloadService : Service() {
         val manager = (application as NpiaApplication).downloads
         if (intent?.action == ACTION_CANCEL_ALL) manager.cancelAll()
         if (collector == null) {
-            goForeground(Notifications.progress(this, manager.jobs.value))
+            goForeground(Notifications.progress(this, manager.jobs.value, manager.runningUploads()))
             acquireLocks()
-            // Notification updates are throttled; the system drops faster ones anyway.
+            // Notification updates are throttled; the system drops faster ones anyway. Uploads
+            // keep the service alive too, so they finish with the screen off.
             collector = scope.launch {
-                manager.jobs.sample(750).collect { jobs ->
-                    if (jobs.none { it.state.isActive }) {
+                combine(manager.jobs, manager.uploadStates) { jobs, uploads ->
+                    jobs to uploads.values.filter { it.phase == UploadState.Phase.RUNNING }
+                }.sample(750).collect { (jobs, uploads) ->
+                    if (jobs.none { it.state.isActive } && uploads.isEmpty()) {
                         stop()
                     } else {
-                        Notifications.notify(this@DownloadService, Notifications.PROGRESS_ID, Notifications.progress(this@DownloadService, jobs))
+                        Notifications.notify(this@DownloadService, Notifications.PROGRESS_ID, Notifications.progress(this@DownloadService, jobs, uploads))
                     }
                 }
             }
@@ -222,10 +227,11 @@ object Notifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    fun progress(context: Context, jobs: List<JobItem>): Notification {
+    fun progress(context: Context, jobs: List<JobItem>, uploads: List<UploadState> = emptyList()): Notification {
         val runningJobs = jobs.filter { it.state == JobState.RUNNING }
         val queued = jobs.count { it.state == JobState.QUEUED }
         val first = runningJobs.firstOrNull()
+        val upload = uploads.firstOrNull()
         val cancel = PendingIntent.getService(
             context, 1,
             Intent(context, DownloadService::class.java).setAction(DownloadService.ACTION_CANCEL_ALL),
@@ -234,13 +240,17 @@ object Notifications {
         val extra = buildList {
             if (runningJobs.size > 1) add("${runningJobs.size - 1} more running")
             if (queued > 0) add("$queued queued")
+            if (first != null && uploads.isNotEmpty()) add("${uploads.size} uploading")
         }.joinToString(", ")
+        // With no download running, an upload (determinate once its size is known) is what shows.
+        val fraction = if (first != null) first.fraction else upload?.fraction?.toDouble() ?: 0.0
+        val indeterminate = if (first != null) false else upload == null || upload.totalBytes <= 0
         return NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setLargeIcon(artwork(context))
-            .setContentTitle(first?.displayTitle ?: "Preparing downloads")
-            .setContentText(listOfNotNull(first?.status, extra.ifEmpty { null }).joinToString(" \u00b7 "))
-            .setProgress(1000, ((first?.fraction ?: 0.0) * 1000).toInt(), first == null)
+            .setContentTitle(first?.displayTitle ?: upload?.fileName ?: "Preparing downloads")
+            .setContentText(listOfNotNull(first?.status ?: upload?.statusLine, extra.ifEmpty { null }).joinToString(" · "))
+            .setProgress(1000, (fraction * 1000).toInt(), indeterminate)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)

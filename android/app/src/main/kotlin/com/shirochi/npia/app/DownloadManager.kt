@@ -8,6 +8,7 @@ import com.shirochi.npia.app.model.ConfigTransfer
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
 import com.shirochi.npia.app.model.JsonFileStore
+import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.InMemorySecretStore
 import com.shirochi.npia.core.JobLogging
@@ -17,6 +18,7 @@ import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SettingsCoding
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
+import com.shirochi.npia.core.UploadSettings
 import com.shirochi.npia.images.AndroidImageProcessor
 import com.shirochi.npia.pipeline.DownloadPipeline
 import com.shirochi.npia.pipeline.JobOutcome
@@ -76,8 +78,9 @@ class DownloadManager(private val app: Application) {
     private val _uploadHistory = MutableStateFlow(historyStore.load().orEmpty())
     val uploadHistory: StateFlow<List<UploadResult>> = _uploadHistory.asStateFlow()
 
-    private val _uploadsInFlight = MutableStateFlow<Set<String>>(emptySet())
-    val uploadsInFlight: StateFlow<Set<String>> = _uploadsInFlight.asStateFlow()
+    private val _uploadStates = MutableStateFlow<Map<String, UploadState>>(emptyMap())
+    /** Manual uploads by file path: running with byte progress, then done or failed until dismissed. */
+    val uploadStates: StateFlow<Map<String, UploadState>> = _uploadStates.asStateFlow()
 
     /** One-off messages the UI shows as a snackbar. */
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 16)
@@ -305,26 +308,62 @@ class DownloadManager(private val app: Application) {
 
     fun upload(file: File, jobId: String? = null) {
         val key = file.absolutePath
-        if (key in _uploadsInFlight.value) return
-        _uploadsInFlight.update { it + key }
+        if (_uploadStates.value[key]?.phase == UploadState.Phase.RUNNING) return
+        _uploadStates.update { it + (key to UploadState(key, file.name, jobId)) }
         val uploadSettings = _settings.value.upload
+        // Keeps the process alive and shows the progress while the app is in the background.
+        DownloadService.start(app)
         scope.launch {
             try {
-                val result = UploaderCatalog.upload(file, uploadSettings, UploadContext(secrets, uploadSettings), history = null)
+                val result = uploadWithProgress(file, uploadSettings, key)
                 recordUpload(result)
                 if (jobId != null) {
                     update(jobId) { it.copy(uploads = it.uploads + result) }
                     persistJobs()
                 }
+                setUpload(key) { it.copy(phase = UploadState.Phase.DONE, link = result.link, host = hostName(result.hostId)) }
                 message("Uploaded ${result.fileName}")
             } catch (e: CancellationException) {
+                _uploadStates.update { it - key }
                 throw e
             } catch (e: Exception) {
-                message("Upload failed: ${e.message}")
-            } finally {
-                _uploadsInFlight.update { it - key }
+                val reason = e.message ?: e.toString()
+                setUpload(key) { it.copy(phase = UploadState.Phase.FAILED, error = reason) }
+                message("Upload failed: $reason")
             }
         }
+    }
+
+    /**
+     * Uploads through the configured hosts in order, reporting the host being tried and byte
+     * progress (at most every 200 ms) into `uploadStates[key]`.
+     */
+    private suspend fun uploadWithProgress(file: File, uploadSettings: UploadSettings, key: String): UploadResult {
+        var lastReport = 0L
+        return UploaderCatalog.upload(
+            file, uploadSettings, UploadContext(secrets, uploadSettings), history = null,
+            progress = { p ->
+                val now = System.nanoTime() / 1_000_000
+                if (p.sentBytes >= p.totalBytes || now - lastReport >= 200) {
+                    lastReport = now
+                    setUpload(key) { it.copy(sentBytes = p.sentBytes, totalBytes = p.totalBytes) }
+                }
+            },
+            onHost = { name -> setUpload(key) { it.copy(host = name, sentBytes = 0, totalBytes = 0) } },
+        )
+    }
+
+    fun runningUploads(): List<UploadState> = _uploadStates.value.values.filter { it.phase == UploadState.Phase.RUNNING }
+
+    private fun setUpload(key: String, change: (UploadState) -> UploadState) {
+        _uploadStates.update { map -> map[key]?.let { map + (key to change(it)) } ?: map }
+    }
+
+    private fun hostName(hostId: String): String = UploaderCatalog.uploader(hostId)?.displayName ?: hostId
+
+    /** Removes a finished or failed upload from `uploadStates`. */
+    fun dismissUpload(path: String) {
+        _uploadStates.update { map -> if (map[path]?.phase == UploadState.Phase.RUNNING) map else map - path }
     }
 
     private suspend fun recordUpload(result: UploadResult) {
