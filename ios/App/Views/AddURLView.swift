@@ -49,25 +49,15 @@ struct AddURLView: View {
 
             if !model.cart.items.isEmpty {
                 Section {
-                    ForEach(model.cart.items) { item in
+                    NavigationLink {
+                        LinkCartView()
+                    } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title.isEmpty ? item.url : item.title).lineLimit(1)
-                            Text([item.source, URL(string: item.url)?.host ?? ""].filter { !$0.isEmpty }.joined(separator: " \u{00B7} "))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .swipeActions {
-                            Button("Remove", role: .destructive) { model.cart.remove(item.url) }
+                            Text("🔗 Link cart (\(model.cart.items.count))")
+                            Text("Books from the Catalog tab; Download queues them too")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                } header: {
-                    HStack {
-                        Text("🔗 Link cart (\(model.cart.items.count))")
-                        Spacer()
-                        Button("Clear cart", role: .destructive) { model.cart.clear() }
-                            .font(.caption).textCase(nil)
-                    }
-                } footer: {
-                    Text("Swipe a book to remove it. Download queues these with the URLs above.")
                 }
             }
 
@@ -191,13 +181,9 @@ struct AddURLView: View {
             Text("Paste a book page or chapter list URL. The source is detected automatically.")
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(urls, id: \.self) { url in
-                    if let type = SourceCatalog.adapterType(for: url) {
-                        Label("\(type.id.rawValue): \(SourceInfo.tierLabel(type.id))", systemImage: "checkmark.circle")
-                    } else {
-                        Label("Not supported: \(url.host ?? url.absoluteString)", systemImage: "xmark.circle")
-                            .foregroundStyle(.red)
-                    }
+                ForEach(urls.filter { SourceCatalog.adapterType(for: $0) == nil }, id: \.self) { url in
+                    Label("Not supported: \(url.host ?? url.absoluteString)", systemImage: "xmark.circle")
+                        .foregroundStyle(.red)
                 }
             }
         }
@@ -242,5 +228,40 @@ struct AddURLView: View {
         model.cart.removeAll(Set(supported.map(\.absoluteString)))
         text = ""
         onQueued()
+    }
+}
+
+/// The books in the link cart; swipe one to remove it.
+struct LinkCartView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            if model.cart.items.isEmpty {
+                Text("The cart is empty. Tap the 🔗 button on a card in the Catalog tab to add a book.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(model.cart.items) { item in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title.isEmpty ? item.url : item.title).lineLimit(1)
+                    Text([item.source, URL(string: item.url)?.host ?? ""].filter { !$0.isEmpty }.joined(separator: " \u{00B7} "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .swipeActions {
+                    Button("Remove", role: .destructive) { model.cart.remove(item.url) }
+                }
+            }
+        }
+        .themedBackground()
+        .navigationTitle("Link cart")
+        .toolbar {
+            if !model.cart.items.isEmpty {
+                Button("Clear cart", role: .destructive) {
+                    model.cart.clear()
+                    dismiss()
+                }
+            }
+        }
     }
 }
