@@ -32,7 +32,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Npia Mobile
+        CFBundleDisplayName: NovelDB
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

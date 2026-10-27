@@ -54,18 +54,18 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/NpiaMobile.app Payload/
-          zip -qry NpiaMobile-unsigned.ipa Payload
-          ls -lh NpiaMobile-unsigned.ipa
+          zip -qry NovelDB-unsigned.ipa Payload
+          ls -lh NovelDB-unsigned.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: NpiaMobile-unsigned-ipa
-          path: ios/NpiaMobile-unsigned.ipa
+          name: NovelDB-unsigned-ipa
+          path: ios/NovelDB-unsigned.ipa
           retention-days: 14
       - name: Attach to release
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ inputs.release_tag }}" ios/NpiaMobile-unsigned.ipa --clobber --repo "${{ github.repository }}"
+        run: gh release upload "${{ inputs.release_tag }}" ios/NovelDB-unsigned.ipa --clobber --repo "${{ github.repository }}"
 
   simulator-smoke:
     # Installs the app on an iPhone simulator, launches it, and checks it stays up. Crash

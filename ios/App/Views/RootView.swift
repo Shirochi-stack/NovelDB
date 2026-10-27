@@ -43,7 +43,7 @@ struct RootView: View {
                                 .badge(panel == .queue ? activeCount : 0)
                         }
                     }
-                    .navigationTitle("Npia Mobile")
+                    .navigationTitle("NovelDB")
                 } detail: {
                     NavigationStack {
                         content(selection ?? .add)
@@ -64,7 +64,7 @@ struct RootView: View {
         }
         .background(KeyboardDismissInstaller())
         .webLoginSheet()
-        .alert("Npia Mobile", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
+        .alert("NovelDB", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
             Button("OK", role: .cancel) { model.message = nil }
         } message: {
             Text(model.message ?? "")
