@@ -8,6 +8,8 @@ import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.InMemorySecretStore
+import com.shirochi.npia.core.JobLogging
+import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.NpiaSettings
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SharedSettings
@@ -285,6 +287,53 @@ class NpiaAdapterTest {
         assertFalse(http.requests.any { path(it) == "/proc/login" })
         assertTrue(book.notices.isEmpty())
         assertEquals(2, book.chapters.size)
+    }
+
+    @Test
+    fun prepareSignsInWithSavedAccountEvenWithoutAutoLogin() = runTest {
+        val http = RoutingHttp { request, _ ->
+            if (path(request) == "/proc/login") 200 to "<script>alert('감사합니다')</script>" else 404 to ""
+        }
+        val secrets = InMemorySecretStore(mapOf(SecretKey.NPIA_EMAIL to "user@example.com", SecretKey.NPIA_PASSWORD to "secret"))
+        val jar = RecordingJar()
+        val lines = mutableListOf<Pair<LogLevel, String>>()
+        val ctx = SourceContext(
+            http, UnavailableWebEngine, secrets, AppSettings(npia = NpiaSettings(autoLogin = false)),
+            JobLogging { level, message -> lines += level to message },
+        )
+
+        val key = NpiaAuth.prepare(ctx, jar)
+
+        val login = http.requests.single()
+        assertEquals("/proc/login", path(login))
+        assertEquals(mapOf("redirectrurl" to "", "email" to "user@example.com", "wd" to "secret"), form(login))
+        assertEquals(key, secrets.get(SecretKey.NPIA_LOGIN_KEY))
+        assertEquals(listOf(key), jar.keys)
+        assertTrue(lines.none { it.first == LogLevel.WARNING })
+
+        // The stored key is reused without signing in again.
+        assertEquals(key, NpiaAuth.prepare(ctx, RecordingJar()))
+        assertEquals(1, http.requests.size)
+    }
+
+    @Test
+    fun prepareWarnsAndFallsBackWhenSavedAccountCannotSignIn() = runTest {
+        val http = RoutingHttp { _, _ -> 200 to "<html>wrong password</html>" }
+        val secrets = InMemorySecretStore(mapOf(SecretKey.NPIA_EMAIL to "user@example.com", SecretKey.NPIA_PASSWORD to "bad"))
+        val jar = RecordingJar()
+        val lines = mutableListOf<Pair<LogLevel, String>>()
+        val ctx = SourceContext(
+            http, UnavailableWebEngine, secrets, AppSettings(),
+            JobLogging { level, message -> lines += level to message },
+        )
+
+        val key = NpiaAuth.prepare(ctx, jar)
+
+        assertTrue(Regex("^[0-9a-f]{32}_[0-9a-f]{32}$").matches(key))
+        assertNull(secrets.get(SecretKey.NPIA_LOGIN_KEY))
+        assertEquals(key, jar.keys.last())
+        assertTrue(lines.contains(LogLevel.WARNING to NpiaAuth.SIGN_IN_FAILED))
+        assertTrue(lines.any { it.second.contains("no saved login") })
     }
 
     @Test

@@ -11,14 +11,19 @@ import com.shirochi.npia.app.model.JsonFileStore
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.InMemorySecretStore
 import com.shirochi.npia.core.JobLogging
+import com.shirochi.npia.core.NullLogger
+import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SettingsCoding
+import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.images.AndroidImageProcessor
 import com.shirochi.npia.pipeline.DownloadPipeline
 import com.shirochi.npia.pipeline.JobOutcome
 import com.shirochi.npia.net.OkHttpFetcher
 import com.shirochi.npia.sources.SourceCatalog
+import com.shirochi.npia.sources.npia.NpiaAuth
+import com.shirochi.npia.sources.npia.NpiaCookieSetting
 import com.shirochi.npia.upload.UploadContext
 import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploaderCatalog
@@ -257,6 +262,42 @@ class DownloadManager(private val app: Application) {
 
     private fun persistJobs() {
         jobStore.save(_jobs.value)
+    }
+
+    // npia account
+
+    private val _npiaSigningIn = MutableStateFlow(false)
+    val npiaSigningIn: StateFlow<Boolean> = _npiaSigningIn.asStateFlow()
+
+    private val _npiaAuthVersion = MutableStateFlow(0)
+    /** Bumped when a sign-in attempt ends, so screens can re-read the saved session key. */
+    val npiaAuthVersion: StateFlow<Int> = _npiaAuthVersion.asStateFlow()
+
+    /** A context for one-off calls outside the download pipeline (sign-in, tag search). */
+    fun sourceContext(logger: JobLogging = NullLogger, maxRetries: Int = 1): SourceContext =
+        SourceContext(OkHttpFetcher(cookieJar = web.cookieJar(), maxRetries = maxRetries), web, secrets, _settings.value, logger)
+
+    /** Signs in with the saved npia account in the background and reports the result as a message. */
+    fun signInToNpia() {
+        if (!_npiaSigningIn.compareAndSet(false, true)) return
+        scope.launch {
+            var signedIn = false
+            try {
+                val email = secrets.get(SecretKey.NPIA_EMAIL)
+                val password = secrets.get(SecretKey.NPIA_PASSWORD)
+                if (!email.isNullOrEmpty() && !password.isNullOrEmpty()) {
+                    signedIn = NpiaAuth.login(email, password, sourceContext(), NpiaCookieSetting { }) != null
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                signedIn = false
+            } finally {
+                _npiaSigningIn.value = false
+                _npiaAuthVersion.update { it + 1 }
+            }
+            message(if (signedIn) "Signed in to npia" else "npia sign-in failed — check the email and password")
+        }
     }
 
     // Uploads

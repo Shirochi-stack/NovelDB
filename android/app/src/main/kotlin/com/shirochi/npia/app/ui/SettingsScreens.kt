@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -216,6 +217,9 @@ fun NpiaSettingsScreen(model: AppViewModel) {
     }
     val npia = settings.npia
     fun set(change: (com.shirochi.npia.core.NpiaSettings) -> com.shirochi.npia.core.NpiaSettings) = update { it.copy(npia = change(it.npia)) }
+    val signingIn by model.manager.npiaSigningIn.collectAsStateWithLifecycle()
+    val signInVersion by model.manager.npiaAuthVersion.collectAsStateWithLifecycle()
+    LaunchedEffect(signInVersion) { hasLoginKey = secrets.get(SecretKey.NPIA_LOGIN_KEY) != null }
 
     val context = LocalContext.current
     var mapped by remember { mutableStateOf(NpiaFontMapping.mapping.size) }
@@ -258,14 +262,22 @@ fun NpiaSettingsScreen(model: AppViewModel) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         )
+        Footnote(if (hasLoginKey) "Signed in (session key saved)" else "Not signed in")
         Row(Modifier.padding(start = 8.dp)) {
-            TextButton(onClick = {
-                secrets.set(SecretKey.NPIA_EMAIL, email.trim())
+            TextButton(enabled = !signingIn, onClick = {
+                val saved = email.trim()
+                // A session key from other credentials must not outlive the change.
+                if (saved != secrets.get(SecretKey.NPIA_EMAIL).orEmpty() || password.isNotEmpty()) secrets.set(SecretKey.NPIA_LOGIN_KEY, null)
+                secrets.set(SecretKey.NPIA_EMAIL, saved)
                 if (password.isNotEmpty()) secrets.set(SecretKey.NPIA_PASSWORD, password)
                 password = ""
                 reload()
-                model.manager.message("Account saved")
-            }) { Text("Save") }
+                if (saved.isNotEmpty() && secrets.get(SecretKey.NPIA_PASSWORD) != null) {
+                    model.manager.signInToNpia()
+                } else {
+                    model.manager.message("Account saved")
+                }
+            }) { Text(if (signingIn) "Signing in…" else "Save and sign in") }
             if (hasLoginKey) {
                 TextButton(onClick = {
                     secrets.set(SecretKey.NPIA_LOGIN_KEY, null)
