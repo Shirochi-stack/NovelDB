@@ -23,6 +23,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
+import com.shirochi.npia.app.model.RunSummary
+import com.shirochi.npia.app.model.UploadBatch
 import com.shirochi.npia.app.model.UploadState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -114,18 +116,18 @@ class DownloadService : Service() {
         val manager = (application as NpiaApplication).downloads
         if (intent?.action == ACTION_CANCEL_ALL) manager.cancelAll()
         if (collector == null) {
-            goForeground(Notifications.progress(this, manager.jobs.value, manager.runningUploads()))
+            goForeground(Notifications.progress(this, manager.jobs.value, manager.runningUploads(), manager.uploadBatch.value))
             acquireLocks()
             // Notification updates are throttled; the system drops faster ones anyway. Uploads
             // keep the service alive too, so they finish with the screen off.
             collector = scope.launch {
-                combine(manager.jobs, manager.uploadStates) { jobs, uploads ->
-                    jobs to uploads.values.filter { it.phase == UploadState.Phase.RUNNING }
-                }.sample(750).collect { (jobs, uploads) ->
-                    if (jobs.none { it.state.isActive } && uploads.isEmpty()) {
+                combine(manager.jobs, manager.uploadStates, manager.uploadBatch) { jobs, uploads, batch ->
+                    Triple(jobs, uploads.values.filter { it.phase == UploadState.Phase.RUNNING }, batch)
+                }.sample(750).collect { (jobs, uploads, batch) ->
+                    if (jobs.none { it.state.isActive } && uploads.isEmpty() && batch == null) {
                         stop()
                     } else {
-                        Notifications.notify(this@DownloadService, Notifications.PROGRESS_ID, Notifications.progress(this@DownloadService, jobs, uploads))
+                        Notifications.notify(this@DownloadService, Notifications.PROGRESS_ID, Notifications.progress(this@DownloadService, jobs, uploads, batch))
                     }
                 }
             }
@@ -202,6 +204,8 @@ class DownloadService : Service() {
 
 object Notifications {
     const val PROGRESS_ID = 1
+    const val SUMMARY_ID = 2
+    const val UPLOAD_RESULT_ID = 3
     private const val CHANNEL_PROGRESS = "downloads"
     private const val CHANNEL_RESULTS = "results"
 
@@ -227,11 +231,11 @@ object Notifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    fun progress(context: Context, jobs: List<JobItem>, uploads: List<UploadState> = emptyList()): Notification {
+    fun progress(context: Context, jobs: List<JobItem>, uploads: List<UploadState> = emptyList(), batch: UploadBatch? = null): Notification {
         val runningJobs = jobs.filter { it.state == JobState.RUNNING }
         val queued = jobs.count { it.state == JobState.QUEUED }
         val first = runningJobs.firstOrNull()
-        val upload = uploads.firstOrNull()
+        val upload = if (batch != null) uploads.firstOrNull { it.path == batch.currentPath } else uploads.firstOrNull()
         val cancel = PendingIntent.getService(
             context, 1,
             Intent(context, DownloadService::class.java).setAction(DownloadService.ACTION_CANCEL_ALL),
@@ -243,13 +247,22 @@ object Notifications {
             if (first != null && uploads.isNotEmpty()) add("${uploads.size} uploading")
         }.joinToString(", ")
         // With no download running, an upload (determinate once its size is known) is what shows.
-        val fraction = if (first != null) first.fraction else upload?.fraction?.toDouble() ?: 0.0
-        val indeterminate = if (first != null) false else upload == null || upload.totalBytes <= 0
+        val fraction = when {
+            first != null -> first.fraction
+            batch != null -> batch.fraction(upload).toDouble()
+            else -> upload?.fraction?.toDouble() ?: 0.0
+        }
+        val indeterminate = when {
+            first != null -> false
+            batch != null -> false
+            else -> upload == null || upload.totalBytes <= 0
+        }
+        val uploadLine = if (batch != null) batch.statusLine(upload) else upload?.statusLine
         return NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setLargeIcon(artwork(context))
-            .setContentTitle(first?.displayTitle ?: upload?.fileName ?: "Preparing downloads")
-            .setContentText(listOfNotNull(first?.status ?: upload?.statusLine, extra.ifEmpty { null }).joinToString(" · "))
+            .setContentTitle(first?.displayTitle ?: (if (batch != null) "Uploading files" else upload?.fileName) ?: "Preparing downloads")
+            .setContentText(listOfNotNull(first?.status ?: uploadLine, extra.ifEmpty { null }).joinToString(" · "))
             .setProgress(1000, (fraction * 1000).toInt(), indeterminate)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -260,18 +273,55 @@ object Notifications {
             .build()
     }
 
-    fun jobEnded(context: Context, job: JobItem) {
-        if (job.state == JobState.CANCELLED) return
-        val ok = job.state == JobState.FINISHED
-        val notification = NotificationCompat.Builder(context, CHANNEL_RESULTS)
-            .setSmallIcon(if (ok) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
+    /**
+     * The one notification after a run of the queue: "Downloaded N books" with every file ready to
+     * share or upload at once. Failures are counted in its text.
+     */
+    fun runSummary(context: Context, summary: RunSummary) {
+        val builder = NotificationCompat.Builder(context, CHANNEL_RESULTS)
+            .setSmallIcon(if (summary.succeeded > 0) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error)
             .setLargeIcon(artwork(context))
-            .setContentTitle(if (ok) "Downloaded ${job.displayTitle}" else "Download failed")
-            .setContentText(if (ok) job.status else "${job.displayTitle}: ${job.status}")
+            .setContentTitle(summary.notificationTitle)
+            .setContentText(summary.notificationText)
             .setAutoCancel(true)
             .setContentIntent(openApp(context))
-            .build()
-        notify(context, 1000 + (job.id.hashCode() and 0xFFFF), notification)
+        if (summary.hasFiles) {
+            builder.addAction(0, "Share", ShareActivity.pending(context, summary.id, ShareActivity.ACTION_SHARE_FILES))
+            builder.addAction(0, "Upload", NotificationActionReceiver.pending(context, summary.id, NotificationActionReceiver.ACTION_UPLOAD_RUN))
+        }
+        notify(context, SUMMARY_ID, builder.build())
+    }
+
+    /** After the upload of a run: "Uploaded N files" with the links, or what went wrong. */
+    fun uploadResult(context: Context, summary: RunSummary, uploaded: Int, failures: List<String>) {
+        val title = when {
+            failures.isEmpty() -> if (uploaded == 1) "Uploaded 1 file" else "Uploaded $uploaded files"
+            uploaded == 0 -> "Upload failed"
+            else -> "Uploaded $uploaded of ${uploaded + failures.size} files"
+        }
+        val text = when {
+            failures.isNotEmpty() -> failures.first()
+            uploaded == 1 -> summary.links.first()
+            else -> "$uploaded links ready"
+        }
+        val details = (summary.links + failures).joinToString("\n")
+        val builder = NotificationCompat.Builder(context, CHANNEL_RESULTS)
+            .setSmallIcon(if (uploaded > 0) android.R.drawable.stat_sys_upload_done else android.R.drawable.stat_notify_error)
+            .setLargeIcon(artwork(context))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(details))
+            .setAutoCancel(true)
+            .setContentIntent(openApp(context))
+        if (summary.links.isNotEmpty()) {
+            builder.addAction(0, "Share links", ShareActivity.pending(context, summary.id, ShareActivity.ACTION_SHARE_LINKS))
+            builder.addAction(0, "Copy links", NotificationActionReceiver.pending(context, summary.id, NotificationActionReceiver.ACTION_COPY_LINKS))
+        }
+        notify(context, UPLOAD_RESULT_ID, builder.build())
+    }
+
+    fun cancel(context: Context, id: Int) {
+        NotificationManagerCompat.from(context).cancel(id)
     }
 
     fun notify(context: Context, id: Int, notification: Notification) {
