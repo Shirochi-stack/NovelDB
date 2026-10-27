@@ -224,9 +224,14 @@ public enum UploaderCatalog {
                 continue
             }
             events?(.trying(host: host, position: position, of: candidates.count))
-            let relay: (@Sendable (UploadProgress) -> Void)? = (progress == nil && events == nil) ? nil : { value in
-                progress?(value)
-                events?(.progress(host: host, value))
+            let relay: (@Sendable (UploadProgress) -> Void)?
+            if progress == nil && events == nil {
+                relay = nil
+            } else {
+                relay = { value in
+                    progress?(value)
+                    events?(.progress(host: host, value))
+                }
             }
             do {
                 try uploader.check(payload)
