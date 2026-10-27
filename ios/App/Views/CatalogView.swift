@@ -8,6 +8,14 @@ enum CatalogSite {
     static let storageKey = "catalogSite"
     /// The NovelDB catalog website, hosted on GitHub Pages.
     static let defaultAddress = "https://shirochi-stack.github.io/NovelDB/"
+    /// NovelDB Next, offered as a suggestion; it also gets link-cart buttons (bottom right of each card).
+    static let nextAddress = "https://noveldb.pages.dev/"
+
+    /// The NovelDB sites: links out of them open in the Browser tab instead of going to the cart.
+    static func isNovelDB(_ url: URL) -> Bool {
+        let text = url.absoluteString.trimmingCharacters(in: ["/"])
+        return [defaultAddress, nextAddress].contains { $0.trimmingCharacters(in: ["/"]) == text }
+    }
 
     static var current: URL {
         valid(UserDefaults.standard.string(forKey: storageKey)) ?? URL(string: defaultAddress)!
@@ -37,7 +45,7 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     private var observations: [NSKeyValueObservation] = []
     weak var model: AppModel?
     private(set) var site = CatalogSite.current
-    private var isNovelDB: Bool { site.absoluteString.trimmingCharacters(in: ["/"]) == CatalogSite.defaultAddress.trimmingCharacters(in: ["/"]) }
+    private var isNovelDB: Bool { CatalogSite.isNovelDB(site) }
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -126,7 +134,13 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         case "ready":
             if let model { showCart(model.cart.items) }
         case "cartAdd":
-            if field("url").hasPrefix("http") { model?.cart.add(CartItem(url: field("url"), title: field("title"), source: field("source"))) }
+            if field("url").hasPrefix("http") {
+                var source = field("source")
+                if source.isEmpty, let url = URL(string: field("url")) {
+                    source = SourceCatalog.adapterType(for: url).map { $0.id.rawValue } ?? ""
+                }
+                model?.cart.add(CartItem(url: field("url"), title: field("title"), source: source))
+            }
         case "cartRemove":
             model?.cart.remove(field("url"))
         case "open":
