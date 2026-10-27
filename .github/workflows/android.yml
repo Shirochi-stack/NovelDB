@@ -58,25 +58,25 @@ jobs:
         run: gradle --no-daemon :app:assembleRelease
       - name: Rename and verify APKs
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk NpiaMobile-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk NpiaMobile-universal.apk
+          cp app/build/outputs/apk/debug/app-debug.apk NovelDB-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk NovelDB-universal.apk
           rm -f "$RUNNER_TEMP/release.p12"
           apksigner=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -V | tail -1 || true)
           if [ -n "$apksigner" ]; then
-            "$apksigner" verify --print-certs NpiaMobile-universal.apk | grep -i "certificate" || true
+            "$apksigner" verify --print-certs NovelDB-universal.apk | grep -i "certificate" || true
           else
             echo "apksigner not found; skipping signature print"
           fi
-          ls -lh NpiaMobile-*.apk
+          ls -lh NovelDB-*.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: NpiaMobile-debug-apk
-          path: android/NpiaMobile-debug.apk
+          name: NovelDB-debug-apk
+          path: android/NovelDB-debug.apk
           retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
-          name: NpiaMobile-universal-apk
-          path: android/NpiaMobile-universal.apk
+          name: NovelDB-universal-apk
+          path: android/NovelDB-universal.apk
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -88,4 +88,4 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ inputs.release_tag }}" NpiaMobile-universal.apk --clobber --repo "${{ github.repository }}"
+        run: gh release upload "${{ inputs.release_tag }}" NovelDB-universal.apk --clobber --repo "${{ github.repository }}"
