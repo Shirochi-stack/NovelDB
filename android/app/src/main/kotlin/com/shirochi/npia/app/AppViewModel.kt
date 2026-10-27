@@ -9,7 +9,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.AndroidViewModel
 import com.shirochi.npia.core.SourceId
 
-enum class Tab(val title: String) { ADD("Add"), BROWSER("Browser"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
+enum class Tab(val title: String) { ADD("Add"), CATALOG("Catalog"), BROWSER("Browser"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
 
 /** Screens pushed on top of a tab's root. */
 sealed class Route(val title: String) {
@@ -32,6 +32,14 @@ sealed class Route(val title: String) {
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     val manager: DownloadManager get() = getApplication<NpiaApplication>().downloads
     val sites: com.shirochi.npia.app.model.KnownSites get() = getApplication<NpiaApplication>().sites
+    val cart: com.shirochi.npia.app.model.LinkCart get() = getApplication<NpiaApplication>().cart
+
+    /** Opens a page in the Browser tab. */
+    fun openInBrowser(url: String) {
+        browserUrl = url
+        stacks.getValue(Tab.BROWSER).clear()
+        tab = Tab.BROWSER
+    }
 
     /** Last page open in the Browser tab, so switching tabs does not lose it. */
     var browserUrl: String? = null

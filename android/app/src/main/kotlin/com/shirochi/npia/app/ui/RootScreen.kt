@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Badge
@@ -54,6 +55,8 @@ fun RootScreen(model: AppViewModel) {
     val stack = model.stack(model.tab)
     val route = stack.lastOrNull()
     val focusManager = LocalFocusManager.current
+    val cart by model.cart.items.collectAsStateWithLifecycle()
+    val catalog = rememberCatalogWeb(model)
 
     LaunchedEffect(Unit) {
         manager.messages.collect { snackbar.showSnackbar(it) }
@@ -89,8 +92,13 @@ fun RootScreen(model: AppViewModel) {
                         label = { Text(tab.title) },
                         icon = {
                             val active = jobs.count { it.state.isActive }
-                            if (tab == Tab.QUEUE && active > 0) {
-                                BadgedBox(badge = { Badge { Text("$active") } }) { Icon(tab.icon, contentDescription = null) }
+                            val count = when (tab) {
+                                Tab.QUEUE -> active
+                                Tab.ADD -> cart.size
+                                else -> 0
+                            }
+                            if (count > 0) {
+                                BadgedBox(badge = { Badge { Text("$count") } }) { Icon(tab.icon, contentDescription = null) }
                             } else {
                                 Icon(tab.icon, contentDescription = null)
                             }
@@ -111,6 +119,7 @@ fun RootScreen(model: AppViewModel) {
             when (route) {
                 null -> when (model.tab) {
                     Tab.ADD -> AddScreen(model, onQueued = { model.select(Tab.QUEUE) })
+                    Tab.CATALOG -> CatalogScreen(catalog, model, topBar)
                     Tab.BROWSER -> BrowserScreen(model, topBar)
                     Tab.QUEUE -> QueueScreen(model, topBar)
                     Tab.UPLOADS -> UploadsScreen(model, topBar)
@@ -138,6 +147,7 @@ fun RootScreen(model: AppViewModel) {
 private val Tab.icon
     get() = when (this) {
         Tab.ADD -> Icons.Filled.Add
+        Tab.CATALOG -> Icons.Filled.Search
         Tab.BROWSER -> Icons.Filled.AccountCircle
         Tab.QUEUE -> Icons.AutoMirrored.Filled.List
         Tab.UPLOADS -> Icons.Filled.Share
