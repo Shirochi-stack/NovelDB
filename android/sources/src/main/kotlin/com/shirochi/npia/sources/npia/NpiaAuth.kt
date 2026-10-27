@@ -4,6 +4,7 @@ import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SourceContext
+import kotlinx.coroutines.CancellationException
 import java.net.URLEncoder
 import java.security.SecureRandom
 
@@ -68,7 +69,7 @@ object NpiaAuth {
             HttpRequest("https://${NpiaParser.HOST}/proc/login", "POST", headers(key, form = true), body, timeoutSeconds = 15),
         )
         if (!response.text.contains(SUCCESS_MARKER)) {
-            context.logger.log(LogLevel.WARNING, "npia login failed.")
+            context.logger.log(LogLevel.WARNING, SIGN_IN_FAILED)
             return null
         }
         context.secrets.set(SecretKey.NPIA_LOGIN_KEY, key)
@@ -76,22 +77,44 @@ object NpiaAuth {
         return key
     }
 
+    /** Shown whenever a sign-in with the saved account does not succeed. */
+    internal const val SIGN_IN_FAILED = "npia sign-in failed; check the email and password in Settings > npia"
+
     /**
-     * Mirrors the desktop `_auto_login`: with `autoLogin` and saved credentials, sign in for a fresh
-     * session; otherwise inject the saved key. Without either, a throwaway key is used and only
+     * Picks the session key for a job: with `autoLogin` and a saved account (like the desktop
+     * `_auto_login`) a fresh sign-in; otherwise the saved key; otherwise a sign-in with the saved
+     * account, so entering an email and password is enough without the toggle. A failed sign-in
+     * logs a warning and falls through. Without any of these a throwaway key is used and only
      * free chapters will be readable.
      */
     suspend fun prepare(context: SourceContext, cookies: NpiaCookieSetting): String {
         val secrets = context.secrets
-        val email = secrets.get(SecretKey.NPIA_EMAIL)
-        val password = secrets.get(SecretKey.NPIA_PASSWORD)
-        if (context.settings.npia.autoLogin && !email.isNullOrEmpty() && !password.isNullOrEmpty()) {
-            login(email, password, context, cookies)?.let { return it }
+        val email = secrets.get(SecretKey.NPIA_EMAIL)?.takeIf { it.isNotEmpty() }
+        val password = secrets.get(SecretKey.NPIA_PASSWORD)?.takeIf { it.isNotEmpty() }
+        val hasAccount = email != null && password != null
+
+        suspend fun signIn(): String? {
+            val key = try {
+                login(email!!, password!!, context, cookies)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                context.logger.log(LogLevel.WARNING, SIGN_IN_FAILED)
+                null
+            }
+            return key
+        }
+
+        var triedSignIn = false
+        if (context.settings.npia.autoLogin && hasAccount) {
+            triedSignIn = true
+            signIn()?.let { return it }
         }
         secrets.get(SecretKey.NPIA_LOGIN_KEY)?.takeIf { it.isNotEmpty() }?.let { key ->
             cookies.setLoginKey(key)
             return key
         }
+        if (hasAccount && !triedSignIn) signIn()?.let { return it }
         val key = generateLoginKey()
         cookies.setLoginKey(key)
         context.logger.log(LogLevel.INFO, "npia: no saved login; only free chapters can be read.")
