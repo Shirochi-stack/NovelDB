@@ -7,6 +7,7 @@
  *   the card's details, opened out of sight, and remembers it.
  * - When the app sends outside links to the cart (sites other than NovelDB, setMode cartLinks),
  *   links to other sites that show text are renamed "🔗 Download".
+ * - Fill mode (desktop app) widens page columns capped narrower than the window.
  * - Taps show no highlight flash, the NovelDB header is slimmer, and NovelDB Next's hover preview is off.
  * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
  *   and the details cover is kept short without changing its shape.
@@ -106,7 +107,7 @@
         send({type: adding ? 'cartAdd' : 'cartRemove', url: url, title: title, source: source});
     }
     // Outside links renamed while the app sends them to the cart; their original text, to restore.
-    var mode = {cartLinks: false};
+    var mode = {cartLinks: false, fill: false};
     var DOWNLOAD_LABEL = '🔗 Download';
     var renamed = new Map();
     function shownText(anchor) {
@@ -130,8 +131,30 @@
             renamed.clear();
         }
     }
+    // Fill mode (desktop): page columns capped at 900px or more (NovelDB Next keeps 1100px) widen to
+    // the window. Dialogs and side panels keep their size.
+    var lastFill = 0;
+    function fillWidth() {
+        var marked = document.querySelectorAll('[data-noveldb-fill]'), i;
+        if (!mode.fill) {
+            for (i = 0; i < marked.length; i++) marked[i].removeAttribute('data-noveldb-fill');
+            return;
+        }
+        var now = Date.now();
+        if (now - lastFill < 400) return;
+        lastFill = now;
+        var candidates = document.querySelectorAll('[class*="max-w-"],[class*="container"],main,#app > div,body > div');
+        for (i = 0; i < candidates.length; i++) {
+            var el = candidates[i];
+            if (el.hasAttribute('data-noveldb-fill')) continue;
+            if (el.closest('[role=dialog],dialog,aside,[aria-modal=true],.novel-details')) continue;
+            var max = parseFloat(getComputedStyle(el).maxWidth);
+            if (max >= 900 && max < innerWidth - 40) el.setAttribute('data-noveldb-fill', '');
+        }
+    }
     function decorate() {
         renameLinks();
+        fillWidth();
         decorateNext();
         var areas = document.querySelectorAll('.novel-card .card-cover-area');
         for (var i = 0; i < areas.length; i++) {
@@ -229,6 +252,7 @@
         '.noveldb-cart:disabled{opacity:.5}' +
         // NovelDB Next's hover preview covers the neighbouring cards; the details view shows the same.
         '.scroll-main div.pop[role=presentation]{display:none!important}' +
+        '[data-noveldb-fill]{max-width:none!important}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
         '{visibility:hidden!important;animation:none!important;transition:none!important}';
     // Phone-sized dialogs (window height instead of dvh, a short cover). The desktop app keeps the
@@ -249,7 +273,11 @@
     if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
     window.NovelDBApp = {
         setCart: function (urls) { cart = new Set(urls || []); schedule(); },
-        setMode: function (next) { mode = {cartLinks: !!(next && next.cartLinks)}; schedule(); }
+        setMode: function (next) {
+            mode = {cartLinks: !!(next && next.cartLinks), fill: !!(next && next.fill)};
+            lastFill = 0;
+            schedule();
+        }
     };
     send({type: 'ready'});
 })();
