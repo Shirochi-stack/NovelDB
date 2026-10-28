@@ -33,6 +33,10 @@ public protocol SourceAdapter: Sendable {
     static var tier: SourceTier { get }
     init()
     static func matches(_ url: URL) -> Bool
+    /// The address a matching link is read (and kept in the queue and link cart) under. Sites that serve
+    /// the same book from several hosts, such as a phone site next to the desktop one, answer with one of
+    /// them, so a link found in the Browser tab downloads like any other. The default keeps the link.
+    static func canonicalURL(_ url: URL) -> URL
     func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo
     func parseChapter(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> ChapterResult
     /// Defaults to `parseChapter` with `threads` concurrent tasks; override for batch APIs.
@@ -40,6 +44,8 @@ public protocol SourceAdapter: Sendable {
 }
 
 public extension SourceAdapter {
+    static func canonicalURL(_ url: URL) -> URL { url }
+
     func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
         let shared = context.shared(for: Self.id)
         let limit = max(1, shared.threads)
