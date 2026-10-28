@@ -1,6 +1,6 @@
 """Single source of truth for NovelDB build/version names."""
 
-VERSION_NUMBER = 97
+VERSION_NUMBER = 98
 VERSION = str(VERSION_NUMBER)
 
 APP_NAME = f"NovelDB{VERSION}"
@@ -26,7 +26,7 @@ _DISPLAY = {"full": "", "lite": " Lite", "turbolite": " TurboLite"}
 
 
 def app_name(variant: str = "full") -> str:
-    """File name stem of a build, e.g. NovelDB97_Lite."""
+    """File name stem of a build, e.g. NovelDB98_Lite."""
     return APP_NAME + _SUFFIX[variant]
 
 

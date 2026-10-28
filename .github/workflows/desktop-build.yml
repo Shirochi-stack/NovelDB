@@ -2,9 +2,9 @@ name: Desktop Build (reusable)
 
 # Builds the Full, Lite and TurboLite desktop apps for one OS, smoke-tests each build and
 # attaches the files to a release. Called by build-windows.yml, build-macos.yml and
-# build-linux.yml. A published release gets plain names (NovelDB97-windows-x86_64.exe); a
+# build-linux.yml. A published release gets plain names (NovelDB98-windows-x86_64.exe); a
 # manual run adds a label, by default the next hotfix number for that OS
-# (NovelDB97-windows-x86_64_hotfix2.exe).
+# (NovelDB98-windows-x86_64_hotfix2.exe).
 
 on:
   workflow_call:

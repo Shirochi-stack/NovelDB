@@ -113,9 +113,9 @@ Each release has three builds for Windows, macOS and Linux. Every build has the 
 
 | OS | Files | Notes |
 |---|---|---|
-| Windows 10/11 (64-bit) | `NovelDB97-windows-x86_64.exe` (single file), `NovelDB97-windows-x86_64.zip` (Full as a folder: starts faster), `NovelDB97_Lite-…exe`, `NovelDB97_TurboLite-…exe` | SmartScreen may warn about an unknown publisher: choose **More info → Run anyway**. The single-file Full build unpacks itself on every start, so the zip starts faster. |
-| macOS 13+ (Apple silicon `arm64`, Intel `x86_64`) | `NovelDB97-macos-arm64.dmg` and the `_Lite` / `_TurboLite` DMGs | Drag the app to Applications. The app is not notarised: the first time, right-click it and choose **Open** (or allow it in System Settings → Privacy & Security). |
-| Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04+) | `NovelDB97-linux-x86_64.AppImage` and the `_Lite` / `_TurboLite` AppImages | `chmod +x` the file and run it. AppImages need FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04) or `--appimage-extract-and-run`. The embedded Catalog runs without Chromium's sandbox inside an AppImage. |
+| Windows 10/11 (64-bit) | `NovelDB98-windows-x86_64.exe` (single file), `NovelDB98-windows-x86_64.zip` (Full as a folder: starts faster), `NovelDB98_Lite-…exe`, `NovelDB98_TurboLite-…exe` | SmartScreen may warn about an unknown publisher: choose **More info → Run anyway**. The single-file Full build unpacks itself on every start, so the zip starts faster. |
+| macOS 13+ (Apple silicon `arm64`, Intel `x86_64`) | `NovelDB98-macos-arm64.dmg` and the `_Lite` / `_TurboLite` DMGs | Drag the app to Applications. The app is not notarised: the first time, right-click it and choose **Open** (or allow it in System Settings → Privacy & Security). |
+| Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04+) | `NovelDB98-linux-x86_64.AppImage` and the `_Lite` / `_TurboLite` AppImages | `chmod +x` the file and run it. AppImages need FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04) or `--appimage-extract-and-run`. The embedded Catalog runs without Chromium's sandbox inside an AppImage. |
 
 Settings live in `config.json` next to the app. When that folder can't be written to (a macOS `.app`, a Linux install), they go to the per-user folder instead: `%LOCALAPPDATA%/NovelDB` on Windows, `~/Library/Application Support/NovelDB` on macOS, `~/.config/NovelDB` on Linux. A `SHA256SUMS-<os>.txt` file in each release lists the checksums.
 
