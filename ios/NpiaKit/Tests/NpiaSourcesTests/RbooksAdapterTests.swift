@@ -56,8 +56,8 @@ private final class Responses: @unchecked Sendable {
         return contentPolled - 1
     }
 
-    func page(_ index: Int = 0) -> ScriptedPage {
-        ScriptedPage(name: "page\(index)") { _, call in
+    func page(_ index: Int = 0) -> HardScriptedPage {
+        HardScriptedPage(name: "page\(index)") { _, call in
             if call.hasPrefix("rbooks.productReady") { return self.productReady }
             if call.hasPrefix("rbooks.productInfo") { return self.product }
             if call.hasPrefix("rbooks.libraryProbe") { return self.libraryProbe }
@@ -76,8 +76,8 @@ private func adapter(_ cookies: FakeCookies? = FakeCookies(), timing: RbooksTimi
     RbooksAdapter(timing: timing, cookies: cookies)
 }
 
-private func web(_ responses: Responses, setup: @escaping @Sendable (ScriptedPage) -> Void = { _ in }) -> ScriptedWeb {
-    ScriptedWeb { index in
+private func web(_ responses: Responses, setup: @escaping @Sendable (HardScriptedPage) -> Void = { _ in }) -> HardScriptedWeb {
+    HardScriptedWeb { index in
         let page = responses.page(index)
         setup(page)
         return page
@@ -111,19 +111,19 @@ final class RbooksAdapterTests: XCTestCase {
         HardPrompts.shared.reset()
     }
 
-    private func parseBook(_ rbooks: RbooksAdapter, _ link: String, web: ScriptedWeb, secrets: InMemorySecretStore = InMemorySecretStore(),
+    private func parseBook(_ rbooks: RbooksAdapter, _ link: String, web: HardScriptedWeb, secrets: InMemorySecretStore = InMemorySecretStore(),
                            logger: CollectingLogger = CollectingLogger()) async throws -> BookInfo {
         try await rbooks.parseBook(URL(string: link)!, context: hardContext(web, secrets: secrets, logger: logger))
     }
 
-    private func parseBook(_ link: String, web: ScriptedWeb, secrets: InMemorySecretStore = InMemorySecretStore(),
+    private func parseBook(_ link: String, web: HardScriptedWeb, secrets: InMemorySecretStore = InMemorySecretStore(),
                            logger: CollectingLogger = CollectingLogger()) async throws -> BookInfo {
         try await parseBook(adapter(), link, web: web, secrets: secrets, logger: logger)
     }
 
     private func parseChapter(_ responses: Responses, adapter rbooks: RbooksAdapter = adapter(), settings: AppSettings = AppSettings(),
                               http: any HTTPFetching = RecordingHTTP(), logger: CollectingLogger = CollectingLogger(),
-                              setup: @escaping @Sendable (ScriptedPage) -> Void = { _ in }) async throws -> (ChapterResult, ScriptedWeb) {
+                              setup: @escaping @Sendable (HardScriptedPage) -> Void = { _ in }) async throws -> (ChapterResult, HardScriptedWeb) {
         let scripted = web(responses, setup: setup)
         let result = try await rbooks.parseChapter(chapter1, book: book([chapter1]), context: hardContext(scripted, settings: settings, http: http, logger: logger))
         return (result, scripted)

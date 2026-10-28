@@ -421,19 +421,28 @@ final class HardWebKitTests: XCTestCase {
 
     func testCaptchaAndFirewallPagesAreToldApartFromASlowPage() async throws {
         let captcha = try await open(try RepoFixtures.page("qdn_verification.html"), at: QdnSite.origin + "/verify/")
-        XCTAssertEqual(QdnPageState(try await captcha.hardObject("qdn.pageState()")).state, "verification")
-        XCTAssertEqual(QdnCatalogState(try await captcha.hardObject("qdn.catalogState()")).state, "verification")
-        XCTAssertTrue(QdnChapterState(try await captcha.hardObject("qdn.chapterState()")).verification)
-        XCTAssertEqual(QdnRead(try await captcha.hardObject("qdn.readChapter()")).error, "verification")
+        let state1 = QdnPageState(try await captcha.hardObject("qdn.pageState()"))
+        XCTAssertEqual(state1.state, "verification")
+        let state2 = QdnCatalogState(try await captcha.hardObject("qdn.catalogState()"))
+        XCTAssertEqual(state2.state, "verification")
+        let state3 = QdnChapterState(try await captcha.hardObject("qdn.chapterState()"))
+        XCTAssertTrue(state3.verification)
+        let state4 = QdnRead(try await captcha.hardObject("qdn.readChapter()"))
+        XCTAssertEqual(state4.error, "verification")
 
         let firewall = try await open(try RepoFixtures.page("qdn_waf.html"), at: QdnSite.origin + "/waf/")
-        XCTAssertEqual(QdnPageState(try await firewall.hardObject("qdn.pageState()")).state, "blocked")
-        XCTAssertEqual(QdnCatalogState(try await firewall.hardObject("qdn.catalogState()")).state, "blocked")
-        XCTAssertTrue(QdnChapterState(try await firewall.hardObject("qdn.chapterState()")).blocked)
+        let state5 = QdnPageState(try await firewall.hardObject("qdn.pageState()"))
+        XCTAssertEqual(state5.state, "blocked")
+        let state6 = QdnCatalogState(try await firewall.hardObject("qdn.catalogState()"))
+        XCTAssertEqual(state6.state, "blocked")
+        let state7 = QdnChapterState(try await firewall.hardObject("qdn.chapterState()"))
+        XCTAssertTrue(state7.blocked)
 
         let slow = try await open("<h1>loading</h1>", at: QdnSite.origin + "/slow/")
-        XCTAssertEqual(QdnPageState(try await slow.hardObject("qdn.pageState()")).state, "waiting")
-        XCTAssertEqual(QdnCatalogState(try await slow.hardObject("qdn.catalogState()")).state, "waiting")
+        let state8 = QdnPageState(try await slow.hardObject("qdn.pageState()"))
+        XCTAssertEqual(state8.state, "waiting")
+        let state9 = QdnCatalogState(try await slow.hardObject("qdn.catalogState()"))
+        XCTAssertEqual(state9.state, "waiting")
     }
 
     func testFreeChapterTextDropsReviewsAndStrayNumbers() async throws {
@@ -512,7 +521,8 @@ final class HardWebKitTests: XCTestCase {
         XCTAssertTrue(state.found && state.ready)
         XCTAssertFalse(state.refused)
         XCTAssertGreaterThan(state.length, 500)
-        XCTAssertFalse(RbooksWall(try await page.hardObject("rbooks.accessWall()")).wall)
+        let state10 = RbooksWall(try await page.hardObject("rbooks.accessWall()"))
+        XCTAssertFalse(state10.wall)
 
         let before = try await page.evaluate(String.self, "return document.body.innerHTML;")
         let reply = try await page.hardOptionalObject("rbooks.extract({\"fallbackTitle\":\"fallback\",\"chapterIndex\":7})")
@@ -545,7 +555,8 @@ final class HardWebKitTests: XCTestCase {
 
     func testViewerRefusalsAndPurchaseWallsAreClassified() async throws {
         let refused = try await open(try RepoFixtures.page("rbooks_viewer_refused.html"), at: RbooksSite.origin + "/books/6251000009/view")
-        XCTAssertTrue(RbooksContentState(try await refused.hardObject("rbooks.contentState()")).refused)
+        let state11 = RbooksContentState(try await refused.hardObject("rbooks.contentState()"))
+        XCTAssertTrue(state11.refused)
         let refusedWall = RbooksWall(try await refused.hardObject("rbooks.accessWall()"))
         XCTAssertTrue(refusedWall.wall)
         XCTAssertTrue(refusedWall.refused)
@@ -559,6 +570,7 @@ final class HardWebKitTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(purchase.hits, 2)
 
         let product = try await open(try RepoFixtures.page("rbooks_wall.html"), at: RbooksSite.origin + "/books/6251000008")
-        XCTAssertTrue(RbooksWall(try await product.hardObject("rbooks.accessWall()")).offViewer)
+        let state12 = RbooksWall(try await product.hardObject("rbooks.accessWall()"))
+        XCTAssertTrue(state12.offViewer)
     }
 }

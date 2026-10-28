@@ -38,8 +38,8 @@ private final class Responses: @unchecked Sendable {
     var decode: @Sendable (String) -> String = { _ in "{\"lines\":[\"decoded one\",\"decoded two\"],\"stats\":{\"decoded\":10,\"verifiedGlyphs\":4,\"shapeMatchedGlyphs\":6}}" }
     var knownFonts = "[]"
 
-    func page(_ index: Int = 0) -> ScriptedPage {
-        ScriptedPage(name: "page\(index)") { page, call in
+    func page(_ index: Int = 0) -> HardScriptedPage {
+        HardScriptedPage(name: "page\(index)") { page, call in
             let url = page.url?.absoluteString ?? ""
             if call.hasPrefix("qdn.pageState") { return self.pageState }
             if call.hasPrefix("qdn.bookInfo") { return self.book }
@@ -59,8 +59,8 @@ private final class Responses: @unchecked Sendable {
     }
 }
 
-private func web(_ responses: Responses, setup: @escaping @Sendable (ScriptedPage) -> Void = { _ in }) -> ScriptedWeb {
-    ScriptedWeb { index in
+private func web(_ responses: Responses, setup: @escaping @Sendable (HardScriptedPage) -> Void = { _ in }) -> HardScriptedWeb {
+    HardScriptedWeb { index in
         let page = responses.page(index)
         setup(page)
         return page
@@ -104,13 +104,13 @@ final class QdnAdapterTests: XCTestCase {
         HardPrompts.shared.reset()
     }
 
-    private func parseBook(_ qdn: QdnAdapter, link: String = origin + "/book/77/", web: ScriptedWeb,
+    private func parseBook(_ qdn: QdnAdapter, link: String = origin + "/book/77/", web: HardScriptedWeb,
                            secrets: InMemorySecretStore = InMemorySecretStore(), settings: AppSettings = settings(skipPaid: true),
                            logger: CollectingLogger = CollectingLogger()) async throws -> BookInfo {
         try await qdn.parseBook(URL(string: link)!, context: hardContext(web, secrets: secrets, settings: settings, logger: logger))
     }
 
-    private func parseBook(link: String = origin + "/book/77/", web: ScriptedWeb,
+    private func parseBook(link: String = origin + "/book/77/", web: HardScriptedWeb,
                            secrets: InMemorySecretStore = InMemorySecretStore(), settings: AppSettings = settings(skipPaid: true),
                            logger: CollectingLogger = CollectingLogger()) async throws -> BookInfo {
         try await parseBook(adapter(), link: link, web: web, secrets: secrets, settings: settings, logger: logger)
@@ -392,7 +392,7 @@ final class QdnAdapterTests: XCTestCase {
     // MARK: Chapters
 
     private func readChapter(_ responses: Responses, logger: CollectingLogger = CollectingLogger(), secrets: InMemorySecretStore = InMemorySecretStore(),
-                             settings: AppSettings = AppSettings(), adapter qdn: QdnAdapter = adapter()) async throws -> (ChapterResult, ScriptedWeb) {
+                             settings: AppSettings = AppSettings(), adapter qdn: QdnAdapter = adapter()) async throws -> (ChapterResult, HardScriptedWeb) {
         let scripted = web(responses)
         let result = try await qdn.parseChapter(ref(1), book: bookInfo([ref(1)]), context: hardContext(scripted, secrets: secrets, settings: settings, logger: logger))
         return (result, scripted)

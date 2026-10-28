@@ -74,7 +74,7 @@ actor QdnDecoder {
     /// SHA-256 digests of the cipher fonts held, so the next extraction can leave them out.
     func knownFonts() async throws -> [String] {
         try await gate.run {
-            guard let decoderPage = await self.page else { return [] }
+            guard let decoderPage = self.page else { return [] }
             return try await decoderPage.hardStrings("qdn.decoder.knownFonts()")
         }
     }
@@ -83,7 +83,7 @@ actor QdnDecoder {
     func decode(_ payloadJSON: String) async throws -> QdnDecoded {
         try await gate.run {
             try await self.prepareLocked()
-            guard let decoderPage = await self.page else { throw WebEngineError.scriptFailed("the glyph decoder is closed") }
+            guard let decoderPage = self.page else { throw WebEngineError.scriptFailed("the glyph decoder is closed") }
             let text = try await decoderPage.hardTask(
                 "qdn.decoder.decodeJson", argsJSON: "[\(HardScripts.literal(payloadJSON))]",
                 pollSeconds: self.timing.decodePoll, maxPolls: self.timing.decodePolls
@@ -94,8 +94,8 @@ actor QdnDecoder {
 
     func close() async {
         let closing: (any WebPageDriving)? = await gate.run {
-            let open = await self.page
-            await self.forget()
+            let open = self.page
+            self.forget()
             return open
         }
         await closing?.close()
