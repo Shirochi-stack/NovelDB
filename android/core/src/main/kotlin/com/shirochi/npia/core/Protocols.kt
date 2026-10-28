@@ -55,6 +55,14 @@ interface WebPageDriving {
 
     suspend fun html(): String
 
+    /**
+     * Defines `window.__npia_gm_xmlhttp_request(details)` in the page's top frame, now and on every
+     * later navigation: an async function that sends the `details` object (as JSON) to `handler` in
+     * the app and resolves to the JSON object it returns. Scripts use it for requests the page itself
+     * may not make (CORS). The default leaves the function undefined.
+     */
+    suspend fun exposeTransport(handler: suspend (String) -> String) {}
+
     suspend fun close()
 }
 
