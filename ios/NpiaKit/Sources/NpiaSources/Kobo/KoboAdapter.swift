@@ -7,6 +7,7 @@ import NpiaCore
 public struct KoboAdapter: SourceAdapter {
     public static let id: SourceID = .kobo
     public static let tier: SourceTier = .lightBrowser
+    public static let sites: Set<String> = KoboParsing.sites
 
     public init() {}
 

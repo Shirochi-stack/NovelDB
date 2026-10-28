@@ -7,6 +7,7 @@ import NpiaCore
 public struct XiyuwxAdapter: SourceAdapter {
     public static let id: SourceID = .xiyuwx
     public static let tier: SourceTier = .lightBrowser
+    public static let sites: Set<String> = XiyuwxParser.hosts
 
     public init() {}
 

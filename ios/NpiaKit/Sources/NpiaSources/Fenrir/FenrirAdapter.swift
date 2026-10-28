@@ -8,6 +8,7 @@ import NpiaCore
 public struct FenrirAdapter: SourceAdapter {
     public static let id: SourceID = .fenrir
     public static let tier: SourceTier = .lightBrowser
+    public static let sites: Set<String> = FenrirParsing.hosts
 
     /// How long to wait for the reader to mint a read token (the desktop waits up to 300 s for a
     /// person to tick the human check; an offscreen web view cannot show it, so wait less).

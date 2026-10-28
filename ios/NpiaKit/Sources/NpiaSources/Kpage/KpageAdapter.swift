@@ -37,6 +37,7 @@ private struct KpageBrowserFetch: Decodable {
 public struct KpageAdapter: SourceAdapter {
     public static let id: SourceID = .kpage
     public static let tier: SourceTier = .lightBrowser
+    public static let sites: Set<String> = [KpageHosts.siteHost]
 
     public init() {}
 

@@ -26,6 +26,7 @@ final class EngineSiteIndex: @unchecked Sendable {
 enum EngineSites {
     private static let lock = NSLock()
     private static var cache: [String: EngineSiteIndex] = [:]
+    private static var pageCache: [String: UserScriptPatterns] = [:]
 
     /// True when the bundle lists the URL's site.
     static func lists(_ bundle: EngineBundle, _ url: URL) -> Bool {
@@ -44,6 +45,30 @@ enum EngineSites {
         return lists(bundle, url)
     }
 
+    /// True when the bundle lists this page, not just its site. The novel-downloader rules name their
+    /// pages in the script's header (`@match` and `@include` patterns that no `@exclude` takes back);
+    /// WebToEpub lists only hosts, so any page of a listed site counts except the site's home page.
+    static func listsPage(_ bundle: EngineBundle, _ url: URL) -> Bool {
+        switch bundle.engine {
+        case .webtoepub:
+            return lists(bundle, url) && !isHomePage(url)
+        case .novelDownloader:
+            return pagePatterns(for: bundle)?.accepts(url) ?? false
+        }
+    }
+
+    /// `listsPage` for the engine's bundle in use.
+    static func listsPage(_ engine: RuleEngine, _ url: URL, store: EngineStore = .shared) -> Bool {
+        guard let bundle = store.current(engine) else { return false }
+        return listsPage(bundle, url)
+    }
+
+    /// True for the front page of a site: an empty path or `/`, whatever the query.
+    static func isHomePage(_ url: URL) -> Bool {
+        let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        return path.isEmpty || path == "/"
+    }
+
     /// The URL's host as `location.host` spells it: lower case, with the port when there is one.
     static func hostAndPort(_ url: URL) -> String {
         let host = (url.host ?? "").lowercased()
@@ -55,10 +80,32 @@ enum EngineSites {
         host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
-    private static func index(for bundle: EngineBundle) -> EngineSiteIndex? {
+    /// Names a bundle's current file, so what was read from it is read again only when it changes.
+    private static func cacheKey(_ bundle: EngineBundle) -> String {
         let values = try? bundle.path.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let stamp = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let key = "\(bundle.engine.rawValue)|\(bundle.path.path)|\(values?.fileSize ?? -1)|\(stamp)"
+        return "\(bundle.engine.rawValue)|\(bundle.path.path)|\(values?.fileSize ?? -1)|\(stamp)"
+    }
+
+    /// The header patterns of the novel-downloader rules, read once per bundle file.
+    private static func pagePatterns(for bundle: EngineBundle) -> UserScriptPatterns? {
+        let key = cacheKey(bundle)
+        lock.lock()
+        if let known = pageCache[key] {
+            lock.unlock()
+            return known
+        }
+        lock.unlock()
+        guard let data = try? Data(contentsOf: bundle.path) else { return nil }
+        let built = UserScriptPatterns.parse(String(decoding: data, as: UTF8.self))
+        lock.lock()
+        pageCache[key] = built
+        lock.unlock()
+        return built
+    }
+
+    private static func index(for bundle: EngineBundle) -> EngineSiteIndex? {
+        let key = cacheKey(bundle)
         lock.lock()
         if let known = cache[key] {
             lock.unlock()

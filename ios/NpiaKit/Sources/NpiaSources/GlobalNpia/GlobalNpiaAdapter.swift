@@ -35,6 +35,7 @@ final class GlobalNpiaAuth: @unchecked Sendable {
 public struct GlobalNpiaAdapter: SourceAdapter {
     public static let id: SourceID = .globalNpia
     public static let tier: SourceTier = .lightBrowser
+    public static let sites: Set<String> = [GlobalNpiaParsing.host]
 
     static let adRefusal: String = "needs an ad ticket; not supported yet"
     static let loginRefusal: String = "login required or not available to this account"

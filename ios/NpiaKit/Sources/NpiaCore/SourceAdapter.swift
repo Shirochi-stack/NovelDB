@@ -31,8 +31,15 @@ public struct SourceContext: Sendable {
 public protocol SourceAdapter: Sendable {
     static var id: SourceID { get }
     static var tier: SourceTier { get }
+    /// Hosts of the sites this adapter downloads from, as a person browses them (no API or image
+    /// hosts), lower case. A host covers its subdomains. Empty for `reader` (it takes any page the
+    /// script engines list) and for sources that are not ported yet.
+    static var sites: Set<String> { get }
     init()
     static func matches(_ url: URL) -> Bool
+    /// True when `host` (lower case, no port) belongs to one of this adapter's sites. Adapters whose
+    /// domain keeps moving override it with a name pattern.
+    static func ownsSite(_ host: String) -> Bool
     func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo
     func parseChapter(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> ChapterResult
     /// Defaults to `parseChapter` with `threads` concurrent tasks; override for batch APIs.
@@ -40,6 +47,12 @@ public protocol SourceAdapter: Sendable {
 }
 
 public extension SourceAdapter {
+    static var sites: Set<String> { [] }
+
+    static func ownsSite(_ host: String) -> Bool {
+        sites.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
     func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
         let shared = context.shared(for: Self.id)
         let limit = max(1, shared.threads)

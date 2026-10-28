@@ -12,6 +12,7 @@ import NpiaCore
 public struct FlooAdapter: SourceAdapter {
     public static let id: SourceID = .floo
     public static let tier: SourceTier = .lightBrowser
+    public static let sites: Set<String> = FlooParser.hosts
 
     public init() {}
 

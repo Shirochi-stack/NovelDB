@@ -11,6 +11,7 @@ import SwiftSoup
 public struct NwebAdapter: SourceAdapter {
     public static let id: SourceID = .nweb
     public static let tier: SourceTier = .http
+    public static let sites: Set<String> = ["novel.\(domain)", "m.novel.\(domain)", "series.\(domain)", "m.series.\(domain)"]
 
     static let domain = "\u{6e}\u{61}\u{76}\u{65}\u{72}.com"
     static let novelOrigin = "https://novel.\(domain)"

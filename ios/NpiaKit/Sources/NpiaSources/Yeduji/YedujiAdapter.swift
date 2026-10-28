@@ -6,7 +6,9 @@ import NpiaCore
 public struct YedujiAdapter: SourceAdapter {
     public static let id: SourceID = .yeduji
     public static let tier: SourceTier = .http
+    public static let sites: Set<String> = [host]
 
+    static let host = "yeduji.com"
     static let headers = [
         "User-Agent": HTTPSourceSupport.desktopUserAgent,
         "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
@@ -20,7 +22,7 @@ public struct YedujiAdapter: SourceAdapter {
 
     public static func matches(_ url: URL) -> Bool {
         let host = (url.host ?? "").lowercased()
-        return (host == "yeduji.com" || host == "www.yeduji.com")
+        return (host == Self.host || host == "www.\(Self.host)")
             && url.path.range(of: "^/book/\\d+", options: .regularExpression) != nil
     }
 

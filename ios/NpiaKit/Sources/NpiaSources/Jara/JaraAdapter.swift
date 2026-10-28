@@ -12,6 +12,7 @@ import NpiaCore
 public struct JaraAdapter: SourceAdapter {
     public static let id: SourceID = .jara
     public static let tier: SourceTier = .http
+    public static let sites: Set<String> = [host]
 
     static let host = "\u{6a}\u{6f}\u{61}\u{72}\u{61}.com"
     static let origin = URL(string: "https://www.\(host)")!
