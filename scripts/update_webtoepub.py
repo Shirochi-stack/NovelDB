@@ -62,7 +62,8 @@ def _get(url: str, accept: str = "") -> bytes:
 def shim_key() -> str:
     digest = hashlib.sha256()
     for name in ("prefix.js", "bridge.js"):
-        digest.update((SHIM_DIR / name).read_bytes())
+        # Line endings depend on the checkout (Windows or the Linux runner), not the shim.
+        digest.update((SHIM_DIR / name).read_bytes().replace(b"\r\n", b"\n"))
     return digest.hexdigest()[:12]
 
 
