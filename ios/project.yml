@@ -49,6 +49,10 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         # Google OAuth iOS client id for Drive uploads; see docs/upload.md.
         NpiaGoogleDriveClientID: ""
+        # XcodeGen would write the literals 1.0 and 1 here; take the build settings instead, so the
+        # stamped CURRENT_PROJECT_VERSION and MARKETING_VERSION reach the app.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # The stamped build (empty for a development build); read by AppBuildInfo.
         NovelDBBuild: "$(NOVELDB_BUILD)"
         NovelDBTag: "$(NOVELDB_TAG)"
