@@ -13,7 +13,14 @@ import UIKit
 @Observable
 final class AppModel {
     var settings: AppSettings {
-        didSet { if settings != oldValue { saveSettings() } }
+        didSet {
+            if settings != oldValue { saveSettings() }
+            // Opting in to engine updates (the toggle, or an imported desktop config) checks right away.
+            let optedIn = RuleEngine.allCases.filter {
+                settings.engines.autoUpdate($0.siteEngine) && !oldValue.engines.autoUpdate($0.siteEngine)
+            }
+            if !optedIn.isEmpty { Task { await checkEngineUpdates(automatic: true, only: optedIn) } }
+        }
     }
     private(set) var jobs: [JobItem] = []
     private(set) var uploadHistory: [UploadResult] = []
@@ -379,6 +386,42 @@ final class AppModel {
             engineBundleLabels[engine] = labels[engine.rawValue]
         }
     }
+
+    #if DEBUG
+    /// The live download check of the iOS workflow (its `live_url` input). Launched with
+    /// `-NovelDBLiveDownload <url>`, the app queues the book's first three chapters as EPUB and TXT
+    /// and writes `live-download-report.txt` to Documents when the job ends.
+    func runLiveDownloadIfAsked() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "-NovelDBLiveDownload"), arguments.indices.contains(flag + 1),
+              let url = URL(string: arguments[flag + 1]) else { return }
+        var run = settings
+        run.shared.formats = [.epub, .txt]
+        run.shared.rangeFrom = 1
+        run.shared.rangeTo = 3
+        run.shared.intervalMin = 0.5
+        run.shared.intervalMax = 1
+        run.upload.autoUpload = false
+        enqueue([url]) { _ in run }
+        guard let id = jobs.first?.id else { return }
+        while let job = job(id), job.state.isActive {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        // Log lines reach the job through the main actor; let the last ones land.
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        guard let job = job(id) else { return }
+        let lines = [
+            "state: \(job.state.rawValue)",
+            "status: \(job.status)",
+            "title: \(job.displayTitle)",
+            "files: \(job.fileNames.joined(separator: ", "))",
+            "skipped: \(job.skipped.count)",
+            "log:",
+        ] + job.log
+        try? lines.joined(separator: "\n").write(
+            to: outputDirectory.appendingPathComponent("live-download-report.txt"), atomically: true, encoding: .utf8)
+    }
+    #endif
 
     // MARK: - Desktop config
 

@@ -43,10 +43,11 @@ Each placeholder carries a `TODO(<workstream>)` naming its owner:
 
 ## Site engines
 
-A link goes through the site engines in the order set in Settings > Site engines (default: the built-in scrapers, the novel-downloader rules, the WebToEpub parsers) until one finds chapters. `SiteEngineRouter` runs them; when a built-in scraper owns the site, the other two only follow it if they list the site (`EngineSites`).
+A link goes through the site engines in the order set in Settings > Site engines (default: the built-in scrapers, the novel-downloader rules, the WebToEpub parsers) until one finds chapters. `SiteEngineRouter` runs them; when a built-in scraper owns the site, the other two only follow it if they list the site (`EngineSites`). A web page no built-in scraper owns is accepted even when no site list names it, because WebToEpub also recognises some sites by their page; "Not supported" means no enabled engine can try the link (`SiteEngineRouter.canTry`).
 
 - novel-downloader (`rules-lib.js`) runs in JavaScriptCore, then in a web view if that fails. WebToEpub (`Reader/Resources/webtoepub/`, GPL-3.0) needs a real DOM and only runs in a web view. Both share one page load (`EnginePage`). Requests the page's own `fetch` refuses go through the `npiaTransport` message handler to the app's HTTP client (`EngineTransport`).
 - Both engines ship with the app. With the opt-in toggles on, `EngineUpdater` downloads newer builds from the `engines` release (`novel-downloader-manifest.json`, `webtoepub-manifest.json`) into Application Support and checks the SHA-256, the API (1) and that the build is newer. A download that fails to load is deleted, remembered as rejected, and the shipped copy is used.
+- A live check downloads the first three chapters of a real book inside the app on a simulator: run the iOS App workflow by hand with `live_url` set (for example a WebToEpub-only site). It needs the site to be reachable from GitHub's runners.
 - The config keys `source_engine_order`, `source_engines_off`, `novel_downloader_auto_update` and `webtoepub_auto_update` match the desktop app.
 
 ## Rules

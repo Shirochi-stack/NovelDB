@@ -268,12 +268,6 @@ struct SiteEnginesForm: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { EditButton() }
         }
-        .onChange(of: model.settings.engines.novelDownloaderAutoUpdate) { _, on in
-            if on { Task { await model.checkEngineUpdates(automatic: true, only: [.novelDownloader]) } }
-        }
-        .onChange(of: model.settings.engines.webtoepubAutoUpdate) { _, on in
-            if on { Task { await model.checkEngineUpdates(automatic: true, only: [.webtoepub]) } }
-        }
         .task { await model.refreshEngineBundles() }
     }
 }
