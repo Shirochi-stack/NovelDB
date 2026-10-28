@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from noveldb.core import platform_services
 from noveldb.core.queue.model import ACTIVE, CANCELLED, DONE, FAILED, FINISHED, INTERRUPTED, QUEUED, RUNNING
 from noveldb.qt.context import AppContext
+from noveldb.qt.scale import bind_title
 from noveldb.qt.uploads import upload_jobs
 from noveldb.qt.widgets import hint, spin
 
@@ -44,8 +45,7 @@ class QueuePage(QWidget):
         self.runner = context.runner
         self._batch: set[str] = set()  # jobs since the queue was last idle
 
-        title = QLabel("Queue")
-        title.setStyleSheet("font-size: 24px; font-weight: 600;")
+        title = bind_title(QLabel("Queue"), 24)
         self.pause = QPushButton()
         self.pause.clicked.connect(self._toggle_pause)
         stop_all = QPushButton("Stop all")

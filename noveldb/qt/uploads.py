@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from noveldb.core.upload import UploadItem, UploadOutcome, links_text, upload_items
 from noveldb.core.upload.transfer import book_id_from_url
 from noveldb.qt.context import AppContext
+from noveldb.qt.scale import bind_size
 
 AGREEMENT_TEXT = (
     "Share links are public: anyone who has the link can download the file until the host "
@@ -44,7 +45,7 @@ class AgreementDialog(QDialog):
         self.setModal(True)
         text = QLabel(AGREEMENT_TEXT)
         text.setWordWrap(True)
-        text.setMinimumWidth(420)
+        bind_size(text, min_width=420)
         self.confirm = QCheckBox("I confirm I am authorised to share these files.")
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         self.accept_button = buttons.addButton("Continue", QDialogButtonBox.AcceptRole)
@@ -118,7 +119,7 @@ class UploadDialog(QDialog):
         super().__init__(parent)
         self.context = context
         self.setWindowTitle("Upload and share")
-        self.setMinimumWidth(480)
+        bind_size(self, min_width=480)
         self.outcomes: list[UploadOutcome] = []
         self.file_count = len(items)
         self.heading = QLabel(f"Uploading {len(items)} file(s)...")

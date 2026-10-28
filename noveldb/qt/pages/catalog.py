@@ -7,6 +7,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from noveldb.qt.context import AppContext
+from noveldb.qt.scale import bind_title
 from noveldb.qt.widgets import hint
 
 
@@ -19,8 +20,7 @@ class BrowserCatalogPage(QWidget):
     def __init__(self, context: AppContext) -> None:
         super().__init__()
         self.context = context
-        title = QLabel("Catalog")
-        title.setStyleSheet("font-size: 24px; font-weight: 600;")
+        title = bind_title(QLabel("Catalog"), 24)
         self.site = hint("")
         open_site = QPushButton("Open catalog in browser")
         open_site.setProperty("primary", True)
