@@ -12,6 +12,13 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # Release builds are stamped by CI (ios/ci/release_stamp.sh, called by the iOS App workflow):
+    # the build number, the release tag and the label. All empty means a development build, which
+    # never offers app updates. With a build number, CI also sets CURRENT_PROJECT_VERSION to
+    # build / 60 and MARKETING_VERSION to the tag's number.
+    NOVELDB_BUILD: ""
+    NOVELDB_TAG: ""
+    NOVELDB_LABEL: ""
 targets:
   NpiaMobile:
     type: application
@@ -40,6 +47,10 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         # Google OAuth iOS client id for Drive uploads; see docs/upload.md.
         NpiaGoogleDriveClientID: ""
+        # The stamped build (empty for a development build); read by AppBuildInfo.
+        NovelDBBuild: "$(NOVELDB_BUILD)"
+        NovelDBTag: "$(NOVELDB_TAG)"
+        NovelDBLabel: "$(NOVELDB_LABEL)"
         UIBackgroundModes:
           - processing
         BGTaskSchedulerPermittedIdentifiers:
