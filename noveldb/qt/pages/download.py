@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -90,10 +91,8 @@ class DownloadPage(QWidget):
         self.input.setMinimumHeight(90)
         self.input.setMaximumHeight(150)
         paste = QPushButton("Paste")
-        paste.setMinimumWidth(100)
         paste.clicked.connect(self._paste)
         clear = QPushButton("Clear")
-        clear.setMinimumWidth(100)
         clear.clicked.connect(self.input.clear)
         self.cart_button = QPushButton()
         self.cart_button.clicked.connect(self.openCart.emit)
@@ -208,6 +207,14 @@ class DownloadPage(QWidget):
         folder_row.addWidget(self.folder, 1)
         folder_row.addWidget(browse)
         folder_row.addWidget(self.ask_each_time)
+        from noveldb.core import platform_services
+
+        self.shutdown = QCheckBox("Shut down computer after successful download")
+        self.shutdown.setToolTip("When the whole queue finishes without failures, shut down after a "
+                                 "60-second countdown you can cancel.")
+        self.shutdown.toggled.connect(lambda on: context.update_settings(
+            lambda s: replace(s, output=replace(s.output, shutdown_after_success=on))))
+        self.shutdown.setVisible(platform_services.shutdown_supported())
 
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -231,6 +238,7 @@ class DownloadPage(QWidget):
         layout.addWidget(chips_row)
         layout.addWidget(section("Save"))
         layout.addLayout(folder_row)
+        layout.addWidget(self.shutdown)
         layout.addStretch(1)
 
         # Right-hand column: the npia account and image options (the window has the room).
@@ -246,13 +254,17 @@ class DownloadPage(QWidget):
         side_layout.addWidget(self.images)
         side_layout.addStretch(1)
         side.setMinimumWidth(360)
-        side.setMaximumWidth(520)
+        side.setMaximumWidth(480)
+        # The options keep a compact width; whatever the window has left goes to the log.
+        body.setMinimumWidth(420)
+        body.setMaximumWidth(640)
         columns = QWidget()
+        columns.setMaximumWidth(640 + 480 + 16)
         columns_layout = QHBoxLayout(columns)
         columns_layout.setContentsMargins(0, 0, 0, 0)
         columns_layout.setSpacing(8)
-        columns_layout.addWidget(body, 3)
-        columns_layout.addWidget(side, 2)
+        columns_layout.addWidget(body, 1)
+        columns_layout.addWidget(side, 0)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -265,11 +277,20 @@ class DownloadPage(QWidget):
         dock_layout = QVBoxLayout(self.log_dock)
         dock_layout.setContentsMargins(0, 8, 8, 8)
         dock_layout.setSpacing(0)
+        self.split = QSplitter(Qt.Horizontal)
+        self.split.setHandleWidth(12)
+        self.split.setChildrenCollapsible(False)
+        self.split.addWidget(scroll)
+        self.split.addWidget(self.log_dock)
+        self.split.setStretchFactor(0, 0)  # window growth goes to the log
+        self.split.setStretchFactor(1, 1)
+        self.split.splitterMoved.connect(lambda *_: setattr(self, "_user_split", True))
+        self._user_split = False
+        self._columns = columns
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        outer.addWidget(scroll, 5)
-        outer.addWidget(self.log_dock, 2)
+        outer.addWidget(self.split)
 
         self._detect_timer = QTimer(self)
         self._detect_timer.setSingleShot(True)
@@ -282,6 +303,23 @@ class DownloadPage(QWidget):
         context.cartChanged.connect(self._refresh_cart)
         self._refresh_cart()
         self._detect()
+
+    def _fit_split(self) -> None:
+        """Give the options their compact width (at most 62% of the page) and the log the rest."""
+        total = self.split.width()
+        if self._user_split or total < 600:
+            return
+        wanted = self._columns.maximumWidth() + 24  # room for the scroll bar
+        left = min(wanted, int(total * 0.62))
+        self.split.setSizes([left, total - left])
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._fit_split)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_split()
 
     # -- input -------------------------------------------------------------------------
 
@@ -369,6 +407,7 @@ class DownloadPage(QWidget):
             self.folder.setText(s.output.output_dir)
         set_quietly(self.ask_each_time, s.output.ask_each_time)
         set_quietly(self.regular_browser, s.sources.regular_browser)
+        set_quietly(self.shutdown, s.output.shutdown_after_success)
 
     def _run(self, **changes) -> None:
         source = self._source

@@ -199,6 +199,19 @@ class MainWindow(QMainWindow):
         text = f"Queue finished: {done} done" + (f", {failed} failed" if failed else "")
         self.statusBar().showMessage(text, 15000)
         QApplication.alert(self)
+        self.maybe_shut_down(done, failed)
+
+    def maybe_shut_down(self, done: int, failed: int, shut_down=None) -> None:
+        """"Shut down computer after successful download": every job in the run finished."""
+        from noveldb.core import platform_services
+        from noveldb.qt.shutdown import ShutdownCountdown
+
+        if not (self.context.settings.output.shutdown_after_success and done > 0 and failed == 0):
+            return
+        if shut_down is None and not platform_services.shutdown_supported():
+            return
+        self.shutdown_dialog = ShutdownCountdown(self, shut_down=shut_down, before=self.context.save_now)
+        self.shutdown_dialog.show()
 
     # -- appearance ------------------------------------------------------------------------
 
