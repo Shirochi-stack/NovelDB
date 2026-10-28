@@ -166,17 +166,8 @@ def _run_webview_login(output_path):
         _sh = user32.GetSystemMetrics(1)
         _dbg(f"screen size: {_sw}x{_sh} (ctypes)")
     except Exception:
-        try:
-            import tkinter as _tk
-            _r = _tk.Tk()
-            _r.withdraw()
-            _sw = _r.winfo_screenwidth()
-            _sh = _r.winfo_screenheight()
-            _r.destroy()
-            _dbg(f"screen size: {_sw}x{_sh} (tkinter)")
-        except Exception:
-            _sw, _sh = 1200, 900
-            _dbg(f"screen size: fallback {_sw}x{_sh}")
+        _sw, _sh = 1200, 900
+        _dbg(f"screen size: fallback {_sw}x{_sh}")
 
     try:
         window = webview.create_window(

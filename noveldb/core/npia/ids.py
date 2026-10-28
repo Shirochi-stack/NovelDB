@@ -29,6 +29,11 @@ def extract_novel_id(value):
     return None
 
 
+SITE_DOMAIN = "\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
+SITE_URL = f"https://{SITE_DOMAIN}/"
+SESSION_COOKIE = "LOGINKEY"
+
+
 def novel_url(novel_id) -> str:
     """The novel page address for an ID (what the link cart and the mobile apps store)."""
-    return f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"
+    return f"https://{SITE_DOMAIN}/novel/{novel_id}"
