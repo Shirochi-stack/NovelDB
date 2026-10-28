@@ -90,8 +90,10 @@ class DownloadPage(QWidget):
         self.input.setMinimumHeight(110)
         self.input.setMaximumHeight(200)
         paste = QPushButton("Paste")
+        paste.setMinimumWidth(100)
         paste.clicked.connect(self._paste)
         clear = QPushButton("Clear")
+        clear.setMinimumWidth(100)
         clear.clicked.connect(self.input.clear)
         self.cart_button = QPushButton()
         self.cart_button.clicked.connect(self.openCart.emit)
@@ -112,12 +114,15 @@ class DownloadPage(QWidget):
         tools = QToolButton()
         tools.setText("Tools")
         tools.setProperty("menu", True)
+        tools.setMinimumWidth(120)
+        tools_menu.setMinimumWidth(320)
         tools.setPopupMode(QToolButton.InstantPopup)
         tools.setMenu(tools_menu)
 
         # Browser sign-in, as the old external window had it: Enter Browser (with the regular
         # Chrome profile switch) and Enter App for the sfc app session.
         enter_browser = QPushButton("Enter Browser")
+        enter_browser.setMinimumWidth(150)
         ok, reason = available("enter_browser")
         enter_browser.setEnabled(ok)
         enter_browser.setToolTip(reason or "Open a browser window to sign in to the site of the first link, "
@@ -129,6 +134,7 @@ class DownloadPage(QWidget):
         self.regular_browser.toggled.connect(lambda on: context.update_settings(
             lambda s: replace(s, sources=replace(s.sources, regular_browser=on))))
         enter_app = QPushButton("Enter App (sfc)")
+        enter_app.setMinimumWidth(150)
         enter_app.setToolTip("Sign in to the sfc app, or paste its cookie, for app-only chapters.")
         enter_app.clicked.connect(lambda: self.toolRequested.emit("sfc_app"))
         browser_row = flow(enter_browser, self.regular_browser, enter_app, spacing=10)
