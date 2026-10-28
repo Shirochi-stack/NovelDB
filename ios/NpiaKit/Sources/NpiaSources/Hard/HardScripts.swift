@@ -31,7 +31,9 @@ enum HardScripts {
     /// A JavaScript string literal for `value`. JSON is one, except that older engines reject the two
     /// line separators inside a string.
     static func literal(_ value: String) -> String {
-        let data = (try? JSONEncoder().encode([value])) ?? Data("[\"\"]".utf8)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = (try? encoder.encode([value])) ?? Data("[\"\"]".utf8)
         var text = String(decoding: data, as: UTF8.self)
         text.removeFirst()
         text.removeLast()

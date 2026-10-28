@@ -117,6 +117,14 @@ struct AddURLView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(supported.isEmpty)
+                // Like the desktop Download page, the sign-ins sit next to the Download button.
+                NavigationLink {
+                    EnterAppView()
+                } label: {
+                    Label("Enter App", systemImage: "key").frame(maxWidth: .infinity)
+                }
+            } footer: {
+                Text("Sign in to sfc, qdn and rbooks to read the chapters your account bought.")
             }
         }
         .themedBackground()

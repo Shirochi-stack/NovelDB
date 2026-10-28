@@ -45,7 +45,8 @@ struct BrowserView: View {
             }
             if downloadable {
                 Button {
-                    model.pendingAddText = browser.url?.absoluteString
+                    // The phone site's address becomes the desktop one the scraper reads.
+                    model.pendingAddText = browser.url.map { SourceCatalog.canonicalURL($0).absoluteString }
                     onDownload()
                 } label: {
                     Label("Download this book", systemImage: "arrow.down.circle.fill").frame(maxWidth: .infinity)
@@ -112,6 +113,7 @@ private struct BrowserStartPage: View {
 
 /// Sites that hold cookies, with per-site and global sign-out.
 struct SitesView: View {
+    @Environment(AppModel.self) private var model
     var open: (String) -> Void = { _ in }
     @State private var domains: [String] = []
     @State private var confirmAll = false
@@ -129,6 +131,8 @@ struct SitesView: View {
                         Button("Sign out", role: .destructive) {
                             Task {
                                 await SiteCookies.signOut(domain)
+                                // The saved copy of a qdn or rbooks login would bring it back at the next start.
+                                model.forgetSavedSessions(forDomain: domain)
                                 domains = await SiteCookies.domains()
                             }
                         }
@@ -150,6 +154,7 @@ struct SitesView: View {
             Button("Sign out", role: .destructive) {
                 Task {
                     await SiteCookies.signOutAll()
+                    model.forgetSavedSessions(forDomain: nil)
                     domains = await SiteCookies.domains()
                 }
             }

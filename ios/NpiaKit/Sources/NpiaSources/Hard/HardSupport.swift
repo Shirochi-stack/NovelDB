@@ -135,6 +135,17 @@ enum HardSupport {
         await page.addMainFrameInitScript(HardScripts.source)
     }
 
+    /// What to tell the user about a failed chapter: the web engine's own errors say what went wrong.
+    static func describe(_ error: Error) -> String {
+        guard let web = error as? WebEngineError else { return error.localizedDescription }
+        switch web {
+        case .timeout(let url): return "the page \(url.absoluteString) did not load in time"
+        case .navigationFailed(let message): return message
+        case .scriptFailed(let message): return message
+        case .unavailable: return "no web view is available"
+        }
+    }
+
     /// Runs `work` for every chapter with at most `limit` in flight, like the default `parseChapters`: a worker
     /// rests one chapter delay before its next chapter, a chapter that throws becomes a failed result, and
     /// `onChapter` hears about each result as soon as it is known. Results come back in `refs` order.
@@ -153,7 +164,7 @@ enum HardSupport {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                return (position, .failed(ref, message: error.localizedDescription))
+                return (position, .failed(ref, message: describe(error)))
             }
         }
 

@@ -36,9 +36,9 @@ actor QdnDecoder {
         }
         try await decoderPage.load(URL(string: "about:blank")!, until: .domContentLoaded, timeout: 20)
         try await decoderPage.ensureHard()
-        try await push(decoderPage, name: "font", resource: HardScripts.qdnFont)
-        try await push(decoderPage, name: "frequency", resource: HardScripts.qdnFrequency)
-        try await push(decoderPage, name: "verified", resource: HardScripts.qdnVerified)
+        try await Self.push(decoderPage, name: "font", resource: HardScripts.qdnFont)
+        try await Self.push(decoderPage, name: "frequency", resource: HardScripts.qdnFrequency)
+        try await Self.push(decoderPage, name: "verified", resource: HardScripts.qdnVerified)
         for _ in 0..<max(1, timing.referenceSlices) {
             let reply = try await decoderPage.hardObject("qdn.decoder.prepare(\(timing.referenceSliceMillis))")
             let state = QdnPrepareState(reply)
@@ -54,7 +54,7 @@ actor QdnDecoder {
 
     /// Hands a resource to the page in chunks of about 192 KB of binary; every chunk but the last is a
     /// multiple of 4 base64 characters, as the script requires.
-    private func push(_ decoderPage: any WebPageDriving, name: String, resource: String) async throws {
+    static func push(_ decoderPage: any WebPageDriving, name: String, resource: String) async throws {
         let encoded = try HardScripts.resource(resource).base64EncodedString()
         var parts: [String] = []
         var index = encoded.startIndex

@@ -370,8 +370,8 @@ final class RbooksRun: @unchecked Sendable {
             try await page.load(url, until: .domContentLoaded, timeout: timing.loadTimeout)
         } catch WebEngineError.timeout(_) {
             // A timeout can come after the viewer itself committed. Go on only if this is the requested viewer.
-            let current = await page.currentURL()
-            guard let current, RbooksSite.isViewerURL(current), RbooksSite.bookID(current) == RbooksSite.bookID(url) else {
+            let landed = await page.currentURL()
+            guard let landed, RbooksSite.isViewerURL(landed), RbooksSite.bookID(landed) == RbooksSite.bookID(url) else {
                 return .failed(ref, message: "page load timed out")
             }
         }
@@ -456,9 +456,9 @@ final class RbooksRun: @unchecked Sendable {
 
     /// The viewer refused to open the title: the library says whether the account owns it.
     private func refused(_ ref: ChapterRef) async throws -> ChapterResult {
-        let owned = try await ownedIDs()
+        let answer = try await ownedIDs()
         let signedIn = await sessions.status(RbooksSite.session).usable
-        guard let owned else {
+        guard let owned = answer else {
             if !signedIn {
                 return .refused(ref, reason: "the rbooks library could not confirm a session: sign in in Settings > Enter App, then download again")
             }
