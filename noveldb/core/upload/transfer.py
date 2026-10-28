@@ -72,9 +72,16 @@ def _letter_count(text: str) -> int:
     return sum(1 for ch in text if ch.isascii() and ch.isalpha())
 
 
-def _extension(name: str) -> str:
-    ext = os.path.splitext(name)[1]
-    return ext if re.fullmatch(r"\.[A-Za-z0-9]{1,10}", ext) else ""
+def _split_name(name: str) -> tuple[str, str]:
+    """(title, extension) of a file name; the extension is "" when it is not a plain one.
+
+    ".epub" is an extension with no title (`os.path.splitext` calls it a name without one), so it
+    never reaches a host on its own: temp.sh stores it as "epub", which downloads with no extension.
+    """
+    root, ext = os.path.splitext(name)
+    if not ext and root.startswith(".") and root.count(".") == 1:
+        root, ext = "", root
+    return (root, ext) if re.fullmatch(r"\.[A-Za-z0-9]{1,10}", ext) else (name, "")
 
 
 def ascii_safe_stem(stem: str) -> str:
@@ -93,9 +100,7 @@ def ascii_upload_name(path: str, fallback_id: str = "", source: str = "") -> str
     count) is replaced by the source codename and book id (`npia_123456.epub`).
     """
     name = upload_name(path)
-    root = os.path.splitext(name)[0]
-    ext = _extension(name)
-    title = root if ext else name  # the part that must carry the letters and digits
+    title, ext = _split_name(name)  # the title must carry the letters
     if name.isascii() and name.isprintable() and _letter_count(title) >= MIN_NAME_LETTERS:
         return name
     stem = ascii_safe_stem(title)
