@@ -44,6 +44,8 @@ from noveldb.core.settings.model import (
     OUTPUT_FORMATS,
     SITE_ENGINES,
     THEMES,
+    UPLOAD_ZIP_MB_MAX,
+    UPLOAD_ZIP_MB_MIN,
     AppSettings,
     SharedOverrides,
 )
@@ -812,6 +814,14 @@ def upload_form(context: AppContext) -> Form:
 
     f._refreshers.append(show)
     f.check("Copy links to the clipboard after uploading", "upload.copy_link")
+    f.add_section("ZIP bundles")
+    f.check("Bundle several files into ZIP uploads", "upload.zip_bundle")
+    biggest = f.spin("Largest ZIP", "upload.zip_max_mb", UPLOAD_ZIP_MB_MIN, UPLOAD_ZIP_MB_MAX, " MB")
+    biggest.setSingleStep(64)
+    f._refreshers.append(lambda s: biggest.setEnabled(s.upload.zip_bundle))
+    f.add_hint("Two or more files are packed into as few ZIPs as fit under this size, one link each (for example "
+               "11 books in 3 ZIPs gives 3 links). A host with a smaller limit lowers it. A file bigger than the "
+               "limit uploads on its own.")
     f.add_section("Accounts")
     f.text("pixeldrain", "secrets.pixeldrain_key", "API key", secret=True)
     f.text("gofile", "secrets.gofile_token", "Account token (optional)", secret=True)

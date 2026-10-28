@@ -47,6 +47,58 @@ def test_reveal_on_linux_opens_the_folder(monkeypatch, popen, tmp_path):
     assert popen[0][0] == ["xdg-open", str(tmp_path)]
 
 
+def make_books(folder, *names):
+    folder.mkdir(exist_ok=True)
+    paths = []
+    for name in names:
+        (folder / name).write_text("x", encoding="utf-8")
+        paths.append(folder / name)
+    return paths
+
+
+def test_reveal_paths_selects_all_files_of_a_folder_on_macos(monkeypatch, popen, tmp_path):
+    first, second = make_books(tmp_path, "a.epub", "b.epub")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert ps.reveal_paths([first, second])
+    assert popen[0][0] == ["open", "-R", str(first), str(second)]
+
+
+def test_reveal_paths_opens_one_window_per_folder_and_a_lone_file_is_selected(monkeypatch, popen, tmp_path):
+    one, two = make_books(tmp_path / "x", "a.epub", "b.epub")
+    (three,) = make_books(tmp_path / "y", "c.epub")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    ps.reveal_paths([one, three, two])
+    assert [args for args, _ in popen] == [["open", "-R", str(one), str(two)], ["open", "-R", str(three)]]
+
+
+def test_reveal_paths_opens_the_folder_on_linux(monkeypatch, popen, tmp_path):
+    first, second = make_books(tmp_path, "a.epub", "b.epub")
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert ps.reveal_paths([first, second])
+    assert [args for args, _ in popen] == [["xdg-open", str(tmp_path)]]
+
+
+def test_reveal_paths_on_windows_uses_the_shell_selection_and_falls_back(monkeypatch, popen, tmp_path):
+    first, second = make_books(tmp_path, "a.epub", "b.epub")
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(ps, "_hidden_kwargs", lambda: {})
+    selected = []
+    monkeypatch.setattr(ps, "_select_on_windows", lambda folder, files: selected.append((folder, files)) or True)
+    assert ps.reveal_paths([first, second])
+    assert selected == [(str(tmp_path), [first, second])] and popen == []
+    monkeypatch.setattr(ps, "_select_on_windows", lambda folder, files: False)  # the shell call failed
+    assert ps.reveal_paths([first, second])
+    assert popen[0][0] == ["explorer", "/select,", str(first)]
+
+
+def test_reveal_paths_limits_the_number_of_windows(monkeypatch, popen, tmp_path):
+    files = [make_books(tmp_path / f"f{i}", "a.epub")[0] for i in range(8)]
+    monkeypatch.setattr(sys, "platform", "darwin")
+    ps.reveal_paths(files)
+    assert len(popen) == 5
+    assert ps.reveal_paths([]) is False
+
+
 @pytest.mark.parametrize(
     "platform, which, expected",
     [
