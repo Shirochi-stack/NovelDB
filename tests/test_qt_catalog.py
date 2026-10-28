@@ -77,3 +77,16 @@ def test_outside_links_on_other_sites_go_to_the_cart_unless_turned_off(catalog):
     catalog.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, cart_links=False)))
     catalog.leave("https://x.test/novel/4")
     assert catalog.opened == ["https://x.test/novel/4"]
+
+
+def test_cart_dialog_opens_quickly_with_thousands_of_links(catalog, qtbot):
+    import time
+
+    from noveldb.qt.cart_dialog import CartDialog
+
+    catalog.context.cart.add_many(web.CartItem(f"https://x.test/novel/{i}") for i in range(9_600))
+    started = time.perf_counter()
+    dialog = CartDialog(catalog.context)
+    qtbot.addWidget(dialog)
+    assert dialog.list.count() == 9_600
+    assert time.perf_counter() - started < 3.0

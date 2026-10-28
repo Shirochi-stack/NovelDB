@@ -355,7 +355,7 @@ class TagSearchDialog(QDialog):
             answer = QMessageBox.question(self, "Add to link cart", f"Add {len(self.result)} novels to the link cart?")
             if answer != QMessageBox.Yes:
                 return
-        added = sum(1 for value in self.result if self.context.cart.add(CartItem(novel_url(value), "", NPIA)))
+        added = self.context.cart.add_many(CartItem(novel_url(value), "", NPIA) for value in self.result)
         self.context.hub.message.emit(f"Added {added} novel(s) to the link cart.")
         self._append_log(f"Added {added} novel(s) to the link cart.")
 

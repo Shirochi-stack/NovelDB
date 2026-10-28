@@ -24,6 +24,7 @@ class LinkCart:
         self._lock = threading.Lock()
         self.on_change = on_change
         self._items: list[CartItem] = self._load()
+        self._urls = {item.url for item in self._items}
 
     @property
     def items(self) -> list[CartItem]:
@@ -38,16 +39,28 @@ class LinkCart:
         return len(self._items)
 
     def __contains__(self, url: str) -> bool:
-        return any(item.url == url for item in self.items)
+        return url in self._urls
 
     def add(self, item: CartItem) -> bool:
         """False when the link is already in the cart."""
+        return self.add_many([item]) == 1
+
+    def add_many(self, items: Iterable[CartItem]) -> int:
+        """Add links in one go (one file write, one change notice); returns how many were new.
+
+        A tag search can return thousands of books: adding them one by one rewrote the whole
+        file for each and froze the app.
+        """
+        added = 0
         with self._lock:
-            if any(existing.url == item.url for existing in self._items):
-                return False
-            self._items.append(item)
-        self._changed()
-        return True
+            for item in items:
+                if item.url and item.url not in self._urls:
+                    self._urls.add(item.url)
+                    self._items.append(item)
+                    added += 1
+        if added:
+            self._changed()
+        return added
 
     def remove(self, url: str) -> None:
         self.remove_all([url])
@@ -57,6 +70,7 @@ class LinkCart:
         with self._lock:
             before = len(self._items)
             self._items = [item for item in self._items if item.url not in drop]
+            self._urls -= drop
             changed = len(self._items) != before
         if changed:
             self._changed()
@@ -65,6 +79,7 @@ class LinkCart:
         with self._lock:
             had = bool(self._items)
             self._items = []
+            self._urls = set()
         if had:
             self._changed()
 
