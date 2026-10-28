@@ -12,6 +12,10 @@ on:
         description: 'Attach the unsigned IPA to this existing release tag (optional)'
         required: false
         default: ''
+      live_url:
+        description: 'Download the first three chapters of this book inside the app on a simulator (optional)'
+        required: false
+        default: ''
   # Called by Mobile Release on main, which builds both apps and attaches them to a release.
   workflow_call:
     inputs:
@@ -124,10 +128,19 @@ jobs:
           xcrun simctl install "$udid" "$app"
           xcrun simctl spawn "$udid" log stream --style compact --level debug --predicate 'process == "NpiaMobile"' > smoke/oslog.txt 2>&1 &
           logger=$!
-          xcrun simctl launch --console-pty "$udid" com.shirochi.npiamobile > smoke/console.txt 2>&1 &
-          sleep 25
+          launch() {
+            xcrun simctl launch --console-pty "$udid" com.shirochi.npiamobile >> smoke/console.txt 2>&1 &
+            sleep 25
+            xcrun simctl spawn "$udid" launchctl list | grep -c "com.shirochi.npiamobile" || true
+          }
+          alive=$(launch)
+          if [ "$alive" -eq 0 ] && ! ls ~/Library/Logs/DiagnosticReports/NpiaMobile* > /dev/null 2>&1; then
+            # A fresh simulator sometimes never starts the app on the first launch (no log, no
+            # crash report). A crash is never retried.
+            echo "::warning::NpiaMobile did not start on the first launch; launching it again."
+            alive=$(launch)
+          fi
           xcrun simctl io "$udid" screenshot smoke/screen.png || true
-          alive=$(xcrun simctl spawn "$udid" launchctl list | grep -c "com.shirochi.npiamobile" || true)
           kill "$logger" || true
           cp ~/Library/Logs/DiagnosticReports/NpiaMobile* smoke/ 2>/dev/null || true
           echo "--- console"; tail -40 smoke/console.txt || true
@@ -139,4 +152,86 @@ jobs:
         with:
           name: simulator-smoke
           path: ios/smoke/
+          retention-days: 14
+
+  live-download:
+    # Run by hand with live_url: installs the app on an iPhone simulator, launches it with
+    # -NovelDBLiveDownload (a Debug-only hook in AppModel), and waits for the book's first three
+    # chapters as EPUB and TXT. Needs the site to be up and reachable from GitHub's runners.
+    if: github.event_name == 'workflow_dispatch' && inputs.live_url != ''
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in data if "iOS" in r), reverse=True)
+          for runtime in runtimes:
+              for device in data[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); raise SystemExit
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+      - name: Build for the simulator
+        working-directory: ios
+        run: |
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Debug \
+            -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Download the book in the app
+        working-directory: ios
+        env:
+          LIVE_URL: ${{ inputs.live_url }}
+        run: |
+          udid=${{ steps.sim.outputs.udid }}
+          app=build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app
+          mkdir -p live
+          xcrun simctl install "$udid" "$app"
+          documents="$(xcrun simctl get_app_container "$udid" com.shirochi.npiamobile data)/Documents"
+          report="$documents/live-download-report.txt"
+          xcrun simctl spawn "$udid" log stream --style compact --level debug --predicate 'process == "NpiaMobile"' > live/oslog.txt 2>&1 &
+          logger=$!
+          for attempt in 1 2 3; do
+            xcrun simctl launch "$udid" com.shirochi.npiamobile -NovelDBLiveDownload "$LIVE_URL" >> live/launch.txt 2>&1 || true
+            sleep 20
+            if xcrun simctl spawn "$udid" launchctl list | grep -q "com.shirochi.npiamobile"; then break; fi
+            echo "::warning::NpiaMobile did not start (attempt $attempt)."
+          done
+          for _ in $(seq 1 120); do
+            [ -f "$report" ] && break
+            sleep 5
+          done
+          xcrun simctl io "$udid" screenshot live/screen.png || true
+          kill "$logger" || true
+          cp -R "$documents"/. live/ 2>/dev/null || true
+          cp ~/Library/Logs/DiagnosticReports/NpiaMobile* live/ 2>/dev/null || true
+          if [ ! -f live/live-download-report.txt ]; then
+            echo "::error::No download report after 10 minutes"; tail -60 live/oslog.txt || true; exit 1
+          fi
+          cat live/live-download-report.txt
+          grep -q '^state: finished$' live/live-download-report.txt || { echo "::error::The download did not finish"; exit 1; }
+          epub=$(find live -name '*.epub' | head -1)
+          txt=$(find live -name '*.txt' ! -name 'live-download-report.txt' | head -1)
+          [ -n "$epub" ] && [ -n "$txt" ] || { echo "::error::The EPUB or TXT file is missing"; ls -la live; exit 1; }
+          ls -l "$epub" "$txt"
+          echo "--- TXT"; head -c 2000 "$txt"; echo
+          size=$(wc -c < "$txt" | tr -d " ")
+          [ "$size" -gt 3000 ] || { echo "::error::The TXT file has only $size bytes"; exit 1; }
+          unzip -l "$epub"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-download
+          path: ios/live/
           retention-days: 14
