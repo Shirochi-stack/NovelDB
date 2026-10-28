@@ -24,6 +24,12 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
                 positions = await page.locator('#sourcePickerButton,#statusPickerButton,#audiencePickerButton,#orderPickerButton').evaluate_all('els=>els.map(e=>e.getBoundingClientRect().top)')
                 assert max(positions)-min(positions)<1
                 assert await page.locator('#settingsButton').evaluate('e=>e.offsetWidth===48 && e.offsetHeight===42')
+                # One tag button on the sort row, left of the sort dropdown; no separate fourth row.
+                assert await page.locator('.tag-toolbar').count() == 0
+                tag_box = await page.locator('#tagMenuButton').bounding_box()
+                sort_box = await page.locator('#sortPickerButton').bounding_box()
+                assert tag_box['width'] == 44 and tag_box['height'] == 42
+                assert tag_box['x'] + tag_box['width'] <= sort_box['x'] and abs(tag_box['y'] - sort_box['y']) < 1
                 assert await page.locator('#audiencePickerButton .picker-symbol').inner_text() == '👥'
                 assert await page.locator('#audiencePickerButton .picker-value').evaluate('e=>e.scrollWidth<=e.clientWidth')
                 await page.evaluate('window.card=document.querySelector(".novel-card")')
@@ -59,13 +65,16 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
             await page.keyboard.press('Enter')
             assert await page.locator('#orderSelect').input_value() == 'asc'
             assert 'ASC' in await page.locator('#orderPickerButton').inner_text()
-            await page.locator('#tagToggle').click()
-            assert await page.locator('#includeTagsPanel').is_visible()
-            assert await page.locator('#tagToggle').get_attribute('aria-expanded') == 'true'
-            await page.locator('#tagToggle').click()
+            await page.locator('#tagMenuButton').click()
+            assert await page.locator('#tagMenu').is_visible()
+            assert await page.locator('#tagMenuButton').get_attribute('aria-expanded') == 'true'
             assert not await page.locator('#includeTagsPanel').is_visible()
+            assert not await page.locator('#excludeTagsPanel').is_visible()
             await page.locator('#tagModeOr').click()
             assert await page.locator('#tagModeOr').get_attribute('aria-pressed') == 'true'
+            await page.keyboard.press('Escape')
+            assert not await page.locator('#tagMenu').is_visible()
+            assert await page.locator('#tagMenuButton').evaluate('e=>e===document.activeElement && e.getAttribute("aria-expanded")==="false"')
             await open_settings(page)
             await page.locator('#loadDescriptions').uncheck()
             await close_settings(page)
@@ -86,7 +95,8 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
             assert await page.locator('#tagToggle').inner_text() == 'Filter by tags\n▸'
             assert await page.locator('#excludeToggle').inner_text() == 'Exclude tags\n▸'
             assert await page.locator('#includeTagsPanel .tag-mode').is_visible()
-            assert not await page.locator('.tag-toolbar').is_visible()
+            assert not await page.locator('#tagMenuButton').is_visible()
+            assert not await page.locator('#tagMenu').is_visible()
             assert await page.locator('#sortSelect').is_visible()
             assert not await page.locator('#sortPickerButton').is_visible()
             assert await page.locator('label[for=sortSelect]').inner_text() == 'SORT BY'
@@ -105,9 +115,16 @@ def test_compact_toolbar_badges_settings_and_keyboard_keep_catalog_state():
             await page.locator('#excludeToggle').click()
             assert await page.locator('#excludeTagSearch').is_visible()
             await page.screenshot(path='artifacts/toolbar-desktop-inline-1920.png')
+            # Phones show the dropdown instead of the inline panels; the panels keep their state for desktop.
             await page.set_viewport_size({'width':390,'height':844})
+            assert await page.locator('#tagMenuButton').is_visible()
+            assert not await page.locator('#includeTagsPanel').is_visible()
+            assert not await page.locator('#tagSearch').is_visible()
             assert await page.locator('#tagToggle').get_attribute('aria-expanded') == 'true'
-            assert await page.locator('#tagSearch').is_visible()
+            await page.set_viewport_size({'width':1280,'height':900})
+            assert await page.locator('#tagSearch').is_visible() and await page.locator('#excludeTagSearch').is_visible()
+            assert not await page.locator('#tagMenuButton').is_visible()
+            await page.set_viewport_size({'width':390,'height':844})
             await open_settings(page)
             assert await page.locator('#loadDescriptions').is_checked()
             await close_settings(page)
