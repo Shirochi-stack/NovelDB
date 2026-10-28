@@ -26,6 +26,7 @@ from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 from noveldb.core import paths
+from noveldb.core.userscript_patterns import UserScriptPatterns, is_home_page
 
 RELEASE_URL = "https://github.com/Shirochi-stack/NovelDB/releases/download/engines/"
 CHECK_EVERY = 24 * 3600  # seconds between automatic checks
@@ -102,6 +103,26 @@ class Bundle:
             return _strip_www((parts.hostname or "").lower()) in hosts
         host = (parts.netloc or "").lower()  # novel-downloader matches location.host exactly
         return host in hosts or any(p.search(host) for p in patterns)
+
+    def lists_page(self, url: str) -> bool:
+        """The engine lists this page, not just its site.
+
+        The novel-downloader rules name their pages in the script's header (`@match` and `@include`
+        patterns that no `@exclude` refuses); WebToEpub lists only hosts, so any page of a listed site
+        counts except the site's home page.
+        """
+        if self.engine is WEBTOEPUB:
+            return self.knows(url) and not is_home_page(url)
+        try:
+            patterns = _page_patterns(str(self.path), self.path.stat().st_mtime)
+        except OSError:
+            return False
+        return patterns.accepts(url)
+
+
+@lru_cache(maxsize=8)
+def _page_patterns(path: str, _mtime: float) -> UserScriptPatterns:
+    return UserScriptPatterns.parse(Path(path).read_text(encoding="utf-8"))
 
 
 def _strip_www(host: str) -> str:
