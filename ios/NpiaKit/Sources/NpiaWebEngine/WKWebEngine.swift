@@ -29,6 +29,9 @@ public final class WKWebEngine: WebEngineProviding, @unchecked Sendable {
         try await runLogin(url: url, profile: profile)
     }
 
+    /// The cookies of every web-view profile and the shared jar together (see `WebKitSessionCookies`).
+    public var sessionCookies: any SessionCookieAccess { WebKitSessionCookies(persistent: persistent) }
+
     /// Copies the profile's web-view cookies into `HTTPCookieStorage.shared` and back.
     @MainActor
     public func syncCookies(profile: String) async {
@@ -154,6 +157,8 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
     private var navigationToken = 0
     private var waitState: WebLoadState = .load
     private var relays: [ReplyRelay] = []
+    /// Set by `emulateDesktop`: every navigation asks for the desktop version of a site.
+    private var wantsDesktop = false
 
     init(store: WKWebsiteDataStore) {
         self.store = store
@@ -208,6 +213,19 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         webView.configuration.userContentController.addUserScript(script)
     }
 
+    func addMainFrameInitScript(_ source: String) async {
+        let script = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        webView.configuration.userContentController.addUserScript(script)
+    }
+
+    func emulateDesktop(userAgent: String?, width: Int, height: Int) async {
+        if let userAgent { webView.customUserAgent = userAgent }
+        wantsDesktop = true
+        // The page's layout viewport follows the view's size; on iOS the desktop content mode (asked for
+        // in `decidePolicyFor` below) stops the phone layout from being chosen.
+        webView.frame = CGRect(x: 0, y: 0, width: max(1, width), height: max(1, height))
+    }
+
     func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async {
         let relay = ReplyRelay(store: store, handler: handler)
         relays.append(relay)
@@ -260,6 +278,15 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
     }
 
     // MARK: WKNavigationDelegate
+
+    #if os(iOS)
+    /// A phone is served a phone site; a page that asked for `emulateDesktop` gets the desktop content mode.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        if wantsDesktop { preferences.preferredContentMode = .desktop }
+        return (.allow, preferences)
+    }
+    #endif
 
     nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         Task { @MainActor in

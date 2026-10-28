@@ -60,7 +60,13 @@ final class AppModel {
     let appUpdate = AppUpdateController()
 
     let secrets: any SecretStore = KeychainSecretStore()
+    /// The web engine downloads and the sign-in browser share.
+    let web = WKWebEngine()
     let background = BackgroundActivity()
+    /// Bumped when a sign-in or sign-out ends, so the Enter App screen reads the sessions again.
+    private(set) var sessionVersion = 0
+    /// An sfc app sign-in is running.
+    private(set) var sfcWorking = false
 
     private let store = SettingsStore.appDefault()
     private let jobStore = JSONFileStore<[JobItem]>(name: "jobs.json")
@@ -115,7 +121,9 @@ final class AppModel {
 
     /// Adds one job per URL; `settingsFor` builds the job's settings for its source.
     func enqueue(_ urls: [URL], settingsFor: (SourceID?) -> AppSettings) {
-        for url in urls.reversed() {
+        for link in urls.reversed() {
+            // A phone-site link and its desktop twin are one book.
+            let url = SourceCatalog.canonicalURL(link)
             let source = SourceCatalog.adapterType(for: url).map { $0.id }
             let job = JobItem(url: url, source: source, settings: settingsFor(source))
             jobs.insert(job, at: 0)
@@ -214,7 +222,7 @@ final class AppModel {
             }
         }
         log(id, .info, "Starting \(job.url.absoluteString)")
-        let pipeline = DownloadPipeline(secrets: secrets, outputDirectory: outputDirectory, logger: logger)
+        let pipeline = DownloadPipeline(web: web, secrets: secrets, outputDirectory: outputDirectory, logger: logger)
         background.jobStarted(id, title: job.displayTitle) { [weak self] in self?.cancel(id) }
 
         // Uploading publishes a link, so automatic uploads wait for the sharing agreement too.
@@ -562,12 +570,89 @@ final class AppModel {
     func signInToNpia() async -> Bool {
         guard let email = secrets.string(for: .npiaEmail), !email.isEmpty,
               let password = secrets.string(for: .npiaPassword), !password.isEmpty else { return false }
-        let context = SourceContext(http: URLSessionHTTPClient(maxRetries: 1), web: WKWebEngine(), secrets: secrets, settings: settings)
+        let context = SourceContext(http: URLSessionHTTPClient(maxRetries: 1), web: web, secrets: secrets, settings: settings)
         do {
             return try await NpiaAuth.login(email: email, password: password, context: context, cookies: SharedCookieStorageJar()) != nil
         } catch {
             return false
         }
+    }
+
+    // MARK: - Enter App: sfc, qdn and rbooks
+
+    /// Status, saved copies and sign-out of the browser-session logins (qdn, rbooks), over the cookies of the
+    /// web engine downloads use.
+    var sessions: SiteSessions {
+        SiteSessions(secrets: secrets, cookies: web.sessionCookies)
+    }
+
+    /// Puts back a login the web view dropped when the app was stopped (qdn keeps its login in session
+    /// cookies). Done once per run, at start; it never overwrites a cookie the browser has.
+    func restoreSessions() async {
+        for site in HardSessions.all { await sessions.restoreOnce(site) }
+        sessionVersion += 1
+    }
+
+    /// Copies the current logins to the Keychain, so a stop of the app cannot lose session cookies.
+    func snapshotSessions() async {
+        for site in HardSessions.all { await sessions.snapshot(site) }
+    }
+
+    /// Opens the site's sign-in page in the app's own browser (the one the Browser tab uses, whose
+    /// cookies downloads share) and reads the status again when it closes.
+    func signInToSite(_ site: SessionSite) async {
+        do {
+            try await web.presentLogin(url: site.signInURL, profile: BrowserProfile.name)
+        } catch is CancellationError {
+            // Closed without finishing: keep whatever login is there.
+        } catch {
+            message = "The sign-in browser could not open: \(error.localizedDescription)"
+        }
+        await sessions.snapshot(site)
+        sessionVersion += 1
+    }
+
+    func signOutOfSite(_ site: SessionSite) async {
+        await sessions.signOut(site)
+        sessionVersion += 1
+        message = "Signed out of \(site.source.rawValue)"
+    }
+
+    /// The Browser tab signed out of `domain` (or of everything when nil): the saved copies must go too,
+    /// or the next start would restore the login.
+    func forgetSavedSessions(forDomain domain: String?) {
+        let sites = domain.map { HardSessions.forHost($0) } ?? HardSessions.all
+        for site in sites { sessions.forgetSavedCopy(site) }
+        sessionVersion += 1
+    }
+
+    var sfcSignedIn: Bool {
+        SfcAdapter.hasAppSession(secrets)
+    }
+
+    /// Signs in to the sfc app API; the session cookie is kept in the Keychain.
+    func signInToSfc(username: String, password: String) async {
+        guard !sfcWorking else { return }
+        sfcWorking = true
+        let ok = (try? await SfcAdapter.login(username: username, password: password, http: URLSessionHTTPClient(maxRetries: 1), secrets: secrets)) ?? false
+        sfcWorking = false
+        sessionVersion += 1
+        message = ok ? "Signed in to sfc" : "sfc sign-in failed: check the username and password"
+    }
+
+    /// Saves a cookie header copied from the sfc app (it must hold `session_APP`).
+    @discardableResult
+    func saveSfcCookie(_ cookie: String) -> Bool {
+        let ok = SfcAdapter.saveAppCookie(cookie, secrets: secrets)
+        sessionVersion += 1
+        message = ok ? "sfc app cookie saved" : "That cookie has no session_APP"
+        return ok
+    }
+
+    func signOutOfSfc() {
+        SfcAdapter.signOut(secrets)
+        sessionVersion += 1
+        message = "Signed out of sfc"
     }
 
     // MARK: - Site engines

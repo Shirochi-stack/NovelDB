@@ -146,8 +146,9 @@ struct BrowserView: View {
     /// "Download this book" and "Add to link cart" side by side. `page` is the site's own address,
     /// also while a translated copy is on screen.
     private func downloadRow(_ page: URL) -> some View {
-        let pageAddress = page.absoluteString
-        let inCart = model.cart.items.contains { $0.url == pageAddress }
+        // The phone site's address becomes the desktop one the scraper reads.
+        let pageAddress = SourceCatalog.canonicalURL(page).absoluteString
+        let inCart = model.cart.contains(pageAddress)
         return HStack(spacing: 8) {
             Button {
                 model.pendingAddText = pageAddress
@@ -220,6 +221,7 @@ private struct BrowserStartPage: View {
 
 /// Sites that hold cookies, with per-site and global sign-out.
 struct SitesView: View {
+    @Environment(AppModel.self) private var model
     var open: (String) -> Void = { _ in }
     @State private var domains: [String] = []
     @State private var confirmAll = false
@@ -237,6 +239,8 @@ struct SitesView: View {
                         Button("Sign out", role: .destructive) {
                             Task {
                                 await SiteCookies.signOut(domain)
+                                // The saved copy of a qdn or rbooks login would bring it back at the next start.
+                                model.forgetSavedSessions(forDomain: domain)
                                 domains = await SiteCookies.domains()
                             }
                         }
@@ -258,6 +262,7 @@ struct SitesView: View {
             Button("Sign out", role: .destructive) {
                 Task {
                     await SiteCookies.signOutAll()
+                    model.forgetSavedSessions(forDomain: nil)
                     domains = await SiteCookies.domains()
                 }
             }

@@ -114,12 +114,20 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
 
     /// The page's bridge reported its address and title. A page can only speak for the site the view shows.
     private func located(url: String, title: String) {
-        if tracker.located(url: url, title: title, shown: webView.url) { showMode() }
+        guard tracker.located(url: url, title: title, shown: webView.url) else { return }
+        showMode()
+        if let model { showCart(model.cart.items) }
     }
 
-    /// Tells the page which cards are in the cart, so their buttons show it.
+    /// Tells the page which cards are in the cart, so their buttons show it. A phone-site page counts as
+    /// in the cart when the desktop address it is kept under is.
     func showCart(_ items: [CartItem]) {
-        guard let data = try? JSONEncoder().encode(items.map(\.url)), let urls = String(data: data, encoding: .utf8) else { return }
+        var addresses = items.map(\.url)
+        if let page = tracker.reported?.url, !addresses.contains(page), let url = URL(string: page),
+           addresses.contains(SourceCatalog.canonicalURL(url).absoluteString) {
+            addresses.append(page)
+        }
+        guard let data = try? JSONEncoder().encode(addresses), let urls = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.NovelDBApp && window.NovelDBApp.setCart(\(urls))", completionHandler: nil)
     }
 

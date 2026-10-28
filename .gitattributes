@@ -2,3 +2,7 @@
 ios/NpiaKit/Sources/NpiaSources/Reader/Resources/webtoepub/** -text
 # The catalog bridge is byte-identical to the Android and desktop copies (SHA-256 checked by a test): no line-ending changes.
 ios/NpiaKit/Sources/NpiaWebEngine/Resources/** -text
+
+# The shared qdn and rbooks page script and its resources are copied byte for byte from the Android app:
+# no line-ending changes, so the files hash the same on both platforms.
+ios/NpiaKit/Sources/NpiaSources/Hard/HardResources/** -text
