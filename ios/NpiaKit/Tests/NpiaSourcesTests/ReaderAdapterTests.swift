@@ -202,7 +202,7 @@ struct FixtureHTTP: HTTPFetching {
 }
 
 /// Small hand-made pages shaped like the sites the rules expect.
-private enum Fixtures {
+enum Fixtures {
     static let sudugu: [String: String] = [
         "https://www.sudugu.com/1001/": """
         <!DOCTYPE html><html><head><meta charset="utf-8"><title>测试之书</title></head><body>
