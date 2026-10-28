@@ -15,6 +15,7 @@ android {
         // CI run numbers only grow, so every CI build can update the previous one in place.
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // The release key comes from CI secrets (see .github/workflows/android.yml); without it,
     // release builds fall back to the debug key so they still install.
@@ -69,4 +70,8 @@ dependencies {
     implementation(libs.compose.material.icons)
     implementation(libs.compose.ui.tooling.preview)
     testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.coroutines.android)
 }

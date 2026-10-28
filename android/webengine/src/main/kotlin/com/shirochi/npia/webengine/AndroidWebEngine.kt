@@ -170,7 +170,10 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
                 } catch (e: Exception) {
                     """{"error":${Json.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(e.message ?: e.toString()))}}"""
                 }
-                webView.post { runCatching { webView.evaluateJavascript(ScriptBridge.replyScript(transportToken, id, reply), null) } }
+                // Not `webView.post`: a view that is not attached to a window never runs what it is given.
+                withContext(Dispatchers.Main) {
+                    runCatching { webView.evaluateJavascript(ScriptBridge.replyScript(transportToken, id, reply), null) }
+                }
             }
         }
     }
