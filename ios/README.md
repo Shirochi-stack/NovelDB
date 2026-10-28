@@ -65,6 +65,14 @@ A page is downloadable (`SourceCatalog.downloadablePage`) when a built-in scrape
 - `catalog-bridge.js` is byte-identical to the Android and desktop copies (SHA-256 `f58147ea...` in `CatalogBridgeTests`, LF line endings, marked `-text` in `.gitattributes`). Change all three together.
 - The Browser tab shows "Download this book" and "🔗 Add to link cart" side by side on a downloadable page. The 文A menu translates the page in place (`BrowserTranslate`, `browser-translate.js`): Google's website translator is injected and its language box is set, which keeps sign-ins working. A site that blocks the translator can be opened as a translated copy through Google's proxy (sign-ins do not apply there); the buttons then use the original address. Settings > Browser picks the language.
 
+## Queue log and notifications
+
+The Queue tab has a Jobs / Log switch. Log shows every job's lines in time order (time, level, short job title), with a menu to limit it to one job, a Details switch for debug lines, Copy, Share and Clear. It follows new lines until you scroll up ("Latest" jumps back). The last 5,000 lines are kept in `Application Support/queue-log.jsonl` (`LogBuffer`, NpiaCore) and survive a relaunch. Each job also keeps up to 1,500 lines on its page.
+
+Where the lines come from: the pipeline (engine attempts and fallbacks, source and settings, chapter counts, skipped or refused chapters, images, the files written, uploads and timing), `URLSessionHTTPClient` (every retry with its reason, requests that kept failing, connection errors; a plain 404 is a debug line), and the app (queued, started, cancelled, failed, finished, uploads).
+
+The app posts a local notification when downloads continue in the background and when a run ends while the app is not in front. Tapping it opens Queue > Log for all jobs, or that book's page when the run was a single book (`QueueTarget`, carried in the notification's `userInfo`; the Queue's navigation path lives in `AppModel`). The system progress UI of iOS 26 background tasks belongs to iOS: a tap on it only opens the app.
+
 ## App updates
 
 NovelDB checks its own GitHub releases for a newer build, the same way the desktop and Android apps do (`NpiaUpdate`, shown in Settings > App updates).

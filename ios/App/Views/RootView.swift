@@ -48,16 +48,12 @@ struct RootView: View {
                     .themedBackground()
                     .navigationTitle("NovelDB")
                 } detail: {
-                    NavigationStack {
-                        content(selection ?? .add)
-                    }
+                    stack(selection ?? .add)
                 }
             } else {
                 TabView(selection: Binding(get: { selection ?? .add }, set: { selection = $0 })) {
                     ForEach(Panel.allCases) { panel in
-                        NavigationStack {
-                            content(panel)
-                        }
+                        stack(panel)
                         .tabItem { Label(panel.title, systemImage: panel.icon) }
                         .badge(badgeCount(panel))
                         .tag(panel)
@@ -74,8 +70,19 @@ struct RootView: View {
         // once a day and only with the setting on. (Same reason: not in AppModel.init.)
         .task { await model.checkAppUpdate(automatic: true) }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model.checkAppUpdate(automatic: true) } }
+            switch phase {
+            case .active:
+                model.appBecameActive()
+                Task { await model.checkAppUpdate(automatic: true) }
+            case .background:
+                model.appDidEnterBackground()
+            default:
+                break
+            }
         }
+        // A tap on a queue notification asks for the Queue tab (see AppModel.open).
+        .onChange(of: model.requestedPanel) { _, _ in applyRequestedPanel() }
+        .onAppear { applyRequestedPanel() }
         #if DEBUG
         .task { await model.runLiveDownloadIfAsked() }
         .task { await model.appUpdate.writeReportIfAsked(to: model.outputDirectory) }
@@ -93,6 +100,27 @@ struct RootView: View {
             Button("OK", role: .cancel) { model.message = nil }
         } message: {
             Text(model.message ?? "")
+        }
+    }
+
+    private func applyRequestedPanel() {
+        guard let panel = model.requestedPanel else { return }
+        selection = panel
+        model.requestedPanel = nil
+    }
+
+    /// The navigation stack of a tab. The Queue's keeps its path in the model, so a notification
+    /// can open a job's page.
+    @ViewBuilder
+    private func stack(_ panel: Panel) -> some View {
+        if panel == .queue {
+            NavigationStack(path: Bindable(model).queuePath) {
+                content(panel)
+            }
+        } else {
+            NavigationStack {
+                content(panel)
+            }
         }
     }
 

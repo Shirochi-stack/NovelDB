@@ -39,6 +39,22 @@ struct UploadSettingsForm: View {
                 Text("If a host refuses the file (too large, offline) the next one is tried.")
             }
 
+            Section {
+                Toggle("Bundle several files into ZIP uploads", isOn: $model.settings.upload.zipBundle)
+                if model.settings.upload.zipBundle {
+                    LabeledContent("Largest ZIP (MB)") {
+                        TextField("MB", value: $model.settings.upload.zipMaxMB, format: .number.grouping(.never))
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 100)
+                    }
+                }
+            } header: {
+                Text("ZIP bundles")
+            } footer: {
+                Text("Uploading two or more files packs them into as few ZIPs as fit. The default of 1024 MB makes one link for up to a gigabyte of books instead of one link each. A host with a lower limit wins. The size can be 50 to 4096 MB. A ZIP is named for its books, like NovelDB_3_EPUBs.zip, and a file bigger than the limit is uploaded alone.")
+            }
+
             if model.settings.upload.hosts.contains("gdrive") {
                 Section {
                     TextField("Folder ID (optional)", text: Binding(

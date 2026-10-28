@@ -31,6 +31,16 @@ final class AppModel {
     var message: String?
     /// An upload waiting for the one-time sharing agreement; the root view shows it as a sheet.
     var pendingUpload: PendingUpload?
+    /// Which half of the Queue tab shows: the jobs, or the log of all of them.
+    var queueSection: QueueSection = .jobs
+    /// The job detail pages open in the Queue tab (the navigation stack's path).
+    var queuePath: [UUID] = []
+    /// The job the Queue log is filtered to; nil shows every job.
+    var logFilterJobID: UUID?
+    /// A tab to switch to (set when a notification is tapped); the root view clears it.
+    var requestedPanel: Panel?
+    /// Bumped with every log line, so views that show the log refresh.
+    private(set) var logRevision = 0
     /// URL handed to the Add screen (from the Browser tab's "Download this book").
     var pendingAddText: String?
     /// Page handed to the Browser tab (from the Catalog tab's "Open novel").
@@ -58,9 +68,16 @@ final class AppModel {
     /// The last imported desktop config without credentials, so exports keep unknown keys.
     private let desktopBaseStore = JSONFileStore<[String: JSONValue]>(name: "desktop-config-base.json")
     private var tasks: [UUID: Task<Void, Never>] = [:]
-    private var uploadsInFlight: Set<String> = []
     /// Uploads started from the queue, with their progress; finished and failed ones stay until dismissed.
     private(set) var uploadActivities: [UploadActivity] = []
+    /// The combined log of every job: the last 5,000 lines, kept in `Application Support/queue-log.jsonl`.
+    let logBuffer = LogBuffer(
+        fileURL: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("queue-log.jsonl")
+    )
+    /// The jobs started since the queue was last idle: the notification at the end of the run
+    /// opens the job's page when this was a single book.
+    private var runJobIDs: [UUID] = []
 
     init() {
         settings = store.load()
@@ -70,7 +87,9 @@ final class AppModel {
         for index in jobs.indices where jobs[index].state.isActive {
             jobs[index].state = .failed
             jobs[index].status = "Interrupted; tap Retry"
+            logBuffer.append(.warning, "Interrupted when the app was closed; tap Retry", jobID: jobs[index].id, jobTitle: jobs[index].displayTitle)
         }
+        QueueNotifier.shared.setHandler { [weak self] target in self?.open(target) }
     }
 
     /// UserDefaults key of the sharing agreement; the agreement sheet writes it with @AppStorage.
@@ -98,8 +117,12 @@ final class AppModel {
     func enqueue(_ urls: [URL], settingsFor: (SourceID?) -> AppSettings) {
         for url in urls.reversed() {
             let source = SourceCatalog.adapterType(for: url).map { $0.id }
-            jobs.insert(JobItem(url: url, source: source, settings: settingsFor(source)), at: 0)
+            let job = JobItem(url: url, source: source, settings: settingsFor(source))
+            jobs.insert(job, at: 0)
+            runJobIDs.append(job.id)
+            log(job.id, .info, "Queued \(url.absoluteString)" + (source.map { " (\($0.rawValue))" } ?? ""))
         }
+        if !urls.isEmpty { QueueNotifier.shared.requestAuthorizationIfNeeded() }
         persistJobs()
         startNext()
     }
@@ -107,11 +130,14 @@ final class AppModel {
     func cancel(_ id: UUID) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         if let task = tasks[id] {
+            log(id, .info, "Cancel requested")
             task.cancel()
         } else if jobs[index].state == .queued {
             jobs[index].state = .cancelled
             jobs[index].status = "Cancelled"
+            log(id, .info, "Cancelled before it started")
             persistJobs()
+            finishRunIfIdle()
         }
     }
 
@@ -139,6 +165,8 @@ final class AppModel {
         job.log = []
         job.finishedAt = nil
         jobs[index] = job
+        if !runJobIDs.contains(id) { runJobIDs.append(id) }
+        log(id, .info, "Retry: queued again")
         persistJobs()
         startNext()
     }
@@ -178,11 +206,14 @@ final class AppModel {
             $0.state = .running
             $0.status = "Starting"
         }
+        // The time is taken here, where the line is written, so lines keep their order in the log.
         let logger = JobLogBridge { [weak self] level, line in
+            let date = Date()
             Task { @MainActor in
-                self?.update(id) { $0.appendLog("[\(level.rawValue)] \(line)") }
+                self?.log(id, level, line, date: date)
             }
         }
+        log(id, .info, "Starting \(job.url.absoluteString)")
         let pipeline = DownloadPipeline(secrets: secrets, outputDirectory: outputDirectory, logger: logger)
         background.jobStarted(id, title: job.displayTitle) { [weak self] in self?.cancel(id) }
 
@@ -190,7 +221,7 @@ final class AppModel {
         var adjusted = job.settings
         if adjusted.upload.autoUpload, !hasAcceptedShareAgreement {
             adjusted.upload.autoUpload = false
-            update(id) { $0.appendLog("[info] Auto-upload skipped: tap Upload on a finished file once and accept the sharing notice first.") }
+            log(id, .info, "Auto-upload skipped: tap Upload on a finished file once and accept the sharing notice first.")
         }
         let runSettings = adjusted
 
@@ -213,12 +244,14 @@ final class AppModel {
                     $0.state = .cancelled
                     $0.status = "Cancelled"
                 }
+                self?.log(id, .info, "Cancelled")
             } catch {
                 self?.update(id) {
                     $0.state = .failed
                     $0.status = error.localizedDescription
                     $0.error = error.localizedDescription
                 }
+                self?.log(id, .error, "Failed: \(error.localizedDescription)")
             }
             guard let self else { return }
             self.tasks[id] = nil
@@ -226,6 +259,7 @@ final class AppModel {
             self.background.jobEnded(id, success: success)
             self.persistJobs()
             self.startNext()
+            self.finishRunIfIdle()
         }
     }
 
@@ -246,7 +280,8 @@ final class AppModel {
                 job.status = "Done, \(outcome.skipped.count) chapters skipped"
             }
         }
-        for upload in outcome.uploads { recordUpload(upload) }
+        log(id, .info, "Finished: \(outcome.files.count) file" + (outcome.files.count == 1 ? "" : "s") + (outcome.skipped.isEmpty ? "" : ", \(outcome.skipped.count) chapters skipped"))
+        recordUploads(outcome.uploads)
     }
 
     private func update(_ id: UUID, _ change: (inout JobItem) -> Void) {
@@ -258,76 +293,255 @@ final class AppModel {
         jobStore.save(jobs)
     }
 
+    // MARK: - Log
+
+    /// Adds a line to the job's own log and to the combined queue log. `title` names lines that
+    /// belong to no single job.
+    func log(_ jobID: UUID?, _ level: LogLevel, _ message: String, title: String? = nil, date: Date = Date()) {
+        var jobTitle = title ?? ""
+        if let jobID {
+            update(jobID) { $0.appendLog("[\(level.rawValue)] \(message)") }
+            jobTitle = job(jobID)?.displayTitle ?? jobTitle
+        }
+        logBuffer.append(level, message, jobID: jobID, jobTitle: jobTitle, date: date)
+        logRevision &+= 1
+    }
+
+    func clearQueueLog() {
+        logBuffer.clear()
+        logRevision &+= 1
+    }
+
+    /// Opens the Log of the Queue tab, filtered to one job (nil for every job).
+    func showLog(for jobID: UUID?) {
+        queueSection = .log
+        logFilterJobID = jobID
+        queuePath = []
+        requestedPanel = .queue
+    }
+
+    // MARK: - Notifications
+
+    /// Where a tap on a queue notification goes: the Log filtered to every job, or the job's own page.
+    func open(_ target: QueueTarget) {
+        switch target.resolved(existing: Set(jobs.map(\.id))) {
+        case .job(let id):
+            queueSection = .jobs
+            queuePath = [id]
+            requestedPanel = .queue
+        case .log:
+            showLog(for: nil)
+        }
+    }
+
+    /// When the queue has gone idle, tells the user how the run went, if the app is not in front.
+    private func finishRunIfIdle() {
+        guard activeJobCount == 0, !runJobIDs.isEmpty else { return }
+        let run = runJobIDs
+        runJobIDs = []
+        let ended = run.compactMap { job($0) }
+        guard !ended.isEmpty, UIApplication.shared.applicationState != .active else { return }
+        let summary = QueueRunSummary(
+            finished: ended.filter { $0.state == .finished }.count,
+            failed: ended.filter { $0.state == .failed }.count,
+            cancelled: ended.filter { $0.state == .cancelled }.count
+        )
+        QueueNotifier.shared.post(title: summary.title, body: summary.body, target: QueueTarget.forRun(run))
+    }
+
+    /// Called when the app leaves the foreground: writes the log out, and says downloads go on.
+    func appDidEnterBackground() {
+        logBuffer.flush()
+        let running = activeJobCount
+        guard running > 0 else { return }
+        QueueNotifier.shared.post(
+            title: "Downloads continue",
+            body: running == 1 ? "1 book is still downloading" : "\(running) books are still downloading",
+            target: QueueTarget.forRun(runJobIDs)
+        )
+    }
+
+    func appBecameActive() {
+        QueueNotifier.shared.clearDelivered()
+    }
+
     // MARK: - Uploads
 
     func isUploading(_ file: URL) -> Bool {
-        uploadsInFlight.contains(file.path)
+        uploadActivities.contains { $0.isRunning && $0.covers(file) }
     }
 
     func uploadActivity(for file: URL) -> UploadActivity? {
-        uploadActivities.first { $0.file.path == file.path }
+        uploadActivities.first { $0.covers(file) }
     }
 
-    func dismissUploadActivity(_ file: URL) {
-        guard !isUploading(file) else { return }
-        uploadActivities.removeAll { $0.file.path == file.path }
+    func dismissUploadActivity(_ id: UUID) {
+        guard uploadActivities.first(where: { $0.id == id })?.isRunning == false else { return }
+        uploadActivities.removeAll { $0.id == id }
+    }
+
+    /// The files of a finished job that are still on disk.
+    func existingFiles(of job: JobItem) -> [URL] {
+        guard job.state == .finished else { return [] }
+        return job.files(in: outputDirectory).filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// A finished job with files to share or upload.
+    func isUploadable(_ job: JobItem) -> Bool {
+        !existingFiles(of: job).isEmpty
+    }
+
+    /// The files of these jobs, in queue order, for Share and Upload.
+    func uploadRequest(forJobs ids: Set<UUID>) -> UploadRequest {
+        var entries: [UploadRequest.Entry] = []
+        for job in jobs where ids.contains(job.id) {
+            let nameID = UploadNaming.nameID(source: job.source?.rawValue, bookID: job.bookID, url: job.url)
+            for file in existingFiles(of: job) {
+                entries.append(UploadRequest.Entry(file: file, jobID: job.id, title: job.title, nameID: nameID))
+            }
+        }
+        return UploadRequest(entries: entries)
+    }
+
+    /// One file, with the name and title of the job it came from when there is one.
+    func uploadRequest(file: URL, jobID: UUID?) -> UploadRequest {
+        var entry = UploadRequest.Entry(file: file, jobID: jobID, title: nil, nameID: nil)
+        if let jobID, let source = self.job(jobID) {
+            entry.title = source.title
+            entry.nameID = UploadNaming.nameID(source: source.source?.rawValue, bookID: source.bookID, url: source.url)
+        }
+        return UploadRequest(entries: [entry])
+    }
+
+    func upload(_ file: URL, jobID: UUID? = nil) {
+        upload(uploadRequest(file: file, jobID: jobID))
+    }
+
+    /// Uploads the files of these finished jobs; with ZIP bundles on they go up as few ZIPs as the size limit allows.
+    func upload(jobs ids: Set<UUID>) {
+        upload(uploadRequest(forJobs: ids))
     }
 
     /// Starts an upload, or asks for the sharing agreement first when it has not been accepted.
-    func upload(_ file: URL, jobID: UUID? = nil) {
-        guard hasAcceptedShareAgreement else {
-            pendingUpload = PendingUpload(file: file, jobID: jobID)
+    func upload(_ request: UploadRequest) {
+        guard !request.entries.isEmpty else {
+            message = "There are no files to upload."
             return
         }
-        startUpload(file, jobID: jobID)
+        guard hasAcceptedShareAgreement else {
+            pendingUpload = PendingUpload(request: request)
+            return
+        }
+        startUpload(request)
     }
 
-    private func startUpload(_ file: URL, jobID: UUID?) {
-        guard !uploadsInFlight.contains(file.path) else { return }
-        uploadsInFlight.insert(file.path)
-        uploadActivities.removeAll { $0.file.path == file.path }
-        uploadActivities.insert(UploadActivity(file: file, jobID: jobID), at: 0)
+    private func startUpload(_ request: UploadRequest) {
+        guard !request.files.allSatisfy({ isUploading($0) }) else { return }
+        uploadActivities.removeAll { !$0.isRunning && $0.request == request }
+        let activity = UploadActivity(request: request)
+        let id = activity.id
+        uploadActivities.insert(activity, at: 0)
 
+        let jobIDs = request.jobIDs
         let uploadSettings = settings.upload
-        let nameID = jobID.flatMap { job($0) }.map { UploadNaming.nameID(bookID: $0.bookID, url: $0.url) }
-        let (stream, continuation) = AsyncStream<UploadEvent>.makeStream()
+        let items = request.items
+        let fileCount = items.count
+        // One job: its lines go to its own log. Several: a line each at the start, the rest under "Upload".
+        let single = jobIDs.count == 1 ? jobIDs[0] : nil
+        for jobID in jobIDs {
+            log(jobID, .info, "Upload started" + (fileCount > 1 ? " (\(fileCount) files)" : ""))
+        }
+        if single == nil { log(nil, .info, "Uploading \(fileCount) files", title: "Upload") }
+
+        let (stream, continuation) = AsyncStream<UploadBatchEvent>.makeStream()
         let relay = Task { @MainActor [weak self] in
-            for await event in stream { self?.updateActivity(file) { $0.apply(event) } }
+            for await event in stream {
+                self?.updateActivity(id) { $0.apply(event) }
+                self?.logUploadEvent(event, jobID: single)
+            }
         }
         Task {
-            defer { uploadsInFlight.remove(file.path) }
             do {
-                let result = try await UploaderCatalog.upload(
-                    file, settings: uploadSettings, nameID: nameID, events: { continuation.yield($0) }
+                let outcome = try await UploaderCatalog.uploadBatch(
+                    items, settings: uploadSettings, history: nil, events: { continuation.yield($0) }
                 )
                 continuation.finish()
                 await relay.value
-                recordUpload(result)
-                if let jobID { update(jobID) { $0.uploads.append(result) } }
-                persistJobs()
-                updateActivity(file) { $0.phase = .finished(result) }
+                finishUpload(id, request: request, outcome: outcome)
             } catch is CancellationError {
                 continuation.finish()
                 await relay.value
-                updateActivity(file) { $0.phase = .failed("cancelled") }
+                updateActivity(id) { $0.phase = .failed("cancelled") }
             } catch {
                 continuation.finish()
                 await relay.value
-                updateActivity(file) { $0.phase = .failed(error.localizedDescription) }
+                log(single, .error, "Upload failed: \(error.localizedDescription)", title: "Upload")
+                updateActivity(id) { $0.phase = .failed(error.localizedDescription) }
             }
         }
     }
 
-    private func updateActivity(_ file: URL, _ change: (inout UploadActivity) -> Void) {
-        guard let index = uploadActivities.firstIndex(where: { $0.file.path == file.path }) else { return }
+    private func finishUpload(_ id: UUID, request: UploadRequest, outcome: UploadBatchOutcome) {
+        for result in outcome.uploads {
+            let names = Set(result.contents?.map(\.fileName) ?? [result.fileName])
+            for jobID in request.jobIDs {
+                let covered = request.entries.contains { entry in
+                    entry.jobID == jobID && names.contains(entry.file.lastPathComponent.precomposedStringWithCanonicalMapping)
+                }
+                guard covered else { continue }
+                update(jobID) { $0.uploads.append(result) }
+                if request.jobIDs.count > 1 {
+                    log(jobID, .info, "Uploaded in \(result.summary): \(result.link.absoluteString)")
+                }
+            }
+        }
+        recordUploads(outcome.uploads)
+        persistJobs()
+        if outcome.uploads.isEmpty {
+            let reason = outcome.failures.first?.message ?? "no host took the files"
+            updateActivity(id) { $0.phase = .failed(reason) }
+        } else {
+            updateActivity(id) { $0.phase = .finished }
+        }
+    }
+
+    private func logUploadEvent(_ event: UploadBatchEvent, jobID: UUID?) {
+        switch event {
+        case .starting(let index, let total, let name):
+            log(jobID, .info, total > 1 ? "Upload \(index) of \(total): \(name)" : "Uploading \(name)", title: "Upload")
+        case .preparing(let zip, let total, let name):
+            log(jobID, .info, "Preparing ZIP \(zip) of \(total): \(name)", title: "Upload")
+        case .host(let hostEvent):
+            switch hostEvent {
+            case .trying(let host, let position, let total):
+                log(jobID, .debug, "Trying \(host) (\(position) of \(total))", title: "Upload")
+            case .progress:
+                break
+            case .failed(let host, let message):
+                log(jobID, .warning, "\(host) failed: \(message)", title: "Upload")
+            }
+        case .uploaded(let result):
+            log(jobID, .info, "Uploaded \(result.summary): \(result.link.absoluteString)", title: "Upload")
+        case .failed(let name, let message):
+            log(jobID, .warning, "Upload of \(name) failed: \(message)", title: "Upload")
+        }
+    }
+
+    private func updateActivity(_ id: UUID, _ change: (inout UploadActivity) -> Void) {
+        guard let index = uploadActivities.firstIndex(where: { $0.id == id }) else { return }
         change(&uploadActivities[index])
     }
 
-    private func recordUpload(_ result: UploadResult) {
-        uploadHistory.insert(result, at: 0)
+    /// Adds finished uploads to the history, newest batch first, and copies the link(s) when asked to.
+    private func recordUploads(_ results: [UploadResult]) {
+        guard !results.isEmpty else { return }
+        uploadHistory.insert(contentsOf: results, at: 0)
         historyStore.save(uploadHistory)
-        if settings.upload.copyLinkToClipboard {
-            UIPasteboard.general.url = result.link
+        guard settings.upload.copyLinkToClipboard else { return }
+        if results.count == 1 {
+            UIPasteboard.general.url = results[0].link
+        } else {
+            UIPasteboard.general.string = results.map(\.linkLine).joined(separator: "\n")
         }
     }
 

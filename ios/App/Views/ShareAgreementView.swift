@@ -21,7 +21,7 @@ struct ShareAgreementView: View {
                     Button("Agree and upload") {
                         accepted = true
                         model.pendingUpload = nil
-                        model.upload(pending.file, jobID: pending.jobID)
+                        model.upload(pending.request)
                     }
                     .disabled(!confirmed)
                     Button("Cancel", role: .cancel) {
@@ -40,6 +40,5 @@ struct ShareAgreementView: View {
 /// An upload waiting for the sharing agreement.
 struct PendingUpload: Identifiable, Equatable {
     let id = UUID()
-    let file: URL
-    let jobID: UUID?
+    let request: UploadRequest
 }

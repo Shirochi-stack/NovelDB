@@ -8,20 +8,21 @@ struct UploadHistoryView: View {
 
     var body: some View {
         List {
-            // Finished uploads move to the history below; running and failed ones stay here.
+            // Finished uploads move to the history below; running and failed ones, and finished
+            // ones with a ZIP that no host took, stay here.
             let pending = model.uploadActivities.filter { activity in
-                if case .finished = activity.phase { return false }
+                if case .finished = activity.phase { return !activity.failedUploads.isEmpty }
                 return true
             }
             if !pending.isEmpty {
                 Section("In progress") {
                     ForEach(pending) { activity in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(activity.fileName).lineLimit(2)
+                            Text(activity.title).lineLimit(2)
                             UploadActivityView(
                                 activity: activity,
-                                retry: { model.upload(activity.file, jobID: activity.jobID) },
-                                dismiss: { model.dismissUploadActivity(activity.file) }
+                                retry: { model.upload(activity.request) },
+                                dismiss: { model.dismissUploadActivity(activity.id) }
                             )
                         }
                         .padding(.vertical, 2)
@@ -59,7 +60,7 @@ struct UploadRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(upload.fileName).lineLimit(2)
+            Text(upload.summary).lineLimit(2)
             HStack {
                 Text(hostName)
                 Text(upload.uploadedAt, style: .date)
@@ -73,13 +74,26 @@ struct UploadRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if upload.contents != nil {
+                // What the ZIP holds, with the room a detail row has.
+                DisclosureGroup("\(upload.titlesInside.count) inside") {
+                    ForEach(Array(upload.titlesInside.enumerated()), id: \.offset) { _, title in
+                        Text(title).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption)
+            }
             HStack(spacing: 16) {
                 Button {
                     UIPasteboard.general.url = upload.link
                 } label: {
                     Label("Copy link", systemImage: "doc.on.doc")
                 }
-                ShareLink(item: upload.link) { Label("Share", systemImage: "square.and.arrow.up") }
+                if upload.contents != nil {
+                    ShareLink(item: upload.linkLine) { Label("Share", systemImage: "square.and.arrow.up") }
+                } else {
+                    ShareLink(item: upload.link) { Label("Share", systemImage: "square.and.arrow.up") }
+                }
                 Link(destination: upload.link) { Label("Open", systemImage: "safari") }
                 if let delete = upload.deleteLink {
                     Link(destination: delete) { Label("Delete page", systemImage: "trash") }
