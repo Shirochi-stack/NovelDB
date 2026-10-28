@@ -33,6 +33,7 @@ def context(tmp_path, monkeypatch, qapp):
     ctx.update_settings(lambda s: replace(s, output=replace(s.output, ask_each_time=False,
                                                                 output_dir=str(tmp_path / "out"))))
     yield ctx
+    ctx._save_timer.stop()  # a pending save must not outlive the test's NOVELDB_HOME
     ctx.runner.cancel_all()
     ctx.runner.wait_idle(5)
 
