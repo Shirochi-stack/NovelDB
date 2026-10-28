@@ -73,6 +73,9 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(12)  # a bar that is easy to grab (themed with a grip)
+        self.splitter.splitterMoved.connect(self._log_resized)
+        self.sidebar.currentRowChanged.connect(self._apply_log_share)
 
         central = QWidget()
         row = QHBoxLayout(central)
@@ -133,8 +136,33 @@ class MainWindow(QMainWindow):
         self.log_panel.setVisible(visible)
         self.log_toggle.setText("Hide log" if visible else "Show log")
         if visible:
-            total = max(self.splitter.height(), 400)
-            self.splitter.setSizes([int(total * 0.72), int(total * 0.28)])
+            self._apply_log_share()
+
+    # Share of the height the log takes per page: twice the old default on Download, the old
+    # default elsewhere (the Catalog wants room). A size the user drags to is kept per page.
+    LOG_SHARE = {"Download": 0.56}
+    DEFAULT_LOG_SHARE = 0.28
+
+    def _page_name(self) -> str:
+        row = self.sidebar.currentRow()
+        return PAGES[row] if 0 <= row < len(PAGES) else ""
+
+    def _apply_log_share(self, *_args) -> None:
+        if not getattr(self, "_log_open", False):
+            return
+        shares = getattr(self, "_log_shares", {})
+        share = shares.get(self._page_name(), self.LOG_SHARE.get(self._page_name(), self.DEFAULT_LOG_SHARE))
+        total = max(self.splitter.height(), 400)
+        self._resizing = True
+        self.splitter.setSizes([int(total * (1 - share)), int(total * share)])
+        self._resizing = False
+
+    def _log_resized(self, *_args) -> None:
+        if getattr(self, "_resizing", False) or not getattr(self, "_log_open", False):
+            return
+        top, bottom = self.splitter.sizes()
+        if top + bottom > 0:
+            self._log_shares = {**getattr(self, "_log_shares", {}), self._page_name(): bottom / (top + bottom)}
 
     def _queued(self, count: int) -> None:
         if count:
