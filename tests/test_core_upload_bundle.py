@@ -239,7 +239,7 @@ def test_building_a_zip_reports_progress_and_cancel_removes_the_partial_file(tmp
 
 @pytest.mark.parametrize("title", [
     KOREAN, "VR 게임.epub", "- 소설.epub", "1 게임 2.epub", "한글.epub", "A1.epub", "-_.epub",
-    "100일 후에 거세 당하는 황녀님.epub", "1234.epub",
+    "100일 후에 거세 당하는 황녀님.epub", "1234.epub", ".epub", "_.epub", "VR_.epub",
 ])
 def test_titles_that_lose_their_letters_upload_as_source_and_book_id(tmp_path, title):
     assert ascii_upload_name(str(tmp_path / title), "123456", "npia") == "npia_123456.epub"
@@ -250,6 +250,16 @@ def test_titles_keep_their_ascii_part_when_it_is_enough(tmp_path):
     assert ascii_upload_name(str(tmp_path / "Dragon 용 Slayer.epub"), "1", "npia") == "Dragon_Slayer.epub"
     assert ascii_upload_name(str(tmp_path / "재앙 Reborn 2부.txt"), "1", "npia") == "Reborn 2.txt"
     assert ascii_upload_name(str(tmp_path / "NovelDB_3_EPUBs.zip"), "", "") == "NovelDB_3_EPUBs.zip"
+
+
+def test_a_name_is_never_just_an_extension(tmp_path):
+    # temp.sh keeps ".epub" as "epub", which downloads with no extension at all.
+    assert ascii_upload_name(str(tmp_path / ".epub"), "", "") == "book.epub"
+    assert ascii_upload_name(str(tmp_path / ".epub"), "7", "kpage") == "kpage_7.epub"
+    for title in [KOREAN, "Some Title.epub", ".epub", "-_.epub", "NovelDB_2_EPUBs.zip"]:
+        name = ascii_upload_name(str(tmp_path / title), "7", "kpage")
+        stem, ext = name.rsplit(".", 1)
+        assert stem.strip(" ._-") and ext in {"epub", "zip"}, name
 
 
 def test_names_without_a_source_use_the_book_id_alone(tmp_path):
