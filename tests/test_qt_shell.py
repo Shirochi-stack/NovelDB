@@ -196,16 +196,14 @@ def test_save_button_animates_then_settles(qtbot):
     qtbot.waitUntil(lambda: button.text() == "Save", timeout=2000)
 
 
-def test_separate_txt_is_always_shown_and_selects_txt(window, context):
-    page = window.download
-    page.input.setPlainText("https://example.com/book")
-    page._detect()
-    assert not page.separate_txt.isHidden()
-    assert "txt" not in context.settings.effective(page._source).formats
-    page.separate_txt.click()
-    run = context.settings.effective(page._source)
-    assert run.separate_txt and "txt" in run.formats
-    assert page.format_chips["txt"].isChecked()
+def test_separate_txt_lives_in_settings_text_and_pdf(window, context):
+    from PySide6.QtWidgets import QCheckBox
+
+    assert not hasattr(window.download, "separate_txt")
+    form = window.settings_page.forms["Text and PDF"]
+    box = next(b for b in form.findChildren(QCheckBox) if b.text().startswith("Separate TXT files"))
+    box.click()
+    assert context.settings.shared.separate_txt is True
 
 
 def test_log_panel_is_taller_on_download_than_on_catalog(window, qtbot):

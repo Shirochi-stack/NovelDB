@@ -163,10 +163,7 @@ class DownloadPage(QWidget):
         # Run settings ---------------------------------------------------------------
         self.format_chips = {fmt: Chip(FORMAT_LABELS[fmt], on_change=lambda on, f=fmt: self._toggle_format(f, on))
                              for fmt in OUTPUT_FORMATS}
-        # Always shown (as in the old window); turning it on also selects TXT, which it applies to.
-        self.separate_txt = Chip("Separate TXT files", on_change=self._toggle_separate_txt)
-        self.separate_txt.setToolTip("Write each chapter to its own TXT file (in a folder per book).")
-        formats_row = flow(*self.format_chips.values(), self.separate_txt)
+        formats_row = flow(*self.format_chips.values())
 
         self.threads = spin(1, 1, 64, lambda v: self._run(threads=v))
         self.workers_label = QLabel("Image Workers")
@@ -346,7 +343,6 @@ class DownloadPage(QWidget):
         for fmt, chip in self.format_chips.items():
             chip.set_quietly(fmt in run.formats)
             chip.setVisible(not (npia and fmt not in NPIA_FORMATS))
-        self.separate_txt.set_quietly(run.separate_txt and "txt" in run.formats)
         set_quietly(self.threads, run.threads)
         self.workers_label.setText("Compression Workers" if npia else "Image Workers")
         set_quietly(self.workers, s.images.compression_workers if npia else run.image_workers)
@@ -381,14 +377,6 @@ class DownloadPage(QWidget):
             current.remove(fmt)
         ordered = tuple(f for f in OUTPUT_FORMATS if f in current)
         self._run(formats=ordered)
-
-    def _toggle_separate_txt(self, on: bool) -> None:
-        formats = list(self.context.settings.effective(self._source).formats)
-        if on and "txt" not in formats:
-            formats.append("txt")
-            self._run(separate_txt=True, formats=tuple(f for f in OUTPUT_FORMATS if f in formats))
-        else:
-            self._run(separate_txt=on)
 
     def _set_workers(self, value: int) -> None:
         if self._source == NPIA:
