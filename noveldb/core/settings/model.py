@@ -208,6 +208,7 @@ class UiSettings:
     auto_dpi_scale: bool = True
     gui_scale_factor: float = 1.0
     window_geometry: str = ""
+    scale_with_window: bool = True  # grow text and controls when the window is bigger than 1700 x 960
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,7 @@ from noveldb.core import paths, platform_services
 from noveldb.core.external.tools import login_browser_mode
 from noveldb.core.sources import detect_source, split_inputs
 from noveldb.qt.context import AppContext
+from noveldb.qt.scale import bind_size
 
 # The Tools menu. Enter Browser and Enter App (sfc) have their own buttons on the Download page.
 TOOLS = (
@@ -58,7 +59,7 @@ class SfcSessionDialog(QDialog):
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
         self.cookie = QPlainTextEdit()
-        self.cookie.setMaximumHeight(90)
+        bind_size(self.cookie, max_height=90)
         self.cookie.setPlaceholderText(".SFCommunity=...; session_APP=...")
         form = QFormLayout()
         form.addRow("Username", self.username)

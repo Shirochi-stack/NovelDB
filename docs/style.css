@@ -1244,7 +1244,6 @@ button.synopsis-status {
 .settings-label { font-size: .75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 500; }
 #settingsButton { width: 48px; height: 44px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 1.4rem; cursor: pointer; }
 #settingsButton:focus-visible, .tag-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tag-toolbar { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; }
 .tag-toggle { display: flex; align-items: center; justify-content: space-between; gap: .6rem; min-height: 38px; padding: .4rem .65rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-secondary); font: inherit; font-size: .85rem; cursor: pointer; }
 .exclude-toggle { color: #f08088; }
 .tag-toggle[aria-expanded=true] { border-color: var(--accent); }
@@ -1289,7 +1288,7 @@ button.synopsis-status {
     .search-row { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .4rem; }
     .search-box { grid-column: 1 / -1; min-width: 0; }
     .search-box input { height: 42px; padding-top: .5rem; padding-bottom: .5rem; font-size: 1rem; }
-    .secondary-controls { display: grid; grid-column: 1 / -1; grid-template-columns: 70px minmax(0,1fr) 48px; gap: .4rem; align-items: end; }
+    .secondary-controls { display: grid; grid-column: 1 / -1; grid-template-columns: 70px 44px minmax(0,1fr) 48px; gap: .4rem; align-items: end; }
     .control-group { min-width: 0; gap: 0; }
     .control-group > label, .settings-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .control-group .source-select-native { width: 1px; height: 1px; min-height: 0; border: 0; }
@@ -1302,8 +1301,6 @@ button.synopsis-status {
     .source-picker-option { min-height: 42px; font-size: .85rem; }
     .sort-control { width: 100%; }
     #settingsButton { width: 48px; height: 42px; padding: 0; }
-    .tag-toolbar { display: grid; grid-template-columns: 1fr 1fr auto; gap: .4rem; margin-top: .5rem; }
-    .tag-toggle { min-width: 0; min-height: 36px; gap: .2rem; padding: .3rem .4rem; font-size: .75rem; }
     .tag-mode { gap: .15rem; }
     .mode-btn { padding: .4rem .45rem; font-size: .7rem; }
     .tag-header { margin-bottom: .4rem; }
@@ -1319,7 +1316,7 @@ button.synopsis-status {
     .settings-drag-handle { display: block; width: 36px; height: 4px; margin: 0 auto .6rem; border-radius: 4px; background: var(--text-muted); }
 }
 @media (max-width: 360px) {
-    .secondary-controls { grid-template-columns: 64px minmax(0,1fr) 48px; }
+    .secondary-controls { grid-template-columns: 64px 44px minmax(0,1fr) 48px; }
     .source-picker-button { font-size: .7rem; gap: .2rem; }
     .pagination, .pagination .page-numbers { gap: 3px; }
     .pagination .page-btn { padding-inline: .3rem; }
@@ -1327,7 +1324,7 @@ button.synopsis-status {
 
 /* Desktop keeps the full inline controls and separate tag sections. */
 @media (min-width: 651px) {
-    .settings-control, .tag-toolbar, .mobile-panel-label { display: none; }
+    .settings-control, .tag-menu-control, .tag-menu { display: none; }
     .tag-section { margin-top: 1.25rem; padding-top: 1.25rem; }
     .tag-header { margin-bottom: .75rem; }
     .tag-header .tag-toggle { justify-content: flex-start; gap: .4rem; padding: 0; min-height: 0; background: transparent; border: 0; border-radius: 0; font-size: .85rem; }
@@ -1373,6 +1370,57 @@ button.synopsis-status {
 }
 .mobile-controls-floating:has(.source-picker-menu:not([hidden])) { overflow: visible; max-height: none; }
 @media (max-width: 650px) {
-    .mobile-infinite .secondary-controls { grid-template-columns: minmax(0,1fr) 48px; }
+    .mobile-infinite .secondary-controls { grid-template-columns: 44px minmax(0,1fr) 48px; }
     .mobile-controls-floating { left: .5rem; right: .5rem; }
+}
+
+/* One tag dropdown for phones: the tag button on the sort row opens a list where every tag has an
+   include (+) and an exclude (-) button. Wider screens keep the two inline tag panels. */
+.tag-menu-control, .tag-menu { display: none; }
+@media (max-width: 650px) {
+    .controls:not(.mobile-controls-floating) { position: relative; z-index: 30; }
+    .tag-menu-control { display: flex; align-items: flex-end; min-width: 0; }
+    .tag-menu-button { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 100%; height: 42px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-secondary); cursor: pointer; }
+    .tag-menu-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tag-menu-button[aria-expanded=true], .tag-menu-button.has-tags { border-color: var(--accent); color: var(--text-primary); }
+    .tag-menu-badge { position: absolute; top: -7px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; font-size: .65rem; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--bg-secondary); pointer-events: none; }
+    .tag-menu-badge[hidden] { display: none; }
+
+    .tag-menu { position: absolute; left: .6rem; right: .6rem; z-index: 60; display: flex; flex-direction: column; margin-top: .4rem; max-height: min(65dvh, 32rem); overflow: hidden; background: var(--bg-card); border: 1px solid var(--border-hover); border-radius: 12px; box-shadow: var(--shadow); }
+    .tag-menu[hidden] { display: none; }
+    .mobile-controls-floating:has(.tag-menu:not([hidden])) { overflow: visible; max-height: none; }
+    .tag-menu-head { display: flex; flex: none; align-items: center; gap: .4rem; padding: .5rem .5rem .35rem .65rem; }
+    .tag-menu-title { margin-right: auto; font-size: .8rem; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+    .tag-menu-mode { display: inline-flex; }
+    .tag-menu-mode .mode-btn { min-height: 30px; }
+    .tag-menu-clear { margin-left: 0; min-height: 34px; padding: .25rem .65rem; }
+    .tag-menu-close { width: 34px; height: 34px; flex: none; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: .95rem; cursor: pointer; }
+    .tag-menu-search { display: block; flex: none; width: calc(100% - 1rem); height: 40px; margin: 0 .5rem; padding: 0 .75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font: inherit; font-size: 1rem; outline: none; }
+    .tag-menu-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .tag-menu-search::placeholder { color: var(--text-muted); }
+    .tag-menu-note { flex: none; padding: .4rem .75rem .15rem; font-size: .68rem; line-height: 1.3; color: var(--text-muted); }
+    .tag-menu-note:empty { display: none; }
+    .tag-menu-list { flex: 1 1 auto; min-height: 0; margin: 0; padding: .15rem .3rem .4rem; list-style: none; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    .tag-menu-empty { padding: .9rem .6rem; font-size: .85rem; color: var(--text-muted); }
+
+    .tag-menu-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; align-items: center; gap: .3rem; padding: .1rem .2rem .1rem .5rem; border-left: 3px solid transparent; border-radius: 8px; }
+    .tag-menu-row + .tag-menu-row { border-top: 1px solid rgba(255,255,255,.04); }
+    .tag-menu-name { display: flex; align-items: baseline; gap: .4rem; min-width: 0; font-size: .9rem; color: var(--text-primary); }
+    .tag-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag-menu-native { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; color: var(--text-muted); }
+    .tag-menu-pill { display: none; flex: none; align-self: center; padding: .05rem .4rem; border-radius: 999px; font-size: .6rem; font-weight: 700; letter-spacing: .04em; }
+    .tag-menu-count { padding-right: .2rem; font-size: .75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .tag-menu-act { width: 40px; height: 40px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 1.2rem; line-height: 1; cursor: pointer; }
+    .tag-menu-act:focus-visible, .tag-menu-close:focus-visible, .tag-menu-clear:focus-visible, .tag-menu-mode .mode-btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 1px; }
+
+    .tag-menu-row.is-and { background: var(--accent-glow); border-left-color: var(--accent); }
+    .tag-menu-row.is-or { background: rgba(245,158,11,.12); border-left-color: rgba(245,158,11,.85); }
+    .tag-menu-row.is-excluded { background: rgba(239,68,68,.10); border-left-color: #f87171; }
+    .tag-menu-row.is-and .tag-menu-pill, .tag-menu-row.is-or .tag-menu-pill, .tag-menu-row.is-excluded .tag-menu-pill { display: inline-block; }
+    .tag-menu-row.is-and .tag-menu-pill { background: var(--accent); color: #fff; }
+    .tag-menu-row.is-or .tag-menu-pill { background: rgba(245,158,11,.9); color: #1d1405; }
+    .tag-menu-row.is-excluded .tag-menu-pill { background: rgba(239,68,68,.22); color: #fca5a5; border: 1px solid rgba(239,68,68,.45); }
+    .tag-menu-act.include[aria-pressed=true] { background: var(--accent); border-color: var(--accent-hover); color: #fff; }
+    .tag-menu-row.is-or .tag-menu-act.include[aria-pressed=true] { background: rgba(245,158,11,.9); border-color: rgba(251,191,36,.8); color: #1d1405; }
+    .tag-menu-act.exclude[aria-pressed=true] { background: rgba(239,68,68,.28); border-color: rgba(239,68,68,.7); color: #fca5a5; }
 }

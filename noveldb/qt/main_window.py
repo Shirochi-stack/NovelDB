@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PySide6.QtCore import QByteArray, QSize, Qt
+from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -27,6 +27,7 @@ from noveldb.qt.pages.catalog import catalog_page
 from noveldb.qt.pages.download import DownloadPage
 from noveldb.qt.pages.queue import QueuePage
 from noveldb.qt.pages.settings import SettingsPage
+from noveldb.qt.scale import bind_rows, bind_size, factor_for, on_scale, ui_scale
 from noveldb.qt.theme import apply_theme
 
 PAGES = ("Download", "Catalog", "Queue", "Settings")
@@ -47,7 +48,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setFixedWidth(176)
+        bind_size(self.sidebar, fixed_width=176)
         self.sidebar.setFocusPolicy(Qt.NoFocus)
         for name in PAGES:
             item = QListWidgetItem(name)
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
             # padding made rows overlap.
             item.setSizeHint(QSize(0, 44))
             self.sidebar.addItem(item)
+        bind_rows(self.sidebar, 44)
 
         self.download = DownloadPage(context)
         self.catalog = catalog_page(context)
@@ -114,6 +116,12 @@ class MainWindow(QMainWindow):
         for index in range(len(PAGES)):
             QShortcut(QKeySequence(f"Ctrl+{index + 1}"), self, activated=lambda i=index: self.show_page(i))
         self.statusBar().setSizeGripEnabled(True)
+        # The interface grows with the window (noveldb/qt/scale.py), once resizing settles.
+        self._scale_timer = QTimer(self)
+        self._scale_timer.setSingleShot(True)
+        self._scale_timer.setInterval(150)
+        self._scale_timer.timeout.connect(self._rescale)
+        on_scale(self, lambda: self._apply_theme(force=True), now=False)
         self._restore_geometry()
 
     # -- navigation ----------------------------------------------------------------------
@@ -215,7 +223,15 @@ class MainWindow(QMainWindow):
 
     # -- appearance ------------------------------------------------------------------------
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._scale_timer.start()
+
+    def _rescale(self) -> None:
+        ui_scale.set_factor(factor_for(self.width(), self.height(), self.context.settings.ui.scale_with_window))
+
     def _settings_changed(self) -> None:
+        self._rescale()
         current = (self.context.settings.ui.theme, self.context.settings.ui.accent)
         if current != self._appearance:
             self._appearance = current
