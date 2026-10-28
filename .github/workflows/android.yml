@@ -20,6 +20,22 @@ on:
         type: string
         required: false
         default: ''
+      # Set by Mobile Release so the app knows which release it came from (see "Build release APK").
+      build_id:
+        description: 'Build number: Unix time in seconds, planned by the release workflow'
+        type: string
+        required: false
+        default: ''
+      release_tag:
+        description: 'Release tag shown in the app, for example v98'
+        type: string
+        required: false
+        default: ''
+      release_label:
+        description: 'Release label shown in the app, for example none or hotfix3'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -65,7 +81,16 @@ jobs:
         env:
           NPIA_KEYSTORE_PASSWORD: ${{ secrets.NPIA_KEYSTORE_PASSWORD }}
           NPIA_KEY_ALIAS: ${{ secrets.NPIA_KEY_ALIAS }}
-        run: gradle --no-daemon :app:assembleRelease
+          BUILD_ID: ${{ inputs.build_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_LABEL: ${{ inputs.release_label }}
+        run: |
+          # Only a build made for a release carries a build number; without one the app is a development build.
+          args=()
+          if [ -n "$BUILD_ID" ]; then
+            args+=("-PnoveldbBuild=$BUILD_ID" "-PnoveldbTag=$RELEASE_TAG" "-PnoveldbLabel=$RELEASE_LABEL")
+          fi
+          gradle --no-daemon :app:assembleRelease "${args[@]}"
       - name: Rename and verify APKs
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk NovelDB-debug.apk
@@ -95,7 +120,8 @@ jobs:
           path: android/**/build/reports/tests/
           retention-days: 7
       - name: Attach to release
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        # Mobile Release attaches the APK itself and its dispatch inputs reach this workflow, so skip when it passes a build number.
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.build_id == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ inputs.release_tag }}" NovelDB-universal.apk --clobber --repo "${{ github.repository }}"
