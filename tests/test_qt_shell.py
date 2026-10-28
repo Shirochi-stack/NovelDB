@@ -222,3 +222,57 @@ def test_log_is_a_column_on_download_and_a_bottom_panel_elsewhere(window, qtbot)
     assert window.splitter.handleWidth() >= 10
     window.show_page(0)
     assert window.log_panel.parentWidget() is window.download.log_dock and window.log_panel.isVisible()
+
+
+def test_log_paths_become_links(window, tmp_path):
+    from PySide6.QtCore import QUrl
+
+    book = tmp_path / "[1] book name.epub"
+    book.write_text("x", encoding="utf-8")
+    panel = window.log_panel
+    panel._append([f"Output file: {book} (2.96 MB)", "Download Complete!"])
+    block = panel.log.document().firstBlock()
+    hrefs = set()
+    it = block.begin()
+    while not it.atEnd():
+        fragment = it.fragment()
+        if fragment.charFormat().isAnchor():
+            hrefs.add(fragment.charFormat().anchorHref())
+            assert fragment.text() == str(book)
+        it += 1
+    assert hrefs == {QUrl.fromLocalFile(str(book)).toString()}
+    second = block.next()
+    assert not any(second.begin().fragment().charFormat().isAnchor() for _ in [0])
+
+
+def test_shutdown_after_a_successful_queue_counts_down_and_can_be_cancelled(window, context, qtbot):
+    from dataclasses import replace
+
+    calls = []
+    window.maybe_shut_down(2, 0, shut_down=lambda: calls.append("off"))
+    assert not hasattr(window, "shutdown_dialog")  # the setting is off
+    context.update_settings(lambda s: replace(s, output=replace(s.output, shutdown_after_success=True)))
+    assert window.download.shutdown.isChecked()
+    window.maybe_shut_down(2, 1, shut_down=lambda: calls.append("off"))
+    assert not hasattr(window, "shutdown_dialog")  # a failure: no shutdown
+    window.maybe_shut_down(2, 0, shut_down=lambda: calls.append("off"))
+    dialog = window.shutdown_dialog
+    dialog.reject()  # Cancel
+    dialog._tick()
+    assert calls == []
+    window.maybe_shut_down(1, 0, shut_down=lambda: calls.append("off"))
+    window.shutdown_dialog.remaining = 1
+    window.shutdown_dialog._tick()
+    assert calls == ["off"]
+
+
+def test_options_keep_a_compact_width_and_the_log_gets_the_rest(window, qtbot):
+    window.resize(2560, 1300)
+    window.show()
+    qtbot.waitExposed(window)
+    window.show_page(0)
+    page = window.download
+    page._user_split = False
+    page._fit_split()
+    left, right = page.split.sizes()
+    assert left <= page._columns.maximumWidth() + 24 and right > left

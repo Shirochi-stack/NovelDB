@@ -66,6 +66,8 @@ _ICONS = {
           "stroke-linejoin='round'/>",
     "grip": "<rect x='3' y='6' width='10' height='1.4' rx='.7' fill='{c}'/><rect x='3' y='8.6' width='10' "
             "height='1.4' rx='.7' fill='{c}'/>",
+    "gripv": "<rect x='6' y='3' width='1.4' height='10' rx='.7' fill='{c}'/><rect x='8.6' y='3' width='1.4' "
+             "height='10' rx='.7' fill='{c}'/>",
 }
 
 
@@ -96,6 +98,7 @@ def stylesheet_for(scheme: dict) -> str:
     down, up = _image("down", s["onSurfaceVariant"]), _image("up", s["onSurfaceVariant"])
     down_off = _image("down", s["outlineVariant"])
     grip = _image("grip", s["onSurfaceVariant"])
+    gripv = _image("gripv", s["onSurfaceVariant"])
     field_bg = s["surfaceContainerLowest"]
     return f"""
     /* Text fields, spin boxes and drop-downs: outlined, rose focus ring (Material 3 outlined fields). */
@@ -131,6 +134,8 @@ def stylesheet_for(scheme: dict) -> str:
     /* Splitter handles: a visible grip, highlighted while hovered or dragged. */
     QSplitter::handle:vertical {{ background: {s['surfaceContainerLow']}; {grip} }}
     QSplitter::handle:vertical:hover, QSplitter::handle:vertical:pressed {{ background: {s['secondaryContainer']}; }}
+    QSplitter::handle:horizontal {{ background: {s['surfaceContainerLow']}; {gripv} }}
+    QSplitter::handle:horizontal:hover, QSplitter::handle:horizontal:pressed {{ background: {s['secondaryContainer']}; }}
     /* Plain buttons: tonal pills; chips, primary and feedback buttons below override them. */
     QPushButton {{ background: {s['surfaceContainerHigh']}; color: {s['onSurface']};
         border: 1px solid {s['outlineVariant']}; border-radius: 16px; padding: 6px 16px; }}
@@ -164,9 +169,11 @@ def stylesheet_for(scheme: dict) -> str:
                                  background: transparent; color: {s['onSurfaceVariant']}; min-height: 22px; }}
     QPushButton[chip="true"]:checked {{ background: {s['secondaryContainer']}; color: {s['onSecondaryContainer']};
                                          border-color: {s['secondaryContainer']}; }}
-    QPushButton[primary="true"] {{ background: {s['primary']}; color: {s['onPrimary']}; border: none;
-                                    border-radius: 18px; padding: 8px 22px; font-weight: 600; }}
-    QPushButton[primary="true"]:disabled {{ background: {s['surfaceContainerHighest']}; color: {s['onSurfaceVariant']}; }}
+    QPushButton[primary="true"] {{ background: {s['primary']}; color: {s['onPrimary']}; border: 1px solid {s['primary']};
+                                    border-radius: 16px; padding: 6px 20px; font-weight: 600; }}
+    QPushButton[primary="true"]:hover {{ background: {s['primary']}; border-color: {s['onSurface']}; }}
+    QPushButton[primary="true"]:disabled {{ background: transparent; color: {s['outline']};
+                                             border-color: {s['outlineVariant']}; font-weight: 400; }}
     QLabel#toast {{ background: {s['inverseSurface']}; color: {s['inverseOnSurface']}; border-radius: 10px;
                     padding: 10px 18px; }}
     QFrame#groupBox {{ background: {s['surfaceContainerLow']}; border: 1px solid {s['outlineVariant']}; border-radius: 10px; }}

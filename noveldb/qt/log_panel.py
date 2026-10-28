@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from collections import deque
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QTextCursor
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QGuiApplication, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from noveldb.core import platform_services
-from noveldb.core.events import SAVED_PREFIX
+from noveldb.core.log_paths import find_path
 from noveldb.core.queue.model import RUNNING
 from noveldb.qt.context import AppContext
 
@@ -27,7 +28,7 @@ MAX_LINES = 20_000
 
 
 class LogView(QPlainTextEdit):
-    """Read-only log; double-click a "Saved:" line to show the file."""
+    """Read-only log. Files and folders named in it are links: click to open, right-click for more."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -37,35 +38,62 @@ class LogView(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
+        self.viewport().setMouseTracking(True)
+        self._press = None
 
-    def _saved_path(self, pos) -> Optional[str]:
-        line = self.cursorForPosition(pos).block().text()
-        return line[len(SAVED_PREFIX):].strip() if line.startswith(SAVED_PREFIX) else None
+    def path_at(self, pos) -> Optional[str]:
+        href = self.anchorAt(pos)
+        if not href:
+            return None
+        path = QUrl(href).toLocalFile()
+        return path or None
 
-    def mouseDoubleClickEvent(self, event):
-        path = self._saved_path(event.position().toPoint())
-        if path:
-            platform_services.reveal_path(path)
-            return
-        super().mouseDoubleClickEvent(event)
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        over = self.path_at(event.position().toPoint()) is not None
+        self.viewport().setCursor(Qt.PointingHandCursor if over else Qt.IBeamCursor)
+
+    def mousePressEvent(self, event):
+        self._press = event.position().toPoint() if event.button() == Qt.LeftButton else None
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        pos = event.position().toPoint()
+        if (event.button() == Qt.LeftButton and self._press is not None
+                and (pos - self._press).manhattanLength() < 4 and not self.textCursor().hasSelection()):
+            path = self.path_at(pos)
+            if path:
+                platform_services.open_path(path)
+        self._press = None
 
     def _menu(self, pos):
         menu = self.createStandardContextMenu()
-        path = self._saved_path(pos)
+        path = self.path_at(pos)
         if path:
-            menu.insertSeparator(menu.actions()[0] if menu.actions() else None)
-            open_file = QAction("Open file", menu)
-            open_file.triggered.connect(lambda: platform_services.open_path(path))
-            reveal = QAction("Show in folder", menu)
-            reveal.triggered.connect(lambda: platform_services.reveal_path(path))
             first = menu.actions()[0] if menu.actions() else None
-            menu.insertAction(first, open_file)
-            menu.insertAction(first, reveal)
+            is_dir = os.path.isdir(path)
+            actions = [
+                ("Open folder" if is_dir else "Open file", lambda: platform_services.open_path(path)),
+                ("Show in folder", lambda: platform_services.reveal_path(path)),
+                ("Copy path", lambda: QGuiApplication.clipboard().setText(path)),
+            ]
+            for text, slot in actions:
+                action = QAction(text, menu)
+                action.triggered.connect(slot)
+                menu.insertAction(first, action)
+            if first is not None:
+                menu.insertSeparator(first)
         clear = QAction("Clear log", menu)
         clear.triggered.connect(self.clear)
         menu.addSeparator()
         menu.addAction(clear)
         menu.exec(self.mapToGlobal(pos))
+
+
+def _utf16(text: str) -> int:
+    """Length in UTF-16 units (QTextCursor positions), so emoji before a path keep links aligned."""
+    return len(text.encode("utf-16-le")) // 2
 
 
 class LogPanel(QWidget):
@@ -143,10 +171,27 @@ class LogPanel(QWidget):
         at_end = bar.value() >= bar.maximum() - 4
         cursor = QTextCursor(self.log.document())
         cursor.movePosition(QTextCursor.End)
+        plain = QTextCharFormat()
         for text in lines:
+            line = str(text).rstrip("\n")
             if not self.log.document().isEmpty():
-                cursor.insertBlock()
-            cursor.insertText(str(text).rstrip("\n"))
+                cursor.insertBlock(cursor.blockFormat(), plain)
+            cursor.setCharFormat(plain)
+            cursor.insertText(line)
+            found = find_path(line) if (":" in line or "/" in line) else None
+            if found:
+                start, end, path = found
+                block = cursor.block()
+                link = QTextCursor(block)
+                link.setPosition(block.position() + _utf16(line[:start]))
+                link.setPosition(block.position() + _utf16(line[:end]), QTextCursor.KeepAnchor)
+                fmt = QTextCharFormat()
+                fmt.setAnchor(True)
+                fmt.setAnchorHref(QUrl.fromLocalFile(path).toString())
+                fmt.setForeground(self.palette().link())
+                fmt.setFontUnderline(True)
+                link.mergeCharFormat(fmt)
+                cursor.setCharFormat(plain)
         if at_end:
             bar.setValue(bar.maximum())
 

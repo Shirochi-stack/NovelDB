@@ -558,13 +558,15 @@ def images_form(context: AppContext, panel: bool = False) -> Form:
     target_mb = left.dspin("Target size", "images.recompress_target_mb", 1, 2000, 1, " MB")
 
     gifs = right.check("Convert animated GIFs", "images.convert_gifs")
-    static = right.check("First frame of animations only", "images.static_only")
+    static = right.check("First frame only", "images.static_only")
+    static.setToolTip("Keep only the first frame of animated images.")
     right.add_section("Cover")
     cover = right.check("Compress the cover", "images.compress_cover")
     cover_quality = right.spin("Quality", "images.cover_quality", 1, 100)
     cover_format = right.combo("Format", "images.cover_format", {k: k for k in IMAGE_FORMATS})
     right.add_section("Comics")
-    zip_images = right.check("Compress images inside CBZ", "images.zip_compress_images")
+    zip_images = right.check("Compress CBZ images", "images.zip_compress_images")
+    zip_images.setToolTip("Compress the images stored inside CBZ files.")
     long_layout = right.check("Long-strip layout", "images.long_image_layout")
     f.add(columns)
 
