@@ -23,7 +23,9 @@ from scripts.source_names import dumps as source_dumps
 
 
 class RbooksAppError(RuntimeError):
-    pass
+    def __init__(self, message='', reason=''):
+        super().__init__(message)
+        self.reason = reason  # e.g. 'rental_expired'
 
 
 class RbooksAppProxy:
@@ -62,6 +64,17 @@ class RbooksAppProxy:
         if (buttons.length === 1 && /^(확인|닫기|OK|Close)$/i.test(label(buttons[0]))) {
           buttons[0].click();
           return 'notice';
+        }
+        // A rental notice (period, remaining days) with a plain way to keep
+        // reading. Never press anything that extends, buys or deletes.
+        if (/대여/.test(box.innerText || '') &&
+            !buttons.some(el => /구매|결제|연장|삭제|구입|Buy|Purchase|Extend|Delete/i.test(label(el)))) {
+          const keep = buttons.find(el =>
+            /^(확인|닫기|읽기|계속\s*읽기|바로\s*읽기|OK|Close|Read)$/i.test(label(el)));
+          if (keep) {
+            keep.click();
+            return 'rental-notice';
+          }
         }
       }
       return null;
@@ -635,12 +648,14 @@ class RbooksAppProxy:
                 kind = self._evaluate('Viewer', self.PAGE_POPUP_SCRIPT)
             except Exception:
                 return False
-            if kind not in ('reading-position', 'notice'):
+            if kind not in ('reading-position', 'notice', 'rental-notice'):
                 return False
             self._popup_revision += 1
             if kind == 'reading-position':
                 self.log('  [Rbooks] Cancelled the synced reading-position popup; '
                          'keeping the requested source page.')
+            elif kind == 'rental-notice':
+                self.log('  [Rbooks] Acknowledged a rental notice in the reader.')
             else:
                 self.log('  [Rbooks] Dismissed an in-page reader notice.')
             return True
@@ -767,11 +782,58 @@ class RbooksAppProxy:
                 # Closing a window can disconnect its debugger before a reply.
                 pass
         if old_ids:
-            self._wait(lambda: not any(tab.get('id') in old_ids
-                                      for tab in self._tabs(self.port)), 15,
-                       'Previous RBOOKS reader windows did not close. '
-                       'Export stopped to avoid reading the wrong volume.')
+            def closed():
+                return not any(tab.get('id') in old_ids for tab in self._tabs(self.port))
+            try:
+                self._wait(closed, 6, 'Previous RBOOKS reader windows did not close.')
+            except RbooksAppError:
+                # A reader held open by a dialog (a rental notice, an unload prompt)
+                # would block every later volume. Close it through the debugger.
+                for target_id in old_ids:
+                    self._close_target(target_id)
+                self._wait(closed, 10,
+                           'Previous RBOOKS reader windows did not close. '
+                           'Export stopped to avoid reading the wrong volume.')
+                self.log('  [Rbooks] Force-closed a RBOOKS reader window that did '
+                         'not close by itself.')
         self._reader_targets.clear()
+
+    def _close_target(self, target_id):
+        try:
+            with urllib.request.urlopen(
+                f'http://127.0.0.1:{self.port}/json/close/{target_id}', timeout=3
+            ):
+                pass
+        except (OSError, ValueError):
+            pass
+
+    VIEWER_STATE_SCRIPT = r"""(() => {
+      const visible = el => el && el.getClientRects().length &&
+        getComputedStyle(el).visibility !== 'hidden' &&
+        getComputedStyle(el).display !== 'none';
+      const label = el => (el.innerText || el.getAttribute('aria-label') || '')
+        .trim().replace(/\s+/g, ' ');
+      const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
+        .filter(visible).map(label).filter(Boolean).slice(0, 30);
+      const text = (document.body && document.body.innerText || '')
+        .replace(/\s+/g, ' ').trim().slice(0, 400);
+      return {buttons, text};
+    })()"""
+
+    def _viewer_menu_missing(self):
+        """Explain why the reader shows no menu, so a report says what was on screen."""
+        try:
+            state = self._evaluate('Viewer', self.VIEWER_STATE_SCRIPT) or {}
+        except Exception:
+            state = {}
+        text = str(state.get('text') or '')
+        buttons = ', '.join(str(b) for b in state.get('buttons') or []) or 'none'
+        self.log(f'  [Rbooks] Reader screen: buttons [{buttons}]; text: '
+                 f'{text[:300] or "(empty)"}')
+        if re.search(r'대여', text) and re.search(r'만료|종료|끝났', text):
+            return RbooksAppError('RBOOKS says this rental has expired.',
+                                  reason='rental_expired')
+        return RbooksAppError('RBOOKS viewer menu was not found.')
 
     def _toc_rows(self):
         return self._evaluate('TocModal', """(() => {
@@ -1146,13 +1208,17 @@ class RbooksAppProxy:
         self.connect()
         self.log(f'  [Rbooks] Opening owned {title} in the RBOOKS PC viewer...')
         cover_url = self._open_owned_book(context, book_id, title)
-        self._wait(lambda: self._evaluate('Viewer', """(() => {
-          const b = [...document.querySelectorAll('button')].find(e =>
-            e.innerText?.trim() === '더보기');
-          if (!b) return false;
-          b.click();
-          return true;
-        })()"""), 30, 'RBOOKS viewer menu was not found.')
+        try:
+            self._wait(lambda: self._evaluate('Viewer', """(() => {
+              const b = [...document.querySelectorAll('button')].find(e =>
+                (e.innerText || '').trim() === '더보기' ||
+                (e.getAttribute('aria-label') || '').trim() === '더보기');
+              if (!b) return false;
+              b.click();
+              return true;
+            })()"""), 30, 'RBOOKS viewer menu was not found.')
+        except RbooksAppError:
+            raise self._viewer_menu_missing()
         self._wait(lambda: self._evaluate('Viewer', """(() => {
           const e = [...document.querySelectorAll('[role="group"]')].find(x =>
             x.innerText?.trim() === '목차');
