@@ -1,10 +1,16 @@
 """Catalog page with QtWebEngine: the catalog site plus the shared bridge script.
 
 The bridge (catalog-bridge.js, the same file the mobile apps inject) runs in an isolated script
-world, so the site's own scripts cannot reach the app channel. It reports cart buttons and
-outside links over a QWebChannel; the app answers with `NovelDBApp.setCart` / `setMode`.
-Clicked links to other sites leave the page: on NovelDB they open in the system browser, on
-other catalog sites they go to the link cart (when that setting is on).
+world, so the site's own scripts cannot reach the app channel. It reports cart buttons, outside
+links and the page address over a QWebChannel; the app answers with `NovelDBApp.setCart` / `setMode`.
+
+What the page is decides what happens (`noveldb.core.catalog.sites`), for the page on screen and
+again after every navigation, single-page sites included:
+- NovelDB and NovelDB Next: clicked links to other sites open in the system browser.
+- A site we download from (a scraper, or the novel-downloader rules / WebToEpub list it): those links
+  open in the system browser too, and a downloadable page gets a floating Download button that adds
+  it to the link cart.
+- Any other site: those links go to the link cart (when that setting is on), else the browser.
 """
 
 from __future__ import annotations
@@ -33,7 +39,8 @@ from PySide6.QtWidgets import (
 
 from noveldb.core import paths
 from noveldb.core.catalog.cart import CartItem
-from noveldb.core.catalog.urls import is_noveldb_site, valid_catalog_url
+from noveldb.core.catalog import sites
+from noveldb.core.catalog.urls import valid_catalog_url
 from noveldb.core.settings.model import DEFAULT_CATALOG_URL
 from noveldb.core.sources import detect_source
 from noveldb.qt.context import AppContext
@@ -42,7 +49,7 @@ from noveldb.qt.widgets import ButtonFeedback, Toast, hint
 log = logging.getLogger(__name__)
 WORLD = QWebEngineScript.ApplicationWorld
 BRIDGE_JS = Path(__file__).with_name("catalog-bridge.js")
-MESSAGE_TYPES = ("ready", "cartAdd", "cartRemove", "open")
+MESSAGE_TYPES = ("ready", "location", "cartAdd", "cartRemove", "open")
 
 # Queues bridge messages until the channel is connected, then hands them to the app.
 SHIM_JS = """
@@ -71,8 +78,10 @@ def bridge_script() -> QWebEngineScript:
     """One script (channel library, shim, bridge) so they always run in this order."""
     script = QWebEngineScript()
     script.setName("noveldb-bridge")
-    # DocumentReady: at DocumentCreation QtWebEngine has no <html> element yet for the bridge's styles.
-    script.setInjectionPoint(QWebEngineScript.DocumentReady)
+    # DocumentCreation, like the mobile apps' document-start scripts: some sites never fire DOMContentLoaded
+    # (a script that never answers), so a DocumentReady script would never run there. The bridge waits for the
+    # <html> and <body> elements it needs.
+    script.setInjectionPoint(QWebEngineScript.DocumentCreation)
     script.setWorldId(WORLD)
     script.setRunsOnSubFrames(False)
     script.setSourceCode(_qwebchannel_js() + "\n" + SHIM_JS + "\n" + BRIDGE_JS.read_text(encoding="utf-8"))
@@ -173,6 +182,8 @@ class CatalogPage(QWidget):
         self.page: Optional[CatalogWebPage] = None
         self.view: Optional[CatalogView] = None
         self._loaded_url = ""
+        self._page_url = ""  # the page on screen: follows the site's own navigation
+        self._reported: Optional[tuple] = None  # (address, title) the page's bridge last reported
 
         def tool(text, tip, slot):
             button = QToolButton()
@@ -336,6 +347,8 @@ class CatalogPage(QWidget):
         site = self.site
         self.page.home_host = (urlsplit(site).hostname or "").lower()
         self._loaded_url = site
+        self._page_url = site
+        self._reported = None
         self.view.load(QUrl(site))
 
     def _retry(self) -> None:
@@ -376,28 +389,58 @@ class CatalogPage(QWidget):
             self.stack.setCurrentWidget(self.error)
 
     def _url_changed(self, url: QUrl) -> None:
-        self.address.setText(url.toString())
+        """Every address change, same-document ones included (single-page sites push a new address without loading)."""
+        text = url.toString()
+        self.address.setText(text)
         if self.view is not None:
             self.back.setEnabled(self.view.history().canGoBack())
             self.forward.setEnabled(self.view.history().canGoForward())
+        if text and text != "about:blank":
+            self._page_url = text
+            # A Download button made for the old address goes away until the page reports the new one.
+            if self._reported is None or not sites.same_address(self._reported[0], text):
+                self._reported = None
+            self._push_state()
 
     # -- app <-> page --------------------------------------------------------------------------
 
+    def _mode(self) -> sites.PageMode:
+        """What the page on screen is: NovelDB, a site we download from, or any other site."""
+        settings = self.context.settings
+        return sites.classify(self._page_url or self.site, settings.engines.enabled(), settings.catalog.cart_links)
+
     def _cart_links(self) -> bool:
-        return self.context.settings.catalog.cart_links and not is_noveldb_site(self.site)
+        return self._mode().cart_links
 
     def _push_state(self) -> None:
         if self.page is None:
             return
+        mode = self._mode()
+        download = None
+        if mode.download and self._reported is not None and sites.same_address(self._reported[0], self._page_url):
+            address, title = self._reported
+            download = {"url": address, "title": sites.clean_page_title(title, address)}
         urls = json.dumps(self.context.cart.urls)
-        mode = json.dumps({"cartLinks": self._cart_links(), "fill": self.context.settings.catalog.fill_width})
+        state = json.dumps({"cartLinks": mode.cart_links, "fill": self.context.settings.catalog.fill_width,
+                            "download": download})
         self.page.runJavaScript(
-            f"window.NovelDBApp && (NovelDBApp.setCart({urls}), NovelDBApp.setMode({mode}));", WORLD)
+            f"window.NovelDBApp && (NovelDBApp.setCart({urls}), NovelDBApp.setMode({state}));", WORLD)
+
+    def _located(self, address: str, title: str) -> None:
+        """The page's bridge reported its address and title. A page can only speak for the site the view shows."""
+        shown = self.view.url().host().lower().removeprefix("www.") if self.view is not None else ""
+        if shown and (urlsplit(address).hostname or "").lower().removeprefix("www.") != shown:
+            return
+        self._page_url = address
+        self._reported = (address, title)
+        self._push_state()
 
     def _message(self, data: dict) -> None:
         kind = data["type"]
         if kind == "ready":
             self._push_state()
+        elif kind == "location":
+            self._located(data["url"], data.get("title", ""))
         elif kind == "cartAdd":
             self._add_to_cart(data["url"], data.get("title", ""), data.get("source", ""), announce=True)
         elif kind == "cartRemove":
@@ -407,7 +450,7 @@ class CatalogPage(QWidget):
             self.leave(data["url"], data.get("title", ""))
 
     def leave(self, url: str, title: str = "") -> None:
-        """A link out of the catalog: the link cart on other sites (setting on), else the browser."""
+        """A link out of the catalog: the link cart on sites we do not know (setting on), else the browser."""
         if self._cart_links():
             self._add_to_cart(url, title, announce=True)
         else:
