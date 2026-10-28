@@ -65,6 +65,7 @@ def test_all_sources_ranking_preview_ignores_stalled_other_manifests_and_tags(pr
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")  # page numbers
             site = PreviewSite(previews, blocked=True)
             release = asyncio.Event()
             async def route(r):
@@ -123,6 +124,7 @@ def test_search_keeps_selected_source_on_input_reload_and_history():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
             page=await browser.new_page()
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")  # page numbers
             await page.route('**/*',FixtureSite().route)
             await page.goto('https://metadata.test/#src=nweb');await wait_loaded(page)
             await page.locator('#searchInput').fill('7')

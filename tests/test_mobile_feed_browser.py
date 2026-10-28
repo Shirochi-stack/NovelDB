@@ -1,4 +1,4 @@
-"""A lazy, bounded feed behind one Infinite scrolling switch (on by default only on phones)."""
+"""A lazy, bounded feed behind one Infinite scrolling switch (on by default)."""
 import asyncio
 import gzip
 import json
@@ -33,6 +33,8 @@ def test_desktop_feed_is_optional_responsive_and_one_switch_covers_every_screen(
             browser=await p.chromium.launch(headless=True)
             page=await browser.new_page(viewport={'width':1440,'height':900})
             errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+            # Start from page numbers: a saved "off" choice, written once so reloads keep later choices.
+            await page.add_init_script("if(localStorage.getItem('noveldb.infiniteScroll')===null)localStorage.setItem('noveldb.infiniteScroll','false')")
             await page.route('**/*',FeedSite(covers=True).route)
             await page.goto('https://metadata.test/');await wait_loaded(page)
             assert not await page.locator('#infiniteScroll').is_checked()
@@ -219,13 +221,13 @@ def test_mobile_feed_keeps_rank_preview_order_when_import_finishes(previews):
     asyncio.run(scenario())
 
 
-def test_one_infinite_scrolling_switch_with_earlier_choices_honoured():
+def test_one_infinite_scrolling_switch_on_by_default_with_earlier_choices_honoured():
     async def scenario():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
             for width,mobile,saved,expected in (
                 (390,True,None,True),          # phones: on by default
-                (1440,False,None,False),       # wider screens: off by default
+                (1440,False,None,True),        # wider screens: on by default too
                 (1440,False,('noveldb.desktopInfiniteScroll','true'),True),   # earlier desktop choice
                 (390,True,('noveldb.mobileInfiniteScroll','false'),False),    # earlier phone choice
                 (390,True,('noveldb.infiniteScroll','false'),False),          # the new choice wins
@@ -241,6 +243,25 @@ def test_one_infinite_scrolling_switch_with_earlier_choices_honoured():
                 assert await page.locator('#infiniteScroll').is_checked()==expected
                 assert await page.locator('body').evaluate('b=>b.classList.contains("mobile-infinite")')==expected
                 assert not errors
+                await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_wider_or_zoomed_out_windows_show_more_cards_per_row():
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            for feed in (False,True):
+                page=await browser.new_page(viewport={'width':1920,'height':900})
+                await page.add_init_script(f"localStorage.setItem('noveldb.infiniteScroll','{str(feed).lower()}')")
+                await page.route('**/*',FeedSite().route)
+                await page.goto('https://metadata.test/');await wait_loaded(page)
+                grid='.mobile-feed-grid' if feed else '.results-grid'
+                # Zooming out makes the window wider in CSS pixels: 100%, about 80% and 50% of 1920.
+                for width,columns in ((1920,6),(2400,8),(3840,12)):
+                    await page.set_viewport_size({'width':width,'height':900})
+                    await page.wait_for_function('([g,n])=>getComputedStyle(document.querySelector(g)).gridTemplateColumns.split(" ").length===n',arg=[grid,columns])
                 await page.close()
             await browser.close()
     asyncio.run(scenario())

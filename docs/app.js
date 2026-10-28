@@ -5666,8 +5666,8 @@
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
     const mobileView = matchMedia('(max-width: 650px)');
     const infiniteScrollToggle = document.getElementById("infiniteScroll");
-    // One switch for every screen. Until it is changed, phones keep their earlier default (on) and
-    // wider screens theirs (off), as do choices saved by the two switches it replaced.
+    // One switch for every screen, on by default. A choice saved with it, or with the per-screen
+    // switches it replaced, is kept.
     function savedInfiniteScroll() {
         try {
             const chosen = localStorage.getItem('noveldb.infiniteScroll');
@@ -5675,7 +5675,7 @@
             const earlier = localStorage.getItem(mobileView.matches ? 'noveldb.mobileInfiniteScroll' : 'noveldb.desktopInfiniteScroll');
             if (earlier !== null) return earlier === 'true';
         } catch (_) {}
-        return mobileView.matches;
+        return true;
     }
     infiniteScrollToggle.checked = savedInfiniteScroll();
     const infiniteScrollEnabled = () => infiniteScrollToggle.checked;
@@ -6701,7 +6701,7 @@
         try { localStorage.setItem('noveldb.infiniteScroll',String(infiniteScrollToggle.checked)); } catch (_) {}
         updateMobileFeedMode();
     });
-    // Without a choice yet, the default follows the screen size.
+    // An earlier per-screen choice may differ between screen sizes.
     mobileView.addEventListener('change',()=>{
         infiniteScrollToggle.checked=savedInfiniteScroll();
         updateMobileFeedMode();

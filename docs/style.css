@@ -468,6 +468,15 @@ main {
     }
 }
 
+/* Wide or zoomed-out windows: more columns rather than larger cards (about 290 CSS px each). */
+@media (min-width: 2040px) { .results-grid { --feed-columns: 7; grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+@media (min-width: 2330px) { .results-grid { --feed-columns: 8; grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+@media (min-width: 2620px) { .results-grid { --feed-columns: 9; grid-template-columns: repeat(9, minmax(0, 1fr)); } }
+@media (min-width: 2910px) { .results-grid { --feed-columns: 10; grid-template-columns: repeat(10, minmax(0, 1fr)); } }
+@media (min-width: 3490px) { .results-grid { --feed-columns: 12; grid-template-columns: repeat(12, minmax(0, 1fr)); } }
+@media (min-width: 4070px) { .results-grid { --feed-columns: 14; grid-template-columns: repeat(14, minmax(0, 1fr)); } }
+@media (min-width: 4650px) { .results-grid { --feed-columns: 16; grid-template-columns: repeat(16, minmax(0, 1fr)); } }
+
 .results-grid.fading {
     opacity: 0;
 }

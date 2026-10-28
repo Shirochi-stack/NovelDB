@@ -130,6 +130,7 @@ def test_cache_can_clear_mid_import(previews):
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")  # page numbers
             site = PreviewSite(previews,blocked=True)
             await page.route('**/*',site.route)
             await page.goto('https://metadata.test/')
