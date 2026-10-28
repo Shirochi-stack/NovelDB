@@ -47,3 +47,12 @@ docs/data/nseries_*_untranslated.txt
 
 # Shared public author registry must remain available to rescrape workflows.
 !docs/data/npia_authors.json
+_build_info.py
+/dist-desktop/
+# Desktop app runtime data in a portable (source) install: the repo's data/ folder doubles as
+# the app's data folder, so keep the user's cart, queue, uploads and browser profile out of git.
+/data/link-cart.json
+/data/queue.json
+/data/upload-history.json
+/data/webengine/
+/data/*.tmp

@@ -1,0 +1,4 @@
+-r requirements-full.txt
+-r requirements-build.txt
+pytest==8.4.2
+pytest-qt==4.4.0

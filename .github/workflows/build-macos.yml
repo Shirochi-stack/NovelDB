@@ -1,198 +1,59 @@
 name: Build macOS
 
+# Desktop builds for macOS (Full, Lite, TurboLite), attached to the release automatically.
+# A published release gets plain names; a manual run adds a label (default: next hotfixN).
+# Pull requests that touch the desktop app only build and smoke-test.
+
 on:
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to attach to (empty: the latest release)'
+        required: false
+        default: ''
+      label:
+        description: 'Asset label: auto (next hotfixN), none (plain names), or a label such as hotfix3'
+        required: false
+        default: 'auto'
+      variants:
+        description: 'Which builds'
+        type: choice
+        options: [all, full, lite, turbolite]
+        default: all
+      dry_run:
+        description: 'Build and name the files without uploading them'
+        type: boolean
+        required: false
+        default: false
+  pull_request:
+    paths:
+      - 'desktop_build/**'
+      - 'scripts/build_desktop.py'
+      - 'noveldb_app.py'
+      - 'noveldb/qt/**'
+      - 'app_version.py'
+      - 'requirements*.txt'
+      - '.github/actions/desktop-native-deps/**'
+      - '.github/workflows/desktop-build.yml'
+      - '.github/workflows/build-macos.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-macos-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    runs-on: macos-15
-    timeout-minutes: 360
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Load app version
-        id: version
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import app_version
-          print(f"app_name={app_version.APP_NAME}")
-          print(f"app_name_lite={app_version.APP_NAME_LITE}")
-          print(f"release_tag={app_version.RELEASE_TAG}")
-          PY
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          architecture: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
-
-      - name: Install Homebrew dependencies (WeasyPrint / Pango)
-        run: |
-          brew install pango gobject-introspection cairo gdk-pixbuf libffi harfbuzz fontconfig freetype librsvg
-
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller playwright greenlet pyee
-
-      - name: Install Playwright Chromium
-        run: |
-          playwright install chromium
-
-      - name: Strip Chromium code signatures (PyInstaller compat)
-        run: |
-          # PyInstaller tries to ad-hoc codesign every bundled binary, but
-          # Playwright's Chromium ships with Google's existing signature.
-          # Nested framework bundles inside the .app cause "bundle format
-          # unrecognized" errors.  We must:
-          #   1. Delete all _CodeSignature directories
-          #   2. Strip signatures from every Mach-O binary
-          PW_CACHE="$HOME/Library/Caches/ms-playwright"
-          if [ -d "$PW_CACHE" ]; then
-            # Remove all code signature directories first
-            find "$PW_CACHE" -type d -name "_CodeSignature" -exec rm -rf {} + 2>/dev/null || true
-            find "$PW_CACHE" -type f -name "*.signature" -delete 2>/dev/null || true
-
-            # Strip signatures from every Mach-O binary (executables, dylibs,
-            # framework binaries).  We use `file` to detect Mach-O files
-            # rather than relying on permissions or extensions.
-            find "$PW_CACHE" -type f | while read f; do
-              if file "$f" | grep -q "Mach-O"; then
-                codesign --remove-signature "$f" 2>/dev/null || true
-              fi
-            done
-            echo "Stripped all code signatures from Chromium."
-          fi
-
-      - name: Convert icon.ico to icon.icns
-        run: |
-          mkdir -p icon.iconset
-          sips -s format png icon.ico --out icon_base.png 2>/dev/null || true
-          if [ -f icon_base.png ]; then
-            for size in 16 32 64 128 256 512; do
-              sips -z $size $size icon_base.png --out "icon.iconset/icon_${size}x${size}.png" 2>/dev/null || true
-            done
-            for size in 32 64 256 512 1024; do
-              half=$((size / 2))
-              sips -z $size $size icon_base.png --out "icon.iconset/icon_${half}x${half}@2x.png" 2>/dev/null || true
-            done
-            iconutil -c icns icon.iconset -o icon.icns
-          fi
-
-      - name: Build ${{ steps.version.outputs.app_name }} (Full + Playwright)
-        id: build_full
-        continue-on-error: true
-        run: |
-          pyinstaller NpiaDownloader_mac.spec --clean
-
-      - name: Build ${{ steps.version.outputs.app_name_lite }} (No Playwright)
-        run: |
-          pyinstaller NpiaDownloader_mac_lite.spec --clean
-
-      # If the full build failed (e.g. arm64 install_name_tool issue),
-      # copy the lite build as the full build so we still get a DMG.
-      - name: Fallback - promote Lite to Full if Full failed
-        if: steps.build_full.outcome == 'failure'
-        run: |
-          echo "::warning::Full build failed, falling back to Lite for the Full DMG."
-          cp -R "dist/${{ steps.version.outputs.app_name_lite }}.app" "dist/${{ steps.version.outputs.app_name }}.app" 2>/dev/null || true
-
-      - name: Create DMG (Full)
-        if: steps.build_full.outcome == 'success' || hashFiles(format('dist/{0}.app/**', steps.version.outputs.app_name)) != ''
-        run: |
-          APP_NAME="${{ steps.version.outputs.app_name }}"
-          if [ -d "dist/${APP_NAME}.app" ]; then
-            mkdir -p dmg_contents
-            cp -R "dist/${APP_NAME}.app" dmg_contents/
-            ln -s /Applications dmg_contents/Applications
-            hdiutil create -volname "${APP_NAME}" \
-              -srcfolder dmg_contents \
-              -ov -format UDZO \
-              "${APP_NAME}-macos-${{ matrix.arch }}.dmg"
-          else
-            echo "::warning::${APP_NAME}.app not found, skipping Full DMG."
-          fi
-
-      - name: Create DMG (Lite)
-        run: |
-          APP_NAME_LITE="${{ steps.version.outputs.app_name_lite }}"
-          mkdir -p dmg_lite_contents
-          cp -R "dist/${APP_NAME_LITE}.app" dmg_lite_contents/
-          ln -s /Applications dmg_lite_contents/Applications
-          hdiutil create -volname "${APP_NAME_LITE}" \
-            -srcfolder dmg_lite_contents \
-            -ov -format UDZO \
-            "${APP_NAME_LITE}-macos-${{ matrix.arch }}.dmg"
-
-      - name: Upload Full artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.version.outputs.app_name }}-macos-${{ matrix.arch }}
-          path: ${{ steps.version.outputs.app_name }}-macos-${{ matrix.arch }}.dmg
-          if-no-files-found: ignore
-          retention-days: 90
-
-      - name: Upload Lite artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.version.outputs.app_name_lite }}-macos-${{ matrix.arch }}
-          path: ${{ steps.version.outputs.app_name_lite }}-macos-${{ matrix.arch }}.dmg
-          retention-days: 90
-
-  # Attach the freshly-built DMGs to the existing GitHub Release from
-  # app_version.RELEASE_TAG. This job never creates the release.
-  # Subsequent workflow runs simply overwrite the attached DMGs so the
-  # release's download URLs always point at the latest build.
-  attach-to-release:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Load app version
-        id: version
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import app_version
-          print(f"app_name={app_version.APP_NAME}")
-          print(f"release_tag={app_version.RELEASE_TAG}")
-          PY
-
-      - name: Download all DMG artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: ${{ steps.version.outputs.app_name }}*-macos-*
-          path: dmgs
-          merge-multiple: true
-
-      - name: Show collected assets
-        run: ls -la dmgs
-
-      - name: Verify ${{ steps.version.outputs.release_tag }} release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          RELEASE_TAG="${{ steps.version.outputs.release_tag }}"
-          if ! gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "::error::Release '${RELEASE_TAG}' does not exist. Create it manually, then re-run."
-            exit 1
-          fi
-          echo "Release ${RELEASE_TAG} found; proceeding to upload assets."
-
-      - name: Upload DMGs to ${{ steps.version.outputs.release_tag }} release (overwrite existing)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # --clobber replaces existing assets with the same name instead of
-          # failing, so re-runs always end up with the latest binary.
-          gh release upload "${{ steps.version.outputs.release_tag }}" dmgs/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+  desktop:
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      os: macos
+      release_tag: ${{ inputs.release_tag || '' }}
+      label: ${{ inputs.label || 'auto' }}
+      variants: ${{ inputs.variants || 'all' }}
+      dry_run: ${{ inputs.dry_run == true }}
+      attach: ${{ github.event_name != 'pull_request' }}
+    secrets: inherit

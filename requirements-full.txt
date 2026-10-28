@@ -1,0 +1,5 @@
+# Full: adds Playwright, which drives Chromium for browser-based sources.
+-r requirements-webengine.txt
+playwright==1.60.0
+greenlet>=3.0
+pyee>=13.0

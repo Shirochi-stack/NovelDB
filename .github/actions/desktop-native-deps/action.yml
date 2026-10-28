@@ -1,0 +1,58 @@
+name: Desktop native dependencies
+description: Pango for PDF output, Qt system libraries and packaging tools for the desktop builds.
+
+inputs:
+  os:
+    description: windows, macos or linux
+    required: true
+
+outputs:
+  gtk-folder:
+    description: Windows only, the MSYS2 UCRT64 prefix holding the Pango DLLs
+    value: ${{ steps.msys2-path.outputs.gtk-folder }}
+
+runs:
+  using: composite
+  steps:
+    - name: MSYS2 Pango (Windows)
+      if: inputs.os == 'windows'
+      id: msys2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: false
+        release: true
+        install: mingw-w64-ucrt-x86_64-pango mingw-w64-ucrt-x86_64-gdk-pixbuf2 mingw-w64-ucrt-x86_64-harfbuzz
+
+    - name: Point the build at the MSYS2 DLLs (Windows)
+      if: inputs.os == 'windows'
+      id: msys2-path
+      shell: pwsh
+      run: |
+        $prefix = Join-Path '${{ steps.msys2.outputs.msys2-location }}' 'ucrt64'
+        "gtk-folder=$prefix" >> $env:GITHUB_OUTPUT
+        "GTK_FOLDER=$prefix" >> $env:GITHUB_ENV
+        "WEASYPRINT_DLL_DIRECTORIES=$prefix\bin" >> $env:GITHUB_ENV
+
+    - name: Homebrew Pango (macOS)
+      if: inputs.os == 'macos'
+      shell: bash
+      run: |
+        brew install pango cairo gdk-pixbuf libffi harfbuzz fontconfig freetype fribidi
+        echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib:${DYLD_FALLBACK_LIBRARY_PATH:-/usr/lib}" >> "$GITHUB_ENV"
+
+    - name: Pango, Qt runtime libraries and appimagetool (Linux)
+      if: inputs.os == 'linux'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          libpango-1.0-0 libpangoft2-1.0-0 libpangocairo-1.0-0 libharfbuzz0b libfontconfig1 libfribidi0 \
+          libegl1 libgl1 libopengl0 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 \
+          libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+          libxcb-xkb1 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libnss3 libasound2 libdbus-1-3 \
+          fonts-noto-cjk fonts-dejavu-core file desktop-file-utils
+        curl -fsSL -o /usr/local/bin/appimagetool \
+          https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x /usr/local/bin/appimagetool
+        echo "APPIMAGETOOL=/usr/local/bin/appimagetool" >> "$GITHUB_ENV"

@@ -1,0 +1,59 @@
+name: Build Linux
+
+# Desktop builds for Linux (Full, Lite, TurboLite), attached to the release automatically.
+# A published release gets plain names; a manual run adds a label (default: next hotfixN).
+# Pull requests that touch the desktop app only build and smoke-test.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to attach to (empty: the latest release)'
+        required: false
+        default: ''
+      label:
+        description: 'Asset label: auto (next hotfixN), none (plain names), or a label such as hotfix3'
+        required: false
+        default: 'auto'
+      variants:
+        description: 'Which builds'
+        type: choice
+        options: [all, full, lite, turbolite]
+        default: all
+      dry_run:
+        description: 'Build and name the files without uploading them'
+        type: boolean
+        required: false
+        default: false
+  pull_request:
+    paths:
+      - 'desktop_build/**'
+      - 'scripts/build_desktop.py'
+      - 'noveldb_app.py'
+      - 'noveldb/qt/**'
+      - 'app_version.py'
+      - 'requirements*.txt'
+      - '.github/actions/desktop-native-deps/**'
+      - '.github/workflows/desktop-build.yml'
+      - '.github/workflows/build-linux.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-linux-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  desktop:
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      os: linux
+      release_tag: ${{ inputs.release_tag || '' }}
+      label: ${{ inputs.label || 'auto' }}
+      variants: ${{ inputs.variants || 'all' }}
+      dry_run: ${{ inputs.dry_run == true }}
+      attach: ${{ github.event_name != 'pull_request' }}
+    secrets: inherit
