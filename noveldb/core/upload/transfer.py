@@ -7,7 +7,6 @@ import os
 import re
 import unicodedata
 import uuid
-from urllib.parse import quote
 from typing import Callable, Iterable, Optional
 
 Progress = Callable[[int, int], None]  # (sent bytes, total bytes)
@@ -171,8 +170,9 @@ def multipart(field: str, path: str, fields: Iterable[tuple[str, str]] = (),
               name: Optional[str] = None):
     """(body, content type) for a multipart/form-data upload of one file plus text fields.
 
-    `filename` carries the ASCII upload name and `filename*` (RFC 5987) the original UTF-8 name,
-    which hosts that support it keep.
+    `filename` carries the ASCII upload name only. There is no `filename*` with the real (Korean)
+    title: hosts that read it prefer it over `filename`, strip the non-ASCII characters and store
+    "-_.epub".
     """
     boundary = f"----NovelDB{uuid.uuid4().hex}"
 
@@ -185,11 +185,9 @@ def multipart(field: str, path: str, fields: Iterable[tuple[str, str]] = (),
             f'--{boundary}\r\nContent-Disposition: form-data; name="{quoted(field_name)}"\r\n\r\n{value}\r\n'.encode("utf-8")
         )
     ascii_name = name or ascii_upload_name(path)
-    original = upload_name(path)
-    extended = f"; filename*=UTF-8''{quote(original, safe='')}" if original != ascii_name else ""
     parts.append(
         (f'--{boundary}\r\nContent-Disposition: form-data; name="{quoted(field)}"; '
-         f'filename="{quoted(ascii_name)}"{extended}\r\nContent-Type: application/octet-stream\r\n\r\n').encode("utf-8")
+         f'filename="{quoted(ascii_name)}"\r\nContent-Type: application/octet-stream\r\n\r\n').encode("utf-8")
     )
     parts.append(path)
     parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
