@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "NpiaUpload", targets: ["NpiaUpload"]),
         .library(name: "NpiaSources", targets: ["NpiaSources"]),
         .library(name: "NpiaPipeline", targets: ["NpiaPipeline"]),
+        .library(name: "NpiaUpdate", targets: ["NpiaUpdate"]),
     ],
     dependencies: [
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.19"),
@@ -34,6 +35,8 @@ let package = Package(
         .target(name: "NpiaUpload", dependencies: ["NpiaCore", "ZIPFoundation"]),
         // One adapter per source codename.
         .target(name: "NpiaSources", dependencies: ["NpiaCore", "SwiftSoup"], resources: [.copy("Reader/Resources")]),
+        // The app's own updates: build number, release manifest, check, and verified download.
+        .target(name: "NpiaUpdate"),
         // Download queue that wires sources, images, writers, and uploads together.
         .target(
             name: "NpiaPipeline",
@@ -46,5 +49,6 @@ let package = Package(
         .testTarget(name: "NpiaWebEngineTests", dependencies: ["NpiaWebEngine", "NpiaCore"]),
         .testTarget(name: "NpiaImagesTests", dependencies: ["NpiaImages", "NpiaCore"]),
         .testTarget(name: "NpiaPipelineTests", dependencies: ["NpiaPipeline", "NpiaImages", "NpiaCore"]),
+        .testTarget(name: "NpiaUpdateTests", dependencies: ["NpiaUpdate"]),
     ]
 )

@@ -213,11 +213,14 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var upload = UploadSettings()
     /// Which site engines run, in what order, and which rule engines update themselves.
     public var engines = EngineSettings()
+    /// Look for a newer build of the app itself at start and when it returns to the foreground,
+    /// at most once a day. On unless the user turns it off.
+    public var appUpdateCheck = true
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, shared, overrides, images, text, npia, sources, upload, engines
+        case schemaVersion, shared, overrides, images, text, npia, sources, upload, engines, appUpdateCheck
     }
 
     /// Every key is optional, so settings stored before a field existed (the queue keeps a copy
@@ -233,6 +236,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         sources = try container.decodeIfPresent(SourceOptions.self, forKey: .sources) ?? sources
         upload = try container.decodeIfPresent(UploadSettings.self, forKey: .upload) ?? upload
         engines = try container.decodeIfPresent(EngineSettings.self, forKey: .engines) ?? engines
+        appUpdateCheck = try container.decodeIfPresent(Bool.self, forKey: .appUpdateCheck) ?? appUpdateCheck
     }
 
     public func effective(for source: SourceID) -> SharedSettings {
