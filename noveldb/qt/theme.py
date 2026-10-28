@@ -54,9 +54,34 @@ def palette_for(scheme: dict) -> QPalette:
     return p
 
 
+def _check_image(color: str) -> str:
+    """A checkmark SVG in `color`, written once to the cache (QSS images need a file)."""
+    try:
+        from noveldb.core import paths
+
+        folder = paths.cache_dir() / "theme"
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / f"check-{color.lstrip('#').lower()}.svg"
+        if not target.exists():
+            target.write_text(
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8.5l3 3 6-7' "
+                f"fill='none' stroke='{color}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+                encoding="utf-8")
+        return target.as_posix()
+    except OSError:
+        return ""
+
+
 def stylesheet_for(scheme: dict) -> str:
     s = scheme
+    check = _check_image(s["onPrimary"])
+    check_rule = f"image: url({check});" if check else ""
     return f"""
+    QCheckBox::indicator {{ width: 16px; height: 16px; border: 2px solid {s['onSurfaceVariant']}; border-radius: 3px;
+                            background: transparent; }}
+    QCheckBox::indicator:checked {{ background: {s['primary']}; border-color: {s['primary']}; {check_rule} }}
+    QCheckBox::indicator:disabled {{ border-color: {s['outlineVariant']}; }}
+    QCheckBox::indicator:checked:disabled {{ background: {s['outlineVariant']}; border-color: {s['outlineVariant']}; }}
     QListWidget#sidebar {{ background: {s['surfaceContainerLow']}; border: none; padding: 8px 4px; outline: 0; }}
     QListWidget#sidebar::item {{ padding: 10px 14px; margin: 2px 4px; border-radius: 16px; color: {s['onSurfaceVariant']}; }}
     QListWidget#sidebar::item:selected {{ background: {s['secondaryContainer']}; color: {s['onSecondaryContainer']}; }}

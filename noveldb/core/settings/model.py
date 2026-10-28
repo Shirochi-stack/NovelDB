@@ -313,6 +313,11 @@ class AppSettings:
         return result.with_override(source, o) if source else result
 
 
+def default_settings() -> AppSettings:
+    """Settings for a new install: npia downloads one chapter at a time, as the old main window did."""
+    return AppSettings(overrides={NPIA: SharedOverrides(threads=1)})
+
+
 def dataclass_to_dict(value) -> dict:
     """Plain dict of a settings dataclass (tuples become lists), for logging and tests."""
     out = {}

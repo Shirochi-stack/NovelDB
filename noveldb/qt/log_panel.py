@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
