@@ -40,24 +40,76 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  android:
+  # Release tag, asset label and build number, decided before building so both apps carry them
+  # (the app updaters compare build numbers; see noveldb/core/app_update.py).
+  plan:
     if: github.event_name != 'release' || github.event.release.tag_name != 'engines'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      label: ${{ steps.plan.outputs.label }}
+      build: ${{ steps.plan.outputs.build }}
+    steps:
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG_INPUT: ${{ github.event.release.tag_name || inputs.release_tag }}
+          LABEL_INPUT: ${{ github.event_name == 'release' && 'none' || inputs.label || 'auto' }}
+        run: |
+          set -euo pipefail
+          tag="$TAG_INPUT"
+          if [ -z "$tag" ]; then tag=$(gh release view --repo "$REPO" --json tagName -q .tagName); fi
+          if ! gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
+            echo "::error::Release '$tag' does not exist. Create it first, then re-run."
+            exit 1
+          fi
+          label="$LABEL_INPUT"
+          if [ "$label" = auto ]; then
+            last=$(gh release view "$tag" --repo "$REPO" --json assets -q '.assets[].name' \
+              | sed -nE 's/^NovelDB-.*_hotfix([0-9]+)\.(apk|ipa)$/\1/p' | sort -n | tail -1)
+            label="hotfix$(( ${last:-0} + 1 ))"
+          fi
+          if ! printf '%s' "$label" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+            echo "::error::Label '$label' may only use letters, digits, '.', '_' and '-'."
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "label=$label"
+            echo "build=$(date -u +%s)"
+          } >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: plan
     uses: Shirochi-stack/NovelDB/.github/workflows/android.yml@android/integration
     with:
       ref: ${{ inputs.android_ref || 'android/integration' }}
+      build_id: ${{ needs.plan.outputs.build }}
+      release_tag: ${{ needs.plan.outputs.tag }}
+      release_label: ${{ needs.plan.outputs.label }}
     secrets: inherit
 
   ios:
-    if: github.event_name != 'release' || github.event.release.tag_name != 'engines'
+    needs: plan
     uses: Shirochi-stack/NovelDB/.github/workflows/ios.yml@ios/integration
     with:
       ref: ${{ inputs.ios_ref || 'ios/integration' }}
+      build_id: ${{ needs.plan.outputs.build }}
+      release_tag: ${{ needs.plan.outputs.tag }}
+      release_label: ${{ needs.plan.outputs.label }}
 
   attach:
-    needs: [android, ios]
+    needs: [plan, android, ios]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/update_manifest.py
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           name: NovelDB-universal-apk
@@ -70,38 +122,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG_INPUT: ${{ github.event.release.tag_name || inputs.release_tag }}
-          LABEL_INPUT: ${{ github.event_name == 'release' && 'none' || inputs.label || 'auto' }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          LABEL: ${{ needs.plan.outputs.label }}
+          BUILD: ${{ needs.plan.outputs.build }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          tag="$TAG_INPUT"
-          if [ -z "$tag" ]; then tag=$(gh release view --repo "$REPO" --json tagName -q .tagName); fi
-          label="$LABEL_INPUT"
-          if [ "$label" = auto ]; then
-            last=$(gh release view "$tag" --repo "$REPO" --json assets -q '.assets[].name' \
-              | sed -nE 's/^NovelDB-.*_hotfix([0-9]+)\.(apk|ipa)$/\1/p' | sort -n | tail -1)
-            label="hotfix$(( ${last:-0} + 1 ))"
-          fi
-          if ! printf '%s' "$label" | grep -Eq '^[A-Za-z0-9._-]+$'; then
-            echo "::error::Label '$label' may only use letters, digits, '.', '_' and '-'."
-            exit 1
-          fi
+          tag="$TAG"
           suffix=""
-          if [ "$label" != none ]; then suffix="_$label"; fi
+          if [ "$LABEL" != none ]; then suffix="_$LABEL"; fi
           apk="NovelDB-universal${suffix}.apk"
           ipa="NovelDB-unsigned${suffix}.ipa"
-          mv out/NovelDB-universal.apk "out/$apk"
-          mv out/NovelDB-unsigned.ipa "out/$ipa"
+          # With no label the files already have their release names.
+          [ "out/NovelDB-universal.apk" = "out/$apk" ] || mv out/NovelDB-universal.apk "out/$apk"
+          [ "out/NovelDB-unsigned.ipa" = "out/$ipa" ] || mv out/NovelDB-unsigned.ipa "out/$ipa"
+          # The app updaters' manifests: each file with its build number, size and SHA-256.
+          for platform in android ios; do
+            file="$apk"; [ "$platform" = ios ] && file="$ipa"
+            python3 scripts/update_manifest.py --platform "$platform" --tag "$tag" --build "$BUILD" \
+              --label "$LABEL" --commit "$GITHUB_SHA" --out "out/update-$platform.json" "out/$file"
+          done
           ls -l out
           {
             echo "### Release $tag"
             echo "- $apk ($(stat -c %s "out/$apk") bytes)"
             echo "- $ipa ($(stat -c %s "out/$ipa") bytes)"
+            echo "- build $BUILD"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$DRY_RUN" = true ]; then
             echo "Dry run: built and named, not uploaded." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           gh release upload "$tag" "out/$apk" "out/$ipa" --clobber --repo "$REPO"
+          # The manifests last, so they never point at a file that is not there yet.
+          gh release upload "$tag" out/update-android.json out/update-ios.json --clobber --repo "$REPO"
           echo "Attached to https://github.com/$REPO/releases/tag/$tag" | tee -a "$GITHUB_STEP_SUMMARY"

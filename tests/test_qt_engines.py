@@ -73,6 +73,10 @@ def test_turning_on_updates_checks_once(form, context, monkeypatch):
     boxes = {b.text(): b for b in form.findChildren(QCheckBox) if "automatically" in b.text()}
     nd = boxes["Update the novel-downloader rules automatically"]
     w2e = boxes["Update the WebToEpub parsers automatically"]
+    assert nd.isChecked() and w2e.isChecked()  # on by default
+    nd.click()
+    w2e.click()  # turning them off checks nothing
+    assert calls == []
     nd.click()
     assert context.settings.engines.nd_auto_update is True
     assert context.settings.engines.webtoepub_auto_update is False

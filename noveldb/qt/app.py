@@ -21,11 +21,17 @@ from app_version import VERSION
 
 
 _restart = {"requested": False}
+_update = {"plan": None}  # an app_update.InstallPlan to start once this copy has quit
 
 
 def request_restart() -> None:
     """Start a new copy once this one has quit (display scaling only applies at startup)."""
     _restart["requested"] = True
+
+
+def request_update(plan) -> None:
+    """Quit, then let the update helper swap in the new build and start it."""
+    _update["plan"] = plan
 
 
 def _relaunch() -> None:
@@ -249,6 +255,18 @@ def main(argv=None) -> int:
         if context.settings.npia.auto_login and ((secrets.email and secrets.password) or secrets.loginkey):
             context.sign_in()
         context.check_engine_updates(automatic=True)  # only engines the user opted in to
+        from noveldb.core import app_update
+        from noveldb.qt.app_update import UpdateOffer
+
+        app_update.clean_up()
+        offer = UpdateOffer(window, context)
+        context.appUpdateChecked.connect(offer.checked)
+        context.check_app_update(automatic=True)
+        # A copy left running for days still hears about updates (the check itself runs once a day).
+        update_timer = QTimer(window)
+        update_timer.setInterval(6 * 3600 * 1000)
+        update_timer.timeout.connect(lambda: context.check_app_update(automatic=True))
+        update_timer.start()
         if context.runner.interrupted or (context.runner.paused and context.runner.jobs):
             window.statusBar().showMessage("Downloads from the last session are in the Queue (press Start).", 10000)
 
@@ -275,6 +293,10 @@ def main(argv=None) -> int:
     context.shutdown()
     if server is not None:
         server.close()  # before relaunching, or the new copy would just raise this window
-    if _restart["requested"] and not args.smoke:
+    if _update["plan"] is not None and not args.smoke:
+        from noveldb.core import app_update
+
+        app_update.start_helper(_update["plan"])
+    elif _restart["requested"] and not args.smoke:
         _relaunch()
     return exit_code["value"] if args.smoke else code

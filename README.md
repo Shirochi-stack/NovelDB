@@ -113,7 +113,7 @@ WebToEpub's generic "every link is a chapter" parser is never used.
 
 Both rule engines ship with the app. They can also update themselves: tick **Update the
 novel-downloader rules automatically** or **Update the WebToEpub parsers automatically** in
-Settings › Site engines (both are off by default). The app then checks once a day for a newer
+Settings › Site engines (both are on by default). The app then checks once a day for a newer
 build in this repository's [`engines` release](https://github.com/Shirochi-stack/NovelDB/releases/tag/engines),
 which the **Engine Updates** workflow rebuilds daily from the official repositories and only
 publishes after the bundle loads in Chromium. Downloads are checked against their SHA-256, and a
@@ -146,6 +146,18 @@ Each release has three builds for Windows, macOS and Linux. Every build has the 
 | Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04+) | `NovelDB98-linux-x86_64.AppImage` and the `_Lite` / `_TurboLite` AppImages | `chmod +x` the file and run it. AppImages need FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04) or `--appimage-extract-and-run`. The embedded Catalog runs without Chromium's sandbox inside an AppImage. |
 
 Settings live in `config.json` next to the app. When that folder can't be written to (a macOS `.app`, a Linux install), they go to the per-user folder instead: `%LOCALAPPDATA%/NovelDB` on Windows, `~/Library/Application Support/NovelDB` on macOS, `~/.config/NovelDB` on Linux. A `SHA256SUMS-<os>.txt` file in each release lists the checksums.
+
+### App updates
+
+The desktop, Android and iOS apps update themselves from these releases. **Check for app updates automatically** (Settings › General on desktop; Settings on mobile) is on by default: once a day the app reads `update-<platform>.json` from the latest release (`update-windows.json`, `update-macos.json`, `update-linux.json`, `update-android.json`, `update-ios.json`). The release workflows write it, listing every file with its build number, size and SHA-256. When a newer build of your variant exists, the app offers it. It downloads only when you choose **Update**, and installs only when the download's size and SHA-256 match the manifest.
+
+- **Windows:** the `.exe` (or the folder from the `.zip`) is replaced in place after NovelDB quits, and the new copy starts. `config.json` next to it stays.
+- **macOS:** the `.app` is replaced in place. This doesn't work from the disk image or a translocated copy; move NovelDB to Applications first.
+- **Linux:** the AppImage file is replaced.
+- **Android:** the system installer asks you to confirm. Android refuses an APK signed with a different key; that only happens with builds older than v97.
+- **iOS:** an app can't install itself, so the verified IPA is offered to the share sheet (for SideStore, AltStore and similar tools) or saved to Files.
+
+Builds made outside the release workflows (from source, local builds) are development builds and never offer updates. Set `NOVELDB_UPDATE_BASE` to point the desktop app at another copy of the releases when testing.
 
 To run from source, install `requirements-full.txt` (or `-webengine` / `-gui` for Lite / TurboLite), then run `python noveldb_app.py`. To build, run `python scripts/build_desktop.py --variant full --package` (or `build.bat` on Windows).
 

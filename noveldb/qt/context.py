@@ -50,6 +50,7 @@ class AppContext(QObject):
     cartChanged = Signal()
     toolRequested = Signal(str)  # e.g. "tag_search", handled by the main window
     engineUpdateChecked = Signal(object)  # an engine_updates.UpdateResult
+    appUpdateChecked = Signal(object, bool)  # an app_update.CheckResult, and whether it was automatic
 
     def __init__(self, store: ConfigStore | None = None, start_workers: bool = True) -> None:
         super().__init__()
@@ -154,6 +155,30 @@ class AppContext(QObject):
 
         if engines:
             threading.Thread(target=work, name="engine-updates", daemon=True).start()
+
+    def check_app_update(self, automatic: bool = False) -> None:
+        """Look for a newer build of the app on a worker thread.
+
+        `automatic`: the daily check, only when the user leaves it on; it reports nothing unless an
+        update turns up. Otherwise (the Settings button) every result is reported.
+        """
+        from noveldb.core import app_update
+
+        if automatic and not self.settings.updates.check_automatically:
+            return
+
+        def work():
+            try:
+                result = app_update.check_if_due() if automatic else app_update.check()
+            except Exception as exc:  # never let a check take the app down
+                result = app_update.CheckResult("failed", f"Could not check for app updates: {exc}")
+            if result is None:
+                return
+            if not automatic or result.status == "update":
+                self.hub.log("", result.message)
+            self.appUpdateChecked.emit(result, automatic)
+
+        threading.Thread(target=work, name="app-update", daemon=True).start()
 
     def update_settings_from_thread(self, change: Callable[[AppSettings], AppSettings]) -> None:
         QTimer.singleShot(0, self, lambda: self.update_settings(change))

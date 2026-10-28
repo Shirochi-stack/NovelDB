@@ -220,12 +220,12 @@ class CatalogSettings:
 
 @dataclass(frozen=True)
 class EngineSettings:
-    """Which site engines run, in what order, and which rule engines update themselves (opt-in)."""
+    """Which site engines run, in what order, and which rule engines update themselves (on by default)."""
 
     order: tuple[str, ...] = SITE_ENGINES
     disabled: tuple[str, ...] = ()
-    nd_auto_update: bool = False
-    webtoepub_auto_update: bool = False
+    nd_auto_update: bool = True
+    webtoepub_auto_update: bool = True
 
     def auto_update(self, engine: str) -> bool:
         return {ENGINE_ND: self.nd_auto_update, ENGINE_W2E: self.webtoepub_auto_update}.get(engine, False)
@@ -235,6 +235,13 @@ class EngineSettings:
 
     def full_order(self) -> tuple[str, ...]:
         return engine_order(self.order)
+
+
+@dataclass(frozen=True)
+class UpdateSettings:
+    """Updates of the app itself (noveldb.core.app_update)."""
+
+    check_automatically: bool = True
 
 
 @dataclass(frozen=True)
@@ -287,6 +294,7 @@ class AppSettings:
     ui: UiSettings = field(default_factory=UiSettings)
     catalog: CatalogSettings = field(default_factory=CatalogSettings)
     engines: EngineSettings = field(default_factory=EngineSettings)
+    updates: UpdateSettings = field(default_factory=UpdateSettings)
     queue: QueueSettings = field(default_factory=QueueSettings)
     upload: UploadSettings = field(default_factory=UploadSettings)
     secrets: Secrets = field(default_factory=Secrets)

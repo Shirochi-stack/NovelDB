@@ -50,6 +50,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       tag: ${{ steps.plan.outputs.tag }}
       label: ${{ steps.plan.outputs.label }}
+      build: ${{ steps.plan.outputs.build }}
       expected: ${{ steps.plan.outputs.expected }}
     steps:
       - uses: actions/checkout@v4
@@ -93,6 +94,8 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
+          # The build number the app updater compares (noveldb/core/app_update.py): the Unix time of this plan.
+          echo "build=$(date -u +%s)" >> "$GITHUB_OUTPUT"
           LABEL="$label" python scripts/build_desktop.py --plan "$OS_ID" --plan-variants "$VARIANTS_INPUT" >> "$GITHUB_OUTPUT"
           expected=$(grep -m1 '^expected=' "$GITHUB_OUTPUT" | cut -d= -f2-)
           {
@@ -124,6 +127,7 @@ jobs:
           tests/test_core_upload.py tests/test_core_has_no_gui_imports.py tests/test_paths.py tests/test_features.py
           tests/test_platform_services.py tests/test_settings_desktop_config.py tests/test_scraper_without_playwright.py
           tests/test_desktop_build.py tests/test_qt_catalog.py tests/test_core_npia_tags.py
+          tests/test_app_update.py tests/test_qt_app_update.py
 
   build:
     needs: [preflight, test]
@@ -163,6 +167,8 @@ jobs:
         shell: bash
         env:
           LABEL: ${{ needs.preflight.outputs.label }}
+          NOVELDB_BUILD: ${{ needs.preflight.outputs.build }}
+          NOVELDB_TAG: ${{ needs.preflight.outputs.tag }}
         run: |
           set -euo pipefail
           extra=""
@@ -189,6 +195,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/update_manifest.py
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           pattern: desktop-${{ inputs.os }}-*
@@ -200,6 +210,7 @@ jobs:
           REPO: ${{ github.repository }}
           TAG: ${{ needs.preflight.outputs.tag }}
           LABEL: ${{ needs.preflight.outputs.label }}
+          BUILD: ${{ needs.preflight.outputs.build }}
           EXPECTED: ${{ needs.preflight.outputs.expected }}
           OS_ID: ${{ inputs.os }}
           DRY_RUN: ${{ inputs.dry_run }}
@@ -215,13 +226,22 @@ jobs:
           if [ "$LABEL" != none ]; then suffix="_$LABEL"; fi
           sums="SHA256SUMS-${OS_ID}${suffix}.txt"
           sha256sum $EXPECTED > "$sums"
+          # The app updater's manifest: every file with its build number, size and SHA-256. Entries for
+          # variants this run did not rebuild stay as they were.
+          manifest="update-${OS_ID}.json"
+          mkdir -p ../existing
+          gh release download "$TAG" --repo "$REPO" --pattern "$manifest" --dir ../existing --clobber 2>/dev/null || true
+          python3 ../scripts/update_manifest.py --platform "$OS_ID" --tag "$TAG" --build "$BUILD" --label "$LABEL" \
+            --commit "$GITHUB_SHA" --existing "../existing/$manifest" --out "$manifest" $EXPECTED
           {
             echo "### Release $TAG ($OS_ID)"
-            for name in $EXPECTED "$sums"; do echo "- \`$name\` ($(stat -c %s "$name") bytes)"; done
+            for name in $EXPECTED "$sums" "$manifest"; do echo "- \`$name\` ($(stat -c %s "$name") bytes)"; done
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$DRY_RUN" = true ]; then
             echo "Dry run: built and named, not uploaded." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           gh release upload "$TAG" $EXPECTED "$sums" --clobber --repo "$REPO"
+          # The manifest last, so it never points at a file that is not there yet.
+          gh release upload "$TAG" "$manifest" --clobber --repo "$REPO"
           echo "Attached to https://github.com/$REPO/releases/tag/$TAG" | tee -a "$GITHUB_STEP_SUMMARY"
