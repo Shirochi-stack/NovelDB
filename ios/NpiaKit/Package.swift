@@ -34,7 +34,7 @@ let package = Package(
         // Share-link hosts (temp.sh, gofile, Google Drive, ...).
         .target(name: "NpiaUpload", dependencies: ["NpiaCore", "ZIPFoundation"]),
         // One adapter per source codename.
-        .target(name: "NpiaSources", dependencies: ["NpiaCore", "SwiftSoup"], resources: [.copy("Reader/Resources")]),
+        .target(name: "NpiaSources", dependencies: ["NpiaCore", "SwiftSoup"], resources: [.copy("Reader/Resources"), .copy("Hard/HardResources")]),
         // The app's own updates: build number, release manifest, check, and verified download.
         .target(name: "NpiaUpdate"),
         // Download queue that wires sources, images, writers, and uploads together.

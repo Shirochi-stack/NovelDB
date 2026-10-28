@@ -52,6 +52,11 @@ public struct SfcAdapter: SourceAdapter {
         SfcAppAPI.savedCookie(secrets) != nil
     }
 
+    /// Forgets the saved app session.
+    public static func signOut(_ secrets: any SecretStore) {
+        secrets.set(nil, for: SfcAppAPI.cookieKey)
+    }
+
     // MARK: - Book
 
     public func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo {

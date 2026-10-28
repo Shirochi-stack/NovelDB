@@ -41,4 +41,10 @@ public enum SourceCatalog {
     public static func adapterType(for id: SourceID) -> (any SourceAdapter.Type)? {
         adapters.first { $0.id == id }
     }
+
+    /// `url` in the form its source reads it under (see `SourceAdapter.canonicalURL`); unchanged when
+    /// no source owns it. The Add screen, the link cart and the queue keep links in this form.
+    public static func canonicalURL(_ url: URL) -> URL {
+        nativeAdapterType(for: url).map { $0.canonicalURL(url) } ?? url
+    }
 }
