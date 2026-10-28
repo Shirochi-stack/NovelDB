@@ -162,6 +162,75 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(try SettingsCoding.decode(SettingsCoding.encode(settings)).npia.tagQueryGroups, [["a", "b"], ["c"]])
     }
 
+    func testUploadBundlingDefaults() {
+        let upload = UploadSettings()
+        XCTAssertTrue(upload.zipBundle, "bundling is on by default")
+        XCTAssertEqual(upload.zipMaxMB, 1024, "largest ZIP is 1 GB by default")
+        XCTAssertEqual(UploadSettings.zipMaxMBRange, 50...4096)
+        XCTAssertEqual(AppSettings().upload, upload)
+    }
+
+    func testUploadSettingsStoredBeforeBundlingStillDecode() throws {
+        // A job saved by an older build keeps its settings without the two new keys and decodes
+        // with the plain JSONDecoder (no merge step).
+        let old = #"{"autoUpload": true, "hosts": ["gofile"], "copyLinkToClipboard": false}"#
+        let decoded = try JSONDecoder().decode(UploadSettings.self, from: Data(old.utf8))
+        XCTAssertTrue(decoded.autoUpload)
+        XCTAssertEqual(decoded.hosts, ["gofile"])
+        XCTAssertFalse(decoded.copyLinkToClipboard)
+        XCTAssertTrue(decoded.zipBundle)
+        XCTAssertEqual(decoded.zipMaxMB, 1024)
+        XCTAssertEqual(try JSONDecoder().decode(UploadSettings.self, from: Data("{}".utf8)), UploadSettings())
+
+        let wholeApp = #"{"upload": {"autoUpload": true}}"#
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(wholeApp.utf8))
+        XCTAssertEqual(settings.upload.zipMaxMB, 1024)
+    }
+
+    func testZipSizeIsClampedToTheRange() throws {
+        var upload = UploadSettings()
+        upload.zipMaxMB = 5
+        XCTAssertEqual(upload.zipMaxMB, 50)
+        upload.zipMaxMB = 99_999
+        XCTAssertEqual(upload.zipMaxMB, 4096)
+        upload.zipMaxMB = 700
+        XCTAssertEqual(upload.zipMaxMB, 700)
+
+        let stored = try JSONDecoder().decode(UploadSettings.self, from: Data(#"{"zipMaxMB": 10}"#.utf8))
+        XCTAssertEqual(stored.zipMaxMB, 50)
+        let huge = try SettingsCoding.decode(Data(#"{"upload": {"zipMaxMB": 100000}}"#.utf8))
+        XCTAssertEqual(huge.upload.zipMaxMB, 4096)
+    }
+
+    func testUploadBundlingRoundTripsThroughSettingsAndDesktopConfig() throws {
+        var settings = AppSettings()
+        settings.upload.zipBundle = false
+        settings.upload.zipMaxMB = 300
+        XCTAssertEqual(try SettingsCoding.decode(SettingsCoding.encode(settings)), settings)
+
+        let exported = DesktopConfig.exportConfig(settings, onto: ["gui_scale_factor": 1.7])
+        XCTAssertEqual(exported["upload_zip_bundle"] as? Bool, false)
+        XCTAssertEqual(exported["upload_zip_max_mb"] as? Int, 300)
+        XCTAssertEqual(exported["gui_scale_factor"] as? Double, 1.7)
+
+        let (reimported, _) = DesktopConfig.importConfig(exported)
+        XCTAssertFalse(reimported.upload.zipBundle)
+        XCTAssertEqual(reimported.upload.zipMaxMB, 300)
+
+        // A desktop file without the keys leaves the defaults (or the current values) alone.
+        let (defaults, _) = DesktopConfig.importConfig([:])
+        XCTAssertTrue(defaults.upload.zipBundle)
+        XCTAssertEqual(defaults.upload.zipMaxMB, 1024)
+        XCTAssertEqual(DesktopConfig.importConfig([:], into: settings).0.upload.zipMaxMB, 300)
+
+        // Numbers as the desktop file may spell them, and values out of range.
+        XCTAssertEqual(DesktopConfig.importConfig(["upload_zip_max_mb": "2048"]).0.upload.zipMaxMB, 2048)
+        XCTAssertEqual(DesktopConfig.importConfig(["upload_zip_max_mb": 512.0]).0.upload.zipMaxMB, 512)
+        XCTAssertEqual(DesktopConfig.importConfig(["upload_zip_max_mb": 1]).0.upload.zipMaxMB, 50)
+        XCTAssertEqual(DesktopConfig.importConfig(["upload_zip_max_mb": 99_999]).0.upload.zipMaxMB, 4096)
+        XCTAssertFalse(DesktopConfig.importConfig(["upload_zip_bundle": false]).0.upload.zipBundle)
+    }
+
     func testInMemorySecretStore() {
         let store = InMemorySecretStore()
         store.set("abc", for: .npiaLoginKey)

@@ -44,6 +44,59 @@ final class UploadNamingTests: UploadTestCase {
         XCTAssertEqual(UploadNaming.nameID(bookID: nil, url: url), "419368")
     }
 
+    func testNameIDCarriesTheSourceCodename() {
+        let url = URL(string: "https://example.test/novel/419368")!
+        XCTAssertEqual(UploadNaming.nameID(source: "npia", bookID: "419368", url: url), "npia_419368")
+        XCTAssertEqual(UploadNaming.nameID(source: "npia", bookID: nil, url: url), "npia_419368")
+        XCTAssertEqual(UploadNaming.nameID(source: "npia", bookID: "한글", url: url), "npia_419368")
+        XCTAssertEqual(UploadNaming.nameID(source: "global_npia", bookID: "77", url: url), "global_npia_77")
+        XCTAssertEqual(UploadNaming.nameID(source: nil, bookID: "77", url: url), "77")
+        XCTAssertEqual(UploadNaming.nameID(source: "", bookID: "77", url: url), "77")
+    }
+
+    func testASCIITitleKeepsTheLatinPartOfAMixedTitle() {
+        XCTAssertEqual(UploadNaming.asciiTitle("Solo Leveling"), "Solo Leveling")
+        XCTAssertEqual(UploadNaming.asciiTitle("Solo Leveling 나 혼자만 레벨업"), "Solo Leveling")
+        XCTAssertEqual(UploadNaming.asciiTitle("[완결] Solo Leveling (1-50)"), "Solo Leveling (1-50)")
+        XCTAssertEqual(UploadNaming.asciiTitle("My Book #1 (v2)"), "My Book #1 (v2)")
+        XCTAssertEqual(UploadNaming.asciiTitle("Title (한글)"), "Title")
+        XCTAssertEqual(UploadNaming.asciiTitle("시리즈 Vol 12 완결"), "Vol 12")
+    }
+
+    func testASCIITitleNeedsThreeLettersOrDigits() {
+        // The cases from the phone: Korean titles used to shrink to almost nothing.
+        XCTAssertNil(UploadNaming.asciiTitle("소설 제목"))
+        XCTAssertNil(UploadNaming.asciiTitle("-_"))
+        XCTAssertNil(UploadNaming.asciiTitle(""))
+        XCTAssertNil(UploadNaming.asciiTitle("VR게임"), "two letters are not enough")
+        XCTAssertNil(UploadNaming.asciiTitle("a-b"), "separators do not count")
+        XCTAssertEqual(UploadNaming.asciiTitle("VR 게임 7"), "VR 7")
+        XCTAssertEqual(UploadNaming.asciiTitle("100화"), "100")
+        XCTAssertEqual(UploadNaming.minimumTitleCharacters, 3)
+    }
+
+    func testASCIITitleIsCutAtOneHundredCharacters() throws {
+        let long = String(repeating: "word ", count: 40)
+        let title = try XCTUnwrap(UploadNaming.asciiTitle(long))
+        XCTAssertLessThanOrEqual(title.count, 100)
+        XCTAssertFalse(title.hasSuffix(" "))
+    }
+
+    func testUploadedFilesGetAUsefulASCIIName() {
+        // Plain titles stay; a Latin part is kept; otherwise <source>_<book id>.
+        XCTAssertEqual(asciiUploadName(url("Solo Leveling 나 혼자만 레벨업.epub"), id: "npia_419368"), "Solo Leveling.epub")
+        XCTAssertEqual(asciiUploadName(url("소설 제목.epub"), id: "npia_419368"), "npia_419368.epub")
+        XCTAssertEqual(asciiUploadName(url("VR게임.epub"), id: "npia_419368"), "npia_419368.epub")
+        XCTAssertEqual(asciiUploadName(url("100화.txt"), id: "npia_419368"), "100.txt")
+        XCTAssertEqual(asciiUploadName(url("a.epub"), id: "npia_419368"), "npia_419368.epub", "an ASCII title this short is replaced too")
+        XCTAssertEqual(asciiUploadName(url("NovelDB_3_EPUBs.zip"), id: nil), "NovelDB_3_EPUBs.zip")
+        // What the Android phone showed (".epub" with the Korean part stripped, "-_", "VR_"): none
+        // of these reaches a host as a name.
+        XCTAssertEqual(asciiUploadName(url("-_.epub"), id: "npia_9"), "npia_9.epub")
+        XCTAssertEqual(asciiUploadName(url("VR_.epub"), id: "npia_9"), "npia_9.epub")
+        XCTAssertEqual(asciiUploadName(url("_.epub"), id: "npia_9"), "npia_9.epub")
+    }
+
     func testRFC5987Encoding() {
         XCTAssertEqual(UploadNaming.rfc5987("소설 \"1\".epub"), "%EC%86%8C%EC%84%A4%20%221%22.epub")
         XCTAssertEqual(UploadNaming.rfc5987("a-b_c.d~e"), "a-b_c.d~e")
