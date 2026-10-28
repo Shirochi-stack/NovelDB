@@ -24,6 +24,21 @@ on:
         type: string
         required: false
         default: ''
+      build_id:
+        description: 'Build number (Unix seconds) stamped into the app; empty builds a development build that never offers app updates'
+        type: string
+        required: false
+        default: ''
+      release_tag:
+        description: 'Release tag shown as the app version, like v98 (only with build_id)'
+        type: string
+        required: false
+        default: ''
+      release_label:
+        description: 'Release label shown next to the tag: none, hotfix3, ... (only with build_id)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -61,10 +76,20 @@ jobs:
         run: xcodegen generate
       - name: Build for device (unsigned)
         working-directory: ios
+        env:
+          # Set when Mobile Release calls this workflow. Called by hand or by a push, they are
+          # empty (or, for release_tag on a manual run, only name the release to attach to), and
+          # ci/release_stamp.sh prints nothing: a development build.
+          BUILD_ID: ${{ inputs.build_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_LABEL: ${{ inputs.release_label }}
         run: |
+          stamp=$(bash ci/release_stamp.sh)
+          echo "Stamp: $(echo ${stamp:-none, a development build})"
           xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" $stamp build
+          bash ci/check_stamp.sh build/Build/Products/Release-iphoneos/NpiaMobile.app/Info.plist
       - name: Package IPA
         working-directory: ios
         run: |
@@ -78,7 +103,9 @@ jobs:
           path: ios/NovelDB-unsigned.ipa
           retention-days: 14
       - name: Attach to release
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        # Mobile Release is a workflow_dispatch run too, and its inputs leak into this called
+        # workflow: when it passes a build number it attaches the files itself.
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.build_id == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ inputs.release_tag }}" ios/NovelDB-unsigned.ipa --clobber --repo "${{ github.repository }}"
