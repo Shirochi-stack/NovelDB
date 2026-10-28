@@ -12,14 +12,14 @@ final class EngineSettingsTests: XCTestCase {
         XCTAssertEqual(SiteEngine.ordered(SiteEngine.allCases.map { $0.rawValue }, disabled: [.novelDownloader]), [.native, .webtoepub])
     }
 
-    func testDefaultsAreAllEnginesOnAndUpdatesOff() {
+    func testDefaultsAreAllEnginesOnAndUpdatesOn() {
         let engines = AppSettings().engines
         XCTAssertEqual(engines.enabled(), [.native, .novelDownloader, .webtoepub])
         XCTAssertEqual(engines.fullOrder(), SiteEngine.allCases)
-        XCTAssertFalse(engines.novelDownloaderAutoUpdate)
-        XCTAssertFalse(engines.webtoepubAutoUpdate)
-        XCTAssertFalse(engines.autoUpdate(.novelDownloader))
-        XCTAssertFalse(engines.autoUpdate(.webtoepub))
+        XCTAssertTrue(engines.novelDownloaderAutoUpdate)
+        XCTAssertTrue(engines.webtoepubAutoUpdate)
+        XCTAssertTrue(engines.autoUpdate(.novelDownloader))
+        XCTAssertTrue(engines.autoUpdate(.webtoepub))
         XCTAssertFalse(engines.autoUpdate(.native))
     }
 
@@ -61,10 +61,10 @@ final class EngineSettingsTests: XCTestCase {
         let (settings, _) = DesktopConfig.importConfig([
             "source_engine_order": ["webtoepub", "native", "novel_downloader"],
             "source_engines_off": ["novel_downloader"],
-            "webtoepub_auto_update": true,
+            "novel_downloader_auto_update": false,
         ])
         XCTAssertEqual(settings.engines, EngineSettings(
-            order: [.webtoepub, .native, .novelDownloader], disabled: [.novelDownloader], webtoepubAutoUpdate: true
+            order: [.webtoepub, .native, .novelDownloader], disabled: [.novelDownloader], novelDownloaderAutoUpdate: false
         ))
         let exported = DesktopConfig.exportConfig(settings)
         XCTAssertEqual(exported["source_engine_order"] as? [String], ["webtoepub", "native", "novel_downloader"])
@@ -83,7 +83,7 @@ final class EngineSettingsTests: XCTestCase {
         XCTAssertEqual(settings.engines.fullOrder(), [.webtoepub, .native, .novelDownloader])
         XCTAssertEqual(settings.engines.disabled, [.native])
         XCTAssertTrue(settings.engines.novelDownloaderAutoUpdate)
-        XCTAssertFalse(settings.engines.webtoepubAutoUpdate)
+        XCTAssertTrue(settings.engines.webtoepubAutoUpdate, "a missing key keeps the current choice")
     }
 
     func testDesktopImportKeepsExistingValuesForMissingKeys() {
@@ -142,6 +142,6 @@ final class EngineSettingsTests: XCTestCase {
         let settings = try SettingsCoding.decode(Data(stored.utf8))
         XCTAssertEqual(settings.engines.fullOrder(), [.webtoepub, .native, .novelDownloader])
         XCTAssertEqual(settings.engines.disabled, [.native])
-        XCTAssertFalse(settings.engines.novelDownloaderAutoUpdate)
+        XCTAssertTrue(settings.engines.novelDownloaderAutoUpdate, "a missing key means the default, on")
     }
 }

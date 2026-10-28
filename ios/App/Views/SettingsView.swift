@@ -249,7 +249,7 @@ struct SiteEnginesForm: View {
             } header: {
                 Text("Updates")
             } footer: {
-                Text("Both are off by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds each engine from its official repository and checks that it loads before publishing it. A downloaded update that fails to load is set aside and the built-in copy is used.")
+                Text("Both are on by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds each engine from its official repository and checks that it loads before publishing it. A downloaded update that fails to load is set aside and the built-in copy is used.")
             }
             Section("In use") {
                 ForEach(RuleEngine.allCases, id: \.self) { engine in

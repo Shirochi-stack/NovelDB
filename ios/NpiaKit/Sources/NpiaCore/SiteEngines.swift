@@ -39,7 +39,7 @@ public enum SiteEngine: String, Codable, CaseIterable, Sendable {
 }
 
 /// Which site engines run and in what order, and which rule engines update themselves.
-/// Updates are opt-in.
+/// Updates are on unless the user turns them off.
 public struct EngineSettings: Codable, Sendable, Equatable {
     /// Every engine once, in the order they are tried (switched-off ones keep their place).
     public var order: [SiteEngine]
@@ -50,8 +50,8 @@ public struct EngineSettings: Codable, Sendable, Equatable {
     public init(
         order: [SiteEngine] = SiteEngine.allCases,
         disabled: [SiteEngine] = [],
-        novelDownloaderAutoUpdate: Bool = false,
-        webtoepubAutoUpdate: Bool = false
+        novelDownloaderAutoUpdate: Bool = true,
+        webtoepubAutoUpdate: Bool = true
     ) {
         let full = SiteEngine.ordered(order.map { $0.rawValue })
         let off = full.filter { disabled.contains($0) }
@@ -71,8 +71,8 @@ public struct EngineSettings: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let names = try container.decodeIfPresent([String].self, forKey: .order)
         let off = try container.decodeIfPresent([String].self, forKey: .disabled) ?? []
-        let novelDownloader = try container.decodeIfPresent(Bool.self, forKey: .novelDownloaderAutoUpdate) ?? false
-        let webtoepub = try container.decodeIfPresent(Bool.self, forKey: .webtoepubAutoUpdate) ?? false
+        let novelDownloader = try container.decodeIfPresent(Bool.self, forKey: .novelDownloaderAutoUpdate) ?? true
+        let webtoepub = try container.decodeIfPresent(Bool.self, forKey: .webtoepubAutoUpdate) ?? true
         self.init(
             order: SiteEngine.ordered(names),
             disabled: off.compactMap { SiteEngine(rawValue: $0) },
