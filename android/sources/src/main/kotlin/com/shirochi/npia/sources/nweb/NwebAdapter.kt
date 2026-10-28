@@ -38,6 +38,7 @@ import java.net.URLDecoder
 class NwebAdapter : SourceAdapter {
     override val id = SourceId.NWEB
     override val tier = SourceTier.HTTP
+    override val sites: Set<String> = setOf("novel.$DOMAIN", "m.novel.$DOMAIN", "series.$DOMAIN", "m.series.$DOMAIN")
 
     private val session = NwebSession()
 

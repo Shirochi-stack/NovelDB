@@ -26,6 +26,9 @@ class MaruAdapter : SourceAdapter {
 
     override fun matches(url: String): Boolean = parts(url) != null
 
+    /** The numbered domain keeps moving, so the site is recognised by its name pattern. */
+    override fun ownsSite(host: String): Boolean = hostPattern.matches(host)
+
     data class Parts(val work: String, val episode: String)
 
     companion object {

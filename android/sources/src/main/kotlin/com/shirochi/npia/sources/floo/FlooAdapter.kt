@@ -37,6 +37,7 @@ import kotlin.random.Random
 class FlooAdapter : SourceAdapter {
     override val id = SourceId.FLOO
     override val tier = SourceTier.LIGHT_BROWSER
+    override val sites: Set<String> = FlooParser.hosts
 
     override fun matches(url: String): Boolean = FlooParser.matches(url)
 

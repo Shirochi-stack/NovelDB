@@ -35,6 +35,16 @@ interface SourceAdapter {
 
     fun matches(url: String): Boolean
 
+    /**
+     * Hosts of the sites this adapter downloads from, as a person browses them (no API or image
+     * hosts), lower case. A host covers its subdomains. Empty for adapters that take any page the
+     * script engines list (`reader`) and for sources that are not ported yet.
+     */
+    val sites: Set<String> get() = emptySet()
+
+    /** True when `host` (lower case, no port) belongs to one of this adapter's sites. */
+    fun ownsSite(host: String): Boolean = sites.any { host == it || host.endsWith(".$it") }
+
     suspend fun parseBook(url: String, context: SourceContext): BookInfo
 
     suspend fun parseChapter(ref: ChapterRef, book: BookInfo, context: SourceContext): ChapterResult

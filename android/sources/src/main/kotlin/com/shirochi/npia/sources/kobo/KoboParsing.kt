@@ -73,6 +73,8 @@ internal data class KoboEntry(val title: String, val path: String)
 
 /** Pure helpers for the kobo source (port of `is_kobo`, `_kobo_*` and `KoboWebReader`). */
 internal object KoboParsing {
+    /** Store sites the adapter reads (the reader host only opens from them). */
+    val SITES: Set<String> = setOf("kobo.com", "books.rakuten.co.jp")
     const val READER_HOST = "readnow.kobo.com"
     const val DEFAULT_TOC_BASE = "OEBPS/Text/toc.xhtml"
     const val RAKUTEN_CHAPTER_ID = "kobo-desktop"

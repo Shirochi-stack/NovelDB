@@ -87,6 +87,38 @@ object SourceCatalog {
         return RuleEngines.store.current(rule)?.knows(url) == true
     }
 
+    /** The engine's current bundle lists the URL's page, not only its site (see `EngineBundle.listsPage`). */
+    fun listsPage(engine: SiteEngine, url: String): Boolean {
+        val rule = RuleEngine.of(engine) ?: return false
+        return RuleEngines.store.current(rule)?.listsPage(url) == true
+    }
+
+    /**
+     * True when a built-in scraper or one of the switched-on script engines handles the URL's site:
+     * the Catalog tab then leaves its links alone and offers a Download button on pages it can take.
+     */
+    fun supportedSite(url: String, engines: EngineSettings = EngineSettings()): Boolean {
+        val host = runCatching { URI(url.trim()).host }.getOrNull()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+        if (!isWebUrl(url)) return false
+        if (adapters.any { it.id != SourceId.READER && it.ownsSite(host) }) return true
+        return engines.enabled().any { it.runsScripts && lists(it, url) }
+    }
+
+    /**
+     * True when this page, not just its site, can be downloaded, so the Catalog and Browser tabs show
+     * their buttons only where a download makes sense:
+     * - a built-in scraper takes the page (`matches` looks at the page) while the built-in scrapers are on;
+     * - or a switched-on script engine lists the page: the novel-downloader rules by the page patterns
+     *   of their header, WebToEpub by host with any path but the home page.
+     * The Add screen still accepts any web link (`resolve`); this decides where to offer the shortcut.
+     */
+    fun downloadablePage(url: String, engines: EngineSettings = EngineSettings()): Boolean {
+        if (!isWebUrl(url)) return false
+        val order = engines.enabled()
+        if (SiteEngine.NATIVE in order && adapters.any { it.id != SourceId.READER && it.matches(url) }) return true
+        return order.any { it.runsScripts && listsPage(it, url) }
+    }
+
     private fun isWebUrl(url: String): Boolean {
         val scheme = runCatching { URI(url.trim()).scheme }.getOrNull()?.lowercase()
         return scheme == "http" || scheme == "https"

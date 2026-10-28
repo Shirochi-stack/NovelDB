@@ -21,10 +21,13 @@ import com.shirochi.npia.sources.http.ReaderBlocks
 class YedujiAdapter : SourceAdapter {
     override val id = SourceId.YEDUJI
     override val tier = SourceTier.HTTP
+    override val sites: Set<String> = setOf(HOST)
 
     override fun matches(url: String): Boolean = Companion.matches(url)
 
     companion object {
+        const val HOST = "yeduji.com"
+
         val headers = mapOf(
             "User-Agent" to HttpSourceSupport.DESKTOP_USER_AGENT,
             "Accept" to "text/html,application/xhtml+xml,*/*;q=0.8",
@@ -36,7 +39,7 @@ class YedujiAdapter : SourceAdapter {
 
         fun matches(url: String): Boolean {
             val host = HttpSourceSupport.host(url)
-            return (host == "yeduji.com" || host == "www.yeduji.com") &&
+            return (host == HOST || host == "www.$HOST") &&
                 Regex("^/book/\\d+").containsMatchIn(HttpSourceSupport.path(url))
         }
 

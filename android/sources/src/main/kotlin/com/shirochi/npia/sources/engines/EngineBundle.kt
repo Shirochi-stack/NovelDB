@@ -101,8 +101,18 @@ class EngineBundle internal constructor(
     /** The script. */
     fun read(): String = text
 
+    private val header: UserScriptPatterns by lazy { UserScriptPatterns.parse(text) }
+
     /** The engine lists the URL's site (page-based WebToEpub matches need the page itself). */
     fun knows(url: String): Boolean = index.knows(engine, url)
+
+    /**
+     * The engine lists this page, not just its site. The novel-downloader rules name their pages in
+     * the script's header (`@match` and `@include` patterns without any `@exclude`); WebToEpub lists
+     * only hosts, so any page of a listed site counts except the site's home page.
+     */
+    fun listsPage(url: String): Boolean =
+        if (engine === RuleEngine.WEBTOEPUB) index.knows(engine, url) && !isHomePage(url) else header.accepts(url)
 
     /** Hosts the engine lists, for diagnostics and tests. */
     val hosts: Set<String> get() = index.hosts
@@ -154,4 +164,10 @@ internal class SiteIndex(val hosts: Set<String>, private val patterns: List<Rege
             return runCatching { Json.parseToJsonElement("\"$raw\"").let { (it as JsonPrimitive).content } }.getOrDefault(raw)
         }
     }
+}
+
+/** True for the front page of a site: an empty path or `/`, whatever the query. */
+internal fun isHomePage(url: String): Boolean {
+    val path = runCatching { URI(url.trim()).rawPath }.getOrNull() ?: return false
+    return path.isEmpty() || path == "/"
 }
