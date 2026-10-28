@@ -1,6 +1,7 @@
 import NpiaCore
 import NpiaSources
 import NpiaUpdate
+import NpiaWebEngine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -24,6 +25,7 @@ struct SettingsView: View {
             Section("App") {
                 NavigationLink { AppearanceSettingsForm() } label: { Label("Appearance", systemImage: "paintpalette") }
                 NavigationLink { CatalogSiteForm() } label: { Label("Catalog site", systemImage: "books.vertical") }
+                NavigationLink { BrowserSettingsForm() } label: { Label("Browser", systemImage: "globe") }
                 NavigationLink { BackgroundSettingsForm() } label: { Label("Screen and background", systemImage: "moon.zzz") }
                 NavigationLink { AppUpdatesForm() } label: { Label("App updates", systemImage: "arrow.down.app") }
                 NavigationLink { ConfigTransferView() } label: { Label("Import / export", systemImage: "arrow.up.arrow.down") }
@@ -582,12 +584,12 @@ struct CatalogSiteForm: View {
                 }
                 .disabled(site == CatalogSite.nextAddress)
             } footer: {
-                Text("On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. NovelDB Next cards have a link-cart button too, at the bottom right of the cover.")
+                Text("On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. NovelDB Next cards have a link-cart button too, at the bottom right of the cover. On the sites NovelDB downloads from, links to other sites open in the Browser tab, and a page it can download gets a floating \"🔗 Download\" button (bottom right) that adds the page to the cart.")
             }
             Section {
                 Toggle("Send outside links to the link cart", isOn: $cartLinks)
             } footer: {
-                Text("On sites other than NovelDB, links to other sites read \"🔗 Download\" and add the link to the cart. Off: they open in the Browser tab.")
+                Text("Applies only to sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from. There, links to other sites read \"🔗 Download\" and add the link to the cart. Off: they open in the Browser tab.")
             }
         }
         .themedBackground()
@@ -608,6 +610,33 @@ struct CatalogSiteForm: View {
         guard let url = CatalogSite.valid(text) else { return }
         site = url.absoluteString
         address = site
+    }
+}
+
+// MARK: - Browser
+
+struct BrowserSettingsForm: View {
+    @AppStorage(BrowserTranslate.storageKey) private var languageCode = BrowserTranslate.defaultLanguage
+
+    var body: some View {
+        Form {
+            Section {
+                FlowLayout(spacing: 8) {
+                    ForEach(BrowserTranslate.languages) { language in
+                        ChipToggle(title: language.name, isOn: Binding(
+                            get: { BrowserTranslate.language(languageCode).code == language.code },
+                            set: { if $0 { languageCode = language.code } }
+                        ))
+                    }
+                }
+            } header: {
+                Text("Translate pages into")
+            } footer: {
+                Text("The Translate button in the Browser tab (文A) shows the page in this language using Google Translate, on the real site, so your sign-ins and the download buttons keep working. A site that blocks the translator can be opened as a translated copy instead; sign-ins do not apply on the copy.")
+            }
+        }
+        .themedBackground()
+        .navigationTitle("Browser")
     }
 }
 

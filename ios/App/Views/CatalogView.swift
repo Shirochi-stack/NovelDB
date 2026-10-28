@@ -1,4 +1,6 @@
+import NpiaCore
 import NpiaSources
+import NpiaWebEngine
 import SwiftUI
 import UIKit
 import WebKit
@@ -7,17 +9,12 @@ import WebKit
 enum CatalogSite {
     static let storageKey = "catalogSite"
     /// The NovelDB catalog website, hosted on GitHub Pages.
-    static let defaultAddress = "https://shirochi-stack.github.io/NovelDB/"
+    static let defaultAddress = CatalogPages.defaultAddress
     /// NovelDB Next, offered as a suggestion; its cards get link-cart buttons too.
-    static let nextAddress = "https://noveldb.pages.dev/"
-    /// On sites other than NovelDB, links to other sites go to the link cart (and read
-    /// "🔗 Download"); off, they open in the Browser tab.
+    static let nextAddress = CatalogPages.nextAddress
+    /// On sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from, links to
+    /// other sites go to the link cart (and read "🔗 Download"); off, they open in the Browser tab.
     static let cartLinksKey = "catalogCartLinks"
-
-    /// The NovelDB website: "Open novel" goes to the Browser tab and links are never sent to the cart.
-    static func isNovelDB(_ url: URL) -> Bool {
-        url.absoluteString.trimmingCharacters(in: ["/"]) == defaultAddress.trimmingCharacters(in: ["/"])
-    }
 
     static var cartLinksEnabled: Bool {
         UserDefaults.standard.object(forKey: cartLinksKey) as? Bool ?? true
@@ -37,10 +34,14 @@ enum CatalogSite {
 }
 
 /// The catalog website's web view. It lives as long as the root view, so switching tabs does not
-/// reload the site (it keeps a large catalog in memory). On the NovelDB website
-/// `CatalogBridgeScript` makes cards open View Details instead of the novel page, sends outside
-/// links to the Browser tab and adds the link-cart button. Another site picked in Settings has no
-/// cart buttons, so every link that leaves it goes to the cart instead.
+/// reload the site (it keeps a large catalog in memory). `CatalogBridge` runs on every page and
+/// reports its address; the app decides what the page is (`CatalogPages.mode`) every time the
+/// address changes, single-page sites included:
+/// - NovelDB and NovelDB Next: cards open View Details and carry link-cart buttons, outside links
+///   open in the Browser tab.
+/// - A site we download from: outside links open in the Browser tab too, and a downloadable page
+///   gets a floating Download button that adds it to the cart.
+/// - Any other site: every link that leaves it goes to the cart (setting on) and reads "Download".
 @MainActor
 final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let webView: WKWebView
@@ -50,20 +51,31 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     @Published private(set) var error: String?
     private var observations: [NSKeyValueObservation] = []
     weak var model: AppModel?
-    private(set) var site = CatalogSite.current
-    private var isNovelDB: Bool { CatalogSite.isNovelDB(site) }
-    /// Outside links go to the cart (and are renamed on the page) on sites other than NovelDB.
-    private var cartLinks: Bool { !isNovelDB && CatalogSite.cartLinksEnabled }
+    private(set) var site: URL
+    /// The page on screen (it follows the site's own navigation, so it differs from `site` after the
+    /// first tap) and the address and title its bridge last reported.
+    private var tracker: CatalogPageTracker
+    private var engines: EngineSettings { model?.settings.engines ?? EngineSettings() }
+    private var mode: CatalogPageMode {
+        CatalogPages.mode(for: tracker.pageURL, engines: engines, cartLinksSetting: CatalogSite.cartLinksEnabled)
+    }
 
+    /// Tells the page what it is: whether to rename outside links, and the page to offer for
+    /// download (if any). The page only shows a button for the address it reported.
     func showMode() {
-        webView.evaluateJavaScript("window.NovelDBApp && window.NovelDBApp.setMode({cartLinks: \(cartLinks)})", completionHandler: nil)
+        let now = mode
+        let script = CatalogPages.setModeScript(now, download: tracker.download(for: now))
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     override init() {
+        let start = CatalogSite.current
+        site = start
+        tracker = CatalogPageTracker(pageURL: start)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         let controller = WKUserContentController()
-        controller.addUserScript(WKUserScript(source: CatalogBridgeScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: CatalogBridge.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController = controller
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
@@ -71,12 +83,14 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         let refresh = UIRefreshControl()
         refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
         webView.scrollView.refreshControl = refresh
-        controller.add(WeakMessageHandler(self), name: "noveldb")
+        controller.add(WeakMessageHandler(self), name: CatalogBridge.handlerName)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         observations = [
             webView.observe(\.estimatedProgress) { [weak self] view, _ in Task { @MainActor in self?.progress = view.estimatedProgress } },
             webView.observe(\.isLoading) { [weak self] view, _ in Task { @MainActor in self?.isLoading = view.isLoading } },
+            // Every address change, same-document ones included (single-page sites push a new address without loading).
+            webView.observe(\.url) { [weak self] _, _ in Task { @MainActor in self?.navigated() } },
         ]
         webView.load(URLRequest(url: site))
     }
@@ -85,8 +99,22 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     func load(_ url: URL) {
         guard url != site else { return }
         site = url
+        tracker.reset(to: url)
         error = nil
         webView.load(URLRequest(url: url))
+    }
+
+    /// The view moved to another address: classify it again. A Download button made for the old
+    /// address goes away until the page reports the new one.
+    private func navigated() {
+        guard let url = webView.url, url.absoluteString != "about:blank" else { return }
+        tracker.navigated(to: url)
+        showMode()
+    }
+
+    /// The page's bridge reported its address and title. A page can only speak for the site the view shows.
+    private func located(url: String, title: String) {
+        if tracker.located(url: url, title: title, shown: webView.url) { showMode() }
     }
 
     /// Tells the page which cards are in the cart, so their buttons show it.
@@ -121,10 +149,10 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         self.error = nsError.localizedDescription
     }
 
-    /// A link out of the catalog: the Browser tab on NovelDB, the link cart on other sites.
+    /// A link out of the catalog: the link cart on sites we do not know (setting on), else the Browser tab.
     private func leave(_ url: URL, title: String = "") {
         guard url.scheme == "http" || url.scheme == "https" else { return }
-        if !cartLinks {
+        if !mode.cartLinks {
             model?.pendingBrowserURL = url
         } else {
             let source = SourceCatalog.adapterType(for: url).map { $0.id.rawValue } ?? ""
@@ -146,6 +174,8 @@ final class CatalogState: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         case "ready":
             showMode()
             if let model { showCart(model.cart.items) }
+        case "location":
+            located(url: field("url"), title: field("title"))
         case "cartAdd":
             if field("url").hasPrefix("http") {
                 var source = field("source")
@@ -244,6 +274,7 @@ struct CatalogView: View {
             state.model = model
             // The site may have changed in Settings before this tab was first shown.
             state.load(CatalogSite.current)
+            state.showMode()
             state.showCart(model.cart.items)
         }
         .onChange(of: model.cart.items) { _, items in state.showCart(items) }
@@ -252,5 +283,7 @@ struct CatalogView: View {
             state.showMode()
         }
         .onChange(of: cartLinks) { _, _ in state.showMode() }
+        // Switching a script engine on or off changes which sites count as supported.
+        .onChange(of: model.settings.engines) { _, _ in state.showMode() }
     }
 }

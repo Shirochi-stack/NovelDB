@@ -1,2 +1,4 @@
 # The WebToEpub bundle is checked against the SHA-256 in its manifest: no line-ending changes.
 ios/NpiaKit/Sources/NpiaSources/Reader/Resources/webtoepub/** -text
+# The catalog bridge is byte-identical to the Android and desktop copies (SHA-256 checked by a test): no line-ending changes.
+ios/NpiaKit/Sources/NpiaWebEngine/Resources/** -text

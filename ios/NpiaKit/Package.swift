@@ -26,7 +26,8 @@ let package = Package(
         // URLSession client with retries, pacing, and the shared cookie jar.
         .target(name: "NpiaNet", dependencies: ["NpiaCore"]),
         // Offscreen WKWebView pages that replace the desktop Playwright/CDP driver.
-        .target(name: "NpiaWebEngine", dependencies: ["NpiaCore"]),
+        // The catalog bridge and page translator scripts ship as resources (Resources/).
+        .target(name: "NpiaWebEngine", dependencies: ["NpiaCore"], resources: [.copy("Resources")]),
         // Image recompression: ImageIO decode, JPEG/PNG/GIF encode, libwebp for WebP.
         .target(name: "NpiaImages", dependencies: ["NpiaCore", .product(name: "libwebp", package: "libwebp-Xcode")]),
         // EPUB, TXT, and PDF writers.
