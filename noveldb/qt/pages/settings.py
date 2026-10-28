@@ -813,8 +813,11 @@ def catalog_form(context: AppContext) -> Form:
     f.add(error)
     f.check("Fill the window (widen sites that keep their page in a narrow column)", "catalog.fill_width")
     f.check("Send outside links to the link cart", "catalog.cart_links")
-    f.add_hint("On catalog sites other than NovelDB, links to book pages go to the link cart and their "
-               "buttons read \U0001F517 Download. Turn this off to open them in your browser instead.")
+    f.add_hint("This applies only to sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from. "
+               "There, links to book pages go to the link cart and their buttons read \U0001F517 Download. "
+               "Turn this off to open them in your browser instead. On the sites NovelDB downloads from, links "
+               "to other sites open in your browser, and a page it can download gets a \U0001F517 Download button "
+               "(bottom right) that adds the page to the link cart.")
     def show(s):
         if not url.hasFocus():
             url.setText(s.catalog.url)
