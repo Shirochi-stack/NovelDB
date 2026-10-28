@@ -181,6 +181,151 @@ jobs:
           path: ios/smoke/
           retention-days: 14
 
+  update-check:
+    # Builds the app with a build number (so it is not a development build), runs it on an iPhone
+    # simulator against a local server that answers like GitHub's release downloads
+    # (ci/update_fixture.py), and checks what the app reports for each case: a newer build with a
+    # matching file, a bad checksum, a bad size, no newer build, another schema and no manifest.
+    # Uses the Debug-only launch arguments -NovelDBUpdateBase and -NovelDBUpdateReport (AppUpdateController).
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Allow plain HTTP in this test build
+        # The local server speaks http. Only this job's generated Info.plist changes.
+        working-directory: ios
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" \
+            -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" App/Info.plist
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in data if "iOS" in r), reverse=True)
+          for runtime in runtimes:
+              for device in data[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); raise SystemExit
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+      - name: Build a stamped app for the simulator
+        working-directory: ios
+        env:
+          BUILD_ID: '1000'
+          RELEASE_TAG: v1
+          RELEASE_LABEL: none
+        run: |
+          stamp=$(bash ci/release_stamp.sh)
+          echo "Stamp: $(echo $stamp)"
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Debug \
+            -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO $stamp build
+          bash ci/check_stamp.sh build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app/Info.plist
+      - name: Run the update check in the app
+        working-directory: ios
+        run: |
+          udid=${{ steps.sim.outputs.udid }}
+          app=build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app
+          bundle=com.shirochi.npiamobile
+          root="$PWD/update-site"
+          out="$PWD/update-check"
+          mkdir -p "$root" "$out"
+          python3 ci/update_fixture.py serve "$root" 8765 > "$out/server.log" 2>&1 &
+          server=$!
+          for _ in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:8765/ping > /dev/null && break
+            sleep 0.5
+          done
+          xcrun simctl spawn "$udid" log stream --style compact --level debug --predicate 'process == "NpiaMobile"' > "$out/oslog.txt" 2>&1 &
+          logger=$!
+          failed=0
+
+          # One case: write the fixture, install a fresh copy (so the daily check is due), launch it
+          # until it runs, wait for its report and compare it with the patterns given.
+          scenario() {
+            name=$1; shift
+            echo "=== $name"
+            read -r sha size < <(python3 ci/update_fixture.py write "$root" "$name" 1000)
+            xcrun simctl terminate "$udid" "$bundle" 2> /dev/null || true
+            xcrun simctl uninstall "$udid" "$bundle" 2> /dev/null || true
+            xcrun simctl install "$udid" "$app"
+            documents="$(xcrun simctl get_app_container "$udid" "$bundle" data)/Documents"
+            report="$documents/update-check-report.txt"
+            for attempt in 1 2 3; do
+              xcrun simctl launch "$udid" "$bundle" -NovelDBUpdateBase http://127.0.0.1:8765/releases -NovelDBUpdateReport >> "$out/launch-$name.txt" 2>&1 || true
+              sleep 20
+              listing=$(xcrun simctl spawn "$udid" launchctl list || true)
+              if grep -q "$bundle" <<< "$listing"; then break; fi
+              echo "::warning::NpiaMobile did not start ($name, attempt $attempt)."
+            done
+            for _ in $(seq 1 60); do
+              [ -f "$report" ] && break
+              sleep 2
+            done
+            sleep 3
+            xcrun simctl io "$udid" screenshot "$out/$name.png" || true
+            if [ ! -f "$report" ]; then
+              echo "::error::$name: the app wrote no report"
+              failed=1
+              return
+            fi
+            cp "$report" "$out/$name-report.txt"
+            cat "$report"; echo
+            for pattern in "$@"; do
+              pattern=${pattern//@SHA@/$sha}
+              pattern=${pattern//@SIZE@/$size}
+              if ! grep -Eq "$pattern" "$report"; then
+                echo "::error::$name: the report lacks: $pattern"
+                failed=1
+              fi
+            done
+          }
+
+          scenario good \
+            '^build: v1, build 1000$' \
+            '^outcome: available$' \
+            '^check: NovelDB v2 hotfix3 is available\.$' \
+            '^offer: NovelDB v2 hotfix3 is available$' \
+            '^phase: ready$' \
+            '^file: NovelDB-unsigned\.ipa$' \
+            '^file-size: @SIZE@$' \
+            '^file-sha256: @SHA@$' \
+            '^leftover: NovelDB-unsigned\.ipa$'
+          for bad in badsum badsize; do
+            scenario "$bad" \
+              '^outcome: available$' \
+              '^phase: failed$' \
+              '^error: The download did not match its checksum; nothing was installed\.$' \
+              '^leftover: none$'
+          done
+          scenario current '^outcome: upToDate$' '^check: NovelDB is up to date\.$' '^offer: none$' '^phase: idle$'
+          scenario schema2 '^outcome: noInformation$' '^offer: none$'
+          scenario missing '^outcome: noInformation$' '^offer: none$'
+
+          kill "$logger" "$server" || true
+          cp ~/Library/Logs/DiagnosticReports/NpiaMobile* "$out/" 2>/dev/null || true
+          echo "--- server log"; tail -30 "$out/server.log" || true
+          if [ "$failed" -ne 0 ]; then echo "::error::The app's update check did not behave as expected"; exit 1; fi
+          echo "All update scenarios behaved as expected."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: update-check
+          path: ios/update-check/
+          retention-days: 14
+
   live-download:
     # Run by hand with live_url: installs the app on an iPhone simulator, launches it with
     # -NovelDBLiveDownload (a Debug-only hook in AppModel), and waits for the book's first three
