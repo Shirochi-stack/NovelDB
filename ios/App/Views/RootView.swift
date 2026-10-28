@@ -31,6 +31,7 @@ enum Panel: String, CaseIterable, Hashable, Identifiable {
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: Panel? = .add
     @StateObject private var catalog = CatalogState()
 
@@ -69,9 +70,19 @@ struct RootView: View {
         // Rule engines the user opted in to update themselves at most once a day. (Not in
         // AppModel.init: a task started there made the app close right after launch.)
         .task { await model.checkEngineUpdates(automatic: true) }
+        // The app's own updates: at start and each time the app returns to the foreground, at most
+        // once a day and only with the setting on. (Same reason: not in AppModel.init.)
+        .task { await model.checkAppUpdate(automatic: true) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await model.checkAppUpdate(automatic: true) } }
+        }
         #if DEBUG
         .task { await model.runLiveDownloadIfAsked() }
+        .task { await model.appUpdate.writeReportIfAsked(to: model.outputDirectory) }
         #endif
+        .sheet(isPresented: Binding(get: { model.appUpdate.showingOffer }, set: { model.appUpdate.showingOffer = $0 })) {
+            AppUpdateSheet()
+        }
         .onChange(of: model.pendingBrowserURL) { _, url in
             if url != nil { selection = .browser }
         }

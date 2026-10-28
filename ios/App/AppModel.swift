@@ -20,6 +20,9 @@ final class AppModel {
                 settings.engines.autoUpdate($0.siteEngine) && !oldValue.engines.autoUpdate($0.siteEngine)
             }
             if !optedIn.isEmpty { Task { await checkEngineUpdates(automatic: true, only: optedIn) } }
+            // Turning the app update check back on (the toggle, or an imported desktop config) looks
+            // once the day's check is due.
+            if settings.appUpdateCheck && !oldValue.appUpdateCheck { Task { await checkAppUpdate(automatic: true) } }
         }
     }
     private(set) var jobs: [JobItem] = []
@@ -43,6 +46,8 @@ final class AppModel {
     /// The copy of each rule engine in use, for the same screen.
     private(set) var engineBundleLabels: [RuleEngine: String] = [:]
     private(set) var checkingEngineUpdates = false
+    /// Looks for newer builds of the app itself (Settings > App updates) and downloads one on request.
+    let appUpdate = AppUpdateController()
 
     let secrets: any SecretStore = KeychainSecretStore()
     let background = BackgroundActivity()
@@ -385,6 +390,15 @@ final class AppModel {
         for engine in RuleEngine.allCases {
             engineBundleLabels[engine] = labels[engine.rawValue]
         }
+    }
+
+    // MARK: - App updates
+
+    /// Looks for a newer build of NovelDB. `automatic` is the check at start and on returning to the
+    /// foreground: it only runs when the setting is on and a day has passed since the last check.
+    /// Otherwise it is the "Check for app updates now" button.
+    func checkAppUpdate(automatic: Bool) async {
+        await appUpdate.check(automatic: automatic, enabled: settings.appUpdateCheck)
     }
 
     #if DEBUG

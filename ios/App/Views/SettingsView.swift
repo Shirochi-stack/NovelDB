@@ -1,5 +1,6 @@
 import NpiaCore
 import NpiaSources
+import NpiaUpdate
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -24,6 +25,7 @@ struct SettingsView: View {
                 NavigationLink { AppearanceSettingsForm() } label: { Label("Appearance", systemImage: "paintpalette") }
                 NavigationLink { CatalogSiteForm() } label: { Label("Catalog site", systemImage: "books.vertical") }
                 NavigationLink { BackgroundSettingsForm() } label: { Label("Screen and background", systemImage: "moon.zzz") }
+                NavigationLink { AppUpdatesForm() } label: { Label("App updates", systemImage: "arrow.down.app") }
                 NavigationLink { ConfigTransferView() } label: { Label("Import / export", systemImage: "arrow.up.arrow.down") }
             }
         }
@@ -290,6 +292,54 @@ private struct SiteEngineRow: View {
         }
         // The last engine that is on cannot be switched off.
         .disabled(engines.isEnabled(engine) && engines.enabled().count == 1)
+    }
+}
+
+// MARK: - App updates
+
+/// Whether NovelDB looks for newer builds of itself, the button to look now, and what it found.
+struct AppUpdatesForm: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        let updates = model.appUpdate
+        Form {
+            Section {
+                Toggle("Check for app updates automatically", isOn: $model.settings.appUpdateCheck)
+                Button {
+                    Task { await model.checkAppUpdate(automatic: false) }
+                } label: {
+                    HStack {
+                        Text(updates.checking ? "Checking..." : "Check for app updates now")
+                        if updates.checking {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(updates.checking || updates.phase == .downloading)
+                if let offer = updates.offer {
+                    Button {
+                        updates.showingOffer = true
+                    } label: {
+                        Label(offer.title, systemImage: "arrow.down.circle")
+                    }
+                }
+                if !updates.statusMessage.isEmpty {
+                    Text(updates.statusMessage).font(.caption).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("On by default; checked when the app starts and when you come back to it, at most once a day. Builds come from NovelDB's GitHub releases. Nothing is downloaded until you tap Update. iOS apps cannot install themselves: you send the checked file to SideStore, AltStore or a similar tool, or save it to Files.")
+            }
+            Section("In use") {
+                LabeledContent("Version", value: updates.build.statusText)
+            }
+        }
+        .themedBackground()
+        .navigationTitle("App updates")
     }
 }
 
