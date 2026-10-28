@@ -75,21 +75,27 @@ def _set(settings: AppSettings, path: str, new):
 class Form(QWidget):
     """A scrollable form whose controls are bound to settings paths."""
 
-    def __init__(self, context: AppContext, title: str, panel: bool = False) -> None:
-        """`panel`: a card for another page (no scroll area, smaller heading)."""
+    def __init__(self, context: AppContext, title: str, panel: bool = False, bare: bool = False) -> None:
+        """`panel`: a card for another page (no scroll area, smaller heading).
+        `bare`: a plain column inside another form (no heading, no margins)."""
         super().__init__()
         self.context = context
         self._refreshers: list[Callable[[AppSettings], None]] = []
+        panel = panel or bare
         body = QWidget() if not panel else self
         if not panel:
             body.setMaximumWidth(760)
         self.layout_ = QVBoxLayout(body)
-        self.layout_.setContentsMargins(*((20, 16, 20, 16) if not panel else (16, 12, 16, 14)))
+        margins = (0, 0, 0, 0) if bare else (16, 12, 16, 14) if panel else (20, 16, 20, 16)
+        self.layout_.setContentsMargins(*margins)
         self.layout_.setSpacing(8)
-        heading = QLabel(title)
-        heading.setStyleSheet(f"font-size: {18 if panel else 22}px; font-weight: 600;")
-        self.layout_.addWidget(heading)
-        if panel:
+        if not bare:
+            heading = QLabel(title)
+            heading.setStyleSheet(f"font-size: {18 if panel else 22}px; font-weight: 600;")
+            self.layout_.addWidget(heading)
+        if bare:
+            pass
+        elif panel:
             self.setObjectName("panel")
             self.setAttribute(Qt.WA_StyledBackground, True)
         else:
@@ -533,23 +539,34 @@ def sources_form(context: AppContext) -> Form:
 
 
 def images_form(context: AppContext, panel: bool = False) -> Form:
+    """Image options in two columns: compression on the left; animations, cover and comics on the right."""
     f = Form(context, "Images", panel=panel)
-    f.check("Save image addresses only (no image files)", "images.save_image_urls_only")
-    compress = f.check("Compress images", "images.compress")
-    quality = f.spin("Quality", "images.quality", 1, 100)
-    fmt = f.combo("Format", "images.format", {k: k for k in IMAGE_FORMATS})
-    gifs = f.check("Convert animated GIFs", "images.convert_gifs")
-    static = f.check("Keep only the first frame of animations", "images.static_only")
-    workers = f.spin("Compression workers (npia)", "images.compression_workers", 1, 32)
-    target = f.check("Recompress until the book fits a size", "images.recompress_target_enable")
-    target_mb = f.dspin("Target size", "images.recompress_target_mb", 1, 2000, 1, " MB")
-    f.add_section("Cover")
-    cover = f.check("Compress the cover", "images.compress_cover")
-    cover_quality = f.spin("Cover quality", "images.cover_quality", 1, 100)
-    cover_format = f.combo("Cover format", "images.cover_format", {k: k for k in IMAGE_FORMATS})
-    f.add_section("Comics")
-    zip_images = f.check("Compress images inside CBZ files", "images.zip_compress_images")
-    long_layout = f.check("Long-strip layout for vertical comics", "images.long_image_layout")
+    left, right = Form(context, "", bare=True), Form(context, "", bare=True)
+    columns = QWidget()
+    row = QHBoxLayout(columns)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(20)
+    row.addWidget(left, 1, Qt.AlignTop)
+    row.addWidget(right, 1, Qt.AlignTop)
+
+    left.check("Save image addresses only", "images.save_image_urls_only")
+    compress = left.check("Compress images", "images.compress")
+    quality = left.spin("Quality", "images.quality", 1, 100)
+    fmt = left.combo("Format", "images.format", {k: k for k in IMAGE_FORMATS})
+    workers = left.spin("Workers (npia)", "images.compression_workers", 1, 32)
+    target = left.check("Recompress to fit a size", "images.recompress_target_enable")
+    target_mb = left.dspin("Target size", "images.recompress_target_mb", 1, 2000, 1, " MB")
+
+    gifs = right.check("Convert animated GIFs", "images.convert_gifs")
+    static = right.check("First frame of animations only", "images.static_only")
+    right.add_section("Cover")
+    cover = right.check("Compress the cover", "images.compress_cover")
+    cover_quality = right.spin("Quality", "images.cover_quality", 1, 100)
+    cover_format = right.combo("Format", "images.cover_format", {k: k for k in IMAGE_FORMATS})
+    right.add_section("Comics")
+    zip_images = right.check("Compress images inside CBZ", "images.zip_compress_images")
+    long_layout = right.check("Long-strip layout", "images.long_image_layout")
+    f.add(columns)
 
     def gate(s):
         on = not s.images.save_image_urls_only
@@ -563,6 +580,8 @@ def images_form(context: AppContext, panel: bool = False) -> Form:
 
     f._refreshers.append(gate)
     f.add_hint("Saving image addresses only turns the other image options off.")
+    left.finish()
+    right.finish()
     f.finish()
     return f
 

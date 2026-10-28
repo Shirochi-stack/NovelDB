@@ -277,6 +277,8 @@ class CatalogPage(QWidget):
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.AllowPersistentCookies)
         self.profile.scripts().insert(bridge_script())
         self.page = CatalogWebPage(self.profile, self)
+        # The theme's colour behind pages that have not painted yet (no white flash).
+        self.page.setBackgroundColor(self.palette().window().color())
         self.page.settings().setAttribute(QWebEngineSettings.FocusOnNavigationEnabled, False)
         self.channel = QWebChannel(self.page)
         self.bridge = Bridge(self)
@@ -293,7 +295,8 @@ class CatalogPage(QWidget):
         self.view.urlChanged.connect(self._url_changed)
         self.view.setZoomFactor(self.context.settings.catalog.zoom)
         self.stack.addWidget(self.view)
-        self.stack.setCurrentWidget(self.view)
+        # The "Loading the catalog..." placeholder stays until the first page has mostly loaded.
+        self.view.loadProgress.connect(self._reveal_when_ready)
         self.go_home()
 
     def release(self) -> None:
@@ -356,6 +359,10 @@ class CatalogPage(QWidget):
     def _load_started(self) -> None:
         self.progress.setValue(0)
         self.progress.show()
+
+    def _reveal_when_ready(self, progress: int) -> None:
+        if progress >= 80 and self.stack.currentWidget() is self.placeholder:
+            self.stack.setCurrentWidget(self.view)
 
     def _load_finished(self, ok: bool) -> None:
         self.progress.hide()
@@ -428,6 +435,8 @@ class CatalogPage(QWidget):
 
     def _settings_changed(self) -> None:
         self._show_zoom()
+        if self.page is not None:
+            self.page.setBackgroundColor(self.palette().window().color())
         if self.view is not None and self.site != self._loaded_url:
             self.go_home()
         else:
