@@ -287,10 +287,20 @@ def npia_form(context: AppContext) -> Form:
     save.clicked.connect(sign_in)
     context.signedInChanged.connect(
         lambda ok: status.setText("Signed in." if ok else "Not signed in: only free chapters can be read."))
+    google = QPushButton("Sign in with Google")
+
+    def with_google():
+        from noveldb.qt.google_login import google_login
+
+        google_login(context, f.window())
+        fill()
+
+    google.clicked.connect(with_google)
     holder = QWidget()
     row = QHBoxLayout(holder)
     row.setContentsMargins(0, 0, 0, 0)
     row.addWidget(status, 1)
+    row.addWidget(google)
     row.addWidget(save)
     f.add(holder)
     f.add_hint("Credentials are kept in config.json on this computer. Settings exports leave them out.")
