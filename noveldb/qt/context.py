@@ -49,6 +49,7 @@ class AppContext(QObject):
     signedInChanged = Signal(bool)
     cartChanged = Signal()
     toolRequested = Signal(str)  # e.g. "tag_search", handled by the main window
+    engineUpdateChecked = Signal(object)  # an engine_updates.UpdateResult
 
     def __init__(self, store: ConfigStore | None = None, start_workers: bool = True) -> None:
         super().__init__()
@@ -125,6 +126,34 @@ class AppContext(QObject):
                 on_done(ok, message)
 
         threading.Thread(target=work, name="npia-sign-in", daemon=True).start()
+
+    def check_engine_updates(self, automatic: bool = False) -> None:
+        """Look for rule-engine updates on a worker thread.
+
+        `automatic`: the daily check, only for the engines the user opted in to, logging only news
+        and failures. Otherwise (the Settings button) every engine is checked.
+        """
+        from noveldb.core import engine_updates
+
+        engines = [e for e in engine_updates.ENGINES
+                   if not automatic or self.settings.engines.auto_update(e.name)]
+
+        def work():
+            for engine in engines:
+                try:
+                    if automatic:
+                        result = engine_updates.check_if_due(engine, lambda text: self.hub.log("", text))
+                    else:
+                        result = engine_updates.check_for_update(engine)
+                        self.hub.log("", result.message)
+                except Exception as exc:  # never let a check take the app down
+                    result = engine_updates.UpdateResult(engine, "failed", f"{engine.title} update check failed: {exc}")
+                    self.hub.log("", result.message)
+                if result is not None:
+                    self.engineUpdateChecked.emit(result)
+
+        if engines:
+            threading.Thread(target=work, name="engine-updates", daemon=True).start()
 
     def update_settings_from_thread(self, change: Callable[[AppSettings], AppSettings]) -> None:
         QTimer.singleShot(0, self, lambda: self.update_settings(change))

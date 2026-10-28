@@ -34,6 +34,8 @@ if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobil
     datas.append((here("noveldb", "qt", "catalog", "catalog-bridge.js"), os.path.join("noveldb", "qt", "catalog")))
 for name in ("gm_stubs.js", "bridge.js", "rules-lib.js"):
     datas.append((here(name), "."))
+for name in ("webtoepub-lib.js", "manifest.json", "LICENSE.md"):  # the WebToEpub engine
+    datas.append((here("webtoepub", name), "webtoepub"))
 datas += [
     (here("data", "fonts"), os.path.join("data", "fonts")),
     (here("data", "zh_char_frequency.txt"), "data"),
