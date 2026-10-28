@@ -22,6 +22,7 @@ import com.shirochi.npia.core.SourceTier
 import com.shirochi.npia.core.WebEngineException
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.WebLoadState
+import com.shirochi.npia.core.WebLoadTimeoutException
 import com.shirochi.npia.core.WebPageDriving
 import com.shirochi.npia.sources.SourceCatalog
 import kotlinx.coroutines.CancellationException
@@ -82,22 +83,26 @@ class SiteEngineChainTest {
         override suspend fun send(request: HttpRequest) = HttpResponse(request.url, 404, emptyMap(), ByteArray(0))
     }
 
-    /** A web engine that counts the pages it opens. */
-    private class CountingWeb : WebEngineProviding {
+    /** A web engine that counts the pages it opens; each page's first `timeouts` loads time out. */
+    private class CountingWeb(val timeouts: Int = 0) : WebEngineProviding {
         val pages = mutableListOf<CountingPage>()
 
-        override suspend fun newPage(profile: String): WebPageDriving = CountingPage().also { pages += it }
+        override suspend fun newPage(profile: String): WebPageDriving = CountingPage(timeouts).also { pages += it }
 
         override suspend fun presentLogin(url: String, profile: String) = throw WebEngineException("no login")
     }
 
-    private class CountingPage : WebPageDriving {
+    private class CountingPage(private var timeouts: Int = 0) : WebPageDriving {
         var loads = mutableListOf<String>()
         var closed = false
         var transport = false
 
         override suspend fun load(url: String, until: WebLoadState, timeoutSeconds: Long) {
             loads += url
+            if (timeouts > 0) {
+                timeouts--
+                throw WebLoadTimeoutException(url)
+            }
         }
 
         override suspend fun evaluateJson(functionBody: String) = "null"
@@ -111,6 +116,34 @@ class SiteEngineChainTest {
         override suspend fun exposeTransport(handler: suspend (String) -> String) {
             transport = true
         }
+    }
+
+    // Page loads
+
+    @Test
+    fun aPageThatTimesOutIsLoadedOnceMore() = runTest {
+        val web = CountingWeb(timeouts = 1)
+        val log = Log()
+        val scripts = Scripts(mapOf(SiteEngine.WEBTOEPUB to { book(SourceId.READER, 1) }), loadsPage = true)
+        val result = chain(null, scripts, listOf(SiteEngine.WEBTOEPUB)).parseBook(url, context(log, web))
+        assertEquals(1, result.chapters.size)
+        assertEquals(listOf(url, url), web.pages.single().loads)
+        assertTrue(log.lines.toString(), log.lines.any { "trying once more" in it })
+    }
+
+    @Test
+    fun aPageThatTimesOutTwiceFailsWithoutAThirdTry() = runTest {
+        val web = CountingWeb(timeouts = 2)
+        val scripts = Scripts(
+            mapOf(SiteEngine.NOVEL_DOWNLOADER to { book(SourceId.READER, 1) }, SiteEngine.WEBTOEPUB to { book(SourceId.READER, 1) }),
+            loadsPage = true,
+        )
+        val error = runCatching { chain(null, scripts, listOf(SiteEngine.WEBTOEPUB, SiteEngine.NOVEL_DOWNLOADER)).parseBook(url, context(web = web)) }
+            .exceptionOrNull()
+        assertTrue("$error", error?.message.orEmpty().contains("Timed out loading"))
+        // The failure is remembered: the second engine does not wait for the same page again.
+        assertEquals(listOf(url, url), web.pages.single().loads)
+        assertTrue(web.pages.single().closed)
     }
 
     private fun context(log: Log = Log(), web: WebEngineProviding = CountingWeb()) =

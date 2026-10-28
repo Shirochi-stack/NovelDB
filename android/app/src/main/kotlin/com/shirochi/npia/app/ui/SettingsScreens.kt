@@ -269,7 +269,7 @@ fun EngineSettingsScreen(model: AppViewModel) {
             { v -> set { it.withAutoUpdate(SiteEngine.WEBTOEPUB, v) } },
         )
         Footnote(
-            "Both are off by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds " +
+            "Both are on by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds " +
                 "each engine from its official repository and checks that it loads before publishing it. A downloaded update that fails to load is set aside.",
         )
         TextButton(

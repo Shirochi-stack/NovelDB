@@ -74,7 +74,10 @@ interface WebEngineProviding {
     suspend fun presentLogin(url: String, profile: String)
 }
 
-class WebEngineException(message: String) : Exception(message)
+open class WebEngineException(message: String) : Exception(message)
+
+/** A page that was not ready within its time limit; a second try often is (nothing was cached the first time). */
+class WebLoadTimeoutException(val url: String) : WebEngineException("Timed out loading $url")
 
 object UnavailableWebEngine : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = throw WebEngineException("No web engine in this context")

@@ -19,6 +19,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.shirochi.npia.core.SharedCookies
 import com.shirochi.npia.core.WebEngineException
+import com.shirochi.npia.core.WebLoadTimeoutException
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.WebLoadState
 import com.shirochi.npia.core.WebPageDriving
@@ -178,11 +179,12 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
         }
     }
 
-    // Commit happens before DOMContentLoaded; poll readyState briefly, as on iOS.
+    // Commit happens before DOMContentLoaded; poll readyState until the load ends or times out. A page
+    // whose own scripts are slow to arrive (a first visit, ads) can take well over ten seconds to get there,
+    // and `onPageFinished` waits for every last image and ad besides.
     private fun watchReadyState(token: Int) {
-        var attempts = 0
         fun check() {
-            if (token != navigationToken || pending == null || attempts++ > 200) return
+            if (token != navigationToken || pending == null) return
             webView.evaluateJavascript("document.readyState") { raw ->
                 if (token != navigationToken) return@evaluateJavascript
                 val state = ScriptBridge.decodeString(raw)
@@ -205,7 +207,7 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
         try {
             withTimeout(timeoutSeconds.coerceAtLeast(1) * 1000) { done.await() }
         } catch (e: TimeoutCancellationException) {
-            throw WebEngineException("Timed out loading $url")
+            throw WebLoadTimeoutException(url)
         } finally {
             withContext(Dispatchers.Main) { if (pending === done) pending = null }
         }
