@@ -1280,7 +1280,7 @@ button.synopsis-status {
 @media (min-width: 651px) {
     .controls { padding: .8rem 1rem; margin-bottom: 1rem; }
     .search-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem .6rem; }
-    .search-box { flex: 1 1 160px; min-width: 150px; }
+    .search-box { flex: 1 1 150px; min-width: 150px; }
     .search-box input { height: 40px; padding-top: 0; padding-bottom: 0; }
     .search-icon { width: 16px; height: 16px; }
     .control-group { gap: .15rem; }
@@ -1288,15 +1288,17 @@ button.synopsis-status {
     .settings-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .control-group select, .source-picker-button { height: 40px; padding-top: 0; padding-bottom: 0; padding-left: .65rem; font-size: .85rem; }
     .source-picker-button { min-width: 0; gap: .4rem; }
-    .sort-control { width: 180px; }
-    .tag-menu-control { display: flex; align-items: flex-end; width: 40px; }
-    .tag-menu-button, #settingsButton { width: 40px; height: 40px; }
+    .sort-control { width: 164px; }
+    /* Wider than tall, so the two icon buttons are easy to hit with a mouse. */
+    .tag-menu-control { display: flex; align-items: flex-end; width: 56px; }
+    .tag-menu-button, #settingsButton { width: 56px; height: 40px; }
     #settingsButton { padding: 0; font-size: 1.25rem; line-height: 1; }
     .tag-menu-button[aria-expanded=true], #settingsButton[aria-expanded=true] { border-color: var(--accent); }
 
     .controls-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; margin-top: .6rem; }
     .controls-meta .active-tags-summary { margin-top: 0; }
-    .controls-meta .status-bar { margin: 0 0 0 auto; font-size: .8rem; text-align: right; }
+    /* The result count leads the line on the left; the selected tags follow it. */
+    .controls-meta .status-bar { order: -1; margin: 0 .3rem 0 0; font-size: .8rem; text-align: left; }
     .controls-meta .status-bar details { text-align: left; }
 
     .tag-menu, .settings-popover { right: 1rem; margin-top: .5rem; }

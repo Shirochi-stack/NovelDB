@@ -1842,7 +1842,7 @@ def test_desktop_toolbar_is_at_most_half_the_old_height_in_one_row(monkeypatch):
                 count = await page.locator('#resultCount').bounding_box()
                 toolbar_bottom = max(box['y'] + box['height'] for box in boxes)
                 assert toolbar_bottom <= count['y'] <= toolbar_bottom + 30
-                assert count['x'] + count['width'] >= width - 80
+                assert count['x'] <= boxes[0]['x'] + 4  # the count leads the slim line on the left
                 # The old always-present rows are gone: settings and tag lists open from the toolbar.
                 for selector in ('#includeTagsPanel', '#excludeTagsPanel', '.tag-toolbar', '#tagContainer'):
                     assert await page.locator(selector).count() == 0, selector
