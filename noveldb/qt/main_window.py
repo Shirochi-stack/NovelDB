@@ -77,6 +77,11 @@ class MainWindow(QMainWindow):
         row.addWidget(self.splitter, 1)
         self.setCentralWidget(central)
 
+        from noveldb.qt.tools import Tools
+
+        self.tools = Tools(context, self)
+        self.download.toolRequested.connect(self.tools.run)
+        context.toolRequested.connect(self.tools.run)
         self.download.openCart.connect(self.show_cart)
         if hasattr(self.catalog, "openCart"):
             self.catalog.openCart.connect(self.show_cart)

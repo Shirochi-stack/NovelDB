@@ -302,6 +302,11 @@ def npia_form(context: AppContext) -> Form:
     f.check("Use the browser when a chapter cannot be read directly", "npia.use_browser_fallback")
     f.path_picker("Font mapping", "npia.mapping_path", "Choose the font mapping file", "JSON (*.json);;All files (*)")
     f.add_hint("npia chapter text is decoded through this mapping when it uses a scrambled font.")
+    f.add_section("Tag search")
+    tag_search = QPushButton("Open tag search")
+    tag_search.clicked.connect(lambda: context.toolRequested.emit("tag_search"))
+    f.add(flow(tag_search))
+    f.add_hint("Find novel IDs by tag, scrape all novels or read the Top 100, with a live log.")
     fill()
     f.finish()
     return f

@@ -13,9 +13,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -75,6 +77,7 @@ class InputBox(QPlainTextEdit):
 class DownloadPage(QWidget):
     openCart = Signal()
     queued = Signal(int)
+    toolRequested = Signal(str)
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -91,9 +94,28 @@ class DownloadPage(QWidget):
         clear.clicked.connect(self.input.clear)
         self.cart_button = QPushButton()
         self.cart_button.clicked.connect(self.openCart.emit)
+        from noveldb.qt.tools import TOOLS, available
+
+        tools_menu = QMenu(self)
+        for tool, label in TOOLS:
+            if tool == "-":
+                tools_menu.addSeparator()
+                continue
+            action = tools_menu.addAction(label)
+            ok, reason = available(tool)
+            action.setEnabled(ok)
+            if reason:
+                action.setToolTip(reason)
+            action.triggered.connect(lambda _=False, t=tool: self.toolRequested.emit(t))
+        tools_menu.setToolTipsVisible(True)
+        tools = QToolButton()
+        tools.setText("Tools")
+        tools.setPopupMode(QToolButton.InstantPopup)
+        tools.setMenu(tools_menu)
         input_actions = QHBoxLayout()
         input_actions.addWidget(paste)
         input_actions.addWidget(clear)
+        input_actions.addWidget(tools)
         input_actions.addStretch(1)
         input_actions.addWidget(self.cart_button)
 
