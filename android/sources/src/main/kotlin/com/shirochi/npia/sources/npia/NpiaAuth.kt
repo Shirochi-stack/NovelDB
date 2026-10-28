@@ -78,7 +78,7 @@ object NpiaAuth {
     }
 
     /** Shown whenever a sign-in with the saved account does not succeed. */
-    internal const val SIGN_IN_FAILED = "npia sign-in failed; check the email and password in Settings > npia"
+    internal const val SIGN_IN_FAILED = "npia sign-in failed; check the email and password in Settings > npia login"
 
     /**
      * Picks the session key for a job: with `autoLogin` and a saved account (like the desktop
