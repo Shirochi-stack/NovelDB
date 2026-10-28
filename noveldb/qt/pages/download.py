@@ -283,7 +283,8 @@ class DownloadPage(QWidget):
         self.split.splitterMoved.connect(lambda *_: setattr(self, "_user_split", True))
         self._user_split = False
         self._columns = columns
-        on_scale(self, lambda: QTimer.singleShot(0, self, self._fit_split), now=False)
+        # Refit before the window paints at the new scale, and once more after the layout settles.
+        on_scale(self, lambda: (self._fit_split(), QTimer.singleShot(0, self, self._fit_split)), now=False)
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)

@@ -267,6 +267,9 @@ def test_shutdown_after_a_successful_queue_counts_down_and_can_be_cancelled(wind
 
 
 def test_options_keep_a_compact_width_and_the_log_gets_the_rest(window, qtbot):
+    from noveldb.qt.pages.download import LOG_SHARE
+    from noveldb.qt.scale import ui_scale
+
     window.resize(2560, 1300)
     window.show()
     qtbot.waitExposed(window)
@@ -275,4 +278,5 @@ def test_options_keep_a_compact_width_and_the_log_gets_the_rest(window, qtbot):
     page._user_split = False
     page._fit_split()
     left, right = page.split.sizes()
-    assert left <= page._columns.maximumWidth() + 24 and right > left
+    assert left <= page._columns.maximumWidth() + ui_scale.px(24)
+    assert right >= int((left + right) * LOG_SHARE) - 2
