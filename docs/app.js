@@ -5663,7 +5663,6 @@
     let tagMode = "AND";
     let displayCount = 30;
     let allTagGroups = [];   // display tag groups for the current source
-    let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
     const mobileView = matchMedia('(max-width: 650px)');
     const infiniteScrollToggle = document.getElementById("infiniteScroll");
     // One switch for every screen, on by default. A choice saved with it, or with the per-screen
@@ -5689,8 +5688,6 @@
     const searchInput = $("#searchInput");
     const sortSelect = $("#sortSelect");
     const orderSelect = $("#orderSelect");
-    const tagContainer = $("#tagContainer");
-    const excludeTagContainer = $("#excludeTagContainer");
     const resultsEl = $("#results");
     const resultCount = $("#resultCount");
     const catalogLoadStatus = $("#catalogLoadStatus");
@@ -5698,10 +5695,6 @@
     const paginationBars = [$("#paginationTop"), $("#paginationBottom")];
     const tagModeAnd = $("#tagModeAnd");
     const tagModeOr = $("#tagModeOr");
-    const clearTagsBtn = $("#clearTags");
-    const clearExcludeBtn = $("#clearExclude");
-    const tagSearchInput = $("#tagSearch");
-    const excludeTagSearchInput = $("#excludeTagSearch");
     const tagMenuButton = $("#tagMenuButton");
     const tagMenuEl = $("#tagMenu");
     const tagMenuSearch = $("#tagMenuSearch");
@@ -5743,7 +5736,7 @@
         return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
     }
 
-    // === Build tag chips ===
+    // === Tag groups ===
     // Workers count tags while indexing; the interface merges only summaries.
     const TAG_COLLATOR = new Intl.Collator();
 
@@ -5799,68 +5792,15 @@
     }
 
     let builtTagsVersion = -1;
-    let builtCloudVersion = -1;
+    // Tags are listed by the tag dropdown from allTagGroups (the worker's per-source tag counts) while
+    // it is open; nothing else is built from them.
     function buildTags() {
         if (builtTagsVersion === tagsVersion) return;
         builtTagsVersion = tagsVersion;
         allTagGroups = [...mergedTagGroups(selectedSources).values()].map(resolveGroupSpelling)
             .sort((a, b) => b.count - a.count || TAG_COLLATOR.compare(a.label, b.label));
-        top80Tags = new Set(allTagGroups.slice(0, 80).map((group) => group.key));
-        // Phones list tags in the dropdown from the same groups, so the chip clouds are
-        // only built where they are shown (they are built later if the screen widens).
-        if (mobileView.matches) updateActiveTagsSummary();
-        else buildTagCloud();
-        refreshTagMenu();
-    }
-
-    function buildTagCloud() {
-        if (builtCloudVersion === builtTagsVersion) return;
-        builtCloudVersion = builtTagsVersion;
-        const sorted = allTagGroups.slice(0, 80);
-        tagContainer.innerHTML = "";
-        excludeTagContainer.innerHTML = "";
-        for (const group of sorted) {
-            const tag = group.tag;
-            const title = tagGroupTitle(group);
-            // Include chip
-            const chip = document.createElement("span");
-            chip.className = "tag-chip";
-            chip.textContent = `${group.label} (${fmt(group.count)})`;
-            chip.title = title;
-            chip.dataset.tag = tag;
-            chip.dataset.tagKey = group.key;
-            chip.addEventListener("click", () => toggleTag(tag, chip));
-            tagContainer.appendChild(chip);
-
-            // Exclude chip
-            const echip = document.createElement("span");
-            echip.className = "tag-chip";
-            echip.textContent = `${group.label} (${fmt(group.count)})`;
-            echip.title = title;
-            echip.dataset.tag = tag;
-            echip.dataset.tagKey = group.key;
-            echip.addEventListener("click", () => toggleExcludeTag(tag, echip));
-            excludeTagContainer.appendChild(echip);
-        }
-        refreshTagSearchResults();
-    }
-
-    function syncSelectedTagChips() {
-        tagContainer.querySelectorAll(".tag-chip").forEach((chip) => {
-            const tag = chip.dataset.tag;
-            chip.classList.toggle("active", tagSetHasMatch(andTags, tag));
-            chip.classList.toggle("active-or", tagSetHasMatch(orTags, tag));
-        });
-        excludeTagContainer.querySelectorAll(".tag-chip").forEach((chip) => {
-            chip.classList.toggle("excluded", tagSetHasMatch(excludeTags, chip.dataset.tag));
-        });
-    }
-
-    function refreshTagSearchResults() {
-        tagSearchInput.dispatchEvent(new Event("input"));
-        excludeTagSearchInput.dispatchEvent(new Event("input"));
-        syncSelectedTagChips();
         updateActiveTagsSummary();
+        refreshTagMenu();
     }
 
     function clearNonSourceFilters({ clearSearch = false } = {}) {
@@ -5869,8 +5809,6 @@
         excludeTags.clear();
         focusedCard = null;
         preTagScrollY = null;
-        tagSearchInput.value = "";
-        excludeTagSearchInput.value = "";
         tagMenuSearch.value = "";
         statusSelect.value = "all";
         audienceSelect.value = "all";
@@ -5878,16 +5816,6 @@
             searchInput.value = "";
             activeAuthorFilter = null;
         }
-        tagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
-        excludeTagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
-        tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-            c.style.display = "";
-            c.classList.remove("active", "active-or");
-        });
-        excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-            c.style.display = "";
-            c.classList.remove("excluded");
-        });
         updateActiveTagsSummary();
         refreshTagMenu();
     }
@@ -5900,8 +5828,6 @@
             andTags: [...andTags],
             orTags: [...orTags],
             excludeTags: [...excludeTags],
-            tagSearch: tagSearchInput.value,
-            excludeTagSearch: excludeTagSearchInput.value,
             page: currentPage,
             focusedCard: focusedCard ? { ...focusedCard } : null,
             preTagScrollY,
@@ -5924,13 +5850,12 @@
         searchInput.value = state.search || "";
         statusSelect.value = state.status || "all";
         audienceSelect.value = state.audience || "all";
-        tagSearchInput.value = state.tagSearch || "";
-        excludeTagSearchInput.value = state.excludeTagSearch || "";
         currentPage = state.page || 1;
         focusedCard = state.focusedCard ? { ...state.focusedCard } : null;
         preTagScrollY = state.preTagScrollY ?? null;
         activeAuthorFilter = null;
-        refreshTagSearchResults();
+        updateActiveTagsSummary();
+        refreshTagMenu();
     }
 
     // Filtering a million records takes a noticeable moment, so a tag click
@@ -5944,99 +5869,48 @@
         });
     }
 
-    function toggleTag(tag, chip) {
+    function toggleTag(tag) {
         // If tag is already in either set, remove it
         const andMatch = findMatchingSelectedTag(andTags, tag);
         const orMatch = findMatchingSelectedTag(orTags, tag);
-        if (andMatch) {
-            andTags.delete(andMatch);
-            if (chip) chip.classList.remove("active");
-        } else if (orMatch) {
-            orTags.delete(orMatch);
-            if (chip) chip.classList.remove("active-or");
-        } else {
-            // Add to the set matching current mode
-            if (tagMode === "AND") {
-                andTags.add(tag);
-                if (chip) chip.classList.add("active");
-            } else {
-                orTags.add(tag);
-                if (chip) chip.classList.add("active-or");
-            }
-        }
-        syncSelectedTagChips();
+        if (andMatch) andTags.delete(andMatch);
+        else if (orMatch) orTags.delete(orMatch);
+        else if (tagMode === "AND") andTags.add(tag); // add to the set matching the current mode
+        else orTags.add(tag);
         updateActiveTagsSummary();
         deferApplyFilters();
     }
 
-    function toggleExcludeTag(tag, chip) {
+    function toggleExcludeTag(tag) {
         const match = findMatchingSelectedTag(excludeTags, tag);
-        if (match) {
-            excludeTags.delete(match);
-            if (chip) chip.classList.remove("excluded");
-        } else {
-            excludeTags.add(tag);
-            if (chip) chip.classList.add("excluded");
-        }
-        syncSelectedTagChips();
+        if (match) excludeTags.delete(match);
+        else excludeTags.add(tag);
         updateActiveTagsSummary();
         deferApplyFilters();
+    }
+
+    // The selection stays visible as removable chips next to the filters, whether or not the dropdown is open.
+    function summaryChip(set, tag, className, title) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = `summary-chip ${className}`;
+        chip.textContent = `${tl(tag)} ✕`;
+        chip.title = title;
+        chip.addEventListener("click", () => {
+            set.delete(tag);
+            updateActiveTagsSummary();
+            deferApplyFilters();
+        });
+        return chip;
     }
 
     function updateActiveTagsSummary() {
-        const includeSummary = document.getElementById("activeTagsSummary");
-        const excludeSummary = document.getElementById("activeExcludeTagsSummary");
-
-        // Include tags (AND + OR)
-        includeSummary.innerHTML = "";
-        for (const tag of andTags) {
-            const chip = document.createElement("span");
-            chip.className = "summary-chip include";
-            chip.textContent = `${tl(tag)} ✕`;
-            chip.title = `Remove AND tag: ${tag}`;
-            chip.addEventListener("click", () => {
-                andTags.delete(tag);
-                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("active");
-                });
-                updateActiveTagsSummary();
-                deferApplyFilters();
-            });
-            includeSummary.appendChild(chip);
-        }
-        for (const tag of orTags) {
-            const chip = document.createElement("span");
-            chip.className = "summary-chip include-or";
-            chip.textContent = `${tl(tag)} ✕`;
-            chip.title = `Remove OR tag: ${tag}`;
-            chip.addEventListener("click", () => {
-                orTags.delete(tag);
-                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("active-or");
-                });
-                updateActiveTagsSummary();
-                deferApplyFilters();
-            });
-            includeSummary.appendChild(chip);
-        }
-
-        // Exclude tags
-        excludeSummary.innerHTML = "";
-        for (const tag of excludeTags) {
-            const chip = document.createElement("span");
-            chip.className = "summary-chip exclude";
-            chip.textContent = `${tl(tag)} ✕`;
-            chip.title = `Remove ${tag}`;
-            chip.addEventListener("click", () => {
-                excludeTags.delete(tag);
-                excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (tagsMatch(c.dataset.tag, tag)) c.classList.remove("excluded");
-                });
-                updateActiveTagsSummary();
-                deferApplyFilters();
-            });
-            excludeSummary.appendChild(chip);
-        }
+        // Include tags (AND + OR), then exclude tags
+        document.getElementById("activeTagsSummary").replaceChildren(
+            ...[...andTags].map((tag) => summaryChip(andTags, tag, "include", `Remove AND tag: ${tag}`)),
+            ...[...orTags].map((tag) => summaryChip(orTags, tag, "include-or", `Remove OR tag: ${tag}`)));
+        document.getElementById("activeExcludeTagsSummary").replaceChildren(
+            ...[...excludeTags].map((tag) => summaryChip(excludeTags, tag, "exclude", `Remove ${tag}`)));
         syncTagMenu();
     }
 
@@ -6045,15 +5919,7 @@
         // Clear previous tags first
         andTags.clear();
         orTags.clear();
-        tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
-            c.classList.remove("active");
-            c.classList.remove("active-or");
-        });
         andTags.add(tag);
-        // Highlight the chip in the tag grid
-        tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-            if (tagsMatch(c.dataset.tag, tag)) c.classList.add("active");
-        });
         updateActiveTagsSummary();
     }
 
@@ -6121,13 +5987,12 @@
             || expression.test(n.author) || String(n.id) === query;
     }
 
-    // Every tag control (cloud chips, the summary row and the highlighted tag
+    // Every tag control (the dropdown, the summary row and the highlighted tag
     // on a card) reflects the same selection regardless of which one changed it.
     function syncTagSelectionUi() {
         if (focusedCard && !tagSetHasMatch(andTags, focusedCard.tag) && !tagSetHasMatch(orTags, focusedCard.tag)) {
             focusedCard = null;
         }
-        syncSelectedTagChips();
         updateActiveTagsSummary();
     }
 
@@ -6479,10 +6344,6 @@
                     focusedCard = null;
                     preTagScrollY = null;
                     tagEl.classList.remove("active", "active-or");
-                    tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
-                        c.classList.remove("active");
-                        c.classList.remove("active-or");
-                    });
                     updateActiveTagsSummary();
                     deferApplyFilters(() => {
                         if (savedScroll != null) {
@@ -6794,7 +6655,13 @@
     // Settings are separate from the catalog so opening them leaves cards intact.
     const settingsDialog = document.getElementById("siteSettingsDialog");
     const settingsButton = document.getElementById("settingsButton");
-    settingsButton.addEventListener("click", () => {
+    settingsButton.addEventListener("click", (event) => {
+        if (!compactPagination.matches) {
+            // Wider screens: a popover under the gear (a click with no pointer also focuses its first control).
+            if (settingsPopoverOpen) closeSettingsPopover({ focus: event.detail === 0 });
+            else openSettingsPopover(event.detail === 0);
+            return;
+        }
         settingsDialog.showModal();
         settingsButton.setAttribute("aria-expanded", "true");
     });
@@ -6952,7 +6819,7 @@
             const included = tagSetHasMatch(andTags, tag) || tagSetHasMatch(orTags, tag);
             const dropped = !included && findMatchingSelectedTag(excludeTags, tag);
             if (dropped) excludeTags.delete(dropped);
-            toggleTag(tag, null);
+            toggleTag(tag);
         } else {
             if (!tagSetHasMatch(excludeTags, tag)) {
                 for (const set of [andTags, orTags]) {
@@ -6960,7 +6827,7 @@
                     if (dropped) set.delete(dropped);
                 }
             }
-            toggleExcludeTag(tag, null);
+            toggleExcludeTag(tag);
         }
     }
 
@@ -6969,13 +6836,14 @@
         orTags.clear();
         excludeTags.clear();
         focusedCard = null;
-        syncSelectedTagChips();
         updateActiveTagsSummary();
         deferApplyFilters();
     }
 
     // Keep the list inside the visible screen: bring it up on a short screen rather than squeezing it.
     function fitTagMenu() {
+        // Wider screens size the list in CSS.
+        if (!mobileView.matches) { tagMenuEl.style.maxHeight = ""; return; }
         const viewport = window.visualViewport;
         const bottom = () => (viewport ? viewport.offsetTop + viewport.height : window.innerHeight) - 12;
         tagMenuEl.style.maxHeight = "";
@@ -6991,6 +6859,7 @@
 
     function openTagMenu(focusSearch) {
         if (tagMenuOpen) return;
+        closeSettingsPopover();
         tagMenuOpen = true;
         tagMenuEl.hidden = false;
         tagMenuButton.setAttribute("aria-expanded", "true");
@@ -7078,59 +6947,65 @@
     // The on-screen keyboard shrinks the visible area: keep the whole list reachable above it.
     window.visualViewport?.addEventListener("resize", () => { if (tagMenuOpen) fitTagMenu(); });
 
+    // === Desktop settings popover ===
+    // The same settings content moves between the phone sheet (the dialog) and this popover under the gear.
+    const settingsPopover = document.getElementById("settingsPopover");
+    let settingsPopoverOpen = false;
+
+    function openSettingsPopover(focusFirst) {
+        if (settingsPopoverOpen) return;
+        closeTagMenu();
+        settingsPopoverOpen = true;
+        settingsPopover.hidden = false;
+        settingsButton.setAttribute("aria-expanded", "true");
+        scrollBaseline = window.scrollY;
+        if (focusFirst) settingsPopover.querySelector("input")?.focus({ preventScroll: true });
+    }
+
+    function closeSettingsPopover({ focus = false } = {}) {
+        if (!settingsPopoverOpen) return;
+        settingsPopoverOpen = false;
+        const hadFocus = settingsPopover.contains(document.activeElement);
+        settingsPopover.hidden = true;
+        settingsButton.setAttribute("aria-expanded", "false");
+        if (hadFocus) {
+            if (focus) settingsButton.focus({ preventScroll: true });
+            else document.activeElement.blur();
+        }
+    }
+
+    document.getElementById("closeSettingsPopover").addEventListener("click", () => closeSettingsPopover({ focus: true }));
+    settingsPopover.addEventListener("focusout", (event) => {
+        const next = event.relatedTarget;
+        if (next && !settingsPopover.contains(next) && next !== settingsButton) closeSettingsPopover();
+    });
+    document.addEventListener("pointerdown", (event) => {
+        if (settingsPopoverOpen && !settingsPopover.contains(event.target) && !settingsButton.contains(event.target)) closeSettingsPopover();
+    }, true);
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !settingsPopoverOpen) return;
+        event.preventDefault();
+        closeSettingsPopover({ focus: true });
+    });
+
     // Move the same controls between desktop and mobile without resetting values.
     const settingsContent = settingsDialog.querySelector(".site-settings");
-    const tagModeControls = document.querySelector(".tag-mode");
-    const responsiveTags = [
-        ["includeTagsPanel", "activeTagsSummary"],
-        ["excludeTagsPanel", "activeExcludeTagsSummary"]
-    ];
     function updateControlsLayout() {
         const mobile = compactPagination.matches;
         if (!mobile && settingsDialog.open) settingsDialog.close();
-        (mobile ? settingsDialog : document.getElementById("settingsInline")).appendChild(settingsContent);
+        closeSettingsPopover();
         closeTagMenu();
-        // Phones use the tag dropdown (AND/OR lives in its header); the two inline panels are for wider screens.
-        for (const [panelId, summaryId] of responsiveTags) {
-            const panel = document.getElementById(panelId);
-            const summary = document.getElementById(summaryId);
-            if (mobile) panel.before(summary);
-            else panel.querySelector(".tag-header").after(summary);
-            panel.hidden = mobile;
-        }
-        if (mobile) document.getElementById("tagMenuMode").appendChild(tagModeControls);
-        else document.getElementById("tagToggle").after(tagModeControls);
-        if (!mobile) buildTagCloud();
+        (mobile ? settingsDialog : settingsPopover).appendChild(settingsContent);
+        settingsButton.setAttribute("aria-haspopup", mobile ? "dialog" : "true");
+        settingsButton.setAttribute("aria-controls", mobile ? "siteSettingsDialog" : "settingsPopover");
     }
     compactPagination.addEventListener("change", updateControlsLayout);
     updateControlsLayout();
 
-    // === Tag section toggle ===
-    const tagPanels = [
-        { toggle: document.getElementById("tagToggle"), region: document.getElementById("includeTagsPanel"), container: tagContainer, search: tagSearchInput },
-        { toggle: document.getElementById("excludeToggle"), region: document.getElementById("excludeTagsPanel"), container: excludeTagContainer, search: excludeTagSearchInput },
-    ];
-    const tagPanelCollapsed = (panel) => panel.container.classList.contains("collapsed");
-    function setTagPanelCollapsed(panel, collapsed) {
-        panel.container.classList.toggle("collapsed", collapsed);
-        panel.search.classList.toggle("collapsed", collapsed);
-        panel.toggle.setAttribute("aria-expanded", String(!collapsed));
-        panel.toggle.querySelector(".tag-disclosure").textContent = collapsed ? "▸" : "▾";
-    }
-    for (const panel of tagPanels) {
-        panel.toggle.addEventListener("click", (e) => {
-            // Don't toggle when clicking buttons or inputs inside the header
-            if ((e.target.closest("button") && e.target.closest("button") !== panel.toggle) || e.target.closest("input")) return;
-            const collapsed = !tagPanelCollapsed(panel);
-            setTagPanelCollapsed(panel, collapsed);
-            if (!collapsed) scrollBaseline = window.scrollY;
-        });
-    }
-
-    // === An open tag panel closes when the results scroll ===
+    // === An open popover (tags or settings) closes when the results scroll ===
     // Only a scroll the person makes counts (wheel, touch, keys, the scrollbar). The page also scrolls on
-    // its own (card anchoring, the keyboard revealing the search box); that, scrolling inside the dropdown
-    // and typing in a search box leave the panel open.
+    // its own (card anchoring, the keyboard revealing the search box); that, scrolling inside the popover
+    // and typing in a search box leave it open.
     const SCROLL_CLOSE_DISTANCE = 24;
     const SCROLL_INTENT_MS = 800;
     let scrollIntentAt = -Infinity;
@@ -7150,76 +7025,14 @@
         markScrollIntent();
     });
 
-    function tagPanelsOpen() {
-        return mobileView.matches ? tagMenuOpen : tagPanels.some((panel) => !tagPanelCollapsed(panel));
-    }
-
-    function closeTagPanelsOnScroll() {
-        if (mobileView.matches) { closeTagMenu(); return; }
-        const floating = document.querySelector(".controls").classList.contains("mobile-controls-floating");
-        for (const panel of tagPanels) {
-            if (tagPanelCollapsed(panel)) continue;
-            // A panel in the page flow only needs to close once the page has scrolled past it.
-            if (!floating && panel.region.getBoundingClientRect().bottom > 40) continue;
-            const before = resultsEl.getBoundingClientRect().top;
-            setTagPanelCollapsed(panel, true);
-            // Closing a panel that is above the viewport would pull the cards up: scroll by the same amount.
-            const shift = resultsEl.getBoundingClientRect().top - before;
-            if (!floating && shift) window.scrollBy({ top: shift, behavior: "instant" });
-        }
-    }
-
     window.addEventListener("scroll", () => {
         const y = window.scrollY;
-        if (!tagPanelsOpen() || performance.now() - scrollIntentAt > SCROLL_INTENT_MS) { scrollBaseline = y; return; }
+        if (!(tagMenuOpen || settingsPopoverOpen) || performance.now() - scrollIntentAt > SCROLL_INTENT_MS) { scrollBaseline = y; return; }
         if (Math.abs(y - scrollBaseline) < SCROLL_CLOSE_DISTANCE) return;
         scrollBaseline = y;
-        closeTagPanelsOnScroll();
+        closeTagMenu();
+        closeSettingsPopover();
     }, { passive: true });
-
-    // === Tag search filtering ===
-    function setupTagSearch(searchInput, container, isExclude) {
-        const toggleFn = isExclude ? toggleExcludeTag : toggleTag;
-        searchInput.addEventListener("input", () => {
-            const query = searchInput.value.toLowerCase().trim();
-            // Remove previously injected dynamic chips
-            container.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
-            // Show/hide the static top-80 chips
-            container.querySelectorAll(".tag-chip").forEach((chip) => {
-                if (!query) {
-                    chip.style.display = "";
-                    return;
-                }
-                const translated = chip.textContent.toLowerCase();
-                const original = `${chip.dataset.tag || ""} ${chip.title || ""}`.toLowerCase();
-                chip.style.display = (translated.includes(query) || original.includes(query)) ? "" : "none";
-            });
-            // If query is long enough, inject dynamic chips for non-top-80 matches
-            if (query.length >= 2) {
-                let added = 0;
-                for (const group of allTagGroups) {
-                    if (top80Tags.has(group.key)) continue; // already a static chip
-                    if (!tagGroupMatchesQuery(group, query)) continue;
-                    const tag = group.tag;
-                    const chip = document.createElement("span");
-                    chip.className = "tag-chip dynamic";
-                    chip.textContent = `${group.label} (${fmt(group.count)})`;
-                    chip.title = tagGroupTitle(group);
-                    chip.dataset.tag = tag;
-                    chip.dataset.tagKey = group.key;
-                    // Restore active state if already selected
-                    if (!isExclude && tagSetHasMatch(andTags, tag)) chip.classList.add("active");
-                    if (!isExclude && tagSetHasMatch(orTags, tag)) chip.classList.add("active-or");
-                    if (isExclude && tagSetHasMatch(excludeTags, tag)) chip.classList.add("excluded");
-                    chip.addEventListener("click", () => toggleFn(tag, chip));
-                    container.appendChild(chip);
-                    if (++added >= 50) break;
-                }
-            }
-        });
-    }
-    setupTagSearch(tagSearchInput, tagContainer, false);
-    setupTagSearch(excludeTagSearchInput, excludeTagContainer, true);
 
     // === Event Listeners ===
     let searchTimer;
@@ -7295,33 +7108,6 @@
         tagModeAnd.classList.remove("active");
         tagModeAnd.setAttribute("aria-pressed", "false");
         tagModeOr.setAttribute("aria-pressed", "true");
-    });
-
-    clearTagsBtn.addEventListener("click", () => {
-        andTags.clear();
-        orTags.clear();
-        focusedCard = null;
-        tagSearchInput.value = "";
-        tagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
-        tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-            c.style.display = "";
-            c.classList.remove("active");
-            c.classList.remove("active-or");
-        });
-        updateActiveTagsSummary();
-        applyFilters();
-    });
-
-    clearExcludeBtn.addEventListener("click", () => {
-        excludeTags.clear();
-        excludeTagSearchInput.value = "";
-        excludeTagContainer.querySelectorAll(".tag-chip.dynamic").forEach((c) => c.remove());
-        excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-            c.style.display = "";
-            c.classList.remove("excluded");
-        });
-        updateActiveTagsSummary();
-        applyFilters();
     });
 
     // === DOM ref ===
@@ -8354,7 +8140,6 @@ const worker = new Worker("catalog-worker.js?v=15");
         allNovels = [];
         filtered = [];
         allTagGroups = [];
-        top80Tags.clear();
         lastFilter = null;
         sortedKey = null;
         tagsVersion++;
@@ -8590,40 +8375,13 @@ const worker = new Worker("catalog-worker.js?v=15");
         tagModeAnd.setAttribute("aria-pressed", String(tagMode === "AND"));
         tagModeOr.setAttribute("aria-pressed", String(tagMode === "OR"));
 
-        // Restore AND tags
+        // Restore AND, OR and excluded tags
         andTags.clear();
         orTags.clear();
-        tagContainer.querySelectorAll(".tag-chip.active, .tag-chip.active-or").forEach((c) => {
-            c.classList.remove("active");
-            c.classList.remove("active-or");
-        });
-        if (params.tags) {
-            for (const t of params.tags.split(",")) {
-                andTags.add(t);
-                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (tagsMatch(c.dataset.tag, t)) c.classList.add("active");
-                });
-            }
-        }
-        // Restore OR tags
-        if (params.ortags) {
-            for (const t of params.ortags.split(",")) {
-                orTags.add(t);
-                tagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (tagsMatch(c.dataset.tag, t)) c.classList.add("active-or");
-                });
-            }
-        }
         excludeTags.clear();
-        excludeTagContainer.querySelectorAll(".tag-chip.excluded").forEach((c) => c.classList.remove("excluded"));
-        if (params.xtags) {
-            for (const t of params.xtags.split(",")) {
-                excludeTags.add(t);
-                excludeTagContainer.querySelectorAll(".tag-chip").forEach((c) => {
-                    if (tagsMatch(c.dataset.tag, t)) c.classList.add("excluded");
-                });
-            }
-        }
+        for (const t of params.tags ? params.tags.split(",") : []) andTags.add(t);
+        for (const t of params.ortags ? params.ortags.split(",") : []) orTags.add(t);
+        for (const t of params.xtags ? params.xtags.split(",") : []) excludeTags.add(t);
 
         updateActiveTagsSummary();
         const source = params.src === "all" || SOURCES[params.src] ? params.src : "npia";
