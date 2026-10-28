@@ -23,12 +23,14 @@ from noveldb.core.settings.model import (
     NPIA,
     NPIA_ENGINES,
     OUTPUT_FORMATS,
+    SITE_ENGINES,
     THEMES,
     AppSettings,
     LastInput,
     Secrets,
     SharedOverrides,
     SharedSettings,
+    engine_order,
 )
 
 SCHEMA = 2
@@ -344,6 +346,18 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         zoom=_clamp(_float(c.get("catalog_zoom")), 0.5, 3.0, base.catalog.zoom),
         fill_width=_first_bool(c, "catalog_fill_width", base.catalog.fill_width),
     )
+    eng = base.engines
+    order = _strings(c.get("source_engine_order"))
+    disabled = _strings(c.get("source_engines_off"))
+    engines = replace(
+        eng,
+        order=engine_order(order) if order is not None else eng.order,
+        disabled=tuple(d for d in disabled if d in SITE_ENGINES) if disabled is not None else eng.disabled,
+        nd_auto_update=_first_bool(c, "novel_downloader_auto_update", eng.nd_auto_update),
+        webtoepub_auto_update=_first_bool(c, "webtoepub_auto_update", eng.webtoepub_auto_update),
+    )
+    if not engine_order(engines.order, engines.disabled):
+        engines = replace(engines, disabled=())  # never leave every engine off
     concurrent = _int(c.get("max_concurrent_jobs"))
     queue = replace(base.queue, max_concurrent_jobs=int(_clamp(concurrent, 1, 3, base.queue.max_concurrent_jobs)))
 
@@ -376,7 +390,8 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
 
     return AppSettings(
         shared=shared, overrides=overrides, images=images, text=text, npia=npia_settings,
-        sources=sources, output=output, ui=ui, catalog=catalog, queue=queue, upload=upload, secrets=secrets,
+        sources=sources, output=output, ui=ui, catalog=catalog, engines=engines, queue=queue, upload=upload,
+        secrets=secrets,
         last_input=last,
     )
 
@@ -538,6 +553,10 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["catalog_cart_links"] = s.catalog.cart_links
     c["catalog_zoom"] = s.catalog.zoom
     c["catalog_fill_width"] = s.catalog.fill_width
+    c["source_engine_order"] = list(s.engines.full_order())
+    c["source_engines_off"] = list(s.engines.disabled)
+    c["novel_downloader_auto_update"] = s.engines.nd_auto_update
+    c["webtoepub_auto_update"] = s.engines.webtoepub_auto_update
     c["max_concurrent_jobs"] = s.queue.max_concurrent_jobs
 
     c["upload_auto"] = s.upload.auto_upload

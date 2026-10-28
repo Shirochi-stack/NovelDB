@@ -96,9 +96,37 @@ installed-Chrome profile so its product page, book API, and Cloudflare session
 share one browser identity. If Rbooks requests verification, open the URL with
 **Enter Browser**, complete it, close that window, and retry.
 
+### Site engines and fallback
+
+Each link tries three engines in turn until one finds chapters:
+
+1. **Built-in scrapers**, the app's own code for the sites it knows best.
+2. **novel-downloader rules** (`rules-lib.js`), mostly Chinese and Japanese sites.
+3. **WebToEpub parsers** (`webtoepub/webtoepub-lib.js`), 650+ sites, mostly English translations.
+
+**Settings › Site engines** lets you drag the engines into another order or untick one to skip
+it. When a built-in scraper owns a site, the other two only follow it if they list that site, so
+a clear failure (a DRM-only book, a missing sign-in) is reported without extra browser attempts.
+WebToEpub's generic "every link is a chapter" parser is never used.
+
 ### Updating Rules
 
-The site-specific scraping rules are compiled from the upstream [novel-downloader](https://github.com/404-novel-project/novel-downloader) project. To update to the latest rules, run `update_rules.bat` in the project root. This clones/pulls the upstream repo, applies a bridge-mode patch, builds via webpack, and copies the output as `rules-lib.js`.
+Both rule engines ship with the app. They can also update themselves: tick **Update the
+novel-downloader rules automatically** or **Update the WebToEpub parsers automatically** in
+Settings › Site engines (both are off by default). The app then checks once a day for a newer
+build in this repository's [`engines` release](https://github.com/Shirochi-stack/NovelDB/releases/tag/engines),
+which the **Engine Updates** workflow rebuilds daily from the official repositories and only
+publishes after the bundle loads in Chromium. Downloads are checked against their SHA-256, and a
+build that fails to load in the app is set aside for the shipped copy.
+
+To rebuild the shipped copies yourself:
+
+- `update_rules.bat` (or `python scripts/update_nd_rules.py --validate`) clones novel-downloader,
+  applies the bridge-mode patch, builds it with webpack and writes `rules-lib.js`. Needs git,
+  Node.js and npm.
+- `python scripts/update_webtoepub.py --validate` packs WebToEpub's parsers into
+  `webtoepub/webtoepub-lib.js`, between `scripts/webtoepub/prefix.js` (extension API stand-ins
+  and the network transport) and `scripts/webtoepub/bridge.js` (the app's entry points).
 
 
 ## 💻 Desktop Downloads
@@ -234,6 +262,7 @@ This project is a fork of CjangCjengh's NpiaDownloader and is intended for perso
 ### Credits
 
 - **[novel-downloader](https://github.com/404-novel-project/novel-downloader)** by [404-novel-project](https://github.com/404-novel-project) — Powers the external novel download feature with support for 100+ sites.
+- **[WebToEpub](https://github.com/dteviot/WebToEpub)** by David Teviotdale and contributors (GPL-3.0) — Its site parsers are the third site engine; the bundle and its licence are in `webtoepub/`.
 - **[NTKDownloader](https://github.com/tyuop077/NTKDownloader/tree/main)** by [tyuop077](https://github.com/tyuop077) — Reference implementation for the NewToki `curl_cffi` Chrome impersonation, `nv` issue flow, HMAC-signed `/api/novel-content` requests, and payload decryption approach used by this project.
 - **Razure** — Contributed the `rbooks-dl` Chrome extension whose episode discovery, metadata, viewer cleanup, paywall detection, and image handling power the native Rbooks external scraper.
 - **[CjangCjengh/NpiaDownloader](https://github.com/CjangCjengh/NpiaDownloader)** — Original Npia downloader this project is forked from.

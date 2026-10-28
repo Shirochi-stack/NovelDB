@@ -48,6 +48,8 @@ concurrency:
 
 jobs:
   desktop:
+    # The engines release only hosts rule-engine updates.
+    if: github.event_name != 'release' || github.event.release.tag_name != 'engines'
     uses: ./.github/workflows/desktop-build.yml
     with:
       os: linux
