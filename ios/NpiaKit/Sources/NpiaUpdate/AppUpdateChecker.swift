@@ -111,7 +111,7 @@ public actor AppUpdateChecker {
 
     /// True when no check has been recorded yet, a day has passed since the last one, or the
     /// clock was set back past it.
-    public static func isDue(last: Date?, now: Date, every interval: TimeInterval = checkInterval) -> Bool {
+    public static func isDue(last: Date?, now: Date, every interval: TimeInterval = AppUpdateChecker.checkInterval) -> Bool {
         guard let last else { return true }
         let elapsed = now.timeIntervalSince(last)
         return elapsed < 0 || elapsed >= interval
