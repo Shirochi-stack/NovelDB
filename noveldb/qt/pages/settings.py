@@ -589,6 +589,7 @@ def images_form(context: AppContext, panel: bool = False) -> Form:
 def text_form(context: AppContext) -> Form:
     f = Form(context, "Text and PDF")
     f.add_section("Text")
+    f.check("Separate TXT files (one file per chapter, in a folder per book)", "shared.separate_txt")
     f.check("Strip leading spaces", "text.strip_leading_spaces")
     f.check("Remove line breaks inside paragraphs", "text.remove_newlines")
     f.check("Blank line between paragraphs", "text.blank_paragraph_lines")
