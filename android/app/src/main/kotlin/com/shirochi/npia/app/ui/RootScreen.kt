@@ -135,6 +135,7 @@ fun RootScreen(model: AppViewModel) {
                 is Route.OverrideForm -> OverrideFormScreen(model, route.source)
                 Route.SourceOptions -> SourceOptionsScreen(model)
                 Route.Engines -> EngineSettingsScreen(model)
+                Route.AppUpdates -> AppUpdatesScreen(model)
                 Route.Npia -> NpiaSettingsScreen(model)
                 Route.TagSearch -> TagSearchScreen(model)
                 Route.Images -> ImageSettingsScreen(model)
@@ -150,6 +151,7 @@ fun RootScreen(model: AppViewModel) {
         }
     }
     SignInPrompt()
+    AppUpdateDialog(model)
     model.pendingUpload?.let { upload ->
         ShareAgreementDialog(
             onAgree = {

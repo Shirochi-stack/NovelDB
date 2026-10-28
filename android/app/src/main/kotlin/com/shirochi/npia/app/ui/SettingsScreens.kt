@@ -22,6 +22,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -46,7 +47,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.shirochi.npia.app.AppUpdateState
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.BuildConfig
+import com.shirochi.npia.app.FileActions
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
 import com.shirochi.npia.app.NOVELDB_NEXT_URL
 import com.shirochi.npia.app.validCatalogUrl
@@ -80,6 +84,7 @@ private fun settingsState(model: AppViewModel): Pair<AppSettings, ((AppSettings)
 
 @Composable
 fun SettingsScreen(model: AppViewModel) {
+    val update by model.manager.appUpdater.state.collectAsStateWithLifecycle()
     SettingsColumn {
         SectionHeader("Downloads")
         NavRow("General", "Format, chapter range, threads, rate limiting, cache") { model.push(Route.General) }
@@ -94,6 +99,9 @@ fun SettingsScreen(model: AppViewModel) {
         SectionHeader("Sharing")
         NavRow("Upload", "Hosts and automatic upload") { model.push(Route.Upload) }
         SectionHeader("App")
+        NavRow("App updates", (update as? AppUpdateState.Available)?.let { "Update available: ${it.offer.version}" } ?: model.manager.appUpdater.build.statusLine) {
+            model.push(Route.AppUpdates)
+        }
         NavRow("Appearance", "Theme and accent colour") { model.push(Route.Appearance) }
         NavRow("Catalog site", "The website shown in the Catalog tab") { model.push(Route.CatalogSite) }
         NavRow("Screen and background") { model.push(Route.Background) }
@@ -291,6 +299,103 @@ fun EngineSettingsScreen(model: AppViewModel) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
+    }
+}
+
+// App updates
+
+@Composable
+fun AppUpdatesScreen(model: AppViewModel) {
+    val (settings, update) = settingsState(model)
+    val manager = model.manager
+    val updater = manager.appUpdater
+    val state by updater.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val build = updater.build
+    val busy = state is AppUpdateState.Checking || state is AppUpdateState.Downloading || state is AppUpdateState.Installing
+    SettingsColumn {
+        SectionHeader("This app")
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Text("Version in use", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(build.statusLine)
+        }
+
+        SectionHeader("Updates")
+        SwitchRow(
+            "Check for app updates automatically",
+            settings.appUpdateCheck,
+            { v -> update { it.copy(appUpdateCheck = v) } },
+            subtitle = "Once a day, when NovelDB starts or comes back to the foreground. Nothing is downloaded or installed until you tap Update.",
+        )
+        TextButton(
+            onClick = { updater.checkNow() },
+            enabled = !busy && !build.isDevelopment,
+            modifier = Modifier.padding(start = 8.dp),
+        ) { Text(if (state is AppUpdateState.Checking) "Checking…" else "Check for app updates now") }
+        if (build.isDevelopment) {
+            Footnote("Only builds made by the release workflow can update themselves. This one was made locally or for testing.")
+        }
+        when (val s = state) {
+            AppUpdateState.Idle, AppUpdateState.Checking -> Unit
+            is AppUpdateState.Message -> Footnote(s.text)
+            is AppUpdateState.Available -> {
+                Footnote("${s.offer.title} (${formatMegabytes(s.offer.asset.size)}).")
+                Row(Modifier.padding(start = 8.dp)) {
+                    TextButton(onClick = { updater.startUpdate() }) { Text("Update") }
+                    TextButton(onClick = { FileActions.openUrl(context, s.offer.releaseUrl) }) { Text("Release notes") }
+                }
+            }
+            is AppUpdateState.NeedsPermission -> {
+                Footnote("${s.offer.title}. Android needs your permission before NovelDB can install it.")
+                Row(Modifier.padding(start = 8.dp)) {
+                    TextButton(onClick = { updater.openInstallSettings(context) }) { Text("Open settings") }
+                    TextButton(onClick = { updater.dismissNotice() }) { Text("Cancel") }
+                }
+            }
+            is AppUpdateState.Downloading -> {
+                Footnote("Downloading ${s.offer.version}: ${formatMegabytes(s.received)} of ${formatMegabytes(s.total)}")
+                LinearProgressIndicator(
+                    progress = { if (s.total > 0) (s.received.toFloat() / s.total).coerceIn(0f, 1f) else 0f },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                TextButton(onClick = { updater.cancel() }, modifier = Modifier.padding(start = 8.dp)) { Text("Cancel") }
+            }
+            is AppUpdateState.Installing -> Footnote("Waiting for Android to install ${s.offer.version}. NovelDB closes when it is installed; open it again afterwards.")
+            is AppUpdateState.Failed -> {
+                Footnote(s.text)
+                TextButton(onClick = { updater.startUpdate() }, modifier = Modifier.padding(start = 8.dp)) { Text("Try again") }
+            }
+        }
+        Footnote(
+            "Updates come from NovelDB's GitHub releases. The downloaded file must match the size and SHA-256 in the release's manifest, " +
+                "and Android installs it only if it is signed with the same key as this app.",
+        )
+
+        if (BuildConfig.DEBUG) {
+            SectionHeader("Debug build")
+            var address by remember { mutableStateOf(manager.preferences.updateBaseOverride) }
+            OutlinedTextField(
+                value = address,
+                onValueChange = { address = it },
+                label = { Text("Update server (releases address)") },
+                placeholder = { Text("http://10.0.2.2:8000") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { manager.preferences.updateBaseOverride = address }),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            Row(Modifier.padding(horizontal = 8.dp)) {
+                TextButton(onClick = { manager.preferences.updateBaseOverride = address }) { Text("Save") }
+                TextButton(onClick = {
+                    address = ""
+                    manager.preferences.updateBaseOverride = ""
+                }) { Text("Use GitHub") }
+            }
+            Footnote(
+                "Only in debug builds. The manifest is read from <address>/latest/download/update-android.json and the file from " +
+                    "<address>/download/<tag>/<name>. Plain http works for 10.0.2.2, localhost and 127.0.0.1.",
+            )
+        }
     }
 }
 
