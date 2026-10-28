@@ -113,6 +113,42 @@ def test_download_queues_the_links_above_and_the_link_cart(window, context):
     assert not page.download.isEnabled()
 
 
+def test_a_saved_screen_sized_window_starts_maximised_with_room_to_restore(context, qtbot):
+    # A normal window saved as big as the screen looked maximised, and its restore button did nothing.
+    from noveldb.qt.main_window import GEOMETRY_VERSION, MainWindow
+
+    first = MainWindow(context)
+    qtbot.addWidget(first)
+    first.setGeometry(first.screen().availableGeometry())
+    saved = GEOMETRY_VERSION + bytes(first.saveGeometry().toBase64()).decode("ascii")
+    context.update_settings(lambda s: replace(s, ui=replace(s.ui, window_geometry=saved)))
+    second = MainWindow(context)
+    qtbot.addWidget(second)
+    assert second._start_maximized
+    assert not second._fills_screen(second.normalGeometry())
+
+
+def test_restoring_to_a_screen_sized_window_uses_the_default_size(window, qtbot):
+    window.show()
+    window.setGeometry(window.screen().availableGeometry())
+    window.showMaximized()
+    qtbot.waitUntil(window.isMaximized, timeout=3000)
+    window.showNormal()
+    qtbot.waitUntil(lambda: not window.isMaximized() and not window._fills_screen(window.geometry()), timeout=3000)
+
+
+def test_f11_toggles_full_screen_and_back(window, qtbot):
+    from PySide6.QtGui import QShortcut
+
+    assert "F11" in [shortcut.key().toString() for shortcut in window.findChildren(QShortcut)]
+    window.showMaximized()
+    qtbot.waitUntil(window.isMaximized, timeout=3000)
+    window.toggle_full_screen()
+    qtbot.waitUntil(window.isFullScreen, timeout=3000)
+    window.toggle_full_screen()
+    qtbot.waitUntil(lambda: window.isMaximized() and not window.isFullScreen(), timeout=3000)
+
+
 def test_download_sits_on_the_first_button_row_before_the_cart(window, qtbot):
     window.resize(1500, 900)
     window.show()
