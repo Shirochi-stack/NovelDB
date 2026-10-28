@@ -22,6 +22,31 @@ private final class UploadStatusRelay: @unchecked Sendable {
         self.onPhase = onPhase
     }
 
+    func handle(_ event: UploadBatchEvent) {
+        switch event {
+        case .starting(let index, let total, let name):
+            if total > 1 { logger.log(.info, "Upload \(index) of \(total): \(name)") }
+            update("\(name)")
+        case .preparing(let zip, let total, let name):
+            logger.log(.info, "Preparing ZIP \(zip) of \(total): \(name)")
+            update("Preparing ZIP \(zip) of \(total)")
+        case .host(let hostEvent):
+            handle(hostEvent)
+        case .uploaded(let result):
+            logger.log(.info, "Uploaded \(result.summary): \(result.link.absoluteString)")
+        case .failed(let name, let message):
+            logger.log(.warning, "Upload of \(name) failed: \(message)")
+        }
+    }
+
+    private func update(_ text: String) {
+        lock.lock()
+        let changed = text != lastText
+        lastText = text
+        lock.unlock()
+        if changed { onPhase(.uploading(text)) }
+    }
+
     func handle(_ event: UploadEvent) {
         let text: String
         switch event {
@@ -80,7 +105,8 @@ public struct DownloadPipeline: Sendable {
     public func run(url: URL, settings: AppSettings, http: (any HTTPFetching)? = nil, onPhase: @escaping @Sendable (JobPhase) -> Void = { _ in }) async throws -> JobOutcome {
         guard SiteEngineRouter.canTry(url, engines: settings.engines) else { throw SourceError.unsupportedURL(url) }
         // The retry count is the same for every source, so the client does not depend on which engine reads the book.
-        let client = http ?? URLSessionHTTPClient(settings: settings.shared)
+        let client = http ?? URLSessionHTTPClient(settings: settings.shared, logger: logger)
+        let started = Date()
         let context = SourceContext(http: client, web: web, secrets: secrets, settings: settings, logger: logger)
 
         // The site engines (built-in scraper, novel-downloader rules, WebToEpub) are tried in the
@@ -99,6 +125,8 @@ public struct DownloadPipeline: Sendable {
         let source = type(of: adapter).id
         let shared = settings.effective(for: source)
         logger.log(.info, "\(book.title): \(book.chapters.count) chapters")
+        logger.log(.info, "Source \(source.rawValue) read through \(opened.engine.title); formats \(shared.formats.map { $0.rawValue }.joined(separator: ", "))")
+        logger.log(.debug, "Settings: \(shared.threads) threads, \(shared.intervalMin)-\(shared.intervalMax) s between requests, range \(shared.rangeFrom.map(String.init) ?? "start")-\(shared.rangeTo.map(String.init) ?? "end"), skip paid \(shared.skipPaid)")
 
         var selected = Self.select(book.chapters, shared: shared)
         if source == .npia, settings.npia.includeNotices {
@@ -116,12 +144,14 @@ public struct DownloadPipeline: Sendable {
             }
         }
         onPhase(.fetchingChapters(done: chapters.count, total: selected.count))
+        logger.log(skipped.isEmpty ? .info : .warning, "Read \(chapters.count) of \(selected.count) chapters" + (skipped.isEmpty ? "" : ", \(skipped.count) skipped"))
 
         let processor = ImageProcessor(settings: settings.images)
         let stage = ImageStage(http: client, settings: settings, source: source, logger: logger)
         let imageOutput = try await stage.run(chapters) { done, total in
             onPhase(.downloadingImages(done: done, total: total))
         }
+        logger.log(.info, "Images: \(imageOutput.images.count) ready" + (imageOutput.failed > 0 ? ", \(imageOutput.failed) failed" : ""))
         if imageOutput.failed > 0 {
             logger.log(.warning, "\(imageOutput.failed) images could not be downloaded")
         }
@@ -155,23 +185,34 @@ public struct DownloadPipeline: Sendable {
                 file = try await shrink(file, bundle: bundle, writer: writer, baseName: baseName, targetBytes: Int(targetMB * 1_048_576))
             }
             files.append(file)
+            let bytes = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            logger.log(.info, "Wrote \(file.lastPathComponent) (\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)))")
         }
 
         var uploads: [UploadResult] = []
-        if settings.upload.autoUpload {
-            for file in files {
-                onPhase(.uploading(file.lastPathComponent))
-                let status = UploadStatusRelay(name: file.lastPathComponent, logger: logger, onPhase: onPhase)
-                do {
-                    uploads.append(try await UploaderCatalog.upload(
-                        file, settings: settings.upload, nameID: UploadNaming.sanitizedID(book.id), events: { status.handle($0) }
-                    ))
-                } catch {
-                    logger.log(.warning, "Upload failed for \(file.lastPathComponent): \(error.localizedDescription)")
+        if settings.upload.autoUpload, !files.isEmpty {
+            // The nameID is the stand-in name (`<source>_<book id>`) for a title with nothing
+            // usable in ASCII; the files of one job are bundled like any other upload.
+            let nameID = UploadNaming.nameID(source: source.rawValue, bookID: book.id, url: url)
+            let items = files.map { UploadItem(file: $0, title: book.title, nameID: nameID) }
+            let label = files.count == 1 ? files[0].lastPathComponent : "\(files.count) files"
+            onPhase(.uploading(label))
+            logger.log(.info, "Uploading \(label)")
+            let status = UploadStatusRelay(name: label, logger: logger, onPhase: onPhase)
+            do {
+                let outcome = try await UploaderCatalog.uploadBatch(items, settings: settings.upload, events: { status.handle($0) })
+                uploads = outcome.uploads
+                if outcome.uploads.isEmpty {
+                    logger.log(.warning, "Upload failed for \(label)")
                 }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                logger.log(.warning, "Upload failed for \(label): \(error.localizedDescription)")
             }
         }
 
+        logger.log(.info, "Finished in " + String(format: "%.1f", Date().timeIntervalSince(started)) + " s")
         onPhase(.finished)
         return JobOutcome(book: book, files: files, uploads: uploads, skipped: skipped)
     }

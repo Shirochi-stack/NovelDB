@@ -33,18 +33,22 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
     private let pacer: RequestPacer?
     private let maxRetries: Int
     private let userAgent: String
+    private let logger: (any JobLogging)?
 
-    public init(session: URLSession = .shared, pacer: RequestPacer? = nil, maxRetries: Int = 3, userAgent: String = URLSessionHTTPClient.defaultUserAgent) {
+    /// `logger` receives every retry and every request that ends in an error, so the job log
+    /// shows why a page was slow or missing.
+    public init(session: URLSession = .shared, pacer: RequestPacer? = nil, maxRetries: Int = 3, userAgent: String = URLSessionHTTPClient.defaultUserAgent, logger: (any JobLogging)? = nil) {
         self.session = session
         self.pacer = pacer
         self.maxRetries = max(0, maxRetries)
         self.userAgent = userAgent
+        self.logger = logger
     }
 
     /// Retries follow `maxRetries`. The chapter delay is not applied here: like the desktop
     /// scraper, each chapter worker sleeps `SharedSettings.chapterDelay()` after a chapter.
-    public convenience init(settings: SharedSettings) {
-        self.init(maxRetries: settings.maxRetries)
+    public convenience init(settings: SharedSettings, logger: (any JobLogging)? = nil) {
+        self.init(maxRetries: settings.maxRetries, logger: logger)
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -56,6 +60,7 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
             urlRequest.setValue(value, forHTTPHeaderField: name)
         }
 
+        let label = Self.label(request)
         var attempt = 0
         while true {
             try Task.checkCancellation()
@@ -67,8 +72,14 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
                 }
                 if Self.isRetryable(http.statusCode), attempt < maxRetries {
                     attempt += 1
-                    try await backoff(attempt)
+                    try await backoff(attempt, because: "HTTP \(http.statusCode) for \(label)")
                     continue
+                }
+                if http.statusCode >= 400 {
+                    // A 404 is often an answer the adapter expects (a missing image, a probe), so
+                    // only a server that kept failing is a warning.
+                    let level: LogLevel = Self.isRetryable(http.statusCode) ? .warning : .debug
+                    logger?.log(level, "HTTP \(http.statusCode) for \(label)" + (attempt > 0 ? " after \(attempt) retries" : ""))
                 }
                 var headers: [String: String] = [:]
                 for (key, value) in http.allHeaderFields {
@@ -77,9 +88,18 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
                 return HTTPResponse(url: http.url ?? request.url, status: http.statusCode, headers: headers, body: data)
             } catch let error as URLError where attempt < maxRetries && Self.isRetryable(error) {
                 attempt += 1
-                try await backoff(attempt)
+                try await backoff(attempt, because: "\(label) failed: \(error.localizedDescription)")
+            } catch let error as URLError where error.code != .cancelled {
+                logger?.log(.warning, "\(label) failed: \(error.localizedDescription)" + (attempt > 0 ? " after \(attempt) retries" : ""))
+                throw error
             }
         }
+    }
+
+    /// "GET host/path": no query string, which can carry keys.
+    static func label(_ request: HTTPRequest) -> String {
+        let path = request.url.path.isEmpty ? "/" : request.url.path
+        return "\(request.method) \(request.url.host ?? "")\(path)"
     }
 
     static func isRetryable(_ status: Int) -> Bool {
@@ -90,8 +110,9 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
         [.timedOut, .networkConnectionLost, .cannotConnectToHost, .notConnectedToInternet, .dnsLookupFailed].contains(error.code)
     }
 
-    private func backoff(_ attempt: Int) async throws {
+    private func backoff(_ attempt: Int, because reason: String) async throws {
         let seconds = min(30.0, pow(2.0, Double(attempt - 1))) + Double.random(in: 0...0.5)
+        logger?.log(.warning, "\(reason); retry \(attempt) of \(maxRetries) in \(String(format: "%.1f", seconds)) s")
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 }

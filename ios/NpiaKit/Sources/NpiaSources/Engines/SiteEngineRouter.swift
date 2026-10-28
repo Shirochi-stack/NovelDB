@@ -102,8 +102,12 @@ public enum SiteEngineRouter {
         for (position, engine) in steps.enumerated() {
             try Task.checkCancellation()
             do {
+                log("Trying \(engine.title)")
                 let opened = try await attempt(engine)
-                if !opened.book.chapters.isEmpty { return opened }
+                if !opened.book.chapters.isEmpty {
+                    log("\(engine.title) found \(opened.book.chapters.count) chapters")
+                    return opened
+                }
                 if fallback == nil { fallback = opened }
             } catch is CancellationError {
                 throw CancellationError()
