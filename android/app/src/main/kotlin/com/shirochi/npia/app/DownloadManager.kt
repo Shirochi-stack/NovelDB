@@ -20,6 +20,7 @@ import com.shirochi.npia.core.NullLogger
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SettingsCoding
+import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.UploadSettings
@@ -34,6 +35,11 @@ import com.shirochi.npia.sources.engines.RuleEngines
 import com.shirochi.npia.sources.engines.UpdateResult
 import com.shirochi.npia.sources.npia.NpiaAuth
 import com.shirochi.npia.sources.npia.NpiaCookieSetting
+import com.shirochi.npia.sources.session.HardSessions
+import com.shirochi.npia.sources.session.SessionSite
+import com.shirochi.npia.sources.session.SessionStatus
+import com.shirochi.npia.sources.session.SiteSessions
+import com.shirochi.npia.sources.sfc.SfcAdapter
 import com.shirochi.npia.upload.UploadContext
 import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploaderCatalog
@@ -259,7 +265,7 @@ class DownloadManager(private val app: Application) {
     fun enqueue(urls: List<String>, settingsFor: (SourceId?) -> AppSettings) {
         val added = urls.map { url ->
             val source = SourceCatalog.adapterFor(url)?.id
-            JobItem(url = url, source = source, settings = settingsFor(source))
+            JobItem(url = SourceCatalog.canonicalUrl(url), source = source, settings = settingsFor(source))
         }
         _jobs.update { added + it }
         persistJobs()
@@ -324,7 +330,7 @@ class DownloadManager(private val app: Application) {
         val pipeline = DownloadPipeline(
             secrets = secrets,
             outputDirectory = outputDirectory,
-            web = web,
+            web = SnapshotAfterSignIn(web) { snapshotSessions() },
             images = AndroidImageProcessor(job.settings.images),
             logger = logger,
             // Shares cookies with the web engine, so web-view logins apply to HTTP requests.
@@ -432,6 +438,97 @@ class DownloadManager(private val app: Application) {
             }
             message(if (signedIn) "Signed in to npia" else "npia sign-in failed — check the email and password")
         }
+    }
+
+    // Enter App: sfc, qdn and rbooks sessions
+
+    /** Saved copies of the browser-session logins (qdn, rbooks); see `SiteSessions`. */
+    val sessions: SiteSessions by lazy {
+        web // installs the cookie store the sessions read
+        SiteSessions(secrets)
+    }
+
+    private val _sessionVersion = MutableStateFlow(0)
+    /** Bumped when a sign-in or sign-out ends, so the Enter App screen re-reads the sessions. */
+    val sessionVersion: StateFlow<Int> = _sessionVersion.asStateFlow()
+
+    private val _sfcWorking = MutableStateFlow(false)
+    val sfcWorking: StateFlow<Boolean> = _sfcWorking.asStateFlow()
+
+    init {
+        // A session cookie the web view dropped when the app was killed comes back from the saved copy.
+        scope.launch { HardSessions.all.forEach { sessions.restoreOnce(it) } }
+    }
+
+    fun siteStatus(site: SessionSite): SessionStatus = sessions.status(site)
+
+    /** Copies the current logins to the saved copies, so a restart cannot lose session cookies. */
+    fun snapshotSessions() {
+        HardSessions.all.forEach { sessions.snapshot(it) }
+        _sessionVersion.update { it + 1 }
+    }
+
+    /** Opens the site's sign-in page in the app's own browser; the cookies are the ones downloads use. */
+    fun signInToSite(site: SessionSite) {
+        scope.launch {
+            try {
+                web.presentLogin(site.signInUrl, site.source.raw)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Closed without finishing: keep whatever login is there.
+            } finally {
+                sessions.snapshot(site)
+                _sessionVersion.update { it + 1 }
+            }
+        }
+    }
+
+    fun signOutOfSite(site: SessionSite) {
+        sessions.signOut(site)
+        scope.launch { web.flushCookies() }
+        _sessionVersion.update { it + 1 }
+        message("Signed out of ${site.source.raw}")
+    }
+
+    /** The Browser tab signed out of `host` (or of everything when null): the saved copies must go too. */
+    fun forgetSessionsFor(host: String?) {
+        (if (host == null) HardSessions.all else HardSessions.forHost(host)).forEach { sessions.forgetSavedCopy(it) }
+        _sessionVersion.update { it + 1 }
+    }
+
+    fun sfcSignedIn(): Boolean = SfcAdapter.hasAppSession(secrets)
+
+    /** Signs in to the sfc app API; the session cookie is kept in encrypted storage. */
+    fun signInToSfc(username: String, password: String) {
+        if (!_sfcWorking.compareAndSet(false, true)) return
+        scope.launch {
+            val ok = try {
+                SfcAdapter.login(username, password, sourceContext().http, secrets)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            } finally {
+                _sfcWorking.value = false
+                _sessionVersion.update { it + 1 }
+            }
+            message(if (ok) "Signed in to sfc" else "sfc sign-in failed: check the username and password")
+        }
+    }
+
+    /** Saves a cookie header copied from the sfc app (it must hold `session_APP`). */
+    fun saveSfcCookie(cookie: String): Boolean {
+        val ok = SfcAdapter.saveAppCookie(cookie, secrets)
+        _sessionVersion.update { it + 1 }
+        message(if (ok) "sfc app cookie saved" else "That cookie has no session_APP")
+        return ok
+    }
+
+    fun signOutOfSfc() {
+        SfcAdapter.signOut(secrets)
+        _sessionVersion.update { it + 1 }
+        message("Signed out of sfc")
     }
 
     // Uploads
@@ -605,6 +702,17 @@ class DownloadManager(private val app: Application) {
         fun copyToClipboard(context: Context, text: String) {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("link", text))
+        }
+    }
+}
+
+/** The web engine the pipeline gets: after a sign-in browser closes, the new login is copied to its saved copy. */
+private class SnapshotAfterSignIn(private val inner: WebEngineProviding, private val after: () -> Unit) : WebEngineProviding by inner {
+    override suspend fun presentLogin(url: String, profile: String) {
+        try {
+            inner.presentLogin(url, profile)
+        } finally {
+            after()
         }
     }
 }

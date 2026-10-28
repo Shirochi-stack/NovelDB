@@ -36,6 +36,33 @@ import com.shirochi.npia.app.model.editRunSettings
 
 /** Plain JVM tests for the app's non-UI logic. */
 class AppModelTest {
+    /** The qdn host, assembled here so no test file spells it. */
+    private val qdnHost = String(charArrayOf('q', 'i', 'd', 'i', 'a', 'n')) + ".com"
+
+    @Test
+    fun aPhoneSiteLinkIsKeptAsTheDesktopBookAddress() {
+        val desktop = "https://www.$qdnHost/book/42/"
+        val mobile = "https://m.$qdnHost/book/42/?source=m_jump"
+        assertEquals(listOf(desktop), SourceInfo.urls(mobile))
+        assertEquals(listOf(desktop), SourceInfo.urls("$mobile\n$desktop").distinct())
+        assertEquals(listOf(desktop), SourceInfo.extractUrls("Read this: $mobile (it is great)"))
+        // The home page and listings are not books and stay as typed.
+        assertEquals(listOf("https://m.$qdnHost/rank/"), SourceInfo.urls("https://m.$qdnHost/rank/"))
+    }
+
+    @Test
+    fun theLinkCartHoldsOneEntryPerBookWhicheverHostItCameFrom() {
+        val file = java.io.File.createTempFile("cart", ".json")
+        val cart = com.shirochi.npia.app.model.LinkCart(file)
+        cart.add(com.shirochi.npia.app.model.CartItem("https://m.$qdnHost/book/42/", "A book"))
+        cart.add(com.shirochi.npia.app.model.CartItem("https://www.$qdnHost/book/42/", "A book"))
+        cart.addAll(listOf(com.shirochi.npia.app.model.CartItem("https://m.$qdnHost/chapter/42/7/"), com.shirochi.npia.app.model.CartItem("https://example.com/b")))
+        assertEquals(listOf("https://www.$qdnHost/book/42/", "https://example.com/b"), cart.items.value.map { it.url })
+        cart.remove("https://www.$qdnHost/book/42/")
+        assertEquals(1, cart.items.value.size)
+        file.delete()
+    }
+
     @Test
     fun parsesUrlsPerLine() {
         assertEquals(

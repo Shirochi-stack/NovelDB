@@ -156,7 +156,7 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
     val sourceUrl = pageUrl?.let { BrowserTranslate.originalUrl(it) ?: it }
     val onCopy = pageUrl?.let(BrowserTranslate::isTranslatedCopy) == true
     val downloadable = sourceUrl != null && remember(sourceUrl, engines) { SourceCatalog.downloadablePage(sourceUrl, engines) }
-    val inCart = sourceUrl != null && cart.any { it.url == sourceUrl }
+    val inCart = sourceUrl != null && model.cart.contains(cart, sourceUrl)
 
     // While Translate is on, ask the page how it is going until it has translated or gives up.
     LaunchedEffect(translating, translateRun) {
@@ -364,6 +364,7 @@ fun SitesScreen(model: AppViewModel) {
                 trailingContent = {
                     TextButton(onClick = {
                         SiteCookies.signOut(host)
+                        model.manager.forgetSessionsFor(host)
                         refresh++
                     }) { Text("Sign out") }
                 },
@@ -388,6 +389,7 @@ fun SitesScreen(model: AppViewModel) {
                     confirmAll = false
                     scope.launch {
                         SiteCookies.signOutAll()
+                        model.manager.forgetSessionsFor(null)
                         refresh++
                     }
                 }) { Text("Sign out") }

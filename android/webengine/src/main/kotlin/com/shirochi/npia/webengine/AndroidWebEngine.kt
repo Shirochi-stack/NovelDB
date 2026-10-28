@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
@@ -103,6 +104,9 @@ class AndroidWebEngine(
 internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
     private var pending: CompletableDeferred<Unit>? = null
     private var navigationToken = 0
+
+    /** Set by `emulateDesktop`; applied again before every load so even the process's first page gets it. */
+    private var initialScale = 0
     private var waitFor = WebLoadState.LOAD
     private val fallbackInitScripts = mutableListOf<String>()
     private val results = ConcurrentHashMap<String, CompletableDeferred<Result<String>>>()
@@ -202,6 +206,7 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
             navigationToken++
             waitFor = until
             webView.settings.allowFileAccess = url.startsWith("file:")
+            if (initialScale > 0) webView.setInitialScale(initialScale)
             webView.loadUrl(url)
         }
         try {
@@ -245,6 +250,35 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
         transportScript = script
         addInitScript(script)
         evaluate(script)
+    }
+
+    override suspend fun emulateDesktop(userAgent: String?, width: Int, height: Int) = withContext(Dispatchers.Main) {
+        if (userAgent != null) webView.settings.userAgentString = userAgent
+        // The layout viewport is the view's size in CSS pixels: scale the view by the screen density.
+        val density = webView.resources.displayMetrics.density
+        val pixelWidth = (width * density).toInt().coerceAtLeast(1)
+        val pixelHeight = (height * density).toInt().coerceAtLeast(1)
+        // Without a wide viewport the layout viewport follows the view's size, whatever the page's viewport tag says;
+        // an initial scale of one CSS pixel per `density` device pixels makes that size exactly `width` x `height`.
+        webView.settings.useWideViewPort = false
+        webView.settings.loadWithOverviewMode = false
+        initialScale = (density * 100).toInt()
+        webView.setInitialScale(initialScale)
+        resize(pixelWidth, pixelHeight)
+    }
+
+    private fun resize(widthPx: Int, heightPx: Int) {
+        webView.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY),
+        )
+        if (webView.parent != null) {
+            // The hidden host is the activity's FrameLayout, whose children need margin-capable params.
+            webView.layoutParams = FrameLayout.LayoutParams(widthPx, heightPx)
+            webView.requestLayout()
+        } else {
+            webView.layout(0, 0, widthPx, heightPx)
+        }
     }
 
     override suspend fun currentUrl(): String? = withContext(Dispatchers.Main) { webView.url }

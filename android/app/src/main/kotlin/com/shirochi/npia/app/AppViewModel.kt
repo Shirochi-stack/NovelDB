@@ -21,6 +21,7 @@ sealed class Route(val title: String) {
     data object Engines : Route("Site engines")
     data object AppUpdates : Route("App updates")
     data object Npia : Route("npia login")
+    data object EnterApp : Route("Enter App")
     data object TagSearch : Route("Tag search")
     data object Images : Route("Images")
     data object Text : Route("Text and PDF")

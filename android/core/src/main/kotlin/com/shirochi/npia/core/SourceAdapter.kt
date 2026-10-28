@@ -45,6 +45,13 @@ interface SourceAdapter {
     /** True when `host` (lower case, no port) belongs to one of this adapter's sites. */
     fun ownsSite(host: String): Boolean = sites.any { host == it || host.endsWith(".$it") }
 
+    /**
+     * The address a matching link is read (and kept in the queue and link cart) under. Sites that serve
+     * the same book from several hosts, such as a phone site next to the desktop one, answer with one
+     * of them so a link found in the Browser tab downloads like any other. The default keeps the link.
+     */
+    fun canonicalUrl(url: String): String = url
+
     suspend fun parseBook(url: String, context: SourceContext): BookInfo
 
     suspend fun parseChapter(ref: ChapterRef, book: BookInfo, context: SourceContext): ChapterResult

@@ -19,9 +19,9 @@ class SourceCatalogPagesTest {
     @Test
     fun builtInScrapersListTheirSites() {
         val withSites = SourceCatalog.adapters.filter { it.sites.isNotEmpty() }.map { it.id }.toSet()
-        // The hard sources (mpia, rbooks, ntk, qdn) are not ported on this branch and have no sites yet;
-        // maru is recognised by a name pattern (ownsSite), not a fixed list.
-        val unported = setOf(SourceId.MPIA, SourceId.RBOOKS, SourceId.NTK, SourceId.QDN, SourceId.READER, SourceId.MARU)
+        // mpia and ntk are not ported yet and have no sites; maru is recognised by a name pattern
+        // (ownsSite), not a fixed list.
+        val unported = setOf(SourceId.MPIA, SourceId.NTK, SourceId.READER, SourceId.MARU)
         assertEquals(SourceId.entries.toSet() - unported, withSites)
         SourceCatalog.adapters.flatMap { it.sites }.forEach { host ->
             assertEquals(host.lowercase(), host)
@@ -84,7 +84,11 @@ class SourceCatalogPagesTest {
         assertTrue(SourceCatalog.downloadablePage(book, defaults))
         assertFalse(SourceCatalog.downloadablePage(book, off(SiteEngine.NOVEL_DOWNLOADER)))
         assertTrue(SourceCatalog.downloadablePage(book, off(SiteEngine.NATIVE, SiteEngine.WEBTOEPUB)))
-        assertFalse(SourceCatalog.supportedSite("https://www.$qdn/", off(SiteEngine.NOVEL_DOWNLOADER, SiteEngine.WEBTOEPUB)))
+        // qdn's own scraper owns the site, so it stays supported (its links are never renamed) even
+        // with the built-in scrapers off, but then only a switched-on engine can offer its pages.
+        assertTrue(SourceCatalog.supportedSite("https://www.$qdn/", off(SiteEngine.NATIVE, SiteEngine.NOVEL_DOWNLOADER)))
+        assertTrue(SourceCatalog.downloadablePage("https://m.$qdn/book/1035420986/", defaults))
+        assertFalse(SourceCatalog.downloadablePage("https://m.$qdn/book/1035420986/", off(SiteEngine.NATIVE, SiteEngine.NOVEL_DOWNLOADER)))
 
         val toon = "https://moonbunnycafe.com/some-novel/"
         assertFalse(SourceCatalog.downloadablePage(toon, off(SiteEngine.WEBTOEPUB)))
