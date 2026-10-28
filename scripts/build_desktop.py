@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -211,7 +212,17 @@ def make_dmg(app: Path, target: Path, volume: str) -> Path:
     shutil.copytree(app, staging / app.name, symlinks=True)
     (staging / "Applications").symlink_to("/Applications")
     target.unlink(missing_ok=True)
-    run(["hdiutil", "create", "-volname", volume, "-srcfolder", staging, "-ov", "-format", "UDZO", target])
+    # hdiutil fails now and then with "Resource busy" on CI runners (a scanner holds the image).
+    for attempt in range(1, 6):
+        try:
+            run(["hdiutil", "create", "-volname", volume, "-srcfolder", staging, "-ov", "-format", "UDZO", target])
+            return target
+        except subprocess.CalledProcessError:
+            if attempt == 5:
+                raise
+            log(f"hdiutil failed (attempt {attempt}); retrying in {attempt * 10} s")
+            target.unlink(missing_ok=True)
+            time.sleep(attempt * 10)
     return target
 
 
