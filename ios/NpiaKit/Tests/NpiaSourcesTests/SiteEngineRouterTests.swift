@@ -162,6 +162,44 @@ final class SiteEngineRouterTests: XCTestCase {
         XCTAssertFalse(ReaderAdapter.matches(URL(string: "https://unknown.example/book")!))
     }
 
+    // MARK: - Which links can be tried
+
+    func testAWebPageNoSiteListNamesIsTriedByTheScriptEngines() {
+        // WebToEpub also recognises some sites by their page, so an unlisted page is still worth a try.
+        let url = URL(string: "https://unlisted.example/book/1")!
+        XCTAssertNil(SourceCatalog.adapterType(for: url))
+        XCTAssertEqual(SiteEngineRouter.plan(for: url, engines: EngineSettings()), [.novelDownloader, .webtoepub])
+        XCTAssertTrue(SiteEngineRouter.canTry(url, engines: EngineSettings()))
+        XCTAssertFalse(SiteEngineRouter.canTry(URL(string: "ftp://unlisted.example/book/1")!, engines: EngineSettings()))
+    }
+
+    func testSwitchedOffEnginesDecideWhichLinksCanBeTried() {
+        let nativeOnly = EngineSettings(disabled: [.novelDownloader, .webtoepub])
+        // Only the script engines read this site, so with them off nothing can.
+        let listed = URL(string: "https://www.fictionpress.com/s/1")!
+        XCTAssertFalse(SiteEngineRouter.canTry(listed, engines: nativeOnly))
+        XCTAssertFalse(SiteEngineRouter.canTry(URL(string: "https://unlisted.example/book/1")!, engines: nativeOnly))
+        XCTAssertEqual(SiteEngineRouter.plan(for: listed, engines: EngineSettings(disabled: [.novelDownloader])), [.webtoepub])
+
+        // A site a built-in scraper owns.
+        let owned = URL(string: "https://xiyuwx.com/book/123/")!
+        XCTAssertNotNil(SourceCatalog.nativeAdapterType(for: owned))
+        XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: nativeOnly), [.native])
+        XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings()).first, .native)
+        // With the built-in scrapers off, the script engines try it like any other web page.
+        XCTAssertEqual(SiteEngineRouter.plan(for: owned, engines: EngineSettings(disabled: [.native])), [.novelDownloader, .webtoepub])
+    }
+
+    func testALinkNoEngineCanTryIsUnsupported() async {
+        let context = SourceContext(http: StubHTTP(), web: StubWeb(), secrets: InMemorySecretStore(), settings: AppSettings())
+        do {
+            _ = try await SiteEngineRouter.open(URL(string: "ftp://unlisted.example/book/1")!, context: context)
+            XCTFail("should throw")
+        } catch {
+            guard case .unsupportedURL? = error as? SourceError else { return XCTFail("\(error)") }
+        }
+    }
+
     func testEverySiteEngineSwitchedOffIsAnError() async {
         var settings = AppSettings()
         settings.engines.disabled = SiteEngine.allCases  // the settings UI never allows this

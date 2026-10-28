@@ -16,7 +16,9 @@ struct AddURLView: View {
         return (SourceInfo.urls(in: text) + model.cart.items.compactMap { URL(string: $0.url) })
             .filter { seen.insert($0.absoluteString).inserted }
     }
-    private var supported: [URL] { urls.filter { SourceCatalog.adapterType(for: $0) != nil } }
+    // A link is downloadable when any enabled site engine can try it: the script engines (novel-downloader
+    // rules, WebToEpub) try sites that no list names, since WebToEpub also recognises some sites by their page.
+    private var supported: [URL] { urls.filter { SiteEngineRouter.canTry($0, engines: model.settings.engines) } }
     private var source: SourceID? { supported.first.flatMap { SourceCatalog.adapterType(for: $0)?.id } }
     private var effective: SharedSettings { source.map { model.settings.effective(for: $0) } ?? model.settings.shared }
 
@@ -181,9 +183,15 @@ struct AddURLView: View {
             Text("Paste a book page or chapter list URL. The source is detected automatically.")
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(urls.filter { SourceCatalog.adapterType(for: $0) == nil }, id: \.self) { url in
+                ForEach(urls.filter { !supported.contains($0) }, id: \.self) { url in
                     Label("Not supported: \(url.host ?? url.absoluteString)", systemImage: "xmark.circle")
                         .foregroundStyle(.red)
+                }
+                // No site list names these, so only the script engines will try them.
+                ForEach(supported.filter { SourceCatalog.adapterType(for: $0) == nil }, id: \.self) { url in
+                    Label("\(url.host ?? url.absoluteString) is on no engine's site list; the site engines will still try it",
+                          systemImage: "questionmark.circle")
+                        .foregroundStyle(.secondary)
                 }
             }
         }

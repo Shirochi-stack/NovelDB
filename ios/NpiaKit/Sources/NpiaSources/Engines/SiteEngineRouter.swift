@@ -27,10 +27,8 @@ public enum SiteEngineRouter {
             throw SourceError.parse("Every site engine is switched off in Settings > Site engines.")
         }
         let nativeType = SourceCatalog.nativeAdapterType(for: url)
-        let steps = plan(order: enabled, nativeOwnsURL: nativeType != nil) { engine in
-            guard let rules = engine.ruleEngine else { return false }
-            return EngineSites.lists(rules, url)
-        }
+        let steps = plan(for: url, engines: context.settings.engines)
+        guard !steps.isEmpty else { throw SourceError.unsupportedURL(url) }
         let page = EnginePage(url: url, context: context)
         let opened: Opened
         do {
@@ -55,6 +53,24 @@ public enum SiteEngineRouter {
     }
 
     // MARK: - Planning
+
+    /// The engines `url` goes through with these settings, in order; empty when none can try it
+    /// (Android's `SourceCatalog.resolve`). A web page no built-in scraper owns goes to every
+    /// enabled JavaScript engine, even when no site list names it, because WebToEpub also
+    /// recognises some sites by their page.
+    public static func plan(for url: URL, engines: EngineSettings) -> [SiteEngine] {
+        let isWebPage = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        let steps = plan(order: engines.enabled(), nativeOwnsURL: SourceCatalog.nativeAdapterType(for: url) != nil) { engine in
+            guard let rules = engine.ruleEngine else { return false }
+            return EngineSites.lists(rules, url)
+        }
+        return steps.filter { $0 == .native || isWebPage }
+    }
+
+    /// Some enabled site engine can try `url`: the links the Add screen accepts and a download needs.
+    public static func canTry(_ url: URL, engines: EngineSettings) -> Bool {
+        !plan(for: url, engines: engines).isEmpty
+    }
 
     /// The engines to try, in order. Without a built-in scraper for the link (or with the
     /// built-in scrapers switched off) the native step is dropped and every JavaScript engine

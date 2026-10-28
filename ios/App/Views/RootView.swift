@@ -69,6 +69,9 @@ struct RootView: View {
         // Rule engines the user opted in to update themselves at most once a day. (Not in
         // AppModel.init: a task started there made the app close right after launch.)
         .task { await model.checkEngineUpdates(automatic: true) }
+        #if DEBUG
+        .task { await model.runLiveDownloadIfAsked() }
+        #endif
         .onChange(of: model.pendingBrowserURL) { _, url in
             if url != nil { selection = .browser }
         }

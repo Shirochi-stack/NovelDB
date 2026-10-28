@@ -17,7 +17,8 @@ public struct ReaderAdapter: SourceAdapter {
     public init() {}
 
     /// Asks the rules bundle whether a rule exists for the URL's host, and the WebToEpub bundle
-    /// whether it registers a parser for it.
+    /// whether it registers a parser for it. This names the source of a link; links no list names
+    /// can still be downloaded (`SiteEngineRouter.canTry`).
     public static func matches(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
         return ReaderRules.shared.supports(url) || EngineSites.lists(.webtoepub, url)
