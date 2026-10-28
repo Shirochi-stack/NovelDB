@@ -1271,11 +1271,16 @@
     }
 
     // A character is the font's own (not a fallback) when drawing it with the font differs from
-    // drawing it with a family that does not exist.
+    // drawing it with a family that does not exist and with the generic families. WebKit draws a
+    // character a loaded font lacks with its sans-serif fallback, but an unknown family with its serif
+    // one, so comparing with the unknown family alone took every missing character for the font's own.
+    // In Chromium the first comparison already decides, so its answers do not change.
     function coreCovers(core, ch) {
       let covered = core.cover.get(ch);
       if (covered === undefined) {
-        covered = !sameInk(renderGlyph(core.css, ch, 32), renderGlyph('"__qdn_no_such_family"', ch, 32));
+        const own = renderGlyph(core.css, ch, 32);
+        covered = !['"__qdn_no_such_family"', 'sans-serif', 'serif', 'system-ui', 'monospace']
+          .some((family) => sameInk(own, renderGlyph(family, ch, 32)));
         core.cover.set(ch, covered);
       }
       return covered;
