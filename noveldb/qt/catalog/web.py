@@ -164,6 +164,7 @@ class CatalogView(QWebEngineView):
 
 class CatalogPage(QWidget):
     openCart = Signal()
+    downloadCart = Signal()
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -198,6 +199,10 @@ class CatalogPage(QWidget):
         QShortcut(QKeySequence("Ctrl+0"), self, activated=lambda: self.set_zoom(1.0))
         self.cart_button = QPushButton()
         self.cart_button.clicked.connect(self.openCart.emit)
+        self.run = QPushButton("Download")
+        self.run.setProperty("primary", True)
+        self.run.setToolTip("Download every book in the link cart")
+        self.run.clicked.connect(self.downloadCart.emit)
         bar = QHBoxLayout()
         bar.setContentsMargins(8, 4, 8, 4)
         bar.setSpacing(2)
@@ -209,6 +214,7 @@ class CatalogPage(QWidget):
         bar.addWidget(self.zoom_in)
         bar.addWidget(self.external)
         bar.addWidget(self.cart_button)
+        bar.addWidget(self.run)
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
         self.progress.setMaximumHeight(3)
@@ -404,7 +410,10 @@ class CatalogPage(QWidget):
                                           + (title or url))
 
     def _cart_changed(self) -> None:
-        self.cart_button.setText(f"\U0001F517 Cart ({len(self.context.cart)})")
+        count = len(self.context.cart)
+        self.cart_button.setText(f"\U0001F517 Cart ({count})")
+        self.run.setText(f"Download {count}" if count > 1 else "Download")
+        self.run.setEnabled(count > 0)
         self._push_state()
 
     def _settings_changed(self) -> None:

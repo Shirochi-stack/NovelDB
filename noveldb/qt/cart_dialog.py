@@ -23,6 +23,7 @@ class CartDialog(QDialog):
     """Pick links to move into the Download box (or remove them)."""
 
     useLinks = Signal(list)
+    downloadLinks = Signal(list)
 
     def __init__(self, context: AppContext, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -41,14 +42,17 @@ class CartDialog(QDialog):
         self.remove = QPushButton("Remove")
         self.remove.clicked.connect(self._remove)
         self.use = QPushButton("Add to Download")
-        self.use.setProperty("primary", True)
         self.use.clicked.connect(self._use)
+        self.download = QPushButton("Download now")
+        self.download.setProperty("primary", True)
+        self.download.clicked.connect(self._download)
         row = QHBoxLayout()
         row.addWidget(select_all)
         row.addWidget(select_none)
         row.addStretch(1)
         row.addWidget(self.remove)
         row.addWidget(self.use)
+        row.addWidget(self.download)
         layout = QVBoxLayout(self)
         layout.addWidget(self.empty)
         layout.addWidget(self.list, 1)
@@ -89,10 +93,17 @@ class CartDialog(QDialog):
         count = len(self._checked())
         self.remove.setEnabled(count > 0)
         self.use.setEnabled(count > 0)
-        self.use.setText(f"Add {count} to Download" if count > 1 else "Add to Download")
+        self.download.setEnabled(count > 0)
+        self.download.setText(f"Download {count} now" if count > 1 else "Download now")
 
     def _remove(self) -> None:
         self.context.cart.remove_all(self._checked())
+
+    def _download(self) -> None:
+        links = self._checked()
+        if links:
+            self.downloadLinks.emit(links)
+            self.accept()
 
     def _use(self) -> None:
         links = self._checked()

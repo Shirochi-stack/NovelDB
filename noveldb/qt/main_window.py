@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QPushButton,
     QSplitter,
     QStackedWidget,
     QWidget,
@@ -87,8 +88,15 @@ class MainWindow(QMainWindow):
         self.download.toolRequested.connect(self.tools.run)
         context.toolRequested.connect(self.tools.run)
         self.download.openCart.connect(self.show_cart)
-        if hasattr(self.catalog, "openCart"):
-            self.catalog.openCart.connect(self.show_cart)
+        self.catalog.openCart.connect(self.show_cart)
+        self.catalog.downloadCart.connect(self.download_cart)
+        # The log stays folded away until a download writes to it (or the user opens it).
+        self.log_toggle = QPushButton("Show log")
+        self.log_toggle.setFlat(True)
+        self.log_toggle.clicked.connect(lambda: self.set_log_visible(not self._log_open))
+        self.statusBar().addPermanentWidget(self.log_toggle)
+        self.log_panel.activity.connect(lambda: self.set_log_visible(True))
+        self.set_log_visible(False)
         self.download.queued.connect(self._queued)
         self.queue.activeCountChanged.connect(self._active_count)
         self.queue.finishedBatch.connect(self._finished_batch)
@@ -111,10 +119,26 @@ class MainWindow(QMainWindow):
     def show_cart(self) -> None:
         dialog = CartDialog(self.context, self)
         dialog.useLinks.connect(self.download.add_lines)
+        dialog.downloadLinks.connect(self.download.queue_lines)
         dialog.exec()
+
+    def download_cart(self) -> None:
+        self.download.queue_lines(self.context.cart.urls)
+
+    def set_log_visible(self, visible: bool) -> None:
+        # isVisible() is False for every widget before the window is shown, so track it here.
+        if visible == getattr(self, "_log_open", None):
+            return
+        self._log_open = visible
+        self.log_panel.setVisible(visible)
+        self.log_toggle.setText("Hide log" if visible else "Show log")
+        if visible:
+            total = max(self.splitter.height(), 400)
+            self.splitter.setSizes([int(total * 0.72), int(total * 0.28)])
 
     def _queued(self, count: int) -> None:
         if count:
+            self.set_log_visible(True)
             self.statusBar().showMessage(f"Added {count} download(s) to the queue.", 5000)
             if self.context.runner.paused:
                 self.context.runner.resume()
@@ -164,7 +188,7 @@ class MainWindow(QMainWindow):
         height = int(min(area.height() * 0.92, max(860, area.height() * 0.85)))
         self.resize(width, height)
         self.move(area.x() + (area.width() - width) // 2, area.y() + (area.height() - height) // 2)
-        self._start_maximized = width >= area.width() * 0.9 or height >= area.height() * 0.9
+        self._start_maximized = True  # first start: use the whole screen; later starts restore the window
 
     def show_initial(self) -> None:
         if self._start_maximized:
