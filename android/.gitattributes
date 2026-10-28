@@ -1,0 +1,2 @@
+# The WebToEpub bundle is checked against the SHA-256 in its manifest: no line-ending changes.
+sources/src/main/resources/com/shirochi/npia/sources/reader/webtoepub/** -text

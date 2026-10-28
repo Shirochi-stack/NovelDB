@@ -13,6 +13,11 @@ except ImportError:
     from source_names import NAME_PATTERN, contains_name, escape_names, sanitize_rules, to_codenames
 
 ROOT = Path(__file__).resolve().parents[1]
+# Third-party bundles kept exactly as upstream wrote them (their site lists name real sites).
+VERBATIM = {
+    'webtoepub/webtoepub-lib.js',
+    'android/sources/src/main/resources/com/shirochi/npia/sources/reader/webtoepub/webtoepub-lib.js',
+}
 
 
 def event_messages():
@@ -73,7 +78,7 @@ def check(commits=False):
         path = ROOT / name
         if NAME_PATTERN.search(name):
             failures.append(name + ': path')
-        if not path.is_file():
+        if not path.is_file() or name in VERBATIM:
             continue
         opener = gzip.open if name.endswith('.gz') else open
         try:

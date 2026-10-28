@@ -1,0 +1,20 @@
+{
+  "engine": "webtoepub",
+  "commit": "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39",
+  "date": "2026-10-27T04:19:22Z",
+  "ref": "ExperimentalTabMode",
+  "version": "1.0.14.61",
+  "shim": "8f1f43ae968f",
+  "api": 1,
+  "scripts": 449,
+  "excluded": [],
+  "libraries": [
+    "dompurify@3.2.6",
+    "@zip.js/zip.js@2.7.72"
+  ],
+  "sites": 652,
+  "file": "webtoepub-lib.js",
+  "size": 1539922,
+  "sha256": "ae88b152d684f7852e953fa30061cd9c045c1aaffad79497eea4a109e804853f",
+  "built": "2026-10-28T09:52:35Z"
+}
