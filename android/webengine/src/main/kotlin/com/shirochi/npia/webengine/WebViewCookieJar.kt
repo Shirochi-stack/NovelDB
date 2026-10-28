@@ -87,4 +87,31 @@ class BackendSharedCookies(private val backend: CookieBackend = WebViewCookieBac
         backend.setCookie(url, attributes)
         backend.flush()
     }
+
+    override fun remove(url: String, name: String) {
+        for (attributes in expiryAttributes(url, name)) backend.setCookie(url, attributes)
+        backend.flush()
+    }
+
+    companion object {
+        /**
+         * `Set-Cookie` values that expire `name` on the host of `url` and on each parent domain down to
+         * (but not including) the public suffix guess `SiteCookies.registrableDomain` makes. A cookie only
+         * goes away when the expiry carries the domain it was set with.
+         */
+        fun expiryAttributes(url: String, name: String): List<String> {
+            val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty().lowercase()
+            if (host.isEmpty()) return listOf("$name=; Max-Age=0; path=/")
+            val domains = mutableListOf<String>()
+            val labels = host.split('.').filter { it.isNotEmpty() }
+            val registrable = SiteCookies.registrableDomain(host).split('.').size
+            for (start in labels.indices) {
+                if (labels.size - start >= registrable) domains += labels.drop(start).joinToString(".")
+            }
+            return listOf("$name=; Max-Age=0; path=/") +
+                domains.flatMap { domain ->
+                    listOf("$name=; Max-Age=0; path=/; domain=$domain", "$name=; Max-Age=0; path=/; domain=.$domain")
+                }
+        }
+    }
 }
