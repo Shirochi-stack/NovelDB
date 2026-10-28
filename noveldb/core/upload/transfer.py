@@ -44,32 +44,66 @@ def upload_name(path: str) -> str:
 
 
 def book_id_from_url(url: str) -> str:
-    """An ASCII id for a book URL or input: the last numeric path segment, else a short slug."""
+    """An ASCII id for a book URL or input: the last number in the path (else in the query), else a short slug."""
     from urllib.parse import urlsplit
 
     value = (url or "").strip()
     if value.isdigit():
         return value
-    path = urlsplit(value).path if "://" in value else value
+    parts = urlsplit(value) if "://" in value else None
+    path = parts.path if parts else value
     numbers = re.findall(r"\d+", path)
+    if numbers:
+        return numbers[-1]
+    numbers = re.findall(r"\d+", parts.query) if parts else []
     if numbers:
         return numbers[-1]
     slug = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")[-40:]
     return slug or "book"
 
 
-def ascii_upload_name(path: str, fallback_id: str = "") -> str:
-    """The name sent to hosts: the original when it is plain ASCII, else "<id>.<ext>".
+# A title must keep this many ASCII letters or digits to name an upload; shorter remains ("-_",
+# "VR_", "100_") are useless as links, so those uploads use "<source>_<book id>" instead.
+MIN_NAME_CHARS = 3
+_MAX_STEM = 100
+
+
+def _alnum_count(text: str) -> int:
+    return sum(1 for ch in text if ch.isascii() and ch.isalnum())
+
+
+def _extension(name: str) -> str:
+    ext = os.path.splitext(name)[1]
+    return ext if re.fullmatch(r"\.[A-Za-z0-9]{1,10}", ext) else ""
+
+
+def ascii_safe_stem(stem: str) -> str:
+    """A title with every run of non-ASCII characters replaced by "_" and the ends trimmed."""
+    text = re.sub(r"[^ -~]+", "_", stem)  # anything but printable ASCII (space to tilde)
+    text = re.sub(r"[ _]*_[ _]*", "_", text)
+    return text.strip(" ._-")[:_MAX_STEM].rstrip(" ._-")
+
+
+def ascii_upload_name(path: str, fallback_id: str = "", source: str = "") -> str:
+    """The name sent to hosts: an ASCII-safe form of the original, else "<source>_<book id>.<ext>".
 
     Several hosts drop non-ASCII characters from the multipart file name (a Korean title became
-    "epub.epub"), so titles in other scripts upload under the book's id instead.
+    "epub.epub"), so the title is cleaned up here instead: a plain ASCII name stays as it is, other
+    scripts become "_", and a title that keeps fewer than three ASCII letters or digits is replaced
+    by the source codename and book id (`npia_123456.epub`).
     """
     name = upload_name(path)
-    if name.isascii() and name.isprintable() and name.strip(". "):
+    root = os.path.splitext(name)[0]
+    ext = _extension(name)
+    title = root if ext else name  # the part that must carry the letters and digits
+    if name.isascii() and name.isprintable() and _alnum_count(title) >= MIN_NAME_CHARS:
         return name
-    _stem, ext = os.path.splitext(name)
+    stem = ascii_safe_stem(title)
+    if _alnum_count(stem) >= MIN_NAME_CHARS:
+        return f"{stem}{ext}"
     ident = re.sub(r"[^A-Za-z0-9._-]+", "-", fallback_id or "").strip("-.") or "book"
-    return f"{ident}{ext}"
+    prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", source or "").strip("-")
+    return f"{prefix}_{ident}{ext}" if prefix else f"{ident}{ext}"
 
 
 class StreamBody:
