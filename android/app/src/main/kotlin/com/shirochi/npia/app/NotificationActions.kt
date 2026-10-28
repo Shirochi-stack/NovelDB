@@ -21,11 +21,14 @@ class ShareActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val manager = (application as NpiaApplication).downloads
-        val summary = manager.lastRun()?.takeIf { it.id == intent.getStringExtra(EXTRA_RUN) }
-        val shared = when {
-            summary == null -> false
-            intent.action == ACTION_SHARE_LINKS -> summary.links.isNotEmpty() && FileActions.shareText(this, summary.links.joinToString("\n"))
-            else -> FileActions.share(this, summary.fileNames.map { File(manager.outputDirectory, it) })
+        val id = intent.getStringExtra(EXTRA_RUN)
+        val shared = if (intent.action == ACTION_SHARE_LINKS) {
+            // The id is an upload report's: its links, each under what it holds.
+            val report = manager.lastUpload()?.takeIf { it.id == id }
+            report != null && report.uploads.isNotEmpty() && FileActions.shareText(this, report.shareText)
+        } else {
+            val summary = manager.lastRun()?.takeIf { it.id == id }
+            summary != null && FileActions.share(this, summary.fileNames.map { File(manager.outputDirectory, it) })
         }
         if (!shared) Toast.makeText(this, "Nothing left to share.", Toast.LENGTH_SHORT).show()
         finish()
@@ -55,7 +58,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 manager.uploadRun(runId) -> null
                 else -> "Those downloads are no longer available to upload."
             }
-            ACTION_COPY_LINKS -> if (manager.copyRunLinks(runId)) "Links copied." else "No links to copy."
+            ACTION_COPY_LINKS -> if (manager.copyUploadLinks(runId)) "Links copied." else "No links to copy."
             else -> null
         }
         if (text != null) Toast.makeText(context, text, Toast.LENGTH_SHORT).show()

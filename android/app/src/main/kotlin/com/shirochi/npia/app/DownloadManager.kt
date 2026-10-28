@@ -8,14 +8,19 @@ import com.shirochi.npia.app.model.ConfigTransfer
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
 import com.shirochi.npia.app.model.JsonFileStore
+import com.shirochi.npia.app.model.LogEntry
+import com.shirochi.npia.app.model.LogLines
+import com.shirochi.npia.app.model.QueueLog
 import com.shirochi.npia.app.model.RunSummary
 import com.shirochi.npia.app.model.UploadBatch
 import com.shirochi.npia.app.model.UploadNaming
+import com.shirochi.npia.app.model.UploadReport
 import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.InMemorySecretStore
 import com.shirochi.npia.core.JobLogging
+import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.NullLogger
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SecretStore
@@ -40,7 +45,14 @@ import com.shirochi.npia.sources.session.SessionSite
 import com.shirochi.npia.sources.session.SessionStatus
 import com.shirochi.npia.sources.session.SiteSessions
 import com.shirochi.npia.sources.sfc.SfcAdapter
+import com.shirochi.npia.upload.LocalTestUploader
+import com.shirochi.npia.upload.PlannedUpload
 import com.shirochi.npia.upload.UploadContext
+import com.shirochi.npia.upload.UploadItem
+import com.shirochi.npia.upload.UploadListener
+import com.shirochi.npia.upload.UploadOutcome
+import com.shirochi.npia.upload.UploadProgress
+import com.shirochi.npia.upload.ZipBundling
 import com.shirochi.npia.upload.UploadResult
 import com.shirochi.npia.upload.UploaderCatalog
 import com.shirochi.npia.webengine.AndroidWebEngine
@@ -62,6 +74,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -122,6 +135,12 @@ class DownloadManager(private val app: Application) {
 
     /** The run summary the notification buttons act on; see `RunSummary`. */
     private val lastRunStore = JsonFileStore(File(app.filesDir, "last-run.json"), RunSummary.serializer())
+
+    /** The result of the last upload request (links and failures); the result notification's buttons act on it. */
+    private val lastUploadStore = JsonFileStore(File(app.filesDir, "last-upload.json"), UploadReport.serializer())
+
+    /** Every job's log lines in time order: the last 5,000, kept in a rolling file across restarts. */
+    val queueLog = QueueLog(File(app.filesDir, "queue-log.jsonl"))
 
     private val runLock = Any()
     /** Jobs that ended since the queue was last idle, as they ended; cleared when the summary is posted. */
@@ -251,6 +270,8 @@ class DownloadManager(private val app: Application) {
     }
 
     init {
+        // Debug builds keep a test upload server across restarts (see `setUploadTestHost`).
+        setUploadTestHost(preferences.uploadTestBase, preferences.uploadTestMaxBytes.takeIf { it > 0 })
         // At start: only for the engines the user opted in to, and at most once a day.
         checkEngineUpdates(automatic = true)
     }
@@ -268,6 +289,7 @@ class DownloadManager(private val app: Application) {
             JobItem(url = SourceCatalog.canonicalUrl(url), source = source, settings = settingsFor(source))
         }
         _jobs.update { added + it }
+        added.forEach { jobLog(it.id, LogLevel.INFO, "Queued ${it.source?.raw ?: "unknown source"}: ${it.url}") }
         persistJobs()
         startNext()
     }
@@ -278,6 +300,7 @@ class DownloadManager(private val app: Application) {
             task.cancel()
         } else if (job(id)?.state == JobState.QUEUED) {
             update(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled") }
+            jobLog(id, LogLevel.INFO, "Cancelled while waiting in the queue")
             persistJobs()
             job(id)?.let { endedInRun(it) }
             postRunSummaryIfIdle()
@@ -293,6 +316,7 @@ class DownloadManager(private val app: Application) {
         val job = job(id) ?: return
         if (job.state.isActive) return
         update(id) { it.resetForRetry() }
+        jobLog(id, LogLevel.INFO, "Retry: back in the queue")
         persistJobs()
         startNext()
     }
@@ -326,7 +350,8 @@ class DownloadManager(private val app: Application) {
     private fun start(job: JobItem) {
         val id = job.id
         update(id) { it.copy(state = JobState.RUNNING, status = "Starting") }
-        val logger = JobLogging { level, line -> update(id) { it.appendingLog("[${level.name.lowercase()}] $line") } }
+        val logger = JobLogging { level, line -> jobLog(id, level, line) }
+        jobLog(id, LogLevel.INFO, "Started")
         val pipeline = DownloadPipeline(
             secrets = secrets,
             outputDirectory = outputDirectory,
@@ -334,7 +359,7 @@ class DownloadManager(private val app: Application) {
             images = AndroidImageProcessor(job.settings.images),
             logger = logger,
             // Shares cookies with the web engine, so web-view logins apply to HTTP requests.
-            httpFactory = { OkHttpFetcher(it, web.cookieJar()) },
+            httpFactory = { OkHttpFetcher(it, web.cookieJar(), logger) },
         )
         running[id] = scope.launch {
             try {
@@ -342,9 +367,18 @@ class DownloadManager(private val app: Application) {
                 finish(id, outcome)
             } catch (e: CancellationException) {
                 update(id) { it.copy(state = JobState.CANCELLED, status = "Cancelled") }
+                jobLog(id, LogLevel.INFO, "Cancelled")
             } catch (e: Throwable) {
                 val text = e.message ?: e.toString()
                 update(id) { it.copy(state = JobState.FAILED, status = text, error = text) }
+                jobLog(id, LogLevel.ERROR, "Download failed: ${e.javaClass.simpleName}: $text")
+                var cause = e.cause
+                while (cause != null && cause !== cause.cause) {
+                    jobLog(id, LogLevel.DEBUG, "Caused by ${cause.javaClass.simpleName}: ${cause.message}")
+                    cause = cause.cause
+                }
+                // An expected failure (unsupported address, sign-in needed) says it all; a surprise needs its trace.
+                if (e !is com.shirochi.npia.core.SourceException) e.stackTrace.take(8).forEach { jobLog(id, LogLevel.DEBUG, "    at $it") }
             } finally {
                 update(id) { it.copy(finishedAt = System.currentTimeMillis()) }
                 persistJobs()
@@ -399,6 +433,20 @@ class DownloadManager(private val app: Application) {
     private fun update(id: String, change: (JobItem) -> JobItem) {
         _jobs.update { list -> list.map { if (it.id == id) change(it) else it } }
     }
+
+    /**
+     * Adds a line to the job's own log (job detail page) and to the combined queue log. The line
+     * carries the job's title as it is now, so it reads right after the job is removed.
+     */
+    private fun jobLog(id: String, level: LogLevel, message: String) {
+        val now = System.currentTimeMillis()
+        update(id) { it.appendingLog("${LogLines.clock(now)} [${level.name.lowercase()}] $message") }
+        queueLog.append(LogEntry(now, id, job(id)?.displayTitle.orEmpty().take(120), level, message))
+    }
+
+    /** Jobs of the run in progress: those waiting or running, and those that ended since the queue was last idle. */
+    fun runJobIds(): Set<String> =
+        _jobs.value.filter { it.state.isActive }.map { it.id }.toSet() + synchronized(runLock) { runJobs.keys.toSet() }
 
     private fun persistJobs() {
         jobStore.save(_jobs.value)
@@ -534,16 +582,47 @@ class DownloadManager(private val app: Application) {
     // Uploads
 
     /**
-     * Uploads `file`; `bookId` names it when its file name is not plain ASCII, and defaults to the
-     * id of the job it came from.
+     * The upload settings in effect. A debug build given a test server (see `setUploadTestHost`)
+     * sends every upload there instead of to the configured hosts.
+     */
+    private fun uploadSettings(): UploadSettings {
+        val settings = _settings.value.upload
+        return if (UploaderCatalog.testHost != null) settings.copy(hosts = listOf(LocalTestUploader.ID)) else settings
+    }
+
+    private fun uploadContext(settings: UploadSettings) = UploadContext(secrets, settings, temporaryDirectory = app.cacheDir)
+
+    /**
+     * Debug builds only: points uploads at a server on the developer's machine (`base` empty goes
+     * back to the real hosts), optionally with a per-file maximum so ZIP splitting can be tried
+     * with small files. Ignored in other builds.
+     */
+    fun setUploadTestHost(base: String, maxBytes: Long?) {
+        if (!BuildConfig.DEBUG) return
+        UploaderCatalog.testHost = base.trim().takeIf { it.isNotEmpty() }?.let { runCatching { LocalTestUploader(it, maxBytes) }.getOrNull() }
+    }
+
+    /** The job whose output includes `file`. */
+    private fun jobOwning(file: File): JobItem? {
+        val path = file.absolutePath
+        return _jobs.value.firstOrNull { job -> job.files(outputDirectory).any { it.absolutePath == path } }
+    }
+
+    /** The stem that names `file`'s upload (`npia_123456`); see `UploadNaming`. */
+    private fun stemFor(file: File): String? = jobOwning(file)?.let(UploadNaming::forJob)
+
+    /**
+     * Uploads `file`; `bookId` is the stem that names it when its title is not usable as an ASCII
+     * name, and defaults to the stem of the job it came from.
      */
     fun upload(file: File, jobId: String? = null, bookId: String? = jobId?.let { job(it) }?.let(UploadNaming::forJob)) {
         val key = file.absolutePath
         if (_uploadStates.value[key]?.phase == UploadState.Phase.RUNNING) return
         _uploadStates.update { it + (key to UploadState(key, file.name, jobId, bookId)) }
-        val uploadSettings = _settings.value.upload
+        val uploadSettings = uploadSettings()
         // Keeps the process alive and shows the progress while the app is in the background.
         DownloadService.start(app)
+        if (jobId != null) jobLog(jobId, LogLevel.INFO, "Uploading ${file.name}")
         scope.launch {
             try {
                 val result = uploadWithProgress(file, uploadSettings, key, bookId)
@@ -551,6 +630,7 @@ class DownloadManager(private val app: Application) {
                 if (jobId != null) {
                     update(jobId) { it.copy(uploads = it.uploads + result) }
                     persistJobs()
+                    jobLog(jobId, LogLevel.INFO, "Uploaded ${result.fileName}: ${result.link}")
                 }
                 setUpload(key) { it.copy(phase = UploadState.Phase.DONE, link = result.link, host = hostName(result.hostId)) }
                 message("Uploaded ${result.fileName}")
@@ -560,6 +640,7 @@ class DownloadManager(private val app: Application) {
             } catch (e: Exception) {
                 val reason = e.message ?: e.toString()
                 setUpload(key) { it.copy(phase = UploadState.Phase.FAILED, error = reason) }
+                if (jobId != null) jobLog(jobId, LogLevel.WARNING, "Upload of ${file.name} failed: $reason")
                 message("Upload failed: $reason")
             }
         }
@@ -572,7 +653,7 @@ class DownloadManager(private val app: Application) {
     private suspend fun uploadWithProgress(file: File, uploadSettings: UploadSettings, key: String, bookId: String?): UploadResult {
         var lastReport = 0L
         return UploaderCatalog.upload(
-            file, uploadSettings, UploadContext(secrets, uploadSettings), history = null, bookId = bookId,
+            file, uploadSettings, uploadContext(uploadSettings), history = null, bookId = bookId,
             progress = { p ->
                 val now = System.nanoTime() / 1_000_000
                 if (p.sentBytes >= p.totalBytes || now - lastReport >= 200) {
@@ -584,61 +665,148 @@ class DownloadManager(private val app: Application) {
         )
     }
 
+    /** The upload items for the finished jobs `ids`: every output file still on disk, named by the job's stem. */
+    fun uploadItemsForJobs(ids: Collection<String>): List<UploadItem> =
+        _jobs.value.filter { it.id in ids && it.state == JobState.FINISHED }.flatMap { job ->
+            val stem = UploadNaming.forJob(job)
+            job.files(outputDirectory).filter { it.exists() }.map { UploadItem(it, stem) }
+        }
+
     /**
-     * Uploads every file of the run behind a summary notification, one after another through the
-     * configured hosts, then posts "Uploaded N files" with the links. Returns false when the run's
-     * files are gone.
+     * Uploads all files of the finished jobs `ids` (every output format of each). With bundling on
+     * and several files they go up as ZIPs of up to the configured size; otherwise one by one.
+     * Returns false when the jobs have no files left.
+     */
+    fun uploadJobs(ids: Collection<String>): Boolean = startBatch(uploadItemsForJobs(ids))
+
+    /**
+     * Uploads every file of the run behind a summary notification (bundled like any other upload)
+     * and posts the result with the links. Returns false when the run's files are gone.
      */
     fun uploadRun(runId: String?): Boolean {
         val summary = lastRunStore.load()?.takeIf { it.id == runId } ?: return false
-        val files = summary.fileNames.map { File(outputDirectory, it) }.filter { it.exists() }
-        if (files.isEmpty()) return false
-        if (!_uploadBatch.compareAndSet(null, UploadBatch(summary.id, files.size))) return true
-        Notifications.cancel(app, Notifications.SUMMARY_ID)
+        val items = summary.fileNames.mapNotNull { name ->
+            val file = File(outputDirectory, name)
+            if (file.exists()) UploadItem(file, summary.fileIds[name] ?: UploadNaming.bookId("", null)) else null
+        }
+        if (items.isEmpty()) return false
+        return startBatch(items, fromSummary = true)
+    }
+
+    /** Runs the upload again for a failed or finished entry of `uploadStates`: its files, planned afresh. */
+    fun retryUpload(state: UploadState): Boolean {
+        _uploadStates.update { it - state.path }
+        val items = state.paths.map(::File).filter { it.exists() }.map { UploadItem(it, stemFor(it) ?: state.bookId) }
+        return startBatch(items)
+    }
+
+    private fun startBatch(items: List<UploadItem>, fromSummary: Boolean = false): Boolean {
+        if (items.isEmpty()) return false
+        val settings = uploadSettings()
+        val context = uploadContext(settings)
+        val plan = UploaderCatalog.plan(items, settings, context)
+        val batchId = UUID.randomUUID().toString()
+        if (!_uploadBatch.compareAndSet(null, UploadBatch(batchId, plan.size, zips = plan.count { it is PlannedUpload.Archive }))) {
+            message("An upload is still running; wait for it to finish.")
+            return true
+        }
+        if (fromSummary) Notifications.cancel(app, Notifications.SUMMARY_ID)
         DownloadService.start(app)
-        val uploadSettings = _settings.value.upload
         scope.launch {
-            val links = mutableListOf<String>()
-            val failures = mutableListOf<String>()
-            try {
-                for (file in files) {
-                    val key = file.absolutePath
-                    val bookId = summary.fileIds[file.relativeTo(outputDirectory).path] ?: UploadNaming.bookId("", null)
-                    _uploadStates.update { it + (key to UploadState(key, file.name, bookId = bookId)) }
-                    _uploadBatch.update { it?.copy(currentPath = key) }
-                    try {
-                        val result = uploadWithProgress(file, uploadSettings, key, bookId)
-                        recordUpload(result, copyLink = false)
-                        links += result.link
-                        setUpload(key) { it.copy(phase = UploadState.Phase.DONE, link = result.link, host = hostName(result.hostId)) }
-                    } catch (e: CancellationException) {
-                        _uploadStates.update { it - key }
-                        throw e
-                    } catch (e: Exception) {
-                        val reason = e.message ?: e.toString()
-                        failures += "${file.name}: $reason"
-                        setUpload(key) { it.copy(phase = UploadState.Phase.FAILED, error = reason) }
-                    }
-                    _uploadBatch.update { it?.copy(done = it.done + 1) }
-                }
+            val outcomes = try {
+                UploaderCatalog.uploadAll(plan, settings, context, history = null, listener = BatchListener(batchId))
             } finally {
                 _uploadBatch.value = null
             }
-            val finished = summary.copy(links = links)
-            lastRunStore.save(finished)
-            if (links.isNotEmpty() && _settings.value.upload.copyLinkToClipboard) {
-                withContext(Dispatchers.Main) { copyToClipboard(app, links.joinToString("\n")) }
+            val report = UploadReport(
+                uploads = outcomes.mapNotNull { it.result },
+                failures = outcomes.filter { !it.succeeded }.map { "${it.name}: ${it.error}" },
+                files = items.size,
+            )
+            lastUploadStore.save(report)
+            if (report.uploads.isNotEmpty() && settings.copyLinkToClipboard) {
+                withContext(Dispatchers.Main) { copyToClipboard(app, report.shareText) }
             }
-            Notifications.uploadResult(app, finished, uploaded = links.size, failures = failures)
+            Notifications.uploadResult(app, report)
+            message(report.notificationTitle)
         }
         return true
     }
 
-    /** Copies the share links of the run's upload to the clipboard; false when it has none. */
-    fun copyRunLinks(runId: String?): Boolean {
-        val links = lastRunStore.load()?.takeIf { it.id == runId }?.links.orEmpty()
-        if (links.isEmpty()) return false
-        copyToClipboard(app, links.joinToString("\n"))
+    /** Feeds one batch's progress into `uploadStates`, `uploadBatch`, the job logs and the history. */
+    private inner class BatchListener(private val batchId: String) : UploadListener {
+        private var key = ""
+        private var lastReport = 0L
+
+        private fun jobsOf(upload: PlannedUpload): List<JobItem> = upload.items.mapNotNull { jobOwning(it.file) }.distinctBy { it.id }
+
+        override fun onStart(position: Int, total: Int, upload: PlannedUpload, name: String) {
+            val single = upload as? PlannedUpload.Single
+            key = single?.item?.file?.absolutePath ?: "zip|$batchId|$position"
+            val state = UploadState(
+                path = key,
+                fileName = name,
+                jobId = jobsOf(upload).singleOrNull()?.id,
+                bookId = single?.item?.stem,
+                paths = upload.items.map { it.file.absolutePath },
+                contents = if (upload is PlannedUpload.Archive) upload.items.map { ZipBundling.entryName(it.file) } else emptyList(),
+            )
+            // A new upload of these files replaces the finished or failed status of an earlier one.
+            _uploadStates.update { states ->
+                states.filterValues { old -> old.path == key || old.phase == UploadState.Phase.RUNNING || old.paths.none { it in state.paths } } + (key to state)
+            }
+            _uploadBatch.update { it?.copy(currentPath = key, preparing = null) }
+            lastReport = 0L
+            jobsOf(upload).forEach { jobLog(it.id, LogLevel.INFO, "Uploading $name ($position of $total)") }
+        }
+
+        override fun onPreparing(index: Int, total: Int) {
+            val text = "Preparing ZIP $index of $total"
+            setUpload(key) { it.copy(preparing = text) }
+            _uploadBatch.update { it?.copy(preparing = text) }
+        }
+
+        override fun onHost(name: String) {
+            setUpload(key) { it.copy(host = name, sentBytes = 0, totalBytes = 0, preparing = null) }
+            _uploadBatch.update { it?.copy(preparing = null) }
+        }
+
+        override fun onProgress(progress: UploadProgress) {
+            val now = System.nanoTime() / 1_000_000
+            if (progress.sentBytes >= progress.totalBytes || now - lastReport >= 200) {
+                lastReport = now
+                setUpload(key) { it.copy(sentBytes = progress.sentBytes, totalBytes = progress.totalBytes) }
+            }
+        }
+
+        override fun onFinished(position: Int, outcome: UploadOutcome) {
+            val result = outcome.result
+            val jobs = jobsOf(outcome.upload)
+            if (result != null) {
+                addToHistory(result)
+                setUpload(key) { it.copy(phase = UploadState.Phase.DONE, link = result.link, host = hostName(result.hostId), preparing = null) }
+                for (job in jobs) {
+                    update(job.id) { it.copy(uploads = it.uploads + result) }
+                    jobLog(job.id, LogLevel.INFO, "Uploaded ${result.label}: ${result.link}")
+                }
+                persistJobs()
+            } else {
+                val reason = outcome.error ?: "unknown error"
+                setUpload(key) { it.copy(phase = UploadState.Phase.FAILED, error = reason, preparing = null) }
+                for (job in jobs) jobLog(job.id, LogLevel.WARNING, "Upload of ${outcome.name} failed: $reason")
+            }
+            _uploadBatch.update { it?.copy(done = it.done + 1, preparing = null) }
+        }
+    }
+
+    /** The result of the last upload request, which the result notification's buttons act on. */
+    fun lastUpload(): UploadReport? = lastUploadStore.load()
+
+    /** Copies the share links (with what each holds) of the upload report to the clipboard; false when it has none. */
+    fun copyUploadLinks(reportId: String?): Boolean {
+        val report = lastUploadStore.load()?.takeIf { it.id == reportId } ?: return false
+        if (report.uploads.isEmpty()) return false
+        copyToClipboard(app, report.shareText)
         return true
     }
 
@@ -655,9 +823,13 @@ class DownloadManager(private val app: Application) {
         _uploadStates.update { map -> if (map[path]?.phase == UploadState.Phase.RUNNING) map else map - path }
     }
 
-    private suspend fun recordUpload(result: UploadResult, copyLink: Boolean = true) {
+    private fun addToHistory(result: UploadResult) {
         _uploadHistory.update { listOf(result) + it }
         historyStore.save(_uploadHistory.value)
+    }
+
+    private suspend fun recordUpload(result: UploadResult, copyLink: Boolean = true) {
+        addToHistory(result)
         if (copyLink && _settings.value.upload.copyLinkToClipboard) {
             withContext(Dispatchers.Main) { copyToClipboard(app, result.link) }
         }

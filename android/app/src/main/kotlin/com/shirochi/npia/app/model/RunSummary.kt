@@ -13,14 +13,16 @@ data class RunSummary(
     val id: String = UUID.randomUUID().toString(),
     /** Output files of the successful downloads, relative to the output folder. */
     val fileNames: List<String> = emptyList(),
-    /** Upload name id (see `UploadNaming`) of each file in `fileNames`. */
+    /** Upload name stem (see `UploadNaming`) of each file in `fileNames`. */
     val fileIds: Map<String, String> = emptyMap(),
+    /** Every job that ended in the run, finished or not; one means the notification opens that book. */
+    val jobIds: List<String> = emptyList(),
     /** Title of the only successful download, for the notification title when there is just one. */
     val title: String? = null,
     val succeeded: Int = 0,
     val failed: Int = 0,
     val cancelled: Int = 0,
-    /** Share links of the files uploaded from the notification. */
+    /** Share links of the files uploaded from the notification (older versions; see `UploadReport`). */
     val links: List<String> = emptyList(),
 ) {
     val hasFiles: Boolean get() = succeeded > 0 && fileNames.isNotEmpty()
@@ -54,6 +56,7 @@ data class RunSummary(
             return RunSummary(
                 fileNames = done.flatMap { it.fileNames }.distinct(),
                 fileIds = done.flatMap { job -> job.fileNames.map { it to UploadNaming.forJob(job) } }.toMap(),
+                jobIds = jobs.map { it.id }.distinct(),
                 title = done.singleOrNull()?.displayTitle,
                 succeeded = done.size,
                 failed = failed,

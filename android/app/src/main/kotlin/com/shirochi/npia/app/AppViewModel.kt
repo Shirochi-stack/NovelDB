@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.AndroidViewModel
+import com.shirochi.npia.app.model.QueueView
 import com.shirochi.npia.core.SourceId
 
 enum class Tab(val title: String) { ADD("Add"), CATALOG("Catalog"), BROWSER("Browser"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
@@ -50,6 +51,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Last page open in the Browser tab, so switching tabs does not lose it. */
     var browserUrl: String? = null
+
+    /** Jobs or the combined log: the view of the Queue tab. */
+    var queueView by mutableStateOf(QueueView.JOBS)
+
+    /** The job the combined log is filtered to; null shows every job. */
+    var logJobFilter by mutableStateOf<String?>(null)
+
+    /** Whether the log shows debug-level "details" lines. */
+    var logDetails by mutableStateOf(true)
+
+    /** Opens Queue, Log, with every job. */
+    fun openQueueLog() {
+        stacks.getValue(Tab.QUEUE).clear()
+        queueView = QueueView.LOG
+        logJobFilter = null
+        tab = Tab.QUEUE
+    }
+
+    /** Opens one book's job page; the combined log when that job is gone. */
+    fun openJob(id: String) {
+        if (manager.job(id) == null) {
+            openQueueLog()
+            return
+        }
+        stacks.getValue(Tab.QUEUE).clear()
+        queueView = QueueView.JOBS
+        stacks.getValue(Tab.QUEUE).add(Route.JobDetail(id))
+        tab = Tab.QUEUE
+    }
 
     var tab by mutableStateOf(Tab.ADD)
     private val stacks: Map<Tab, SnapshotStateList<Route>> = Tab.entries.associateWith { mutableStateListOf() }

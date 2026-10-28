@@ -11,6 +11,12 @@ data class UploadState(
     val jobId: String? = null,
     /** Names the upload when the file name is not plain ASCII; kept so Retry uploads under the same name. */
     val bookId: String? = null,
+    /** Absolute paths of every file this upload carries: just `path` for a file, several for a ZIP. */
+    val paths: List<String> = listOf(path),
+    /** For a ZIP: the original file names inside it. */
+    val contents: List<String> = emptyList(),
+    /** "Preparing ZIP 1 of 3" while the ZIP is being built, before a host is tried. */
+    val preparing: String? = null,
     val phase: Phase = Phase.RUNNING,
     /** Display name of the host being tried, which changes as the configured hosts are tried in order. */
     val host: String? = null,
@@ -36,10 +42,11 @@ data class UploadState(
     val statusLine: String
         get() = when (phase) {
             Phase.RUNNING -> {
-                val target = host?.let { "Uploading to $it…" } ?: "Preparing upload…"
+                val what = if (contents.isNotEmpty()) "Uploading $fileName" else "Uploading"
+                val target = host?.let { "$what to $it…" } ?: preparing?.let { "$it…" } ?: "Preparing upload…"
                 if (totalBytes > 0) "$target $percent% (${sizeProgress(sentBytes, totalBytes)})" else target
             }
-            Phase.DONE -> "Uploaded — ${link.orEmpty()}"
+            Phase.DONE -> if (contents.isNotEmpty()) "Uploaded in $fileName — ${link.orEmpty()}" else "Uploaded — ${link.orEmpty()}"
             Phase.FAILED -> "Upload failed: ${error ?: "unknown error"}"
         }
 
@@ -62,14 +69,19 @@ data class UploadState(
     }
 }
 
-/** Upload of every file of one finished run, started from the summary notification. */
+/** Upload of several files at once (a finished run, or jobs picked in the Queue); each upload is a file or a ZIP. */
 data class UploadBatch(
     val runId: String,
+    /** Uploads in the batch: files, and ZIPs of several files. */
     val total: Int,
-    /** Files finished so far, successful or not. */
+    /** Uploads finished so far, successful or not. */
     val done: Int = 0,
-    /** Path of the file being uploaded now. */
+    /** Key (`UploadState.path`) of the upload going on now. */
     val currentPath: String? = null,
+    /** "Preparing ZIP 1 of 3" while a ZIP is being built. */
+    val preparing: String? = null,
+    /** How many of the `total` uploads are ZIPs. */
+    val zips: Int = 0,
 ) {
     /** 0..1 over the whole batch, counting the current file's own progress. */
     fun fraction(current: UploadState?): Float {
@@ -78,11 +90,17 @@ data class UploadBatch(
         return ((done + part) / total).coerceIn(0f, 1f)
     }
 
-    /** "Uploading 2/5 files… 37%". */
+    /** "Uploading 2/5 files… 37%", "Uploading 2/3 ZIPs… 37%" or "Preparing ZIP 1 of 3…". */
     fun statusLine(current: UploadState?): String {
+        if (preparing != null) return "$preparing…"
         val index = minOf(done + 1, total)
         val fraction = fraction(current)
         val percent = (fraction * 100).roundToInt().let { if (fraction < 1f) minOf(it, 99) else it }
-        return "Uploading $index/$total files… $percent%"
+        val noun = when {
+            zips == 0 -> "files"
+            zips >= total -> "ZIPs"
+            else -> "uploads"
+        }
+        return "Uploading $index/$total $noun… $percent%"
     }
 }

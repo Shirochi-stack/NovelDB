@@ -1,26 +1,23 @@
 package com.shirochi.npia.app.model
 
-import java.net.URI
+import com.shirochi.npia.upload.UploadStem
 
 /**
- * The id that names uploaded files whose real name is not plain ASCII (hosts strip the rest, so a
- * Korean title arrives as "epub.epub"): `<id>.epub`. The id comes from the job.
+ * What names a job's uploaded files when hosts would reduce the real name to nothing (a Korean
+ * title arrives as `epub` or `-_.epub`): the stem `<source>_<book id>`, for example `npia_123456`.
+ * A title that keeps at least three ASCII letters or digits is uploaded under those instead (see
+ * `UploadNames` in the upload module). The id comes from the job.
  */
 object UploadNaming {
-    private val SAFE_ID = Regex("[A-Za-z0-9_-]{1,40}")
-
     /**
      * The adapter's book id when it is a safe token (for npia that is the novel number), else the
      * last numeric segment of the job URL, else a short ASCII slug of its path, else "book".
      */
-    fun bookId(url: String, bookId: String?): String {
-        bookId?.trim()?.takeIf { SAFE_ID.matches(it) }?.let { return it }
-        val path = runCatching { URI(url.trim()).path }.getOrNull().orEmpty()
-        val segments = path.split('/').filter { it.isNotEmpty() }
-        segments.lastOrNull { segment -> segment.all { it in '0'..'9' } }?.let { return it }
-        val slug = segments.joinToString("-").lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(32).trim('-')
-        return slug.ifEmpty { "book" }
-    }
+    fun bookId(url: String, bookId: String?): String = UploadStem.bookId(url, bookId)
 
-    fun forJob(job: JobItem): String = bookId(job.url, job.bookId)
+    /** `<source>_<id>`, or just the id when the source is unknown. */
+    fun stem(source: String?, id: String): String = UploadStem.of(source, id)
+
+    /** The stem of a job's files. */
+    fun forJob(job: JobItem): String = stem(job.source?.raw, bookId(job.url, job.bookId))
 }

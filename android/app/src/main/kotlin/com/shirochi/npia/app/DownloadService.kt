@@ -23,8 +23,10 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.shirochi.npia.app.model.JobItem
 import com.shirochi.npia.app.model.JobState
+import com.shirochi.npia.app.model.NotificationTarget
 import com.shirochi.npia.app.model.RunSummary
 import com.shirochi.npia.app.model.UploadBatch
+import com.shirochi.npia.app.model.UploadReport
 import com.shirochi.npia.app.model.UploadState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -125,6 +127,23 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putLong("lastAppUpdateCheck", value).apply()
 
     /**
+     * Debug builds only: a local test server that uploads go to instead of the real hosts, and
+     * its per-file maximum in bytes (0 for none). Set with the `noveldb_upload_base` and
+     * `noveldb_upload_max_bytes` extras. Always empty in other builds.
+     */
+    var uploadTestBase: String
+        get() = if (BuildConfig.DEBUG) prefs.getString("uploadTestBase", null).orEmpty() else ""
+        set(value) {
+            if (BuildConfig.DEBUG) prefs.edit().putString("uploadTestBase", value.trim()).apply()
+        }
+
+    var uploadTestMaxBytes: Long
+        get() = if (BuildConfig.DEBUG) prefs.getLong("uploadTestMaxBytes", 0L) else 0L
+        set(value) {
+            if (BuildConfig.DEBUG) prefs.edit().putLong("uploadTestMaxBytes", value.coerceAtLeast(0)).apply()
+        }
+
+    /**
      * Debug builds only: replaces the releases address (`https://github.com/.../releases`) so a
      * local server can serve `latest/download/update-android.json` and `download/<tag>/<file>`.
      * Always empty in other builds.
@@ -160,7 +179,12 @@ class DownloadService : Service() {
             manager.tagSearch.stop()
         }
         if (collector == null) {
-            goForeground(Notifications.progress(this, manager.jobs.value, manager.runningUploads(), manager.uploadBatch.value, manager.tagSearch.running.value))
+            goForeground(
+                Notifications.progress(
+                    this, manager.jobs.value, manager.runningUploads(), manager.uploadBatch.value, manager.tagSearch.running.value,
+                    NotificationTarget.forRun(manager.runJobIds()),
+                ),
+            )
             acquireLocks()
             // Notification updates are throttled; the system drops faster ones anyway. Uploads
             // keep the service alive too, so they finish with the screen off.
@@ -173,7 +197,10 @@ class DownloadService : Service() {
                     } else {
                         Notifications.notify(
                             this@DownloadService, Notifications.PROGRESS_ID,
-                            Notifications.progress(this@DownloadService, activity.jobs, activity.uploads, activity.batch, activity.searching),
+                            Notifications.progress(
+                                this@DownloadService, activity.jobs, activity.uploads, activity.batch, activity.searching,
+                                NotificationTarget.forRun(manager.runJobIds()),
+                            ),
                         )
                     }
                 }
@@ -272,11 +299,28 @@ object Notifications {
         manager.createNotificationChannel(NotificationChannel(CHANNEL_RESULTS, "Finished downloads", NotificationManager.IMPORTANCE_DEFAULT))
     }
 
-    private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
-        context, 0,
-        Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_OPEN_QUEUE, true),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
+    /**
+     * What a tap opens: the queue's combined log, one book's job page, or the queue. Each target
+     * has its own request code, so notifications for different targets never share extras.
+     */
+    internal fun openApp(context: Context, target: NotificationTarget = NotificationTarget.Queue): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val code = when (target) {
+            NotificationTarget.Queue -> {
+                intent.putExtra(MainActivity.EXTRA_OPEN_QUEUE, true)
+                0
+            }
+            NotificationTarget.QueueLog -> {
+                intent.putExtra(MainActivity.EXTRA_OPEN_LOG, true)
+                10
+            }
+            is NotificationTarget.Job -> {
+                intent.putExtra(MainActivity.EXTRA_OPEN_JOB, target.id)
+                1000 + (target.id.hashCode() and 0xFFFF)
+            }
+        }
+        return PendingIntent.getActivity(context, code, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
 
     fun progress(
         context: Context,
@@ -284,6 +328,7 @@ object Notifications {
         uploads: List<UploadState> = emptyList(),
         batch: UploadBatch? = null,
         searching: Boolean = false,
+        target: NotificationTarget = NotificationTarget.Queue,
     ): Notification {
         val runningJobs = jobs.filter { it.state == JobState.RUNNING }
         val queued = jobs.count { it.state == JobState.QUEUED }
@@ -326,7 +371,7 @@ object Notifications {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setContentIntent(openApp(context))
+            .setContentIntent(openApp(context, target))
             .addAction(0, "Cancel all", cancel)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
@@ -343,7 +388,8 @@ object Notifications {
             .setContentTitle(summary.notificationTitle)
             .setContentText(summary.notificationText)
             .setAutoCancel(true)
-            .setContentIntent(openApp(context))
+            // One book opens its job page; several open the queue's combined log.
+            .setContentIntent(openApp(context, NotificationTarget.forRun(summary.jobIds)))
         if (summary.hasFiles) {
             builder.addAction(0, "Share", ShareActivity.pending(context, summary.id, ShareActivity.ACTION_SHARE_FILES))
             builder.addAction(0, "Upload", NotificationActionReceiver.uploadAction(context, summary.id, agreed))
@@ -351,30 +397,22 @@ object Notifications {
         notify(context, SUMMARY_ID, builder.build())
     }
 
-    /** After the upload of a run: "Uploaded N files" with the links, or what went wrong. */
-    fun uploadResult(context: Context, summary: RunSummary, uploaded: Int, failures: List<String>) {
-        val title = when {
-            failures.isEmpty() -> if (uploaded == 1) "Uploaded 1 file" else "Uploaded $uploaded files"
-            uploaded == 0 -> "Upload failed"
-            else -> "Uploaded $uploaded of ${uploaded + failures.size} files"
-        }
-        val text = when {
-            failures.isNotEmpty() -> failures.first()
-            uploaded == 1 -> summary.links.first()
-            else -> "$uploaded links ready"
-        }
-        val details = (summary.links + failures).joinToString("\n")
+    /**
+     * After an upload: "Uploaded 11 files in 3 links" with each link under what it holds
+     * ("NovelDB_3_EPUBs.zip (3 books)"), or what went wrong.
+     */
+    fun uploadResult(context: Context, report: UploadReport) {
         val builder = NotificationCompat.Builder(context, CHANNEL_RESULTS)
-            .setSmallIcon(if (uploaded > 0) android.R.drawable.stat_sys_upload_done else android.R.drawable.stat_notify_error)
+            .setSmallIcon(if (report.uploads.isNotEmpty()) android.R.drawable.stat_sys_upload_done else android.R.drawable.stat_notify_error)
             .setLargeIcon(artwork(context))
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(details))
+            .setContentTitle(report.notificationTitle)
+            .setContentText(report.notificationText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(report.details))
             .setAutoCancel(true)
             .setContentIntent(openApp(context))
-        if (summary.links.isNotEmpty()) {
-            builder.addAction(0, "Share links", ShareActivity.pending(context, summary.id, ShareActivity.ACTION_SHARE_LINKS))
-            builder.addAction(0, "Copy links", NotificationActionReceiver.pending(context, summary.id, NotificationActionReceiver.ACTION_COPY_LINKS))
+        if (report.uploads.isNotEmpty()) {
+            builder.addAction(0, "Share links", ShareActivity.pending(context, report.id, ShareActivity.ACTION_SHARE_LINKS))
+            builder.addAction(0, "Copy links", NotificationActionReceiver.pending(context, report.id, NotificationActionReceiver.ACTION_COPY_LINKS))
         }
         notify(context, UPLOAD_RESULT_ID, builder.build())
     }
