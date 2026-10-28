@@ -127,7 +127,7 @@ jobs:
           tests/test_core_upload.py tests/test_core_has_no_gui_imports.py tests/test_paths.py tests/test_features.py
           tests/test_platform_services.py tests/test_settings_desktop_config.py tests/test_scraper_without_playwright.py
           tests/test_desktop_build.py tests/test_qt_catalog.py tests/test_core_npia_tags.py
-          tests/test_app_update.py tests/test_qt_app_update.py
+          tests/test_app_update.py tests/test_qt_app_update.py tests/test_qt_scale.py
 
   build:
     needs: [preflight, test]

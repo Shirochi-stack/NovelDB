@@ -44,6 +44,7 @@ from noveldb.core.npia import tags as T
 from noveldb.core.npia.ids import novel_url
 from noveldb.core.settings.model import NPIA
 from noveldb.qt.context import AppContext
+from noveldb.qt.scale import bind_size
 from noveldb.qt.widgets import FlowLayout, hint, section
 
 # Above this many results, adding to the link cart asks first (as on mobile).
@@ -336,7 +337,7 @@ class TagSearchDialog(QDialog):
             row.setContentsMargins(10, 8, 6, 8)
             label = QLabel("AND" if index else "")
             label.setProperty("hint", True)
-            label.setFixedWidth(34)
+            bind_size(label, fixed_width=34)
             row.addWidget(label)
             pills = QWidget()
             flow_layout = FlowLayout(pills, spacing=6)

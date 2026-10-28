@@ -27,6 +27,7 @@ from noveldb.core import paths
 from noveldb.core.settings.model import NPIA, OUTPUT_FORMATS
 from noveldb.core.sources import BROWSER, detect_source, engine_for, split_inputs
 from noveldb.qt.context import AppContext
+from noveldb.qt.scale import bind_size, bind_title, on_scale, ui_scale
 from noveldb.qt.widgets import Chip, dspin, field_group, flow, hint, section, set_quietly, spin
 
 NL = chr(10)
@@ -113,15 +114,15 @@ class DownloadPage(QWidget):
         tools = QToolButton()
         tools.setText("Tools")
         tools.setProperty("menu", True)
-        tools.setMinimumWidth(120)
-        tools_menu.setMinimumWidth(320)
+        bind_size(tools, min_width=120)
+        bind_size(tools_menu, min_width=320)
         tools.setPopupMode(QToolButton.InstantPopup)
         tools.setMenu(tools_menu)
 
         # Browser sign-in, as the old external window had it: Enter Browser (with the regular
         # Chrome profile switch) and Enter App for the sfc app session.
         enter_browser = QPushButton("Enter Browser")
-        enter_browser.setMinimumWidth(150)
+        bind_size(enter_browser, min_width=150)
         ok, reason = available("enter_browser")
         enter_browser.setEnabled(ok)
         enter_browser.setToolTip(reason or "Open a browser window to sign in to the site of the first link, "
@@ -133,7 +134,7 @@ class DownloadPage(QWidget):
         self.regular_browser.toggled.connect(lambda on: context.update_settings(
             lambda s: replace(s, sources=replace(s.sources, regular_browser=on))))
         enter_app = QPushButton("Enter App (sfc)")
-        enter_app.setMinimumWidth(150)
+        bind_size(enter_app, min_width=150)
         enter_app.setToolTip("Sign in to the sfc app, or paste its cookie, for app-only chapters.")
         enter_app.clicked.connect(lambda: self.toolRequested.emit("sfc_app"))
         browser_row = flow(enter_browser, self.regular_browser, enter_app, spacing=10)
@@ -141,17 +142,15 @@ class DownloadPage(QWidget):
         self.download = QPushButton("Download")
         self.download.setProperty("primary", True)
         self.download.setCursor(Qt.PointingHandCursor)
-        self.download.setMinimumWidth(140)
+        bind_size(self.download, min_width=140)
         self.download.clicked.connect(self._download)
         self.summary = hint("")
-        input_actions = QHBoxLayout()
-        input_actions.addWidget(paste)
-        input_actions.addWidget(clear)
-        input_actions.addWidget(tools)
-        input_actions.addSpacing(12)
-        input_actions.addWidget(self.summary, 1)
-        input_actions.addWidget(self.cart_button)
-        input_actions.addWidget(self.download)
+        # The buttons wrap instead of being cut off when the column is narrow; the summary sits below.
+        input_actions = QVBoxLayout()
+        input_actions.setSpacing(4)
+        input_actions.addWidget(flow(paste, clear, tools, self.cart_button, self.download))
+        input_actions.addWidget(self.summary)
+        self.summary.hide()
 
         self.detected = QWidget()
         self.detected_layout = None
@@ -220,8 +219,7 @@ class DownloadPage(QWidget):
         layout = QVBoxLayout(body)
         layout.setContentsMargins(18, 12, 12, 12)
         layout.setSpacing(6)
-        title = QLabel("Download")
-        title.setStyleSheet("font-size: 24px; font-weight: 600;")
+        title = bind_title(QLabel("Download"), 24)
         layout.addWidget(title)
         layout.addWidget(self.input)
         layout.addLayout(input_actions)
@@ -253,13 +251,11 @@ class DownloadPage(QWidget):
         side_layout.addWidget(self.account)
         side_layout.addWidget(self.images)
         side_layout.addStretch(1)
-        side.setMinimumWidth(360)
-        side.setMaximumWidth(480)
-        # The options keep a compact width; whatever the window has left goes to the log.
-        body.setMinimumWidth(420)
-        body.setMaximumWidth(640)
+        bind_size(side, min_width=360, max_width=480)
+        # The options keep a compact width (scaled with the window); what is left goes to the log.
+        bind_size(body, min_width=420, max_width=640)
         columns = QWidget()
-        columns.setMaximumWidth(640 + 480 + 16)
+        bind_size(columns, max_width=640 + 480 + 16)
         columns_layout = QHBoxLayout(columns)
         columns_layout.setContentsMargins(0, 0, 0, 0)
         columns_layout.setSpacing(8)
@@ -273,7 +269,7 @@ class DownloadPage(QWidget):
         # The log sits in a column on the right of this page, as in the old window; the main
         # window moves its one log panel here while this page is shown.
         self.log_dock = QWidget()
-        self.log_dock.setMinimumWidth(360)
+        bind_size(self.log_dock, min_width=360)
         dock_layout = QVBoxLayout(self.log_dock)
         dock_layout.setContentsMargins(0, 8, 8, 8)
         dock_layout.setSpacing(0)
@@ -287,6 +283,7 @@ class DownloadPage(QWidget):
         self.split.splitterMoved.connect(lambda *_: setattr(self, "_user_split", True))
         self._user_split = False
         self._columns = columns
+        on_scale(self, lambda: QTimer.singleShot(0, self, self._fit_split), now=False)
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -305,12 +302,12 @@ class DownloadPage(QWidget):
         self._detect()
 
     def _fit_split(self) -> None:
-        """Give the options their compact width (at most 62% of the page) and the log the rest."""
+        """Give the options their full width when it fits beside the log's minimum, and the log the rest."""
         total = self.split.width()
         if self._user_split or total < 600:
             return
-        wanted = self._columns.maximumWidth() + 24  # room for the scroll bar
-        left = min(wanted, int(total * 0.62))
+        wanted = self._columns.maximumWidth() + ui_scale.px(24)  # room for the scroll bar
+        left = min(wanted, max(int(total * 0.62), total - self.log_dock.minimumWidth() - self.split.handleWidth()))
         self.split.setSizes([left, total - left])
 
     def showEvent(self, event):
@@ -363,6 +360,7 @@ class DownloadPage(QWidget):
         self.download.setEnabled(valid > 0)
         self.download.setText(f"Download {valid}" if valid > 1 else "Download")
         self.summary.setText(f"{unknown} line(s) not recognised" if unknown else "")
+        self.summary.setVisible(bool(unknown))
         self.refresh()
 
     # -- run settings --------------------------------------------------------------------
