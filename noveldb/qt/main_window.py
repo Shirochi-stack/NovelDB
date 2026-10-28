@@ -100,6 +100,8 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.log_toggle)
         self.log_panel.activity.connect(lambda: self.set_log_visible(True))
         self.set_log_visible(False)
+        self.sidebar.currentRowChanged.connect(self._place_log)
+        self._place_log()
         self.download.queued.connect(self._queued)
         self.queue.activeCountChanged.connect(self._active_count)
         self.queue.finishedBatch.connect(self._finished_batch)
@@ -128,19 +130,37 @@ class MainWindow(QMainWindow):
     def download_cart(self) -> None:
         self.download.queue_lines(self.context.cart.urls)
 
+    def _place_log(self, *_args) -> None:
+        """The Download page shows the log as its right-hand column; other pages fold it at the bottom."""
+        docked = self._page_name() == "Download"
+        if docked:
+            if self.log_panel.parentWidget() is not self.download.log_dock:
+                self.download.log_dock.layout().addWidget(self.log_panel)
+            self.log_panel.show()
+            self.log_toggle.hide()
+            return
+        if self.log_panel.parentWidget() is not self.splitter:
+            self.splitter.addWidget(self.log_panel)
+            self.splitter.setStretchFactor(1, 1)
+        self.log_panel.setVisible(bool(getattr(self, "_log_open", False)))
+        self.log_toggle.show()
+        self._apply_log_share()
+
     def set_log_visible(self, visible: bool) -> None:
+        """The bottom log on pages other than Download (where the log is always a column)."""
         # isVisible() is False for every widget before the window is shown, so track it here.
         if visible == getattr(self, "_log_open", None):
             return
         self._log_open = visible
-        self.log_panel.setVisible(visible)
         self.log_toggle.setText("Hide log" if visible else "Show log")
-        if visible:
-            self._apply_log_share()
+        if self._page_name() != "Download":
+            self.log_panel.setVisible(visible)
+            if visible:
+                self._apply_log_share()
 
-    # Share of the height the log takes per page: twice the old default on Download, the old
-    # default elsewhere (the Catalog wants room). A size the user drags to is kept per page.
-    LOG_SHARE = {"Download": 0.56}
+    # Share of the height the bottom log takes (the Catalog wants room). A size the user drags to
+    # is kept per page. The Download page shows the log as a column instead.
+    LOG_SHARE: dict = {}
     DEFAULT_LOG_SHARE = 0.28
 
     def _page_name(self) -> str:
@@ -148,7 +168,7 @@ class MainWindow(QMainWindow):
         return PAGES[row] if 0 <= row < len(PAGES) else ""
 
     def _apply_log_share(self, *_args) -> None:
-        if not getattr(self, "_log_open", False):
+        if not getattr(self, "_log_open", False) or self._page_name() == "Download":
             return
         shares = getattr(self, "_log_shares", {})
         share = shares.get(self._page_name(), self.LOG_SHARE.get(self._page_name(), self.DEFAULT_LOG_SHARE))

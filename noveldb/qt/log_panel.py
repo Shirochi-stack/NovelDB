@@ -95,10 +95,10 @@ class LogPanel(QWidget):
         self.filter.currentIndexChanged.connect(self._refilter)
         self.log = LogView()
 
+        self.title.setWordWrap(True)
         top = QHBoxLayout()
         top.setSpacing(10)
         top.addWidget(self.title, 1)
-        top.addWidget(self.info)
         top.addWidget(self.filter)
         top.addWidget(self.stop)
         layout = QVBoxLayout(self)
@@ -106,7 +106,10 @@ class LogPanel(QWidget):
         layout.setSpacing(4)
         layout.addLayout(top)
         layout.addWidget(self.progress)
-        layout.addWidget(self.status)
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.status, 1)
+        status_row.addWidget(self.info)
+        layout.addLayout(status_row)
         layout.addWidget(self.log, 1)
 
         hub = context.hub
