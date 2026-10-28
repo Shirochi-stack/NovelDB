@@ -121,9 +121,21 @@ object DesktopConfig {
             koboHorizontalLayout = c.bool("ext_kobo_horizontal_layout") ?: s.koboHorizontalLayout,
         )
 
+        val e = base.engines
+        val order = c.strings("source_engine_order")
+        val off = c.strings("source_engines_off")
+        var engines = e.copy(
+            order = order?.let { list -> SiteEngine.order(list).map { it.raw } } ?: e.order,
+            disabled = off?.filter { SiteEngine.fromRaw(it) != null } ?: e.disabled,
+            novelDownloaderAutoUpdate = c.bool("novel_downloader_auto_update") ?: e.novelDownloaderAutoUpdate,
+            webtoepubAutoUpdate = c.bool("webtoepub_auto_update") ?: e.webtoepubAutoUpdate,
+        )
+        // Never leave every engine off.
+        if (SiteEngine.order(engines.order, engines.disabled).isEmpty()) engines = engines.copy(disabled = emptyList())
+
         val settings = base.copy(
             shared = shared, overrides = overrides, images = images, text = text,
-            npia = npiaSettings, sources = sources,
+            npia = npiaSettings, sources = sources, engines = engines,
         )
         val secrets = Secrets(
             email = c.string("email")?.ifEmpty { null },
@@ -227,6 +239,11 @@ object DesktopConfig {
         put("ext_ntk_npia_cover", s.sources.ntkNpiaCover)
         put("ext_syosetu_amazon_cover", s.sources.nwebStoreCover)
         put("ext_kobo_horizontal_layout", s.sources.koboHorizontalLayout)
+
+        put("source_engine_order", s.engines.fullOrder().map { it.raw })
+        put("source_engines_off", s.engines.disabled.filter { SiteEngine.fromRaw(it) != null })
+        put("novel_downloader_auto_update", s.engines.novelDownloaderAutoUpdate)
+        put("webtoepub_auto_update", s.engines.webtoepubAutoUpdate)
         return JsonObject(c)
     }
 

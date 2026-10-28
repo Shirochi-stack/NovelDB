@@ -194,6 +194,8 @@ data class AppSettings(
     val text: TextSettings = TextSettings(),
     val npia: NpiaSettings = NpiaSettings(),
     val sources: SourceOptions = SourceOptions(),
+    /** Which site engines run, in what order, and which rule engines update themselves. */
+    val engines: EngineSettings = EngineSettings(),
     val upload: UploadSettings = UploadSettings(),
 ) {
     fun effective(source: SourceId): SharedSettings = overrides[source.raw]?.applyTo(shared) ?: shared
