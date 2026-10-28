@@ -193,6 +193,7 @@ class UiSettings:
 class CatalogSettings:
     url: str = DEFAULT_CATALOG_URL
     cart_links: bool = True
+    zoom: float = 1.0  # desktop: the Catalog page's zoom (0.5-3.0)
 
 
 @dataclass(frozen=True)
@@ -235,7 +236,7 @@ class LastInput:
 @dataclass(frozen=True)
 class AppSettings:
     shared: SharedSettings = field(default_factory=SharedSettings)
-    # Keyed by source codename. npia's threads/interval/range are pinned here on first migration.
+    # Keyed by source codename; empty until the user overrides something.
     overrides: dict = field(default_factory=dict)
     images: ImageSettings = field(default_factory=ImageSettings)
     text: TextSettings = field(default_factory=TextSettings)
@@ -311,11 +312,6 @@ class AppSettings:
                 base = replace(base, range_from=nxt.range_from, range_to=nxt.range_to)
         result = replace(self, shared=base)
         return result.with_override(source, o) if source else result
-
-
-def default_settings() -> AppSettings:
-    """Settings for a new install: npia downloads one chapter at a time, as the old main window did."""
-    return AppSettings(overrides={NPIA: SharedOverrides(threads=1)})
 
 
 def dataclass_to_dict(value) -> dict:

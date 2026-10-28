@@ -110,7 +110,7 @@ def _helper_login(context: AppContext) -> None:
     os.remove(key_path)
     signals = _HelperSignals(context)
     signals.finished.connect(lambda key: save_key(context, key) if key else context.hub.message.emit(
-        "Google sign-in did not finish. You can paste a session key in Settings > npia."), Qt.QueuedConnection)
+        "Google sign-in did not finish. You can paste a session key in Settings > npia login."), Qt.QueuedConnection)
     process = multiprocessing.Process(target=_run_webview_login, args=(key_path,), daemon=True)
     process.start()
     context.hub.log("", "Google sign-in window opened.")
@@ -142,4 +142,4 @@ def google_login(context: AppContext, parent: Optional[QWidget] = None) -> None:
         _helper_login(context)
     else:
         context.hub.message.emit("Google sign-in needs a browser component this build does not have. "
-                                 "Paste a session key in Settings > npia instead.")
+                                 "Paste a session key in Settings > npia login instead.")

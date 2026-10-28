@@ -130,6 +130,14 @@ class Tools(QObject):
             return
         self._add_lines(lines)
 
+    def _restart(self) -> None:
+        from noveldb.qt import app
+
+        app.request_restart()
+        self.context.save_now()
+        if not self.window.close():  # the user kept running downloads: no restart later either
+            app._restart["requested"] = False
+
     def _cache_folder(self) -> None:
         folder = paths.cache_dir()
         folder.mkdir(parents=True, exist_ok=True)

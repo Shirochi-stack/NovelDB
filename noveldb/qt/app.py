@@ -20,6 +20,24 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from app_version import VERSION
 
 
+_restart = {"requested": False}
+
+
+def request_restart() -> None:
+    """Start a new copy once this one has quit (display scaling only applies at startup)."""
+    _restart["requested"] = True
+
+
+def _relaunch() -> None:
+    from PySide6.QtCore import QProcess
+
+    if getattr(sys, "frozen", False):
+        program, arguments = sys.executable, sys.argv[1:]
+    else:
+        program, arguments = sys.executable, [os.path.abspath(sys.argv[0])] + sys.argv[1:]
+    QProcess.startDetached(program, arguments)
+
+
 def _parse(argv) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="NovelDB", add_help=True)
     parser.add_argument("--smoke", action="store_true", help="build the window, then quit")
@@ -197,7 +215,7 @@ def main(argv=None) -> int:
         names = [name.lower() for name in PAGES]
         if args.page.lower() in names:
             window.show_page(names.index(args.page.lower()))
-    window.show()
+    window.show_initial()
     server = None if args.smoke else _listen(key, window)
 
     if not args.smoke:
@@ -229,5 +247,7 @@ def main(argv=None) -> int:
     code = app.exec()
     context.shutdown()
     if server is not None:
-        server.close()
+        server.close()  # before relaunching, or the new copy would just raise this window
+    if _restart["requested"] and not args.smoke:
+        _relaunch()
     return exit_code["value"] if args.smoke else code

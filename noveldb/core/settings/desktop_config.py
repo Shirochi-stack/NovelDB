@@ -341,6 +341,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         base.catalog,
         url=_valid_url(c.get("catalog_url")) or base.catalog.url,
         cart_links=_first_bool(c, "catalog_cart_links", base.catalog.cart_links),
+        zoom=_clamp(_float(c.get("catalog_zoom")), 0.5, 3.0, base.catalog.zoom),
     )
     concurrent = _int(c.get("max_concurrent_jobs"))
     queue = replace(base.queue, max_concurrent_jobs=int(_clamp(concurrent, 1, 3, base.queue.max_concurrent_jobs)))
@@ -402,27 +403,24 @@ def _valid_url(value: Any) -> Optional[str]:
 def _merge_legacy_npia(c: dict, shared: SharedSettings, current: SharedOverrides, legacy: bool) -> SharedOverrides:
     """npia's override, reconciled with the legacy keys.
 
-    Old desktop files (no `settings_schema`) pin npia's threads, interval and range, so npia keeps
-    the values the main window had even where they match the external downloader's. Every other
-    field becomes an override only where it differs. Files written by the merged app take their
-    override from `source_overrides`, updated by any legacy key another app changed since.
+    Old desktop files (no `settings_schema`) get no npia override: npia uses the shared settings
+    like every other source, and no override is chosen for the user. Files written by the merged
+    app take their override from `source_overrides`, updated by any legacy key another app (an
+    older build, the mobile apps) changed since.
     """
+    if legacy:
+        return current
     values = _legacy_npia_values(c, shared)
     effective = current.apply_to(shared)
     o = current
-    pinned = {"threads", "interval_min", "interval_max"} if legacy else set()
     for name in ("threads", "interval_min", "interval_max", "formats", "use_cache",
                  "cache_images", "number_chapters", "separate_txt"):
         value = values[name]
-        if value is None:
-            continue
-        if name in pinned:
-            o = replace(o, **{name: value})
-        elif value != getattr(effective, name):
+        if value is not None and value != getattr(effective, name):
             o = replace(o, **{name: value})
     if values["range"] is not None:
         frm, to = values["range"]
-        if legacy or (frm, to) != (effective.range_from, effective.range_to):
+        if (frm, to) != (effective.range_from, effective.range_to):
             o = replace(o, range_from=frm, range_to=to, range_override=True)
     return o
 
@@ -537,6 +535,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
 
     c["catalog_url"] = s.catalog.url or DEFAULT_CATALOG_URL
     c["catalog_cart_links"] = s.catalog.cart_links
+    c["catalog_zoom"] = s.catalog.zoom
     c["max_concurrent_jobs"] = s.queue.max_concurrent_jobs
 
     c["upload_auto"] = s.upload.auto_upload

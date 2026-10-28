@@ -42,7 +42,6 @@ from noveldb.core.settings.model import (
     THEMES,
     AppSettings,
     SharedOverrides,
-    default_settings,
 )
 from noveldb.core.upload import ALL as UPLOAD_HOSTS
 from noveldb.qt.context import AppContext
@@ -147,11 +146,12 @@ class Form(QWidget):
         self._bind(box, lambda s: box.setValue(int(_get(s, path))))
         return self.row(label, box)
 
-    def dspin(self, label: str, path: str, low: float, high: float, step: float = 0.5, suffix: str = "") -> QDoubleSpinBox:
+    def dspin(self, label: str, path: str, low: float, high: float, step: float = 0.5, suffix: str = "",
+              decimals: int = 1) -> QDoubleSpinBox:
         box = QDoubleSpinBox()
         box.setRange(low, high)
         box.setSingleStep(step)
-        box.setDecimals(1)
+        box.setDecimals(decimals)
         box.setSuffix(suffix)
         box.setKeyboardTracking(False)
         box.valueChanged.connect(lambda v: self.change(path, float(v)))
@@ -232,10 +232,32 @@ def general_form(context: AppContext) -> Form:
     f.add_section("Appearance")
     f.combo("Theme", "ui.theme", {k: THEME_LABELS[k] for k in THEMES})
     f.combo("Accent", "ui.accent", {k: ACCENT_LABELS.get(k, k) for k in ACCENTS})
-    f.check("Scale the window for this screen automatically", "ui.auto_dpi_scale", " ")
-    scale = f.dspin("Interface scale", "ui.gui_scale_factor", 0.5, 3.0, 0.1, "x")
-    f.add_hint("Scale changes apply the next time NovelDB starts.")
-    f._refreshers.append(lambda s: scale.setEnabled(not s.ui.auto_dpi_scale))
+    f.add_section("Display scaling")
+    f.check("Pick the scale for this screen automatically", "ui.auto_dpi_scale", " ")
+    scale = f.dspin("Interface scale", "ui.gui_scale_factor", 0.5, 3.0, 0.05, "x", decimals=2)
+    import dpi_setup
+
+    running = (dpi_setup.get_scale_factor(), dpi_setup.get_system_scale())
+    detected = hint("")
+    restart = QPushButton("Restart now")
+    restart.clicked.connect(lambda: context.toolRequested.emit("restart"))
+    holder = QWidget()
+    row = QHBoxLayout(holder)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addWidget(detected, 1)
+    row.addWidget(restart)
+    f.add(holder)
+
+    def show_scale(s):
+        scale.setEnabled(not s.ui.auto_dpi_scale)
+        wanted = dpi_setup._get_default_scale_for_resolution() if s.ui.auto_dpi_scale else s.ui.gui_scale_factor
+        text = (f"Now {running[0]:.2f}x on a {running[1]:.2f}x screen "
+                f"({'automatic' if s.ui.auto_dpi_scale else 'manual'}).")
+        pending = abs(float(wanted) - float(running[0])) > 0.001
+        restart.setVisible(pending)
+        detected.setText(text + (f" {float(wanted):.2f}x applies after a restart." if pending else ""))
+
+    f._refreshers.append(show_scale)
 
     f.add_section("Downloads")
     f.path_picker("Save to", "output.output_dir", "Save downloads to", folder=True)
@@ -251,7 +273,7 @@ def general_form(context: AppContext) -> Form:
 
 
 def npia_form(context: AppContext) -> Form:
-    f = Form(context, "npia")
+    f = Form(context, "npia login")
     f.add_section("Account")
     email = QLineEdit()
     email.setPlaceholderText("Email")
@@ -333,9 +355,10 @@ class OverridesForm(Form):
 
     def __init__(self, context: AppContext) -> None:
         super().__init__(context, "Per-source overrides")
-        self.add_hint("A source uses the shared settings except for the values ticked here. npia keeps its own "
-                      "speed and chapter range by default, as the old main window did.")
+        self.add_hint("Every source uses the shared settings except for the values ticked here. No source "
+                      "has an override until you add one.")
         self.source = QComboBox()
+        self.source.addItem("Choose a source", None)
         for source in OVERRIDE_SOURCES:
             self.source.addItem(source, source)
         self.source.currentIndexChanged.connect(self.refresh)
@@ -398,6 +421,8 @@ class OverridesForm(Form):
 
     def _update(self, change) -> None:
         source = self.current
+        if source is None:
+            return
         self.context.update_settings(lambda s: s.with_override(source, change(s.override(source))))
 
     def _toggle(self, name: str, on: bool) -> None:
@@ -431,7 +456,12 @@ class OverridesForm(Form):
         override = s.override(self.current)
         run = s.effective(self.current)
         names = override.overridden()
-        self.summary.setText(f"Overrides: {', '.join(names)}." if names else "Uses the shared settings.")
+        if self.current is None:
+            overridden = [source for source in OVERRIDE_SOURCES if not s.override(source).is_empty]
+            self.summary.setText("Sources with overrides: " + ", ".join(overridden) + "." if overridden
+                                 else "No source has an override.")
+        else:
+            self.summary.setText(f"Overrides: {', '.join(names)}." if names else "Uses the shared settings.")
         widgets = [w for pair in self.controls.values() for w in pair]
         widgets += [self.format_toggle, self.range_toggle, self.range_from, self.range_to, *self.format_chips.values()]
         for widget in widgets:
@@ -455,6 +485,11 @@ class OverridesForm(Form):
             self.range_to.setValue(run.range_to or 0)
             self.range_from.setEnabled(override.has_range)
             self.range_to.setEnabled(override.has_range)
+            chosen = self.current is not None
+            for toggle, _value in self.controls.values():
+                toggle.setEnabled(chosen)
+            self.format_toggle.setEnabled(chosen)
+            self.range_toggle.setEnabled(chosen)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
@@ -644,7 +679,7 @@ def advanced_form(context: AppContext) -> Form:
         answer = QMessageBox.question(f, "Reset settings",
                                       "Reset every setting to its default? Accounts and keys are kept.")
         if answer == QMessageBox.Yes:
-            context.update_settings(lambda s: replace(default_settings(), secrets=s.secrets))
+            context.update_settings(lambda s: replace(AppSettings(), secrets=s.secrets))
             context.save_now()
 
     reset.clicked.connect(do_reset)
@@ -655,7 +690,7 @@ def advanced_form(context: AppContext) -> Form:
 
 CATEGORIES = (
     ("General", general_form),
-    ("npia", npia_form),
+    ("npia login", npia_form),
     ("Per-source overrides", OverridesForm),
     ("Source options", sources_form),
     ("Images", images_form),

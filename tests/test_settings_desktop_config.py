@@ -44,7 +44,7 @@ def test_overrides_apply_per_source():
     assert s.effective(None).threads == 4
 
 
-def test_old_desktop_config_pins_npia_threads_interval_and_range():
+def test_old_desktop_config_gets_no_npia_override():
     config = {
         "email": "reader@example.com", "wd": "pw", "loginkey": "",
         "thread_num": 4, "interval_num": 2.5, "interval_max_num": 4.0,
@@ -61,14 +61,9 @@ def test_old_desktop_config_pins_npia_threads_interval_and_range():
     assert (s.shared.interval_min, s.shared.interval_max) == (1.0, 2.0)
     assert (s.shared.range_from, s.shared.range_to) == (None, 92)
 
-    npia = s.effective(NPIA)
-    assert npia.threads == 4
-    assert (npia.interval_min, npia.interval_max) == (2.5, 4.0)
-    assert (npia.range_from, npia.range_to) == (None, 10)
-    # Pinned for old desktop files even though the value matches the shared one.
-    assert s.overrides[NPIA].threads == 4
-    # Formats are equal, so they merge into the shared set.
-    assert s.overrides[NPIA].formats is None
+    # No override is chosen for the user: npia uses the shared settings like every source.
+    assert s.overrides == {}
+    assert s.effective(NPIA) == s.shared
 
     assert s.images.format == "WEBP"
     assert s.images.recompress_target_enable is False
@@ -80,7 +75,10 @@ def test_old_desktop_config_pins_npia_threads_interval_and_range():
 
 
 def test_npia_range_off_does_not_inherit_the_external_range():
-    s = dc.import_config({"from_enabled": False, "to_enabled": False, "ext_to_enabled": True, "ext_to": 50})
+    # A file from the merged app whose npia range is off while the shared range is set.
+    s = dc.import_config({"settings_schema": 2, "from_enabled": False, "to_enabled": False,
+                          "ext_to_enabled": True, "ext_to": 50,
+                          "source_overrides": {NPIA: {"range_override": True}}})
     assert s.shared.range_to == 50
     assert s.effective(NPIA).range_to is None
 
@@ -132,9 +130,9 @@ def test_legacy_migrations():
         "gui_scale_factor": 9, "ext_kpage_dedupe_leading_images": 40, "recompress_target_mb": "bad",
         "quick_enable": True, "quick_path": "D:/books",
     })
-    npia = s.effective(NPIA)
-    assert npia.formats == ("txt",)
-    assert (npia.interval_min, npia.interval_max) == (1.5, 1.5)
+    assert s.overrides == {}
+    assert s.effective(NPIA).threads == 4
+    assert s.effective(NPIA).interval_range == (2.0, 5.0)
     assert s.shared.max_retries == 5
     assert s.npia.scrape_max_queries == dc.DEFAULT_SEARCH_QUERY_COUNT
     assert s.ui.gui_scale_factor == 3.0
@@ -225,11 +223,12 @@ def test_non_dict_config_loads_defaults(value):
     assert dc.import_config(value) == AppSettings()
 
 
-def test_new_install_keeps_npia_at_one_thread(tmp_path):
+def test_new_install_has_no_overrides_and_mobile_defaults(tmp_path):
     from noveldb.core.settings.store import ConfigStore
 
     store = ConfigStore(tmp_path / "config.json")
     store.ensure_exists()
     settings = store.load()
-    assert settings.effective("npia").threads == 1
-    assert settings.effective("kpage").threads == settings.shared.threads == 4
+    assert settings.overrides == {}
+    assert settings.effective("npia").threads == settings.shared.threads == 4
+    assert settings.effective("npia").interval_range == (2.0, 5.0)

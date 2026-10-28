@@ -29,6 +29,9 @@ from noveldb.qt.pages.settings import SettingsPage
 from noveldb.qt.theme import apply_theme
 
 PAGES = ("Download", "Catalog", "Queue", "Settings")
+# Saved geometry is prefixed with a version: sizes saved before display scaling followed the OS
+# setting were a third too small, so they are not restored.
+GEOMETRY_VERSION = "2:"
 
 
 class MainWindow(QMainWindow):
@@ -38,7 +41,8 @@ class MainWindow(QMainWindow):
         context.prompts._parent = lambda: self
         suffix = {"lite": " Lite", "turbolite": " TurboLite"}.get(features.variant(), "")
         self.setWindowTitle(f"NovelDB {VERSION}{suffix}")
-        self.setMinimumSize(760, 560)
+        self.setMinimumSize(900, 620)
+        self._start_maximized = False
 
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("sidebar")
@@ -141,13 +145,32 @@ class MainWindow(QMainWindow):
 
     def _restore_geometry(self) -> None:
         saved = self.context.settings.ui.window_geometry
-        if saved:
+        if saved.startswith(GEOMETRY_VERSION):
             try:
-                self.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii")))
-                return
+                if self.restoreGeometry(QByteArray.fromBase64(saved[len(GEOMETRY_VERSION):].encode("ascii"))):
+                    return
             except Exception:
                 pass
-        self.resize(1040, 760)
+        self._default_geometry()
+
+    def _default_geometry(self) -> None:
+        """Most of the screen: big enough for the Catalog, maximized on small or high-scale screens."""
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(1280, 860)
+            return
+        area = screen.availableGeometry()
+        width = int(min(area.width() * 0.92, max(1280, area.width() * 0.75)))
+        height = int(min(area.height() * 0.92, max(860, area.height() * 0.85)))
+        self.resize(width, height)
+        self.move(area.x() + (area.width() - width) // 2, area.y() + (area.height() - height) // 2)
+        self._start_maximized = width >= area.width() * 0.9 or height >= area.height() * 0.9
+
+    def show_initial(self) -> None:
+        if self._start_maximized:
+            self.showMaximized()
+        else:
+            self.show()
 
     def closeEvent(self, event):
         running = self.context.runner.running()
@@ -162,6 +185,6 @@ class MainWindow(QMainWindow):
                 return
         if hasattr(self.catalog, "release"):
             self.catalog.release()
-        geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
+        geometry = GEOMETRY_VERSION + bytes(self.saveGeometry().toBase64()).decode("ascii")
         self.context.update_settings(lambda s: replace(s, ui=replace(s.ui, window_geometry=geometry)))
         super().closeEvent(event)

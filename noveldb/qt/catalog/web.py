@@ -16,7 +16,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QFile, QIODevice, QObject, Qt, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -188,7 +188,14 @@ class CatalogPage(QWidget):
         self.address = QLabel("")
         self.address.setProperty("hint", True)
         self.address.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.zoom_out = tool("−", "Zoom out (Ctrl+-)", lambda: self.zoom_by(-0.1))
+        self.zoom_label = QLabel("100%")
+        self.zoom_label.setProperty("hint", True)
+        self.zoom_in = tool("+", "Zoom in (Ctrl++)", lambda: self.zoom_by(0.1))
         self.external = tool("↗", "Open this page in your browser", self._open_external)
+        for keys, step in (("Ctrl++", 0.1), ("Ctrl+=", 0.1), ("Ctrl+-", -0.1)):
+            QShortcut(QKeySequence(keys), self, activated=lambda s=step: self.zoom_by(s))
+        QShortcut(QKeySequence("Ctrl+0"), self, activated=lambda: self.set_zoom(1.0))
         self.cart_button = QPushButton()
         self.cart_button.clicked.connect(self.openCart.emit)
         bar = QHBoxLayout()
@@ -197,6 +204,9 @@ class CatalogPage(QWidget):
         for widget in (self.back, self.forward, self.reload, self.home):
             bar.addWidget(widget)
         bar.addWidget(self.address, 1)
+        bar.addWidget(self.zoom_out)
+        bar.addWidget(self.zoom_label)
+        bar.addWidget(self.zoom_in)
         bar.addWidget(self.external)
         bar.addWidget(self.cart_button)
         self.progress = QProgressBar()
@@ -240,6 +250,7 @@ class CatalogPage(QWidget):
         context.cartChanged.connect(self._cart_changed)
         context.settingsChanged.connect(self._settings_changed)
         self._cart_changed()
+        self._show_zoom()
 
     # -- lifecycle ---------------------------------------------------------------------------
 
@@ -272,6 +283,7 @@ class CatalogPage(QWidget):
         self.view.loadProgress.connect(self.progress.setValue)
         self.view.loadFinished.connect(self._load_finished)
         self.view.urlChanged.connect(self._url_changed)
+        self.view.setZoomFactor(self.context.settings.catalog.zoom)
         self.stack.addWidget(self.view)
         self.stack.setCurrentWidget(self.view)
         self.go_home()
@@ -283,6 +295,23 @@ class CatalogPage(QWidget):
         if self.page is not None:
             self.page.deleteLater()
             self.page = None
+
+    # -- zoom ------------------------------------------------------------------------------------
+
+    def zoom_by(self, step: float) -> None:
+        self.set_zoom(self.context.settings.catalog.zoom + step)
+
+    def set_zoom(self, value: float) -> None:
+        from dataclasses import replace
+
+        value = round(min(3.0, max(0.5, value)), 2)
+        self.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, zoom=value)))
+
+    def _show_zoom(self) -> None:
+        zoom = self.context.settings.catalog.zoom
+        self.zoom_label.setText(f"{round(zoom * 100)}%")
+        if self.view is not None and abs(self.view.zoomFactor() - zoom) > 0.001:
+            self.view.setZoomFactor(zoom)
 
     # -- navigation ----------------------------------------------------------------------------
 
@@ -379,6 +408,7 @@ class CatalogPage(QWidget):
         self._push_state()
 
     def _settings_changed(self) -> None:
+        self._show_zoom()
         if self.view is not None and self.site != self._loaded_url:
             self.go_home()
         else:

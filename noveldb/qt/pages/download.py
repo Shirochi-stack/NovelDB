@@ -285,8 +285,8 @@ class DownloadPage(QWidget):
         override = s.override(source)
         npia = source == NPIA
         mixed = len({src for _l, src in self._lines if src}) > 1
-        if npia:
-            note = "npia keeps its own speed and chapter settings."
+        if npia and override.is_empty:
+            note = "Shared settings. Changes made here for npia are kept as npia's own override."
         elif source and not override.is_empty:
             note = f"{source} overrides: {', '.join(override.overridden())}. Other values are shared."
         elif source:
