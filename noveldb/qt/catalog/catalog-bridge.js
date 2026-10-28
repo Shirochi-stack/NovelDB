@@ -8,7 +8,8 @@
  * - When the app sends outside links to the cart (sites other than NovelDB, setMode cartLinks),
  *   links to other sites that show text are renamed "🔗 Download".
  * - Taps show no highlight flash, and the NovelDB header is slimmer.
- * - Dialog heights use the window height: some Android WebViews resolve dvh units to 0.
+ * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
+ *   and the details cover is kept short without changing its shape.
  */
 (function () {
     'use strict';
@@ -226,9 +227,13 @@
         '.noveldb-cart-next{left:auto;right:.3rem;bottom:.3rem;z-index:40;width:30px;height:30px;font-size:15px}' +
         '.noveldb-cart:disabled{opacity:.5}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
-        '{visibility:hidden!important;animation:none!important;transition:none!important}' +
+        '{visibility:hidden!important;animation:none!important;transition:none!important}';
+    // Phone-sized dialogs (window height instead of dvh, a short cover). The desktop app keeps the
+    // site's own layout: these rules squashed the cover image there.
+    if (!window.NovelDBQt) style.textContent +=
         '.novel-details{max-height:calc(var(--noveldb-vh,100vh) - 1rem)!important}' +
-        '.novel-details-image img{max-height:min(calc(var(--noveldb-vh,100vh) * .2),140px)!important}' +
+        '.novel-details-image img{max-height:min(calc(var(--noveldb-vh,100vh) * .2),140px)!important;' +
+        'object-fit:contain!important;width:auto!important;max-width:100%!important}' +
         '.novel-details-content [data-field=synopsis]{max-height:min(calc(var(--noveldb-vh,100vh) * .25),150px)!important}' +
         '.site-settings-dialog{max-height:min(calc(var(--noveldb-vh,100vh) * .9),560px)!important}' +
         '.mobile-controls-floating{max-height:calc(var(--noveldb-vh,100vh) * .75)!important}';

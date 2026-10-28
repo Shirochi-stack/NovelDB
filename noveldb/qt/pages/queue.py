@@ -45,7 +45,7 @@ class QueuePage(QWidget):
         self._batch: set[str] = set()  # jobs since the queue was last idle
 
         title = QLabel("Queue")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setStyleSheet("font-size: 24px; font-weight: 600;")
         self.pause = QPushButton()
         self.pause.clicked.connect(self._toggle_pause)
         stop_all = QPushButton("Stop all")

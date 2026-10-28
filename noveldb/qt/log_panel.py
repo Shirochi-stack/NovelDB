@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QTextCursor
 from PySide6.QtWidgets import (
     QComboBox,
@@ -69,6 +69,8 @@ class LogView(QPlainTextEdit):
 
 
 class LogPanel(QWidget):
+    activity = Signal()  # a download wrote to the log or started
+
     def __init__(self, context: AppContext) -> None:
         super().__init__()
         self.context = context
@@ -124,6 +126,8 @@ class LogPanel(QWidget):
             return
         wanted = self.filter.currentData()
         shown = []
+        if any(job_id for job_id, _text in items):
+            self.activity.emit()
         for job_id, text in items:
             self._lines.append((job_id, text))
             if not wanted or job_id == wanted or not job_id:
@@ -166,6 +170,7 @@ class LogPanel(QWidget):
         current = self.context.runner.job(self._current) if self._current else None
         if job.state == RUNNING and (current is None or current.state != RUNNING):
             self._current = job.id
+            self.activity.emit()
         if job.id != self._current:
             if current is None or current.state != RUNNING:
                 self._pick_next()

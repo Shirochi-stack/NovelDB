@@ -85,7 +85,7 @@ class Form(QWidget):
         self.layout_.setContentsMargins(20, 16, 20, 16)
         self.layout_.setSpacing(8)
         heading = QLabel(title)
-        heading.setStyleSheet("font-size: 18px; font-weight: 600;")
+        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
         self.layout_.addWidget(heading)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

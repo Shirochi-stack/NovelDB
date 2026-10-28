@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -13,11 +13,14 @@ from noveldb.qt.widgets import hint
 class BrowserCatalogPage(QWidget):
     """Fallback: open the catalog in the system browser; links dropped on the window go to the cart."""
 
+    openCart = Signal()
+    downloadCart = Signal()
+
     def __init__(self, context: AppContext) -> None:
         super().__init__()
         self.context = context
         title = QLabel("Catalog")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setStyleSheet("font-size: 24px; font-weight: 600;")
         self.site = hint("")
         open_site = QPushButton("Open catalog in browser")
         open_site.setProperty("primary", True)

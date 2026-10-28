@@ -28,6 +28,7 @@ from noveldb.core.sources import BROWSER, detect_source, engine_for, split_input
 from noveldb.qt.context import AppContext
 from noveldb.qt.widgets import Chip, dspin, field_group, flow, hint, section, set_quietly, spin
 
+NL = chr(10)
 FORMAT_LABELS = {"epub": "EPUB", "txt": "TXT", "pdf": "PDF", "cbz": "CBZ"}
 NPIA_FORMATS = ("epub", "txt", "pdf")
 
@@ -189,7 +190,7 @@ class DownloadPage(QWidget):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(8)
         title = QLabel("Download")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setStyleSheet("font-size: 24px; font-weight: 600;")
         layout.addWidget(title)
         layout.addWidget(self.input)
         layout.addLayout(input_actions)
@@ -364,20 +365,26 @@ class DownloadPage(QWidget):
             return chosen or None
         return folder
 
-    def _download(self) -> None:
-        self._detect()
-        if not any(source for _line, source in self._lines):
-            return
+    def queue_lines(self, lines) -> int:
+        """Queue every recognised line (asking for a folder when set to); the cart drops them."""
+        valid = [line for line in split_inputs(NL.join(lines)) if detect_source(line)]
+        if not valid:
+            return 0
         folder = self._output_dir()
         if folder is None:
-            return
-        text = "\n".join(line for line, source in self._lines if source)
-        jobs = self.context.enqueue_text(text, folder)
-        recognised = {line for line, source in self._lines if source}
-        self.context.cart.remove_all(recognised)
-        remaining = [line for line, source in self._lines if not source]
-        self.input.setPlainText("\n".join(remaining))
+            return 0
+        jobs = self.context.enqueue_text(NL.join(valid), folder)
+        self.context.cart.remove_all(valid)
         self.queued.emit(len(jobs))
+        return len(jobs)
+
+    def _download(self) -> None:
+        self._detect()
+        lines = [line for line, _source in self._lines]
+        if not self.queue_lines(lines):
+            return
+        remaining = [line for line, source in self._lines if not source]
+        self.input.setPlainText(NL.join(remaining))
 
     def _refresh_cart(self) -> None:
         count = len(self.context.cart)
