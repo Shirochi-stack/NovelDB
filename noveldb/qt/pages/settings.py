@@ -284,8 +284,55 @@ def general_form(context: AppContext) -> Form:
     f.spin("Retries per chapter", "shared.max_retries", 0, 50)
     if platform_services.shutdown_supported():
         f.check("Shut down the computer when the whole queue finishes", "output.shutdown_after_success", " ")
+    app_updates_section(f, context)
     f.finish()
     return f
+
+
+def app_updates_section(f: Form, context: AppContext) -> None:
+    """Settings › General › App updates: the version in use, the daily check, and Check now."""
+    from noveldb.core import app_update
+    from noveldb.qt.app_update import UpdateOffer
+
+    f.add_section("App updates")
+    info = app_update.build_info()
+    f.add_hint(f"This copy: {info.describe()}.")
+    f.check("Check for app updates automatically", "updates.check_automatically", " ")
+    f.add_hint("Checks the NovelDB releases on GitHub once a day. An update is downloaded only when you choose "
+               "Update, and installed only after its size and SHA-256 match the release's manifest.")
+    check_now = QPushButton("Check for app updates now")
+    feedback = ButtonFeedback(check_now)
+    install = QPushButton("Update now")
+    install.hide()
+    status = f.add_hint("")
+    status.hide()
+    offer = UpdateOffer(f, context)
+    found = {"update": None}
+
+    def check():
+        feedback.busy("Checking")
+        context.check_app_update()
+
+    def checked(result, automatic):
+        if automatic and result.status != "update":
+            return
+        status.setText(result.message)
+        status.show()
+        found["update"] = result.update
+        install.setVisible(result.update is not None)
+        if feedback._spin.isActive():
+            feedback.done(result.status not in ("failed",),
+                          {"update": "Update found", "current": "Up to date", "failed": "Failed"}.get(
+                              result.status, "Checked"))
+
+    check_now.clicked.connect(check)
+    check_now.setEnabled(info.can_update)
+    install.clicked.connect(lambda: found["update"] and offer.install(found["update"]))
+    context.appUpdateChecked.connect(checked)
+    f.add(flow(check_now, install))
+    if not info.can_update:
+        status.setText(app_update.check(info).message)
+        status.show()
 
 
 def npia_account_panel(context: AppContext) -> Form:
@@ -630,7 +677,7 @@ def engines_form(context: AppContext) -> Form:
     f._refreshers.append(show_bundles)
     f.check("Update the novel-downloader rules automatically", "engines.nd_auto_update")
     f.check("Update the WebToEpub parsers automatically", "engines.webtoepub_auto_update")
-    f.add_hint("Both are off by default and checked once a day. Updates come from NovelDB's GitHub releases, "
+    f.add_hint("Both are on by default and checked once a day. Updates come from NovelDB's GitHub releases, "
                "where a daily job rebuilds each engine from its official repository and checks that it loads "
                "before publishing it. A downloaded update that fails to load is set aside.")
     check_now = QPushButton("Check for updates now")
