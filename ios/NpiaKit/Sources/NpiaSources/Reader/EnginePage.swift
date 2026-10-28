@@ -11,6 +11,8 @@ struct EngineNoMatch: Error, LocalizedError {
 /// The book page the JavaScript engines share. It loads on first use, so a book the script
 /// engine can read never opens a web view, and the novel-downloader rules and the WebToEpub
 /// parsers run in one page load. A failed load is remembered: the engines after it skip the page.
+/// A load that times out is tried once more first: on a first visit nothing is cached, and the
+/// second try usually finishes quickly.
 ///
 /// A session that succeeds takes the page over (`handOff`) and closes it when the session ends;
 /// otherwise `closeUnlessHandedOff` closes it when the attempts are over.
@@ -18,6 +20,7 @@ actor EnginePage {
     static let profile = "reader"
     /// The message handler the page's `__W2E_transport` calls.
     static let transportName = "npiaTransport"
+    static let loadTimeout: TimeInterval = 30
 
     private let url: URL
     private let context: SourceContext
@@ -41,7 +44,12 @@ actor EnginePage {
                 await EngineTransport.handle(json, http: http)
             }
             do {
-                try await opened.load(url, until: .domContentLoaded, timeout: 30)
+                do {
+                    try await opened.load(url, until: .domContentLoaded, timeout: Self.loadTimeout)
+                } catch WebEngineError.timeout(_) {
+                    context.logger.log(.info, "The page took over \(Int(Self.loadTimeout)) s to load; trying once more.")
+                    try await opened.load(url, until: .domContentLoaded, timeout: Self.loadTimeout)
+                }
             } catch {
                 await opened.close()
                 throw error

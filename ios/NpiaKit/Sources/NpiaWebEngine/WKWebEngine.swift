@@ -265,8 +265,10 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         Task { @MainActor in
             guard self.waitState == .domContentLoaded, self.navigation != nil else { return }
             let token = self.navigationToken
-            // Commit happens before DOMContentLoaded; poll readyState briefly.
-            for _ in 0..<200 {
+            // Commit happens before DOMContentLoaded; poll readyState until the load ends or times out.
+            // A page whose own scripts are slow to arrive (a first visit, ads) can take well over ten
+            // seconds to get there, and didFinish waits for every last image and ad besides.
+            while true {
                 guard self.navigationToken == token, self.navigation != nil else { return }
                 if let state = try? await self.webView.evaluateJavaScript("document.readyState") as? String,
                    state != "loading" {

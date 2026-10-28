@@ -13,6 +13,7 @@ final class ScriptedPage: WebPageDriving, @unchecked Sendable {
     private var loadedURLs: [URL] = []
     private var handlerNames: [String] = []
     private var closedCount = 0
+    private var pendingTimeouts = 0
     private var transport: (@Sendable (String) async -> String)?
     var location: URL?
 
@@ -24,6 +25,11 @@ final class ScriptedPage: WebPageDriving, @unchecked Sendable {
     var loaded: [URL] { locked { loadedURLs } }
     var messageHandlers: [String] { locked { handlerNames } }
     var closes: Int { locked { closedCount } }
+    /// How many of the next loads time out.
+    var timeouts: Int {
+        get { locked { pendingTimeouts } }
+        set { locked { pendingTimeouts = newValue } }
+    }
 
     private func locked<T>(_ body: () -> T) -> T {
         lock.lock(); defer { lock.unlock() }
@@ -31,7 +37,13 @@ final class ScriptedPage: WebPageDriving, @unchecked Sendable {
     }
 
     func load(_ url: URL, until state: WebLoadState, timeout: TimeInterval) async throws {
-        locked { loadedURLs.append(url) }
+        let timesOut = locked { () -> Bool in
+            loadedURLs.append(url)
+            guard pendingTimeouts > 0 else { return false }
+            pendingTimeouts -= 1
+            return true
+        }
+        if timesOut { throw WebEngineError.timeout(url) }
         location = url
     }
 
@@ -155,6 +167,30 @@ final class WebToEpubTests: XCTestCase {
         let results = try await adapter.parseChapters(Array(book.chapters), book: book, context: ctx)
         XCTAssertEqual(results.count, 2)
         XCTAssertEqual(page.closes, 0, "the page stays open while the book is in use")
+    }
+
+    func testABookPageThatTimesOutIsLoadedOnceMore() async throws {
+        let page = ScriptedPage(ScriptedParsers.handler())
+        page.timeouts = 1
+        let logger = CollectingLogger()
+        let url = URL(string: ScriptedParsers.bookURL)!
+        let book = try await ReaderAdapter().parseBook(url, context: context(page, settings: parsersOnly, logger: logger))
+        XCTAssertEqual(book.chapters.count, 2)
+        XCTAssertEqual(page.loaded, [url, url])
+        XCTAssertTrue(logger.lines.contains { $0.contains("trying once more") }, logger.lines.joined(separator: "\n"))
+    }
+
+    func testABookPageThatTimesOutTwiceFailsWithoutAThirdTry() async {
+        let page = ScriptedPage(ScriptedParsers.handler())
+        page.timeouts = 2
+        let url = URL(string: ScriptedParsers.bookURL)!
+        do {
+            _ = try await ReaderAdapter().parseBook(url, context: context(page, settings: parsersOnly))
+            XCTFail("should throw")
+        } catch {
+            XCTAssertEqual(page.loaded, [url, url])
+            XCTAssertGreaterThanOrEqual(page.closes, 1, "the page that never loaded is closed")
+        }
     }
 
     func testNoParserForTheSiteIsANoMatch() async throws {
