@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=45">
+    <link rel="stylesheet" href="style.css?v=46">
 </head>
 
 <body>
@@ -82,18 +82,6 @@
                             <option value="250">250</option>
                         </select>
                     </div>
-                    <div class="tag-menu-control">
-                        <button type="button" id="tagMenuButton" class="tag-menu-button" title="Tags" aria-label="Tags"
-                            aria-haspopup="true" aria-expanded="false" aria-controls="tagMenu">
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
-                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                                <path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19" />
-                                <path d="M9.586 5.586A2 2 0 0 0 8.172 5H3a1 1 0 0 0-1 1v5.172a2 2 0 0 0 .586 1.414L8.29 18.29a2.426 2.426 0 0 0 3.42 0l3.58-3.58a2.426 2.426 0 0 0 0-3.42z" />
-                                <circle cx="6.5" cy="9.5" r=".5" fill="currentColor" />
-                            </svg>
-                            <span id="tagMenuBadge" class="tag-menu-badge" aria-hidden="true" hidden>0</span>
-                        </button>
-                    </div>
                     <div class="control-group sort-control">
                         <label for="sortSelect">Sort by</label>
                         <select id="sortSelect">
@@ -117,6 +105,18 @@
                         <option value="title">Title</option>
                         </select>
                     </div>
+                    <div class="tag-menu-control">
+                        <button type="button" id="tagMenuButton" class="tag-menu-button" title="Tags" aria-label="Tags"
+                            aria-haspopup="true" aria-expanded="false" aria-controls="tagMenu">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19" />
+                                <path d="M9.586 5.586A2 2 0 0 0 8.172 5H3a1 1 0 0 0-1 1v5.172a2 2 0 0 0 .586 1.414L8.29 18.29a2.426 2.426 0 0 0 3.42 0l3.58-3.58a2.426 2.426 0 0 0 0-3.42z" />
+                                <circle cx="6.5" cy="9.5" r=".5" fill="currentColor" />
+                            </svg>
+                            <span id="tagMenuBadge" class="tag-menu-badge" aria-hidden="true" hidden>0</span>
+                        </button>
+                    </div>
                     <div class="control-group settings-control">
                         <span class="settings-label" aria-hidden="true">Settings</span>
                         <button type="button" id="settingsButton" title="Settings" aria-label="Settings" aria-haspopup="dialog"
@@ -125,13 +125,23 @@
                 </div>
             </div>
 
-            <div id="settingsInline"></div>
-            <!-- Phones use this single dropdown (opened from the tag button on the sort row);
-                 wider screens keep the two tag panels below. -->
+            <!-- Display settings: the phone sheet is the dialog below; wider screens move the same content here. -->
+            <div id="settingsPopover" class="settings-popover" role="group" aria-label="Display settings" hidden>
+                <div class="settings-popover-head">
+                    <span>Settings</span>
+                    <button type="button" id="closeSettingsPopover" class="settings-popover-close" aria-label="Close Settings" title="Close">✕</button>
+                </div>
+            </div>
+            <!-- One dropdown lists tags with include (+) and exclude (-) buttons: under the tag button on every screen. -->
             <div id="tagMenu" class="tag-menu" role="group" aria-label="Filter by tags" hidden>
                 <div class="tag-menu-head">
                     <span class="tag-menu-title">Top tags</span>
-                    <span id="tagMenuMode" class="tag-menu-mode"></span>
+                    <div id="tagMenuMode" class="tag-menu-mode">
+                        <div class="tag-mode" aria-label="Tag match mode">
+                            <button id="tagModeAnd" class="mode-btn active" aria-pressed="true">AND</button>
+                            <button id="tagModeOr" class="mode-btn" aria-pressed="false">OR</button>
+                        </div>
+                    </div>
                     <button type="button" id="tagMenuClear" class="clear-btn tag-menu-clear">Clear</button>
                     <button type="button" id="tagMenuClose" class="tag-menu-close" aria-label="Close tags" title="Close">✕</button>
                 </div>
@@ -141,37 +151,19 @@
                 <div id="tagMenuNote" class="tag-menu-note" aria-live="polite"></div>
                 <ul id="tagMenuList" class="tag-menu-list"></ul>
             </div>
-            <div id="activeTagsSummary" class="active-tags-summary"></div>
-            <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
-            <div class="tag-section tag-panel" id="includeTagsPanel" hidden>
-                <div class="tag-header">
-                    <button type="button" class="tag-toggle" id="tagToggle" aria-controls="includeTagsPanel" aria-expanded="false"><span>Filter by tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
-                    <div class="tag-mode" aria-label="Tag match mode">
-                        <button id="tagModeAnd" class="mode-btn active" aria-pressed="true">AND</button>
-                        <button id="tagModeOr" class="mode-btn" aria-pressed="false">OR</button>
-                    </div>
-                    <button id="clearTags" class="clear-btn">Clear</button>
-                </div>
-                <input type="text" id="tagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
-                <div id="tagContainer" class="tag-grid collapsed"></div>
-            </div>
 
-            <div class="tag-section tag-panel exclude-section" id="excludeTagsPanel" hidden>
-                <div class="tag-header">
-                    <button type="button" class="tag-toggle exclude-toggle" id="excludeToggle" aria-controls="excludeTagsPanel" aria-expanded="false"><span>Exclude tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
-                    <button id="clearExclude" class="clear-btn">Clear</button>
+            <!-- Selected tags stay visible as removable chips; the result count sits at the right end. -->
+            <div class="controls-meta">
+                <div id="activeTagsSummary" class="active-tags-summary"></div>
+                <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
+                <div class="status-bar">
+                    <span id="resultCount">Loading...</span>
+                    <div id="catalogLoadStatus" role="status" hidden></div>
+                    <details id="catalogDiagnostics" hidden style="margin-top: 0.5rem; overflow-wrap: anywhere">
+                        <summary style="cursor: pointer">Catalog collection details</summary>
+                        <ul></ul>
+                    </details>
                 </div>
-                <input type="text" id="excludeTagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
-                <div id="excludeTagContainer" class="tag-grid collapsed"></div>
-            </div>
-
-            <div class="status-bar">
-                <span id="resultCount">Loading...</span>
-                <div id="catalogLoadStatus" role="status" hidden></div>
-                <details id="catalogDiagnostics" hidden style="margin-top: 0.5rem; overflow-wrap: anywhere">
-                    <summary style="cursor: pointer">Catalog collection details</summary>
-                    <ul></ul>
-                </details>
             </div>
         </section>
 
@@ -220,7 +212,7 @@
     <script src="cover-save.js?v=15"></script>
     <script src="site-tools.js?v=6"></script>
     <script src="mobile-feed.js?v=4"></script>
-    <script src="app.js?v=73"></script>
+    <script src="app.js?v=74"></script>
 </body>
 
 </html>
