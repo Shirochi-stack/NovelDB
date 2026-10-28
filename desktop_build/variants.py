@@ -116,7 +116,7 @@ def package_ext(os_id: str, mode: str = "onefile") -> str:
 
 
 def asset_name(variant: str, os_id: str, arch: str, ext: str, label: str = "") -> str:
-    """e.g. NovelDB97_Lite-windows-x86_64_hotfix2.exe (label "" or "none" for plain names)."""
+    """e.g. NovelDB98_Lite-windows-x86_64_hotfix2.exe (label "" or "none" for plain names)."""
     import app_version
 
     suffix = f"_{label}" if label and label != "none" else ""
