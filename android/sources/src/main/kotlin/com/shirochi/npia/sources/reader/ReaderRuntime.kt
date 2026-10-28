@@ -8,6 +8,9 @@ import com.shirochi.npia.core.HttpStatusException
 import com.shirochi.npia.core.JobLogging
 import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.NullLogger
+import com.shirochi.npia.sources.engines.EngineBundle
+import com.shirochi.npia.sources.engines.RuleEngine
+import com.shirochi.npia.sources.engines.RuleEngines
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -171,14 +174,14 @@ internal class ReaderRuntime private constructor(
 
     // Setup
 
-    private suspend fun setUp() {
+    private suspend fun setUp(rules: EngineBundle) {
         js = QuickJsInstances.create(dispatcher)
         QuickJsInstances.lock.withLock {
             js.maxStackSize = JS_STACK
             defineNative()
         }
         val failures = mutableListOf<String>()
-        for (script in ReaderScripts.load()) {
+        for (script in ReaderScripts.load(rules)) {
             lastException = null
             eval(script.source, script.name)
             lastException?.let { failures += "${script.name}: $it" }
@@ -306,11 +309,31 @@ internal class ReaderRuntime private constructor(
         private const val JS_STACK = 16L shl 20
         private val tokens = AtomicInteger()
 
-        /** Loads the scripts on a fresh context; throws `ScriptError` when they fail. */
+        /**
+         * Loads the scripts on a fresh context; throws `ScriptError` when they fail. A downloaded
+         * rules update that fails to load is set aside and the copy shipped with the app is used.
+         */
         suspend fun create(http: HttpFetching, logger: JobLogging = NullLogger, verbose: Boolean = false): ReaderRuntime {
+            val store = RuleEngines.store
+            val bundle = store.current(RuleEngine.NOVEL_DOWNLOADER) ?: throw ScriptError.loadFailed("rules-lib.js is missing")
+            try {
+                return createWith(bundle, http, logger, verbose)
+            } catch (e: ScriptError) {
+                if (!bundle.updated) throw e
+                logger.log(
+                    LogLevel.WARNING,
+                    "[Reader] ${bundle.engine.title} update (${bundle.label}) failed to load (${e.message}); using the built-in copy.",
+                )
+                store.reject(bundle, e.message.orEmpty())
+                val shipped = store.shipped(RuleEngine.NOVEL_DOWNLOADER) ?: throw e
+                return createWith(shipped, http, logger, verbose)
+            }
+        }
+
+        private suspend fun createWith(rules: EngineBundle, http: HttpFetching, logger: JobLogging, verbose: Boolean): ReaderRuntime {
             val runtime = ReaderRuntime(http, logger, verbose)
             try {
-                withContext(runtime.dispatcher) { runtime.setUp() }
+                withContext(runtime.dispatcher) { runtime.setUp(rules) }
             } catch (e: Throwable) {
                 runtime.close()
                 if (e is ScriptError || e is CancellationException) throw e
@@ -373,20 +396,22 @@ internal object QuickJsInstances {
     }
 }
 
-/** The bundled scripts, read once. */
+/** The bundled scripts, read once. `rules-lib.js` comes from the engine bundle in use. */
 internal object ReaderScripts {
     class Script(val name: String, val source: String)
+
+    const val RULES = "rules-lib.js"
 
     /** Injection order; see `reader_env.js`. */
     val order = listOf(
         "reader_env.js", "reader_dom.js", "reader_web.js",
-        "gm_stubs.js", "reader_gm_patch.js", "rules-lib.js", "bridge.js",
+        "gm_stubs.js", "reader_gm_patch.js", RULES, "bridge.js",
         "reader_host.js",
     )
 
-    private val cached: Result<List<Script>> by lazy {
+    private val cached: Result<Map<String, Script>> by lazy {
         runCatching {
-            order.map { name ->
+            order.filter { it != RULES }.associateWith { name ->
                 val stream = ReaderScripts::class.java.getResourceAsStream(name)
                     ?: throw ReaderRuntime.ScriptError.loadFailed("missing resource $name")
                 Script(name, stream.use { it.readBytes().decodeToString() })
@@ -394,7 +419,14 @@ internal object ReaderScripts {
         }
     }
 
-    fun load(): List<Script> = cached.getOrThrow()
+    /** One bundled script that is not the rules. */
+    fun bundled(name: String): Script = cached.getOrThrow().getValue(name)
+
+    /** Every script in injection order, with the rules taken from `rules`. */
+    fun load(rules: EngineBundle): List<Script> {
+        val scripts = cached.getOrThrow()
+        return order.map { name -> if (name == RULES) Script(RULES, rules.read()) else scripts.getValue(name) }
+    }
 }
 
 /** Charset decoding and digests for the JavaScript side. */

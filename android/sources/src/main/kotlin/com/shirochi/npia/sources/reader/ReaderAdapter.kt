@@ -13,7 +13,10 @@ import com.shirochi.npia.core.SourceAdapter
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
+import com.shirochi.npia.core.SiteEngine
 import com.shirochi.npia.core.SourceTier
+import com.shirochi.npia.sources.engines.RuleEngine
+import com.shirochi.npia.sources.engines.RuleEngines
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
@@ -31,25 +34,39 @@ import java.text.Normalizer
 import java.util.Locale
 
 /**
- * Generic sites driven by the desktop's `rules-lib.js` (novel-downloader rules).
+ * Generic sites read by the JavaScript site engines, in the order of Settings > Site engines: the
+ * desktop's `rules-lib.js` (novel-downloader rules) and WebToEpub's parsers (`webtoepub-lib.js`).
  *
  * The rules run in QuickJS (`ReaderRuntime`) against a small DOM built from the fetched page,
  * the way `external_scraper.py` runs them in a browser page through `bridge.js`. A book whose
  * page the rules cannot read without the site's own scripts falls back to a web view
- * (`ReaderWebFallback`).
+ * (`ReaderWebFallback`). The WebToEpub parsers need a real DOM, so they always run in a web view
+ * (`WebToEpubEngine`). When one engine finds no chapters the next one is tried (`SiteEngineChain`),
+ * and both web view paths share one loaded page.
  */
 class ReaderAdapter : SourceAdapter {
     override val id = SourceId.READER
     override val tier = SourceTier.HTTP
 
-    /** Asks the rules bundle whether a rule exists for the URL's host. */
-    override fun matches(url: String): Boolean = ReaderRules.supports(url)
+    /** True when the novel-downloader rules or the WebToEpub parsers list the URL's site. */
+    override fun matches(url: String): Boolean = ReaderRules.supports(url) || webToEpubLists(url)
 
-    override suspend fun parseBook(url: String, context: SourceContext): BookInfo =
-        ReaderSessions.open(url, context).book
+    override suspend fun parseBook(url: String, context: SourceContext): BookInfo {
+        val steps = context.settings.engines.enabled().filter { it.runsScripts }
+        if (steps.isEmpty()) {
+            throw SourceException.Parse("The novel-downloader rules and the WebToEpub parsers are both switched off in Settings > Site engines.")
+        }
+        return SiteEngineChain(null, steps).parseBook(url, context)
+    }
 
     override suspend fun parseChapter(ref: ChapterRef, book: BookInfo, context: SourceContext): ChapterResult =
         ReaderSessions.session(book, context).chapter(ref)
+
+    private fun webToEpubLists(url: String): Boolean {
+        val scheme = runCatching { URI(url.trim()).scheme }.getOrNull()?.lowercase()
+        if (scheme != "http" && scheme != "https") return false
+        return RuleEngines.store.current(RuleEngine.WEBTOEPUB)?.knows(url) == true
+    }
 }
 
 // Rule lookup
@@ -101,7 +118,10 @@ internal object ReaderRules {
 
 // Sessions
 
-/** Open books. Rule modules keep the book page they loaded with, so each book keeps its own runtime for its chapters. */
+/**
+ * Open books. Rule modules keep the book page they loaded with, so each book keeps its own runtime
+ * or web view page for its chapters.
+ */
 internal object ReaderSessions {
     private const val LIMIT = 2
     private val mutex = Mutex()
@@ -109,12 +129,25 @@ internal object ReaderSessions {
     private val recent = ArrayList<ReaderBookSession>()
     private val opening = HashMap<String, CompletableDeferred<ReaderBookSession>>()
 
-    suspend fun open(url: String, context: SourceContext): ReaderBookSession {
+    /** The engine that read each book, so a session that was retired can be reopened the same way. */
+    private val engines = HashMap<String, SiteEngine>()
+
+    /** Opens `url` with one script engine; `page` is the web view page shared with the other script engines, if any. */
+    suspend fun open(
+        url: String,
+        context: SourceContext,
+        engine: SiteEngine = SiteEngine.NOVEL_DOWNLOADER,
+        page: SharedBookPage? = null,
+    ): ReaderBookSession {
         val pending = CompletableDeferred<ReaderBookSession>()
         mutex.withLock { opening[url] = pending }
         try {
-            val session = ReaderBookSession.open(url, context)
-            mutex.withLock { store(session, setOf(url, session.book.url)) }
+            val session = ReaderBookSession.open(url, context, engine, page)
+            mutex.withLock {
+                engines[url] = engine
+                engines[session.book.url] = engine
+                store(session, setOf(url, session.book.url))
+            }
             pending.complete(session)
             return session
         } catch (e: Throwable) {
@@ -126,11 +159,11 @@ internal object ReaderSessions {
     }
 
     suspend fun session(book: BookInfo, context: SourceContext): ReaderBookSession {
-        val waiting = mutex.withLock {
+        val (waiting, engine) = mutex.withLock {
             sessions[book.url]?.let { return it }
-            opening[book.url]
+            opening[book.url] to (engines[book.url] ?: SiteEngine.NOVEL_DOWNLOADER)
         }
-        return waiting?.await() ?: open(book.url, context)
+        return waiting?.await() ?: open(book.url, context, engine)
     }
 
     /** Lock held. */
@@ -152,7 +185,7 @@ internal object ReaderSessions {
     }
 }
 
-/** One opened book: its metadata, the rule's chapter list, and the engine that parsed it. */
+/** One opened book: its metadata, the engine's chapter list, and the engine that parsed it. */
 internal class ReaderBookSession(
     val book: BookInfo,
     private val engine: Engine,
@@ -161,6 +194,7 @@ internal class ReaderBookSession(
     sealed class Engine {
         class Script(val runtime: ReaderRuntime) : Engine()
         class Web(val web: ReaderWebFallback) : Engine()
+        class WebToEpub(val web: WebToEpubEngine) : Engine()
     }
 
     data class ChapterInfo(val url: String, val name: String, val isVIP: Boolean, val isPaid: Boolean?)
@@ -174,6 +208,7 @@ internal class ReaderBookSession(
                     engine.runtime.call("parseChapter", listOf(info.url, info.name, info.isVIP, info.isPaid), 300),
                 ).blocks
                 is Engine.Web -> engine.web.chapter(info)
+                is Engine.WebToEpub -> engine.web.chapter(info)
             }
         } catch (e: CancellationException) {
             throw e
@@ -190,13 +225,36 @@ internal class ReaderBookSession(
         when (engine) {
             is Engine.Script -> engine.runtime.close()
             is Engine.Web -> engine.web.closeLater()
+            is Engine.WebToEpub -> engine.web.closeLater()
         }
     }
 
     companion object {
         private const val PAID_REFUSAL = "The site did not return this paid chapter for the signed-in account."
 
-        suspend fun open(url: String, context: SourceContext): ReaderBookSession {
+        /**
+         * Opens `url` with one script engine. `shared` is the web view page the script engines of one
+         * book share; without it the engine loads a page of its own when it needs one.
+         */
+        suspend fun open(
+            url: String,
+            context: SourceContext,
+            engine: SiteEngine = SiteEngine.NOVEL_DOWNLOADER,
+            shared: SharedBookPage? = null,
+        ): ReaderBookSession {
+            require(engine.runsScripts) { "${engine.raw} is not a script engine" }
+            val page = shared ?: SharedBookPage(url, context)
+            try {
+                return if (engine == SiteEngine.WEBTOEPUB) openWebToEpub(url, context, page) else openNovelDownloader(url, context, page)
+            } finally {
+                if (shared == null) page.release()
+            }
+        }
+
+        /** The novel-downloader rules: the script engine first, then the rules in a web view page. */
+        private suspend fun openNovelDownloader(url: String, context: SourceContext, shared: SharedBookPage): ReaderBookSession {
+            // No rule for the site: say so now, without fetching the page.
+            if (!ReaderRules.supports(url)) throw EngineMissException("The novel-downloader rules have no rule for this site.")
             val scriptError: Exception = try {
                 val runtime = ReaderRuntime.create(context.http, context.logger)
                 try {
@@ -217,15 +275,26 @@ internal class ReaderBookSession(
             }
             context.logger.log(LogLevel.INFO, "[Reader] Script engine failed (${scriptError.message}); trying a web view.")
             try {
-                val (payload, web) = ReaderWebFallback.openBook(url, context)
-                if (payload.chapters.isNotEmpty()) return make(payload, url, Engine.Web(web))
-                web.close()
+                val page = shared.page()
+                val (payload, web) = ReaderWebFallback.openBook(page, url, context)
+                if (payload.chapters.isNotEmpty()) {
+                    shared.adopt()
+                    return make(payload, url, Engine.Web(web))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 context.logger.log(LogLevel.DEBUG, "[Reader] Web view fallback failed: ${e.message}")
             }
             throw sourceError(scriptError)
+        }
+
+        /** The WebToEpub parsers, which need a real DOM and so always run in a web view page. */
+        private suspend fun openWebToEpub(url: String, context: SourceContext, shared: SharedBookPage): ReaderBookSession {
+            val (payload, web) = WebToEpubEngine.openBook(shared.page(), context)
+            if (payload.chapters.isEmpty()) throw SourceException.Parse("The WebToEpub parser found no chapters on $url.")
+            shared.adopt()
+            return make(payload, url, Engine.WebToEpub(web))
         }
 
         fun make(payload: ReaderBookPayload, requested: String, engine: Engine): ReaderBookSession {
@@ -244,7 +313,8 @@ internal class ReaderBookSession(
                     index = index,
                     title = name.ifEmpty { "Chapter $index" },
                     url = if (raw.isEmpty()) null else resolveUrl(pageUrl, raw),
-                    isPaid = chapter.isVIP ?: false,
+                    // WebToEpub marks a chapter it cannot include (locked) with isPaid; novel-downloader's isPaid means bought.
+                    isPaid = (chapter.isVIP ?: false) || (engine is Engine.WebToEpub && chapter.isPaid == true),
                 )
                 infos[id] = ChapterInfo(raw, name, chapter.isVIP ?: false, chapter.isPaid)
             }
@@ -287,7 +357,7 @@ private val payloadJson = Json {
     explicitNulls = false
 }
 
-/** `__ND_parseBook()` output from `bridge.js`, plus `pageUrl`/`charset` from `reader_host.js`. */
+/** `__ND_parseBook()` output from `bridge.js` (plus `pageUrl`/`charset` from `reader_host.js`), or `__W2E_parseBook()` output. */
 @Serializable
 internal data class ReaderBookPayload(
     val bookUrl: String? = null,
@@ -299,6 +369,12 @@ internal data class ReaderBookPayload(
     val language: String? = null,
     val pageUrl: String? = null,
     val chapters: List<Chapter> = emptyList(),
+    /** WebToEpub's `{error, noParser}` reply, and the parser it chose. */
+    val error: String? = null,
+    val noParser: Boolean? = null,
+    val parser: String? = null,
+    val match: String? = null,
+    val warnings: List<String>? = null,
 ) {
     @Serializable
     data class Chapter(
