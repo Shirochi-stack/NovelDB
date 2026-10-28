@@ -206,16 +206,19 @@ def test_separate_txt_lives_in_settings_text_and_pdf(window, context):
     assert context.settings.shared.separate_txt is True
 
 
-def test_log_panel_is_taller_on_download_than_on_catalog(window, qtbot):
-    window.resize(1200, 900)
+def test_log_is_a_column_on_download_and_a_bottom_panel_elsewhere(window, qtbot):
+    window.resize(1400, 900)
     window.show()
     qtbot.waitExposed(window)
     window.show_page(0)
+    assert window.log_panel.parentWidget() is window.download.log_dock
+    assert window.log_panel.isVisible() and not window.log_toggle.isVisible()
+    window.show_page(2)  # Queue: folded at the bottom until opened
+    assert window.log_panel.parentWidget() is window.splitter
+    assert not window.log_panel.isVisible() and window.log_toggle.isVisible()
     window.set_log_visible(True)
     top, bottom = window.splitter.sizes()
-    download_share = bottom / (top + bottom)
-    window.show_page(1)
-    top, bottom = window.splitter.sizes()
-    catalog_share = bottom / (top + bottom)
-    assert download_share > 0.45 and catalog_share < 0.35
+    assert 0.2 < bottom / (top + bottom) < 0.35
     assert window.splitter.handleWidth() >= 10
+    window.show_page(0)
+    assert window.log_panel.parentWidget() is window.download.log_dock and window.log_panel.isVisible()
