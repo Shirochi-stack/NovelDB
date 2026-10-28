@@ -77,6 +77,10 @@ class InputBox(QPlainTextEdit):
         self.setPlainText(f"{existing}\n{added}" if existing else added)
 
 
+# The log column's default share of the Download page (the user can drag the splitter).
+LOG_SHARE = 0.4
+
+
 class DownloadPage(QWidget):
     openCart = Signal()
     queued = Signal(int)
@@ -119,8 +123,8 @@ class DownloadPage(QWidget):
         tools.setPopupMode(QToolButton.InstantPopup)
         tools.setMenu(tools_menu)
 
-        # Browser sign-in, as the old external window had it: Enter Browser (with the regular
-        # Chrome profile switch) and Enter App for the sfc app session.
+        # Browser sign-in, as the old external window had it: Enter Browser with the regular Chrome
+        # profile switch. Enter App (sfc) is in the Tools menu, next to the other sfc session tools.
         enter_browser = QPushButton("Enter Browser")
         bind_size(enter_browser, min_width=150)
         ok, reason = available("enter_browser")
@@ -133,11 +137,7 @@ class DownloadPage(QWidget):
                                         "downloader's own browser.")
         self.regular_browser.toggled.connect(lambda on: context.update_settings(
             lambda s: replace(s, sources=replace(s.sources, regular_browser=on))))
-        enter_app = QPushButton("Enter App (sfc)")
-        bind_size(enter_app, min_width=150)
-        enter_app.setToolTip("Sign in to the sfc app, or paste its cookie, for app-only chapters.")
-        enter_app.clicked.connect(lambda: self.toolRequested.emit("sfc_app"))
-        browser_row = flow(enter_browser, self.regular_browser, enter_app, spacing=10)
+        browser_row = flow(enter_browser, self.regular_browser, spacing=10)
         # The run button sits with the box it acts on, not at the bottom of the page.
         self.download = QPushButton("Download")
         self.download.setProperty("primary", True)
@@ -302,12 +302,13 @@ class DownloadPage(QWidget):
         self._detect()
 
     def _fit_split(self) -> None:
-        """Give the options their full width when it fits beside the log's minimum, and the log the rest."""
+        """Give the log about 40% of the page (at least its minimum width) and the options the rest."""
         total = self.split.width()
         if self._user_split or total < 600:
             return
         wanted = self._columns.maximumWidth() + ui_scale.px(24)  # room for the scroll bar
-        left = min(wanted, max(int(total * 0.62), total - self.log_dock.minimumWidth() - self.split.handleWidth()))
+        log = max(self.log_dock.minimumWidth(), int(total * LOG_SHARE))
+        left = min(wanted, total - log - self.split.handleWidth())
         self.split.setSizes([left, total - left])
 
     def showEvent(self, event):
