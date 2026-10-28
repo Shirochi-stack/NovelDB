@@ -6,9 +6,9 @@ import NpiaCore
 /// entry point and its arguments, for example `qdn.pageState()` or `rbooks.discover({...})`, and returns the
 /// JSON text (nil means JSON null). A `tasks.start` call runs `respond("<path>(<args>)")` and the matching
 /// `tasks.poll` hands the answer back.
-final class ScriptedPage: WebPageDriving, @unchecked Sendable {
+final class HardScriptedPage: WebPageDriving, @unchecked Sendable {
     let name: String
-    let respond: @Sendable (ScriptedPage, String) -> String?
+    let respond: @Sendable (HardScriptedPage, String) -> String?
 
     private let lock = NSLock()
     private var loadedURLs: [URL] = []
@@ -28,7 +28,7 @@ final class ScriptedPage: WebPageDriving, @unchecked Sendable {
     var redirect: @Sendable (URL) -> URL = { $0 }
     var titleText = ""
 
-    init(name: String = "page", respond: @escaping @Sendable (ScriptedPage, String) -> String?) {
+    init(name: String = "page", respond: @escaping @Sendable (HardScriptedPage, String) -> String?) {
         self.name = name
         self.respond = respond
     }
@@ -127,19 +127,19 @@ final class ScriptedPage: WebPageDriving, @unchecked Sendable {
 }
 
 /// Hands out pages from `make`, remembering them so tests can look at every page a job opened.
-final class ScriptedWeb: WebEngineProviding, @unchecked Sendable {
-    private let make: @Sendable (Int) -> ScriptedPage
+final class HardScriptedWeb: WebEngineProviding, @unchecked Sendable {
+    private let make: @Sendable (Int) -> HardScriptedPage
     private let lock = NSLock()
-    private var opened: [ScriptedPage] = []
+    private var opened: [HardScriptedPage] = []
     private var loginCount = 0
     private var loginURLs: [URL] = []
     var loginFailure: Error?
 
-    init(_ make: @escaping @Sendable (Int) -> ScriptedPage) {
+    init(_ make: @escaping @Sendable (Int) -> HardScriptedPage) {
         self.make = make
     }
 
-    var pages: [ScriptedPage] { lock.lock(); defer { lock.unlock() }; return opened }
+    var pages: [HardScriptedPage] { lock.lock(); defer { lock.unlock() }; return opened }
     var logins: Int { lock.lock(); defer { lock.unlock() }; return loginCount }
     var loginPages: [URL] { lock.lock(); defer { lock.unlock() }; return loginURLs }
 
@@ -209,7 +209,7 @@ final class RecordingHTTP: HTTPFetching, @unchecked Sendable {
 
 /// A job context whose chapter pause is zero for `source`, so tests do not wait between chapters.
 func hardContext(
-    _ web: ScriptedWeb, secrets: InMemorySecretStore = InMemorySecretStore(), settings: AppSettings = AppSettings(),
+    _ web: HardScriptedWeb, secrets: InMemorySecretStore = InMemorySecretStore(), settings: AppSettings = AppSettings(),
     http: any HTTPFetching = RecordingHTTP(), logger: CollectingLogger = CollectingLogger(),
     onChapter: @escaping @Sendable (ChapterResult) -> Void = { _ in }
 ) -> SourceContext {
