@@ -71955,24 +71955,30 @@
 1249713|||태양을 삼킨 자|||The One Who Swallowed the Sun
 1249714|||[BL]최악의 하루였던 그 날|||[BL] That Worst Day
 1249715|||한강뷰에 사는 여자는 다르다.|||The Woman Who Lives With a Han River View Is Different.
+1249716|||이름을 듣는 아이|||The Child Who Hears Names
 1249717|||밤의 주인을 깨운 대가|||The Price of Waking the Lord of Night
 1249718|||400년의 음모 _ 조각난 지도와 흩어진 열 개의 땅|||400 Years of Conspiracy: Broken Maps and Ten Scattered Lands
 1249719|||열세 번째 종이 울리면|||When the Thirteenth Bell Rings
 1249720|||내 알리바이를 깨주세요|||Please Break My Alibi
+1249723|||버려진 영애에게 가족이 몰려온다|||The Abandoned Young Lady Gets a Family Swarming Her
 1249725|||땅|||Land
 1249727|||운명 연구소|||Destiny Research Institute
 1249728|||몽유병에 걸린 피트니스 챔피언이 밤마다 카페를 습격한다|||A Sleepwalking Fitness Champion Raids a Café Every Night
 1249729|||13번째 계승자|||The 13th Heir
 1249730|||동트는 언덕|||Hill at Dawn
 124975|||그 순간을 담는, 셔터|||The Shutter That Captures That Moment
+1249767|||박혜리의 조직접수기|||Park Hyeri's Organization Admission Record
 124978|||알레|||Ale
 1249783|||태어나보니 AI가 되어 있었다|||I Was Born as an AI
 1249784|||유비 : 천하를 읽는 짚신 장수|||Liu Bei: The Straw Sandal Seller Who Reads the World
+1249796|||귀신이 닥쳐도 내일은 운이 좋겠지|||Even If Ghosts Come, Tomorrow Will Be Lucky
 1249838|||실종된 내 남편이 다른 여자와 결혼한다|||My Missing Husband Is Marrying Another Woman
 1249856|||서울에서 두려움이 사라진 날|||The Day Fear Vanished in Seoul
 124986|||[엑소]니가있는곳|||[EXO] Where You Are
 1249869|||가짜 딸을 그만뒀더니 공작가가 진짜로 망하기 시작했다|||After I Stopped Being the Fake Daughter, the Duke's Family Began Truly Falling
+1249889|||출신은 칠반채다.|||Origin: Chilbanchae.
 1249913|||헤어진 남편이 내 상사가 되었다|||My Ex-Husband Became My Boss
+1249968|||내 잠수함이 제일 잘나가.|||My Submarine Sells the Best.
 1249975|||푸른 노을빛|||Blue Twilight
 124998|||MGSS|||MGSS
 1249984|||집착녀가 남친들을 사귀었다|||The Obsessive Woman Dated Her Boyfriends
@@ -245914,12 +245920,6 @@
 1244519|||9.99|||
 1245105|||87.2314%|||
 1245239|||-|||
-1249716|||이름을 듣는 아이|||
-1249723|||버려진 영애에게 가족이 몰려온다|||
-1249767|||박혜리의 조직접수기|||
-1249796|||귀신이 닥쳐도 내일은 운이 좋겠지|||
-1249889|||출신은 칠반채다.|||
-1249968|||내 잠수함이 제일 잘나가.|||
 125690|||127|||
 127430|||1|||
 130976|||.|||
