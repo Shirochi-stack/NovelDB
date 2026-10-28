@@ -23,7 +23,8 @@ enum SourceInfo {
         guard !trimmed.isEmpty else { return nil }
         let candidate = trimmed.contains("://") ? trimmed : "https://" + trimmed
         guard let url = URL(string: candidate), url.host != nil else { return nil }
-        return url
+        // A phone-site link and its desktop twin are one book; kept in the form the source reads.
+        return SourceCatalog.canonicalURL(url)
     }
 
     /// Every non-empty line that parses as a URL.

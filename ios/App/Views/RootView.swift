@@ -70,11 +70,15 @@ struct RootView: View {
         // Rule engines the user opted in to update themselves at most once a day. (Not in
         // AppModel.init: a task started there made the app close right after launch.)
         .task { await model.checkEngineUpdates(automatic: true) }
+        // A qdn login the web view dropped while the app was stopped comes back from its saved copy.
+        .task { await model.restoreSessions() }
         // The app's own updates: at start and each time the app returns to the foreground, at most
         // once a day and only with the setting on. (Same reason: not in AppModel.init.)
         .task { await model.checkAppUpdate(automatic: true) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await model.checkAppUpdate(automatic: true) } }
+            // WebKit can drop session cookies when the app is stopped, so keep a copy of the logins.
+            if phase == .inactive || phase == .background { Task { await model.snapshotSessions() } }
         }
         #if DEBUG
         .task { await model.runLiveDownloadIfAsked() }

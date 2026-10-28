@@ -13,6 +13,7 @@ struct SettingsView: View {
                 NavigationLink { SourceOptionsForm() } label: { Label("Source options", systemImage: "puzzlepiece") }
                 NavigationLink { SiteEnginesForm() } label: { Label("Site engines", systemImage: "arrow.triangle.branch") }
                 NavigationLink { NpiaSettingsForm() } label: { Label("npia login", systemImage: "person.crop.circle") }
+                NavigationLink { EnterAppView() } label: { Label("Enter App", systemImage: "key") }
             }
             Section("Output") {
                 NavigationLink { ImageSettingsForm() } label: { Label("Images", systemImage: "photo") }

@@ -53,6 +53,17 @@ public struct SessionStatus: Equatable, Sendable {
     }
 }
 
+public extension SessionStatus {
+    /// The line the Enter App screen shows for this status.
+    func summary(for site: SessionSite) -> String {
+        let found = present.sorted().joined(separator: ", ")
+        if usable { return "Signed in (found \(found))." }
+        if !present.isEmpty { return "Partly signed in: found \(found), but \(site.requirement) are needed." }
+        if hasSavedCopy { return "Not signed in. A saved copy exists and is restored when a download starts." }
+        return "Not signed in. Free chapters still download."
+    }
+}
+
 /// Status, saved copy, restore and sign-out of browser-session logins. It only talks to the secret
 /// store and a `SessionCookieAccess`, so it is tested with fakes; the app gives it the web engine's
 /// cookies and the Keychain. Mirrors the Android `SiteSessions`.
@@ -86,7 +97,8 @@ public struct SiteSessions: Sendable {
               let values = object["cookies"] as? [String: Any] else { return [:] }
         var result: [String: String] = [:]
         for (name, value) in values {
-            if site.cookieNames.contains(name), let text = value as? String, !text.isEmpty { result[name] = text }
+            let text = HTTPSourceSupport.string(value)
+            if site.cookieNames.contains(name), !text.isEmpty { result[name] = text }
         }
         return result
     }
