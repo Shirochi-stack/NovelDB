@@ -1,5 +1,5 @@
 /*
- * NovelDB app bridge for the catalog website, injected by the mobile app.
+ * NovelDB app bridge for the catalog website, injected by the mobile and desktop apps.
  * - Tapping a card opens View Details instead of the novel page.
  * - "Open novel" and other outside links go to the app (Browser tab).
  * - A link-cart button on each card adds or removes its URL from the app's cart. NovelDB Next
@@ -7,8 +7,9 @@
  *   the card's details, opened out of sight, and remembers it.
  * - When the app sends outside links to the cart (sites other than NovelDB, setMode cartLinks),
  *   links to other sites that show text are renamed "🔗 Download".
- * - Taps show no highlight flash, and the NovelDB header is slimmer.
- * - Dialog heights use the window height: some Android WebViews resolve dvh units to 0.
+ * - Taps show no highlight flash, the NovelDB header is slimmer, and NovelDB Next's hover preview is off.
+ * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
+ *   and the details cover is kept short without changing its shape.
  */
 (function () {
     'use strict';
@@ -18,6 +19,7 @@
         try {
             if (window.NovelDBAndroid) window.NovelDBAndroid.postMessage(text);
             else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.noveldb) window.webkit.messageHandlers.noveldb.postMessage(text);
+            else if (window.NovelDBQt) window.NovelDBQt.postMessage(text);
         } catch (_) {}
     }
     var cart = new Set();
@@ -65,7 +67,8 @@
             var button = cartButton(cover, 'noveldb-cart-next');
             // The compact layout prints the title on a strip across the bottom of the cover.
             var strip = cover.querySelector('.bg-gradient-to-t');
-            var bottom = strip ? (strip.offsetHeight + 4) + 'px' : '';
+            // Its middle sits on the strip's top edge, just above the title text.
+            var bottom = strip ? Math.max(4, strip.offsetHeight - 15) + 'px' : '';
             if (button.style.bottom !== bottom) button.style.bottom = bottom;
             var url = nextLinks[nextKey(card)] || '';
             if (button.dataset.url !== url) button.dataset.url = url;
@@ -224,10 +227,16 @@
         '.noveldb-cart[aria-pressed="true"]{background:#E18F98;filter:none;opacity:1;box-shadow:0 0 0 2px #fff}' +
         '.noveldb-cart-next{left:auto;right:.3rem;bottom:.3rem;z-index:40;width:30px;height:30px;font-size:15px}' +
         '.noveldb-cart:disabled{opacity:.5}' +
+        // NovelDB Next's hover preview covers the neighbouring cards; the details view shows the same.
+        '.scroll-main div.pop[role=presentation]{display:none!important}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
-        '{visibility:hidden!important;animation:none!important;transition:none!important}' +
+        '{visibility:hidden!important;animation:none!important;transition:none!important}';
+    // Phone-sized dialogs (window height instead of dvh, a short cover). The desktop app keeps the
+    // site's own layout: these rules squashed the cover image there.
+    if (!window.NovelDBQt) style.textContent +=
         '.novel-details{max-height:calc(var(--noveldb-vh,100vh) - 1rem)!important}' +
-        '.novel-details-image img{max-height:min(calc(var(--noveldb-vh,100vh) * .2),140px)!important}' +
+        '.novel-details-image img{max-height:min(calc(var(--noveldb-vh,100vh) * .2),140px)!important;' +
+        'object-fit:contain!important;width:auto!important;max-width:100%!important}' +
         '.novel-details-content [data-field=synopsis]{max-height:min(calc(var(--noveldb-vh,100vh) * .25),150px)!important}' +
         '.site-settings-dialog{max-height:min(calc(var(--noveldb-vh,100vh) * .9),560px)!important}' +
         '.mobile-controls-floating{max-height:calc(var(--noveldb-vh,100vh) * .75)!important}';
