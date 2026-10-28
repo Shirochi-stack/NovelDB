@@ -76,6 +76,33 @@ class WebViewCookieJarTest {
     }
 
     @Test
+    fun removingACookieExpiresItOnTheHostAndItsParentDomains() {
+        val backend = FakeBackend()
+        BackendSharedCookies(backend).remove("https://www.example.com/", "sid")
+        assertEquals(
+            listOf(
+                "sid=; Max-Age=0; path=/",
+                "sid=; Max-Age=0; path=/; domain=www.example.com",
+                "sid=; Max-Age=0; path=/; domain=.www.example.com",
+                "sid=; Max-Age=0; path=/; domain=example.com",
+                "sid=; Max-Age=0; path=/; domain=.example.com",
+            ),
+            backend.stored.map { it.second },
+        )
+        assertTrue(backend.stored.all { it.first == "https://www.example.com/" })
+        assertEquals(1, backend.flushes)
+    }
+
+    @Test
+    fun theExpiryNeverNamesAPublicSuffix() {
+        val attributes = BackendSharedCookies.expiryAttributes("https://shop.example.co.kr/", "a")
+        assertTrue(attributes.contains("a=; Max-Age=0; path=/; domain=example.co.kr"))
+        assertFalse(attributes.any { it.endsWith("domain=co.kr") || it.endsWith("domain=.co.kr") || it.endsWith("domain=kr") })
+        // A bare host (or nothing usable) still gets the host-only expiry.
+        assertEquals(listOf("a=; Max-Age=0; path=/"), BackendSharedCookies.expiryAttributes("not a url", "a"))
+    }
+
+    @Test
     fun valuesWithEqualsSignsSurvive() {
         val cookies = WebViewCookieJar.parseCookieHeader("token=a=b==", "https://example.com/".toHttpUrl())
         assertEquals("a=b==", cookies.single().value)
