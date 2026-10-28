@@ -27,7 +27,7 @@ from noveldb.core import paths
 from noveldb.core.settings.model import NPIA, OUTPUT_FORMATS
 from noveldb.core.sources import BROWSER, detect_source, engine_for, split_inputs
 from noveldb.qt.context import AppContext
-from noveldb.qt.scale import bind_size, bind_title, on_scale, ui_scale
+from noveldb.qt.scale import bind_size, bind_title, on_scale
 from noveldb.qt.widgets import Chip, dspin, field_group, flow, hint, section, set_quietly, spin
 
 NL = chr(10)
@@ -77,7 +77,8 @@ class InputBox(QPlainTextEdit):
         self.setPlainText(f"{existing}\n{added}" if existing else added)
 
 
-# The log column's default share of the Download page (the user can drag the splitter).
+# The log column's share of the Download page. It stays the same at every window size and scale;
+# dragging the splitter sets a new share for the session.
 LOG_SHARE = 0.4
 
 
@@ -118,7 +119,6 @@ class DownloadPage(QWidget):
         tools = QToolButton()
         tools.setText("Tools")
         tools.setProperty("menu", True)
-        bind_size(tools, min_width=120)
         bind_size(tools_menu, min_width=320)
         tools.setPopupMode(QToolButton.InstantPopup)
         tools.setMenu(tools_menu)
@@ -142,13 +142,14 @@ class DownloadPage(QWidget):
         self.download = QPushButton("Download")
         self.download.setProperty("primary", True)
         self.download.setCursor(Qt.PointingHandCursor)
-        bind_size(self.download, min_width=140)
+        self.download.setToolTip("Queue the links above and everything in the link cart.")
         self.download.clicked.connect(self._download)
         self.summary = hint("")
         # The buttons wrap instead of being cut off when the column is narrow; the summary sits below.
         input_actions = QVBoxLayout()
         input_actions.setSpacing(4)
-        input_actions.addWidget(flow(paste, clear, tools, self.cart_button, self.download))
+        # Download sits before the link cart it also queues, so a narrow column wraps the cart button, not it.
+        input_actions.addWidget(flow(paste, clear, tools, self.download, self.cart_button))
         input_actions.addWidget(self.summary)
         self.summary.hide()
 
@@ -252,7 +253,7 @@ class DownloadPage(QWidget):
         side_layout.addWidget(self.images)
         side_layout.addStretch(1)
         bind_size(side, min_width=360, max_width=480)
-        # The options keep a compact width (scaled with the window); what is left goes to the log.
+        # The options keep a compact width (scaled with the window) inside their share of the page.
         bind_size(body, min_width=420, max_width=640)
         columns = QWidget()
         bind_size(columns, max_width=640 + 480 + 16)
@@ -278,13 +279,10 @@ class DownloadPage(QWidget):
         self.split.setChildrenCollapsible(False)
         self.split.addWidget(scroll)
         self.split.addWidget(self.log_dock)
-        self.split.setStretchFactor(0, 0)  # window growth goes to the log
-        self.split.setStretchFactor(1, 1)
-        self.split.splitterMoved.connect(lambda *_: setattr(self, "_user_split", True))
-        self._user_split = False
-        self._columns = columns
-        # Refit before the window paints at the new scale, and once more after the layout settles.
-        on_scale(self, lambda: (self._fit_split(), QTimer.singleShot(0, self, self._fit_split)), now=False)
+        self.split.splitterMoved.connect(self._split_moved)
+        self._log_share = LOG_SHARE
+        # Minimum widths scale too; refit before the window paints at the new scale.
+        on_scale(self, self._fit_split, now=False)
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -296,21 +294,25 @@ class DownloadPage(QWidget):
         self._detect_timer.timeout.connect(self._detect)
         self.input.textChanged.connect(self._detect_timer.start)
         # Clickable right away; `_download` detects again before queueing.
-        self.input.textChanged.connect(lambda: self.download.setEnabled(bool(self.input.toPlainText().strip())))
+        self.input.textChanged.connect(
+            lambda: self.download.setEnabled(bool(self.input.toPlainText().strip()) or len(self.context.cart) > 0))
         context.settingsChanged.connect(self.refresh)
         context.cartChanged.connect(self._refresh_cart)
         self._refresh_cart()
         self._detect()
 
     def _fit_split(self) -> None:
-        """Give the log about 40% of the page (at least its minimum width) and the options the rest."""
-        total = self.split.width()
-        if self._user_split or total < 600:
+        """Give the log its fixed share of the page (at least its minimum width), the options the rest."""
+        total = self.split.width() - self.split.handleWidth()
+        if total < 600:
             return
-        wanted = self._columns.maximumWidth() + ui_scale.px(24)  # room for the scroll bar
-        log = max(self.log_dock.minimumWidth(), int(total * LOG_SHARE))
-        left = min(wanted, total - log - self.split.handleWidth())
-        self.split.setSizes([left, total - left])
+        log = max(self.log_dock.minimumWidth(), round(total * self._log_share))
+        self.split.setSizes([total - log, log])
+
+    def _split_moved(self, *_args) -> None:
+        left, log = self.split.sizes()
+        if left + log > 0:
+            self._log_share = log / (left + log)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -358,9 +360,7 @@ class DownloadPage(QWidget):
         sources = [source for _line, source in self._lines if source]
         self._source = sources[0] if sources else None
         unknown = sum(1 for _line, source in self._lines if source is None)
-        valid = len(sources)
-        self.download.setEnabled(valid > 0)
-        self.download.setText(f"Download {valid}" if valid > 1 else "Download")
+        self._update_download_button()
         self.summary.setText(f"{unknown} line(s) not recognised" if unknown else "")
         self.summary.setVisible(bool(unknown))
         self.refresh()
@@ -466,10 +466,21 @@ class DownloadPage(QWidget):
         self.queued.emit(len(jobs))
         return len(jobs)
 
+    def _download_lines(self) -> list[str]:
+        """What Download queues: the recognised lines above, then the cart's links that are not among them."""
+        lines = [line for line, source in self._lines if source]
+        seen = set(lines)
+        return lines + [url for url in self.context.cart.urls if url not in seen]
+
+    def _update_download_button(self) -> None:
+        count = len(self._download_lines())
+        self.download.setEnabled(count > 0)
+        self.download.setText(f"Download {count}" if count > 1 else "Download")
+
     def _download(self) -> None:
+        # One press queues the links above and the link cart; queued links leave the cart.
         self._detect()
-        lines = [line for line, _source in self._lines]
-        if not self.queue_lines(lines):
+        if not self.queue_lines(self._download_lines()):
             return
         remaining = [line for line, source in self._lines if not source]
         self.input.setPlainText(NL.join(remaining))
@@ -478,3 +489,4 @@ class DownloadPage(QWidget):
         count = len(self.context.cart)
         self.cart_button.setText(f"\U0001F517 Link cart ({count})")
         self.cart_button.setEnabled(count > 0)
+        self._update_download_button()

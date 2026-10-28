@@ -90,10 +90,75 @@ def test_cart_lines_leave_the_cart_once_queued(window, context):
     context.cart.add(CartItem("https://example.com/other"))
     assert "(2)" in window.download.cart_button.text()
     window.download.add_lines(["12345"])
-    window.download.download.click()
+    window.download.download.click()  # the links above and the whole cart
     assert context.runner.wait_idle(5)
-    assert context.cart.urls == ["https://example.com/other"]
-    assert "(1)" in window.download.cart_button.text()
+    assert context.cart.urls == []
+    assert "(0)" in window.download.cart_button.text()
+
+
+def test_download_queues_the_links_above_and_the_link_cart(window, context):
+    page = window.download
+    assert not page.download.isEnabled()
+    context.cart.add(CartItem("12345", "A"))
+    context.cart.add(CartItem("67890", "B"))
+    assert page.download.isEnabled() and page.download.text() == "Download 2"  # the cart alone
+    page.add_lines(["12345", "11111"])
+    page._detect()
+    assert page.download.text() == "Download 3"  # 12345 is in both, and counts once
+    page.download.click()
+    assert context.runner.wait_idle(5)
+    assert sorted(context.ran) == ["11111", "12345", "67890"]
+    assert context.cart.urls == []
+    assert page.input.toPlainText() == ""
+    assert not page.download.isEnabled()
+
+
+def test_a_saved_screen_sized_window_starts_maximised_with_room_to_restore(context, qtbot):
+    # A normal window saved as big as the screen looked maximised, and its restore button did nothing.
+    from noveldb.qt.main_window import GEOMETRY_VERSION, MainWindow
+
+    first = MainWindow(context)
+    qtbot.addWidget(first)
+    first.setGeometry(first.screen().availableGeometry())
+    saved = GEOMETRY_VERSION + bytes(first.saveGeometry().toBase64()).decode("ascii")
+    context.update_settings(lambda s: replace(s, ui=replace(s.ui, window_geometry=saved)))
+    second = MainWindow(context)
+    qtbot.addWidget(second)
+    assert second._start_maximized
+    assert not second._fills_screen(second.normalGeometry())
+
+
+def test_restoring_to_a_screen_sized_window_uses_the_default_size(window, qtbot):
+    window.show()
+    window.setGeometry(window.screen().availableGeometry())
+    window.showMaximized()
+    qtbot.waitUntil(window.isMaximized, timeout=3000)
+    window.showNormal()
+    qtbot.waitUntil(lambda: not window.isMaximized() and not window._fills_screen(window.geometry()), timeout=3000)
+
+
+def test_f11_toggles_full_screen_and_back(window, qtbot):
+    from PySide6.QtGui import QShortcut
+
+    assert "F11" in [shortcut.key().toString() for shortcut in window.findChildren(QShortcut)]
+    window.showMaximized()
+    qtbot.waitUntil(window.isMaximized, timeout=3000)
+    window.toggle_full_screen()
+    qtbot.waitUntil(window.isFullScreen, timeout=3000)
+    window.toggle_full_screen()
+    qtbot.waitUntil(lambda: window.isMaximized() and not window.isFullScreen(), timeout=3000)
+
+
+def test_download_sits_on_the_first_button_row_before_the_cart(window, qtbot):
+    window.resize(1500, 900)
+    window.show()
+    qtbot.waitExposed(window)
+    page = window.download
+    row = page.download.parentWidget()
+    order = [row.layout().itemAt(i).widget() for i in range(row.layout().count())]
+    assert order.index(page.download) + 1 == order.index(page.cart_button)
+    qtbot.waitUntil(lambda: page.download.isVisible(), timeout=3000)
+    assert page.download.y() == order[0].y()  # not wrapped below Paste, even in a narrow column
 
 
 def test_share_agreement_is_asked_once(context, monkeypatch):
@@ -266,17 +331,14 @@ def test_shutdown_after_a_successful_queue_counts_down_and_can_be_cancelled(wind
     assert calls == ["off"]
 
 
-def test_options_keep_a_compact_width_and_the_log_gets_the_rest(window, qtbot):
+def test_the_log_keeps_its_share_and_the_options_get_the_rest(window, qtbot):
     from noveldb.qt.pages.download import LOG_SHARE
-    from noveldb.qt.scale import ui_scale
 
     window.resize(2560, 1300)
     window.show()
     qtbot.waitExposed(window)
     window.show_page(0)
     page = window.download
-    page._user_split = False
     page._fit_split()
     left, right = page.split.sizes()
-    assert left <= page._columns.maximumWidth() + ui_scale.px(24)
-    assert right >= int((left + right) * LOG_SHARE) - 2
+    assert abs(right - round((left + right) * LOG_SHARE)) <= 2
