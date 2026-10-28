@@ -93,4 +93,7 @@ object SourceCatalog {
     }
 
     fun adapterFor(id: SourceId): SourceAdapter = adapters.first { it.id == id }
+
+    /** `url` in the form its source reads it under (see `SourceAdapter.canonicalUrl`); unchanged when no source owns it. */
+    fun canonicalUrl(url: String): String = adapterFor(url)?.canonicalUrl(url) ?: url
 }
