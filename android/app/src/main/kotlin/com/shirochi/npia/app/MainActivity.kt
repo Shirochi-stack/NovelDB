@@ -57,6 +57,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // At start and whenever the app comes back to the foreground: continue an update that waited
+        // for the install permission, else the daily check for a newer build.
+        model.manager.appUpdater.onForeground()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
@@ -65,6 +72,11 @@ class MainActivity : ComponentActivity() {
     /** Share-sheet text goes to the Add screen; notification taps open the queue. */
     private fun handle(intent: Intent?) {
         intent ?: return
+        // Debug builds: `adb shell am start -n ... --es noveldb_update_base http://10.0.2.2:8000` points the
+        // update check at a local server (an empty value goes back to GitHub). Ignored in other builds.
+        if (BuildConfig.DEBUG) {
+            intent.getStringExtra(EXTRA_UPDATE_BASE)?.let { model.manager.preferences.updateBaseOverride = it }
+        }
         val uploadRun = intent.getStringExtra(EXTRA_UPLOAD_RUN)
         if (uploadRun != null) {
             // The summary notification's Upload button, before the sharing agreement was accepted.
@@ -110,5 +122,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN_QUEUE = "openQueue"
         const val EXTRA_UPLOAD_RUN = "uploadRun"
+        const val EXTRA_UPDATE_BASE = "noveldb_update_base"
     }
 }

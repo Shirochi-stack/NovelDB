@@ -19,6 +19,7 @@ sealed class Route(val title: String) {
     data class OverrideForm(val source: SourceId) : Route(source.raw)
     data object SourceOptions : Route("Source options")
     data object Engines : Route("Site engines")
+    data object AppUpdates : Route("App updates")
     data object Npia : Route("npia login")
     data object TagSearch : Route("Tag search")
     data object Images : Route("Images")

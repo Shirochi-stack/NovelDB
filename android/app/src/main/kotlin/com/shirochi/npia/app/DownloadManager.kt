@@ -102,6 +102,9 @@ class DownloadManager(private val app: Application) {
 
     private val running = ConcurrentHashMap<String, Job>()
 
+    /** Looks for a newer build of the app (once a day, if the user allows) and installs it on request. */
+    val appUpdater = AppUpdater(app, scope, preferences, settings = { _settings.value })
+
     /** The npia tag search, which keeps running (and logging) while its screen is closed. */
     val tagSearch: TagSearchManager = TagSearchManager(
         scope = scope,
@@ -132,6 +135,7 @@ class DownloadManager(private val app: Application) {
 
     fun updateSettings(change: (AppSettings) -> AppSettings) {
         val before = _settings.value.engines
+        val beforeAll = _settings.value
         val next = change(_settings.value)
         if (next == _settings.value) return
         _settings.value = next
@@ -144,6 +148,8 @@ class DownloadManager(private val app: Application) {
         ) {
             checkEngineUpdates(automatic = true)
         }
+        // Switching the app update check on looks right away, still at most once a day.
+        if (next.appUpdateCheck && !beforeAll.appUpdateCheck) appUpdater.checkIfDue()
     }
 
     private val _preferencesFlow = MutableStateFlow(0)

@@ -101,6 +101,22 @@ class AppPreferences(context: Context) {
     var askedForNotifications: Boolean
         get() = prefs.getBoolean("askedForNotifications", false)
         set(value) = prefs.edit().putBoolean("askedForNotifications", value).apply()
+
+    /** When the app last asked for a newer build (milliseconds since the epoch); the automatic check runs once per 24 hours. */
+    var lastAppUpdateCheck: Long
+        get() = prefs.getLong("lastAppUpdateCheck", 0L)
+        set(value) = prefs.edit().putLong("lastAppUpdateCheck", value).apply()
+
+    /**
+     * Debug builds only: replaces the releases address (`https://github.com/.../releases`) so a
+     * local server can serve `latest/download/update-android.json` and `download/<tag>/<file>`.
+     * Always empty in other builds.
+     */
+    var updateBaseOverride: String
+        get() = if (BuildConfig.DEBUG) prefs.getString("updateBaseOverride", null).orEmpty() else ""
+        set(value) {
+            if (BuildConfig.DEBUG) prefs.edit().putString("updateBaseOverride", value.trim()).apply()
+        }
 }
 
 /** What keeps the service alive: downloads, uploads, or a tag search. */
