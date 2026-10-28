@@ -10,6 +10,7 @@ struct SettingsView: View {
                 NavigationLink { SharedSettingsForm() } label: { Label("General", systemImage: "slider.horizontal.3") }
                 NavigationLink { SourceOverridesList() } label: { Label("Per-source overrides", systemImage: "square.stack.3d.up") }
                 NavigationLink { SourceOptionsForm() } label: { Label("Source options", systemImage: "puzzlepiece") }
+                NavigationLink { SiteEnginesForm() } label: { Label("Site engines", systemImage: "arrow.triangle.branch") }
                 NavigationLink { NpiaSettingsForm() } label: { Label("npia login", systemImage: "person.crop.circle") }
             }
             Section("Output") {
@@ -197,6 +198,104 @@ struct SourceOptionsForm: View {
         }
         .themedBackground()
         .navigationTitle("Source options")
+    }
+}
+
+// MARK: - Site engines
+
+/// The engines a link tries in order, and the opt-in updates of the two rule engines.
+struct SiteEnginesForm: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        List {
+            Section {
+                ForEach(model.settings.engines.fullOrder(), id: \.self) { engine in
+                    SiteEngineRow(engine: engine)
+                }
+                .onMove { source, destination in
+                    var order = model.settings.engines.fullOrder()
+                    order.move(fromOffsets: source, toOffset: destination)
+                    model.settings.engines.order = order
+                }
+                Button("Default order") { model.settings.engines.resetOrder() }
+                    .disabled(model.settings.engines.order == SiteEngine.allCases && model.settings.engines.disabled.isEmpty)
+            } header: {
+                Text("Order")
+            } footer: {
+                Text("Each link tries these in order until one finds chapters. Tap Edit to drag them into a new order, and switch an engine off to skip it; one engine always stays on. When a built-in scraper owns a site, the other engines only follow it for sites they list.")
+            }
+            Section {
+                Toggle("Update the novel-downloader rules automatically", isOn: $model.settings.engines.novelDownloaderAutoUpdate)
+                Toggle("Update the WebToEpub parsers automatically", isOn: $model.settings.engines.webtoepubAutoUpdate)
+                Button {
+                    Task { await model.checkEngineUpdates(automatic: false) }
+                } label: {
+                    HStack {
+                        Text(model.checkingEngineUpdates ? "Checking..." : "Check for updates now")
+                        if model.checkingEngineUpdates {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(model.checkingEngineUpdates)
+                ForEach(RuleEngine.allCases, id: \.self) { engine in
+                    if let text = model.engineUpdateMessages[engine] {
+                        Text(text).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Both are off by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds each engine from its official repository and checks that it loads before publishing it. A downloaded update that fails to load is set aside and the built-in copy is used.")
+            }
+            Section("In use") {
+                ForEach(RuleEngine.allCases, id: \.self) { engine in
+                    LabeledContent(engine.title, value: model.engineBundleLabels[engine] ?? "...")
+                }
+            }
+            Section("Credits") {
+                Text("novel-downloader by the 404 Novel Project (AGPL-3.0)")
+                Link("github.com/404-novel-project/novel-downloader", destination: URL(string: "https://github.com/404-novel-project/novel-downloader")!)
+                Text("WebToEpub by David Teviotdale and contributors (GPL-3.0)")
+                Link("github.com/dteviot/WebToEpub", destination: URL(string: "https://github.com/dteviot/WebToEpub")!)
+            }
+        }
+        .themedBackground()
+        .navigationTitle("Site engines")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        }
+        .onChange(of: model.settings.engines.novelDownloaderAutoUpdate) { _, on in
+            if on { Task { await model.checkEngineUpdates(automatic: true, only: [.novelDownloader]) } }
+        }
+        .onChange(of: model.settings.engines.webtoepubAutoUpdate) { _, on in
+            if on { Task { await model.checkEngineUpdates(automatic: true, only: [.webtoepub]) } }
+        }
+        .task { await model.refreshEngineBundles() }
+    }
+}
+
+private struct SiteEngineRow: View {
+    @Environment(AppModel.self) private var model
+    let engine: SiteEngine
+
+    var body: some View {
+        let engines = model.settings.engines
+        let position = (engines.fullOrder().firstIndex(of: engine) ?? 0) + 1
+        Toggle(isOn: Binding(
+            get: { model.settings.engines.isEnabled(engine) },
+            set: { on in model.settings.engines.setEnabled(engine, on) }
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(position). \(engine.title)")
+                Text(engine.hint).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        // The last engine that is on cannot be switched off.
+        .disabled(engines.isEnabled(engine) && engines.enabled().count == 1)
     }
 }
 
