@@ -31,6 +31,11 @@ final class AppModel {
     var maxConcurrentJobs = 1
     /// The npia tag search, scrape-all, and Top 100 runs of the Tag search screen.
     let tagSearch = TagSearchController()
+    /// What the last update check said for each rule engine (Settings > Site engines).
+    private(set) var engineUpdateMessages: [RuleEngine: String] = [:]
+    /// The copy of each rule engine in use, for the same screen.
+    private(set) var engineBundleLabels: [RuleEngine: String] = [:]
+    private(set) var checkingEngineUpdates = false
 
     let secrets: any SecretStore = KeychainSecretStore()
     let background = BackgroundActivity()
@@ -336,6 +341,42 @@ final class AppModel {
             return try await NpiaAuth.login(email: email, password: password, context: context, cookies: SharedCookieStorageJar()) != nil
         } catch {
             return false
+        }
+    }
+
+    // MARK: - Site engines
+
+    /// Looks for newer rule engines. `automatic` is the daily check of the engines the user opted
+    /// in to; otherwise every engine (or just `only`) is checked now.
+    func checkEngineUpdates(automatic: Bool, only engines: [RuleEngine]? = nil) async {
+        guard !checkingEngineUpdates else { return }
+        let wanted = (engines ?? RuleEngine.allCases).filter { !automatic || settings.engines.autoUpdate($0.siteEngine) }
+        guard !wanted.isEmpty else { return }
+        checkingEngineUpdates = true
+        for engine in wanted {
+            let result: EngineUpdateResult?
+            if automatic {
+                result = await EngineUpdater.shared.checkIfDue(engine)
+            } else {
+                result = await EngineUpdater.shared.check(engine)
+            }
+            if let result { engineUpdateMessages[engine] = result.message }
+        }
+        checkingEngineUpdates = false
+        await refreshEngineBundles()
+    }
+
+    /// Reads which copy of each rule engine is in use (off the main thread: it checks the files).
+    func refreshEngineBundles() async {
+        let labels = await Task.detached(priority: .utility) { () -> [String: String] in
+            var found: [String: String] = [:]
+            for engine in RuleEngine.allCases {
+                found[engine.rawValue] = EngineStore.shared.current(engine)?.label ?? "missing from this build"
+            }
+            return found
+        }.value
+        for engine in RuleEngine.allCases {
+            engineBundleLabels[engine] = labels[engine.rawValue]
         }
     }
 
