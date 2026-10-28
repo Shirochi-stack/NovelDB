@@ -37,6 +37,54 @@ internal object ScriptBridge {
         })();
     """.trimIndent()
 
+    /** The name of the function `transportScript` defines. */
+    const val TRANSPORT_NAME = "__npia_gm_xmlhttp_request"
+
+    private fun literal(value: String) = Json.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(value))
+
+    /** The name of the page function native code calls with a request's reply; unguessable, so pages cannot answer for the app. */
+    fun replyName(token: String) = "__npia_reply_$token"
+
+    /**
+     * Script that defines `window.__npia_gm_xmlhttp_request(details)` in the top frame only: an async
+     * function that hands the JSON of `details` to `__npiaBridge.request(token, id, json)` and resolves
+     * to the JSON the app answers with. Frames of other sites (ads) run the script too but stay out,
+     * and without `token` the bridge ignores a request, so only the page itself can reach the app's
+     * HTTP client this way. Safe to run more than once.
+     */
+    fun transportScript(token: String): String = """
+        (function () {
+          if (window.top !== window || window.$TRANSPORT_NAME) return;
+          const token = ${literal(token)};
+          const pending = new Map();
+          let next = 0;
+          window[${literal(replyName(token))}] = function (id, text) {
+            const resolve = pending.get(id);
+            if (!resolve) return;
+            pending.delete(id);
+            let value;
+            try { value = JSON.parse(text); } catch (e) { value = { error: 'The app sent an unreadable reply' }; }
+            resolve(value);
+          };
+          window.$TRANSPORT_NAME = function (details) {
+            return new Promise(function (resolve) {
+              const id = String(++next);
+              pending.set(id, resolve);
+              try {
+                window.$BRIDGE_NAME.request(token, id, JSON.stringify(details || {}));
+              } catch (e) {
+                pending.delete(id);
+                resolve({ error: String((e && e.message) || e) });
+              }
+            });
+          };
+        })();
+    """.trimIndent()
+
+    /** The script that hands `id`'s reply to the page. */
+    fun replyScript(token: String, id: String, reply: String): String =
+        "(function () { const f = window[${literal(replyName(token))}]; if (f) f(${literal(id)}, ${literal(reply)}); })();"
+
     /** Expression that returns and clears a parked result, or null. */
     fun pollScript(id: String): String {
         val key = Json.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(id))

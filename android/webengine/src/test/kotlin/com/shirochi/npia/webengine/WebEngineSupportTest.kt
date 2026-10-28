@@ -182,3 +182,24 @@ class WebLoginTest {
         }
     }
 }
+
+class TransportScriptTest {
+    @Test
+    fun scriptDefinesTheTransportInTheTopFrameOnlyAndCarriesTheToken() {
+        val script = ScriptBridge.transportScript("tok123")
+        assertTrue(script.contains("window.top !== window"))
+        assertTrue(script.contains("window.${ScriptBridge.TRANSPORT_NAME} = function"))
+        assertTrue(script.contains("__npiaBridge.request(token, id,"))
+        // The token appears as a literal once, and the reply hook is named after it.
+        assertEquals(1, Regex("\"tok123\"").findAll(script).count())
+        assertTrue(script.contains("\"__npia_reply_tok123\""))
+    }
+
+    @Test
+    fun replyScriptEscapesTheReplyAsAStringLiteral() {
+        val script = ScriptBridge.replyScript("tok", "7", "{\"a\":\"line\nbreak \\\" quote\"}")
+        assertTrue(script.startsWith("(function () { const f = window[\"__npia_reply_tok\"];"))
+        assertTrue(script.contains("f(\"7\", \"{\\\"a\\\":\\\"line\\nbreak"))
+        assertFalse(script.contains("\n"))
+    }
+}

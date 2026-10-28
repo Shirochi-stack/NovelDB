@@ -22,13 +22,20 @@ import com.shirochi.npia.core.WebEngineException
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.WebLoadState
 import com.shirochi.npia.core.WebPageDriving
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -100,6 +107,12 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
     private val results = ConcurrentHashMap<String, CompletableDeferred<Result<String>>>()
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
+    // `exposeTransport`: the app's answer to `window.__npia_gm_xmlhttp_request`, and what lets a request through.
+    private var transport: (suspend (String) -> String)? = null
+    private var transportScript: String? = null
+    private val transportToken = UUID.randomUUID().toString().replace("-", "")
+    private val transportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     init {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -119,6 +132,8 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
+                // Covers web views without document-start scripts; the script does nothing when it already ran.
+                transportScript?.let { view.evaluateJavascript(it, null) }
                 pending?.complete(Unit)
             }
 
@@ -140,6 +155,23 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
         @JavascriptInterface
         fun resolve(id: String, ok: Boolean, payload: String?) {
             results.remove(id)?.complete(ScriptBridge.outcome(ok, payload ?: "null"))
+        }
+
+        /** A request from `window.__npia_gm_xmlhttp_request`; ignored unless it carries this page's token. */
+        @JavascriptInterface
+        fun request(token: String?, id: String, payload: String) {
+            val handler = transport
+            if (handler == null || token != transportToken) return
+            transportScope.launch {
+                val reply = try {
+                    handler(payload)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    """{"error":${Json.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(e.message ?: e.toString()))}}"""
+                }
+                webView.post { runCatching { webView.evaluateJavascript(ScriptBridge.replyScript(transportToken, id, reply), null) } }
+            }
         }
     }
 
@@ -202,6 +234,14 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
         Unit
     }
 
+    override suspend fun exposeTransport(handler: suspend (String) -> String) {
+        transport = handler
+        val script = ScriptBridge.transportScript(transportToken)
+        transportScript = script
+        addInitScript(script)
+        evaluate(script)
+    }
+
     override suspend fun currentUrl(): String? = withContext(Dispatchers.Main) { webView.url }
 
     override suspend fun html(): String {
@@ -214,6 +254,7 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
         pending = null
         results.values.forEach { it.cancel() }
         results.clear()
+        transportScope.cancel()
         webView.stopLoading()
         HiddenHost.detach(webView)
         webView.removeJavascriptInterface(ScriptBridge.BRIDGE_NAME)
