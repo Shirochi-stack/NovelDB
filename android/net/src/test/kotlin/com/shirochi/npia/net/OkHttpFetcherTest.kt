@@ -1,8 +1,11 @@
 package com.shirochi.npia.net
 
+import com.shirochi.npia.core.JobLogging
+import com.shirochi.npia.core.LogLevel
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -42,6 +45,47 @@ class OkHttpFetcherTest {
         repeat(2) { server.enqueue(MockResponse().setResponseCode(500)) }
         val response = OkHttpFetcher(maxRetries = 1).get(server.url("/b").toString())
         assertEquals(500, response.status)
+    }
+
+    @Test
+    fun logsRetriesAndFailedRequestsWithoutTheQuery() = runTest {
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(MockResponse().setResponseCode(429))
+        server.enqueue(MockResponse().setResponseCode(404))
+        val lines = mutableListOf<Pair<LogLevel, String>>()
+        val fetcher = OkHttpFetcher(maxRetries = 3, logger = JobLogging { level, message -> lines += level to message })
+
+        assertEquals(404, fetcher.get(server.url("/novel/1?token=secret").toString()).status)
+
+        val host = "${server.hostName}/novel/1"
+        assertEquals(LogLevel.WARNING to true, lines[0].first to lines[0].second.startsWith("HTTP 503 from $host; retry 1 of 3 in "))
+        assertEquals(LogLevel.WARNING to true, lines[1].first to lines[1].second.startsWith("HTTP 429 from $host; retry 2 of 3 in "))
+        // A plain not-found is a detail, not a warning, and says how many retries came before it.
+        assertEquals(LogLevel.DEBUG to "HTTP 404 from $host after 2 retries", lines[2])
+        assertEquals(3, lines.size)
+        assertEquals(false, lines.any { it.second.contains("secret") || it.second.contains("token") })
+    }
+
+    @Test
+    fun logsNetworkErrorsAndGivingUp() = runTest {
+        repeat(2) { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)) }
+        val lines = mutableListOf<Pair<LogLevel, String>>()
+        val fetcher = OkHttpFetcher(maxRetries = 1, logger = JobLogging { level, message -> lines += level to message })
+
+        val failure = runCatching { fetcher.get(server.url("/gone").toString()) }.exceptionOrNull()
+
+        assertEquals(true, failure is java.io.IOException)
+        assertEquals(2, lines.size)
+        assertEquals(true, lines.all { it.first == LogLevel.WARNING })
+        assertEquals(true, lines[0].second.contains("/gone; retry 1 of 1 in "))
+        assertEquals(true, lines[1].second.endsWith("/gone; giving up after 1 retries"))
+    }
+
+    @Test
+    fun staysQuietWithoutALogger() = runTest {
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(MockResponse().setBody("ok"))
+        assertEquals("ok", OkHttpFetcher(maxRetries = 1).get(server.url("/q").toString()).text)
     }
 
     @Test

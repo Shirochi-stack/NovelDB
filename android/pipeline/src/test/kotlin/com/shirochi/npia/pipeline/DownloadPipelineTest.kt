@@ -6,6 +6,15 @@ import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.InMemorySecretStore
+import com.shirochi.npia.core.JobLogging
+import com.shirochi.npia.core.LogLevel
+import com.shirochi.npia.core.OutputFormat
+import com.shirochi.npia.core.UploadSettings
+import com.shirochi.npia.upload.UploadContext
+import com.shirochi.npia.upload.UploadProgress
+import com.shirochi.npia.upload.UploadResult
+import com.shirochi.npia.upload.Uploader
+import com.shirochi.npia.upload.UploaderCatalog
 import com.shirochi.npia.core.SharedSettings
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.SourceException
@@ -80,6 +89,112 @@ class DownloadPipelineTest {
             val entries = java.util.zip.ZipFile(epub).use { zip -> zip.entries().toList().map { it.name } }
             assertTrue(entries.toString(), entries.any { it.contains("images/") && it.endsWith(".png") })
         } finally {
+            output.deleteRecursively()
+        }
+    }
+
+    private val mechanicUrl = "https://novelfull.com/the-legendary-mechanic.html"
+
+    private fun mechanicPage() = W2ePage(
+        book = """{"api":1,"engine":"webtoepub","parser":"NovelFullParser","match":"site","bookUrl":"$mechanicUrl","bookname":"The Legendary Mechanic",
+            "author":"Writer","introduction":"","coverUrl":null,"tags":[],"language":"en","chapterCount":2,
+            "chapters":[{"url":"https://novelfull.com/the-legendary-mechanic/chapter-1.html","name":"Chapter 1","number":1,"isVIP":false,"isPaid":false},
+                        {"url":"https://novelfull.com/the-legendary-mechanic/chapter-2.html","name":"Chapter 2","number":2,"isVIP":false,"isPaid":false}],
+            "warnings":[]}""",
+        chapters = mapOf(
+            "chapter-1" to """{"chapterName":"Chapter 1","contentHtml":"<p>One.</p><p><img src=\"https://img.example/a.png\"></p>","contentText":"One.","imageCount":0,"images":[]}""",
+            "chapter-2" to """{"chapterName":"Chapter 2","contentHtml":"<p>Two.</p>","contentText":"Two.","imageCount":0,"images":[]}""",
+        ),
+    )
+
+    @Test
+    fun aDownloadLogsEveryStageInDetail() = runTest {
+        val lines = java.util.Collections.synchronizedList(mutableListOf<Pair<LogLevel, String>>())
+        val output = Files.createTempDirectory("log-out").toFile()
+        try {
+            val settings = AppSettings(shared = SharedSettings(intervalMin = 0.0, intervalMax = 0.0))
+            DownloadPipeline(
+                InMemorySecretStore(), output, web = WebOf(mechanicPage()),
+                httpFactory = { Images(mapOf("https://img.example/a.png" to PNG)) },
+                logger = JobLogging { level, message -> lines += level to message },
+            ).run(mechanicUrl, settings)
+
+            val text = lines.map { it.second }
+            fun has(prefix: String) = assertTrue("no line starts with \"$prefix\" in $text", text.any { it.startsWith(prefix) })
+            has("Starting ")
+            has("Settings: formats epub")
+            has("The Legendary Mechanic: 2 chapters")
+            has("Downloading 2 of 2 chapters")
+            has("Chapter 1: Chapter 1")
+            has("Chapters: 2 downloaded")
+            has("Images: 1 kept")
+            has("Writing EPUB")
+            has("Wrote The Legendary Mechanic.epub (")
+            has("Finished in ")
+            // The settings are a detail; stages are plain information.
+            assertEquals(LogLevel.DEBUG, lines.first { it.second.startsWith("Settings: ") }.first)
+            assertEquals(LogLevel.INFO, lines.first { it.second.startsWith("Writing EPUB") }.first)
+            // In order: the start comes before the book, the book before its chapters, the file last.
+            val order = listOf("Starting ", "The Legendary Mechanic: 2", "Downloading 2 of 2", "Chapters: 2 downloaded", "Images: ", "Writing EPUB", "Wrote ", "Finished in")
+                .map { prefix -> text.indexOfFirst { it.startsWith(prefix) } }
+            assertEquals(order.sorted(), order)
+        } finally {
+            output.deleteRecursively()
+        }
+    }
+
+    /** A host that records what it was asked to upload. */
+    private class RecordingHost : Uploader {
+        override val id = "localtest"
+        override val displayName = "Recording host"
+        override val maxBytes: Long? = null
+        override val retentionSeconds: Long? = null
+        override val requiresAccount = false
+        val uploads = mutableListOf<Triple<String, String?, List<String>>>()
+
+        override suspend fun upload(file: File, context: UploadContext, progress: ((UploadProgress) -> Unit)?): UploadResult {
+            val entries = if (file.extension == "zip") java.util.zip.ZipFile(file).use { zip -> zip.entries().toList().map { it.name } } else emptyList()
+            uploads += Triple(file.name, context.fileId, entries)
+            return result(file, "https://example.test/${uploads.size}", context)
+        }
+    }
+
+    @Test
+    fun autoUploadNamesFilesByStemAndPacksSeveralFormatsIntoOneZip() = runTest {
+        val host = RecordingHost()
+        UploaderCatalog.testHost = host
+        val output = Files.createTempDirectory("auto-out").toFile()
+        try {
+            val base = AppSettings(
+                shared = SharedSettings(intervalMin = 0.0, intervalMax = 0.0, formats = listOf(OutputFormat.EPUB, OutputFormat.TXT)),
+                upload = UploadSettings(autoUpload = true, hosts = listOf("localtest")),
+            )
+            val lines = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val logger = JobLogging { _, message -> lines += message }
+            val outcome = DownloadPipeline(
+                InMemorySecretStore(), output, web = WebOf(mechanicPage()), httpFactory = { Images(mapOf("https://img.example/a.png" to PNG)) }, logger = logger,
+            ).run(mechanicUrl, base)
+
+            // Two output files, bundling on: one ZIP holding both, under the ASCII ZIP name.
+            assertEquals(1, host.uploads.size)
+            val (name, _, entries) = host.uploads.single()
+            assertEquals("NovelDB_2_files.zip", name)
+            assertEquals(outcome.files.map { it.name }.sorted(), entries.sorted())
+            assertEquals(1, outcome.uploads.size)
+            assertEquals("NovelDB_2_files.zip (2 files)", outcome.uploads.single().label)
+            assertTrue(lines.toString(), lines.any { it.startsWith("Preparing ZIP 1 of 1") })
+            assertTrue(lines.toString(), lines.any { it.startsWith("Uploaded NovelDB_2_files.zip (2 files): https://example.test/1") })
+
+            // Bundling off: one upload per file, each carrying the stem (source codename and book id).
+            host.uploads.clear()
+            DownloadPipeline(
+                InMemorySecretStore(), output, web = WebOf(mechanicPage()), httpFactory = { Images(mapOf("https://img.example/a.png" to PNG)) },
+            ).run(mechanicUrl, base.copy(upload = base.upload.copy(zipBundle = false)))
+            assertEquals(2, host.uploads.size)
+            val stems = host.uploads.map { it.second }
+            assertTrue(stems.toString(), stems.all { it != null && Regex("[a-z_]+_[A-Za-z0-9_-]+").matches(it) })
+        } finally {
+            UploaderCatalog.testHost = null
             output.deleteRecursively()
         }
     }
