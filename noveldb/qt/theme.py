@@ -169,6 +169,11 @@ def stylesheet_for(scheme: dict) -> str:
     QPushButton[primary="true"]:disabled {{ background: {s['surfaceContainerHighest']}; color: {s['onSurfaceVariant']}; }}
     QLabel#toast {{ background: {s['inverseSurface']}; color: {s['inverseOnSurface']}; border-radius: 10px;
                     padding: 10px 18px; }}
+    QFrame#groupBox {{ background: {s['surfaceContainerLow']}; border: 1px solid {s['outlineVariant']}; border-radius: 10px; }}
+    QFrame#newGroup {{ background: transparent; border: 2px dashed {s['outlineVariant']}; border-radius: 10px; }}
+    QFrame#palette {{ background: transparent; border: 1px solid transparent; border-radius: 10px; }}
+    QFrame#groupBox[hover="true"], QFrame#newGroup[hover="true"], QFrame#palette[hover="true"] {{
+        border: 2px solid {s['primary']}; background: {s['secondaryContainer']}; }}
     QWidget#panel {{ background: {s['surfaceContainerLow']}; border: 1px solid {s['outlineVariant']};
                       border-radius: 12px; }}
     QPushButton[feedback="ok"] {{ background: {s['primaryContainer']}; color: {s['onPrimaryContainer']}; }}
