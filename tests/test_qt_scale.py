@@ -105,6 +105,63 @@ def test_a_jump_scales_at_once_and_a_drag_waits(qtbot, tmp_path, monkeypatch):
     context._save_timer.stop()
 
 
+def test_a_jump_is_restyled_before_the_window_moves(qtbot, tmp_path, monkeypatch):
+    # On Windows the restyle ran inside the resize, so the maximise / restore animation faded into
+    # the old frame (a ghost of the old size) for a few hundred ms. WM_WINDOWPOSCHANGING now
+    # restyles for the coming size first; the resize itself only lays out and paints.
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "home"))
+    from PySide6.QtCore import QSize
+
+    from noveldb.qt.context import AppContext
+    from noveldb.qt.main_window import MainWindow
+
+    context = AppContext(start_workers=False)
+    window = MainWindow(context)
+    qtbot.addWidget(window)
+    window.resize(1500, 900)
+    window.show()
+    qtbot.waitUntil(lambda: window.width() == 1500, timeout=3000)
+    window._rescale()
+
+    window._scale_before(QSize(1520, 910))  # a drag step: left to the resize
+    assert ui_scale.factor == 1.0 and not window._relayout
+    window._scale_before(QSize(2560, 1369))  # maximising
+    assert ui_scale.factor == factor_for(2560, 1369)
+    assert window._relayout and window._scale_timer.isActive()  # put right if the move is cancelled
+    window.resize(2560, 1369)
+    qtbot.waitUntil(lambda: window.width() == 2560, timeout=3000)
+    assert not window._relayout and not window._scale_timer.isActive()
+    left, log = window.download.split.sizes()
+    assert log >= int((left + log) * 0.4) - 2  # laid out in the resize's own pass
+    context._save_timer.stop()
+
+
+def test_the_native_frame_follows_the_app_theme(qapp, monkeypatch):
+    # The offscreen platform ignores colour schemes, so record what apply_theme asks Qt for.
+    from PySide6.QtCore import Qt
+
+    from noveldb.qt import theme
+
+    calls = []
+
+    class Hints:
+        def setColorScheme(self, scheme):
+            calls.append(scheme)
+
+        def unsetColorScheme(self):
+            calls.append("system")
+
+        def colorScheme(self):
+            return Qt.ColorScheme.Dark
+
+    monkeypatch.setattr(theme.QGuiApplication, "styleHints", staticmethod(lambda: Hints()))
+    for name in ("light", "dark", "amoled", "system"):
+        theme.apply_theme(qapp, name)
+    assert calls == [Qt.ColorScheme.Light, Qt.ColorScheme.Dark, Qt.ColorScheme.Dark, "system"]
+    monkeypatch.undo()
+    theme.apply_theme(qapp, "system")
+
+
 def test_the_setting_round_trips_through_the_desktop_config():
     from noveldb.core.settings.desktop_config import export_config, import_config
 

@@ -197,6 +197,15 @@ def apply_theme(app: QApplication, theme: str = "system", accent: str = "halgako
     from noveldb.qt.scale import scale_stylesheet, ui_scale
 
     app.setStyle("Fusion")
+    hints = QGuiApplication.styleHints()
+    if hasattr(hints, "setColorScheme"):  # Qt 6.8+
+        # The native frame (title bar, border, the maximise animation's frame) follows Qt's colour
+        # scheme, which is the system's unless set: a Light app on a dark Windows got a dark frame,
+        # and a Dark app on a light Windows a white one.
+        if theme == "system":
+            hints.unsetColorScheme()
+        else:
+            hints.setColorScheme(Qt.ColorScheme.Dark if theme in ("dark", "amoled") else Qt.ColorScheme.Light)
     scheme = scheme_for(theme, accent)
     app.setPalette(palette_for(scheme))
     app.setStyleSheet(scale_stylesheet(stylesheet_for(scheme), ui_scale.factor))
