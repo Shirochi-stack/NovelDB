@@ -194,8 +194,10 @@ def stylesheet_for(scheme: dict) -> str:
 
 
 def apply_theme(app: QApplication, theme: str = "system", accent: str = "halgakos_rose") -> dict:
+    from noveldb.qt.scale import scale_stylesheet, ui_scale
+
     app.setStyle("Fusion")
     scheme = scheme_for(theme, accent)
     app.setPalette(palette_for(scheme))
-    app.setStyleSheet(stylesheet_for(scheme))
+    app.setStyleSheet(scale_stylesheet(stylesheet_for(scheme), ui_scale.factor))
     return scheme
