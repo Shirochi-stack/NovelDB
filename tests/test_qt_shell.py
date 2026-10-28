@@ -142,3 +142,54 @@ def test_smoke_entry_point(tmp_path):
     assert data["ok"] and data["window"]
     assert data["pages"][0] == "Download"
     assert data["forbidden_loaded"] == []
+
+
+def test_mouse_wheel_never_changes_spin_boxes_or_drop_downs(qtbot, qapp):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtWidgets import QComboBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget
+
+    from noveldb.qt.widgets import disable_wheel_on_inputs
+
+    disable_wheel_on_inputs(qapp)
+    area = QScrollArea()
+    body = QWidget()
+    layout = QVBoxLayout(body)
+    spin, combo = QSpinBox(), QComboBox()
+    spin.setRange(0, 100)
+    spin.setValue(50)
+    combo.addItems(["a", "b", "c"])
+    layout.addWidget(spin)
+    layout.addWidget(combo)
+    body.setMinimumHeight(3000)
+    area.setWidget(body)
+    area.resize(200, 200)
+    qtbot.addWidget(area)
+    area.show()
+    for widget in (spin, combo):
+        widget.setFocus()
+        event = QWheelEvent(QPointF(5, 5), QPointF(widget.mapToGlobal(QPoint(5, 5))), QPoint(0, 0), QPoint(0, -120),
+                            Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        qapp.sendEvent(widget, event)
+    assert spin.value() == 50
+    assert combo.currentIndex() == 0
+    assert area.verticalScrollBar().value() > 0  # the page scrolled instead
+
+
+def test_save_button_animates_then_settles(qtbot):
+    from PySide6.QtWidgets import QPushButton
+
+    from noveldb.qt.widgets import ButtonFeedback
+
+    button = QPushButton("Save")
+    qtbot.addWidget(button)
+    feedback = ButtonFeedback(button)
+    feedback.busy("Saving")
+    assert not button.isEnabled() and button.text().startswith("Saving")
+    first = button.text()
+    qtbot.waitUntil(lambda: button.text() != first, timeout=2000)  # the dots move
+    feedback.done(True)
+    assert button.isEnabled() and button.text().endswith("Saved") and button.property("feedback") == "ok"
+    feedback._restore.setInterval(10)
+    feedback._restore.start()
+    qtbot.waitUntil(lambda: button.text() == "Save", timeout=2000)

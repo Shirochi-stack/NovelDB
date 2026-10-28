@@ -208,10 +208,31 @@ class DownloadPage(QWidget):
         layout.addLayout(folder_row)
         layout.addStretch(1)
 
+        # Right-hand column: the npia account and image options (the window has the room).
+        from noveldb.qt.pages.settings import images_form, npia_account_panel
+
+        self.account = npia_account_panel(context)
+        self.images = images_form(context, panel=True)
+        side = QWidget()
+        side_layout = QVBoxLayout(side)
+        side_layout.setContentsMargins(0, 16, 20, 16)
+        side_layout.setSpacing(14)
+        side_layout.addWidget(self.account)
+        side_layout.addWidget(self.images)
+        side_layout.addStretch(1)
+        side.setMinimumWidth(380)
+        side.setMaximumWidth(560)
+        columns = QWidget()
+        columns_layout = QHBoxLayout(columns)
+        columns_layout.setContentsMargins(0, 0, 0, 0)
+        columns_layout.setSpacing(8)
+        columns_layout.addWidget(body, 3)
+        columns_layout.addWidget(side, 2)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setWidget(body)
+        scroll.setWidget(columns)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)

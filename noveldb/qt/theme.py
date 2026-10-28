@@ -23,6 +23,9 @@ def scheme_for(theme: str, accent: str) -> dict:
     if theme == "amoled":
         scheme.update(background="#000000", surface="#000000", surfaceContainerLowest="#000000",
                       surfaceContainerLow="#0A0A0A", surfaceContainer="#0A0A0A")
+    # Material baseline error containers (the ported palettes only carry `error`).
+    scheme.setdefault("errorContainer", "#93000A" if dark else "#FFDAD6")
+    scheme.setdefault("onErrorContainer", "#FFDAD6" if dark else "#410002")
     scheme["_dark"] = dark
     return scheme
 
@@ -93,6 +96,12 @@ def stylesheet_for(scheme: dict) -> str:
     QPushButton[primary="true"] {{ background: {s['primary']}; color: {s['onPrimary']}; border: none;
                                     border-radius: 18px; padding: 8px 22px; font-weight: 600; }}
     QPushButton[primary="true"]:disabled {{ background: {s['surfaceContainerHighest']}; color: {s['onSurfaceVariant']}; }}
+    QLabel#toast {{ background: {s['inverseSurface']}; color: {s['inverseOnSurface']}; border-radius: 10px;
+                    padding: 10px 18px; }}
+    QWidget#panel {{ background: {s['surfaceContainerLow']}; border: 1px solid {s['outlineVariant']};
+                      border-radius: 12px; }}
+    QPushButton[feedback="ok"] {{ background: {s['primaryContainer']}; color: {s['onPrimaryContainer']}; }}
+    QPushButton[feedback="error"] {{ background: {s['errorContainer']}; color: {s['onErrorContainer']}; }}
     QLabel[section="true"] {{ color: {s['primary']}; font-weight: 600; padding-top: 8px; }}
     QLabel[hint="true"] {{ color: {s['onSurfaceVariant']}; }}
     QPlainTextEdit#log {{ background: {s['surfaceContainerLowest']}; border: 1px solid {s['outlineVariant']}; border-radius: 8px; }}
