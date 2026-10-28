@@ -17,6 +17,7 @@ Data flows:
 import json
 import html
 import base64
+import datetime
 import hashlib
 import hmac
 import os
@@ -228,6 +229,11 @@ class ExternalScraper:
         self._rbooks_cdp_port = None
         self._rbooks_app_proxy = None
         self._rbooks_app_lock = threading.Lock()
+        # Volumes whose PC viewer export failed in this run, by b_id. A volume is
+        # tried at most twice, so one unreadable volume cannot hold up the rest.
+        self._rbooks_export_failures = {}
+        # Rentals among the account's library items: b_id -> expiry text ('' if unknown).
+        self._rbooks_rentals = {}
         self._global_npia_session = None
         self._global_npia_login_at = ''
         self._global_npia_refresh_attempted = False
@@ -11891,7 +11897,8 @@ async ({ url }) => {
 
     _RBOOKS_OWNED_JS = r"""
 async (ids) => {
-  // The same lookup the library page makes; only owned b_ids come back.
+  // The same lookup the library page makes; only the account's b_ids come back,
+  // rentals included. Keep the fields that tell a rental and its expiry apart.
   const response = await fetch('https://library-api.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/items', {
     method: 'POST', credentials: 'include',
     headers: {'Content-Type': 'application/json'},
@@ -11899,9 +11906,48 @@ async (ids) => {
   });
   if (!response.ok) return null;
   const data = await response.json();
-  return (data.items || []).map((item) => String(item.b_id));
+  return (data.items || []).map((item) => ({
+    id: String(item.b_id),
+    service: String(item.service_type || item.serviceType || ''),
+    expires: String(item.expire_date || item.expireDate || item.expired_at || ''),
+  }));
 }
 """
+
+    @staticmethod
+    def _rbooks_rental_expired(expires, now=None):
+        """True when a rental's expiry date has passed (False when unknown)."""
+        text = str(expires or '').strip()
+        if not text:
+            return False
+        try:
+            when = datetime.datetime.fromisoformat(text.replace('Z', '+00:00'))
+        except ValueError:
+            return False
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=9)))
+        now = now or datetime.datetime.now(datetime.timezone.utc)
+        # Permanent purchases carry far-future expiry dates.
+        return when < now
+
+    def _rbooks_library_items(self, found):
+        """Owned b_ids from a library lookup; also remembers which ones are rentals."""
+        if found is None:
+            return None
+        owned = set()
+        for item in found:
+            if isinstance(item, dict):
+                book_id = str(item.get('id') or '')
+                if not book_id:
+                    continue
+                owned.add(book_id)
+                service = str(item.get('service') or '').lower()
+                expires = str(item.get('expires') or '')
+                if 'rent' in service:
+                    self._rbooks_rentals[book_id] = expires
+            else:
+                owned.add(str(item))
+        return owned
 
     def _rbooks_owned_ids(self, page, book_id):
         """Volumes of the current book that the signed-in account owns.
@@ -11930,7 +11976,7 @@ async (ids) => {
                     wait_until='domcontentloaded', timeout=30000,
                 )
                 found = library_page.evaluate(self._RBOOKS_OWNED_JS, ids[:500])
-                owned = set(found) if found is not None else None
+                owned = self._rbooks_library_items(found)
             except Exception as exc:
                 library_error = exc
             finally:
@@ -11942,7 +11988,7 @@ async (ids) => {
         if owned is None:
             try:
                 found = page.evaluate(self._RBOOKS_OWNED_JS, ids[:500])
-                owned = set(found) if found is not None else None
+                owned = self._rbooks_library_items(found)
             except Exception:
                 pass
         if owned is None and library_error:
@@ -11981,7 +12027,16 @@ async (ids) => {
                     'library. Buy or rent it on Rbooks first.'
                 )
                 reason = 'purchase'
+            elif (str(book_id) in self._rbooks_rentals
+                  and self._rbooks_rental_expired(self._rbooks_rentals[str(book_id)])):
+                self.log(
+                    f'  [Rbooks] Your rental of {chapter_name} expired '
+                    f'({self._rbooks_rentals[str(book_id)]}). Rent it again on '
+                    'Rbooks to download it; the other volumes continue.'
+                )
+                reason = 'rental_expired'
             else:
+                rental = str(book_id) in self._rbooks_rentals
                 if sys.platform == 'win32' and hasattr(self._context, 'new_page'):
                     try:
                         from rbooks_app_proxy import RbooksAppProxy
@@ -12002,10 +12057,29 @@ async (ids) => {
                     except Exception as exc:
                         self.log(f'  [Rbooks] PC viewer could not read '
                                  f'{chapter_name}: {exc}')
-                        self.log('  [Rbooks] This is a reader export failure; '
-                                 'the volume will be retried and will not be '
-                                 'marked as unavailable or paid.')
-                        return None
+                        failures = self._rbooks_export_failures.get(str(book_id), 0) + 1
+                        self._rbooks_export_failures[str(book_id)] = failures
+                        if getattr(exc, 'reason', '') == 'rental_expired':
+                            self.log(f'  [Rbooks] The PC viewer says the rental of '
+                                     f'{chapter_name} has expired. Rent it again on '
+                                     'Rbooks to download it; the other volumes '
+                                     'continue.')
+                            return {'_locked': True, 'chapterName': chapter_name,
+                                    '_lockReason': 'rental_expired'}
+                        if failures < 2:
+                            self.log('  [Rbooks] This is a reader export failure; '
+                                     'the volume will be retried once and will not '
+                                     'be marked as unavailable or paid.')
+                            return None
+                        self.log(
+                            f'  [Rbooks] Skipping {chapter_name} after {failures} '
+                            'failed PC viewer exports so the other volumes '
+                            'continue. It is not marked as paid.'
+                            + (' This volume is a rental; the RBOOKS PC viewer may '
+                               'show rentals differently.' if rental else '')
+                        )
+                        return {'_locked': True, 'chapterName': chapter_name,
+                                '_lockReason': 'export_failed'}
                 self.log(
                     f'  [Rbooks] You own {chapter_name}, but Rbooks will not open '
                     'it in its web viewer ("웹 뷰어에서 지원하지 않는 작품입니다"). '

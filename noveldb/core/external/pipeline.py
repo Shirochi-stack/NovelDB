@@ -869,8 +869,15 @@ class ExternalPipelineMixin:
                                   if r and r.get('_lockReason') in
                                   ('login', 'verification'))
                               if is_rbooks or is_kobo else 0)
-            locked -= web_only + login_required
-            if locked or ad_required or web_only or login_required:
+            # Owned or rented Rbooks volumes the PC viewer could not export, and
+            # expired rentals: neither is a paywall.
+            export_failed = sum(1 for r in results
+                                if r and r.get('_lockReason') == 'export_failed')
+            rental_expired = sum(1 for r in results
+                                 if r and r.get('_lockReason') == 'rental_expired')
+            locked -= web_only + login_required + export_failed + rental_expired
+            if (locked or ad_required or web_only or login_required
+                    or export_failed or rental_expired):
                 incomplete = []
                 if locked:
                     incomplete.append(f"{locked} locked (paid)")
@@ -878,6 +885,10 @@ class ExternalPipelineMixin:
                     incomplete.append(f"{web_only} not available on the web")
                 if login_required:
                     incomplete.append(f"{login_required} access not confirmed")
+                if export_failed:
+                    incomplete.append(f"{export_failed} not exported by the PC viewer")
+                if rental_expired:
+                    incomplete.append(f"{rental_expired} rental(s) expired")
                 if ad_required:
                     incomplete.append(
                         f"{ad_required} advertisement(s) not completed"
@@ -905,6 +916,15 @@ class ExternalPipelineMixin:
                         "Retry; if needed, sign in using Enter Browser and "
                         "close that window before downloading."
                     )
+                if export_failed:
+                    self._log(
+                        "⚠ The RBOOKS PC viewer could not export some volumes you "
+                        "own or rent. They are not paid chapters; download them "
+                        "again later, and include the log above if it keeps failing."
+                    )
+                if rental_expired:
+                    self._log("⚠ Some rentals have expired. Rent them again on "
+                              "Rbooks to download them.")
                 if ad_required:
                     self._log(
                         "⚠ Ad-gated chapters were skipped because Npia "
