@@ -13,6 +13,7 @@ Native SwiftUI rewrite of the desktop npia downloader and external downloader in
   - `NpiaUpload`: share-link hosts (temp.sh, gofile, Google Drive, ...).
   - `NpiaSources`: one adapter per source codename, registered in `SourceCatalog`.
   - `NpiaPipeline`: runs one download end to end.
+  - `NpiaUpdate`: the app's own updates (build stamp, release manifest, check, verified download).
 - `App/`: the SwiftUI app target.
 - `project.yml`: XcodeGen spec. The `.xcodeproj` is generated, not committed.
 
@@ -49,6 +50,15 @@ A link goes through the site engines in the order set in Settings > Site engines
 - Both engines ship with the app. With the opt-in toggles on, `EngineUpdater` downloads newer builds from the `engines` release (`novel-downloader-manifest.json`, `webtoepub-manifest.json`) into Application Support and checks the SHA-256, the API (1) and that the build is newer. A download that fails to load is deleted, remembered as rejected, and the shipped copy is used.
 - A live check downloads the first three chapters of a real book inside the app on a simulator: run the iOS App workflow by hand with `live_url` set (for example a WebToEpub-only site). It needs the site to be reachable from GitHub's runners.
 - The config keys `source_engine_order`, `source_engines_off`, `novel_downloader_auto_update` and `webtoepub_auto_update` match the desktop app.
+
+## App updates
+
+NovelDB checks its own GitHub releases for a newer build, the same way the desktop and Android apps do (`NpiaUpdate`, shown in Settings > App updates).
+
+- Build number: CI stamps `NOVELDB_BUILD` (Unix seconds, planned by Mobile Release), `NOVELDB_TAG` (`v98`) and `NOVELDB_LABEL` (`none`, `hotfix3`) into the Info.plist as `NovelDBBuild`, `NovelDBTag` and `NovelDBLabel`. `ci/release_stamp.sh` turns the workflow inputs `build_id`, `release_tag` and `release_label` into those build settings and also sets `CURRENT_PROJECT_VERSION` (build / 60) and `MARKETING_VERSION` (the tag's number); `ci/check_stamp.sh` checks the built app. A build without a number (every local, push and pull request build) is a development build: no update is ever offered.
+- Check: `update-ios.json` of the latest release lists the IPA (`kind` `ipa`, `variant` and `arch` `universal`) with its `build`, `size` and `sha256`. An update exists when that `build` is greater than the app's. A 404, a manifest with another `schema` than 1, or a manifest without the entry means no update. It runs at start and when the app returns to the foreground, at most once per 24 hours (the time is kept in `UserDefaults`), when "Check for app updates automatically" is on (`app_update_check` in the desktop config; on by default). "Check for app updates now" always fetches.
+- Update: the alert-style sheet offers Update, Release notes and Later. Update streams the IPA into a partial file while hashing it, with progress and Cancel, and keeps it only when size and SHA-256 match; otherwise it is deleted ("The download did not match its checksum; nothing was installed."). iOS apps cannot install themselves, so the checked file goes to the share sheet (SideStore, AltStore and similar tools accept it there) or to Files.
+- Testing: a Debug build takes `-NovelDBUpdateBase <releases address>` (default `https://github.com/Shirochi-stack/NovelDB/releases`) to read `<base>/latest/download/update-ios.json` and `<base>/download/<tag>/<file>` from a local server, and `-NovelDBUpdateReport` to download at once and write `update-check-report.txt` to Documents. The `update-check` job of the iOS App workflow builds a stamped app and runs it against `ci/update_fixture.py`, which imitates GitHub's redirects.
 
 ## Rules
 
