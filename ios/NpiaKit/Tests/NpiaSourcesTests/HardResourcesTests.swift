@@ -23,6 +23,19 @@ final class HardResourcesTests: XCTestCase {
         }
     }
 
+    func testTheWebKitAdjustmentChangesOnlyTheCoverageProbe() throws {
+        let shared = String(decoding: try HardScripts.resource("hard-sources.js"), as: UTF8.self)
+        XCTAssertEqual(Self.hex(Data(shared.utf8)), Self.androidHashes["hard-sources.js"])
+        let adjusted = HardScripts.webKitAdjusted(shared)
+        XCTAssertNotEqual(adjusted, shared)
+        XCTAssertEqual(HardScripts.source, adjusted)
+        XCTAssertTrue(adjusted.contains("'sans-serif', 'serif'"))
+        XCTAssertFalse(adjusted.contains("covered = !sameInk("))
+        // A script without that line, for example one that carries the fix itself, is left alone.
+        XCTAssertEqual(HardScripts.webKitAdjusted("function other() {}"), "function other() {}")
+        XCTAssertEqual(HardScripts.webKitAdjusted(adjusted), adjusted)
+    }
+
     func testTheScriptIsLoadedAsText() {
         XCTAssertTrue(HardScripts.source.contains("window.__npiaHard") || HardScripts.source.contains("__npiaHard"))
         XCTAssertGreaterThan(HardScripts.source.utf8.count, 100_000)

@@ -11,11 +11,30 @@ enum HardScripts {
     static let qdnFrequency = "qdn/zh_char_frequency.txt"
     static let qdnVerified = "qdn/qdn_verified_maps.json"
 
-    /// The script's source text.
+    /// The script's source text, as the web views run it: the shared file plus the WebKit adjustment below.
     static let source: String = {
         guard let data = try? resource(script) else { return "" }
-        return String(decoding: data, as: UTF8.self)
+        return webKitAdjusted(String(decoding: data, as: UTF8.self))
     }()
+
+    /// The glyph decoder tells a character a cipher font draws from one it lacks by drawing it with the font
+    /// and with a family that does not exist: a character the font lacks comes out the same both ways. WebKit
+    /// draws such a character with its sans-serif fallback when a loaded font is asked for it, but with its
+    /// serif one when the family does not exist, so every character the font lacks looked like the font's own
+    /// and was matched by shape (some wrongly). The adjustment compares with the generic families too. In
+    /// Chromium the first comparison already decides, so the answers there do not change.
+    ///
+    /// The shared file stays as it is (it is Android's byte for byte); this changes the text only when the
+    /// original line is there, so a shared file that carries the fix itself is used as it is.
+    static func webKitAdjusted(_ script: String) -> String {
+        let original = #"covered = !sameInk(renderGlyph(core.css, ch, 32), renderGlyph('"__qdn_no_such_family"', ch, 32));"#
+        let adjusted = #"""
+        { const own = renderGlyph(core.css, ch, 32);
+              covered = !['"__qdn_no_such_family"', 'sans-serif', 'serif', 'system-ui', 'monospace']
+                .some((family) => sameInk(own, renderGlyph(family, ch, 32))); }
+        """#
+        return script.replacingOccurrences(of: original, with: adjusted)
+    }
 
     /// A resource by its path under `HardResources`, for example `qdn/zh_char_frequency.txt`.
     static func resource(_ name: String) throws -> Data {
