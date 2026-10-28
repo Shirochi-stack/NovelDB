@@ -358,6 +358,8 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
     )
     if not engine_order(engines.order, engines.disabled):
         engines = replace(engines, disabled=())  # never leave every engine off
+    updates = replace(base.updates,
+                      check_automatically=_first_bool(c, "app_update_check", base.updates.check_automatically))
     concurrent = _int(c.get("max_concurrent_jobs"))
     queue = replace(base.queue, max_concurrent_jobs=int(_clamp(concurrent, 1, 3, base.queue.max_concurrent_jobs)))
 
@@ -557,6 +559,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["source_engines_off"] = list(s.engines.disabled)
     c["novel_downloader_auto_update"] = s.engines.nd_auto_update
     c["webtoepub_auto_update"] = s.engines.webtoepub_auto_update
+    c["app_update_check"] = s.updates.check_automatically
     c["max_concurrent_jobs"] = s.queue.max_concurrent_jobs
 
     c["upload_auto"] = s.upload.auto_upload

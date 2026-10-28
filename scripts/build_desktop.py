@@ -72,10 +72,21 @@ def prepare_browsers(folder: Path) -> Path:
 
 # -- PyInstaller ---------------------------------------------------------------------------------
 
-def write_build_info(variant: str, mode: str) -> None:
+def write_build_info(variant: str, mode: str, arch: str = "", label: str = "") -> None:
+    """The variant, plus what the app updater needs (noveldb/core/app_update.py).
+
+    The release workflow sets NOVELDB_BUILD (the Unix time it planned the build) and NOVELDB_TAG;
+    builds without them are development builds and never offer updates.
+    """
+    build = os.environ.get("NOVELDB_BUILD", "").strip()
     (ROOT / "_build_info.py").write_text(
         "# Written by scripts/build_desktop.py; not committed.\n"
-        f"VARIANT = {variant!r}\nBUILD_MODE = {mode!r}\nVERSION = {app_version.VERSION!r}\n",
+        f"VARIANT = {variant!r}\nBUILD_MODE = {mode!r}\nVERSION = {app_version.VERSION!r}\n"
+        f"BUILD = {int(build) if build.isdigit() else 0}\n"
+        f"TAG = {os.environ.get('NOVELDB_TAG', '').strip()!r}\n"
+        f"LABEL = {(label or os.environ.get('LABEL', '') or 'none').strip()!r}\n"
+        f"COMMIT = {os.environ.get('GITHUB_SHA', '').strip()!r}\n"
+        f"OS = {os_name()!r}\nARCH = {arch or arch_name('')!r}\n",
         encoding="utf-8",
     )
 
@@ -99,7 +110,7 @@ def macos_icon() -> None:
     subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(ROOT / "icon.icns")], check=False)
 
 
-def pyinstaller(variant: str, mode: str, browsers: Path | None, arch: str) -> Path:
+def pyinstaller(variant: str, mode: str, browsers: Path | None, arch: str, label: str = "") -> Path:
     work = ROOT / "build" / "desktop" / f"{variant}-{mode}"
     dist = work / "dist"
     shutil.rmtree(dist, ignore_errors=True)
@@ -108,7 +119,7 @@ def pyinstaller(variant: str, mode: str, browsers: Path | None, arch: str) -> Pa
         env["NOVELDB_PW_BROWSERS"] = str(browsers)
     if sys.platform == "darwin":
         env["NOVELDB_TARGET_ARCH"] = arch
-    write_build_info(variant, mode)
+    write_build_info(variant, mode, arch, label)
     run([sys.executable, "-m", "PyInstaller", str(ROOT / "desktop_build" / "noveldb.spec"), "--noconfirm",
          "--clean", "--distpath", str(dist), "--workpath", str(work / "work")], env=env)
     return dist
@@ -315,7 +326,7 @@ def main(argv=None) -> int:
     produced = []
     try:
         for build_mode in modes:
-            dist = pyinstaller(variant, build_mode, browsers, arch)
+            dist = pyinstaller(variant, build_mode, browsers, arch, args.label)
             executable = built_executable(dist, variant, build_mode)
             if not executable.exists():
                 raise SystemExit(f"PyInstaller did not produce {executable}")

@@ -35,7 +35,8 @@ def test_engine_settings_round_trip_through_config():
 
 def test_defaults_and_never_all_off():
     assert AppSettings().engines.enabled() == ("native", "novel_downloader", "webtoepub")
-    assert AppSettings().engines.webtoepub_auto_update is False
+    assert AppSettings().engines.webtoepub_auto_update is True
+    assert AppSettings().engines.nd_auto_update is True
     settings = import_config({"source_engines_off": list(SITE_ENGINES)})
     assert settings.engines.enabled() == SITE_ENGINES
 
