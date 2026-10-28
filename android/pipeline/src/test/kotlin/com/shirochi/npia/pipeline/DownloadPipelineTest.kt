@@ -1,16 +1,28 @@
 package com.shirochi.npia.pipeline
 
 import com.shirochi.npia.core.ChapterRef
+import com.shirochi.npia.core.EngineSettings
+import com.shirochi.npia.core.HttpFetching
+import com.shirochi.npia.core.HttpRequest
+import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.InMemorySecretStore
 import com.shirochi.npia.core.SharedSettings
 import com.shirochi.npia.core.AppSettings
 import com.shirochi.npia.core.SourceException
+import com.shirochi.npia.core.WebEngineProviding
+import com.shirochi.npia.core.WebLoadState
+import com.shirochi.npia.core.WebPageDriving
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 class DownloadPipelineTest {
+    /** PNG signature plus filler; enough for extension sniffing. */
+    private val PNG = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) + ByteArray(32) { 7 }
+
     private val chapters = (1..6).map { ChapterRef("$it", it, "C$it", isPaid = it > 4) }
 
     @Test
@@ -21,8 +33,93 @@ class DownloadPipelineTest {
 
     @Test
     fun unknownUrlFailsFast() = runTest {
-        val pipeline = DownloadPipeline(InMemorySecretStore(), File("build/tmp"))
+        // With the script engines off, no engine can try an unknown site: no page is loaded, nothing is fetched.
+        val settings = AppSettings(engines = EngineSettings(disabled = listOf("novel_downloader", "webtoepub")))
+        val pipeline = DownloadPipeline(InMemorySecretStore(), File("build/tmp"), httpFactory = { error("no network for an unsupported site") })
+        val error = runCatching { pipeline.run("https://example.com/none", settings) }.exceptionOrNull()
+        assertEquals(SourceException.UnsupportedUrl::class, error!!::class)
+    }
+
+    @Test
+    fun unknownUrlIsTriedByEveryScriptEngineBeforeItIsGivenUp() = runTest {
+        // WebToEpub also recognises some sites by their page, so a site no list names still gets a look.
+        val page = W2ePage(book = """{"error":"WebToEpub has no parser for this site","noParser":true}""")
+        val pipeline = DownloadPipeline(InMemorySecretStore(), File("build/tmp"), web = WebOf(page), httpFactory = { Images(emptyMap()) })
         val error = runCatching { pipeline.run("https://example.com/none", AppSettings()) }.exceptionOrNull()
         assertEquals(SourceException.UnsupportedUrl::class, error!!::class)
+        assertEquals(listOf("https://example.com/none"), page.loads)
+        assertTrue("the page nobody kept is closed", page.closed)
+    }
+
+    @Test
+    fun aWebToEpubBookIsDownloadedWithItsInlineImages() = runTest {
+        val url = "https://novelfull.com/the-legendary-mechanic.html"
+        val page = W2ePage(
+            book = """{"api":1,"engine":"webtoepub","parser":"NovelFullParser","match":"site","bookUrl":"$url","bookname":"The Legendary Mechanic",
+                "author":"Writer","introduction":"","coverUrl":null,"tags":[],"language":"en","chapterCount":2,
+                "chapters":[{"url":"https://novelfull.com/the-legendary-mechanic/chapter-1.html","name":"Chapter 1","number":1,"isVIP":false,"isPaid":false},
+                            {"url":"https://novelfull.com/the-legendary-mechanic/chapter-2.html","name":"Chapter 2","number":2,"isVIP":false,"isPaid":false}],
+                "warnings":[]}""",
+            chapters = mapOf(
+                "chapter-1" to """{"chapterName":"Chapter 1","contentHtml":"<p>One.</p><p><img src=\"https://img.example/a.png\"></p>","contentText":"One.","imageCount":0,"images":[]}""",
+                "chapter-2" to """{"chapterName":"Chapter 2","contentHtml":"<p>Two.</p>","contentText":"Two.","imageCount":0,"images":[]}""",
+            ),
+        )
+        val http = Images(mapOf("https://img.example/a.png" to PNG))
+        val output = Files.createTempDirectory("w2e-out").toFile()
+        try {
+            val settings = AppSettings(shared = SharedSettings(intervalMin = 0.0, intervalMax = 0.0))
+            val outcome = DownloadPipeline(InMemorySecretStore(), output, web = WebOf(page), httpFactory = { http }).run(url, settings)
+
+            assertEquals("The Legendary Mechanic", outcome.book.title)
+            assertEquals(2, outcome.book.chapters.size)
+            assertEquals(emptyList<Any>(), outcome.skipped)
+            // The inline image is fetched by the pipeline's own image stage, like novel-downloader's images.
+            assertEquals(listOf("https://img.example/a.png"), http.requests)
+            val epub = outcome.files.single { it.extension == "epub" }
+            val entries = java.util.zip.ZipFile(epub).use { zip -> zip.entries().toList().map { it.name } }
+            assertTrue(entries.toString(), entries.any { it.contains("images/") && it.endsWith(".png") })
+        } finally {
+            output.deleteRecursively()
+        }
+    }
+
+    /** Serves image bytes by URL; everything else is a 404. */
+    private class Images(private val files: Map<String, ByteArray>) : HttpFetching {
+        val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+
+        override suspend fun send(request: HttpRequest): HttpResponse {
+            requests += request.url
+            val body = files[request.url] ?: return HttpResponse(request.url, 404, emptyMap(), ByteArray(0))
+            return HttpResponse(request.url, 200, emptyMap(), body)
+        }
+    }
+
+    /** A page that answers WebToEpub's bridge: the bundle is ready, then the book, then each chapter by URL. */
+    private class W2ePage(val book: String, val chapters: Map<String, String> = emptyMap()) : WebPageDriving {
+        val loads = mutableListOf<String>()
+        var closed = false
+
+        override suspend fun load(url: String, until: WebLoadState, timeoutSeconds: Long) {
+            loads += url
+        }
+
+        override suspend fun evaluateJson(functionBody: String): String = when {
+            functionBody.contains("window.__W2E_READY") -> """{"ready":true,"error":null}"""
+            functionBody.contains("__W2E_parseBook") -> book
+            else -> chapters.entries.firstOrNull { functionBody.contains(it.key) }?.value ?: """{"error":"no such chapter"}"""
+        }
+
+        override suspend fun addInitScript(source: String) {}
+        override suspend fun currentUrl(): String? = loads.lastOrNull()
+        override suspend fun html() = ""
+        override suspend fun close() {
+            closed = true
+        }
+    }
+
+    private class WebOf(private val page: WebPageDriving) : WebEngineProviding {
+        override suspend fun newPage(profile: String) = page
+        override suspend fun presentLogin(url: String, profile: String) = Unit
     }
 }

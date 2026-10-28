@@ -73,9 +73,8 @@ class DownloadPipeline(
     private val httpFactory: (SharedSettings) -> HttpFetching = { OkHttpFetcher(it) },
 ) {
     suspend fun run(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit = {}): JobOutcome {
-        val adapter = SourceCatalog.require(url)
-        val shared = settings.effective(adapter.id)
-        val http = httpFactory(shared)
+        val adapter = SourceCatalog.require(url, settings.engines)
+        val http = httpFactory(settings.effective(adapter.id))
         val context = SourceContext(http, web, secrets, settings, logger)
 
         onPhase(JobPhase.FetchingBook)
@@ -88,8 +87,11 @@ class DownloadPipeline(
         }
         logger.log(LogLevel.INFO, "${book.title}: ${book.chapters.size} chapters")
 
+        // With several site engines the one that read the book decides the settings that apply.
+        val owner = adapter.owner(book)
+        val shared = settings.effective(owner.id)
         var selected = select(book.chapters, shared)
-        if (adapter.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
+        if (owner.id == SourceId.NPIA && settings.npia.includeNotices) selected = book.notices + selected
         onPhase(JobPhase.FetchingChapters(0, selected.size))
         val results = adapter.parseChapters(selected, book, chapterContext(context, selected.size, onPhase))
 
@@ -104,7 +106,7 @@ class DownloadPipeline(
         }
         onPhase(JobPhase.FetchingChapters(chapters.size, selected.size))
 
-        val imageOutput = ImageStage(http, settings, adapter.id, images, logger).run(chapters) { done, total ->
+        val imageOutput = ImageStage(http, settings, owner.id, images, logger).run(chapters) { done, total ->
             onPhase(JobPhase.DownloadingImages(done, total))
         }
         if (imageOutput.failed > 0) logger.log(LogLevel.WARNING, "${imageOutput.failed} images could not be downloaded")

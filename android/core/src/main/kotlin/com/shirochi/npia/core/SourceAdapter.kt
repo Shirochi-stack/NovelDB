@@ -40,6 +40,13 @@ interface SourceAdapter {
     suspend fun parseChapter(ref: ChapterRef, book: BookInfo, context: SourceContext): ChapterResult
 
     /**
+     * The adapter that read `book`. An adapter that hands a URL over to other site engines when its
+     * own parsing fails (the engine chain) names the one that succeeded, so the pipeline applies
+     * that source's settings; every other adapter is its own owner.
+     */
+    fun owner(book: BookInfo): SourceAdapter = this
+
+    /**
      * Defaults to `parseChapter` with `threads` concurrent workers, each pausing for the rate
      * limit after every chapter like the desktop scraper; override for batch APIs.
      */
