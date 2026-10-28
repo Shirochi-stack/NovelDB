@@ -9,13 +9,14 @@ final class AppUpdateSettingsTests: XCTestCase {
     }
 
     func testSettingsStoredBeforeTheFieldExistedStillDecodeAsOn() throws {
-        // Straight through the decoder, and through the merging reader the settings file uses.
-        let old = Data(#"{"schemaVersion": 1, "shared": {"threads": 3}}"#.utf8)
+        // Straight through the decoder (the queue keeps a copy of the settings with each job) ...
+        let old = Data(#"{"schemaVersion": 1}"#.utf8)
         XCTAssertTrue(try JSONDecoder().decode(AppSettings.self, from: old).appUpdateCheck)
-        let merged = try SettingsCoding.decode(old)
+        XCTAssertTrue(try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8)).appUpdateCheck)
+        // ... and through the reader of the settings file, which fills missing keys with the defaults first.
+        let merged = try SettingsCoding.decode(Data(#"{"schemaVersion": 1, "shared": {"threads": 3}}"#.utf8))
         XCTAssertTrue(merged.appUpdateCheck)
         XCTAssertEqual(merged.shared.threads, 3)
-        XCTAssertTrue(try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8)).appUpdateCheck)
     }
 
     func testTheChoiceSurvivesTheSettingsFile() throws {

@@ -61,16 +61,7 @@ final class StubURLProtocol: URLProtocol {
             let reply = try handler(request)
             let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            let size = max(1, reply.chunkSize ?? max(reply.body.count, 1))
-            var offset = 0
-            while offset < reply.body.count {
-                if isStopped { return }
-                let end = min(offset + size, reply.body.count)
-                client?.urlProtocol(self, didLoad: reply.body.subdata(in: offset..<end))
-                offset = end
-                if offset < reply.body.count, reply.pause > 0 { Thread.sleep(forTimeInterval: reply.pause) }
-            }
-            client?.urlProtocolDidFinishLoading(self)
+            deliver(reply.body, from: 0, size: max(1, reply.chunkSize ?? max(reply.body.count, 1)), pause: reply.pause)
         } catch {
             client?.urlProtocol(self, didFailWithError: error)
         }
@@ -78,6 +69,23 @@ final class StubURLProtocol: URLProtocol {
 
     override func stopLoading() {
         stopLock.lock(); stopped = true; stopLock.unlock()
+    }
+
+    /// Sends the body piece by piece. A pause is a scheduled hop, not a sleep, so `stopLoading`
+    /// (a cancelled task) is not stuck behind it.
+    private func deliver(_ body: Data, from offset: Int, size: Int, pause: TimeInterval) {
+        if isStopped { return }
+        let end = min(offset + size, body.count)
+        if end > offset { client?.urlProtocol(self, didLoad: body.subdata(in: offset..<end)) }
+        if end >= body.count {
+            client?.urlProtocolDidFinishLoading(self)
+        } else if pause > 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + pause) { [self] in
+                deliver(body, from: end, size: size, pause: pause)
+            }
+        } else {
+            deliver(body, from: end, size: size, pause: pause)
+        }
     }
 
     private var isStopped: Bool {
