@@ -41,6 +41,14 @@ Each placeholder carries a `TODO(<workstream>)` naming its owner:
 | F. images and UI | `NpiaImages`, `PDFWriter`, `App/` screens, settings import/export UI |
 | Phase 5 | `Npia` browser path, `Mpia`, `Ntk`, `Rbooks`, `Qdn` (after device spikes) |
 
+## Site engines
+
+A link goes through the site engines in the order set in Settings > Site engines (default: the built-in scrapers, the novel-downloader rules, the WebToEpub parsers) until one finds chapters. `SiteEngineRouter` runs them; when a built-in scraper owns the site, the other two only follow it if they list the site (`EngineSites`).
+
+- novel-downloader (`rules-lib.js`) runs in JavaScriptCore, then in a web view if that fails. WebToEpub (`Reader/Resources/webtoepub/`, GPL-3.0) needs a real DOM and only runs in a web view. Both share one page load (`EnginePage`). Requests the page's own `fetch` refuses go through the `npiaTransport` message handler to the app's HTTP client (`EngineTransport`).
+- Both engines ship with the app. With the opt-in toggles on, `EngineUpdater` downloads newer builds from the `engines` release (`novel-downloader-manifest.json`, `webtoepub-manifest.json`) into Application Support and checks the SHA-256, the API (1) and that the build is newer. A download that fails to load is deleted, remembered as rejected, and the shipped copy is used.
+- The config keys `source_engine_order`, `source_engines_off`, `novel_downloader_auto_update` and `webtoepub_auto_update` match the desktop app.
+
 ## Rules
 
 - Follow the repository codename policy (`AGENTS.md`). Swift string literals that must hold a provider name or host use `\u{..}` escapes.
