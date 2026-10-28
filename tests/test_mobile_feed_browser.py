@@ -42,7 +42,7 @@ def test_desktop_feed_is_optional_responsive_and_one_switch_covers_every_screen(
             assert await page.locator('.batch-control').is_visible()
             await page.locator('#batchSelect').select_option('60')
             await page.wait_for_function('document.querySelectorAll(".novel-card").length===60')
-            await page.locator('#infiniteScroll').check();await wait_loaded(page)
+            await open_settings(page);await page.locator('#infiniteScroll').check();await close_settings(page);await wait_loaded(page)
             assert not await page.locator('#paginationTop').is_visible()
             assert not await page.locator('.batch-control').is_visible()
             assert await page.locator('.mobile-feed-grid').evaluate('g=>getComputedStyle(g).gridTemplateColumns.split(" ").length')==5
@@ -85,7 +85,7 @@ def test_desktop_feed_is_optional_responsive_and_one_switch_covers_every_screen(
             assert not await page.locator('#paginationTop').is_visible()
             await page.set_viewport_size({'width':1440,'height':900});await wait_loaded(page)
             assert not await page.locator('#paginationTop').is_visible()
-            await page.locator('#infiniteScroll').uncheck();await wait_loaded(page)
+            await open_settings(page);await page.locator('#infiniteScroll').uncheck();await close_settings(page);await wait_loaded(page)
             # Turned off right after a resize, the feed finishes re-flowing before the pages return.
             await page.locator('#paginationTop').wait_for(state='visible')
             assert await page.locator('.batch-control').is_visible()
