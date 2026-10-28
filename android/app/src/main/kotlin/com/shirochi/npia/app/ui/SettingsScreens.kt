@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppUpdateState
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.BrowserTranslate
 import com.shirochi.npia.app.BuildConfig
 import com.shirochi.npia.app.FileActions
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
@@ -104,6 +105,7 @@ fun SettingsScreen(model: AppViewModel) {
         }
         NavRow("Appearance", "Theme and accent colour") { model.push(Route.Appearance) }
         NavRow("Catalog site", "The website shown in the Catalog tab") { model.push(Route.CatalogSite) }
+        NavRow("Browser", "Language the Browser tab translates pages into") { model.push(Route.BrowserSettings) }
         NavRow("Screen and background") { model.push(Route.Background) }
         NavRow("Import / export", "Desktop config.json and app settings") { model.push(Route.Transfer) }
     }
@@ -676,11 +678,35 @@ fun CatalogSiteSettingsScreen(model: AppViewModel) {
             "Send outside links to the link cart",
             manager.preferences.catalogCartLinks,
             { manager.setCatalogCartLinks(it) },
-            subtitle = "On sites other than NovelDB, links to other sites read \"🔗 Download\" and add the link to the cart. Off: they open in the Browser tab.",
+            subtitle = "Applies only to sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from. There, links to other sites read \"🔗 Download\" and add the link to the cart. Off: they open in the Browser tab.",
         )
         Footnote(
             "On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. " +
-                "NovelDB Next cards have a link-cart button too, at the bottom right of the cover.",
+                "NovelDB Next cards have a link-cart button too, at the bottom right of the cover. " +
+                "On the sites NovelDB downloads from, links to other sites open in the Browser tab, and a page it can download gets a floating " +
+                "\"🔗 Download\" button (bottom right) that adds the page to the cart.",
+        )
+    }
+}
+
+// Browser
+
+@Composable
+fun BrowserSettingsScreen(model: AppViewModel) {
+    val manager = model.manager
+    manager.preferencesFlow.collectAsStateWithLifecycle().value
+    val current = BrowserTranslate.language(manager.preferences.translateLanguage)
+    SettingsColumn {
+        SectionHeader("Translate pages into")
+        ChipFlow {
+            BrowserTranslate.languages.forEach { language ->
+                ToggleChip(language.name, language.code == current.code) { manager.setTranslateLanguage(language.code) }
+            }
+        }
+        Footnote(
+            "The Translate button in the Browser tab (文A) shows the page in this language using Google Translate, on the real site, " +
+                "so your sign-ins and the download buttons keep working. A site that blocks the translator can be opened as a translated copy instead; " +
+                "sign-ins do not apply on the copy.",
         )
     }
 }

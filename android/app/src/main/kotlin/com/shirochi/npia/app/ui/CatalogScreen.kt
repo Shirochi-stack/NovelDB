@@ -46,13 +46,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.CatalogKind
 import com.shirochi.npia.app.DEFAULT_CATALOG_URL
-import com.shirochi.npia.app.isNovelDbSite
+import com.shirochi.npia.app.catalogPageMode
+import com.shirochi.npia.app.cleanPageTitle
 import com.shirochi.npia.app.model.CartItem
+import com.shirochi.npia.app.sameAddress
 import com.shirochi.npia.sources.SourceCatalog
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -69,10 +74,14 @@ private fun origin(url: String): String = Uri.parse(url).let { "${it.scheme}://$
 
 /**
  * The catalog website in a WebView that outlives tab switches (the site keeps a large catalog in
- * memory, so reloading it on every visit would be slow). On the NovelDB website
- * `catalog-bridge.js` makes cards open View Details instead of the novel page, sends outside
- * links to the Browser tab and adds the link-cart button. Another site picked in Settings has no
- * cart buttons, so every link that leaves it goes to the cart instead.
+ * memory, so reloading it on every visit would be slow). `catalog-bridge.js` runs on every page and
+ * reports the page address; the app decides what the page is (`catalogPageMode`) every time it
+ * changes, single-page sites included:
+ * - NovelDB and NovelDB Next: cards open View Details and carry link-cart buttons, outside links
+ *   open in the Browser tab.
+ * - A site we download from: outside links open in the Browser tab too, and a downloadable page gets
+ *   a floating Download button that adds it to the cart.
+ * - Any other site: every link that leaves it goes to the cart (setting on) and reads "Download".
  */
 class CatalogWeb(context: Context, private val model: AppViewModel) {
     var progress by mutableIntStateOf(0)
@@ -87,9 +96,12 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     var site = model.manager.preferences.catalogUrl
         private set
-    private val isNovelDb get() = isNovelDbSite(site)
-    /** Outside links go to the cart (and are renamed on the page) on sites other than NovelDB. */
-    private val cartLinks get() = !isNovelDb && model.manager.preferences.catalogCartLinks
+    /** The page on screen: follows the site's own navigation, so it differs from [site] after the first tap. */
+    private var pageUrl = site
+
+    /** The address and title the page's bridge last reported; the Download button is made for these. */
+    private var reported: Pair<String, String>? = null
+    private val mode get() = catalogPageMode(pageUrl, model.manager.settings.value.engines, model.manager.preferences.catalogCartLinks)
 
     @SuppressLint("SetJavaScriptEnabled")
     val view: WebView = WebView(context).apply {
@@ -121,6 +133,13 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 this@CatalogWeb.canBack = view.canGoBack()
+                navigated(url)
+            }
+
+            /** Every history change, same-document ones included (single-page sites push a new address without loading). */
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                this@CatalogWeb.canBack = view.canGoBack()
+                navigated(url)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
@@ -150,13 +169,35 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     fun load(url: String) {
         if (url == site) return
         site = url
+        pageUrl = url
+        reported = null
         error = null
         view.loadUrl(url)
     }
 
-    /** A link out of the catalog: the Browser tab on NovelDB, the link cart on other sites. */
+    /** The view moved to `url`: classify it again. A Download button made for the old address goes away until the page reports the new one. */
+    private fun navigated(url: String?) {
+        if (url.isNullOrEmpty() || url == "about:blank") return
+        pageUrl = url
+        if (reported?.first?.let { sameAddress(it, url) } != true) reported = null
+        showMode()
+    }
+
+    /** The page's bridge reported its address and title. A page can only speak for the site the view shows. */
+    private fun located(url: String, title: String) {
+        if (!url.startsWith("http")) return
+        val shown = view.url
+        if (shown != null && shown != "about:blank" && bareHost(shown) != bareHost(url)) return
+        pageUrl = url
+        reported = url to title
+        showMode()
+    }
+
+    private fun bareHost(url: String) = Uri.parse(url).host.orEmpty().lowercase().removePrefix("www.")
+
+    /** A link out of the catalog: the link cart on sites we do not know (setting on), else the Browser tab. */
     private fun leave(url: String, title: String) {
-        if (!cartLinks) {
+        if (!mode.cartLinks) {
             model.openInBrowser(url)
         } else {
             model.cart.add(CartItem(url, title, SourceCatalog.adapterFor(url)?.id?.raw.orEmpty()))
@@ -164,9 +205,15 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         }
     }
 
-    /** Tells the page which cards are in the cart, so their buttons show it. */
+    /** Tells the page what it is: whether to rename outside links, and the page to offer for download (if any). */
     fun showMode() {
-        view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setMode({cartLinks: $cartLinks})", null)
+        val now = mode
+        val page = reported?.takeIf { now.download && sameAddress(it.first, pageUrl) }
+        val download = if (page == null) "null" else buildJsonObject {
+            put("url", page.first)
+            put("title", cleanPageTitle(page.second, page.first))
+        }.toString()
+        view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setMode({cartLinks: ${now.cartLinks}, download: $download})", null)
     }
 
     fun showCart(items: List<CartItem>) {
@@ -192,6 +239,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
                         showMode()
                         showCart(model.cart.items.value)
                     }
+                    "location" -> located(field("url"), field("title"))
                     "cartAdd" -> field("url").takeIf { it.startsWith("http") }?.let { url ->
                         val source = field("source").ifBlank { SourceCatalog.adapterFor(url)?.id?.raw.orEmpty() }
                         model.cart.add(CartItem(url, field("title"), source))
@@ -219,7 +267,8 @@ fun CatalogScreen(web: CatalogWeb, model: AppViewModel, topBar: TopBarState) {
     model.manager.preferencesFlow.collectAsStateWithLifecycle().value
     val site = model.manager.preferences.catalogUrl
     val cartLinks = model.manager.preferences.catalogCartLinks
-    LaunchedEffect(site, cartLinks) {
+    val engines = model.manager.settings.collectAsStateWithLifecycle().value.engines
+    LaunchedEffect(site, cartLinks, engines) {
         web.load(site)
         web.showMode()
     }

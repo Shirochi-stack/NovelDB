@@ -1,12 +1,20 @@
 /*
  * NovelDB app bridge for the catalog website, injected by the mobile and desktop apps.
  * - Tapping a card opens View Details instead of the novel page.
- * - "Open novel" and other outside links go to the app (Browser tab).
+ * - "Open novel" and other outside links go to the app, which opens its Browser tab (or, on other
+ *   sites, the link cart).
  * - A link-cart button on each card adds or removes its URL from the app's cart. NovelDB Next
  *   cards hold no link, so their button (bottom right of the cover, above the title) reads it from
  *   the card's details, opened out of sight, and remembers it.
- * - When the app sends outside links to the cart (sites other than NovelDB, setMode cartLinks),
- *   links to other sites that show text are renamed "🔗 Download".
+ * - The page address is reported as {type: 'location', url, title}: on start and whenever it changes
+ *   (pushState, replaceState, popstate, hashchange; many sites are single-page apps). The app decides
+ *   what the page is and answers with setMode({cartLinks, download}); setMode({cartLinks}) alone works too.
+ * - download {url, title}: the page can be downloaded, so a floating "🔗 Download" button (bottom right)
+ *   adds it to the cart. It reads "✓ In cart" while the URL is in the cart; tapping again removes it.
+ *   The app sends it on supported sites (the ones it downloads from) and never on NovelDB.
+ * - cartLinks: only on sites that are neither NovelDB nor supported; links to other sites that show
+ *   text are renamed "🔗 Download" and go to the cart. Otherwise no link is renamed.
+ * - Fill mode (desktop app) widens page columns capped narrower than the window.
  * - Taps show no highlight flash, the NovelDB header is slimmer, and NovelDB Next's hover preview is off.
  * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
  *   and the details cover is kept short without changing its shape.
@@ -14,6 +22,8 @@
 (function () {
     'use strict';
     if (window.NovelDBApp) return;
+    // Ads and embeds inside a page (Android runs this in every frame) are neither reported nor decorated.
+    try { if (window.top !== window) return; } catch (_) { return; }
     function send(message) {
         var text = JSON.stringify(message);
         try {
@@ -106,7 +116,7 @@
         send({type: adding ? 'cartAdd' : 'cartRemove', url: url, title: title, source: source});
     }
     // Outside links renamed while the app sends them to the cart; their original text, to restore.
-    var mode = {cartLinks: false};
+    var mode = {cartLinks: false, fill: false, download: null};
     var DOWNLOAD_LABEL = '🔗 Download';
     var renamed = new Map();
     function shownText(anchor) {
@@ -130,8 +140,78 @@
             renamed.clear();
         }
     }
+    // Fill mode (desktop): page columns capped at 900px or more (NovelDB Next keeps 1100px) widen to
+    // the window. Dialogs and side panels keep their size.
+    var lastFill = 0;
+    function fillWidth() {
+        var marked = document.querySelectorAll('[data-noveldb-fill]'), i;
+        if (!mode.fill) {
+            for (i = 0; i < marked.length; i++) marked[i].removeAttribute('data-noveldb-fill');
+            return;
+        }
+        var now = Date.now();
+        if (now - lastFill < 400) return;
+        lastFill = now;
+        var candidates = document.querySelectorAll('[class*="max-w-"],[class*="container"],main,#app > div,body > div');
+        for (i = 0; i < candidates.length; i++) {
+            var el = candidates[i];
+            if (el.hasAttribute('data-noveldb-fill')) continue;
+            if (el.closest('[role=dialog],dialog,aside,[aria-modal=true],.novel-details')) continue;
+            var max = parseFloat(getComputedStyle(el).maxWidth);
+            if (max >= 900 && max < innerWidth - 40) el.setAttribute('data-noveldb-fill', '');
+        }
+    }
+    // The page address, reported to the app on start and whenever it changes. The app answers with
+    // setMode({download}) for a page it can download; the address it names must be the one reported.
+    var reported = '', reportedTitle = '', titleReports = 0;
+    function sameAddress(a, b) {
+        function plain(url) { return String(url).replace(/#$/, '').replace(/\/+(?=$|[?#])/, ''); }
+        return plain(a) === plain(b);
+    }
+    function reportLocation() {
+        var href = location.href, title = (document.title || '').replace(/\s+/g, ' ').trim();
+        var moved = href !== reported;
+        // A title that settles after navigation is reported again, a few times at most.
+        if (!moved && (title === reportedTitle || titleReports >= 3)) return;
+        titleReports = moved ? 0 : titleReports + 1;
+        reported = href;
+        reportedTitle = title;
+        // The old page's Download button must not outlive the address it was made for.
+        if (moved && mode.download) { mode.download = null; schedule(); }
+        send({type: 'location', url: href, title: title});
+    }
+    function toggleDownload(info) {
+        var adding = !cart.has(info.url);
+        if (adding) cart.add(info.url); else cart.delete(info.url);
+        send({type: adding ? 'cartAdd' : 'cartRemove', url: info.url, title: info.title, source: ''});
+        decorate();
+    }
+    /** The floating button for the page the app can download: "🔗 Download", or "✓ In cart" once added. */
+    function downloadButton() {
+        var info = mode.download, button = document.querySelector('.noveldb-download');
+        if (!info || !sameAddress(info.url, location.href) || !document.body) {
+            if (button) button.remove();
+            return;
+        }
+        if (!button) {
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'noveldb-download';
+            document.body.appendChild(button);
+        }
+        var inCart = cart.has(info.url), label = inCart ? '✓ In cart' : DOWNLOAD_LABEL;
+        if (button.textContent !== label) button.textContent = label;
+        button.dataset.url = info.url;
+        button.setAttribute('aria-pressed', String(inCart));
+        var tip = inCart ? 'Remove from link cart' : 'Add to link cart';
+        if (button.title !== tip) button.title = tip;
+        button.setAttribute('aria-label', tip);
+    }
     function decorate() {
+        reportLocation();
         renameLinks();
+        downloadButton();
+        fillWidth();
         decorateNext();
         var areas = document.querySelectorAll('.novel-card .card-cover-area');
         for (var i = 0; i < areas.length; i++) {
@@ -146,7 +226,10 @@
     function schedule() {
         if (queued) return;
         queued = true;
-        requestAnimationFrame(function () { queued = false; decorate(); });
+        // A hidden page (another tab on top, an offscreen view) gets no animation frames; the timer still decorates it.
+        function run() { if (queued) { queued = false; decorate(); } }
+        requestAnimationFrame(run);
+        setTimeout(run, 150);
     }
     /** A name for a link going to the cart: its text, or the nearest heading when the text is generic ("Source page"). */
     function linkTitle(anchor) {
@@ -167,6 +250,13 @@
     document.addEventListener('click', function (event) {
         var target = event.target;
         if (!target || !target.closest) return;
+        var download = target.closest('.noveldb-download');
+        if (download) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (mode.download) toggleDownload(mode.download);
+            return;
+        }
         var pressed = target.closest('.noveldb-cart');
         if (pressed) {
             event.preventDefault();
@@ -210,7 +300,7 @@
         }
     }, true);
     function viewport() {
-        if (innerHeight > 100) document.documentElement.style.setProperty('--noveldb-vh', innerHeight + 'px');
+        if (innerHeight > 100 && document.documentElement) document.documentElement.style.setProperty('--noveldb-vh', innerHeight + 'px');
     }
     addEventListener('resize', viewport);
     var style = document.createElement('style');
@@ -227,8 +317,14 @@
         '.noveldb-cart[aria-pressed="true"]{background:#E18F98;filter:none;opacity:1;box-shadow:0 0 0 2px #fff}' +
         '.noveldb-cart-next{left:auto;right:.3rem;bottom:.3rem;z-index:40;width:30px;height:30px;font-size:15px}' +
         '.noveldb-cart:disabled{opacity:.5}' +
+        '.noveldb-download{position:fixed;right:16px;bottom:max(64px,calc(env(safe-area-inset-bottom) + 16px));z-index:2147483647;display:block;' +
+        'height:40px;margin:0;padding:0 14px;border:0;border-radius:.4rem;background:rgba(0,0,0,.55);color:#fff;' +
+        'font:600 14px/40px system-ui,-apple-system,sans-serif;white-space:nowrap;cursor:pointer;opacity:.85;' +
+        '-webkit-tap-highlight-color:transparent}' +
+        '.noveldb-download[aria-pressed="true"]{background:#E18F98;opacity:1;box-shadow:0 0 0 2px #fff}' +
         // NovelDB Next's hover preview covers the neighbouring cards; the details view shows the same.
         '.scroll-main div.pop[role=presentation]{display:none!important}' +
+        '[data-noveldb-fill]{max-width:none!important}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
         '{visibility:hidden!important;animation:none!important;transition:none!important}';
     // Phone-sized dialogs (window height instead of dvh, a short cover). The desktop app keeps the
@@ -240,16 +336,55 @@
         '.novel-details-content [data-field=synopsis]{max-height:min(calc(var(--noveldb-vh,100vh) * .25),150px)!important}' +
         '.site-settings-dialog{max-height:min(calc(var(--noveldb-vh,100vh) * .9),560px)!important}' +
         '.mobile-controls-floating{max-height:calc(var(--noveldb-vh,100vh) * .75)!important}';
-    (document.head || document.documentElement).appendChild(style);
+    // Some hosts run this before the page has an <html> or <body> element (and a page that never finishes loading
+    // never fires DOMContentLoaded), so wait for the elements themselves.
+    function whenReady(ready, callback) {
+        if (ready()) { callback(); return; }
+        var wait = new MutationObserver(function () { if (ready()) { wait.disconnect(); callback(); } });
+        wait.observe(document, {childList: true, subtree: true});
+    }
+    whenReady(function () { return document.head || document.documentElement; }, function () {
+        (document.head || document.documentElement).appendChild(style);
+    });
+    // Same-document navigation. The wrapped history methods only see the page's own calls where this
+    // script shares its world (Android); the desktop app runs it in an isolated world, where the
+    // Navigation API, popstate, hashchange, DOM changes and a slow check catch the same changes.
+    ['pushState', 'replaceState'].forEach(function (name) {
+        try {
+            var original = history[name];
+            history[name] = function () {
+                var result = original.apply(this, arguments);
+                reportLocation();
+                return result;
+            };
+        } catch (_) {}
+    });
+    addEventListener('popstate', reportLocation);
+    addEventListener('hashchange', reportLocation);
+    try { if (window.navigation) window.navigation.addEventListener('currententrychange', function () { reportLocation(); }); } catch (_) {}
+    setInterval(reportLocation, 1000);
     function start() {
         viewport();
         new MutationObserver(schedule).observe(document.body, {childList: true, subtree: true, characterData: true});
+        var titleNode = document.querySelector('title');
+        if (titleNode) new MutationObserver(reportLocation).observe(titleNode, {childList: true, characterData: true, subtree: true});
         schedule();
     }
-    if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+    whenReady(function () { return document.body; }, start);
     window.NovelDBApp = {
         setCart: function (urls) { cart = new Set(urls || []); schedule(); },
-        setMode: function (next) { mode = {cartLinks: !!(next && next.cartLinks)}; schedule(); }
+        setMode: function (next) {
+            var page = next && next.download;
+            mode = {
+                cartLinks: !!(next && next.cartLinks),
+                fill: !!(next && next.fill),
+                download: page && typeof page.url === 'string' && /^https?:/i.test(page.url)
+                    ? {url: page.url, title: String(page.title || '')} : null
+            };
+            lastFill = 0;
+            schedule();
+        }
     };
     send({type: 'ready'});
+    reportLocation();
 })();

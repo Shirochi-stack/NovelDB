@@ -166,6 +166,11 @@ class DownloadManager(private val app: Application) {
         _preferencesFlow.update { it + 1 }
     }
 
+    fun setTranslateLanguage(value: String) {
+        preferences.translateLanguage = value
+        _preferencesFlow.update { it + 1 }
+    }
+
     fun setCatalogCartLinks(value: Boolean) {
         preferences.catalogCartLinks = value
         _preferencesFlow.update { it + 1 }

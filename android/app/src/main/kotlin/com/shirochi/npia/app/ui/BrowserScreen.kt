@@ -5,8 +5,10 @@ import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,12 +24,15 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -42,10 +47,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,8 +64,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
+import com.shirochi.npia.app.BrowserTranslate
 import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.Tab
+import com.shirochi.npia.app.TranslateStatus
+import com.shirochi.npia.app.cleanPageTitle
+import com.shirochi.npia.app.model.CartItem
 import com.shirochi.npia.sources.SourceCatalog
 import com.shirochi.npia.webengine.SiteCookies
 import com.shirochi.npia.webengine.VisibleBrowser
@@ -64,24 +77,49 @@ import com.shirochi.npia.webengine.VisibleBrowserListener
 import com.shirochi.npia.webengine.WebLoginCoordinator
 import com.shirochi.npia.webengine.WebLoginSession
 import com.shirochi.npia.webengine.WebLoginWebView
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * A plain browser for signing in to any site. Logins land in the cookie store the scraper uses,
- * and the system password manager offers to save and fill credentials.
+ * and the system password manager offers to save and fill credentials. A page NovelDB can download
+ * gets "Download this book" (sends it to the Add tab) and "Add to link cart" (the cart the Catalog
+ * uses). Translate shows the page in another language; see `BrowserTranslate`.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
     val context = LocalContext.current
+    val manager = model.manager
     var address by remember { mutableStateOf(model.browserUrl.orEmpty()) }
     var pageUrl by remember { mutableStateOf(model.browserUrl) }
+    var pageTitle by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(0) }
     var canBack by remember { mutableStateOf(false) }
     var canForward by remember { mutableStateOf(false) }
+    // Translate: on while the user wants pages translated; the status says how it is going.
+    var translating by remember { mutableStateOf(false) }
+    var translateStatus by remember { mutableStateOf(TranslateStatus.OFF) }
+    var translateRun by remember { mutableIntStateOf(0) }
+    var menuOpen by remember { mutableStateOf(false) }
+    manager.preferencesFlow.collectAsStateWithLifecycle().value
+    val language = BrowserTranslate.language(manager.preferences.translateLanguage)
+    val languageCode by rememberUpdatedState(language.code)
+    val cart by model.cart.items.collectAsStateWithLifecycle()
+    val engines = manager.settings.collectAsStateWithLifecycle().value.engines
+
     val webView = remember {
         WebView(context).also { view ->
+            /** Puts the translator into the page; a new document starts over, a same-document change keeps the status. */
+            fun translateNow(newPage: Boolean) {
+                if (!translating || BrowserTranslate.isTranslatedCopy(view.url.orEmpty())) return
+                if (newPage || translateStatus == TranslateStatus.OFF) translateStatus = TranslateStatus.WORKING
+                view.evaluateJavascript(BrowserTranslate.injection(context, languageCode), null)
+                if (newPage) translateRun++
+            }
             VisibleBrowser.configure(view, object : VisibleBrowserListener {
                 override fun onPage(url: String?, title: String?, loading: Boolean, progress: Int) {
                     if (url != null && url != "about:blank") {
@@ -89,10 +127,17 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
                         address = url
                         model.browserUrl = url
                     }
+                    if (!title.isNullOrBlank()) pageTitle = title
                     canBack = view.canGoBack()
                     canForward = view.canGoForward()
                     setLoading(loading, progress)
                 }
+
+                // A new document gets the translator again while Translate is on (some sites never finish loading, so
+                // the first paint counts too); so does a single-page site moving on.
+                override fun onCommitted(url: String?) = translateNow(newPage = true)
+                override fun onFinished(url: String?) = translateNow(newPage = true)
+                override fun onHistory(url: String?) = translateNow(newPage = false)
 
                 private fun setLoading(isLoading: Boolean, value: Int) {
                     loading = isLoading
@@ -107,7 +152,54 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
     }
     BackHandler(enabled = canBack) { webView.goBack() }
 
-    val downloadable = pageUrl?.let { SourceCatalog.adapterFor(it) } != null
+    // A translated copy (Google's proxy) is not the site: downloads and the cart use the original address.
+    val sourceUrl = pageUrl?.let { BrowserTranslate.originalUrl(it) ?: it }
+    val onCopy = pageUrl?.let(BrowserTranslate::isTranslatedCopy) == true
+    val downloadable = sourceUrl != null && remember(sourceUrl, engines) { SourceCatalog.downloadablePage(sourceUrl, engines) }
+    val inCart = sourceUrl != null && cart.any { it.url == sourceUrl }
+
+    // While Translate is on, ask the page how it is going until it has translated or gives up.
+    LaunchedEffect(translating, translateRun) {
+        if (!translating || translateStatus != TranslateStatus.WORKING) return@LaunchedEffect
+        val started = System.currentTimeMillis()
+        while (translateStatus == TranslateStatus.WORKING) {
+            delay(400)
+            val status = suspendCancellableCoroutine { continuation ->
+                webView.evaluateJavascript("window.NpiaTranslate ? NpiaTranslate.status() : 'loading'") { continuation.resume(it.orEmpty().trim('"')) }
+            }
+            translateStatus = when {
+                status == "translated" -> TranslateStatus.TRANSLATED
+                status == "same" -> TranslateStatus.UNCHANGED
+                status == "blocked" || System.currentTimeMillis() - started > 10_000 -> TranslateStatus.BLOCKED
+                else -> TranslateStatus.WORKING
+            }
+        }
+    }
+
+    fun startTranslating() {
+        translating = true
+        translateStatus = TranslateStatus.WORKING
+        webView.evaluateJavascript(BrowserTranslate.injection(context, language.code), null)
+        translateRun++
+    }
+
+    fun showOriginal() {
+        translating = false
+        translateStatus = TranslateStatus.OFF
+        if (onCopy) {
+            sourceUrl?.let(webView::loadUrl)
+        } else {
+            webView.evaluateJavascript("window.NpiaTranslate && NpiaTranslate.stop()") { webView.reload() }
+        }
+    }
+
+    fun openCopy() {
+        val url = sourceUrl ?: return
+        translating = false
+        translateStatus = TranslateStatus.OFF
+        webView.loadUrl(BrowserTranslate.copyUrl(url, language.code))
+    }
+
     LaunchedEffect(Unit) {
         topBar.actions = {
             TextButton(onClick = { model.push(Route.Sites) }) { Text("Sites") }
@@ -126,7 +218,7 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
                 value = address,
                 onValueChange = { address = it },
                 singleLine = true,
-                placeholder = { Text("Site address or search") },
+                placeholder = { Text("Address or search") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = {
                     val url = VisibleBrowser.normalize(address)
@@ -137,16 +229,80 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
             IconButton(onClick = { if (loading) webView.stopLoading() else webView.reload() }, enabled = pageUrl != null) {
                 Icon(if (loading) Icons.Filled.Close else Icons.Filled.Refresh, contentDescription = if (loading) "Stop" else "Reload")
             }
+            Box {
+                IconButton(
+                    onClick = { menuOpen = true },
+                    enabled = pageUrl != null,
+                    modifier = Modifier.semantics { contentDescription = "Translate" },
+                ) {
+                    Text(
+                        "文A",
+                        color = if (translating || onCopy) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (translating || onCopy) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (translating || onCopy) {
+                        DropdownMenuItem(text = { Text("Show original") }, onClick = { menuOpen = false; showOriginal() })
+                    } else {
+                        DropdownMenuItem(text = { Text("Translate to ${language.name}") }, onClick = { menuOpen = false; startTranslating() })
+                    }
+                    if (!onCopy) {
+                        DropdownMenuItem(text = { Text("Open a translated copy") }, onClick = { menuOpen = false; openCopy() })
+                    }
+                    DropdownMenuItem(text = { Text("Language: ${language.name}") }, onClick = { menuOpen = false; model.push(Route.BrowserSettings) })
+                }
+            }
         }
         if (loading) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
-        if (downloadable) {
-            Button(
-                onClick = {
-                    model.sharedText = pageUrl
-                    model.select(Tab.ADD)
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            ) { Text("Download this book") }
+        if (translating && translateStatus == TranslateStatus.WORKING) {
+            Text("Translating to ${language.name}...", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+        }
+        if (translating && translateStatus == TranslateStatus.UNCHANGED) {
+            Text(
+                "Nothing was translated. The page may already be in ${language.name}.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+        }
+        if (translating && translateStatus == TranslateStatus.BLOCKED) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("This site blocks the translator. A translated copy cannot use your sign-ins.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = ::openCopy) { Text("Open a translated copy") }
+            }
+        }
+        if (onCopy) {
+            Text(
+                "Translated copy from Google: sign-ins do not apply here. Downloads use the original site.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+        }
+        if (downloadable && sourceUrl != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = {
+                        model.sharedText = sourceUrl
+                        model.select(Tab.ADD)
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Download this book", maxLines = 1) }
+                OutlinedButton(
+                    onClick = {
+                        if (inCart) {
+                            model.cart.remove(sourceUrl)
+                        } else {
+                            model.cart.add(CartItem(sourceUrl, cleanPageTitle(pageTitle, sourceUrl), SourceCatalog.adapterFor(sourceUrl)?.id?.raw.orEmpty()))
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (inCart) "✓ In link cart" else "🔗 Add to link cart", maxLines = 1) }
+            }
         }
         if (pageUrl == null) {
             BrowserStartPage(model) { url -> webView.loadUrl(url) }
@@ -165,7 +321,8 @@ private fun BrowserStartPage(model: AppViewModel, open: (String) -> Unit) {
                 Text("Sign in to sites", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Open any site and log in as you would in a normal browser. Downloads from that site then use " +
-                        "your login. Your phone's password manager can save and fill your passwords here.",
+                        "your login. Your phone's password manager can save and fill your passwords here. " +
+                        "Pages NovelDB can download show Download and link cart buttons.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }

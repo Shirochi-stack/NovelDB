@@ -14,6 +14,15 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 /** Page events from a visible browser view. */
 interface VisibleBrowserListener {
     fun onPage(url: String?, title: String?, loading: Boolean, progress: Int)
+
+    /** A page finished loading (not called for same-document changes). */
+    fun onFinished(url: String?) {}
+
+    /** A new page painted for the first time; it can be scripted before it finishes loading (some sites never do). */
+    fun onCommitted(url: String?) {}
+
+    /** The address changed by a load or by the page itself (history API), as single-page sites do. */
+    fun onHistory(url: String?) {}
 }
 
 /**
@@ -52,6 +61,17 @@ object VisibleBrowser {
                 listener.onPage(url, view.title, loading = false, progress = 100)
                 url?.let(::bareHost)?.takeIf { it.isNotEmpty() }?.let { onVisit?.invoke(it) }
                 CookieManager.getInstance().flush()
+                listener.onFinished(url)
+            }
+
+            override fun onPageCommitVisible(view: WebView, url: String?) {
+                listener.onCommitted(url)
+            }
+
+            /** Fires for every history change, including a single-page site moving to a new address without loading. */
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                listener.onPage(url, view.title, loading = view.progress < 100, progress = view.progress)
+                listener.onHistory(url)
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
