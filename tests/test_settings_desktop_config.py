@@ -223,3 +223,13 @@ def test_unreadable_config_loads_defaults(tmp_path):
 @pytest.mark.parametrize("value", [None, [], "text", 3])
 def test_non_dict_config_loads_defaults(value):
     assert dc.import_config(value) == AppSettings()
+
+
+def test_new_install_keeps_npia_at_one_thread(tmp_path):
+    from noveldb.core.settings.store import ConfigStore
+
+    store = ConfigStore(tmp_path / "config.json")
+    store.ensure_exists()
+    settings = store.load()
+    assert settings.effective("npia").threads == 1
+    assert settings.effective("kpage").threads == settings.shared.threads == 4

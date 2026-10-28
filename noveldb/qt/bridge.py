@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from concurrent.futures import Future
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox

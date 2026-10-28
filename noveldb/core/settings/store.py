@@ -18,7 +18,7 @@ from typing import Optional
 
 from noveldb.core import paths
 from noveldb.core.settings.desktop_config import export_config, import_config
-from noveldb.core.settings.model import AppSettings
+from noveldb.core.settings.model import AppSettings, default_settings
 
 try:
     from scripts.source_names import dump as _dump
@@ -95,7 +95,7 @@ class ConfigStore:
         """Create config.json with defaults on first launch (`_ensure_config_exists`)."""
         with self._lock:
             if not self.exists():
-                self.save(settings or AppSettings())
+                self.save(settings or default_settings())
 
     def update_raw(self, changes: dict) -> Path:
         """Merge raw keys into the file (for code that still owns its own keys)."""
