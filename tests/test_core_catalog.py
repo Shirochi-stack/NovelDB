@@ -54,3 +54,20 @@ def test_cart_reads_mobile_files_and_skips_bad_entries(tmp_path):
     assert LinkCart(str(path)).urls == ["https://x.test/1"]
     path.write_text("not json", encoding="utf-8")
     assert LinkCart(str(path)).items == []
+
+
+def test_adding_thousands_of_links_writes_once_and_stays_fast(tmp_path):
+    import time
+
+    path = tmp_path / "link-cart.json"
+    notices = []
+    cart = LinkCart(str(path), on_change=lambda: notices.append(1))
+    started = time.perf_counter()
+    added = cart.add_many(CartItem(f"https://x.test/novel/{i}") for i in range(10_000))
+    assert added == 10_000 and len(cart) == 10_000
+    assert cart.add_many(CartItem(f"https://x.test/novel/{i}") for i in range(9_990, 10_010)) == 10
+    assert time.perf_counter() - started < 2.0
+    assert len(notices) == 2  # one notice (and one file write) per call, not per link
+    assert "https://x.test/novel/5" in cart
+    cart.remove_all([f"https://x.test/novel/{i}" for i in range(5_000)])
+    assert len(LinkCart(str(path))) == 5_010 and "https://x.test/novel/5" not in cart

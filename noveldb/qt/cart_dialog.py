@@ -31,6 +31,7 @@ class CartDialog(QDialog):
         self.setWindowTitle("\U0001F517 Link cart")
         self.resize(560, 420)
         self.list = QListWidget()
+        self.list.setUniformItemSizes(True)
         self.list.itemChanged.connect(self._update_buttons)
         self.empty = QLabel("The cart is empty. Use the \U0001F517 button on Catalog cards to add books.")
         self.empty.setWordWrap(True)
@@ -64,17 +65,17 @@ class CartDialog(QDialog):
         checked = {item.data(Qt.UserRole) for item in self._items() if item.checkState() == Qt.Checked}
         first = self.list.count() == 0
         self.list.blockSignals(True)
+        self.list.setUpdatesEnabled(False)
         self.list.clear()
         for entry in self.context.cart.items:
-            text = entry.title or entry.url
-            if entry.title:
-                text += f"\n{entry.url}"
+            text = f"{entry.title}  ·  {entry.url}" if entry.title else entry.url
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, entry.url)
             item.setToolTip(entry.url)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked if first or entry.url in checked else Qt.Unchecked)
             self.list.addItem(item)
+        self.list.setUpdatesEnabled(True)
         self.list.blockSignals(False)
         self.empty.setVisible(self.list.count() == 0)
         self._update_buttons()
