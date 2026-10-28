@@ -25,8 +25,9 @@ data class UpdateResult(val engine: RuleEngine, val status: Status, val message:
  * that it loads. A port of the desktop's `engine_updates.check_for_update` and `check_if_due`.
  *
  * An update is accepted only when its manifest names this engine, speaks this app's API, was not
- * rejected before, is newer than the bundle in use, names a plain file, and the downloaded file
- * matches the manifest's size and SHA-256.
+ * rejected before, is not a rebuild of the bundle in use (same upstream commit and build patch),
+ * is newer than the bundle in use, names a plain file, and the downloaded file matches the
+ * manifest's size and SHA-256.
  */
 class EngineUpdates(
     private val store: EngineStore,
@@ -64,6 +65,10 @@ class EngineUpdates(
         }
         if (EngineStore.releaseKey(remote) in store.rejectedReleases(engine)) {
             return done(UpdateResult.Status.CURRENT, "The newest $title failed to load before; keeping these.", inUse)
+        }
+        if (inUse != null && inUse.manifest.text("commit").isNotEmpty() && EngineStore.releaseKey(remote) == EngineStore.releaseKey(inUse.manifest)) {
+            // The same upstream commit and build patch: a rebuild of what is in use, only the build time differs.
+            return done(UpdateResult.Status.CURRENT, "The $title are up to date (${inUse.label}).", inUse)
         }
         if (inUse != null && EngineKey.of(remote) <= inUse.key) {
             return done(UpdateResult.Status.CURRENT, "The $title are up to date (${inUse.label}).", inUse)

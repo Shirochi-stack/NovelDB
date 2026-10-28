@@ -69,7 +69,7 @@ class EngineUpdatesTest {
         mapOf(
             webToEpub.shippedPath to shippedLib,
             webToEpub.shippedManifestPath!! to """
-                {"engine": "webtoepub", "api": 1, "commit": "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39",
+                {"engine": "webtoepub", "api": 1, "commit": "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39", "shim": "6eb45683d5fa",
                  "date": "2026-10-27T04:19:22Z", "version": "1.0.14.61", "built": "2026-10-28T09:52:35Z"}
             """.trimIndent().toByteArray(),
             rules.shippedPath to shippedRules,
@@ -174,6 +174,60 @@ class EngineUpdatesTest {
         assertEquals(UpdateResult.Status.CURRENT, updates.check(webToEpub, release).status)
         assertNull(store.downloaded(webToEpub))
         assertFalse(release.requested.any { it.endsWith("webtoepub-lib.js") })
+    }
+
+    @Test
+    fun aRebuildOfTheBundleInUseIsNotDownloaded() = runTest {
+        // The same upstream commit and build patch as the shipped copy; only the build time is newer.
+        release.publish(webToEpub, newBundle) {
+            it["commit"] = "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39"
+            it["shim"] = "6eb45683d5fa"
+            it["version"] = "1.0.14.61"
+            it["date"] = "2026-10-27T04:19:22Z"
+            it["built"] = "2026-10-29T10:00:00Z"
+        }
+        val rebuild = updates.check(webToEpub, release)
+        assertEquals(rebuild.message, UpdateResult.Status.CURRENT, rebuild.status)
+        assertEquals("The WebToEpub parsers are up to date (2026-10-27, cc1ef36, built in).", rebuild.message)
+        assertEquals(listOf(EngineUpdates.RELEASE_URL + "webtoepub-manifest.json"), release.requested)
+        assertNull(store.downloaded(webToEpub))
+
+        // Another build patch of the same commit is a real update ...
+        release.publish(webToEpub, newBundle) {
+            it["commit"] = "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39"
+            it["shim"] = "patch2"
+            it["version"] = "1.0.14.61"
+            it["date"] = "2026-10-27T04:19:22Z"
+            it["built"] = "2026-10-29T10:00:00Z"
+        }
+        assertEquals(UpdateResult.Status.UPDATED, updates.check(webToEpub, release).status)
+
+        // ... and a rebuild of the download is again left alone.
+        release.requested.clear()
+        release.publish(webToEpub, "/* rebuilt */".toByteArray()) {
+            it["commit"] = "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39"
+            it["shim"] = "patch2"
+            it["version"] = "1.0.14.61"
+            it["date"] = "2026-10-27T04:19:22Z"
+            it["built"] = "2026-10-30T10:00:00Z"
+        }
+        val again = updates.check(webToEpub, release)
+        assertEquals(UpdateResult.Status.CURRENT, again.status)
+        assertTrue(again.message, again.message.endsWith("downloaded update)."))
+        assertEquals(listOf(EngineUpdates.RELEASE_URL + "webtoepub-manifest.json"), release.requested)
+        assertEquals(String(newBundle), store.current(webToEpub)!!.read())
+    }
+
+    @Test
+    fun aBundleWithoutACommitIsNeverTakenForARebuild() = runTest {
+        // novel-downloader's shipped copy knows only its version, so the version decides.
+        val data = "// ==UserScript==\n// @version 5.2.1289\n// ==/UserScript==\n".toByteArray()
+        release.publish(rules, data) {
+            it["commit"] = ""
+            it["shim"] = ""
+            it["version"] = "5.2.1289"
+        }
+        assertEquals(UpdateResult.Status.UPDATED, updates.check(rules, release).status)
     }
 
     @Test
