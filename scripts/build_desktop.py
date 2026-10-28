@@ -88,8 +88,7 @@ def macos_icon() -> None:
     iconset = work / "icon.iconset"
     iconset.mkdir()
     base = work / "base.png"
-    subprocess.run(["sips", "-s", "format", "png", str(ROOT / "icon.ico"), "--out", str(base)], check=False,
-                   capture_output=True)
+    shutil.copy2(ROOT / "assets" / "app-icon.png", base)
     if not base.exists():
         return
     for size in (16, 32, 64, 128, 256, 512):
@@ -247,7 +246,7 @@ def make_appimage(folder: Path, variant: str, target: Path, arch: str) -> Path:
     )
     from PIL import Image
 
-    with Image.open(ROOT / "icon.ico") as image:
+    with Image.open(ROOT / "assets" / "app-icon.png") as image:
         image.convert("RGBA").resize((256, 256)).save(appdir / f"{icon_id}.png")
     tool = os.environ.get("APPIMAGETOOL") or shutil.which("appimagetool")
     if not tool:

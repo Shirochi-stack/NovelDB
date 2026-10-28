@@ -7,7 +7,7 @@
  *   the card's details, opened out of sight, and remembers it.
  * - When the app sends outside links to the cart (sites other than NovelDB, setMode cartLinks),
  *   links to other sites that show text are renamed "🔗 Download".
- * - Taps show no highlight flash, and the NovelDB header is slimmer.
+ * - Taps show no highlight flash, the NovelDB header is slimmer, and NovelDB Next's hover preview is off.
  * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
  *   and the details cover is kept short without changing its shape.
  */
@@ -67,7 +67,8 @@
             var button = cartButton(cover, 'noveldb-cart-next');
             // The compact layout prints the title on a strip across the bottom of the cover.
             var strip = cover.querySelector('.bg-gradient-to-t');
-            var bottom = strip ? (strip.offsetHeight + 4) + 'px' : '';
+            // Its middle sits on the strip's top edge, just above the title text.
+            var bottom = strip ? Math.max(4, strip.offsetHeight - 15) + 'px' : '';
             if (button.style.bottom !== bottom) button.style.bottom = bottom;
             var url = nextLinks[nextKey(card)] || '';
             if (button.dataset.url !== url) button.dataset.url = url;
@@ -226,6 +227,8 @@
         '.noveldb-cart[aria-pressed="true"]{background:#E18F98;filter:none;opacity:1;box-shadow:0 0 0 2px #fff}' +
         '.noveldb-cart-next{left:auto;right:.3rem;bottom:.3rem;z-index:40;width:30px;height:30px;font-size:15px}' +
         '.noveldb-cart:disabled{opacity:.5}' +
+        // NovelDB Next's hover preview covers the neighbouring cards; the details view shows the same.
+        '.scroll-main div.pop[role=presentation]{display:none!important}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
         '{visibility:hidden!important;animation:none!important;transition:none!important}';
     // Phone-sized dialogs (window height instead of dvh, a short cover). The desktop app keeps the
