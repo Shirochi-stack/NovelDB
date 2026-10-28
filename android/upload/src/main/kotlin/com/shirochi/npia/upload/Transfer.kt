@@ -193,7 +193,7 @@ internal suspend fun UploadContext.postMultipart(
  * The names one upload goes by. `display` is the real (NFC) file name, shown in the Links list.
  * Hosts strip non-ASCII from multipart file names, so `ascii` is what goes in `filename="..."` and
  * in URLs: the display name itself when it is plain printable ASCII, otherwise the ASCII-safe
- * title when it keeps three letters or digits, otherwise `<stem>.<extension>` (see `UploadNames`).
+ * title when it keeps three ASCII letters, otherwise `<stem>.<extension>` (see `UploadNames`).
  */
 internal data class UploadName(val display: String, val ascii: String) {
     val isPlain: Boolean get() = display == ascii

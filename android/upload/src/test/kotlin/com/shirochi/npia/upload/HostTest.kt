@@ -20,9 +20,9 @@ class MultipartTest : UploadTestBase() {
         val out = Buffer()
         body.writeTo(out)
 
+        // Only the ASCII name: no `filename*`, which hosts would prefer and strip down to "-_.epub".
         val expectedHead = "--B\r\nContent-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n" +
-            "--B\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"book.epub\"; " +
-            "filename*=UTF-8''%EC%86%8C%EC%84%A4%20%221%22.epub\r\n" +
+            "--B\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"book.epub\"\r\n" +
             "Content-Type: application/octet-stream\r\n\r\n"
         val expected = expectedHead.toByteArray(Charsets.UTF_8) + file.readBytes() + "\r\n--B--\r\n".toByteArray(Charsets.UTF_8)
 
@@ -88,6 +88,17 @@ class MultipartTest : UploadTestBase() {
         assertEquals("npia_9.epub", UploadName.of("VR 한글.epub", "npia_9").ascii)
         assertEquals("npia_9.epub", UploadName.of("-한글.epub", "npia_9").ascii)
         assertEquals("npia_9.epub", UploadName.of("소설 1.epub", "npia_9").ascii)
+    }
+
+    @Test
+    fun aNameIsNeverJustAnExtension() {
+        // temp.sh keeps ".epub" as "epub", which downloads with no extension at all.
+        assertEquals("npia_9.epub", UploadName.of(".epub", "npia_9").ascii)
+        assertEquals("book.epub", UploadName.of(".epub", null).ascii)
+        assertEquals("npia_9.epub", UploadName.of("-_.epub", "npia_9").ascii)
+        assertEquals("npia_9.epub", UploadName.of("100.epub", "npia_9").ascii)
+        assertEquals("npia_9.epub", UploadName.of("VR_.epub", "npia_9").ascii)
+        assertEquals("NovelDB_4_EPUBs.zip", UploadName.of("NovelDB_4_EPUBs.zip", null).ascii)
     }
 
     @Test
