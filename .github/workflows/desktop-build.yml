@@ -1,0 +1,227 @@
+name: Desktop Build (reusable)
+
+# Builds the Full, Lite and TurboLite desktop apps for one OS, smoke-tests each build and
+# attaches the files to a release. Called by build-windows.yml, build-macos.yml and
+# build-linux.yml. A published release gets plain names (NovelDB97-windows-x86_64.exe); a
+# manual run adds a label, by default the next hotfix number for that OS
+# (NovelDB97-windows-x86_64_hotfix2.exe).
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: windows, macos or linux
+        type: string
+        required: true
+      release_tag:
+        description: Release tag to attach to (empty for the latest release)
+        type: string
+        default: ''
+      label:
+        description: auto (next hotfixN for this OS), none (plain names), or a label such as hotfix3
+        type: string
+        default: auto
+      variants:
+        description: all, full, lite or turbolite
+        type: string
+        default: all
+      dry_run:
+        description: Build and name the files without uploading them
+        type: boolean
+        default: false
+      attach:
+        description: Attach to a release (false for pull request builds)
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.12'
+  QT_QPA_PLATFORM: offscreen
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      tag: ${{ steps.plan.outputs.tag }}
+      label: ${{ steps.plan.outputs.label }}
+      expected: ${{ steps.plan.outputs.expected }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Codename policy
+        run: python scripts/codename_policy.py check
+      - name: Plan the builds
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          OS_ID: ${{ inputs.os }}
+          VARIANTS_INPUT: ${{ inputs.variants }}
+          TAG_INPUT: ${{ github.event.release.tag_name || inputs.release_tag }}
+          LABEL_INPUT: ${{ github.event_name == 'release' && 'none' || inputs.label }}
+          ATTACH: ${{ inputs.attach }}
+        run: |
+          set -euo pipefail
+          tag="$TAG_INPUT"
+          label="$LABEL_INPUT"
+          if [ "$ATTACH" = true ]; then
+            if [ -z "$tag" ]; then tag=$(gh release view --repo "$REPO" --json tagName -q .tagName); fi
+            if ! gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
+              echo "::error::Release '$tag' does not exist. Create it first, then re-run."
+              exit 1
+            fi
+            if [ "$label" = auto ]; then
+              last=$(gh release view "$tag" --repo "$REPO" --json assets -q '.assets[].name' \
+                | sed -nE "s/^NovelDB[0-9]+(_Lite|_TurboLite)?-${OS_ID}-[A-Za-z0-9_]+_hotfix([0-9]+)\.[A-Za-z]+$/\2/p" \
+                | sort -n | tail -1)
+              label="hotfix$(( ${last:-0} + 1 ))"
+            fi
+          elif [ "$label" = auto ]; then
+            label=none
+          fi
+          if ! printf '%s' "$label" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+            echo "::error::Label '$label' may only use letters, digits, '.', '_' and '-'."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          LABEL="$label" python scripts/build_desktop.py --plan "$OS_ID" --plan-variants "$VARIANTS_INPUT" >> "$GITHUB_OUTPUT"
+          expected=$(grep -m1 '^expected=' "$GITHUB_OUTPUT" | cut -d= -f2-)
+          {
+            echo "### Desktop build plan (${OS_ID})"
+            echo "- Release: ${tag:-none (build only)}"
+            echo "- Label: ${label}"
+            for name in $expected; do echo "- \`$name\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    needs: preflight
+    runs-on: ${{ inputs.os == 'windows' && 'windows-2022' || inputs.os == 'macos' && 'macos-15' || 'ubuntu-22.04' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - uses: ./.github/actions/desktop-native-deps
+        with:
+          os: ${{ inputs.os }}
+      - name: Install
+        run: python -m pip install -r requirements-full.txt -r requirements-dev.txt
+      - name: Desktop tests
+        run: >
+          python -m pytest -q -p no:cacheprovider
+          tests/test_qt_shell.py tests/test_core_catalog.py tests/test_core_jobs.py tests/test_core_queue_events.py
+          tests/test_core_upload.py tests/test_core_has_no_gui_imports.py tests/test_paths.py tests/test_features.py
+          tests/test_platform_services.py tests/test_settings_desktop_config.py tests/test_scraper_without_playwright.py
+          tests/test_desktop_build.py
+
+  build:
+    needs: [preflight, test]
+    name: build (${{ matrix.variant }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.preflight.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - uses: ./.github/actions/desktop-native-deps
+        with:
+          os: ${{ inputs.os }}
+      - name: Install (${{ matrix.variant }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.variant }}" in
+            full) reqs=requirements-full.txt ;;
+            lite) reqs=requirements-webengine.txt ;;
+            turbolite) reqs=requirements-gui.txt ;;
+          esac
+          python -m pip install -r "$reqs" -r requirements-build.txt
+          python -m pip list | grep -Ei 'pyside6|playwright|pyinstaller|weasyprint' || true
+      - name: Cache Playwright Chromium
+        if: matrix.variant == 'full'
+        uses: actions/cache@v4
+        with:
+          path: build/ms-playwright
+          key: pw-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('requirements-full.txt') }}
+      - name: Build, verify and smoke-test
+        shell: bash
+        env:
+          LABEL: ${{ needs.preflight.outputs.label }}
+        run: |
+          set -euo pipefail
+          extra=""
+          if [ "${{ inputs.os }}" = windows ] && [ "${{ matrix.variant }}" = full ]; then extra="--zip"; fi
+          python scripts/build_desktop.py --variant "${{ matrix.variant }}" --arch "${{ matrix.arch }}" \
+            --label "$LABEL" --package --verify --smoke $extra
+          ls -la dist-desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ inputs.os }}-${{ matrix.variant }}-${{ matrix.arch }}
+          path: |
+            dist-desktop/*.exe
+            dist-desktop/*.zip
+            dist-desktop/*.dmg
+            dist-desktop/*.AppImage
+            dist-desktop/smoke-*.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  attach:
+    needs: [preflight, build]
+    if: inputs.attach
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-${{ inputs.os }}-*
+          path: out
+          merge-multiple: true
+      - name: Check, checksum and attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          LABEL: ${{ needs.preflight.outputs.label }}
+          EXPECTED: ${{ needs.preflight.outputs.expected }}
+          OS_ID: ${{ inputs.os }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cd out
+          missing=0
+          for name in $EXPECTED; do
+            if [ ! -f "$name" ]; then echo "::error::Missing build output $name"; missing=1; fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          suffix=""
+          if [ "$LABEL" != none ]; then suffix="_$LABEL"; fi
+          sums="SHA256SUMS-${OS_ID}${suffix}.txt"
+          sha256sum $EXPECTED > "$sums"
+          {
+            echo "### Release $TAG ($OS_ID)"
+            for name in $EXPECTED "$sums"; do echo "- \`$name\` ($(stat -c %s "$name") bytes)"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DRY_RUN" = true ]; then
+            echo "Dry run: built and named, not uploaded." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release upload "$TAG" $EXPECTED "$sums" --clobber --repo "$REPO"
+          echo "Attached to https://github.com/$REPO/releases/tag/$TAG" | tee -a "$GITHUB_STEP_SUMMARY"

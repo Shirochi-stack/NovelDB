@@ -47,3 +47,5 @@ docs/data/nseries_*_untranslated.txt
 
 # Shared public author registry must remain available to rescrape workflows.
 !docs/data/npia_authors.json
+_build_info.py
+/dist-desktop/

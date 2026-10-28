@@ -24,6 +24,8 @@ def _parse(argv) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="NovelDB", add_help=True)
     parser.add_argument("--smoke", action="store_true", help="build the window, then quit")
     parser.add_argument("--smoke-report", default="", help="write the smoke test result here (JSON)")
+    parser.add_argument("--smoke-checks", default="",
+                        help="extra smoke checks, comma separated: webengine, browser, pdf (or all)")
     parser.add_argument("--page", default="", help="open this page first (download, catalog, queue, settings)")
     args, _unknown = parser.parse_known_args(argv)
     return args
@@ -64,6 +66,82 @@ def _listen(key: str, window) -> Optional[QLocalServer]:
 
     server.newConnection.connect(raise_window)
     return server
+
+
+SMOKE_HTML = (
+    "<html><head><meta charset='utf-8'><title>smoke</title></head><body>"
+    "<h1>NovelDB</h1><p>한국어 문장입니다. 中文小说。 日本語。</p></body></html>"
+)
+
+
+def _check_webengine(app) -> dict:
+    """Load a page in QtWebEngine and read its title back."""
+    from PySide6.QtCore import QEventLoop
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+
+    view = QWebEngineView()
+    view.resize(320, 200)
+    loop = QEventLoop()
+    result = {"ok": False}
+
+    def loaded(ok):
+        result["ok"] = bool(ok)
+        result["title"] = view.title()
+        loop.quit()
+
+    view.loadFinished.connect(loaded)
+    QTimer.singleShot(30_000, loop.quit)
+    view.setHtml(SMOKE_HTML)
+    loop.exec()
+    result["ok"] = result["ok"] and result.get("title") == "smoke"
+    view.deleteLater()
+    return result
+
+
+def _check_browser() -> dict:
+    """Launch the bundled Chromium headless through Playwright."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(SMOKE_HTML)
+        title = page.title()
+        version = browser.version
+        browser.close()
+    return {"ok": title == "smoke", "chromium": version}
+
+
+def _check_pdf() -> dict:
+    """Render Korean, Chinese and Japanese text to PDF with WeasyPrint and check fonts are embedded."""
+    import tempfile
+
+    import downloader_core
+
+    downloader_core._prepare_weasyprint_windows_dll_path()  # same DLL lookup as real PDF output
+    from weasyprint import HTML
+
+    import re
+
+    data = HTML(string=SMOKE_HTML).write_pdf(uncompressed_pdf=True)
+    embedded = data.count(b"/FontFile")
+    fonts = sorted({name.decode("latin-1").split("+")[-1] for name in re.findall(rb"/BaseFont /([^\s/]+)", data)})
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as handle:
+        handle.write(data)
+    return {"ok": len(data) > 1000 and embedded > 0, "bytes": len(data), "embedded_fonts": embedded,
+            "fonts": fonts, "path": handle.name}
+
+
+def _run_checks(app, names) -> dict:
+    out = {}
+    for name, check in (("webengine", lambda: _check_webengine(app)), ("browser", _check_browser), ("pdf", _check_pdf)):
+        if name not in names:
+            continue
+        try:
+            out[name] = check()
+        except Exception as exc:  # report, do not crash the smoke run
+            out[name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return out
 
 
 def _smoke_report(window, started: float) -> dict:
@@ -132,6 +210,11 @@ def main(argv=None) -> int:
     if args.smoke:
         def finish():
             report = _smoke_report(window, started)
+            names = {n.strip() for n in args.smoke_checks.split(",") if n.strip()}
+            if "all" in names:
+                names = {"webengine", "browser", "pdf"}
+            report["checks"] = _run_checks(app, names)
+            report["ok"] = report["ok"] and all(item.get("ok") for item in report["checks"].values())
             if args.smoke_report:
                 with open(args.smoke_report, "w", encoding="utf-8") as handle:
                     json.dump(report, handle, indent=2)

@@ -152,3 +152,29 @@ test('resumable catalog passes continue before translation; terminal partial run
         assert.equal(evaluate('${{ ' + jobs.translate.if + ' }}', { needs }), !eligible);
     }
 });
+
+const desktopCallee = workflow('desktop-build').on.workflow_call.inputs;
+for (const os of ['windows', 'macos', 'linux']) {
+    const caller = workflow(`build-${os}`);
+    const bindings = caller.jobs.desktop.with;
+    const scenarios = [
+        { name: 'release published', github: { event_name: 'release', event: { release: { tag_name: 'v97' } } }, inputs: {},
+          expect: { attach: true, dry_run: false, label: 'auto', variants: 'all' } },
+        { name: 'manual dry run', github: { event_name: 'workflow_dispatch', event: {} },
+          inputs: { release_tag: 'v97', label: 'hotfix3', variants: 'lite', dry_run: true },
+          expect: { attach: true, dry_run: true, label: 'hotfix3', variants: 'lite' } },
+        { name: 'manual defaults', github: { event_name: 'workflow_dispatch', event: {} },
+          inputs: { release_tag: '', label: 'auto', variants: 'all', dry_run: false },
+          expect: { attach: true, dry_run: false, label: 'auto', variants: 'all' } },
+        { name: 'pull request', github: { event_name: 'pull_request', event: {} }, inputs: {},
+          expect: { attach: false, dry_run: false, label: 'auto', variants: 'all' } },
+    ];
+    for (const scenario of scenarios) {
+        test(`build-${os}: ${scenario.name} passes typed inputs to desktop-build`, () => {
+            const values = Object.fromEntries(Object.entries(bindings).map(([key, value]) => [key, evaluate(value, scenario)]));
+            for (const [key, value] of Object.entries(values)) assert.equal(typeof value, desktopCallee[key].type, key);
+            assert.equal(values.os, os);
+            for (const [key, value] of Object.entries(scenario.expect)) assert.equal(values[key], value, key);
+        });
+    }
+}

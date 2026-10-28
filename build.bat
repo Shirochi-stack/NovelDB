@@ -1,45 +1,24 @@
 @echo off
 setlocal EnableDelayedExpansion
-for /f %%A in ('python -c "import app_version; print(app_version.APP_NAME)"') do set APP_NAME=%%A
-for /f %%A in ('python -c "import app_version; print(app_version.APP_NAME_LITE)"') do set APP_NAME_LITE=%%A
-echo ========================================
-echo   Building NpiaDownloader
-echo ========================================
-echo.
-
-echo [1/2] Building !APP_NAME! (Full + Playwright)...
-echo.
-echo Installing Playwright Chromium browsers for bundling...
-python -m playwright install chromium
-if !ERRORLEVEL! NEQ 0 (
-    echo.
-    echo Playwright browser install failed. Cannot build the full executable.
-    set FULL_RESULT=!ERRORLEVEL!
-) else (
-python -m PyInstaller NpiaDownloader.spec --clean
-set FULL_RESULT=!ERRORLEVEL!
+rem Builds the Windows desktop apps into dist-desktop\ (see scripts\build_desktop.py).
+rem   build.bat            Full + Lite + TurboLite
+rem   build.bat lite       one variant (full, lite or turbolite)
+set VARIANTS=%*
+if "%VARIANTS%"=="" set VARIANTS=full lite turbolite
+set FAILED=
+for %%V in (%VARIANTS%) do (
+    echo ========================================
+    echo   Building %%V
+    echo ========================================
+    set EXTRA=
+    if /I "%%V"=="full" set EXTRA=--zip
+    python scripts\build_desktop.py --variant %%V --package --verify --smoke !EXTRA!
+    if !ERRORLEVEL! NEQ 0 set FAILED=!FAILED! %%V
 )
-
 echo.
-echo [2/2] Building !APP_NAME_LITE! (No Playwright)...
-echo.
-python -m PyInstaller NpiaDownloader_Lite.spec --clean
-set LITE_RESULT=!ERRORLEVEL!
-
-echo.
-echo ========================================
-echo   Build Results
-echo ========================================
-if !FULL_RESULT! EQU 0 (
-    echo   !APP_NAME!.exe       : OK  ^(dist\!APP_NAME!.exe^)
+if "%FAILED%"=="" (
+    echo All builds finished. Files are in dist-desktop\
 ) else (
-    echo   !APP_NAME!.exe       : FAILED
+    echo Failed:%FAILED%
 )
-if !LITE_RESULT! EQU 0 (
-    echo   !APP_NAME_LITE!.exe  : OK  ^(dist\!APP_NAME_LITE!.exe^)
-) else (
-    echo   !APP_NAME_LITE!.exe  : FAILED
-)
-echo ========================================
-echo.
 pause
