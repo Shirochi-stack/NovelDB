@@ -207,6 +207,7 @@ fun SitesScreen(model: AppViewModel) {
                 trailingContent = {
                     TextButton(onClick = {
                         SiteCookies.signOut(host)
+                        model.manager.forgetSessionsFor(host)
                         refresh++
                     }) { Text("Sign out") }
                 },
@@ -231,6 +232,7 @@ fun SitesScreen(model: AppViewModel) {
                     confirmAll = false
                     scope.launch {
                         SiteCookies.signOutAll()
+                        model.manager.forgetSessionsFor(null)
                         refresh++
                     }
                 }) { Text("Sign out") }

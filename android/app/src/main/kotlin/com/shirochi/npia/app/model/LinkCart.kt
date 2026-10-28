@@ -1,5 +1,6 @@
 package com.shirochi.npia.app.model
 
+import com.shirochi.npia.sources.SourceCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,13 +19,19 @@ class LinkCart(file: File) {
     private val _items = MutableStateFlow(store.load().orEmpty())
     val items: StateFlow<List<CartItem>> = _items.asStateFlow()
 
-    fun add(item: CartItem) = change { list -> if (list.any { it.url == item.url }) list else list + item }
+    fun add(item: CartItem) = change { list ->
+        val book = canonical(item)
+        if (list.any { it.url == book.url }) list else list + book
+    }
 
     /** Adds several books with one save, skipping links already in the cart (and repeats within `items`). */
     fun addAll(items: List<CartItem>) = change { list ->
         val known = list.mapTo(HashSet()) { it.url }
-        list + items.filter { known.add(it.url) }
+        list + items.map(::canonical).filter { known.add(it.url) }
     }
+
+    /** A phone-site link and its desktop twin are one book. */
+    private fun canonical(item: CartItem) = item.copy(url = SourceCatalog.canonicalUrl(item.url))
 
     fun remove(url: String) = change { list -> list.filterNot { it.url == url } }
 

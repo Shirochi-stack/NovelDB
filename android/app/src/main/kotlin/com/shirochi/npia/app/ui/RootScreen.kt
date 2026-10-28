@@ -136,6 +136,7 @@ fun RootScreen(model: AppViewModel) {
                 Route.SourceOptions -> SourceOptionsScreen(model)
                 Route.Engines -> EngineSettingsScreen(model)
                 Route.Npia -> NpiaSettingsScreen(model)
+                Route.EnterApp -> EnterAppScreen(model)
                 Route.TagSearch -> TagSearchScreen(model)
                 Route.Images -> ImageSettingsScreen(model)
                 Route.Text -> TextSettingsScreen(model)

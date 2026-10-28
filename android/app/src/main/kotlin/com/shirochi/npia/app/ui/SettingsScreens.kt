@@ -67,7 +67,7 @@ import com.shirochi.npia.upload.Uploader
 import com.shirochi.npia.upload.UploaderCatalog
 
 @Composable
-private fun SettingsColumn(content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsColumn(content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), content = content)
 }
 
@@ -87,6 +87,7 @@ fun SettingsScreen(model: AppViewModel) {
         NavRow("Source options", "kpage, ntk, nweb, kobo") { model.push(Route.SourceOptions) }
         NavRow("Site engines", "Engine order, fallbacks and updates") { model.push(Route.Engines) }
         NavRow("npia login", "Account, notices, tag search") { model.push(Route.Npia) }
+        NavRow("Enter App", "Sign in to sfc, qdn and rbooks") { model.push(Route.EnterApp) }
         NavRow("Signed-in sites", "Logins saved by the Browser tab") { model.push(Route.Sites) }
         SectionHeader("Output")
         NavRow("Images", "Compression, cover, size target") { model.push(Route.Images) }
