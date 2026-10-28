@@ -5,6 +5,9 @@ import NpiaSources
 import NpiaWebEngine
 import Observation
 
+/// Lines the live log keeps.
+private let tagSearchMaxLines = 1000
+
 /// One line of the live log.
 struct TagSearchLogLine: Identifiable, Equatable {
     let id: Int
@@ -36,11 +39,11 @@ final class TagSearchController {
     private(set) var summary = ""
     private(set) var outcome: TagSearchOutcome?
 
-    static let maxLines = 1000
-
     private var nextLineID = 0
     private var task: Task<Void, Never>?
     private let jobID = UUID()
+
+    init() {}
 
     var logText: String { lines.map(\.text).joined(separator: "\n") }
 
@@ -201,8 +204,8 @@ final class TagSearchController {
     private func append(_ text: String) {
         lines.append(TagSearchLogLine(id: nextLineID, text: text))
         nextLineID += 1
-        if lines.count > Self.maxLines {
-            lines.removeFirst(lines.count - Self.maxLines)
+        if lines.count > tagSearchMaxLines {
+            lines.removeFirst(lines.count - tagSearchMaxLines)
         }
     }
 }
