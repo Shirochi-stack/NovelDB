@@ -211,8 +211,29 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var npia = NpiaSettings()
     public var sources = SourceOptions()
     public var upload = UploadSettings()
+    /// Which site engines run, in what order, and which rule engines update themselves.
+    public var engines = EngineSettings()
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, shared, overrides, images, text, npia, sources, upload, engines
+    }
+
+    /// Every key is optional, so settings stored before a field existed (the queue keeps a copy
+    /// with each job) still decode.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? schemaVersion
+        shared = try container.decodeIfPresent(SharedSettings.self, forKey: .shared) ?? shared
+        overrides = try container.decodeIfPresent([String: SharedOverrides].self, forKey: .overrides) ?? overrides
+        images = try container.decodeIfPresent(ImageSettings.self, forKey: .images) ?? images
+        text = try container.decodeIfPresent(TextSettings.self, forKey: .text) ?? text
+        npia = try container.decodeIfPresent(NpiaSettings.self, forKey: .npia) ?? npia
+        sources = try container.decodeIfPresent(SourceOptions.self, forKey: .sources) ?? sources
+        upload = try container.decodeIfPresent(UploadSettings.self, forKey: .upload) ?? upload
+        engines = try container.decodeIfPresent(EngineSettings.self, forKey: .engines) ?? engines
+    }
 
     public func effective(for source: SourceID) -> SharedSettings {
         overrides[source.rawValue]?.apply(to: shared) ?? shared
