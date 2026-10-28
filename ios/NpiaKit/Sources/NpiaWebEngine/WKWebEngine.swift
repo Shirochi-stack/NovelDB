@@ -302,6 +302,8 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
 // MARK: - Script messages
 
 /// Answers `window.webkit.messageHandlers[name].postMessage(text)` with what the handler returns.
+/// Only the page itself is answered: frames inside it (ads, embeds from other sites) are refused,
+/// because handlers can make requests with the app's cookies.
 @MainActor
 private final class ReplyRelay: NSObject, WKScriptMessageHandlerWithReply {
     private let store: WKWebsiteDataStore
@@ -314,6 +316,7 @@ private final class ReplyRelay: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
+        guard message.frameInfo.isMainFrame else { return (nil, "Only the page itself can send messages.") }
         guard let body = message.body as? String else { return (nil, "The message must be a string.") }
         // Requests made by the handler carry the page's cookies.
         await CookieBridge.shared.copyToShared(from: store.httpCookieStore)
