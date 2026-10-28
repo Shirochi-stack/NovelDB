@@ -39,6 +39,7 @@ import com.shirochi.npia.app.model.SourceInfo
 import com.shirochi.npia.app.model.SourceOptionGroup
 import com.shirochi.npia.app.model.editRunSettings
 import com.shirochi.npia.core.AppSettings
+import com.shirochi.npia.core.EngineSettings
 import com.shirochi.npia.core.ImageFormat
 import com.shirochi.npia.core.OutputFormat
 import com.shirochi.npia.core.SharedSettings
@@ -65,7 +66,9 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
 
     val cart by model.cart.items.collectAsStateWithLifecycle()
     val urls = (SourceInfo.urls(text) + cart.map { it.url }).distinct()
-    val supported = urls.filter { SourceCatalog.adapterFor(it) != null }
+    // A link is downloadable when any enabled site engine can try it: the script engines (novel-downloader
+    // rules, WebToEpub) try sites that no list names, since WebToEpub also recognises some sites by their page.
+    val supported = urls.filter { SourceCatalog.resolve(it, settings.engines) != null }
     val source = supported.firstOrNull()?.let { SourceCatalog.adapterFor(it)?.id }
 
     // The desktop download options, saved as they change (npia keeps its own values like the
@@ -93,7 +96,7 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             if (text.isNotEmpty()) TextButton(onClick = { text = "" }) { Text("Clear") }
         }
         LinkCartRow(cart.size) { model.push(com.shirochi.npia.app.Route.LinkCart) }
-        DetectionSummary(urls)
+        DetectionSummary(urls, settings.engines)
 
         CompactHeader("Format")
         FormatChips(run.formats) { f -> edit { it.copy(formats = f) } }
@@ -214,19 +217,28 @@ private fun CompactHeader(title: String) {
 }
 
 @Composable
-private fun DetectionSummary(urls: List<String>) {
+private fun DetectionSummary(urls: List<String>, engines: EngineSettings) {
     if (urls.isEmpty()) {
         Footnote("Paste a book page or chapter list URL. The source is detected automatically. You can also share a link to NovelDB from your browser.")
         return
     }
-    val unsupported = urls.filter { SourceCatalog.adapterFor(it) == null }
-    if (unsupported.isEmpty()) return
+    val unsupported = urls.filter { SourceCatalog.resolve(it, engines) == null }
+    // No site list names these, so only the script engines will try them.
+    val unlisted = urls.filter { it !in unsupported && SourceCatalog.adapterFor(it) == null }
+    if (unsupported.isEmpty() && unlisted.isEmpty()) return
     Column(Modifier.padding(horizontal = 16.dp)) {
         unsupported.forEach { url ->
             Text(
                 "\u2717 Not supported: ${com.shirochi.npia.core.bareHost(url).ifEmpty { url }}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+            )
+        }
+        unlisted.forEach { url ->
+            Text(
+                "? ${com.shirochi.npia.core.bareHost(url).ifEmpty { url }} is on no engine's site list; the site engines will still try it",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

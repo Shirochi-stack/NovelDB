@@ -22,7 +22,9 @@ import com.shirochi.npia.core.SharedSettings
 import com.shirochi.npia.pipeline.JobPhase
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -191,6 +193,31 @@ class AppModelTest {
         assertEquals(3, exported.getValue("ext_threads").jsonPrimitive.int)
         assertFalse("email" in exported || "wd" in exported || "loginkey" in exported)
         assertEquals(exported.keys.sorted(), exported.keys.toList())
+    }
+
+    @Test
+    fun siteEngineChoicesMoveBetweenTheDesktopAndMobileConfigs() {
+        val desktop = """
+            {"source_engine_order": ["webtoepub", "native", "novel_downloader"], "source_engines_off": ["native"],
+             "novel_downloader_auto_update": true, "webtoepub_auto_update": false, "custom_unknown": 5}
+        """.trimIndent()
+        val imported = ConfigTransfer.import(desktop, AppSettings(), InMemorySecretStore()) as ConfigTransfer.Imported.Desktop
+        val engines = imported.settings.engines
+        assertEquals(listOf("webtoepub", "native", "novel_downloader"), engines.order)
+        assertEquals(listOf("native"), engines.disabled)
+        assertTrue(engines.novelDownloaderAutoUpdate)
+        assertFalse(engines.webtoepubAutoUpdate)
+
+        val exported = Json.parseToJsonElement(ConfigTransfer.exportDesktop(imported.settings, imported.base)).jsonObject
+        assertEquals(listOf("webtoepub", "native", "novel_downloader"), exported.getValue("source_engine_order").jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(listOf("native"), exported.getValue("source_engines_off").jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(true, exported.getValue("novel_downloader_auto_update").jsonPrimitive.boolean)
+        assertEquals(false, exported.getValue("webtoepub_auto_update").jsonPrimitive.boolean)
+        assertEquals(5, exported.getValue("custom_unknown").jsonPrimitive.int)
+
+        // The app's own settings file carries them too.
+        val appFile = ConfigTransfer.import(ConfigTransfer.exportApp(imported.settings), AppSettings(), InMemorySecretStore())
+        assertEquals(ConfigTransfer.Imported.AppFile(imported.settings), appFile)
     }
 
     @Test
