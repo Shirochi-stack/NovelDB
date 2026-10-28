@@ -1,6 +1,27 @@
 import Foundation
 import NpiaCore
 
+/// One file packed in an uploaded ZIP.
+public struct UploadedEntry: Codable, Sendable, Hashable {
+    /// The entry's name in the ZIP: the original file name.
+    public var fileName: String
+    /// The book's title, when it was known.
+    public var title: String?
+
+    public init(fileName: String, title: String? = nil) {
+        self.fileName = fileName
+        self.title = title
+    }
+
+    /// The title, else the file name without its extension.
+    public var displayTitle: String {
+        if let title, !title.isEmpty { return title }
+        return (fileName as NSString).deletingPathExtension
+    }
+
+    public var isEPUB: Bool { (fileName as NSString).pathExtension.lowercased() == "epub" }
+}
+
 public struct UploadResult: Codable, Sendable, Hashable {
     public var hostID: String
     public var fileName: String
@@ -9,14 +30,35 @@ public struct UploadResult: Codable, Sendable, Hashable {
     public var deleteLink: URL?
     public var expiresAt: Date?
     public var uploadedAt: Date
+    /// What a ZIP holds, one entry per packed file; nil for a file uploaded as it is (and for
+    /// history saved before ZIP bundles existed).
+    public var contents: [UploadedEntry]?
 
-    public init(hostID: String, fileName: String, link: URL, deleteLink: URL? = nil, expiresAt: Date? = nil, uploadedAt: Date = Date()) {
+    public init(hostID: String, fileName: String, link: URL, deleteLink: URL? = nil, expiresAt: Date? = nil, uploadedAt: Date = Date(), contents: [UploadedEntry]? = nil) {
         self.hostID = hostID
         self.fileName = fileName
         self.link = link
         self.deleteLink = deleteLink
         self.expiresAt = expiresAt
         self.uploadedAt = uploadedAt
+        self.contents = contents
+    }
+
+    /// "NovelDB_3_EPUBs.zip (3 books)" for a ZIP, the file name for a file.
+    public var summary: String {
+        guard let contents, contents.count > 1 else { return fileName }
+        let noun = contents.allSatisfy { $0.isEPUB } ? "books" : "files"
+        return "\(fileName) (\(contents.count) \(noun))"
+    }
+
+    /// The titles inside a ZIP, in the order they were packed; empty for a file.
+    public var titlesInside: [String] {
+        (contents ?? []).map { $0.displayTitle }
+    }
+
+    /// One line for Copy and Share: what it is, and where.
+    public var linkLine: String {
+        "\(summary): \(link.absoluteString)"
     }
 
     public func isExpired(at date: Date = Date()) -> Bool {
@@ -48,6 +90,40 @@ public enum UploadEvent: Sendable, Equatable {
     case progress(host: String, UploadProgress)
     /// The host did not take the file; the next one is tried, or the upload fails.
     case failed(host: String, message: String)
+}
+
+/// What `UploaderCatalog.uploadBatch` reports while it packs and uploads several files.
+public enum UploadBatchEvent: Sendable, Equatable {
+    /// A ZIP is being written: `zip` counts from 1 among the ZIPs of this batch.
+    case preparing(zip: Int, of: Int, name: String)
+    /// Upload `index` of `of` (a ZIP or a lone file) starts.
+    case starting(index: Int, of: Int, name: String)
+    /// The hosts' own progress for the upload that is running.
+    case host(UploadEvent)
+    case uploaded(UploadResult)
+    case failed(name: String, message: String)
+}
+
+public struct UploadBatchFailure: Sendable, Equatable {
+    public var name: String
+    public var message: String
+
+    public init(name: String, message: String) {
+        self.name = name
+        self.message = message
+    }
+}
+
+/// The links a batch produced, and the uploads that did not work. One ZIP failing does not
+/// stop the others.
+public struct UploadBatchOutcome: Sendable, Equatable {
+    public var uploads: [UploadResult]
+    public var failures: [UploadBatchFailure]
+
+    public init(uploads: [UploadResult] = [], failures: [UploadBatchFailure] = []) {
+        self.uploads = uploads
+        self.failures = failures
+    }
 }
 
 public enum UploadError: Error, Equatable, LocalizedError {
@@ -188,15 +264,17 @@ public enum UploaderCatalog {
     /// Tries each configured host in order and returns the first success. Folders (separate
     /// TXT output) are zipped first. Successful uploads are added to `history`.
     ///
-    /// `nameID` is the book id used to name files whose title is not plain ASCII; the result
-    /// keeps the original name. `events` reports the host being tried, its byte progress, and
-    /// each failure that makes the next host run.
+    /// `nameID` is the stand-in name (like `npia_419368`) for a file whose title keeps fewer than
+    /// three ASCII letters or digits; the result keeps the original name. `contents` is what a
+    /// ZIP holds, stored with the result. `events` reports the host being tried, its byte
+    /// progress, and each failure that makes the next host run.
     public static func upload(
         _ file: URL,
         settings: UploadSettings,
         context: UploadContext? = nil,
         history: UploadHistoryStore? = .shared,
         nameID: String? = nil,
+        contents: [UploadedEntry]? = nil,
         events: (@Sendable (UploadEvent) -> Void)? = nil,
         progress: (@Sendable (UploadProgress) -> Void)? = nil
     ) async throws -> UploadResult {
@@ -235,7 +313,8 @@ public enum UploaderCatalog {
             }
             do {
                 try uploader.check(payload)
-                let result = try await uploader.upload(payload, context: context, progress: relay)
+                var result = try await uploader.upload(payload, context: context, progress: relay)
+                result.contents = contents
                 history?.add(result)
                 return result
             } catch is CancellationError {
@@ -248,5 +327,96 @@ public enum UploaderCatalog {
             }
         }
         throw lastError
+    }
+
+    /// The per-file maximum of the first host that can take an upload now, when it has one.
+    /// Bundles are sized to it, so a ZIP is not refused by the host it is aimed at.
+    public static func hostMaxBytes(settings: UploadSettings, context: UploadContext) -> Int64? {
+        for id in settings.hosts {
+            guard let host = Self.uploader(id: id), host.isReady(context) else { continue }
+            return host.maxBytes
+        }
+        return nil
+    }
+
+    /// What `uploadBatch` would upload for `items` with these settings, without writing anything.
+    public static func planBatch(_ items: [UploadItem], settings: UploadSettings, context: UploadContext? = nil) -> [UploadBundle] {
+        planBatch(items, settings: settings, context: context, limitBytes: nil)
+    }
+
+    /// `limitBytes` replaces the size limit worked out from the setting and the host (tests use
+    /// small ones).
+    static func planBatch(_ items: [UploadItem], settings: UploadSettings, context: UploadContext?, limitBytes: Int64?) -> [UploadBundle] {
+        let limit: Int64
+        if let limitBytes {
+            limit = limitBytes
+        } else {
+            let context = context ?? UploadContext(settings: settings)
+            limit = UploadBundler.limitBytes(zipMaxMB: settings.zipMaxMB, hostMaxBytes: hostMaxBytes(settings: settings, context: context))
+        }
+        return UploadBundler.plan(items, zipBundle: settings.zipBundle, limit: limit)
+    }
+
+    /// Uploads several files. With `UploadSettings.zipBundle` on and two or more files they are
+    /// packed into ZIPs no bigger than the "Largest ZIP" setting or the host's own maximum
+    /// (`UploadBundler`); otherwise each file goes up alone. ZIPs are built in the temporary
+    /// folder one at a time and deleted after their upload, whether it worked or not. The
+    /// result has one link per ZIP or lone file. An upload that fails is listed in `failures`
+    /// and the rest go on; cancelling throws `CancellationError`.
+    public static func uploadBatch(
+        _ items: [UploadItem],
+        settings: UploadSettings,
+        context: UploadContext? = nil,
+        history: UploadHistoryStore? = .shared,
+        events: (@Sendable (UploadBatchEvent) -> Void)? = nil
+    ) async throws -> UploadBatchOutcome {
+        try await uploadBatch(items, settings: settings, context: context, history: history, limitBytes: nil, events: events)
+    }
+
+    static func uploadBatch(
+        _ items: [UploadItem],
+        settings: UploadSettings,
+        context: UploadContext?,
+        history: UploadHistoryStore?,
+        limitBytes: Int64?,
+        events: (@Sendable (UploadBatchEvent) -> Void)?
+    ) async throws -> UploadBatchOutcome {
+        var context = context ?? UploadContext(settings: settings)
+        context.settings = settings
+        let bundles = planBatch(items, settings: settings, context: context, limitBytes: limitBytes)
+        let zipCount = bundles.filter { $0.isZip }.count
+        var zipNumber = 0
+        var outcome = UploadBatchOutcome()
+        for (offset, bundle) in bundles.enumerated() {
+            try Task.checkCancellation()
+            let name = bundle.displayName
+            events?(.starting(index: offset + 1, of: bundles.count, name: name))
+            var staged: URL?
+            defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
+            do {
+                var payload = bundle.items[0].file
+                var contents: [UploadedEntry]?
+                if bundle.isZip {
+                    zipNumber += 1
+                    events?(.preparing(zip: zipNumber, of: zipCount, name: name))
+                    payload = try UploadBundler.writeZip(bundle, in: context.temporaryDirectory)
+                    staged = payload.deletingLastPathComponent()
+                    contents = bundle.items.map { UploadedEntry(fileName: $0.fileName, title: $0.title) }
+                }
+                let result = try await upload(
+                    payload, settings: settings, context: context, history: history,
+                    nameID: bundle.isZip ? nil : bundle.items[0].nameID, contents: contents,
+                    events: { event in events?(.host(event)) }
+                )
+                outcome.uploads.append(result)
+                events?(.uploaded(result))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                outcome.failures.append(UploadBatchFailure(name: name, message: error.localizedDescription))
+                events?(.failed(name: name, message: error.localizedDescription))
+            }
+        }
+        return outcome
     }
 }

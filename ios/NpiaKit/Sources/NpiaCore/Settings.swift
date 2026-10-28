@@ -192,13 +192,47 @@ public struct SourceOptions: Codable, Sendable, Equatable {
 }
 
 public struct UploadSettings: Codable, Sendable, Equatable {
+    /// The range "Largest ZIP" can take, in MB (the desktop and Android apps use the same one).
+    public static let zipMaxMBRange = 50...4096
+    public static let defaultZipMaxMB = 1024
+
     public var autoUpload = false
     /// `Uploader.id` values, tried in order.
     public var hosts: [String] = ["tempsh", "gofile"]
     public var googleDriveFolderID: String?
     public var copyLinkToClipboard = true
+    /// Pack two or more files of one upload into ZIPs of at most `zipMaxMB` (`upload_zip_bundle`).
+    public var zipBundle = true
+    /// Largest ZIP in MB, 50...4096 (`upload_zip_max_mb`).
+    public var zipMaxMB = UploadSettings.defaultZipMaxMB {
+        didSet {
+            let clamped = Self.clampZipMaxMB(zipMaxMB)
+            if clamped != zipMaxMB { zipMaxMB = clamped }
+        }
+    }
 
     public init() {}
+
+    public static func clampZipMaxMB(_ value: Int) -> Int {
+        max(zipMaxMBRange.lowerBound, min(value, zipMaxMBRange.upperBound))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case autoUpload, hosts, googleDriveFolderID, copyLinkToClipboard, zipBundle, zipMaxMB
+    }
+
+    /// Every key is optional, so settings stored before a field existed (the queue keeps a copy
+    /// with each job) still decode.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        autoUpload = try container.decodeIfPresent(Bool.self, forKey: .autoUpload) ?? autoUpload
+        hosts = try container.decodeIfPresent([String].self, forKey: .hosts) ?? hosts
+        googleDriveFolderID = try container.decodeIfPresent(String.self, forKey: .googleDriveFolderID)
+        copyLinkToClipboard = try container.decodeIfPresent(Bool.self, forKey: .copyLinkToClipboard) ?? copyLinkToClipboard
+        zipBundle = try container.decodeIfPresent(Bool.self, forKey: .zipBundle) ?? zipBundle
+        let megabytes = try container.decodeIfPresent(Int.self, forKey: .zipMaxMB) ?? zipMaxMB
+        zipMaxMB = Self.clampZipMaxMB(megabytes)
+    }
 }
 
 public struct AppSettings: Codable, Sendable, Equatable {

@@ -123,6 +123,10 @@ public enum DesktopConfig {
 
         s.appUpdateCheck = bool(c["app_update_check"]) ?? s.appUpdateCheck
 
+        // Upload bundling: several files of one upload go into ZIPs up to this size.
+        s.upload.zipBundle = bool(c["upload_zip_bundle"]) ?? s.upload.zipBundle
+        s.upload.zipMaxMB = UploadSettings.clampZipMaxMB(int(c["upload_zip_max_mb"]) ?? s.upload.zipMaxMB)
+
         let secrets = Secrets(
             email: nonEmpty(c["email"]),
             password: nonEmpty(c["wd"]),
@@ -219,6 +223,9 @@ public enum DesktopConfig {
         c["webtoepub_auto_update"] = s.engines.webtoepubAutoUpdate
 
         c["app_update_check"] = s.appUpdateCheck
+
+        c["upload_zip_bundle"] = s.upload.zipBundle
+        c["upload_zip_max_mb"] = s.upload.zipMaxMB
         return c
     }
 
