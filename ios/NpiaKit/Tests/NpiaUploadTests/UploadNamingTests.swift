@@ -103,6 +103,11 @@ final class UploadNamingTests: UploadTestCase {
         XCTAssertEqual(asciiUploadName(url("419368.epub"), id: "npia_419368"), "npia_419368.epub")
         XCTAssertEqual(asciiUploadName(url("a.epub"), id: "npia_419368"), "npia_419368.epub")
         XCTAssertEqual(asciiUploadName(url("NovelDB_3_EPUBs.zip"), id: nil), "NovelDB_3_EPUBs.zip")
+        // A name is never just an extension: temp.sh keeps ".epub" as "epub", which downloads with no extension.
+        XCTAssertEqual(asciiUploadName(url(".epub"), id: "npia_419368"), "npia_419368.epub")
+        XCTAssertEqual(asciiUploadName(url(".epub"), id: nil), "book.epub")
+        XCTAssertEqual(asciiUploadName(url("-_.epub"), id: "npia_419368"), "npia_419368.epub")
+        XCTAssertEqual(asciiUploadName(url("VR_.epub"), id: "npia_419368"), "npia_419368.epub")
         // What the Android phone showed (".epub" with the Korean part stripped, "-_", "VR_"): none
         // of these reaches a host as a name.
         XCTAssertEqual(asciiUploadName(url("-_.epub"), id: "npia_9"), "npia_9.epub")
