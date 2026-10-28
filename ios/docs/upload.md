@@ -30,15 +30,18 @@ under a useful ASCII name (`asciiUploadName`, `UploadNaming.asciiTitle`):
 1. The title, when it is plain ASCII, is sent unchanged.
 2. A title with other characters keeps its ASCII part (the other characters become spaces, empty
    brackets and loose punctuation at the ends are dropped, at most 100 characters) when that part
-   holds at least three ASCII letters or digits: `Solo Leveling ...` stays `Solo Leveling.epub`.
+   holds at least three ASCII letters (A-Z, a-z; digits do not count): `Solo Leveling ...` stays
+   `Solo Leveling.epub`, while a Korean title that only starts with a number ("100 ...") does not become `100.epub`.
 3. Otherwise the stand-in `<source>_<book id>.<ext>` is used, like `npia_419368.epub`
    (`UploadNaming.nameID(source:bookID:url:)`: the adapter's book id, else the last number in the
    job URL, else a short slug, else `book`). The queue, the Upload action and the automatic upload
    after a download all pass it, with the job's source codename.
 
-The multipart header carries that name in `filename` and the real one in the RFC 5987
-`filename*` parameter, Pixeldrain's URL uses the ASCII name, and `UploadResult.fileName` keeps the
-real name. Names inside a ZIP are always the original ones.
+The multipart header carries only that ASCII name in `filename`. It used to add the real name in
+the RFC 5987 `filename*` parameter; hosts that read that parameter prefer it, strip the Korean from
+it and were the likely source of names like `-_.epub`, so it is no longer sent. Pixeldrain's URL
+uses the ASCII name, and `UploadResult.fileName` keeps the real name. Names inside a ZIP are
+always the original ones.
 
 ## ZIP bundles
 

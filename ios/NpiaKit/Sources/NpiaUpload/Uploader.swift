@@ -265,7 +265,7 @@ public enum UploaderCatalog {
     /// TXT output) are zipped first. Successful uploads are added to `history`.
     ///
     /// `nameID` is the stand-in name (like `npia_419368`) for a file whose title keeps fewer than
-    /// three ASCII letters or digits; the result keeps the original name. `contents` is what a
+    /// three ASCII letters (digits do not count); the result keeps the original name. `contents` is what a
     /// ZIP holds, stored with the result. `events` reports the host being tried, its byte
     /// progress, and each failure that makes the next host run.
     public static func upload(
