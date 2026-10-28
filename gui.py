@@ -923,7 +923,7 @@ class NpiaGUI(NpiaPipelineMixin, tk.Tk):
         ("백합", "Yuri"), ("추리", "Mystery"), ("로맨스", "Romance"),
         ("하렘", "Harem"), ("역하렘", "Reverse Harem"),
         # -- Recommended --
-        ("npia", "Npia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"),
+        ("\uB178\uBCA8\uD53C\uC544", "Npia"), ("판타지", "Fantasy"), ("현대", "Hyundai/Modern"),
         ("오리지널", "Original"), ("순애", "Pure Love"), ("일상", "Slice of Life"), ("용사", "Hero"),
         # -- Popular --
         ("학교", "School"), ("19금", "R-19"), ("수녀", "Nun"),
