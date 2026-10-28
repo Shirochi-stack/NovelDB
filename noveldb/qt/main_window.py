@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -34,6 +34,8 @@ PAGES = ("Download", "Catalog", "Queue", "Settings")
 # Saved geometry is prefixed with a version: sizes saved before display scaling followed the OS
 # setting were a third too small, so they are not restored.
 GEOMETRY_VERSION = "2:"
+# A resize bigger than this share of a side in one step is a jump (snapping, a program), not a drag.
+JUMP = 0.15
 
 
 class MainWindow(QMainWindow):
@@ -116,11 +118,13 @@ class MainWindow(QMainWindow):
         for index in range(len(PAGES)):
             QShortcut(QKeySequence(f"Ctrl+{index + 1}"), self, activated=lambda i=index: self.show_page(i))
         self.statusBar().setSizeGripEnabled(True)
-        # The interface grows with the window (noveldb/qt/scale.py), once resizing settles.
+        # The interface grows with the window (noveldb/qt/scale.py): at once when the window is
+        # maximised, restored or made full screen, otherwise once dragging an edge settles.
         self._scale_timer = QTimer(self)
         self._scale_timer.setSingleShot(True)
         self._scale_timer.setInterval(150)
         self._scale_timer.timeout.connect(self._rescale)
+        self._scaled_state = self._size_state()
         on_scale(self, lambda: self._apply_theme(force=True), now=False)
         self._restore_geometry()
 
@@ -223,12 +227,35 @@ class MainWindow(QMainWindow):
 
     # -- appearance ------------------------------------------------------------------------
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not event.spontaneous():
+            self._rescale()  # the first paint already has the window's scale
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._scale_timer.start()
+        # Maximising, restoring and snapping jump straight to the new size. Waiting for the timer
+        # there painted the old scale at the new size first (a small form in a big window, or a
+        # clipped one). Dragging an edge moves a little at a time and waits until it settles.
+        old, new = event.oldSize(), event.size()
+        jumped = not old.isValid() or abs(new.width() - old.width()) > old.width() * JUMP \
+            or abs(new.height() - old.height()) > old.height() * JUMP
+        if jumped or self._size_state() != self._scaled_state:
+            self._rescale()
+        else:
+            self._scale_timer.start()
+
+    def _size_state(self) -> Qt.WindowState:
+        return self.windowState() & (Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen)
 
     def _rescale(self) -> None:
-        ui_scale.set_factor(factor_for(self.width(), self.height(), self.context.settings.ui.scale_with_window))
+        self._scale_timer.stop()
+        self._scaled_state = self._size_state()
+        factor = factor_for(self.width(), self.height(), self.context.settings.ui.scale_with_window)
+        if ui_scale.set_factor(factor):
+            # Windows paints right after a resize, before queued layout passes run: lay out with
+            # the new sizes now, so the first paint is the final layout.
+            QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
 
     def _settings_changed(self) -> None:
         self._rescale()
