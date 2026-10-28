@@ -125,7 +125,7 @@ public enum NpiaAuth {
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             context.logger.log(.warning, "npia sign-in error: \(error.localizedDescription)")
         }
-        context.logger.log(.warning, "npia sign-in failed; check the email and password in Settings > npia")
+        context.logger.log(.warning, "npia sign-in failed; check the email and password in Settings > npia login")
         return nil
     }
 }

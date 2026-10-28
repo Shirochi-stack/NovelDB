@@ -10,7 +10,7 @@ struct SettingsView: View {
                 NavigationLink { SharedSettingsForm() } label: { Label("General", systemImage: "slider.horizontal.3") }
                 NavigationLink { SourceOverridesList() } label: { Label("Per-source overrides", systemImage: "square.stack.3d.up") }
                 NavigationLink { SourceOptionsForm() } label: { Label("Source options", systemImage: "puzzlepiece") }
-                NavigationLink { NpiaSettingsForm() } label: { Label("npia", systemImage: "person.crop.circle") }
+                NavigationLink { NpiaSettingsForm() } label: { Label("npia login", systemImage: "person.crop.circle") }
             }
             Section("Output") {
                 NavigationLink { ImageSettingsForm() } label: { Label("Images", systemImage: "photo") }
@@ -288,7 +288,7 @@ struct NpiaSettingsForm: View {
             }
         }
         .themedBackground()
-        .navigationTitle("npia")
+        .navigationTitle("npia login")
         .onAppear {
             reload()
             reloadMapping()
