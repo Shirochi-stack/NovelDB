@@ -26,11 +26,11 @@ object SourceInfo {
     }
 
     /** Every non-empty line that parses as a URL. */
-    fun urls(text: String): List<String> = text.lines().mapNotNull(::parseUrl)
+    fun urls(text: String): List<String> = text.lines().mapNotNull(::parseUrl).map(SourceCatalog::canonicalUrl)
 
     /** URLs inside shared text (share sheet), which often wraps the link in a title or message. */
     fun extractUrls(text: String): List<String> =
-        urlPattern.findAll(text).map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }.distinct().toList()
+        urlPattern.findAll(text).map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }.map(SourceCatalog::canonicalUrl).distinct().toList()
 
     fun groups(source: SourceId): List<SourceOptionGroup> = when (source) {
         SourceId.NPIA -> listOf(SourceOptionGroup.NPIA)

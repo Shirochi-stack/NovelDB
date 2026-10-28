@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -166,6 +167,12 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             enabled = supported.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         ) { Text(if (supported.size > 1) "Download ${supported.size} books" else "Download") }
+        // Like the desktop Download page, sign-ins sit next to the Download button.
+        OutlinedButton(
+            onClick = { model.push(com.shirochi.npia.app.Route.EnterApp) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        ) { Text("Enter App") }
+        Footnote("Sign in to sfc, qdn and rbooks to read the chapters your account bought.")
     }
 }
 
