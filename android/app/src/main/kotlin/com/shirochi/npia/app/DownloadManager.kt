@@ -13,6 +13,7 @@ import com.shirochi.npia.app.model.UploadBatch
 import com.shirochi.npia.app.model.UploadNaming
 import com.shirochi.npia.app.model.UploadState
 import com.shirochi.npia.core.AppSettings
+import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.InMemorySecretStore
 import com.shirochi.npia.core.JobLogging
 import com.shirochi.npia.core.NullLogger
@@ -27,6 +28,10 @@ import com.shirochi.npia.pipeline.DownloadPipeline
 import com.shirochi.npia.pipeline.JobOutcome
 import com.shirochi.npia.net.OkHttpFetcher
 import com.shirochi.npia.sources.SourceCatalog
+import com.shirochi.npia.sources.engines.EngineFetch
+import com.shirochi.npia.sources.engines.RuleEngine
+import com.shirochi.npia.sources.engines.RuleEngines
+import com.shirochi.npia.sources.engines.UpdateResult
 import com.shirochi.npia.sources.npia.NpiaAuth
 import com.shirochi.npia.sources.npia.NpiaCookieSetting
 import com.shirochi.npia.upload.UploadContext
@@ -50,7 +55,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * App-wide state: settings, the persistent download queue, and upload history (iOS `AppModel`).
@@ -124,11 +131,19 @@ class DownloadManager(private val app: Application) {
         runCatching { SettingsCoding.decode(settingsFile.readText()) }.getOrDefault(AppSettings())
 
     fun updateSettings(change: (AppSettings) -> AppSettings) {
+        val before = _settings.value.engines
         val next = change(_settings.value)
         if (next == _settings.value) return
         _settings.value = next
         runCatching { settingsFile.writeText(SettingsCoding.encode(next)) }
             .onFailure { message("Could not save settings: ${it.message}") }
+        // Opting in to updates (a toggle, or an imported config) checks right away.
+        val engines = next.engines
+        if ((engines.novelDownloaderAutoUpdate && !before.novelDownloaderAutoUpdate) ||
+            (engines.webtoepubAutoUpdate && !before.webtoepubAutoUpdate)
+        ) {
+            checkEngineUpdates(automatic = true)
+        }
     }
 
     private val _preferencesFlow = MutableStateFlow(0)
@@ -164,6 +179,63 @@ class DownloadManager(private val app: Application) {
         preferences.maxConcurrentJobs = value
         _preferencesFlow.update { it + 1 }
         startNext()
+    }
+
+    // Rule engine updates
+
+    /** What the Site engines screen shows about update checks. `changes` counts finished checks, so it can refresh the bundle in use. */
+    data class EngineUpdateStatus(val checking: Boolean = false, val results: List<UpdateResult> = emptyList(), val changes: Int = 0)
+
+    private val _engineUpdates = MutableStateFlow(EngineUpdateStatus())
+    val engineUpdates: StateFlow<EngineUpdateStatus> = _engineUpdates.asStateFlow()
+    private val engineChecking = AtomicBoolean(false)
+
+    /** Reads release files over HTTP; GitHub answers 404 until the `engines` release exists. */
+    private val engineFetch = EngineFetch { url, timeoutSeconds ->
+        val response = OkHttpFetcher(maxRetries = 1).send(HttpRequest(url, timeoutSeconds = timeoutSeconds))
+        if (response.status !in 200..299) throw IOException("HTTP ${response.status}")
+        response.body
+    }
+
+    /**
+     * Looks for rule engine updates in the background. `automatic` is the daily check: only the
+     * engines the user opted in to, each at most once per 24 hours, and only news and failures are
+     * shown (as messages). Otherwise (the button) every engine is checked and the results are kept
+     * for the Site engines screen.
+     */
+    fun checkEngineUpdates(automatic: Boolean = false) {
+        val engines = RuleEngine.ALL.filter { !automatic || _settings.value.engines.autoUpdate(it.engine) }
+        if (engines.isEmpty() || !engineChecking.compareAndSet(false, true)) return
+        _engineUpdates.update { it.copy(checking = true, results = if (automatic) it.results else emptyList()) }
+        scope.launch {
+            try {
+                for (engine in engines) {
+                    val result = try {
+                        if (automatic) {
+                            RuleEngines.updates.checkIfDue(engine, engineFetch, ::message)
+                        } else {
+                            RuleEngines.updates.check(engine, engineFetch)
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        UpdateResult(engine, UpdateResult.Status.FAILED, "${engine.title} update check failed: ${e.message ?: e}")
+                            .also { if (automatic) message(it.message) }
+                    }
+                    if (result != null) {
+                        _engineUpdates.update { it.copy(results = if (automatic) it.results else it.results + result, changes = it.changes + 1) }
+                    }
+                }
+            } finally {
+                engineChecking.set(false)
+                _engineUpdates.update { it.copy(checking = false) }
+            }
+        }
+    }
+
+    init {
+        // At start: only for the engines the user opted in to, and at most once a day.
+        checkEngineUpdates(automatic = true)
     }
 
     // Queue

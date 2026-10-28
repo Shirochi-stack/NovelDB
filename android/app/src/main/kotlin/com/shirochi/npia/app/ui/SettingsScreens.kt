@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -34,9 +35,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
@@ -46,11 +53,15 @@ import com.shirochi.npia.app.validCatalogUrl
 import com.shirochi.npia.app.Route
 import com.shirochi.npia.app.model.count
 import com.shirochi.npia.core.AppSettings
+import com.shirochi.npia.core.EngineSettings
 import com.shirochi.npia.core.ImageFormat
 import com.shirochi.npia.core.NamingMode
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SharedOverrides
+import com.shirochi.npia.core.SiteEngine
 import com.shirochi.npia.core.SourceId
+import com.shirochi.npia.sources.engines.RuleEngine
+import com.shirochi.npia.sources.engines.RuleEngines
 import com.shirochi.npia.sources.npia.NpiaFontMapping
 import com.shirochi.npia.upload.Uploader
 import com.shirochi.npia.upload.UploaderCatalog
@@ -74,6 +85,7 @@ fun SettingsScreen(model: AppViewModel) {
         NavRow("General", "Format, chapter range, threads, rate limiting, cache") { model.push(Route.General) }
         NavRow("Per-source overrides") { model.push(Route.Overrides) }
         NavRow("Source options", "kpage, ntk, nweb, kobo") { model.push(Route.SourceOptions) }
+        NavRow("Site engines", "Engine order, fallbacks and updates") { model.push(Route.Engines) }
         NavRow("npia login", "Account, notices, tag search") { model.push(Route.Npia) }
         NavRow("Signed-in sites", "Logins saved by the Browser tab") { model.push(Route.Sites) }
         SectionHeader("Output")
@@ -197,6 +209,88 @@ fun SourceOptionsScreen(model: AppViewModel) {
         for (source in listOf(SourceId.KPAGE, SourceId.NTK, SourceId.NWEB, SourceId.KOBO)) {
             SourceOptions(source, settings) { next -> update { it.copy(sources = next.sources, images = next.images, npia = next.npia) } }
         }
+    }
+}
+
+// Site engines
+
+private const val NOVEL_DOWNLOADER_URL = "https://github.com/404-novel-project/novel-downloader"
+private const val WEBTOEPUB_URL = "https://github.com/dteviot/WebToEpub"
+
+private fun engineHint(engine: SiteEngine): String = when (engine) {
+    SiteEngine.NATIVE -> "The app's own scrapers for the sites it knows best."
+    SiteEngine.NOVEL_DOWNLOADER -> "novel-downloader's rules, mostly Chinese and Japanese sites."
+    SiteEngine.WEBTOEPUB -> "WebToEpub's parsers for 650+ sites, mostly English translations."
+}
+
+@Composable
+fun EngineSettingsScreen(model: AppViewModel) {
+    val (settings, update) = settingsState(model)
+    val engines = settings.engines
+    val status by model.manager.engineUpdates.collectAsStateWithLifecycle()
+    // Read again when a check finishes, since it may have installed a newer bundle.
+    val bundles = remember(status.changes) { RuleEngine.ALL.map { it to RuleEngines.store.current(it) } }
+    fun set(change: (EngineSettings) -> EngineSettings) = update { it.copy(engines = change(it.engines)) }
+    val order = engines.fullOrder()
+    val onlyOne = engines.enabled().size == 1
+    SettingsColumn {
+        Footnote("Each link tries these in order until one finds chapters. Move engines up or down, and untick an engine to skip it. At least one stays on.")
+        order.forEachIndexed { index, engine ->
+            val on = engines.isEnabled(engine)
+            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = on, onCheckedChange = { v -> set { it.withEnabled(engine, v) } }, enabled = !(on && onlyOne))
+                Column(Modifier.weight(1f)) {
+                    Text("${index + 1}. ${engine.label}")
+                    Text(engineHint(engine), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = { set { it.moved(engine, -1) } }, enabled = index > 0) { Text("\u2191") }
+                TextButton(onClick = { set { it.moved(engine, 1) } }, enabled = index < order.lastIndex) { Text("\u2193") }
+            }
+        }
+        TextButton(
+            onClick = { set { it.resetOrder() } },
+            enabled = !engines.isDefaultOrder || engines.enabled().size != order.size,
+            modifier = Modifier.padding(start = 8.dp),
+        ) { Text("Default order") }
+        Footnote("A built-in scraper hands over to the other engines only on sites they list. A link no built-in scraper owns tries every engine that is on.")
+
+        SectionHeader("Updates")
+        bundles.forEach { (engine, bundle) ->
+            Footnote(if (bundle != null) "${engine.title}: ${bundle.label}." else "${engine.title}: missing from this build.")
+        }
+        SwitchRow(
+            "Update the novel-downloader rules automatically",
+            engines.novelDownloaderAutoUpdate,
+            { v -> set { it.withAutoUpdate(SiteEngine.NOVEL_DOWNLOADER, v) } },
+        )
+        SwitchRow(
+            "Update the WebToEpub parsers automatically",
+            engines.webtoepubAutoUpdate,
+            { v -> set { it.withAutoUpdate(SiteEngine.WEBTOEPUB, v) } },
+        )
+        Footnote(
+            "Both are off by default and checked once a day. Updates come from NovelDB's GitHub releases, where a daily job rebuilds " +
+                "each engine from its official repository and checks that it loads before publishing it. A downloaded update that fails to load is set aside.",
+        )
+        TextButton(
+            onClick = { model.manager.checkEngineUpdates() },
+            enabled = !status.checking,
+            modifier = Modifier.padding(start = 8.dp),
+        ) { Text(if (status.checking) "Checking…" else "Check for updates now") }
+        status.results.forEach { Footnote(it.message) }
+
+        val link = SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)
+        Text(
+            buildAnnotatedString {
+                append("novel-downloader is made by the 404 Novel Project (AGPL-3.0): ")
+                withLink(LinkAnnotation.Url(NOVEL_DOWNLOADER_URL, TextLinkStyles(link))) { append(NOVEL_DOWNLOADER_URL) }
+                append(". WebToEpub is made by David Teviotdale and contributors (GPL-3.0): ")
+                withLink(LinkAnnotation.Url(WEBTOEPUB_URL, TextLinkStyles(link))) { append(WEBTOEPUB_URL) }
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
     }
 }
 

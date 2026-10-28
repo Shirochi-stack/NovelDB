@@ -134,6 +134,7 @@ fun RootScreen(model: AppViewModel) {
                 Route.Overrides -> OverridesListScreen(model)
                 is Route.OverrideForm -> OverrideFormScreen(model, route.source)
                 Route.SourceOptions -> SourceOptionsScreen(model)
+                Route.Engines -> EngineSettingsScreen(model)
                 Route.Npia -> NpiaSettingsScreen(model)
                 Route.TagSearch -> TagSearchScreen(model)
                 Route.Images -> ImageSettingsScreen(model)
