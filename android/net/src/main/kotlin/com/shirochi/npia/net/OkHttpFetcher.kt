@@ -3,6 +3,9 @@ package com.shirochi.npia.net
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
+import com.shirochi.npia.core.JobLogging
+import com.shirochi.npia.core.LogLevel
+import com.shirochi.npia.core.NullLogger
 import com.shirochi.npia.core.SharedSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -54,14 +57,16 @@ class OkHttpFetcher(
     private val maxRetries: Int = 3,
     private val userAgent: String = DEFAULT_USER_AGENT,
     client: OkHttpClient? = null,
+    /** Where retries and failed requests are reported (host and path only, never the query). */
+    private val logger: JobLogging = NullLogger,
 ) : HttpFetching {
     /**
      * No request pacing: like the desktop scraper, the rate limit is a pause each chapter worker
      * takes after a chapter (`SharedSettings.pauseBetweenChapters`), so threads and images run
      * in parallel.
      */
-    constructor(settings: SharedSettings, cookieJar: CookieJar = CookieJar.NO_COOKIES) :
-        this(cookieJar, null, settings.maxRetries)
+    constructor(settings: SharedSettings, cookieJar: CookieJar = CookieJar.NO_COOKIES, logger: JobLogging = NullLogger) :
+        this(cookieJar, null, settings.maxRetries, logger = logger)
 
     private val client = client ?: OkHttpClient.Builder()
         .cookieJar(cookieJar)
@@ -94,24 +99,39 @@ class OkHttpFetcher(
         val okRequest = builder.build()
         val call = client.newBuilder().callTimeout(request.timeoutSeconds, TimeUnit.SECONDS).build()
 
+        val where = "${okRequest.url.host}${okRequest.url.encodedPath}"
         var attempt = 0
         while (true) {
             pacer?.await()
+            var wait = 0L
             try {
                 call.newCall(okRequest).await().use { response ->
                     if (isRetryable(response.code) && attempt < maxRetries) {
                         attempt++
+                        wait = backoffMillis(attempt)
+                        logger.log(LogLevel.WARNING, "HTTP ${response.code} from $where; retry $attempt of $maxRetries in ${seconds(wait)} s")
                     } else {
                         val body = withContext(Dispatchers.IO) { response.body?.bytes() ?: ByteArray(0) }
                         val headers = response.headers.toMultimap().mapKeys { it.key.lowercase() }.mapValues { it.value.joinToString(", ") }
+                        if (response.code !in 200..299) {
+                            val level = if (isRetryable(response.code)) LogLevel.WARNING else LogLevel.DEBUG
+                            val tried = if (attempt > 0) " after $attempt retries" else ""
+                            logger.log(level, "HTTP ${response.code} from $where$tried")
+                        }
                         return HttpResponse(response.request.url.toString(), response.code, headers, body)
                     }
                 }
             } catch (e: IOException) {
-                if (attempt >= maxRetries) throw e
+                val reason = "${e.javaClass.simpleName}: ${e.message ?: "no details"}"
+                if (attempt >= maxRetries) {
+                    logger.log(LogLevel.WARNING, "$reason for $where; giving up after $attempt retries")
+                    throw e
+                }
                 attempt++
+                wait = backoffMillis(attempt)
+                logger.log(LogLevel.WARNING, "$reason for $where; retry $attempt of $maxRetries in ${seconds(wait)} s")
             }
-            delay(backoffMillis(attempt))
+            delay(wait)
         }
     }
 
@@ -120,6 +140,8 @@ class OkHttpFetcher(
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
         fun isRetryable(status: Int) = status == 429 || status in 500..599
+
+        private fun seconds(millis: Long): String = String.format(java.util.Locale.US, "%.1f", millis / 1000.0)
 
         /** Joins jar cookies with an explicit `Cookie` header; explicit values win by name. */
         fun mergeCookieHeaders(jar: String?, explicit: String): String {
