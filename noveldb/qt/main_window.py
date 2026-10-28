@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from dataclasses import replace
 
-from PySide6.QtCore import QByteArray, QEvent, QSize, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -37,6 +37,9 @@ PAGES = ("Download", "Catalog", "Queue", "Settings")
 GEOMETRY_VERSION = "2:"
 # A resize bigger than this share of a side in one step is a jump (snapping, a program), not a drag.
 JUMP = 0.15
+# A normal (not maximised) window this close to the screen's size fills it: restoring to it would
+# look like nothing happened, so it gets the default window size instead.
+FILLS_SCREEN = 0.95
 
 
 def _is_jump(old: QSize, new: QSize) -> bool:
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"NovelDB {VERSION}{suffix}")
         self.setMinimumSize(900, 620)
         self._start_maximized = False
+        self._maximized_before_full_screen = False
 
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("sidebar")
@@ -169,6 +173,7 @@ class MainWindow(QMainWindow):
                 lambda _scheme: self._appearance[0] == "system" and self._apply_theme(force=True))
         for index in range(len(PAGES)):
             QShortcut(QKeySequence(f"Ctrl+{index + 1}"), self, activated=lambda i=index: self.show_page(i))
+        QShortcut(QKeySequence(Qt.Key.Key_F11), self, activated=self.toggle_full_screen)
         self.statusBar().setSizeGripEnabled(True)
         # The interface grows with the window (noveldb/qt/scale.py): at once when the window is
         # maximised, restored or made full screen, otherwise once dragging an edge settles.
@@ -347,23 +352,69 @@ class MainWindow(QMainWindow):
         if saved.startswith(GEOMETRY_VERSION):
             try:
                 if self.restoreGeometry(QByteArray.fromBase64(saved[len(GEOMETRY_VERSION):].encode("ascii"))):
+                    self._tidy_restored_geometry()
                     return
             except Exception:
                 pass
         self._default_geometry()
 
-    def _default_geometry(self) -> None:
-        """Most of the screen: big enough for the Catalog, maximized on small or high-scale screens."""
-        screen = QGuiApplication.primaryScreen()
+    def _tidy_restored_geometry(self) -> None:
+        """Start maximised rather than full screen, and never with a screen-sized window to restore to."""
+        state = self.windowState()
+        if state & Qt.WindowState.WindowFullScreen:
+            self.setWindowState(Qt.WindowState.WindowMaximized)
+        if self._fills_screen(self.normalGeometry()):
+            self.setWindowState(Qt.WindowState.WindowNoState)
+            self.setGeometry(self._normal_rect())
+            self._start_maximized = True
+
+    def _normal_rect(self) -> QRect:
+        """The default window: most of the screen, centred, clearly smaller than maximised."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
         if screen is None:
-            self.resize(1280, 860)
-            return
+            return QRect(0, 0, 1280, 860)
         area = screen.availableGeometry()
         width = int(min(area.width() * 0.92, max(1280, area.width() * 0.75)))
         height = int(min(area.height() * 0.92, max(860, area.height() * 0.85)))
-        self.resize(width, height)
-        self.move(area.x() + (area.width() - width) // 2, area.y() + (area.height() - height) // 2)
+        return QRect(area.x() + (area.width() - width) // 2, area.y() + (area.height() - height) // 2, width, height)
+
+    def _fills_screen(self, rect: QRect) -> bool:
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None or not rect.isValid():
+            return False
+        area = screen.availableGeometry()
+        return rect.width() >= area.width() * FILLS_SCREEN and rect.height() >= area.height() * FILLS_SCREEN
+
+    def _default_geometry(self) -> None:
+        """Most of the screen: big enough for the Catalog, maximized on small or high-scale screens."""
+        self.setGeometry(self._normal_rect())
         self._start_maximized = True  # first start: use the whole screen; later starts restore the window
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() != QEvent.Type.WindowStateChange:
+            return
+        big = Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
+        if event.oldState() & big and not self.windowState() & (big | Qt.WindowState.WindowMinimized):
+            # Restored to a window as big as the screen (saved that way, or dragged out to it): the
+            # restore button would seem to do nothing, so use the default window size.
+            QTimer.singleShot(0, self, self._shrink_if_it_fills_the_screen)
+
+    def _shrink_if_it_fills_the_screen(self) -> None:
+        if not self.windowState() & (Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen) \
+                and self._fills_screen(self.geometry()):
+            self.setGeometry(self._normal_rect())
+
+    def toggle_full_screen(self) -> None:
+        """F11: full screen, and back to maximised or the window it was."""
+        if self.isFullScreen():
+            if self._maximized_before_full_screen:
+                self.showMaximized()
+            else:
+                self.showNormal()
+        else:
+            self._maximized_before_full_screen = self.isMaximized()
+            self.showFullScreen()
 
     def show_initial(self) -> None:
         if self._start_maximized:
