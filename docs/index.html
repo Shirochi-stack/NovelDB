@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=44">
+    <link rel="stylesheet" href="style.css?v=45">
 </head>
 
 <body>
@@ -82,6 +82,18 @@
                             <option value="250">250</option>
                         </select>
                     </div>
+                    <div class="tag-menu-control">
+                        <button type="button" id="tagMenuButton" class="tag-menu-button" title="Tags" aria-label="Tags"
+                            aria-haspopup="true" aria-expanded="false" aria-controls="tagMenu">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19" />
+                                <path d="M9.586 5.586A2 2 0 0 0 8.172 5H3a1 1 0 0 0-1 1v5.172a2 2 0 0 0 .586 1.414L8.29 18.29a2.426 2.426 0 0 0 3.42 0l3.58-3.58a2.426 2.426 0 0 0 0-3.42z" />
+                                <circle cx="6.5" cy="9.5" r=".5" fill="currentColor" />
+                            </svg>
+                            <span id="tagMenuBadge" class="tag-menu-badge" aria-hidden="true" hidden>0</span>
+                        </button>
+                    </div>
                     <div class="control-group sort-control">
                         <label for="sortSelect">Sort by</label>
                         <select id="sortSelect">
@@ -114,19 +126,30 @@
             </div>
 
             <div id="settingsInline"></div>
-            <div class="tag-toolbar">
-                <button type="button" class="tag-toggle" id="tagToggle" aria-controls="includeTagsPanel" aria-expanded="false"><span>＋ Tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
-                <button type="button" class="tag-toggle exclude-toggle" id="excludeToggle" aria-controls="excludeTagsPanel" aria-expanded="false"><span>− Tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
-                <div class="tag-mode" aria-label="Tag match mode">
-                    <button id="tagModeAnd" class="mode-btn active" aria-pressed="true">AND</button>
-                    <button id="tagModeOr" class="mode-btn" aria-pressed="false">OR</button>
+            <!-- Phones use this single dropdown (opened from the tag button on the sort row);
+                 wider screens keep the two tag panels below. -->
+            <div id="tagMenu" class="tag-menu" role="group" aria-label="Filter by tags" hidden>
+                <div class="tag-menu-head">
+                    <span class="tag-menu-title">Top tags</span>
+                    <span id="tagMenuMode" class="tag-menu-mode"></span>
+                    <button type="button" id="tagMenuClear" class="clear-btn tag-menu-clear">Clear</button>
+                    <button type="button" id="tagMenuClose" class="tag-menu-close" aria-label="Close tags" title="Close">✕</button>
                 </div>
+                <input type="text" id="tagMenuSearch" class="tag-menu-search" placeholder="Search tags… (-tag excludes)"
+                    aria-label="Search tags; start with a minus sign to exclude" autocomplete="off" autocapitalize="none"
+                    autocorrect="off" spellcheck="false" inputmode="search" enterkeyhint="go">
+                <div id="tagMenuNote" class="tag-menu-note" aria-live="polite"></div>
+                <ul id="tagMenuList" class="tag-menu-list"></ul>
             </div>
             <div id="activeTagsSummary" class="active-tags-summary"></div>
             <div id="activeExcludeTagsSummary" class="active-tags-summary"></div>
             <div class="tag-section tag-panel" id="includeTagsPanel" hidden>
                 <div class="tag-header">
-                    <span class="mobile-panel-label">Include tags</span>
+                    <button type="button" class="tag-toggle" id="tagToggle" aria-controls="includeTagsPanel" aria-expanded="false"><span>Filter by tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
+                    <div class="tag-mode" aria-label="Tag match mode">
+                        <button id="tagModeAnd" class="mode-btn active" aria-pressed="true">AND</button>
+                        <button id="tagModeOr" class="mode-btn" aria-pressed="false">OR</button>
+                    </div>
                     <button id="clearTags" class="clear-btn">Clear</button>
                 </div>
                 <input type="text" id="tagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
@@ -135,7 +158,7 @@
 
             <div class="tag-section tag-panel exclude-section" id="excludeTagsPanel" hidden>
                 <div class="tag-header">
-                    <span class="mobile-panel-label">Exclude tags</span>
+                    <button type="button" class="tag-toggle exclude-toggle" id="excludeToggle" aria-controls="excludeTagsPanel" aria-expanded="false"><span>Exclude tags</span><span class="tag-disclosure" aria-hidden="true">▸</span></button>
                     <button id="clearExclude" class="clear-btn">Clear</button>
                 </div>
                 <input type="text" id="excludeTagSearch" class="tag-search collapsed" placeholder="Search tags..." autocomplete="off">
@@ -197,7 +220,7 @@
     <script src="cover-save.js?v=15"></script>
     <script src="site-tools.js?v=6"></script>
     <script src="mobile-feed.js?v=4"></script>
-    <script src="app.js?v=72"></script>
+    <script src="app.js?v=73"></script>
 </body>
 
 </html>
