@@ -1,7 +1,7 @@
 {
   "shards": 128,
-  "totalRows": 21398,
-  "descriptions": 21398,
+  "totalRows": 21402,
+  "descriptions": 21402,
   "algorithm": "numeric-modulo-v1",
   "format": "id-to-synopsis-json",
   "files": [
