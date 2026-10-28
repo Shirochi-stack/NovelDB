@@ -8,6 +8,11 @@ from PySide6.QtWidgets import QApplication
 
 from noveldb.qt.theme_palettes import SCHEMES
 
+# The log's text size at the base window size (the rest of the app uses 11 pt). It is in the
+# stylesheet, which is scaled with the window: a font set on the widget would be put back by Qt
+# each time the stylesheet is applied again.
+LOG_POINT_SIZE = 10
+
 
 def system_is_dark() -> bool:
     hints = QGuiApplication.styleHints()
@@ -147,7 +152,7 @@ def stylesheet_for(scheme: dict) -> str:
         border-radius: 8px; padding: 4px 10px; }}
     QToolButton:hover {{ background: {s['surfaceContainerHigh']}; }}
     QToolButton[menu="true"] {{ background: {s['surfaceContainerHigh']}; border: 1px solid {s['outlineVariant']};
-        border-radius: 16px; padding: 6px 28px 6px 16px; }}
+        border-radius: 16px; padding: 6px 26px 6px 14px; }}
     QToolButton::menu-indicator {{ {down} subcontrol-origin: padding; subcontrol-position: center right;
         right: 8px; width: 12px; height: 12px; }}
     QMenu {{ background: {s['surfaceContainer']}; color: {s['onSurface']}; border: 1px solid {s['outlineVariant']};
@@ -187,7 +192,8 @@ def stylesheet_for(scheme: dict) -> str:
     QPushButton[feedback="error"] {{ background: {s['errorContainer']}; color: {s['onErrorContainer']}; }}
     QLabel[section="true"] {{ color: {s['primary']}; font-weight: 600; padding-top: 8px; }}
     QLabel[hint="true"] {{ color: {s['onSurfaceVariant']}; }}
-    QPlainTextEdit#log {{ background: {s['surfaceContainerLowest']}; border: 1px solid {s['outlineVariant']}; border-radius: 8px; }}
+    QPlainTextEdit#log {{ background: {s['surfaceContainerLowest']}; border: 1px solid {s['outlineVariant']}; border-radius: 8px;
+                         font-size: {LOG_POINT_SIZE}pt; }}
     QProgressBar {{ border: none; background: {s['surfaceContainerHighest']}; border-radius: 3px; max-height: 6px; text-align: center; }}
     QProgressBar::chunk {{ background: {s['primary']}; border-radius: 3px; }}
     """

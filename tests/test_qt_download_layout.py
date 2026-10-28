@@ -1,4 +1,4 @@
-"""The Download page's layout: the log's default share and where Enter App (sfc) lives."""
+"""The Download page's layout: the log's fixed share and font, and where Enter App (sfc) lives."""
 import os
 
 import pytest
@@ -37,7 +37,12 @@ def test_enter_app_is_in_the_tools_menu_not_on_the_page(window):
     assert requested == ["sfc_app"]
 
 
-def test_the_log_gets_about_forty_percent_of_the_page_by_default(window, qtbot):
+def share(page) -> float:
+    left, log = page.split.sizes()
+    return log / (left + log)
+
+
+def test_the_log_keeps_forty_percent_at_every_size(window, qtbot):
     from noveldb.qt.pages.download import LOG_SHARE
 
     window.resize(1920, 1040)
@@ -45,7 +50,44 @@ def test_the_log_gets_about_forty_percent_of_the_page_by_default(window, qtbot):
     page = window.download
     qtbot.waitUntil(lambda: page.split.width() > 1000, timeout=3000)
     page._fit_split()
+    assert abs(share(page) - LOG_SHARE) < 0.01
+    assert page.split.sizes()[1] >= page.log_dock.minimumWidth()
+    # Not worked out from the options' width any more: the same share when maximised (a new scale)
+    # and after a small drag of the window edge.
+    for width, height in [(2560, 1400), (2500, 1400), (1700, 1000)]:
+        window.resize(width, height)
+        qtbot.waitUntil(lambda: window.width() == width, timeout=3000)
+        qtbot.waitUntil(lambda: not window._scale_timer.isActive(), timeout=3000)
+        assert abs(share(page) - LOG_SHARE) < 0.01, (width, page.split.sizes())
+
+
+def test_a_dragged_split_keeps_its_share_when_the_window_changes(window, qtbot):
+    window.resize(1920, 1040)
+    window.show()
+    page = window.download
+    qtbot.waitUntil(lambda: page.split.width() > 1000, timeout=3000)
+    page._fit_split()
     left, log = page.split.sizes()
-    total = left + log
-    assert log >= int(total * LOG_SHARE) - 2
-    assert log >= page.log_dock.minimumWidth()
+    page.split.setSizes([left + log // 2, log - log // 2])
+    page._split_moved()  # what dragging the handle reports
+    dragged = share(page)
+    window.resize(2560, 1400)
+    qtbot.waitUntil(lambda: window.width() == 2560, timeout=3000)
+    assert abs(share(page) - dragged) < 0.01
+
+
+def test_the_log_text_is_ten_points_at_the_base_size(window):
+    from PySide6.QtWidgets import QApplication
+
+    from noveldb.qt.scale import ui_scale
+    from noveldb.qt.theme import apply_theme
+
+    apply_theme(QApplication.instance())  # as the app does at start
+    view = window.log_panel.log
+    try:
+        # Back and forth: a restyle must not put the previous size back.
+        for factor, size in [(1.0, 10.0), (1.45, 14.5), (1.0, 10.0), (1.5, 15.0)]:
+            ui_scale.set_factor(factor)
+            assert view.font().pointSizeF() == size, factor
+    finally:
+        ui_scale.set_factor(1.0)

@@ -30,19 +30,23 @@ def factor_for(width: int, height: int, enabled: bool = True) -> float:
 
 
 _PX = re.compile(r"(?<![\w.#-])(\d+(?:\.\d+)?)px")
+_PT = re.compile(r"(?<![\w.#-])(\d+(?:\.\d+)?)pt\b")
 
 
 def scale_stylesheet(qss: str, factor: float) -> str:
-    """Multiply the stylesheet's pixel sizes; hairlines (1px) stay hairlines."""
+    """Multiply the stylesheet's pixel and point sizes; hairlines (1px) stay hairlines."""
     if abs(factor - 1.0) < 1e-6:
         return qss
 
-    def repl(match):
+    def px(match):
         value = float(match.group(1))
         if value <= 1:
             return match.group(0)
         return f"{max(1, round(value * factor))}px"
-    return _PX.sub(repl, qss)
+
+    def pt(match):
+        return f"{float(match.group(1)) * factor:.2f}".rstrip("0").rstrip(".") + "pt"
+    return _PT.sub(pt, _PX.sub(px, qss))
 
 
 class UiScale(QObject):
