@@ -84,6 +84,14 @@ def test_newer_release_is_downloaded_and_used(shipped, engine):
     assert len(calls) == 1
 
 
+def test_a_rebuild_of_the_bundle_in_use_is_not_downloaded(shipped):
+    body = b"/* same parsers, built again */"
+    rebuild = _remote(W2E, body, commit="a" * 40, shim="s1", date="2026-10-27T04:19:22Z")
+    fetch, calls = _release(W2E, rebuild, body)
+    assert eu.check_for_update(W2E, fetch=fetch).status == "current"
+    assert len(calls) == 1
+
+
 def test_older_or_incompatible_releases_are_not_downloaded(shipped):
     body = b"/* older */"
     fetch, calls = _release(ND, _remote(ND, body, version="5.2.1200", date="2027-01-01T00:00:00Z"), body)
