@@ -42,8 +42,20 @@ const val DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 /** NovelDB Next, offered as a suggestion; its cards get link-cart buttons too. */
 const val NOVELDB_NEXT_URL = "https://noveldb.pages.dev/"
 
-/** The NovelDB website: "Open novel" goes to the Browser tab and links are never sent to the cart. */
-fun isNovelDbSite(url: String): Boolean = url.trimEnd('/') == DEFAULT_CATALOG_URL.trimEnd('/')
+/**
+ * A page of NovelDB (the GitHub Pages site) or NovelDB Next (and its preview deployments): outside
+ * links open in the Browser tab and are never renamed or sent to the cart.
+ */
+fun isNovelDbSite(url: String): Boolean {
+    val uri = runCatching { java.net.URI(url.trim()) }.getOrNull() ?: return false
+    val host = uri.host?.lowercase() ?: return false
+    val next = java.net.URI(NOVELDB_NEXT_URL).host
+    if (host == next || host.endsWith(".$next")) return true
+    val pages = java.net.URI(DEFAULT_CATALOG_URL)
+    val root = pages.path.trimEnd('/')
+    val path = uri.path.orEmpty()
+    return host == pages.host && (path == root || path.startsWith("$root/"))
+}
 
 /**
  * `text` when it is an address the Catalog tab can open: http or https with a site name.
@@ -92,6 +104,11 @@ class AppPreferences(context: Context) {
     var catalogCartLinks: Boolean
         get() = prefs.getBoolean("catalogCartLinks", true)
         set(value) = prefs.edit().putBoolean("catalogCartLinks", value).apply()
+
+    /** Language the Browser tab translates pages into (a Google Translate code); English by default. */
+    var translateLanguage: String
+        get() = prefs.getString("translateLanguage", null) ?: BrowserTranslate.DEFAULT_LANGUAGE
+        set(value) = prefs.edit().putString("translateLanguage", BrowserTranslate.language(value).code).apply()
 
     /** The one-time "Before you share" agreement shown before the first upload. */
     var shareAgreementAccepted: Boolean

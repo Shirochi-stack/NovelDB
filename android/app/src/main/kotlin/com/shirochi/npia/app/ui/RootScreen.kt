@@ -144,6 +144,7 @@ fun RootScreen(model: AppViewModel) {
                 Route.LinkCart -> LinkCartScreen(model, topBar)
                 Route.Appearance -> AppearanceSettingsScreen(model)
                 Route.CatalogSite -> CatalogSiteSettingsScreen(model)
+                Route.BrowserSettings -> BrowserSettingsScreen(model)
                 Route.Background -> BackgroundSettingsScreen(model)
                 Route.Transfer -> ConfigTransferScreen(model)
                 Route.Sites -> SitesScreen(model)
