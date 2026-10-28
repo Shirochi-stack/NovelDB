@@ -4294,6 +4294,7 @@
 2008058943|||침산 (15세 개정판)|||Chimsan (Revised 15+ Edition)
 2008059065|||마공귀환|||Return of the Demonic Arts
 2008059285|||별점 모으는 소환수|||The Summon That Collects Star Ratings
+2008059480|||사천귀검록|||Record of the Sichuan Demon Sword
 2036003784|||사랑을 쟁취하라|||Fight for Love
 2036003988|||리버스 빌런|||Reverse Villain
 2036004641|||호랑이 장가가는 날|||The Day the Tiger Gets Married
@@ -10268,6 +10269,7 @@
 297091939|||내 에스퍼와의 안전이별법|||How to Safely Break Up with My Esper
 297091999|||내 에스퍼와의 안전이별법 (15세 개정판)|||How to Safely Break Up with My Esper (15+ Revised Edition)
 297093248|||대공님의 저주가 맛있습니다|||The Duke's Curse Is Delicious
+297093249|||대공님의 저주가 맛있습니다 (15세 개정판)|||The Duke's Curse Is Delicious (15+ Revised Edition)
 2977000030|||중독자 김출중이 악령을 이기는 방법(연재)|||How Addict Kim Chuljung Defeats Evil Spirits (Serialization)
 2991000001|||언더그라운드 피셔맨 클럽|||Underground Fisherman Club
 2997000002|||마귀|||The Demon
@@ -17216,6 +17218,7 @@
 4516012704|||거절은 거절해|||I Refuse to Take No for an Answer
 4516012777|||거절은 거절해 (15세 개정판)|||I Refuse to Take No for an Answer (15+ Revised Edition)
 4516012869|||바른 생활 연애|||Righteous Living Romance
+4516012941|||바른 생활 연애 (15세 개정판)|||Righteous Living Romance (15+ Revised Edition)
 4529000001|||텐세그리티(Tensegrity)|||Tensegrity
 4529000151|||텐세그리티(Tensegrity) 외전|||Tensegrity: Side Story
 4529000176|||라그랑주 포인트|||Lagrange Point
@@ -18343,6 +18346,7 @@
 5492005038|||재활용 아이돌이 되었다|||I Became a Recycled Idol
 5492005306|||동전 던져 운빨 망겜에서 살아남기|||Surviving a Trash RNG Game with a Coin Toss
 5492005506|||검귀참선록|||Chronicles of the Sword Demon’s Zen
+5492006398|||예쁜 개|||Pretty Dog
 5499000001|||블러디 서바이벌 로맨스(bloody survival romance)|||Bloody Survival Romance
 5502000001|||속죄, 그 잔혹함에 대하여|||Atonement, and Its Cruelty
 5502000002|||속죄, 그 잔혹함에 대하여(15세 개정판)|||Atonement, and Its Cruelty (15+ Revised Edition)
@@ -21393,10 +21397,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-2008059480|||사천귀검록|||
-297093249|||대공님의 저주가 맛있습니다 (15세 개정판)|||
 425606091|||1903|||
 425629250|||1973|||
-4516012941|||바른 생활 연애 (15세 개정판)|||
-5492006398|||예쁜 개|||
 945008054|||40,41|||
