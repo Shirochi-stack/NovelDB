@@ -198,6 +198,6 @@ else:
                 "CFBundleVersion": app_version.BUNDLE_VERSION,
                 "NSHighResolutionCapable": True,
                 "NSRequiresAquaSystemAppearance": False,
-                "LSMinimumSystemVersion": "11.0",
+                "LSMinimumSystemVersion": "13.0",  # PySide6 6.11 wheels need macOS 13
             },
         )
