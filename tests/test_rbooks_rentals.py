@@ -5,7 +5,7 @@ import pytest
 
 from external_scraper import ExternalScraper
 
-AT = 'ridi-at'
+AT = '\u0072\u0069\u0064\u0069\u002d\u0061\u0074'
 BOOK = {'chapters': [{'id': '1001'}, {'id': '1002'}, {'id': '1003'}]}
 
 
