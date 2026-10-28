@@ -25,11 +25,13 @@ from noveldb.core.sources import detect_source, split_inputs
 from noveldb.qt.context import AppContext
 from noveldb.qt.scale import bind_size
 
-# The Tools menu. Enter Browser and Enter App (sfc) have their own buttons on the Download page.
+# The Tools menu. Enter Browser has its own button on the Download page; Enter App (sfc) sits here
+# with the other sfc session tools.
 TOOLS = (
     ("tag_search", "npia tag search..."),
     ("batch_file", "Open a list of links or IDs..."),
     ("-", ""),
+    ("sfc_app", "Enter App (sfc)..."),
     ("sfc_android_open", "Open the Android emulator (sfc)"),
     ("sfc_android_import", "Import the sfc session from the emulator"),
     ("-", ""),
