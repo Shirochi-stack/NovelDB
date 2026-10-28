@@ -48,6 +48,7 @@ class AppContext(QObject):
     settingsChanged = Signal()
     signedInChanged = Signal(bool)
     cartChanged = Signal()
+    toolRequested = Signal(str)  # e.g. "tag_search", handled by the main window
 
     def __init__(self, store: ConfigStore | None = None, start_workers: bool = True) -> None:
         super().__init__()

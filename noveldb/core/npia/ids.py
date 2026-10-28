@@ -27,3 +27,8 @@ def extract_novel_id(value):
     if m:
         return m.group(1)
     return None
+
+
+def novel_url(novel_id) -> str:
+    """The novel page address for an ID (what the link cart and the mobile apps store)."""
+    return f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"
