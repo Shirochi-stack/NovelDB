@@ -197,6 +197,8 @@ data class AppSettings(
     /** Which site engines run, in what order, and which rule engines update themselves. */
     val engines: EngineSettings = EngineSettings(),
     val upload: UploadSettings = UploadSettings(),
+    /** Checks for a newer build of the app once a day (desktop `app_update_check`); on by default. Nothing is installed without a tap. */
+    val appUpdateCheck: Boolean = true,
 ) {
     fun effective(source: SourceId): SharedSettings = overrides[source.raw]?.applyTo(shared) ?: shared
 }

@@ -136,6 +136,7 @@ object DesktopConfig {
         val settings = base.copy(
             shared = shared, overrides = overrides, images = images, text = text,
             npia = npiaSettings, sources = sources, engines = engines,
+            appUpdateCheck = c.bool("app_update_check") ?: base.appUpdateCheck,
         )
         val secrets = Secrets(
             email = c.string("email")?.ifEmpty { null },
@@ -244,6 +245,7 @@ object DesktopConfig {
         put("source_engines_off", s.engines.disabled.filter { SiteEngine.fromRaw(it) != null })
         put("novel_downloader_auto_update", s.engines.novelDownloaderAutoUpdate)
         put("webtoepub_auto_update", s.engines.webtoepubAutoUpdate)
+        put("app_update_check", s.appUpdateCheck)
         return JsonObject(c)
     }
 
