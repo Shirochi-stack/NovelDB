@@ -38,22 +38,27 @@ object UploadNames {
         return out.toString().take(MAX_BASE).trimEnd('_')
     }
 
-    /** `name` with its extension split off: "책 VR.epub" to ("책 VR", "epub"). The extension is null when it is not a plain one. */
+    /**
+     * `name` with its extension split off: "책 VR.epub" to ("책 VR", "epub"), ".epub" to ("", "epub").
+     * The extension is null when it is not a plain one.
+     */
     fun split(name: String): Pair<String, String?> {
         val dot = name.lastIndexOf('.')
-        if (dot <= 0) return name to null
+        if (dot < 0) return name to null
         val extension = name.substring(dot + 1)
         return if (SAFE_EXTENSION.matches(extension)) name.substring(0, dot) to extension else name to null
     }
 
     /**
-     * The ASCII upload name for `name`: unchanged when it is plain printable ASCII, else the
-     * ASCII-safe title, else `stem` (`npia_123456`; `book` when the stem is missing or unsafe),
-     * each with the original extension.
+     * The ASCII upload name for `name`: unchanged when it is plain printable ASCII with at least
+     * `MIN_LETTERS` letters before the extension, else the ASCII-safe title, else `stem`
+     * (`npia_123456`; `book` when the stem is missing or unsafe), each with the original
+     * extension. A name is never just an extension: temp.sh stores ".epub" as "epub", which
+     * downloads with no extension at all.
      */
     fun ascii(name: String, stem: String?): String {
-        if (name.isNotEmpty() && name.all { it in ' '..'~' }) return name
         val (base, extension) = split(name)
+        if (name.all { it in ' '..'~' } && base.count { it in 'A'..'Z' || it in 'a'..'z' } >= MIN_LETTERS) return name
         val chosen = asciiTitle(base) ?: stem?.takeIf { SAFE_STEM.matches(it) } ?: "book"
         return if (extension != null) "$chosen.$extension" else chosen
     }
