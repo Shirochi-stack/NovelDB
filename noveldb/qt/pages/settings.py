@@ -49,6 +49,7 @@ from noveldb.core.settings.model import (
 )
 from noveldb.core.upload import ALL as UPLOAD_HOSTS
 from noveldb.qt.context import AppContext
+from noveldb.qt.scale import bind_rows, bind_size, bind_title, on_scale, ui_scale
 from noveldb.qt.theme_palettes import ACCENT_LABELS
 from noveldb.qt.widgets import ButtonFeedback, Chip, flow, hint, section
 
@@ -88,14 +89,13 @@ class Form(QWidget):
         panel = panel or bare
         body = QWidget() if not panel else self
         if not panel:
-            body.setMaximumWidth(760)
+            bind_size(body, max_width=760)
         self.layout_ = QVBoxLayout(body)
         margins = (0, 0, 0, 0) if bare else (16, 12, 16, 14) if panel else (20, 16, 20, 16)
         self.layout_.setContentsMargins(*margins)
         self.layout_.setSpacing(8)
         if not bare:
-            heading = QLabel(title)
-            heading.setStyleSheet(f"font-size: {18 if panel else 22}px; font-weight: 600;")
+            heading = bind_title(QLabel(title), 18 if panel else 22)
             self.layout_.addWidget(heading)
         if bare:
             pass
@@ -250,6 +250,7 @@ def general_form(context: AppContext) -> Form:
     f.combo("Accent", "ui.accent", {k: ACCENT_LABELS.get(k, k) for k in ACCENTS})
     f.add_section("Display scaling")
     f.check("Pick the scale for this screen automatically", "ui.auto_dpi_scale", " ")
+    f.check("Scale the interface with the window size", "ui.scale_with_window", " ")
     scale = f.dspin("Interface scale", "ui.gui_scale_factor", 0.5, 3.0, 0.05, "x", decimals=2)
     import dpi_setup
 
@@ -607,7 +608,7 @@ def engines_form(context: AppContext) -> Form:
     engines.setDragDropMode(QAbstractItemView.InternalMove)
     engines.setDefaultDropAction(Qt.MoveAction)
     engines.setSelectionMode(QAbstractItemView.SingleSelection)
-    engines.setMaximumWidth(560)
+    bind_size(engines, max_width=560)
     f.add(engines)
 
     def current_items():
@@ -650,14 +651,15 @@ def engines_form(context: AppContext) -> Form:
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
                 item.setFlags(item.flags() & ~Qt.ItemIsDropEnabled)
                 item.setCheckState(Qt.Unchecked if name in s.engines.disabled else Qt.Checked)
-                item.setSizeHint(QSize(0, 36))
+                item.setSizeHint(QSize(0, ui_scale.px(36)))
                 engines.addItem(item)
                 if name == selected:
                     engines.setCurrentItem(item)
-            engines.setFixedHeight(36 * engines.count() + 6)
+            engines.setFixedHeight(ui_scale.px(36) * engines.count() + ui_scale.px(6))
         finally:
             engines.blockSignals(False)
 
+    on_scale(engines, lambda: show(context.settings))
     engines.itemChanged.connect(lambda _item: store())
     engines.model().rowsMoved.connect(lambda *_args: store())
     f._refreshers.append(show)
@@ -940,16 +942,17 @@ class SettingsPage(QWidget):
         self.context = context
         self.categories = QListWidget()
         self.categories.setObjectName("sidebar")
-        self.categories.setFixedWidth(190)
+        bind_size(self.categories, fixed_width=190)
         self.stack = QStackedWidget()
         self.forms = {}
         for name, build in CATEGORIES:
             item = QListWidgetItem(name)
-            item.setSizeHint(QSize(0, 40))
+            item.setSizeHint(QSize(0, ui_scale.px(40)))
             self.categories.addItem(item)
             form = build(context)
             self.forms[name] = form
             self.stack.addWidget(form)
+        bind_rows(self.categories, 40)
         self.categories.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.categories.setCurrentRow(0)
         layout = QHBoxLayout(self)

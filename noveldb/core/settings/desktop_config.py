@@ -337,6 +337,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         auto_dpi_scale=_first_bool(c, "auto_dpi_scale", u.auto_dpi_scale),
         gui_scale_factor=_clamp(_float(c.get("gui_scale_factor")), 0.5, 3.0, u.gui_scale_factor),
         window_geometry=_str(c.get("window_geometry")) or u.window_geometry,
+        scale_with_window=_first_bool(c, "ui_scale_with_window", u.scale_with_window),
     )
 
     catalog = replace(
@@ -548,6 +549,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["ui_accent"] = s.ui.accent
     c["auto_dpi_scale"] = s.ui.auto_dpi_scale
     c["gui_scale_factor"] = s.ui.gui_scale_factor
+    c["ui_scale_with_window"] = s.ui.scale_with_window
     if s.ui.window_geometry:
         c["window_geometry"] = s.ui.window_geometry
 
