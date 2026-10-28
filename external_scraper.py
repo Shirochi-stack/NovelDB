@@ -64,6 +64,13 @@ if getattr(sys, 'frozen', False):
     if os.path.exists(_bundled_browsers):
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = _bundled_browsers
 
+from noveldb.core.settings.model import (
+    ENGINE_LABELS,
+    ENGINE_NATIVE,
+    ENGINE_ND,
+    SITE_ENGINES,
+)
+
 # Lite and TurboLite builds ship without Playwright. HTTP-based sources still work there; a
 # source that needs a browser raises BrowserUnavailableError when it tries to start one.
 try:
@@ -289,6 +296,8 @@ class ExternalScraper:
         # site-wide human check that was not completed). The dialog stops
         # the download instead of retrying every remaining chapter.
         self.abort_reason = ''
+        # Site engines in the order parse_book tries them (Settings).
+        self.engine_order = list(SITE_ENGINES)
 
     def _install_bridge_bindings(self, page):
         """Expose Python-backed helpers used by the JS bridge stubs."""
@@ -366,6 +375,11 @@ class ExternalScraper:
                 headers["Cookie"] = "; ".join(cookie_parts)
 
         data = details.get("data")
+        if details.get("dataBase64"):
+            try:
+                data = base64.b64decode(details["dataBase64"])
+            except Exception:
+                return {"error": "invalid dataBase64"}
         timeout = details.get("timeout") or 30000
         try:
             timeout = max(float(timeout) / 1000.0, 1.0)
@@ -3537,6 +3551,7 @@ class ExternalScraper:
                 '--no-sandbox',
             ],
             ignore_https_errors=True,
+            user_agent=self._headless_user_agent(),
         )
         self._restore_storage_state()
         self._page = self._context.new_page()
@@ -3544,6 +3559,35 @@ class ExternalScraper:
         self._page.on("console", self._on_console)
         self._mpia_chrome = False
         self.log("Browser ready.")
+
+    _HEADLESS_USER_AGENT = None
+
+    def _headless_user_agent(self):
+        """A regular Chrome user agent for this OS and browser version.
+
+        Headless Chromium says "HeadlessChrome", which bot checks such as
+        Cloudflare's turn away before the rule engines can read the page.
+        """
+        if ExternalScraper._HEADLESS_USER_AGENT is None:
+            try:
+                browser = self._playwright.chromium.launch(headless=True)
+                try:
+                    major = browser.version.split('.')[0]
+                finally:
+                    browser.close()
+            except Exception:
+                return None
+            if sys.platform == 'darwin':
+                system = 'Macintosh; Intel Mac OS X 10_15_7'
+            elif sys.platform.startswith('linux'):
+                system = 'X11; Linux x86_64'
+            else:
+                system = 'Windows NT 10.0; Win64; x64'
+            ExternalScraper._HEADLESS_USER_AGENT = (
+                f"Mozilla/5.0 ({system}) AppleWebKit/537.36 (KHTML, like Gecko) "
+                f"Chrome/{major}.0.0.0 Safari/537.36"
+            )
+        return ExternalScraper._HEADLESS_USER_AGENT
 
     def _start_ntk_browser(self, start_url):
         """Launch installed Chrome in real headless mode and attach over CDP."""
@@ -4385,6 +4429,7 @@ class ExternalScraper:
             or self._book_data.get('_1qxs')
             or self._book_data.get('_jara')
             or self._book_data.get('_nweb_novel')
+            or self._book_data.get('_webtoepub')
         ):
             return
 
@@ -4465,6 +4510,13 @@ class ExternalScraper:
                     return True
                 if self._book_data and self._book_data.get('_qdn'):
                     self.log("Page recovered for Qdn scraper.")
+                    return True
+                if self._book_data and self._book_data.get('_webtoepub'):
+                    if not self._w2e_inject(self._page):
+                        return False
+                    # Re-read the chapter list: parsers keep state from it.
+                    self._page.evaluate("window.__W2E_parseBook()")
+                    self.log("Page recovered and WebToEpub re-injected.")
                     return True
                 self._install_bridge_bindings(self._page)
                 self._page.evaluate(self._gm_stubs_js)
@@ -19360,89 +19412,250 @@ async (items) => {
     def parse_book(self, url):
         """Navigate to the book URL and extract metadata + chapter list.
 
-        Returns the parsed book dict or None on error.
+        Tries the site engines in ``engine_order`` (built-in scrapers, the
+        novel-downloader rules, the WebToEpub parsers by default) until one
+        returns chapters. Returns the parsed book dict or None on error.
         """
         self.abort_reason = ''
+        self._stop_requested = False
+        order = [e for e in dict.fromkeys(self.engine_order or ()) if e in SITE_ENGINES]
+        if not order:
+            self.log("ERROR: Every site engine is switched off in Settings.")
+            return None
+        native = self._native_book_parser(url)
+        if ENGINE_NATIVE not in order:
+            native = None
+        # A built-in scraper owns this site: the rule engines only follow it
+        # when they list the site, so a clear failure (DRM, sign-in) is not
+        # followed by two browser attempts that cannot work.
+        order = [
+            e for e in order
+            if (native is not None if e == ENGINE_NATIVE
+                else native is None or self._engine_knows_site(e, url))
+        ]
+        fallback = None
+        page = None  # the book page for the JS engines: None, "open" or "failed"
+        for position, engine in enumerate(order):
+            if self._stop_requested:
+                return None
+            if engine == ENGINE_NATIVE:
+                if native is None:
+                    continue
+                message, parse = native
+                if message:
+                    self.log(message)
+                data = parse(url)
+            else:
+                if page is None:
+                    try:
+                        page = "open" if self._open_book_page(url) else "failed"
+                    except BrowserUnavailableError:
+                        if native is None:
+                            raise
+                        self.log(
+                            "The novel-downloader and WebToEpub engines need "
+                            "the Full build's browser."
+                        )
+                        page = "failed"
+                if page != "open":
+                    continue
+                if engine == ENGINE_ND:
+                    data = self._nd_parse_book(url, navigate=False)
+                else:
+                    data = self._w2e_parse_book(url)
+            if data and data.get('chapters'):
+                return data
+            if data and fallback is None:
+                fallback = data
+            if self.abort_reason:
+                break
+            later = [
+                e for e in order[position + 1:]
+                if e == ENGINE_NATIVE or page != "failed"
+            ]
+            if later:
+                self.log(
+                    f"{ENGINE_LABELS[engine]} found no chapters; trying "
+                    f"{ENGINE_LABELS[later[0]]} next."
+                )
+        return fallback
+
+    @staticmethod
+    def _engine_knows_site(engine, url):
+        """The engine has a rule or parser registered for the URL's site."""
+        from noveldb.core import engine_updates
+
+        bundle = engine_updates.current(engine_updates.BY_NAME[engine])
+        return bool(bundle and bundle.knows(url))
+
+    def _load_engine_bundle(self, page, engine, ready_check):
+        """Evaluate ``engine``'s bundle in ``page``; the chosen Bundle, or None.
+
+        A downloaded update that fails ``ready_check`` is set aside and the
+        copy shipped with the app is evaluated instead.
+        """
+        from noveldb.core import engine_updates
+
+        bundle = engine_updates.current(engine)
+        if bundle is None:
+            self.log(f"{engine.title}: missing from this build.")
+            return None
+        candidates = [bundle]
+        if bundle.updated and engine_updates.shipped(engine) is not None:
+            candidates.append(engine_updates.shipped(engine))
+        for candidate in candidates:
+            try:
+                page.evaluate(candidate.read())
+                state = page.evaluate(ready_check)
+            except Exception as e:
+                state = {'ready': False, 'error': str(e)}
+            if state.get('ready'):
+                return candidate
+            error = state.get('error') or 'did not load'
+            if candidate.updated:
+                self.log(
+                    f"{engine.title} update ({candidate.label}) failed to load "
+                    f"({error}); using the built-in copy."
+                )
+                engine_updates.reject(candidate, str(error))
+            else:
+                self.log(f"{engine.title} failed to load: {error}")
+        return None
+
+    def _nd_inject_rules(self, page):
+        from noveldb.core import engine_updates
+
+        bundle = self._load_engine_bundle(
+            page, engine_updates.NOVEL_DOWNLOADER,
+            "() => ({ready: window.__ND_READY === true})",
+        )
+        if bundle is None:
+            return False
+        # Worker pages and page recovery inject the same rules.
+        self._rules_js = bundle.read()
+        if bundle.updated:
+            self.log(f"Using novel-downloader rules {bundle.label}.")
+        return True
+
+    def _native_book_parser(self, url):
+        """(log line, parse function) of the built-in scraper for ``url``, or None."""
         if self.is_kobo(url):
             if urllib.parse.urlparse(url).hostname == 'books.rakuten.co.jp':
-                self.log('[Kobo] Detected Rakuten Books JP ebook URL; '
-                         'reading the owned local Kobo Desktop volume.')
-                return self._rakuten_kobo_parse_book(url)
-            self.log('[Kobo] Detected Kobo ebook URL, using the signed-in '
-                     'Kobo Web Reader.')
-            return self._kobo_parse_book(url)
+                return (
+                    '[Kobo] Detected Rakuten Books JP ebook URL; '
+                    'reading the owned local Kobo Desktop volume.',
+                    self._rakuten_kobo_parse_book,
+                )
+            return (
+                '[Kobo] Detected Kobo ebook URL, using the signed-in '
+                'Kobo Web Reader.',
+                self._kobo_parse_book,
+            )
         if self.is_xiyuwx(url):
             site = self._xiyuwx_site_name(url)
-            self.log(f'[{site}] Detected book URL, using native scraper.')
-            return self._xiyuwx_parse_book(url)
+            return (
+                f'[{site}] Detected book URL, using native scraper.',
+                self._xiyuwx_parse_book,
+            )
         if self.is_floo(url):
-            self.log('[Floo] Detected Floo book URL, using native scraper.')
-            return self._floo_parse_book(url)
+            return (
+                '[Floo] Detected Floo book URL, using native scraper.',
+                self._floo_parse_book,
+            )
         if self.is_fenrir(url):
-            self.log('[Fenrir] Detected Fenrir Realm URL, using native scraper.')
-            return self._fenrir_parse_book(url)
+            return (
+                '[Fenrir] Detected Fenrir Realm URL, using native scraper.',
+                self._fenrir_parse_book,
+            )
         if self.is_maru(url):
-            self.log('[Marumaru] Detected Marumaru novel URL, using native '
-                     'scraper.')
-            return self._maru_parse_book(url)
+            return (
+                '[Marumaru] Detected Marumaru novel URL, using native '
+                'scraper.',
+                self._maru_parse_book,
+            )
         if self.is_1qxs(url):
-            self.log(
-                '[1qxs] Detected 1qxs URL, using the direct HTTP scraper.'
+            return (
+                '[1qxs] Detected 1qxs URL, using the direct HTTP scraper.',
+                self._1qxs_parse_book,
             )
-            return self._1qxs_parse_book(url)
         if self.is_69shuba(url):
-            self.log(
-                '[69shuba] Detected 69shuba.tw URL, using native scraper.'
+            return (
+                '[69shuba] Detected 69shuba.tw URL, using native scraper.',
+                self._69shuba_parse_book,
             )
-            return self._69shuba_parse_book(url)
         if self.is_global_npia(url):
-            self.log(
+            return (
                 '[Global Npia] Detected Global Npia URL, using the '
-                "integrated pia-scrap API scraper."
+                "integrated pia-scrap API scraper.",
+                self._global_npia_parse_book,
             )
-            return self._global_npia_parse_book(url)
         if self.is_rbooks(url):
-            self.log(
+            return (
                 '[Rbooks] Detected Rbooks webnovel URL, using the '
-                'contributed native scraper.'
+                'contributed native scraper.',
+                self._rbooks_parse_book,
             )
-            return self._rbooks_parse_book(url)
         if self.is_npia(url):
-            self.log(
+            return (
                 '[Npia] Detected Npia URL, using the External '
-                'Downloader browser profile.'
+                'Downloader browser profile.',
+                self._npia_parse_book,
             )
-            return self._npia_parse_book(url)
-        # Kpage: use native scraper instead of JS rules
         if self.is_kpage(url):
-            self.log("[Kpage] Detected Kpage URL, using native scraper.")
-            return self._kpage_parse_book(url)
+            return (
+                "[Kpage] Detected Kpage URL, using native scraper.",
+                self._kpage_parse_book,
+            )
         if self.is_qdn(url):
-            self.log("[Qdn] Detected Qdn URL, using native scraper.")
-            return self._qdn_parse_book(url)
+            return (
+                "[Qdn] Detected Qdn URL, using native scraper.",
+                self._qdn_parse_book,
+            )
         if self.is_ntk_novel(url):
-            return self._ntk_parse_book(url)
+            return ('', self._ntk_parse_book)
         if self.is_yeduji(url):
-            self.log("[Yeduji] Detected Yeduji URL, using native scraper.")
-            return self._yeduji_parse_book(url)
+            return (
+                "[Yeduji] Detected Yeduji URL, using native scraper.",
+                self._yeduji_parse_book,
+            )
         if self.is_mpia(url):
-            self.log("[Mpia] Detected Mpia URL, using native scraper.")
-            return self._mpia_parse_book(url)
+            return (
+                "[Mpia] Detected Mpia URL, using native scraper.",
+                self._mpia_parse_book,
+            )
         if self.is_jara(url):
-            self.log("[Jara] Detected Jara URL, using native API scraper.")
-            return self._jara_parse_book(url)
+            return (
+                "[Jara] Detected Jara URL, using native API scraper.",
+                self._jara_parse_book,
+            )
         if self.is_nweb_series(url):
-            self.log(
+            return (
                 "[Nseries] Detected Nseries URL, using native "
-                "scraper."
+                "scraper.",
+                self._nweb_series_parse_book,
             )
-            return self._nweb_series_parse_book(url)
         if self.is_nweb_novel(url):
-            self.log(
-                "[Nweb] Detected Nweb URL, using native scraper."
+            return (
+                "[Nweb] Detected Nweb URL, using native scraper.",
+                self._nweb_parse_book,
             )
-            return self._nweb_parse_book(url)
 
+        return None
+
+    def _open_book_page(self, url):
+        """Load ``url`` in the primary browser page for the JS rule engines."""
+        if not self._page:
+            self.start()
+        self.log(f"Navigating to: {url}")
+        try:
+            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        except Exception as e:
+            self.log(f"ERROR: Page load failed: {e}")
+            return False
+        return True
+
+    def _nd_parse_book(self, url, navigate=True):
+        """Parse the book with the novel-downloader rules (rules-lib.js)."""
         if not self._gm_stubs_js or not self._rules_js or not self._bridge_js:
             self.log(
                 "ERROR: gm_stubs.js, rules-lib.js, or bridge.js not found. "
@@ -19450,19 +19663,10 @@ async (items) => {
             )
             return None
 
-        if not self._page:
-            self.start()
-
-        self._stop_requested = False
-        self.log(f"Navigating to: {url}")
-
-        try:
-            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        except Exception as e:
-            self.log(f"ERROR: Page load failed: {e}")
+        if navigate and not self._open_book_page(url):
             return None
 
-        self.log("Page loaded. Injecting stubs and rules...")
+        self.log("Injecting novel-downloader stubs and rules...")
 
         # Inject GM API stubs first (required by the rules bundle)
         try:
@@ -19472,11 +19676,8 @@ async (items) => {
             self.log(f"ERROR: GM stubs injection failed: {e}")
             return None
 
-        # Inject the rules library
-        try:
-            self._page.evaluate(self._rules_js)
-        except Exception as e:
-            self.log(f"ERROR: Rules injection failed: {e}")
+        # Inject the rules library (a downloaded update when there is one)
+        if not self._nd_inject_rules(self._page):
             return None
 
         # Inject the bridge
@@ -19514,7 +19715,7 @@ async (items) => {
             return None
 
         if "error" in data:
-            self.log(f"ERROR: bookParse error: {data['error']}")
+            self.log(f"novel-downloader: {data['error']}")
             if "stack" in data:
                 self.log(f"  Stack: {data['stack'][:200]}")
             return None
@@ -19527,6 +19728,129 @@ async (items) => {
             f"— {data.get('chapterCount', 0)} chapters"
         )
         return data
+
+    # ------------------------------------------------------------------
+    # WebToEpub engine (webtoepub/webtoepub-lib.js)
+    # ------------------------------------------------------------------
+    def _w2e_inject(self, page):
+        """Load the WebToEpub bundle into ``page``; True when its bridge is ready."""
+        from noveldb.core import engine_updates
+
+        engine = engine_updates.WEBTOEPUB
+        self._install_bridge_bindings(page)
+        bundle = self._load_engine_bundle(
+            page, engine,
+            "() => ({ready: window.__W2E_READY === true && window.__W2E_API === %d,"
+            " error: (window.__W2E_LOAD_ERROR || {}).message || null})" % engine.api,
+        )
+        if bundle is None:
+            return False
+        self._w2e_label = bundle.label
+        return True
+
+    def _w2e_parse_book(self, url):
+        """Parse the already-loaded book page with the WebToEpub parsers."""
+        page = self._page
+        if page is None:
+            return None
+        self.log("Injecting the WebToEpub parsers...")
+        if not self._w2e_inject(page):
+            return None
+        try:
+            result_json = page.evaluate("window.__W2E_parseBook()")
+            data = json.loads(result_json or "null")
+        except Exception as e:
+            self.log(f"WebToEpub: parsing the book failed: {e}")
+            return None
+        if not isinstance(data, dict):
+            self.log("WebToEpub: the book page gave no result.")
+            return None
+        if "error" in data:
+            self.log(f"WebToEpub: {data['error']}")
+            if data.get('stack') and not data.get('noParser'):
+                self.log(f"  Stack: {data['stack'][:300]}")
+            return None
+        data['_webtoepub'] = True
+        self._book_data = data
+        self._book_url = url
+        self.log(
+            f"Book: {data.get('bookname') or '?'} by {data.get('author') or '?'} "
+            f"— {data.get('chapterCount', 0)} chapters "
+            f"(WebToEpub {data.get('parser', '')}, parsers {getattr(self, '_w2e_label', '')})"
+        )
+        for warning in data.get('warnings') or []:
+            self.log(f"  WebToEpub: {warning}")
+        return data
+
+    @staticmethod
+    def _w2e_item(chapter_info):
+        return {
+            'url': chapter_info.get('url', ''),
+            'name': chapter_info.get('fullName') or chapter_info.get('name', ''),
+        }
+
+    @staticmethod
+    def _w2e_result(raw):
+        """A chapter dict from the bridge's JSON, or (None, error message)."""
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError) as e:
+            return None, f"bad result: {e}"
+        if not isinstance(data, dict):
+            return None, "empty result"
+        if "error" in data:
+            return None, data["error"]
+        return data, ''
+
+    def _w2e_parse_chapter(self, index, chapter_info, interval=0.5, page=None,
+                           log_errors=True, interval_max=None):
+        target = page or self._page
+        if target is None and not self._ensure_page():
+            if log_errors:
+                self.log(f"  [{index + 1}] No browser page available.")
+            return None
+        target = target or self._page
+        item = self._w2e_item(chapter_info)
+        error = 'empty result'
+        try:
+            raw = target.evaluate(
+                "(item) => window.__W2E_parseChapter(item)", json.dumps(item, ensure_ascii=False)
+            )
+        except Exception as e:
+            raw = None
+            error = str(e)
+        self._sleep_interval(interval, interval_max)
+        if raw is None:
+            if log_errors:
+                self.log(f"  [{index + 1}] Parse error: {error}")
+            return None
+        data, error = self._w2e_result(raw)
+        if data is None and log_errors:
+            self.log(f"  [{index + 1}] WebToEpub: {error}")
+        return data
+
+    def _w2e_parse_chapter_batch(self, batch_info, report_success):
+        if not self._ensure_page():
+            self.log("  Batch aborted: no browser page available.")
+            return [None] * len(batch_info)
+        items = [self._w2e_item(ch) for ch in batch_info]
+        try:
+            raw = self._page.evaluate(
+                "(items) => window.__W2E_parseChapterBatch(items)",
+                json.dumps(items, ensure_ascii=False),
+            )
+            results = json.loads(raw or "[]")
+        except Exception as e:
+            self.log(f"  Batch parse error: {e}")
+            return [None] * len(batch_info)
+        if not isinstance(results, list):
+            return [None] * len(batch_info)
+        parsed = []
+        for index, entry in enumerate(results):
+            data, _error = self._w2e_result(entry)
+            parsed.append(data)
+            report_success(index, data)
+        return (parsed + [None] * len(batch_info))[:len(batch_info)]
 
     def parse_chapter(self, index, chapter_info, interval=0.5, page=None,
                       log_errors=True, interval_max=None):
@@ -19705,6 +20029,12 @@ async (items) => {
                 minimum=self._QDN_MIN_INTERVAL,
             )
             return result
+
+        if self._book_data and self._book_data.get('_webtoepub'):
+            return self._w2e_parse_chapter(
+                index, chapter_info, interval=interval, page=page,
+                log_errors=log_errors, interval_max=interval_max,
+            )
 
         url = chapter_info.get('url', '')
         name = chapter_info.get('name', '')
@@ -20133,6 +20463,9 @@ async (items) => {
             for index, result in enumerate(results):
                 report_success(index, result)
             return results
+
+        if self._book_data and self._book_data.get('_webtoepub'):
+            return self._w2e_parse_chapter_batch(batch_info, report_success)
 
         if (not _skip_sfc_app
                 and self._sfc_should_prefer_app_api()):

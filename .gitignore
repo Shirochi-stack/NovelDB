@@ -55,4 +55,5 @@ _build_info.py
 /data/queue.json
 /data/upload-history.json
 /data/webengine/
+/data/engines/
 /data/*.tmp
