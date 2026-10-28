@@ -54,6 +54,7 @@ class GoogleLoginDialog(QDialog):
         self.profile.setHttpUserAgent(CHROME_UA)
         self.profile.cookieStore().cookieAdded.connect(self._cookie)
         self.page = QWebEnginePage(self.profile, self)
+        self.page.setBackgroundColor(self.palette().window().color())
         self.view = QWebEngineView(self)
         self.view.setPage(self.page)
         self.view.urlChanged.connect(self._url_changed)
