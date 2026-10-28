@@ -355,6 +355,7 @@ def test_bad_preview_falls_back_to_catalog_and_saved_filters_skip_preview(previe
             browser = await p.chromium.launch(headless=True)
             for suffix,broken,count in [('',True,30),('#src=npia&q=original%200042',False,1),('#src=all&q=original%200042',False,8),('#src=npia&page=12',False,20)]:
                 page = await browser.new_page()
+                await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")  # page numbers
                 await page.route('**/*',PreviewSite(previews,broken_preview=broken).route)
                 await page.goto('https://metadata.test/'+suffix)
                 await wait_loaded(page)
@@ -380,6 +381,7 @@ def test_combined_ranking_continues_by_likes_after_top_100_and_page_sizes_are_or
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
             page=await browser.new_page()
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")  # page numbers
             site=PreviewSite(previews,blocked=True)
             await page.route('**/*',site.route)
             await page.goto('https://metadata.test/#src=all')

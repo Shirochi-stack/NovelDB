@@ -708,6 +708,7 @@ def test_metadata_frontend_browser_restores_page_from_complete_catalog():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page()
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")  # page numbers
             site = FixtureSite(many_npia=True)
             await page.route("**/*", site.route)
             await page.goto("http://metadata.test/#src=npia&page=2&batch=30")
@@ -1026,6 +1027,7 @@ def test_cover_loading_waits_for_scroll_and_unchanged_titles_skip_refitting():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page = await browser.new_page(viewport={'width': 1440, 'height': 900})
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")  # page numbers
             site = FixtureSite(many_npia=True, covers=True)
             await page.route('**/*', site.route)
             await page.add_init_script("localStorage.setItem('noveldb.loadDescriptions', 'false')")
