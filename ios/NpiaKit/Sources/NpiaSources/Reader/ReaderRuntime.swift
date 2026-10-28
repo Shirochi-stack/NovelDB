@@ -139,7 +139,34 @@ final class ReaderRuntime: @unchecked Sendable {
 
     // MARK: - Setup
 
+    /// The rules did not initialise; a downloaded copy that does this is set aside.
+    private struct RulesFailure: Error {
+        var message: String
+    }
+
     private func setUp() throws {
+        let store = EngineStore.shared
+        let candidates = store.candidates(for: .novelDownloader)
+        guard !candidates.isEmpty else { throw RuntimeError.loadFailed("rules-lib.js is missing") }
+        var failure = RuntimeError.loadFailed("rules-lib.js did not initialise")
+        for bundle in candidates {
+            do {
+                try setUp(rules: bundle)
+                return
+            } catch let error as RulesFailure {
+                failure = RuntimeError.loadFailed(error.message)
+                if bundle.updated {
+                    logger.log(.warning, "[Reader] The rules update (\(bundle.label)) failed to load (\(error.message)); using the built-in copy.")
+                    store.reject(bundle, reason: error.message)
+                }
+            }
+        }
+        throw failure
+    }
+
+    /// One attempt in a fresh context: the scripts in injection order with `rules` standing in
+    /// for `rules-lib.js`. Only a failure of the rules themselves counts against them.
+    private func setUp(rules: EngineBundle) throws {
         guard let context = JSContext() else { throw RuntimeError.loadFailed("JavaScriptCore is unavailable") }
         self.context = context
         context.name = "npia reader"
@@ -150,14 +177,22 @@ final class ReaderRuntime: @unchecked Sendable {
             self?.logger.log(.warning, "[Reader] \(message) \(stack.prefix(300))")
         }
         context.setObject(makeNative(context), forKeyedSubscript: "__npia_native" as NSString)
-        for script in try ReaderScripts.load() {
+        for script in try ReaderScripts.load(rules: rules) {
+            let isRules = script.name == "rules-lib.js"
             lastException = nil
             context.evaluateScript(script.source, withSourceURL: URL(string: "npia-reader:///\(script.name)"))
             if let exception = lastException {
+                if isRules { throw RulesFailure(message: exception) }
                 throw RuntimeError.loadFailed("\(script.name): \(exception)")
             }
+            if isRules {
+                // rules-lib.js finishes initialising in promise jobs after its script returns.
+                context.evaluateScript("void 0")
+                guard context.evaluateScript("window.__ND_READY === true")?.toBool() == true else {
+                    throw RulesFailure(message: "rules-lib.js did not initialise")
+                }
+            }
         }
-        // rules-lib.js finishes initialising in promise jobs after its script returns.
         context.evaluateScript("void 0")
         guard context.evaluateScript("window.__ND_READY === true && window.__ND_BRIDGE_READY === true")?.toBool() == true else {
             throw RuntimeError.loadFailed("rules-lib.js did not initialise")
@@ -289,7 +324,8 @@ final class ReaderRuntime: @unchecked Sendable {
     }
 }
 
-/// The bundled scripts, read once.
+/// The bundled scripts, read once. `rules-lib.js` is the one engine script that can be replaced
+/// by a downloaded update, so it comes from an `EngineBundle` instead.
 enum ReaderScripts {
     struct Script {
         var name: String
@@ -303,20 +339,38 @@ enum ReaderScripts {
         "reader_host.js",
     ]
 
-    private static let cached: Result<[Script], Error> = Result(catching: {
-        try order.map { name in
+    private static let cached: Result<[String: String], Error> = Result(catching: {
+        var sources: [String: String] = [:]
+        for name in order where name != "rules-lib.js" {
             let base = (name as NSString).deletingPathExtension
             guard let url = Bundle.module.url(forResource: base, withExtension: "js", subdirectory: "Resources")
                 ?? Bundle.module.url(forResource: base, withExtension: "js")
             else {
                 throw ReaderRuntime.RuntimeError.loadFailed("missing resource \(name)")
             }
-            return Script(name: name, source: try String(contentsOf: url, encoding: .utf8))
+            sources[name] = try String(contentsOf: url, encoding: .utf8)
         }
+        return sources
     })
 
-    static func load() throws -> [Script] {
-        try cached.get()
+    /// One of the bundled scripts other than `rules-lib.js`.
+    static func source(_ name: String) throws -> String {
+        guard let source = try cached.get()[name] else {
+            throw ReaderRuntime.RuntimeError.loadFailed("missing resource \(name)")
+        }
+        return source
+    }
+
+    /// Every script in injection order, with `rules` as `rules-lib.js`.
+    static func load(rules: EngineBundle) throws -> [Script] {
+        let sources = try cached.get()
+        return try order.map { name -> Script in
+            if name == "rules-lib.js" { return Script(name: name, source: try rules.read()) }
+            guard let source = sources[name] else {
+                throw ReaderRuntime.RuntimeError.loadFailed("missing resource \(name)")
+            }
+            return Script(name: name, source: source)
+        }
     }
 }
 

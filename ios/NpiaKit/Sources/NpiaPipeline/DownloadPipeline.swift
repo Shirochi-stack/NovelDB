@@ -78,21 +78,26 @@ public struct DownloadPipeline: Sendable {
     }
 
     public func run(url: URL, settings: AppSettings, http: (any HTTPFetching)? = nil, onPhase: @escaping @Sendable (JobPhase) -> Void = { _ in }) async throws -> JobOutcome {
-        let adapter = try SourceCatalog.adapter(for: url)
-        let source = type(of: adapter).id
-        let shared = settings.effective(for: source)
-        let client = http ?? URLSessionHTTPClient(settings: shared)
+        guard SourceCatalog.adapterType(for: url) != nil else { throw SourceError.unsupportedURL(url) }
+        // The retry count is the same for every source, so the client does not depend on which engine reads the book.
+        let client = http ?? URLSessionHTTPClient(settings: settings.shared)
         let context = SourceContext(http: client, web: web, secrets: secrets, settings: settings, logger: logger)
 
+        // The site engines (built-in scraper, novel-downloader rules, WebToEpub) are tried in the
+        // user's order; the adapter that read the book also reads its chapters.
         onPhase(.fetchingBook)
-        let book: BookInfo
+        let opened: SiteEngineRouter.Opened
         do {
-            book = try await adapter.parseBook(url, context: context)
-        } catch SourceError.loginRequired(_) {
-            try await signIn(url: url, source: source, onPhase: onPhase)
+            opened = try await SiteEngineRouter.open(url, context: context)
+        } catch SourceError.loginRequired(let required) {
+            try await signIn(url: url, source: required, onPhase: onPhase)
             onPhase(.fetchingBook)
-            book = try await adapter.parseBook(url, context: context)
+            opened = try await SiteEngineRouter.open(url, context: context)
         }
+        let adapter = opened.adapter
+        let book = opened.book
+        let source = type(of: adapter).id
+        let shared = settings.effective(for: source)
         logger.log(.info, "\(book.title): \(book.chapters.count) chapters")
 
         var selected = Self.select(book.chapters, shared: shared)

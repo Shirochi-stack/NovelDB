@@ -27,6 +27,12 @@ public enum SourceCatalog {
         adapters.first { $0.matches(url) }
     }
 
+    /// The built-in scraper that owns the URL, if any. `reader` is the rule engines' adapter, not
+    /// a built-in scraper, so it never counts here.
+    public static func nativeAdapterType(for url: URL) -> (any SourceAdapter.Type)? {
+        adapters.first { $0.id != .reader && $0.matches(url) }
+    }
+
     public static func adapter(for url: URL) throws -> any SourceAdapter {
         guard let type = adapterType(for: url) else { throw SourceError.unsupportedURL(url) }
         return type.init()

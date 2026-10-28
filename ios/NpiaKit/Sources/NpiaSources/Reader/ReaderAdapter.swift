@@ -1,21 +1,33 @@
 import Foundation
 import NpiaCore
 
-/// Generic sites driven by the desktop's `rules-lib.js` (novel-downloader rules).
+/// Generic sites driven by the desktop's `rules-lib.js` (novel-downloader rules) and by the
+/// WebToEpub parsers.
 ///
 /// The rules run in JavaScriptCore (`ReaderRuntime`) against a small DOM built from the fetched
 /// page, the way `external_scraper.py` runs them in a browser page through `bridge.js`. A book
 /// whose page the rules cannot read without the site's own scripts falls back to a web view
-/// (`ReaderWebFallback`).
+/// (`ReaderWebFallback`). The WebToEpub parsers need a real DOM, so they only run in a web view
+/// (`WebToEpubSession`). `SiteEngineRouter` decides which engines a link goes through; this
+/// adapter runs the enabled JavaScript engines in the user's order.
 public struct ReaderAdapter: SourceAdapter {
     public static let id: SourceID = .reader
     public static let tier: SourceTier = .http
 
     public init() {}
 
-    /// Asks the rules bundle whether a rule exists for the URL's host.
+    /// Asks the rules bundle whether a rule exists for the URL's host, and the WebToEpub bundle
+    /// whether it registers a parser for it.
     public static func matches(_ url: URL) -> Bool {
-        ReaderRules.shared.supports(url)
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
+        return ReaderRules.shared.supports(url) || EngineSites.lists(.webtoepub, url)
+    }
+
+    /// The JavaScript engines for a link opened outside the router: the enabled ones in the
+    /// user's order, or both when only the built-in scrapers are on.
+    static func scriptEngines(_ settings: AppSettings) -> [SiteEngine] {
+        let enabled = settings.engines.enabled().filter { $0 != .native }
+        return enabled.isEmpty ? [.novelDownloader, .webtoepub] : enabled
     }
 
     public func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo {
@@ -39,6 +51,27 @@ final class ReaderRules: @unchecked Sendable {
     private var runtime: ReaderRuntime?
     private var unavailable = false
     private var hosts: [String: Bool] = [:]
+    private var seenGeneration = -1
+
+    /// Starts over, for example after the rules bundle changed.
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        discardRuntime()
+    }
+
+    /// Lock held. A new rules bundle (an update, or a rejected one) needs a new runtime.
+    private func discardRuntime() {
+        runtime = nil
+        unavailable = false
+        hosts = [:]
+        seenGeneration = EngineStore.shared.generation
+    }
+
+    /// Lock held.
+    private func refreshIfNeeded() {
+        if EngineStore.shared.generation != seenGeneration { discardRuntime() }
+    }
 
     func supports(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
@@ -46,6 +79,7 @@ final class ReaderRules: @unchecked Sendable {
         else { return false }
         lock.lock()
         defer { lock.unlock() }
+        refreshIfNeeded()
         if let known = hosts[host] { return known }
         guard let runtime = loadedRuntime() else { return false }
         let supported = (try? runtime.callSync("hasRule", [url.absoluteString])) == "true"
@@ -57,6 +91,7 @@ final class ReaderRules: @unchecked Sendable {
     func blocks(html: String, baseURL: URL, attachments: [String: String] = [:]) throws -> [RuleBlock] {
         lock.lock()
         defer { lock.unlock() }
+        refreshIfNeeded()
         guard let runtime = loadedRuntime() else { throw ReaderRuntime.RuntimeError.loadFailed("rules unavailable") }
         let json = try runtime.callSync("htmlBlocks", [html, baseURL.absoluteString, attachments])
         return try RuleBlock.decodeList(json)
@@ -93,9 +128,12 @@ actor ReaderSessions {
     private var opening: [String: Task<ReaderBookSession, Error>] = [:]
     private let limit = 2
 
-    func open(_ url: URL, context: SourceContext) async throws -> ReaderBookSession {
+    /// - Parameters:
+    ///   - engines: the JavaScript engines to try in order; nil for the enabled ones in the user's order.
+    ///   - page: the shared book page when the caller (the router) runs engines one by one.
+    func open(_ url: URL, context: SourceContext, engines: [SiteEngine]? = nil, page: EnginePage? = nil) async throws -> ReaderBookSession {
         let key = url.absoluteString
-        let task = Task { try await ReaderBookSession.open(url, context: context) }
+        let task = Task { try await ReaderBookSession.open(url, context: context, engines: engines, page: page) }
         opening[key] = task
         defer { if opening[key] == task { opening[key] = nil } }
         let session = try await task.value
@@ -132,6 +170,7 @@ final class ReaderBookSession: @unchecked Sendable {
     enum Engine {
         case script(ReaderRuntime)
         case web(ReaderWebFallback)
+        case webtoepub(WebToEpubSession)
     }
 
     struct ChapterInfo {
@@ -151,7 +190,35 @@ final class ReaderBookSession: @unchecked Sendable {
         self.chapters = chapters
     }
 
-    static func open(_ url: URL, context: SourceContext) async throws -> ReaderBookSession {
+    /// Opens the book with the JavaScript engines in order until one finds chapters. The engines
+    /// share one book page, loaded only when an engine needs it (see `EnginePage`).
+    static func open(_ url: URL, context: SourceContext, engines: [SiteEngine]? = nil, page: EnginePage? = nil) async throws -> ReaderBookSession {
+        let list = (engines ?? ReaderAdapter.scriptEngines(context.settings)).filter { $0 != .native }
+        let shared = page ?? EnginePage(url: url, context: context)
+        var errors: [(engine: SiteEngine, error: Error)] = []
+        for (position, engine) in list.enumerated() {
+            do {
+                switch engine {
+                case .novelDownloader: return try await openNovelDownloader(url, context: context, page: shared)
+                case .webtoepub: return try await openWebToEpub(url, context: context, page: shared)
+                case .native: continue
+                }
+            } catch is CancellationError {
+                if page == nil { await shared.closeUnlessHandedOff() }
+                throw CancellationError()
+            } catch {
+                errors.append((engine, error))
+                if position + 1 < list.count {
+                    context.logger.log(.info, "[Reader] \(engine.title) found nothing (\(error.localizedDescription)); trying \(list[position + 1].title) next.")
+                }
+            }
+        }
+        if page == nil { await shared.closeUnlessHandedOff() }
+        throw sourceError(SiteEngineRouter.surface(errors))
+    }
+
+    /// The rules in JavaScriptCore, then the same rules in a web view.
+    private static func openNovelDownloader(_ url: URL, context: SourceContext, page shared: EnginePage) async throws -> ReaderBookSession {
         let runtime = try ReaderRuntime(http: context.http, logger: context.logger)
         let scriptError: Error
         do {
@@ -170,17 +237,35 @@ final class ReaderBookSession: @unchecked Sendable {
         runtime.close()
         context.logger.log(.info, "[Reader] Script engine failed (\(scriptError.localizedDescription)); trying a web view.")
         do {
-            let (payload, web) = try await ReaderWebFallback.openBook(url, context: context)
+            let (payload, web) = try await ReaderWebFallback.openBook(url, context: context, page: shared)
             if !payload.chapters.isEmpty {
+                await shared.handOff()
                 return try make(payload, requested: url, engine: .web(web))
             }
-            await web.close()
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             context.logger.log(.debug, "[Reader] Web view fallback failed: \(error.localizedDescription)")
         }
-        throw Self.sourceError(scriptError)
+        throw engineError(scriptError)
+    }
+
+    /// The WebToEpub parsers in the book's page.
+    private static func openWebToEpub(_ url: URL, context: SourceContext, page shared: EnginePage) async throws -> ReaderBookSession {
+        let (payload, session) = try await WebToEpubSession.openBook(url, context: context, page: shared)
+        guard !payload.chapters.isEmpty else {
+            throw SourceError.parse("WebToEpub found no chapters on \(url.absoluteString).")
+        }
+        await shared.handOff()
+        return try make(payload, requested: url, engine: .webtoepub(session))
+    }
+
+    /// A rules failure that only says the site has no rule is a "no match", which ranks below real failures.
+    private static func engineError(_ error: Error) -> Error {
+        if error.localizedDescription.range(of: "Not Found Rule", options: .caseInsensitive) != nil {
+            return EngineNoMatch(message: "The reader rules have no rule for this site.")
+        }
+        return sourceError(error)
     }
 
     static func make(_ payload: ReaderBookPayload, requested: URL, engine: Engine) throws -> ReaderBookSession {
@@ -232,6 +317,8 @@ final class ReaderBookSession: @unchecked Sendable {
                 blocks = try ReaderChapterPayload.decode(json).blocks
             case .web(let web):
                 blocks = try await web.chapter(info)
+            case .webtoepub(let session):
+                blocks = try await session.chapter(info)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -254,6 +341,7 @@ final class ReaderBookSession: @unchecked Sendable {
         switch engine {
         case .script(let runtime): runtime.close()
         case .web(let web): Task { await web.close() }
+        case .webtoepub(let session): Task { await session.close() }
         }
     }
 
@@ -269,7 +357,7 @@ final class ReaderBookSession: @unchecked Sendable {
 
 // MARK: - Payloads
 
-/// `__ND_parseBook()` output from `bridge.js`, plus `pageUrl`/`charset` from `reader_host.js`.
+/// `__ND_parseBook()` output from `bridge.js` (or `__W2E_parseBook()`), plus `pageUrl`/`charset` from `reader_host.js`.
 struct ReaderBookPayload: Decodable {
     struct Chapter: Decodable {
         var url: String?
@@ -288,6 +376,9 @@ struct ReaderBookPayload: Decodable {
     var tags: [String]?
     var language: String?
     var pageUrl: String?
+    /// WebToEpub only: the parser class that matched, and what it noted while reading the book.
+    var parser: String?
+    var warnings: [String]?
     var chapters: [Chapter]
 
     static func decode(_ json: String) throws -> ReaderBookPayload {
