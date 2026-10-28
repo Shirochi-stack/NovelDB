@@ -64,6 +64,8 @@ _ICONS = {
             "stroke-linejoin='round'/>",
     "up": "<path d='M4 10l4-4 4 4' fill='none' stroke='{c}' stroke-width='1.8' stroke-linecap='round' "
           "stroke-linejoin='round'/>",
+    "grip": "<rect x='3' y='6' width='10' height='1.4' rx='.7' fill='{c}'/><rect x='3' y='8.6' width='10' "
+            "height='1.4' rx='.7' fill='{c}'/>",
 }
 
 
@@ -93,6 +95,7 @@ def stylesheet_for(scheme: dict) -> str:
     check_rule = _image("check", s["onPrimary"])
     down, up = _image("down", s["onSurfaceVariant"]), _image("up", s["onSurfaceVariant"])
     down_off = _image("down", s["outlineVariant"])
+    grip = _image("grip", s["onSurfaceVariant"])
     field_bg = s["surfaceContainerLowest"]
     return f"""
     /* Text fields, spin boxes and drop-downs: outlined, rose focus ring (Material 3 outlined fields). */
@@ -125,6 +128,9 @@ def stylesheet_for(scheme: dict) -> str:
     QAbstractSpinBox::down-arrow {{ {down} width: 12px; height: 12px; }}
     QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::up-arrow:off {{ image: none; }}
     QAbstractSpinBox::down-arrow:disabled, QAbstractSpinBox::down-arrow:off {{ image: none; }}
+    /* Splitter handles: a visible grip, highlighted while hovered or dragged. */
+    QSplitter::handle:vertical {{ background: {s['surfaceContainerLow']}; {grip} }}
+    QSplitter::handle:vertical:hover, QSplitter::handle:vertical:pressed {{ background: {s['secondaryContainer']}; }}
     /* Plain buttons: tonal pills; chips, primary and feedback buttons below override them. */
     QPushButton {{ background: {s['surfaceContainerHigh']}; color: {s['onSurface']};
         border: 1px solid {s['outlineVariant']}; border-radius: 16px; padding: 6px 16px; }}

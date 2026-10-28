@@ -194,3 +194,30 @@ def test_save_button_animates_then_settles(qtbot):
     feedback._restore.setInterval(10)
     feedback._restore.start()
     qtbot.waitUntil(lambda: button.text() == "Save", timeout=2000)
+
+
+def test_separate_txt_is_always_shown_and_selects_txt(window, context):
+    page = window.download
+    page.input.setPlainText("https://example.com/book")
+    page._detect()
+    assert not page.separate_txt.isHidden()
+    assert "txt" not in context.settings.effective(page._source).formats
+    page.separate_txt.click()
+    run = context.settings.effective(page._source)
+    assert run.separate_txt and "txt" in run.formats
+    assert page.format_chips["txt"].isChecked()
+
+
+def test_log_panel_is_taller_on_download_than_on_catalog(window, qtbot):
+    window.resize(1200, 900)
+    window.show()
+    qtbot.waitExposed(window)
+    window.show_page(0)
+    window.set_log_visible(True)
+    top, bottom = window.splitter.sizes()
+    download_share = bottom / (top + bottom)
+    window.show_page(1)
+    top, bottom = window.splitter.sizes()
+    catalog_share = bottom / (top + bottom)
+    assert download_share > 0.45 and catalog_share < 0.35
+    assert window.splitter.handleWidth() >= 10
