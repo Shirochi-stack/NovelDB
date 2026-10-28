@@ -19,8 +19,16 @@ data class UploadResult(
     /** Epoch millis. */
     val expiresAt: Long? = null,
     val uploadedAt: Long = System.currentTimeMillis(),
+    /** For a ZIP: the original file names inside it, in order. Empty for a single file. */
+    val contents: List<String> = emptyList(),
 ) {
     fun isExpired(at: Long = System.currentTimeMillis()): Boolean = expiresAt?.let { it <= at } ?: false
+
+    /** True for a ZIP made of several files. */
+    val isArchive: Boolean get() = contents.isNotEmpty()
+
+    /** "NovelDB_3_EPUBs.zip (3 books)" for a ZIP, else just the file name. */
+    val label: String get() = if (isArchive) "$fileName (${ZipBundling.describe(contents)})" else fileName
 }
 
 data class UploadProgress(val sentBytes: Long, val totalBytes: Long) {
@@ -59,8 +67,9 @@ data class UploadContext(
     /** Epoch millis. */
     val now: () -> Long = System::currentTimeMillis,
     /**
-     * Book id for file names hosts would otherwise mangle: a name that is not plain ASCII is
-     * uploaded as `<fileId>.<extension>`. Set from the job; the display name is kept in results.
+     * Stem for file names hosts would otherwise mangle (`npia_123456`): a name that is not plain
+     * ASCII and whose title keeps fewer than three letters or digits is uploaded as
+     * `<fileId>.<extension>`. Set from the job; the display name is kept in results.
      */
     val fileId: String? = null,
 ) {
@@ -130,13 +139,104 @@ object UploaderCatalog {
     /** Ids that were renamed; old settings keep working. */
     private val aliases = mapOf("sendcm" to "sendnow", "google_drive" to "gdrive")
 
-    fun uploader(id: String): Uploader? = (aliases[id] ?: id).let { key -> all.firstOrNull { it.id == key } }
+    /**
+     * A host that only debug builds set, to point uploads at a local test server (see
+     * `LocalTestUploader`). It is found by id but never listed in `all`.
+     */
+    @Volatile
+    var testHost: Uploader? = null
+
+    fun uploader(id: String): Uploader? =
+        (aliases[id] ?: id).let { key -> testHost?.takeIf { it.id == key } ?: all.firstOrNull { it.id == key } }
+
+    /**
+     * The largest ZIP this upload may build: the setting, or the first usable host's own maximum
+     * when that is smaller (the hosts are tried in order, so the first one decides).
+     */
+    fun archiveLimit(settings: UploadSettings, context: UploadContext): Long {
+        val first = settings.hosts.firstNotNullOfOrNull { id -> uploader(id)?.takeIf { it.isReady(context) } }
+        return ZipBundling.limit(settings, first?.maxBytes)
+    }
+
+    /**
+     * What goes up for `items`: with bundling on and two or more files, ZIPs of several files
+     * (and the files too big for one, alone); otherwise one upload per file.
+     */
+    fun plan(items: List<UploadItem>, settings: UploadSettings, context: UploadContext): List<PlannedUpload> =
+        if (settings.zipBundle && items.size >= 2) {
+            ZipBundling.plan(items, archiveLimit(settings, context))
+        } else {
+            items.map { PlannedUpload.Single(it) }
+        }
+
+    /**
+     * Uploads every entry of `plan` one after another, building each ZIP in the temporary
+     * directory and deleting it afterwards. A failed upload does not stop the rest; its outcome
+     * carries the error. Results (with `contents` for ZIPs) are added to `history`.
+     */
+    suspend fun uploadAll(
+        plan: List<PlannedUpload>,
+        settings: UploadSettings,
+        context: UploadContext,
+        history: UploadHistoryStore? = UploadHistoryStore.shared,
+        listener: UploadListener = UploadListener.None,
+    ): List<UploadOutcome> {
+        val archiveCount = plan.count { it is PlannedUpload.Archive }
+        var archiveIndex = 0
+        val outcomes = mutableListOf<UploadOutcome>()
+        plan.forEachIndexed { index, planned ->
+            val position = index + 1
+            val outcome = when (planned) {
+                is PlannedUpload.Single -> {
+                    val name = uploadName(planned.item.file)
+                    listener.onStart(position, plan.size, planned, name)
+                    try {
+                        val result = upload(
+                            planned.item.file, settings, context, history,
+                            progress = listener::onProgress, onHost = listener::onHost, bookId = planned.item.stem,
+                        )
+                        UploadOutcome(planned, name, result, null)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        UploadOutcome(planned, name, null, e.message ?: e.toString())
+                    }
+                }
+                is PlannedUpload.Archive -> {
+                    archiveIndex++
+                    listener.onStart(position, plan.size, planned, planned.name)
+                    listener.onPreparing(archiveIndex, archiveCount)
+                    var staging: File? = null
+                    try {
+                        staging = ZipBundling.stagingDirectory(context.temporaryDirectory)
+                        val zip = File(staging, planned.name)
+                        val entries = ZipBundling.write(planned.items, zip)
+                        val result = upload(
+                            zip, settings, context, history = null,
+                            progress = listener::onProgress, onHost = listener::onHost,
+                        ).copy(contents = entries)
+                        history?.add(result)
+                        UploadOutcome(planned, planned.name, result, null)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        UploadOutcome(planned, planned.name, null, e.message ?: e.toString())
+                    } finally {
+                        staging?.deleteRecursively()
+                    }
+                }
+            }
+            listener.onFinished(position, outcome)
+            outcomes += outcome
+        }
+        return outcomes
+    }
 
     /**
      * Tries each configured host in order and returns the first success. Folders (separate TXT
      * output) are zipped first. Successful uploads are added to `history`. `onHost` gets the
      * display name of each host just before it is tried, so the UI can show the fallback order.
-     * `bookId` names uploads whose file name is not plain ASCII (see `UploadContext.fileId`).
+     * `bookId` is the stem (`npia_123456`) for uploads whose file name is not plain ASCII (see `UploadContext.fileId`).
      */
     suspend fun upload(
         file: File,
@@ -178,5 +278,39 @@ object UploaderCatalog {
         } finally {
             staged?.deleteRecursively()
         }
+    }
+}
+
+/** What became of one entry of an upload plan. */
+data class UploadOutcome(
+    val upload: PlannedUpload,
+    /** The name shown for it: the file's name, or the ZIP's. */
+    val name: String,
+    val result: UploadResult?,
+    val error: String?,
+) {
+    val succeeded: Boolean get() = result != null
+
+    /** Original file names this upload carried. */
+    val fileNames: List<String> get() = upload.items.map { ZipBundling.entryName(it.file) }
+}
+
+/** Progress of `UploaderCatalog.uploadAll`, for the screens and notifications. */
+interface UploadListener {
+    /** `upload` is about to start; `position` counts from 1 among `total` uploads. */
+    fun onStart(position: Int, total: Int, upload: PlannedUpload, name: String) {}
+
+    /** A ZIP is being built: ZIP `index` of `total`, from 1. */
+    fun onPreparing(index: Int, total: Int) {}
+
+    /** The display name of the host being tried. */
+    fun onHost(name: String) {}
+
+    fun onProgress(progress: UploadProgress) {}
+
+    fun onFinished(position: Int, outcome: UploadOutcome) {}
+
+    companion object {
+        val None = object : UploadListener {}
     }
 }

@@ -133,9 +133,15 @@ object DesktopConfig {
         // Never leave every engine off.
         if (SiteEngine.order(engines.order, engines.disabled).isEmpty()) engines = engines.copy(disabled = emptyList())
 
+        val u = base.upload
+        val upload = u.copy(
+            zipBundle = c.bool("upload_zip_bundle") ?: u.zipBundle,
+            zipMaxMb = (c.int("upload_zip_max_mb") ?: u.zipMaxMb).coerceIn(UploadSettings.MIN_ZIP_MAX_MB, UploadSettings.MAX_ZIP_MAX_MB),
+        )
+
         val settings = base.copy(
             shared = shared, overrides = overrides, images = images, text = text,
-            npia = npiaSettings, sources = sources, engines = engines,
+            npia = npiaSettings, sources = sources, engines = engines, upload = upload,
             appUpdateCheck = c.bool("app_update_check") ?: base.appUpdateCheck,
         )
         val secrets = Secrets(
@@ -246,6 +252,8 @@ object DesktopConfig {
         put("novel_downloader_auto_update", s.engines.novelDownloaderAutoUpdate)
         put("webtoepub_auto_update", s.engines.webtoepubAutoUpdate)
         put("app_update_check", s.appUpdateCheck)
+        put("upload_zip_bundle", s.upload.zipBundle)
+        put("upload_zip_max_mb", s.upload.zipMaxMb.coerceIn(UploadSettings.MIN_ZIP_MAX_MB, UploadSettings.MAX_ZIP_MAX_MB))
         return JsonObject(c)
     }
 

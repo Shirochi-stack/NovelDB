@@ -22,6 +22,50 @@ class SettingsTest {
     }
 
     @Test
+    fun zipBundlingDefaultsToOnWithOneGigabyte() {
+        val defaults = UploadSettings()
+        assertTrue(defaults.zipBundle)
+        assertEquals(1024, defaults.zipMaxMb)
+        assertEquals(1024L * 1024 * 1024, defaults.zipLimitBytes)
+        // Older settings files have neither key.
+        val old = SettingsCoding.decode("""{"upload": {"autoUpload": true}}""")
+        assertTrue(old.upload.zipBundle)
+        assertEquals(1024, old.upload.zipMaxMb)
+        val text = SettingsCoding.encode(AppSettings())
+        assertTrue(text, text.contains("\"zipBundle\": true") && text.contains("\"zipMaxMB\": 1024"))
+        val custom = AppSettings(upload = UploadSettings(zipBundle = false, zipMaxMb = 300))
+        assertEquals(custom, SettingsCoding.decode(SettingsCoding.encode(custom)))
+        // Out-of-range values are brought back into 50..4096 when used.
+        assertEquals(50L * 1024 * 1024, UploadSettings(zipMaxMb = 1).zipLimitBytes)
+        assertEquals(4096L * 1024 * 1024, UploadSettings(zipMaxMb = 100000).zipLimitBytes)
+    }
+
+    @Test
+    fun zipBundlingRoundTripsThroughTheDesktopConfig() {
+        val (imported, _) = DesktopConfig.import("""{"upload_zip_bundle": false, "upload_zip_max_mb": 250}""")
+        assertFalse(imported.upload.zipBundle)
+        assertEquals(250, imported.upload.zipMaxMb)
+        val exported = DesktopConfig.export(imported)
+        assertEquals(false, exported["upload_zip_bundle"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(250, exported["upload_zip_max_mb"]!!.jsonPrimitive.int)
+        val (again, _) = DesktopConfig.import(exported)
+        assertEquals(imported.upload, again.upload)
+
+        // A config without the keys leaves the app's values alone; the defaults export as on / 1024.
+        val (untouched, _) = DesktopConfig.import("""{"ext_threads": 3}""", imported)
+        assertEquals(imported.upload, untouched.upload)
+        val fresh = DesktopConfig.export(AppSettings())
+        assertEquals(true, fresh["upload_zip_bundle"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(1024, fresh["upload_zip_max_mb"]!!.jsonPrimitive.int)
+        // Limits: below 50 and above 4096 are clamped on import.
+        assertEquals(50, DesktopConfig.import("""{"upload_zip_max_mb": 5}""").first.upload.zipMaxMb)
+        assertEquals(4096, DesktopConfig.import("""{"upload_zip_max_mb": 9000}""").first.upload.zipMaxMb)
+        // Unknown keys of the desktop file survive an export onto it.
+        val onto = DesktopConfig.export(imported, kotlinx.serialization.json.JsonObject(mapOf("future_key" to JsonPrimitive(1))))
+        assertEquals(1, onto["future_key"]!!.jsonPrimitive.int)
+    }
+
+    @Test
     fun encodeDecodeRoundTrip() {
         val settings = AppSettings(
             shared = SharedSettings(rangeFrom = 5),

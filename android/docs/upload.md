@@ -19,6 +19,33 @@ order, zips folder outputs (separate TXT) first, and records the result in `hist
 Multipart bodies are streamed from disk in 64 KiB pieces through an OkHttp `RequestBody` that
 reports `UploadProgress`; Drive sends 8 MiB chunks. Memory stays flat for multi-GB files.
 
+## ZIP bundles and file names
+
+With `UploadSettings.zipBundle` on (the default, desktop key `upload_zip_bundle`) an upload of two or
+more files goes through `UploaderCatalog.plan` and `uploadAll`: `ZipBundling.plan` packs the files by
+first-fit decreasing into ZIPs of at most `min(zipMaxMb, first usable host's maxBytes)`
+(`upload_zip_max_mb`, 50 to 4096, default 1024), counting 1 KB of overhead per entry. A file bigger
+than that goes alone, and so does a file left alone in its ZIP. Folders are never bundled.
+
+- Entries keep the original (NFC) file name with the UTF-8 name flag set, no folders; EPUB, CBZ, PDF
+  and ZIP entries are stored, everything else is deflated. A repeated name becomes `name (2).ext`.
+- ZIP names are ASCII: `NovelDB_<n>_EPUBs.zip` when every entry is an EPUB, else
+  `NovelDB_<n>_files.zip`, with `_2`, `_3` added to repeats within one upload.
+- ZIPs are built in `UploadContext.temporaryDirectory` and deleted afterwards. `UploadListener`
+  reports "preparing ZIP i of n", the host and the byte progress. `UploadResult.contents` lists the
+  original names inside a ZIP, and `UploadResult.label` reads "NovelDB_3_EPUBs.zip (3 books)".
+
+Single files go up under an ASCII name (`UploadNames.ascii`): the name itself when it is plain
+printable ASCII, else the ASCII-safe title when it keeps at least 3 ASCII letters (digits alone do not
+count, so a title of digits and Korean is not `100.epub`), else `<stem>.<ext>` with the stem
+`<source>_<book id>` (`UploadStem`, for example `npia_123456`). Only the ASCII name is sent in the
+multipart `filename=`: an RFC 5987 `filename*` with the real title overrides it on hosts that read
+it, and they reduce Korean to `-_.epub`.
+
+Debug builds of the app can point uploads at a local test server (`LocalTestUploader`, set with the
+`noveldb_upload_base` and `noveldb_upload_max_bytes` intent extras) to check all of this without a
+public host.
+
 ## API for the UI
 
 - `UploaderCatalog.all`: `id`, `displayName`, `maxBytes`, `retentionSeconds`, `requiresAccount`.
