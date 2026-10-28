@@ -72,6 +72,26 @@ final class WKWebEngineTests: XCTestCase {
         await page.close()
     }
 
+    func testMessageHandlerRefusesFramesInsideThePage() async throws {
+        let engine = WKWebEngine(persistent: false)
+        let page = try await engine.newPage(profile: "test-message-frames")
+        await page.addMessageHandler("echo") { text in "echo:" + text }
+        let frame = "<script>window.webkit.messageHandlers.echo.postMessage('frame')"
+            + ".then(r => parent.postMessage('replied:' + r, '*'), () => parent.postMessage('refused', '*'));</script>"
+        let html = "<script>window.addEventListener('message', e => { window.__frame = e.data; });</script>"
+            + "<iframe srcdoc=\"\(frame)\"></iframe>"
+        try await page.load(dataURL(html), until: .load, timeout: 30)
+        let fromFrame = try await page.evaluate(String.self, """
+            for (let i = 0; i < 100 && !window.__frame; i++) await new Promise(r => setTimeout(r, 50));
+            return window.__frame || 'no answer';
+            """)
+        XCTAssertEqual(fromFrame, "refused")
+        // The page itself is still answered.
+        let reply = try await page.evaluate(String.self, "return await window.webkit.messageHandlers.echo.postMessage('top');")
+        XCTAssertEqual(reply, "echo:top")
+        await page.close()
+    }
+
     func testFileURLLoads() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

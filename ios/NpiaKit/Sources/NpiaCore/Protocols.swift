@@ -76,7 +76,8 @@ public protocol WebPageDriving: Sendable {
     /// Lets page scripts call into Swift: `await window.webkit.messageHandlers[name].postMessage(text)`
     /// sends a string and resolves with the string `handler` returns. Add it before loading the
     /// page; the page's cookies are copied to `HTTPCookieStorage.shared` before each call, so the
-    /// handler can make requests with them. Pages that cannot message ignore this.
+    /// handler can make requests with them. Only the top frame is answered; frames inside the page
+    /// are refused. Pages that cannot message ignore this.
     func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async
     func currentURL() async -> URL?
     func html() async throws -> String
