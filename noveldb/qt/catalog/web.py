@@ -383,7 +383,7 @@ class CatalogPage(QWidget):
         if self.page is None:
             return
         urls = json.dumps(self.context.cart.urls)
-        mode = json.dumps({"cartLinks": self._cart_links()})
+        mode = json.dumps({"cartLinks": self._cart_links(), "fill": self.context.settings.catalog.fill_width})
         self.page.runJavaScript(
             f"window.NovelDBApp && (NovelDBApp.setCart({urls}), NovelDBApp.setMode({mode}));", WORLD)
 

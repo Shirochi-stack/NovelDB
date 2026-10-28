@@ -111,8 +111,27 @@ class DownloadPage(QWidget):
         tools_menu.setToolTipsVisible(True)
         tools = QToolButton()
         tools.setText("Tools")
+        tools.setProperty("menu", True)
         tools.setPopupMode(QToolButton.InstantPopup)
         tools.setMenu(tools_menu)
+
+        # Browser sign-in, as the old external window had it: Enter Browser (with the regular
+        # Chrome profile switch) and Enter App for the sfc app session.
+        enter_browser = QPushButton("Enter Browser")
+        ok, reason = available("enter_browser")
+        enter_browser.setEnabled(ok)
+        enter_browser.setToolTip(reason or "Open a browser window to sign in to the site of the first link, "
+                                           "then close it before downloading.")
+        enter_browser.clicked.connect(lambda: self.toolRequested.emit("enter_browser"))
+        self.regular_browser = QCheckBox("Use regular browser")
+        self.regular_browser.setToolTip("Use your installed Chrome profile (signed-in sites) instead of the "
+                                        "downloader's own browser.")
+        self.regular_browser.toggled.connect(lambda on: context.update_settings(
+            lambda s: replace(s, sources=replace(s.sources, regular_browser=on))))
+        enter_app = QPushButton("Enter App (sfc)")
+        enter_app.setToolTip("Sign in to the sfc app, or paste its cookie, for app-only chapters.")
+        enter_app.clicked.connect(lambda: self.toolRequested.emit("sfc_app"))
+        browser_row = flow(enter_browser, self.regular_browser, enter_app, spacing=10)
         # The run button sits with the box it acts on, not at the bottom of the page.
         self.download = QPushButton("Download")
         self.download.setProperty("primary", True)
@@ -194,6 +213,7 @@ class DownloadPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(self.input)
         layout.addLayout(input_actions)
+        layout.addWidget(browser_row)
         layout.addLayout(self.detected_holder)
         layout.addWidget(section("Output formats"))
         layout.addWidget(formats_row)
@@ -337,6 +357,7 @@ class DownloadPage(QWidget):
         if not self.folder.hasFocus():
             self.folder.setText(s.output.output_dir)
         set_quietly(self.ask_each_time, s.output.ask_each_time)
+        set_quietly(self.regular_browser, s.sources.regular_browser)
 
     def _run(self, **changes) -> None:
         source = self._source

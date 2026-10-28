@@ -653,6 +653,7 @@ def catalog_form(context: AppContext) -> Form:
     use_next.clicked.connect(lambda: save(NOVELDB_NEXT_URL))
     f.add(flow(use_default, use_next))
     f.add(error)
+    f.check("Fill the window (widen sites that keep their page in a narrow column)", "catalog.fill_width")
     f.check("Send outside links to the link cart", "catalog.cart_links")
     f.add_hint("On catalog sites other than NovelDB, links to book pages go to the link cart and their "
                "buttons read \U0001F517 Download. Turn this off to open them in your browser instead.")

@@ -57,29 +57,94 @@ def palette_for(scheme: dict) -> QPalette:
     return p
 
 
-def _check_image(color: str) -> str:
-    """A checkmark SVG in `color`, written once to the cache (QSS images need a file)."""
+_ICONS = {
+    "check": "<path d='M3.5 8.5l3 3 6-7' fill='none' stroke='{c}' stroke-width='2' stroke-linecap='round' "
+             "stroke-linejoin='round'/>",
+    "down": "<path d='M4 6l4 4 4-4' fill='none' stroke='{c}' stroke-width='1.8' stroke-linecap='round' "
+            "stroke-linejoin='round'/>",
+    "up": "<path d='M4 10l4-4 4 4' fill='none' stroke='{c}' stroke-width='1.8' stroke-linecap='round' "
+          "stroke-linejoin='round'/>",
+}
+
+
+def _icon_file(name: str, color: str) -> str:
+    """A small SVG in `color`, written once to the cache (QSS images need a file); "" if it can't be."""
     try:
         from noveldb.core import paths
 
         folder = paths.cache_dir() / "theme"
         folder.mkdir(parents=True, exist_ok=True)
-        target = folder / f"check-{color.lstrip('#').lower()}.svg"
+        target = folder / f"{name}-{color.lstrip('#').lower()}.svg"
         if not target.exists():
-            target.write_text(
-                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8.5l3 3 6-7' "
-                f"fill='none' stroke='{color}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>",
-                encoding="utf-8")
+            target.write_text("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
+                              + _ICONS[name].format(c=color) + "</svg>", encoding="utf-8")
         return target.as_posix()
     except OSError:
         return ""
 
 
+def _image(name: str, color: str) -> str:
+    path = _icon_file(name, color)
+    return f"image: url({path});" if path else ""
+
+
 def stylesheet_for(scheme: dict) -> str:
     s = scheme
-    check = _check_image(s["onPrimary"])
-    check_rule = f"image: url({check});" if check else ""
+    check_rule = _image("check", s["onPrimary"])
+    down, up = _image("down", s["onSurfaceVariant"]), _image("up", s["onSurfaceVariant"])
+    down_off = _image("down", s["outlineVariant"])
+    field_bg = s["surfaceContainerLowest"]
     return f"""
+    /* Text fields, spin boxes and drop-downs: outlined, rose focus ring (Material 3 outlined fields). */
+    QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox, QComboBox {{
+        background: {field_bg}; color: {s['onSurface']}; border: 1px solid {s['outline']}; border-radius: 8px;
+        padding: 5px 9px; selection-background-color: {s['primary']}; selection-color: {s['onPrimary']}; }}
+    QLineEdit:hover, QPlainTextEdit:hover, QTextEdit:hover, QAbstractSpinBox:hover, QComboBox:hover {{
+        border-color: {s['onSurfaceVariant']}; }}
+    QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QAbstractSpinBox:focus, QComboBox:focus {{
+        border: 2px solid {s['primary']}; padding: 4px 8px; }}
+    QLineEdit:disabled, QAbstractSpinBox:disabled, QComboBox:disabled {{
+        color: {s['outline']}; border-color: {s['outlineVariant']}; background: transparent; }}
+    QComboBox {{ padding-right: 28px; }}
+    QComboBox:focus {{ padding-right: 27px; }}
+    QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 26px; border: none; }}
+    QComboBox::down-arrow {{ {down} width: 14px; height: 14px; }}
+    QComboBox::down-arrow:disabled {{ {down_off} }}
+    QComboBox QAbstractItemView {{ background: {s['surfaceContainer']}; color: {s['onSurface']};
+        border: 1px solid {s['outlineVariant']}; border-radius: 8px; padding: 4px; outline: 0;
+        selection-background-color: {s['secondaryContainer']}; selection-color: {s['onSecondaryContainer']}; }}
+    QAbstractSpinBox {{ padding-right: 24px; }}
+    QAbstractSpinBox:focus {{ padding-right: 23px; }}
+    QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{ subcontrol-origin: border; width: 22px;
+        border: none; background: transparent; }}
+    QAbstractSpinBox::up-button {{ subcontrol-position: top right; margin: 3px 3px 0 0; }}
+    QAbstractSpinBox::down-button {{ subcontrol-position: bottom right; margin: 0 3px 3px 0; }}
+    QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {{
+        background: {s['surfaceContainerHigh']}; border-radius: 4px; }}
+    QAbstractSpinBox::up-arrow {{ {up} width: 12px; height: 12px; }}
+    QAbstractSpinBox::down-arrow {{ {down} width: 12px; height: 12px; }}
+    QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::up-arrow:off {{ image: none; }}
+    QAbstractSpinBox::down-arrow:disabled, QAbstractSpinBox::down-arrow:off {{ image: none; }}
+    /* Plain buttons: tonal pills; chips, primary and feedback buttons below override them. */
+    QPushButton {{ background: {s['surfaceContainerHigh']}; color: {s['onSurface']};
+        border: 1px solid {s['outlineVariant']}; border-radius: 16px; padding: 6px 16px; }}
+    QPushButton:hover {{ background: {s['surfaceContainerHighest']}; border-color: {s['outline']}; }}
+    QPushButton:pressed {{ background: {s['secondaryContainer']}; color: {s['onSecondaryContainer']}; }}
+    QPushButton:disabled {{ color: {s['outline']}; background: transparent; border-color: {s['outlineVariant']}; }}
+    QPushButton:flat {{ background: transparent; border: none; color: {s['primary']}; padding: 4px 10px; }}
+    QToolButton {{ background: transparent; color: {s['onSurface']}; border: 1px solid transparent;
+        border-radius: 8px; padding: 4px 10px; }}
+    QToolButton:hover {{ background: {s['surfaceContainerHigh']}; }}
+    QToolButton[menu="true"] {{ background: {s['surfaceContainerHigh']}; border: 1px solid {s['outlineVariant']};
+        border-radius: 16px; padding: 6px 28px 6px 16px; }}
+    QToolButton::menu-indicator {{ {down} subcontrol-origin: padding; subcontrol-position: center right;
+        right: 8px; width: 12px; height: 12px; }}
+    QMenu {{ background: {s['surfaceContainer']}; color: {s['onSurface']}; border: 1px solid {s['outlineVariant']};
+        border-radius: 8px; padding: 4px; }}
+    QMenu::item {{ padding: 6px 18px; border-radius: 6px; }}
+    QMenu::item:selected {{ background: {s['secondaryContainer']}; color: {s['onSecondaryContainer']}; }}
+    QMenu::item:disabled {{ color: {s['outline']}; }}
+    QMenu::separator {{ height: 1px; background: {s['outlineVariant']}; margin: 4px 8px; }}
     QCheckBox::indicator {{ width: 16px; height: 16px; border: 2px solid {s['onSurfaceVariant']}; border-radius: 3px;
                             background: transparent; }}
     QCheckBox::indicator:checked {{ background: {s['primary']}; border-color: {s['primary']}; {check_rule} }}

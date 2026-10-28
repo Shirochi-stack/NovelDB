@@ -194,6 +194,7 @@ class CatalogSettings:
     url: str = DEFAULT_CATALOG_URL
     cart_links: bool = True
     zoom: float = 1.0  # desktop: the Catalog page's zoom (0.5-3.0)
+    fill_width: bool = True  # desktop: widen sites that keep their page in a narrow column
 
 
 @dataclass(frozen=True)
