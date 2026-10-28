@@ -92,13 +92,16 @@ func isPlainPrintableASCII(_ name: String) -> Bool {
 /// with other characters in it keeps its ASCII part (`UploadNaming.asciiTitle`); a title with
 /// fewer than three ASCII letters left (digits do not count) becomes `id` (for example
 /// `npia_419368`), else "book". The extension is kept when it is ASCII.
+///
+/// The name is split here rather than with `pathExtension`, so ".epub" is an extension with no title
+/// and never reaches a host on its own: temp.sh stores it as "epub", which downloads with no extension.
 func asciiUploadName(_ file: URL, id: String?) -> String {
     let original = uploadName(file)
-    let ext = file.pathExtension.precomposedStringWithCanonicalMapping
-    let usableExtension = !ext.isEmpty && ext.unicodeScalars.allSatisfy { $0.isASCII && CharacterSet.alphanumerics.contains($0) }
-    let stem = usableExtension || ext.isEmpty
-        ? (original as NSString).deletingPathExtension
-        : original
+    let dot = original.lastIndex(of: ".")
+    let ext = dot.map { String(original[original.index(after: $0)...]) } ?? ""
+    let usableExtension = !ext.isEmpty && ext.count <= 10
+        && ext.unicodeScalars.allSatisfy { $0.isASCII && CharacterSet.alphanumerics.contains($0) }
+    let stem = usableExtension ? String(original[..<dot!]) : original
     let base: String
     if let title = UploadNaming.asciiTitle(stem) {
         base = title
