@@ -276,6 +276,9 @@ def check_for_update(engine: Engine, fetch: Callable[[str, float], bytes] = _dow
             return done("current", f"The newest {title} need a newer NovelDB.", in_use)
         if _release_key(remote) in state.get("rejected", []):
             return done("current", f"The newest {title} failed to load before; keeping these.", in_use)
+        if in_use is not None and in_use.manifest.get("commit") and _release_key(remote) == _release_key(in_use.manifest):
+            # The same upstream commit and build patch: a rebuild of what is in use.
+            return done("current", f"The {title} are up to date ({in_use.label}).", in_use)
         remote_key = (_version(remote.get("version")), str(remote.get("date", "")), str(remote.get("built", "")))
         if in_use is not None and remote_key <= in_use.key:
             return done("current", f"The {title} are up to date ({in_use.label}).", in_use)
