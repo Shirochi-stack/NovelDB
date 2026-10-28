@@ -31,13 +31,13 @@ class EngineSettingsTest {
     }
 
     @Test
-    fun defaultsAreNativeThenRulesThenWebToEpubWithUpdatesOff() {
+    fun defaultsAreNativeThenRulesThenWebToEpubWithUpdatesOn() {
         val engines = AppSettings().engines
         assertEquals(all, engines.enabled())
         assertEquals(all, engines.fullOrder())
-        assertFalse(engines.novelDownloaderAutoUpdate)
-        assertFalse(engines.webtoepubAutoUpdate)
-        assertFalse(engines.autoUpdate(SiteEngine.NOVEL_DOWNLOADER))
+        assertTrue(engines.novelDownloaderAutoUpdate)
+        assertTrue(engines.webtoepubAutoUpdate)
+        assertTrue(engines.autoUpdate(SiteEngine.NOVEL_DOWNLOADER))
         assertTrue(engines.isDefaultOrder)
     }
 
@@ -105,14 +105,14 @@ class EngineSettingsTest {
             """
             {"source_engine_order": ["webtoepub", "native", "novel_downloader"],
              "source_engines_off": ["novel_downloader"],
-             "webtoepub_auto_update": true}
+             "novel_downloader_auto_update": false}
             """.trimIndent(),
         )
         assertEquals(
             EngineSettings(
                 order = listOf("webtoepub", "native", "novel_downloader"),
                 disabled = listOf("novel_downloader"),
-                webtoepubAutoUpdate = true,
+                novelDownloaderAutoUpdate = false,
             ),
             settings.engines,
         )

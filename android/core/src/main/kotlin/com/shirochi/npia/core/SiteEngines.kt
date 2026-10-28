@@ -35,8 +35,8 @@ data class EngineSettings(
     val order: List<String> = SiteEngine.DEFAULT_ORDER.map { it.raw },
     /** Engines switched off. */
     val disabled: List<String> = emptyList(),
-    val novelDownloaderAutoUpdate: Boolean = false,
-    val webtoepubAutoUpdate: Boolean = false,
+    val novelDownloaderAutoUpdate: Boolean = true,
+    val webtoepubAutoUpdate: Boolean = true,
 ) {
     /** Every engine in the user's order, switched off or not. */
     fun fullOrder(): List<SiteEngine> = SiteEngine.order(order)
