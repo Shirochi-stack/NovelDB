@@ -3,23 +3,28 @@ import NpiaWebEngine
 import SwiftUI
 
 /// A plain browser for signing in to any site. Logins land in the cookie store downloads use,
-/// and Password AutoFill offers saved passwords as it does in Safari.
+/// and Password AutoFill offers saved passwords as it does in Safari. A page NovelDB can download
+/// gets "Download this book" (hands it to the Add tab) and "Add to link cart" (the cart the Catalog
+/// tab uses). The 文A menu shows the page in another language; see `BrowserTranslate`.
 struct BrowserView: View {
     @Environment(AppModel.self) private var model
     var onDownload: () -> Void = {}
 
     @StateObject private var browser = BrowserState()
     @State private var address = ""
+    /// The page (or, on a translated copy, the original site's page) can be downloaded.
+    @State private var downloadable = false
+    @State private var showLanguage = false
+    @AppStorage(BrowserTranslate.storageKey) private var languageCode = BrowserTranslate.defaultLanguage
     @FocusState private var editing: Bool
 
-    private var downloadable: Bool {
-        browser.url.map { SourceCatalog.adapterType(for: $0) != nil } ?? false
-    }
+    private var language: TranslateLanguage { BrowserTranslate.language(languageCode) }
+    private var translateActive: Bool { browser.translating || browser.onTranslatedCopy }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                TextField("Site address or search", text: $address)
+                TextField("Address or search", text: $address)
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -37,22 +42,16 @@ struct BrowserView: View {
                     Image(systemName: browser.isLoading ? "xmark" : "arrow.clockwise")
                 }
                 .disabled(browser.url == nil)
+                translateMenu
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
             if browser.isLoading {
                 ProgressView(value: browser.progress).progressViewStyle(.linear)
             }
-            if downloadable {
-                Button {
-                    model.pendingAddText = browser.url?.absoluteString
-                    onDownload()
-                } label: {
-                    Label("Download this book", systemImage: "arrow.down.circle.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(.horizontal)
-                .padding(.bottom, 6)
+            translateNotes
+            if downloadable, let page = browser.sourceURL {
+                downloadRow(page)
             }
             if browser.url == nil {
                 BrowserStartPage { browser.open($0) }
@@ -62,6 +61,7 @@ struct BrowserView: View {
         }
         .navigationTitle(browser.title.isEmpty ? "Browser" : browser.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $showLanguage) { BrowserSettingsForm() }
         .toolbar {
             ToolbarItemGroup(placement: .bottomBar) {
                 Button { browser.webView.goBack() } label: { Image(systemName: "chevron.backward") }
@@ -72,10 +72,118 @@ struct BrowserView: View {
                 NavigationLink("Sites") { SitesView { browser.open("https://" + $0) } }
             }
         }
-        .onAppear { takePendingURL() }
+        .onAppear {
+            takePendingURL()
+            refreshDownloadable()
+        }
         .onChange(of: model.pendingBrowserURL) { takePendingURL() }
         .onChange(of: browser.url) { _, url in
             if !editing, let url { address = url.absoluteString }
+            refreshDownloadable()
+        }
+        // Switching a script engine on or off changes which pages can be downloaded.
+        .onChange(of: model.settings.engines) { _, _ in refreshDownloadable() }
+    }
+
+    // MARK: - Translate
+
+    private var translateMenu: some View {
+        Menu {
+            if translateActive {
+                Button("Show original") { browser.showOriginal() }
+            } else {
+                Button("Translate to \(language.name)") { browser.startTranslating(language: language.code) }
+            }
+            if !browser.onTranslatedCopy {
+                Button("Open a translated copy") { browser.openTranslatedCopy(language: language.code) }
+            }
+            Button("Language: \(language.name)") { showLanguage = true }
+        } label: {
+            Text("文A")
+                .fontWeight(translateActive ? .bold : .regular)
+                .foregroundStyle(translateActive ? Color.accentColor : Color.secondary)
+        }
+        .disabled(browser.url == nil)
+        .accessibilityLabel("Translate")
+    }
+
+    @ViewBuilder
+    private var translateNotes: some View {
+        if browser.translating && browser.translateStatus == .working {
+            note("Translating to \(language.name)...")
+        }
+        if browser.translating && browser.translateStatus == .unchanged {
+            note("Nothing was translated. The page may already be in \(language.name).")
+        }
+        if browser.translating && browser.translateStatus == .blocked {
+            HStack {
+                Text("This site blocks the translator. A translated copy cannot use your sign-ins.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("Open a translated copy") { browser.openTranslatedCopy(language: language.code) }
+                    .font(.caption)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 2)
+        }
+        if browser.onTranslatedCopy {
+            note("Translated copy from Google: sign-ins do not apply here. Downloads use the original site.")
+        }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 2)
+    }
+
+    // MARK: - Download and link cart
+
+    /// "Download this book" and "Add to link cart" side by side. `page` is the site's own address,
+    /// also while a translated copy is on screen.
+    private func downloadRow(_ page: URL) -> some View {
+        let pageAddress = page.absoluteString
+        let inCart = model.cart.items.contains { $0.url == pageAddress }
+        return HStack(spacing: 8) {
+            Button {
+                model.pendingAddText = pageAddress
+                onDownload()
+            } label: {
+                Label("Download this book", systemImage: "arrow.down.circle.fill")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            Button {
+                if inCart {
+                    model.cart.remove(pageAddress)
+                } else {
+                    let source = SourceCatalog.adapterType(for: page).map { $0.id.rawValue } ?? ""
+                    model.cart.add(CartItem(url: pageAddress, title: CatalogPages.cleanTitle(browser.title, for: page), source: source))
+                }
+            } label: {
+                Text(inCart ? "✓ In link cart" : "🔗 Add to link cart")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 6)
+    }
+
+    /// Decided when the address or the engine settings change, not on every redraw.
+    private func refreshDownloadable() {
+        if let page = browser.sourceURL {
+            downloadable = SourceCatalog.downloadablePage(page, engines: model.settings.engines)
+        } else {
+            downloadable = false
         }
     }
 
@@ -93,7 +201,7 @@ private struct BrowserStartPage: View {
     var body: some View {
         List {
             Section {
-                Text("Open any site and log in as you would in Safari. Downloads from that site then use your login. Password AutoFill can save and fill your passwords here.")
+                Text("Open any site and log in as you would in Safari. Downloads from that site then use your login. Password AutoFill can save and fill your passwords here. Pages NovelDB can download show Download and link cart buttons.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

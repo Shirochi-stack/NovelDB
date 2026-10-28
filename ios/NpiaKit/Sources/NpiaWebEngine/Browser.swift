@@ -104,6 +104,11 @@ public final class BrowserState: NSObject, ObservableObject, WKNavigationDelegat
     @Published public private(set) var canGoBack = false
     @Published public private(set) var canGoForward = false
     private var observations: [NSKeyValueObservation] = []
+    /// Translating is on: every page the view shows is translated in place (see `BrowserTranslate`).
+    @Published public private(set) var translating = false
+    @Published public private(set) var translateStatus: TranslateStatus = .off
+    private var translateLanguage = BrowserTranslate.defaultLanguage
+    private var translatePoll: Task<Void, Never>?
 
     public override init() {
         let configuration = WKWebViewConfiguration()
@@ -114,7 +119,7 @@ public final class BrowserState: NSObject, ObservableObject, WKNavigationDelegat
         webView.navigationDelegate = self
         webView.uiDelegate = self
         observations = [
-            webView.observe(\.url) { [weak self] view, _ in Task { @MainActor in self?.url = view.url } },
+            webView.observe(\.url) { [weak self] _, _ in Task { @MainActor in self?.urlChanged() } },
             webView.observe(\.title) { [weak self] view, _ in Task { @MainActor in self?.title = view.title ?? "" } },
             webView.observe(\.estimatedProgress) { [weak self] view, _ in Task { @MainActor in self?.progress = view.estimatedProgress } },
             webView.observe(\.isLoading) { [weak self] view, _ in Task { @MainActor in self?.isLoading = view.isLoading } },
@@ -126,6 +131,130 @@ public final class BrowserState: NSObject, ObservableObject, WKNavigationDelegat
     public func open(_ text: String) {
         guard let url = BrowserProfile.normalize(text) else { return }
         webView.load(URLRequest(url: url))
+    }
+
+    // MARK: - Translation
+
+    /// The page's own address: for a translated copy, the original site's.
+    public var sourceURL: URL? {
+        guard let url else { return nil }
+        return BrowserTranslate.originalURL(of: url) ?? url
+    }
+
+    /// The page on screen is Google's translated copy of a site.
+    public var onTranslatedCopy: Bool {
+        url.map(BrowserTranslate.isTranslatedCopy) ?? false
+    }
+
+    private func isCopy(_ url: URL?) -> Bool {
+        url.map(BrowserTranslate.isTranslatedCopy) ?? false
+    }
+
+    /// Translates the page into `language` (a Google Translate code) and every page after it, until
+    /// `showOriginal`. The page is translated where it is, so sign-ins and the app's buttons keep working.
+    public func startTranslating(language: String) {
+        guard webView.url != nil, !isCopy(webView.url) else { return }
+        translateLanguage = BrowserTranslate.language(language).code
+        translating = true
+        translateStatus = .working
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        // A page that loads later gets the translator once its document is there.
+        controller.addUserScript(WKUserScript(
+            source: BrowserTranslate.injection(language: translateLanguage),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        injectTranslator()
+        pollTranslation()
+    }
+
+    /// Turns translating off and shows the page as the site wrote it.
+    public func showOriginal() {
+        let original = sourceURL
+        let wasCopy = isCopy(webView.url)
+        stopTranslating()
+        if wasCopy, let original {
+            webView.load(URLRequest(url: original))
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = try? await self.webView.callAsyncJavaScript(
+                BrowserTranslate.stopScript + "; return 'stopped';", arguments: [:], in: nil, contentWorld: .page)
+            self.webView.reload()
+        }
+    }
+
+    /// Opens Google's translated copy of the page, for sites that refuse the in-page translator.
+    /// Sign-ins do not apply there; downloads and the link cart use the original address (`sourceURL`).
+    public func openTranslatedCopy(language: String) {
+        guard let page = sourceURL, let copy = BrowserTranslate.copyURL(of: page, language: language) else { return }
+        stopTranslating()
+        webView.load(URLRequest(url: copy))
+    }
+
+    private func stopTranslating() {
+        translating = false
+        translateStatus = .off
+        translatePoll?.cancel()
+        translatePoll = nil
+        webView.configuration.userContentController.removeAllUserScripts()
+    }
+
+    /// Puts the translator into the page on screen (safe to repeat).
+    private func injectTranslator() {
+        guard translating, !isCopy(webView.url) else { return }
+        webView.evaluateJavaScript(BrowserTranslate.injection(language: translateLanguage), completionHandler: nil)
+    }
+
+    /// Asks the page how the translation is going until it has translated or gives up.
+    private func pollTranslation() {
+        translatePoll?.cancel()
+        guard translating, translateStatus == .working else { return }
+        let started = Date()
+        translatePoll = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard let self, !Task.isCancelled, self.translating, self.translateStatus == .working else { return }
+                let reply = try? await self.webView.callAsyncJavaScript(
+                    "return " + BrowserTranslate.statusScript + ";", arguments: [:], in: nil, contentWorld: .page)
+                guard !Task.isCancelled, self.translating else { return }
+                let word = (reply as? String) ?? "loading"
+                if word == "translated" {
+                    self.translateStatus = .translated
+                } else if word == "same" {
+                    self.translateStatus = .unchanged
+                } else if word == "blocked" || Date().timeIntervalSince(started) > 10 {
+                    self.translateStatus = .blocked
+                }
+            }
+        }
+    }
+
+    /// The address changed by a load or by the page itself (history API), as single-page sites do.
+    private func urlChanged() {
+        url = webView.url
+        // A same-document change keeps the page, and the translator with it; translate what it added.
+        if translating, !webView.isLoading { injectTranslator() }
+    }
+
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard translating else { return }
+        if isCopy(webView.url) {
+            // Google's copy is translated already, and the translator cannot run there.
+            stopTranslating()
+        } else {
+            translateStatus = .working
+            pollTranslation()
+        }
+    }
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard translating, !isCopy(webView.url) else { return }
+        if translateStatus != .translated { translateStatus = .working }
+        injectTranslator()
+        pollTranslation()
     }
 
     /// Popups (common on sign-in pages) load in this view.
