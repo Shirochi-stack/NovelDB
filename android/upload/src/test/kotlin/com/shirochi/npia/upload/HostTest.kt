@@ -50,38 +50,62 @@ class MultipartTest : UploadTestBase() {
     @Test
     fun plainAsciiNamesAreUploadedAsTheyAre() {
         val file = makeFile("My Book (2).epub")
-        assertEquals(UploadName("My Book (2).epub", "My Book (2).epub"), UploadName.of(file, "419368"))
-        val head = MultipartForm("file", file, name = UploadName.of(file, "419368"), boundary = "B").head.toString(Charsets.UTF_8)
+        assertEquals(UploadName("My Book (2).epub", "My Book (2).epub"), UploadName.of(file, "npia_419368"))
+        val head = MultipartForm("file", file, name = UploadName.of(file, "npia_419368"), boundary = "B").head.toString(Charsets.UTF_8)
         assertTrue(head, head.contains("filename=\"My Book (2).epub\"\r\n"))
         assertFalse(head, head.contains("filename*"))
     }
 
     @Test
-    fun nonAsciiNamesBecomeIdAndExtension() {
+    fun nonAsciiNamesBecomeStemAndExtension() {
         val korean = "재앙급 진조는 방구석에서 꿀 빱니다.epub"
-        assertEquals("419368.epub", UploadName.of(korean, "419368").ascii)
-        assertEquals(korean, UploadName.of(korean, "419368").display)
+        assertEquals("npia_419368.epub", UploadName.of(korean, "npia_419368").ascii)
+        assertEquals(korean, UploadName.of(korean, "npia_419368").display)
         assertEquals("book.epub", UploadName.of(korean, null).ascii)
         assertEquals("book.epub", UploadName.of(korean, "../evil name").ascii)
-        assertEquals("77.zip", UploadName.of("소설 TXT.zip", "77").ascii)
-        assertEquals("77", UploadName.of("소설", "77").ascii)
-        assertEquals("77", UploadName.of("소설.책", "77").ascii)
+        assertEquals("npia_77.zip", UploadName.of("소설.zip", "npia_77").ascii)
+        assertEquals("npia_77", UploadName.of("소설", "npia_77").ascii)
+        assertEquals("npia_77", UploadName.of("소설.책", "npia_77").ascii)
     }
 
     @Test
-    fun multipartHeaderCarriesBothAsciiAndUtf8Names() {
+    fun aTitleThatKeepsThreeLettersKeepsItsAsciiPart() {
+        assertEquals("Solo_Leveling_2.epub", UploadName.of("Solo Leveling 나 혼자만 레벨업 2.epub", "npia_1").ascii)
+        assertEquals("TXT.zip", UploadName.of("소설 TXT.zip", "npia_77").ascii)
+        assertEquals("ABC_Title.epub", UploadName.of("[ABC] 제목 Title.epub", "kpage_5").ascii)
+        // Digits alone do not make a name: digits plus Korean fall back to the stem...
+        assertEquals("npia_104.epub", UploadName.of("100일 후에 시작하는 이야기.epub", "npia_104").ascii)
+        assertEquals("npia_104.epub", UploadName.of("100년 만에 귀환한 헌터.epub", "npia_104").ascii)
+        assertEquals("kpage_7.epub", UploadName.of("2024 한글 1234567.epub", "kpage_7").ascii)
+        // ...and so do two letters among digits.
+        assertEquals("npia_9.epub", UploadName.of("12345 한글 ab.epub", "npia_9").ascii)
+        // Digits next to enough Latin letters stay in the name.
+        assertEquals("100_Return.epub", UploadName.of("100일 후에 Return.epub", "npia_104").ascii)
+        assertEquals("Solo_Leveling_2.epub", UploadName.of("Solo Leveling 2 나 혼자만 레벨업.epub", "npia_1").ascii)
+        assertEquals(null, UploadNames.asciiTitle("100일 후에"))
+        assertEquals("100_Return", UploadNames.asciiTitle("100일 후에 Return"))
+        // Two letters are not enough: the stem is used.
+        assertEquals("npia_9.epub", UploadName.of("VR 한글.epub", "npia_9").ascii)
+        assertEquals("npia_9.epub", UploadName.of("-한글.epub", "npia_9").ascii)
+        assertEquals("npia_9.epub", UploadName.of("소설 1.epub", "npia_9").ascii)
+    }
+
+    @Test
+    fun multipartHeaderCarriesOnlyTheAsciiName() {
         val korean = "재앙급 진조.epub"
         val file = makeFile(korean)
-        val form = MultipartForm("file", file, name = UploadName.of(file, "419368"), boundary = "B")
+        val form = MultipartForm("file", file, name = UploadName.of(file, "npia_419368"), boundary = "B")
         val head = form.head.toString(Charsets.UTF_8)
-        assertTrue(head, head.contains("filename=\"419368.epub\"; filename*=UTF-8''%EC%9E%AC%EC%95%99%EA%B8%89%20%EC%A7%84%EC%A1%B0.epub\r\n"))
+        assertTrue(head, head.contains("filename=\"npia_419368.epub\"\r\n"))
+        assertFalse(head, head.contains("filename*"))
+        assertTrue(head, head.all { it.code < 0x80 })
     }
 
     @Test
     fun pixeldrainUrlUsesTheAsciiName() {
         val file = makeFile("소설 1.epub")
-        val request = PixeldrainUploader.request(file, "key", name = UploadName.of(file, "419368"))
-        assertEquals("https://pixeldrain.com/api/file/419368.epub", request.url.toString())
+        val request = PixeldrainUploader.request(file, "key", name = UploadName.of(file, "npia_419368"))
+        assertEquals("https://pixeldrain.com/api/file/npia_419368.epub", request.url.toString())
     }
 
     @Test

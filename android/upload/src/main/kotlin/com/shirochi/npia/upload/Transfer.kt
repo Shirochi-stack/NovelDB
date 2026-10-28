@@ -150,9 +150,9 @@ internal class MultipartForm(
                 text.append("$value\r\n")
             }
             text.append("--$boundary\r\n")
+            // Only the ASCII name goes on the wire. An RFC 5987 `filename*` with the real title
+            // overrides it on hosts that read it, and they then strip the Korean down to `-_.epub`.
             text.append("Content-Disposition: form-data; name=\"${quoted(fileField)}\"; filename=\"${quoted(name.ascii)}\"")
-            // Hosts that read RFC 5987 keep the real title; the others fall back to the ASCII name.
-            if (!name.isPlain) text.append("; filename*=UTF-8''${percentEncode(name.display)}")
             text.append("\r\n")
             text.append("Content-Type: $mimeType\r\n\r\n")
             return text.toString().toByteArray(Charsets.UTF_8)
@@ -191,29 +191,21 @@ internal suspend fun UploadContext.postMultipart(
 
 /**
  * The names one upload goes by. `display` is the real (NFC) file name, shown in the Links list.
- * Hosts strip non-ASCII from multipart file names ("책.epub" arrives as "epub.epub"), so `ascii` is
- * what goes in `filename="..."` and in URLs: the display name itself when it is plain printable
- * ASCII, otherwise `<book id>.<extension>`.
+ * Hosts strip non-ASCII from multipart file names, so `ascii` is what goes in `filename="..."` and
+ * in URLs: the display name itself when it is plain printable ASCII, otherwise the ASCII-safe
+ * title when it keeps three letters or digits, otherwise `<stem>.<extension>` (see `UploadNames`).
  */
 internal data class UploadName(val display: String, val ascii: String) {
     val isPlain: Boolean get() = display == ascii
 
     companion object {
-        private val SAFE_ID = Regex("[A-Za-z0-9_-]{1,40}")
-        private val SAFE_EXTENSION = Regex("[A-Za-z0-9]{1,8}")
+        fun of(file: File, stem: String? = null): UploadName = of(uploadName(file), stem)
 
-        fun of(file: File, bookId: String? = null): UploadName = of(uploadName(file), bookId)
-
-        fun of(name: String, bookId: String?): UploadName {
-            if (name.isNotEmpty() && name.all { it in ' '..'~' }) return UploadName(name, name)
-            val id = bookId?.takeIf { SAFE_ID.matches(it) } ?: "book"
-            val extension = name.substringAfterLast('.', "").takeIf { SAFE_EXTENSION.matches(it) }
-            return UploadName(name, if (extension != null) "$id.$extension" else id)
-        }
+        fun of(name: String, stem: String?): UploadName = UploadName(name, UploadNames.ascii(name, stem))
     }
 }
 
-/** The names for `file` in this upload; `fileId` supplies the id for names that are not plain ASCII. */
+/** The names for `file` in this upload; `fileId` supplies the stem for names that are not plain ASCII. */
 internal fun UploadContext.nameFor(file: File): UploadName = UploadName.of(file, fileId)
 
 /**

@@ -182,7 +182,20 @@ data class UploadSettings(
     val hosts: List<String> = listOf("tempsh", "gofile"),
     @SerialName("googleDriveFolderID") val googleDriveFolderId: String? = null,
     val copyLinkToClipboard: Boolean = true,
-)
+    /** Several files in one upload are packed into ZIPs no larger than `zipMaxMb` (desktop `upload_zip_bundle`). */
+    val zipBundle: Boolean = true,
+    /** Largest ZIP in MB (desktop `upload_zip_max_mb`), 50 to 4096. */
+    @SerialName("zipMaxMB") val zipMaxMb: Int = DEFAULT_ZIP_MAX_MB,
+) {
+    /** `zipMaxMb` in bytes, limited to the allowed range whatever an imported file said. */
+    val zipLimitBytes: Long get() = zipMaxMb.coerceIn(MIN_ZIP_MAX_MB, MAX_ZIP_MAX_MB) * 1024L * 1024L
+
+    companion object {
+        const val DEFAULT_ZIP_MAX_MB = 1024
+        const val MIN_ZIP_MAX_MB = 50
+        const val MAX_ZIP_MAX_MB = 4096
+    }
+}
 
 @Serializable
 data class AppSettings(
