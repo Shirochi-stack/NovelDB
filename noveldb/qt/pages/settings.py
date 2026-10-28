@@ -46,7 +46,7 @@ from noveldb.core.settings.model import (
 from noveldb.core.upload import ALL as UPLOAD_HOSTS
 from noveldb.qt.context import AppContext
 from noveldb.qt.theme_palettes import ACCENT_LABELS
-from noveldb.qt.widgets import Chip, flow, hint, section
+from noveldb.qt.widgets import ButtonFeedback, Chip, flow, hint, section
 
 THEME_LABELS = {"system": "System", "light": "Light", "dark": "Dark", "amoled": "AMOLED black"}
 NAMING_LABELS = {"title": "Book title", "id": "Book ID"}
@@ -75,25 +75,31 @@ def _set(settings: AppSettings, path: str, new):
 class Form(QWidget):
     """A scrollable form whose controls are bound to settings paths."""
 
-    def __init__(self, context: AppContext, title: str) -> None:
+    def __init__(self, context: AppContext, title: str, panel: bool = False) -> None:
+        """`panel`: a card for another page (no scroll area, smaller heading)."""
         super().__init__()
         self.context = context
         self._refreshers: list[Callable[[AppSettings], None]] = []
-        body = QWidget()
-        body.setMaximumWidth(760)
+        body = QWidget() if not panel else self
+        if not panel:
+            body.setMaximumWidth(760)
         self.layout_ = QVBoxLayout(body)
-        self.layout_.setContentsMargins(20, 16, 20, 16)
+        self.layout_.setContentsMargins(*((20, 16, 20, 16) if not panel else (16, 12, 16, 14)))
         self.layout_.setSpacing(8)
         heading = QLabel(title)
-        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        heading.setStyleSheet(f"font-size: {18 if panel else 22}px; font-weight: 600;")
         self.layout_.addWidget(heading)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setWidget(body)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
+        if panel:
+            self.setObjectName("panel")
+            self.setAttribute(Qt.WA_StyledBackground, True)
+        else:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QScrollArea.NoFrame)
+            scroll.setWidget(body)
+            outer = QVBoxLayout(self)
+            outer.setContentsMargins(0, 0, 0, 0)
+            outer.addWidget(scroll)
         self._form: QFormLayout | None = None
 
     # -- layout helpers ------------------------------------------------------------------------
@@ -272,9 +278,9 @@ def general_form(context: AppContext) -> Form:
     return f
 
 
-def npia_form(context: AppContext) -> Form:
-    f = Form(context, "npia login")
-    f.add_section("Account")
+def npia_account_panel(context: AppContext) -> Form:
+    """The npia account (shown on the Download page)."""
+    f = Form(context, "npia login", panel=True)
     email = QLineEdit()
     email.setPlaceholderText("Email")
     password = QLineEdit()
@@ -288,6 +294,7 @@ def npia_form(context: AppContext) -> Form:
     status = hint("Signed in." if context.signed_in else "Not signed in: only free chapters can be read.")
     save = QPushButton("Save and sign in")
     save.setProperty("primary", True)
+    save_feedback = ButtonFeedback(save)
 
     def fill():
         secrets = context.settings.secrets
@@ -304,11 +311,16 @@ def npia_form(context: AppContext) -> Form:
         context.update_settings(lambda s: replace(s, secrets=replace(s.secrets, email=e, password=p, loginkey=k)))
         context.save_now()
         status.setText("Signing in...")
+        save_feedback.busy("Signing in")
         context.sign_in()
 
     save.clicked.connect(sign_in)
-    context.signedInChanged.connect(
-        lambda ok: status.setText("Signed in." if ok else "Not signed in: only free chapters can be read."))
+    def signed_in(ok):
+        status.setText("Signed in." if ok else "Not signed in: only free chapters can be read.")
+        if save_feedback._spin.isActive():
+            save_feedback.done(ok, "Signed in" if ok else "Not signed in")
+
+    context.signedInChanged.connect(signed_in)
     google = QPushButton("Sign in with Google")
 
     def with_google():
@@ -318,14 +330,21 @@ def npia_form(context: AppContext) -> Form:
         fill()
 
     google.clicked.connect(with_google)
-    holder = QWidget()
-    row = QHBoxLayout(holder)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.addWidget(status, 1)
-    row.addWidget(google)
-    row.addWidget(save)
-    f.add(holder)
+    f.add(status)
+    f.add(flow(google, save))
+    f.check("Sign in when the app starts", "npia.auto_login")
     f.add_hint("Credentials are kept in config.json on this computer. Settings exports leave them out.")
+    fill()
+    f.finish()
+    return f
+
+
+def npia_form(context: AppContext) -> Form:
+    f = Form(context, "npia login")
+    f.add_hint("Your npia account (email, password, session key, Google sign-in) is on the Download page.")
+    go = QPushButton("Show the account")
+    go.clicked.connect(lambda: context.toolRequested.emit("show_account"))
+    f.add(flow(go))
     f.check("Sign in when the app starts", "npia.auto_login")
 
     f.add_section("Downloads")
@@ -339,7 +358,6 @@ def npia_form(context: AppContext) -> Form:
     tag_search.clicked.connect(lambda: context.toolRequested.emit("tag_search"))
     f.add(flow(tag_search))
     f.add_hint("Find novel IDs by tag, scrape all novels or read the Top 100, with a live log.")
-    fill()
     f.finish()
     return f
 
@@ -514,8 +532,8 @@ def sources_form(context: AppContext) -> Form:
     return f
 
 
-def images_form(context: AppContext) -> Form:
-    f = Form(context, "Images")
+def images_form(context: AppContext, panel: bool = False) -> Form:
+    f = Form(context, "Images", panel=panel)
     f.check("Save image addresses only (no image files)", "images.save_image_urls_only")
     compress = f.check("Compress images", "images.compress")
     quality = f.spin("Quality", "images.quality", 1, 100)
@@ -611,13 +629,17 @@ def catalog_form(context: AppContext) -> Form:
         value = valid_catalog_url(text)
         if value is None:
             error.setText("Enter a full address starting with http:// or https://")
+            save_feedback.done(False, "Check the address")
             return
         error.setText("")
         url.setText(value)
         f.change("catalog.url", value)
+        context.save_now()
+        save_feedback.done(True)
 
     url.returnPressed.connect(lambda: save(url.text()))
     save_button = QPushButton("Save")
+    save_feedback = ButtonFeedback(save_button)
     save_button.clicked.connect(lambda: save(url.text()))
     holder = QWidget()
     row = QHBoxLayout(holder)
@@ -671,7 +693,9 @@ def advanced_form(context: AppContext) -> Form:
 
         write_raw(export_config(context.settings, None, include_secrets=False), target)
         context.hub.message.emit(f"Settings exported to {target}")
+        export_feedback.done(True, "Exported")
 
+    export_feedback = ButtonFeedback(export)
     export.clicked.connect(do_export)
     reset = QPushButton("Reset settings...")
 
@@ -693,7 +717,6 @@ CATEGORIES = (
     ("npia login", npia_form),
     ("Per-source overrides", OverridesForm),
     ("Source options", sources_form),
-    ("Images", images_form),
     ("Text and PDF", text_form),
     ("Upload and share", upload_form),
     ("Catalog site", catalog_form),

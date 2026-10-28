@@ -130,6 +130,10 @@ class Tools(QObject):
             return
         self._add_lines(lines)
 
+    def _show_account(self) -> None:
+        self.window.show_page(0)
+        self.window.download.account.setFocus()
+
     def _restart(self) -> None:
         from noveldb.qt import app
 

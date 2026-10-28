@@ -37,7 +37,7 @@ from noveldb.core.catalog.urls import is_noveldb_site, valid_catalog_url
 from noveldb.core.settings.model import DEFAULT_CATALOG_URL
 from noveldb.core.sources import detect_source
 from noveldb.qt.context import AppContext
-from noveldb.qt.widgets import hint
+from noveldb.qt.widgets import ButtonFeedback, Toast, hint
 
 log = logging.getLogger(__name__)
 WORLD = QWebEngineScript.ApplicationWorld
@@ -253,6 +253,8 @@ class CatalogPage(QWidget):
         layout.addWidget(self.progress)
         layout.addLayout(self.stack, 1)
 
+        self.toast = Toast(self)
+        self.cart_feedback = ButtonFeedback(self.cart_button)
         context.cartChanged.connect(self._cart_changed)
         context.settingsChanged.connect(self._settings_changed)
         self._cart_changed()
@@ -390,9 +392,10 @@ class CatalogPage(QWidget):
         if kind == "ready":
             self._push_state()
         elif kind == "cartAdd":
-            self._add_to_cart(data["url"], data.get("title", ""), data.get("source", ""))
+            self._add_to_cart(data["url"], data.get("title", ""), data.get("source", ""), announce=True)
         elif kind == "cartRemove":
             self.context.cart.remove(data["url"])
+            self.toast.show_message("Removed from the link cart: " + (data.get("title") or data["url"]))
         elif kind == "open":
             self.leave(data["url"], data.get("title", ""))
 
@@ -406,12 +409,19 @@ class CatalogPage(QWidget):
     def _add_to_cart(self, url: str, title: str = "", source: str = "", announce: bool = False) -> None:
         added = self.context.cart.add(CartItem(url, title, source or detect_source(url) or ""))
         if announce:
-            self.context.hub.message.emit(("Added to the link cart: " if added else "Already in the link cart: ")
-                                          + (title or url))
+            text = ("Added to the link cart: " if added else "Already in the link cart: ") + (title or url)
+            self.context.hub.message.emit(text)
+            self.toast.show_message("\U0001F517 " + text)
+            if added:
+                self.cart_feedback.label = self.cart_button.text()
+                self.cart_feedback.done(True, f"Added ({len(self.context.cart)})")
 
     def _cart_changed(self) -> None:
         count = len(self.context.cart)
-        self.cart_button.setText(f"\U0001F517 Cart ({count})")
+        if hasattr(self, "cart_feedback"):
+            self.cart_feedback.label = f"\U0001F517 Cart ({count})"
+        if not (hasattr(self, "cart_feedback") and self.cart_feedback._restore.isActive()):
+            self.cart_button.setText(f"\U0001F517 Cart ({count})")
         self.run.setText(f"Download {count}" if count > 1 else "Download")
         self.run.setEnabled(count > 0)
         self._push_state()

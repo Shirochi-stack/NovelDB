@@ -203,6 +203,9 @@ def main(argv=None) -> int:
     font = app.font()
     font.setPointSizeF(max(font.pointSizeF(), 11.0))  # Qt's 9 pt default reads small next to the site
     app.setFont(font)
+    from noveldb.qt.widgets import disable_wheel_on_inputs
+
+    disable_wheel_on_inputs(app)
 
     from noveldb.qt.context import AppContext
     from noveldb.qt.main_window import PAGES, MainWindow
