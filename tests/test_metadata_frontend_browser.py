@@ -286,14 +286,21 @@ class FixtureSite:
         await route.fulfill(body=gzip.compress(json.dumps(payload, ensure_ascii=False).encode()), content_type="application/gzip")
 
 
+async def settings_open(page):
+    return await page.locator('#settingsButton').get_attribute('aria-expanded') == 'true'
+
+
 async def open_settings(page):
-    if await page.locator('#settingsButton').is_visible() and not await page.locator('#siteSettingsDialog').evaluate('dialog=>dialog.open'):
-        await page.get_by_role('button', name='Settings', exact=True).click()
+    # The gear opens a popover on wider screens and the bottom sheet on phones; it toggles, so only open once.
+    if not await settings_open(page):
+        await page.locator('#settingsButton').click()
+        await page.wait_for_function('document.getElementById("settingsButton").getAttribute("aria-expanded") === "true"')
 
 
 async def close_settings(page):
-    if await page.locator('#siteSettingsDialog').evaluate('dialog=>dialog.open'):
+    if await settings_open(page):
         await page.get_by_role('button', name='Close Settings', exact=True).click()
+        await page.wait_for_function('document.getElementById("settingsButton").getAttribute("aria-expanded") === "false"')
 
 
 async def wait_loaded(page):
@@ -1344,7 +1351,7 @@ def test_nweb_novels_without_synopsis_stay_visible(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_tag_selection_stays_in_sync_between_cards_cloud_and_summary(monkeypatch):
+def test_tag_selection_stays_in_sync_between_cards_dropdown_and_summary(monkeypatch):
     original_row = row
     def tagged_row(*args, **kwargs):
         result = original_row(*args, **kwargs)
@@ -1360,42 +1367,56 @@ def test_tag_selection_stays_in_sync_between_cards_cloud_and_summary(monkeypatch
             await page.goto('http://metadata.test/#src=nweb')
             await wait_loaded(page)
             card_tag = page.locator('.novel-card[data-novel-id="8"] .card-tag[data-tag="Harem"]')
-            cloud_chip = page.locator('#tagContainer .tag-chip[data-tag="Harem"]')
             summary = page.locator('#activeTagsSummary')
+            row_include = page.locator('#tagMenuList .tag-menu-row[data-tag="Harem"] .include')
+            async def open_menu():
+                if not await page.locator('#tagMenu').is_visible():
+                    await page.locator('#tagMenuButton').click()
+                    await page.locator('#tagMenu').wait_for(state='visible')
+            async def close_menu():
+                if await page.locator('#tagMenu').is_visible():
+                    await page.keyboard.press('Escape')
+                    await page.locator('#tagMenu').wait_for(state='hidden')
             await card_tag.click()
             await page.wait_for_function("document.querySelector('#activeTagsSummary').textContent.includes('Harem')")
-            assert await cloud_chip.evaluate("el => el.classList.contains('active')")
-            # Clearing from the card clears the summary row and the cloud chip.
+            await open_menu()
+            assert await row_include.get_attribute('aria-pressed') == 'true'
+            await close_menu()
+            # Clearing from the card clears the summary row and the dropdown's row.
             await card_tag.click()
             await page.wait_for_function("!document.querySelector('.card-tag.active')")
             assert await summary.inner_text() == ''
-            assert not await cloud_chip.evaluate("el => el.classList.contains('active')")
+            await open_menu()
+            assert await row_include.get_attribute('aria-pressed') == 'false'
+            await close_menu()
             # Clearing from the summary row clears the card highlight.
             await card_tag.click()
             await page.wait_for_function("document.querySelector('.card-tag.active')")
             await summary.locator('.summary-chip').click()
             await page.wait_for_function("!document.querySelector('.card-tag.active')")
             assert await summary.inner_text() == ''
-            # Clearing from the tag cloud does the same.
+            # Clearing from the dropdown does the same.
             await card_tag.click()
             await page.wait_for_function("document.querySelector('.card-tag.active')")
-            await page.click('#tagToggle span')
-            await cloud_chip.click()
+            await open_menu()
+            await row_include.click()
             await page.wait_for_function("!document.querySelector('.card-tag.active')")
             assert await summary.inner_text() == ''
             assert await page.locator('.novel-card').count() == 3
-            # A tag chosen from the cloud looks pressed on every card that has it,
+            # A tag chosen from the dropdown looks pressed on every card that has it,
             # so clicking it on a card visibly toggles it off instead of surprising.
-            await cloud_chip.click()
+            await row_include.click()
             await page.wait_for_function("document.querySelectorAll('.card-tag.active[data-tag=\"Harem\"]').length === 3")
+            await close_menu()
             await card_tag.click()
             await page.wait_for_function("!document.querySelector('.card-tag.active')")
             assert await summary.inner_text() == ''
-            # OR selections are distinguished on cards as they are in the cloud.
+            # OR selections are distinguished on cards as they are in the dropdown.
+            await open_menu()
             await page.click('#tagModeOr')
-            await cloud_chip.click()
+            await row_include.click()
             await page.wait_for_function("document.querySelectorAll('.card-tag.active-or[data-tag=\"Harem\"]').length === 3")
-            assert await cloud_chip.evaluate("el => el.classList.contains('active-or')")
+            assert 'is-or' in await page.locator('#tagMenuList .tag-menu-row[data-tag="Harem"]').get_attribute('class')
             await browser.close()
     asyncio.run(scenario())
 
@@ -1466,8 +1487,7 @@ def test_phone_tag_button_replaces_the_tag_row_and_lists_catalog_counts(monkeypa
             for width, height in ((390, 844), (360, 740)):
                 page, errors = await open_phone_page(browser, width, height)
                 # The fourth row is gone: no tag toolbar, no inline panels, no separate toggles.
-                assert await page.locator('.tag-toolbar').count() == 0
-                for selector in ('#includeTagsPanel', '#excludeTagsPanel', '#tagToggle', '#excludeToggle', '#tagMenu'):
+                for selector in ('.tag-toolbar', '#includeTagsPanel', '#excludeTagsPanel', '#tagToggle', '#excludeToggle', '#tagMenu'):
                     assert not await page.locator(selector).is_visible(), selector
                 # One tag button on the sort row, left of the narrower sort dropdown.
                 button = page.locator('#tagMenuButton')
@@ -1480,8 +1500,6 @@ def test_phone_tag_button_replaces_the_tag_row_and_lists_catalog_counts(monkeypa
                 assert await page.locator('#tagMenuBadge').is_hidden()
                 assert await button.get_attribute('aria-label') == 'Tags'
                 assert await button.get_attribute('aria-expanded') == 'false'
-                # The chip clouds are not built where they are never shown.
-                assert await page.locator('#tagContainer .tag-chip, #excludeTagContainer .tag-chip').count() == 0
 
                 await button.click()
                 menu = page.locator('#tagMenu')
@@ -1686,29 +1704,33 @@ def test_phone_tag_dropdown_search_minus_prefix_keyboard_and_dismissal(monkeypat
     asyncio.run(scenario())
 
 
-def test_widening_a_phone_window_builds_the_tag_cloud_and_keeps_the_selection(monkeypatch):
+def test_resizing_between_phone_and_desktop_keeps_the_tag_selection_and_closes_popovers(monkeypatch):
     tag_phone_rows(monkeypatch)
 
     async def scenario():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
             page, errors = await open_phone_page(browser, url='http://metadata.test/#tags=Harem&xtags=Academy')
-            assert await page.locator('#tagContainer .tag-chip').count() == 0
             assert await page.locator('#tagMenuBadge').inner_text() == '2'
+            await page.locator('#tagMenuButton').click()
+            await page.locator('#tagMenu').wait_for(state='visible')
+            # Widening closes the dropdown; the same button and selection are there on the wide layout.
             await page.set_viewport_size({'width': 1280, 'height': 900})
-            await page.wait_for_function('document.querySelectorAll("#tagContainer .tag-chip").length === ' + str(len(PHONE_TAG_NAMES)))
-            assert await page.locator('#tagContainer .tag-chip.active[data-tag="Harem"]').count() == 1
-            assert await page.locator('#excludeTagContainer .tag-chip.excluded[data-tag="Academy"]').count() == 1
-            assert await page.locator('#tagMenuButton').is_hidden() and await page.locator('#tagMenu').is_hidden()
-            assert await page.locator('#includeTagsPanel').is_visible()
-            assert await page.locator('#includeTagsPanel #tagModeOr').is_visible()
-            assert 'Harem' in await page.locator('#activeTagsSummary').inner_text()
-            # Back to a phone width: the selection is the same, the dropdown is closed.
-            await page.set_viewport_size({'width': 390, 'height': 844})
+            await page.wait_for_function('document.querySelector("#tagMenu").hidden')
+            assert await page.locator('#tagMenuButton').is_visible()
             assert await page.locator('#tagMenuBadge').inner_text() == '2'
-            assert await page.locator('#includeTagsPanel').is_hidden() and await page.locator('#tagMenu').is_hidden()
             assert 'Harem' in await page.locator('#activeTagsSummary').inner_text()
             assert 'Academy' in await page.locator('#activeExcludeTagsSummary').inner_text()
+            await page.locator('#tagMenuButton').click()
+            await page.locator('#tagMenu').wait_for(state='visible')
+            assert await page.locator('#tagMenu #tagModeOr').is_visible()
+            assert await menu_row(page, 'Harem').locator('.include').get_attribute('aria-pressed') == 'true'
+            assert await menu_row(page, 'Academy').locator('.exclude').get_attribute('aria-pressed') == 'true'
+            # Narrowing again closes it too and keeps the selection.
+            await page.set_viewport_size({'width': 390, 'height': 844})
+            await page.wait_for_function('document.querySelector("#tagMenu").hidden')
+            assert await page.locator('#tagMenuBadge').inner_text() == '2'
+            assert 'Harem' in await page.locator('#activeTagsSummary').inner_text()
             assert not errors
             await browser.close()
     asyncio.run(scenario())
@@ -1776,58 +1798,295 @@ def test_phone_tag_dropdown_closes_when_the_results_scroll_but_not_for_its_own_s
     asyncio.run(scenario())
 
 
-def test_desktop_tag_panels_close_once_the_results_scroll_past_them(monkeypatch):
+async def open_desktop_page(browser, width=1280, height=900, url='http://metadata.test/', **site):
+    page = await browser.new_page(viewport={'width': width, 'height': height})
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    await page.route('**/*', FixtureSite(many_npia=True, **site).route)
+    await page.goto(url)
+    await wait_loaded(page)
+    return page, errors
+
+
+# What the desktop filter panel measured in this fixture before the compact toolbar (search, four selects,
+# two rows of display settings, two tag rows and the result count), by window width.
+OLD_FILTER_PANEL_HEIGHT = {1080: 452.5, 1440: 371.7, 1920: 335.0}
+
+
+def test_desktop_toolbar_is_at_most_half_the_old_height_in_one_row(monkeypatch):
     tag_phone_rows(monkeypatch)
 
     async def scenario():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True)
-            page = await browser.new_page(viewport={'width': 1280, 'height': 900})
-            await page.route('**/*', FixtureSite(many_npia=True).route)
-            await page.goto('http://metadata.test/')
+            for width in (1080, 1440, 1920):
+                page, errors = await open_desktop_page(browser, width)
+                height = await page.locator('.controls').evaluate('el => el.getBoundingClientRect().height')
+                assert height <= OLD_FILTER_PANEL_HEIGHT[width] / 2, (width, height)
+                # One toolbar row: search, Source, Status, Audience, Order, Sort by, the tag button and the gear.
+                items = ['#searchInput', '#sourcePickerButton', '#statusSelect', '#audienceSelect', '#orderSelect', '#sortSelect',
+                         '#tagMenuButton', '#settingsButton']
+                boxes = [await page.locator(selector).bounding_box() for selector in items]
+                assert all(box is not None for box in boxes), items
+                assert max(box['y'] + box['height'] for box in boxes) - min(box['y'] + box['height'] for box in boxes) < 1.5, (width, boxes)
+                assert all(a['x'] + a['width'] <= b['x'] + 1 for a, b in zip(boxes, boxes[1:])), (width, boxes)
+                assert boxes[0]['width'] >= 150
+                # Keyboard: Tab walks the toolbar in the order it is drawn.
+                await page.locator('#searchInput').focus()
+                visited = ['searchInput']
+                for _ in range(len(items) - 1):
+                    await page.keyboard.press('Tab')
+                    visited.append(await page.evaluate('document.activeElement.id'))
+                assert visited == [selector[1:] for selector in items], visited
+                # The result count is a slim line under it, at the right end.
+                count = await page.locator('#resultCount').bounding_box()
+                toolbar_bottom = max(box['y'] + box['height'] for box in boxes)
+                assert toolbar_bottom <= count['y'] <= toolbar_bottom + 30
+                assert count['x'] + count['width'] >= width - 80
+                # The old always-present rows are gone: settings and tag lists open from the toolbar.
+                for selector in ('#includeTagsPanel', '#excludeTagsPanel', '.tag-toolbar', '#tagContainer'):
+                    assert await page.locator(selector).count() == 0, selector
+                assert not await page.locator('#loadDescriptions').is_visible()
+                assert not await page.locator('#tagMenu').is_visible() and not await page.locator('#settingsPopover').is_visible()
+                assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                # Active tags add a chip line next to the count, still well under half the old height.
+                await page.goto(f'http://metadata.test/#tags=Harem&xtags=Academy')
+                await wait_loaded(page)
+                await page.wait_for_function('document.querySelectorAll("#activeTagsSummary .summary-chip").length === 1')
+                height = await page.locator('.controls').evaluate('el => el.getBoundingClientRect().height')
+                assert height <= OLD_FILTER_PANEL_HEIGHT[width] / 2, (width, height)
+                chip, count = await page.locator('#activeTagsSummary .summary-chip').bounding_box(), await page.locator('#resultCount').bounding_box()
+                assert abs((chip['y'] + chip['height'] / 2) - (count['y'] + count['height'] / 2)) < 12  # same slim line
+                assert not errors
+                await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_desktop_toolbar_wraps_cleanly_on_a_narrow_window_and_with_per_page_shown(monkeypatch):
+    tag_phone_rows(monkeypatch)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            for width in (700, 900, 1080):
+                page, errors = await open_desktop_page(browser, width)
+                assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                height = await page.locator('.controls').evaluate('el => el.getBoundingClientRect().height')
+                assert height <= 240, (width, height)
+                # Wrapping never leaves a single control alone on a line: the search box takes the first line.
+                search = await page.locator('#searchInput').bounding_box()
+                rest = [await page.locator(selector).bounding_box() for selector in ('#sourcePickerButton', '#sortSelect', '#tagMenuButton', '#settingsButton')]
+                if width < 1040:
+                    assert search['width'] > width * 0.8 and all(box['y'] > search['y'] + search['height'] for box in rest)
+                else:
+                    assert all(abs(box['y'] + box['height'] - search['y'] - search['height']) < 1.5 for box in rest)
+                # With pagination on, the Per page box joins the row.
+                await page.locator('#settingsButton').click()
+                await page.locator('#infiniteScroll').uncheck()
+                await wait_loaded(page)
+                await page.keyboard.press('Escape')
+                batch = await page.locator('#batchSelect').bounding_box()
+                assert batch is not None
+                assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                assert await page.locator('#settingsButton').evaluate('el => el.getBoundingClientRect().right <= innerWidth')
+                if width == 1080:
+                    # Still one row under the search line: nothing is left alone on a second line.
+                    row = ['#sourcePickerButton', '#statusSelect', '#audienceSelect', '#orderSelect', '#batchSelect', '#sortSelect', '#tagMenuButton', '#settingsButton']
+                    bottoms = [(await page.locator(selector).bounding_box())['y'] + (await page.locator(selector).bounding_box())['height'] for selector in row]
+                    assert max(bottoms) - min(bottoms) < 1.5, bottoms
+                assert not errors
+                await page.close()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_desktop_tag_popover_lists_tags_wide_and_keeps_selected_tags_visible_as_chips(monkeypatch):
+    tag_phone_rows(monkeypatch)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page, errors = await open_desktop_page(browser, 1440)
+            button, menu, badge = page.locator('#tagMenuButton'), page.locator('#tagMenu'), page.locator('#tagMenuBadge')
+            assert await button.get_attribute('aria-label') == 'Tags' and await badge.is_hidden()
+            # Keyboard: Enter on the tag button opens it with focus in the search box; Escape returns focus.
+            await button.focus()
+            await page.keyboard.press('Enter')
+            await menu.wait_for(state='visible')
+            assert await page.evaluate('document.activeElement.id') == 'tagMenuSearch'
+            await page.keyboard.press('Escape')
+            assert await menu.is_hidden() and await page.evaluate('document.activeElement.id') == 'tagMenuButton'
+
+            await button.click()
+            await menu.wait_for(state='visible')
+            # A wide popover under the toolbar: the list runs in several columns, with AND/OR, search, Clear and close.
+            box, toolbar = await menu.bounding_box(), await page.locator('.search-row').bounding_box()
+            assert box['width'] >= 700 and box['y'] >= toolbar['y'] + toolbar['height']
+            assert box['x'] >= 0 and box['x'] + box['width'] <= 1440 and box['y'] + box['height'] <= 900
+            lefts = await page.locator('#tagMenuList .tag-menu-row').evaluate_all('rows => [...new Set(rows.map(r => Math.round(r.getBoundingClientRect().left)))]')
+            assert len(lefts) >= 2, lefts
+            assert box['height'] < 480
+            for selector in ('#tagModeAnd', '#tagModeOr', '#tagMenuSearch', '#tagMenuClear', '#tagMenuClose'):
+                assert await page.locator(selector).is_visible(), selector
+            # Include, exclude, and OR work the same as on phones.
+            await menu_row(page, 'Harem').locator('.include').click()
+            await menu_row(page, 'Academy').locator('.exclude').click()
+            await page.locator('#tagModeOr').click()
+            await menu_row(page, 'Romance').locator('.include').click()
+            await wait_result_count(page, len(matching(include=['Harem'], any_of=['Romance'], exclude=['Academy'])))
+            assert await badge.inner_text() == '3'
+            assert 'tags=Harem' in page.url and 'ortags=Romance' in page.url and 'xtags=Academy' in page.url
+            # Search narrows the list; a leading minus excludes the first match on Enter.
+            await page.locator('#tagMenuSearch').fill('-murim')
+            await page.wait_for_function('document.querySelectorAll("#tagMenuList .tag-menu-row").length === 1')
+            await page.locator('#tagMenuSearch').press('Enter')
+            await wait_result_count(page, len(matching(include=['Harem'], any_of=['Romance'], exclude=['Academy', 'Murim'])))
+            # Closed, the selection stays visible as chips by the toolbar, and each chip removes its tag.
+            await page.locator('#tagMenuClose').click()
+            assert await menu.is_hidden()
+            chips = page.locator('.controls-meta .summary-chip')
+            assert await chips.count() == 4
+            texts = await chips.all_inner_texts()
+            assert any('Harem' in text for text in texts) and any('Academy' in text for text in texts) and any('Murim' in text for text in texts)
+            toolbar_bottom = (await page.locator('#settingsButton').bounding_box())
+            first = await chips.first.bounding_box()
+            assert first['y'] >= toolbar_bottom['y'] + toolbar_bottom['height']
+            await page.locator('#activeExcludeTagsSummary .summary-chip', has_text='Murim').click()
+            await wait_result_count(page, len(matching(include=['Harem'], any_of=['Romance'], exclude=['Academy'])))
+            assert await badge.inner_text() == '3'
+            # Clear empties include and exclude together; the hash follows.
+            await button.click()
+            await page.locator('#tagMenuClear').click()
+            await wait_result_count(page, len(NPIA_IDS))
+            assert await badge.is_hidden() and 'tags' not in page.url
+            assert await page.locator('.controls-meta .summary-chip').count() == 0
+            assert not errors
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_desktop_settings_popover_holds_the_display_settings(monkeypatch):
+    tag_phone_rows(monkeypatch)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page, errors = await open_desktop_page(browser, 1440)
+            gear, popover = page.locator('#settingsButton'), page.locator('#settingsPopover')
+            controls = ['#loadDescriptions', '#lowResCovers', '#imageResolution', '#imageQuality', '#infiniteScroll',
+                        '#compactCards', '#synopsisLines', '#tagRows', '#clearCache']
+            # Closed: none of the settings take up room in the filter panel.
+            assert await popover.is_hidden() and await gear.get_attribute('aria-expanded') == 'false'
+            for selector in controls:
+                assert not await page.locator(selector).is_visible(), selector
+            await gear.click()
+            await popover.wait_for(state='visible')
+            assert await gear.get_attribute('aria-expanded') == 'true' and await gear.get_attribute('aria-controls') == 'settingsPopover'
+            for selector in controls:
+                assert await page.locator(selector).is_visible(), selector
+            box = await popover.bounding_box()
+            assert box['x'] >= 0 and box['x'] + box['width'] <= 1440 and box['y'] + box['height'] <= 900
+            assert await page.locator('#siteSettingsDialog').evaluate('d => !d.open')
+            # The settings still work, and are kept for the next visit.
+            await page.locator('#loadDescriptions').uncheck()
+            await page.locator('#compactCards').uncheck()
+            assert await page.locator('#synopsisLines').is_disabled()
+            assert await page.evaluate("localStorage.getItem('noveldb.loadDescriptions')") == 'false'
+            # Closes with Escape (focus back on the gear), the gear, the close button and a click elsewhere.
+            await page.keyboard.press('Escape')
+            assert await popover.is_hidden() and await page.evaluate('document.activeElement.id') == 'settingsButton'
+            await gear.click()
+            await gear.click()
+            assert await popover.is_hidden()
+            await gear.click()
+            await page.locator('#closeSettingsPopover').click()
+            assert await popover.is_hidden()
+            await gear.click()
+            await page.locator('header').click(position={'x': 10, 'y': 10})
+            await page.wait_for_function('document.querySelector("#settingsPopover").hidden')
+            # Keyboard: Enter on the gear opens it with focus on its first control.
+            await gear.focus()
+            await page.keyboard.press('Enter')
+            await popover.wait_for(state='visible')
+            assert await page.evaluate('document.activeElement.id') == 'loadDescriptions'
+            # Opening the tag list closes the settings (one popover at a time), and the other way round.
+            await page.locator('#tagMenuButton').click()
+            await page.locator('#tagMenu').wait_for(state='visible')
+            assert await popover.is_hidden()
+            await gear.click()
+            await popover.wait_for(state='visible')
+            assert await page.locator('#tagMenu').is_hidden()
+            # The choices survive a reload.
+            await page.reload()
             await wait_loaded(page)
-            include, exclude = page.locator('#tagToggle'), page.locator('#excludeToggle')
-            expanded = 'id => document.getElementById(id).getAttribute("aria-expanded")'
+            await gear.click()
+            assert not await page.locator('#loadDescriptions').is_checked() and not await page.locator('#compactCards').is_checked()
+            # Narrowing to a phone moves the same settings into the bottom sheet.
+            await page.set_viewport_size({'width': 390, 'height': 844})
+            await page.wait_for_function('document.querySelector("#settingsPopover").hidden')
+            await gear.click()
+            await page.wait_for_function('document.querySelector("#siteSettingsDialog").open')
+            assert await page.locator('#siteSettingsDialog #loadDescriptions').is_visible()
+            assert not await page.locator('#loadDescriptions').is_checked()
+            assert await gear.get_attribute('aria-controls') == 'siteSettingsDialog'
+            assert not errors
+            await browser.close()
+    asyncio.run(scenario())
 
-            # Desktop keeps the two inline panels (no dropdown, no tag button).
-            assert await page.locator('#tagMenuButton').is_hidden() and await page.locator('.tag-toolbar').count() == 0
-            await include.click()
-            await exclude.click()
-            assert await page.locator('#tagSearch').is_visible() and await page.locator('#excludeTagSearch').is_visible()
-            # Typing in a panel's search box leaves it open.
-            await page.locator('#tagSearch').click()
+
+def test_desktop_popovers_close_when_the_results_scroll_but_not_for_typing_or_the_page_moving(monkeypatch):
+    tag_phone_rows(monkeypatch)
+
+    async def scenario():
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page, errors = await open_desktop_page(browser, 1280)
+            tags, settings = page.locator('#tagMenu'), page.locator('#settingsPopover')
+
+            await page.locator('#tagMenuButton').click()
+            await tags.wait_for(state='visible')
+            # Typing in its search box leaves it open; so does the page moving on its own.
+            await page.locator('#tagMenuSearch').click()
             await page.keyboard.type('har')
-            await page.wait_for_timeout(200)
-            assert await page.evaluate(expanded, 'tagToggle') == 'true'
-            # The page moving on its own is not the person scrolling.
-            await page.evaluate('window.scrollTo({top: 700, behavior: "instant"})')
             await page.wait_for_timeout(300)
-            assert await page.evaluate(expanded, 'tagToggle') == 'true' and await page.evaluate(expanded, 'excludeToggle') == 'true'
+            assert await tags.is_visible() and await page.locator('#tagMenuSearch').input_value() == 'har'
+            await page.evaluate('window.scrollTo({top: 400, behavior: "instant"})')
+            await page.wait_for_timeout(1000)
+            assert await tags.is_visible()
             await page.evaluate('window.scrollTo({top: 0, behavior: "instant"})')
-            # A small scroll that leaves the panels in view keeps them open.
-            await page.mouse.move(640, 760)
-            await page.mouse.wheel(0, 120)
-            await page.wait_for_timeout(300)
-            assert await page.evaluate(expanded, 'tagToggle') == 'true'
+            # The person scrolling the results closes it (and it floats over nothing).
+            await page.mouse.move(640, 800)
+            await page.mouse.wheel(0, 600)
+            await page.wait_for_function('document.querySelector("#tagMenu").hidden')
+            assert await page.locator('#tagMenuButton').get_attribute('aria-expanded') == 'false'
+            assert await page.evaluate('document.activeElement.id') != 'tagMenuSearch'
+            assert await page.evaluate('scrollY') > 0
 
-            # Scrolling on into the results closes them, and the cards stay under the pointer.
-            top_before = await page.evaluate('document.querySelector("#results").getBoundingClientRect().top')
-            await page.mouse.wheel(0, 1000)
-            await page.wait_for_function('document.getElementById("tagToggle").getAttribute("aria-expanded") === "false" && document.getElementById("excludeToggle").getAttribute("aria-expanded") === "false"')
-            await page.wait_for_timeout(400)
-            top_after = await page.evaluate('document.querySelector("#results").getBoundingClientRect().top')
-            assert abs((top_before - top_after) - 1000) <= 3, (top_before, top_after)
-            assert await page.locator('#tagSearch').is_hidden() and await page.locator('#tagContainer').is_hidden()
+            # The settings popover does the same.
+            await page.evaluate('window.scrollTo({top: 0, behavior: "instant"})')
+            await page.wait_for_timeout(1000)
+            await page.locator('#settingsButton').click()
+            await settings.wait_for(state='visible')
+            await page.evaluate('window.scrollTo({top: 300, behavior: "instant"})')
+            await page.wait_for_timeout(1000)
+            assert await settings.is_visible()
+            await page.evaluate('window.scrollTo({top: 0, behavior: "instant"})')
+            await page.mouse.move(640, 800)
+            await page.mouse.wheel(0, 600)
+            await page.wait_for_function('document.querySelector("#settingsPopover").hidden')
 
-            # Floating controls (scrolling up over the cards) must not keep an open panel over them.
+            # Floating controls (scrolling up over the cards) must not keep a popover over them.
             await page.mouse.wheel(0, 2500)
-            await page.wait_for_timeout(400)
+            await page.wait_for_timeout(500)
             await page.mouse.wheel(0, -700)
             await page.wait_for_function('document.querySelector(".controls").classList.contains("mobile-controls-floating")')
-            await include.click()
-            assert await page.evaluate(expanded, 'tagToggle') == 'true'
+            await page.locator('#tagMenuButton').click()
+            await tags.wait_for(state='visible')
+            box = await tags.bounding_box()
+            assert box['y'] >= 0 and box['y'] + box['height'] <= 900
             await page.mouse.wheel(0, -120)
-            await page.wait_for_function('document.getElementById("tagToggle").getAttribute("aria-expanded") === "false"')
-            assert await page.locator('#tagContainer').is_hidden()
+            await page.wait_for_function('document.querySelector("#tagMenu").hidden')
+            assert not errors
             await browser.close()
     asyncio.run(scenario())
