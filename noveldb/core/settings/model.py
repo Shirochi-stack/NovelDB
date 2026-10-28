@@ -249,6 +249,12 @@ class QueueSettings:
     max_concurrent_jobs: int = 1
 
 
+# Largest ZIP an upload may bundle several files into, in MB (1 MB = 1,048,576 bytes).
+UPLOAD_ZIP_MB_DEFAULT = 1024
+UPLOAD_ZIP_MB_MIN = 50
+UPLOAD_ZIP_MB_MAX = 4096
+
+
 @dataclass(frozen=True)
 class UploadSettings:
     """Cloud uploads, same hosts and order semantics as the mobile apps."""
@@ -256,6 +262,9 @@ class UploadSettings:
     auto_upload: bool = False
     hosts: tuple[str, ...] = ("tempsh", "gofile")
     copy_link: bool = True
+    # Two or more files go up as a few ZIPs of at most `zip_max_mb`, one link each.
+    zip_bundle: bool = True
+    zip_max_mb: int = UPLOAD_ZIP_MB_DEFAULT
     # Asked once, the first time the user creates a share link.
     agreement_accepted: bool = False
 
