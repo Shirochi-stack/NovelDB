@@ -40,6 +40,10 @@ public protocol SourceAdapter: Sendable {
     /// True when `host` (lower case, no port) belongs to one of this adapter's sites. Adapters whose
     /// domain keeps moving override it with a name pattern.
     static func ownsSite(_ host: String) -> Bool
+    /// The address a matching link is read (and kept in the queue and link cart) under. Sites that serve
+    /// the same book from several hosts, such as a phone site next to the desktop one, answer with one of
+    /// them, so a link found in the Browser tab downloads like any other. The default keeps the link.
+    static func canonicalURL(_ url: URL) -> URL
     func parseBook(_ url: URL, context: SourceContext) async throws -> BookInfo
     func parseChapter(_ ref: ChapterRef, book: BookInfo, context: SourceContext) async throws -> ChapterResult
     /// Defaults to `parseChapter` with `threads` concurrent tasks; override for batch APIs.
@@ -52,6 +56,8 @@ public extension SourceAdapter {
     static func ownsSite(_ host: String) -> Bool {
         sites.contains { host == $0 || host.hasSuffix("." + $0) }
     }
+
+    static func canonicalURL(_ url: URL) -> URL { url }
 
     func parseChapters(_ refs: [ChapterRef], book: BookInfo, context: SourceContext) async throws -> [ChapterResult] {
         let shared = context.shared(for: Self.id)

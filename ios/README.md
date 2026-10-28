@@ -73,6 +73,16 @@ Where the lines come from: the pipeline (engine attempts and fallbacks, source a
 
 The app posts a local notification when downloads continue in the background and when a run ends while the app is not in front. Tapping it opens Queue > Log for all jobs, or that book's page when the run was a single book (`QueueTarget`, carried in the notification's `userInfo`; the Queue's navigation path lives in `AppModel`). The system progress UI of iOS 26 background tasks belongs to iOS: a tap on it only opens the app.
 
+## Browser-driven sources (qdn, rbooks) and Enter App
+
+qdn and rbooks need a real rendering engine and the user's own sign-in. Their page-side logic is one JavaScript file, `NpiaKit/Sources/NpiaSources/Hard/HardResources/hard-sources.js`, copied byte for byte from the Android app (with its reference font and frequency data under `qdn/`; `.gitattributes` marks them `-text`, and `HardResourcesTests` checks their SHA-256). Swift only navigates, keeps the session, paces loads and builds results. The contract is [`docs/hard-sources.md`](docs/hard-sources.md); its iOS section lists what WKWebView needs on top of it.
+
+- **Enter App** (Settings > Enter App, and a button on the Add screen) signs in to sfc (username and password through the app API, or a pasted app cookie) and, in the app's own browser, to qdn and rbooks. Downloads use the browser's cookies. qdn's login cookies are session cookies, so `SiteSessions` keeps a copy in the Keychain and puts it back at start (`restoreOnce`); the copy is refreshed when a sign-in sheet closes, after a book is read signed in, after a batch, and whenever the app goes inactive.
+- Links on qdn's phone host (`m.<domain>/book/<id>/`) are kept as the desktop book address everywhere a link enters the app (Add screen, link cart, queue, the Browser tab's "Download this book").
+- Pages for these sources are WKWebViews that present themselves as a desktop browser (`WebPageDriving.emulateDesktop`: Chrome user agent, a 1280 px wide frame, desktop content mode) and carry the script as a main-frame document-start user script.
+- Tests: `SiteSessionsTests`, `QdnAdapterTests` and `RbooksAdapterTests` run the adapters over a scripted page; `HardWebKitTests` runs the script itself in real WebKit on the saved pages and fixtures in `tests/fixtures` (the glyph decoder on the captured chapter, a synthetic reader with every protection layer). The same fixtures feed the Playwright suite on the Android branch.
+- Live check: run the iOS App workflow by hand with `live_url` set to a free qdn book (`https://www.<domain>/book/<id>/`) or an rbooks series.
+
 ## App updates
 
 NovelDB checks its own GitHub releases for a newer build, the same way the desktop and Android apps do (`NpiaUpdate`, shown in Settings > App updates).

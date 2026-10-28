@@ -79,6 +79,14 @@ public protocol WebPageDriving: Sendable {
     /// handler can make requests with them. Only the top frame is answered; frames inside the page
     /// are refused. Pages that cannot message ignore this.
     func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async
+    /// Like `addInitScript`, but only for the page's own document, not for frames inside it. Sites
+    /// that fill a page with ads should not run a large script in every ad frame.
+    func addMainFrameInitScript(_ source: String) async
+    /// Presents the page as a desktop browser: `userAgent` (nil keeps the web view's own) and a layout
+    /// viewport of `width` x `height` CSS pixels. Call it before `load`; it applies to every later load of
+    /// this page. Sites that serve a phone layout (or no reader at all) to a phone need it. The default
+    /// ignores the request.
+    func emulateDesktop(userAgent: String?, width: Int, height: Int) async
     func currentURL() async -> URL?
     func html() async throws -> String
     func close() async
@@ -86,6 +94,12 @@ public protocol WebPageDriving: Sendable {
 
 public extension WebPageDriving {
     func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async {}
+
+    func addMainFrameInitScript(_ source: String) async {
+        await addInitScript(source)
+    }
+
+    func emulateDesktop(userAgent: String?, width: Int, height: Int) async {}
 }
 
 public protocol WebEngineProviding: Sendable {
@@ -93,6 +107,14 @@ public protocol WebEngineProviding: Sendable {
     func newPage(profile: String) async throws -> any WebPageDriving
     /// Presents a visible web view so the user can sign in; returns when they finish.
     func presentLogin(url: URL, profile: String) async throws
+    /// The cookies the engine's pages share with the HTTP client, for sign-in status and the saved copy
+    /// of a login. The default reads `HTTPCookieStorage.shared`; engines whose web views keep cookies
+    /// elsewhere answer with a store that reads those too.
+    var sessionCookies: any SessionCookieAccess { get }
+}
+
+public extension WebEngineProviding {
+    var sessionCookies: any SessionCookieAccess { HTTPCookieStorageAccess() }
 }
 
 public enum WebEngineError: Error, Equatable {
