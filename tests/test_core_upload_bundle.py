@@ -239,6 +239,7 @@ def test_building_a_zip_reports_progress_and_cancel_removes_the_partial_file(tmp
 
 @pytest.mark.parametrize("title", [
     KOREAN, "VR 게임.epub", "- 소설.epub", "1 게임 2.epub", "한글.epub", "A1.epub", "-_.epub",
+    "100일 후에 거세 당하는 황녀님.epub", "1234.epub",
 ])
 def test_titles_that_lose_their_letters_upload_as_source_and_book_id(tmp_path, title):
     assert ascii_upload_name(str(tmp_path / title), "123456", "npia") == "npia_123456.epub"

@@ -62,14 +62,15 @@ def book_id_from_url(url: str) -> str:
     return slug or "book"
 
 
-# A title must keep this many ASCII letters or digits to name an upload; shorter remains ("-_",
-# "VR_", "100_") are useless as links, so those uploads use "<source>_<book id>" instead.
-MIN_NAME_CHARS = 3
+# A title must keep this many ASCII letters to name an upload. Shorter remains ("-_", "VR_") and
+# bare numbers ("100" from "100일 후에 ...") are useless as links, so those uploads use
+# "<source>_<book id>" instead.
+MIN_NAME_LETTERS = 3
 _MAX_STEM = 100
 
 
-def _alnum_count(text: str) -> int:
-    return sum(1 for ch in text if ch.isascii() and ch.isalnum())
+def _letter_count(text: str) -> int:
+    return sum(1 for ch in text if ch.isascii() and ch.isalpha())
 
 
 def _extension(name: str) -> str:
@@ -89,17 +90,17 @@ def ascii_upload_name(path: str, fallback_id: str = "", source: str = "") -> str
 
     Several hosts drop non-ASCII characters from the multipart file name (a Korean title became
     "epub.epub"), so the title is cleaned up here instead: a plain ASCII name stays as it is, other
-    scripts become "_", and a title that keeps fewer than three ASCII letters or digits is replaced
-    by the source codename and book id (`npia_123456.epub`).
+    scripts become "_", and a title that keeps fewer than three ASCII letters (digits alone do not
+    count) is replaced by the source codename and book id (`npia_123456.epub`).
     """
     name = upload_name(path)
     root = os.path.splitext(name)[0]
     ext = _extension(name)
     title = root if ext else name  # the part that must carry the letters and digits
-    if name.isascii() and name.isprintable() and _alnum_count(title) >= MIN_NAME_CHARS:
+    if name.isascii() and name.isprintable() and _letter_count(title) >= MIN_NAME_LETTERS:
         return name
     stem = ascii_safe_stem(title)
-    if _alnum_count(stem) >= MIN_NAME_CHARS:
+    if _letter_count(stem) >= MIN_NAME_LETTERS:
         return f"{stem}{ext}"
     ident = re.sub(r"[^A-Za-z0-9._-]+", "-", fallback_id or "").strip("-.") or "book"
     prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", source or "").strip("-")
