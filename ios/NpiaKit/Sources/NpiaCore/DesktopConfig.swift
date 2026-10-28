@@ -108,6 +108,19 @@ public enum DesktopConfig {
         s.sources.nwebStoreCover = bool(c["ext_syosetu_amazon_cover"]) ?? s.sources.nwebStoreCover
         s.sources.koboHorizontalLayout = bool(c["ext_kobo_horizontal_layout"]) ?? s.sources.koboHorizontalLayout
 
+        // Site engines: order (unknown names dropped, missing ones appended), switched-off ones, opt-in updates.
+        var engines = s.engines
+        if let names = strings(c["source_engine_order"]) {
+            engines.order = SiteEngine.ordered(names)
+        }
+        if let off = strings(c["source_engines_off"]) {
+            engines.disabled = off.compactMap { SiteEngine(rawValue: $0) }
+        }
+        engines.novelDownloaderAutoUpdate = bool(c["novel_downloader_auto_update"]) ?? engines.novelDownloaderAutoUpdate
+        engines.webtoepubAutoUpdate = bool(c["webtoepub_auto_update"]) ?? engines.webtoepubAutoUpdate
+        if engines.enabled().isEmpty { engines.disabled = [] }  // never leave every engine off
+        s.engines = engines
+
         let secrets = Secrets(
             email: nonEmpty(c["email"]),
             password: nonEmpty(c["wd"]),
@@ -197,6 +210,11 @@ public enum DesktopConfig {
         c["ext_ntk_npia_cover"] = s.sources.ntkNpiaCover
         c["ext_syosetu_amazon_cover"] = s.sources.nwebStoreCover
         c["ext_kobo_horizontal_layout"] = s.sources.koboHorizontalLayout
+
+        c["source_engine_order"] = s.engines.fullOrder().map { $0.rawValue }
+        c["source_engines_off"] = s.engines.disabled.map { $0.rawValue }
+        c["novel_downloader_auto_update"] = s.engines.novelDownloaderAutoUpdate
+        c["webtoepub_auto_update"] = s.engines.webtoepubAutoUpdate
         return c
     }
 
@@ -252,6 +270,12 @@ public enum DesktopConfig {
     static func stringGroups(_ value: Any?) -> [[String]]? {
         guard let list = value as? [Any] else { return nil }
         return list.compactMap { ($0 as? [Any])?.compactMap { $0 as? String } }.filter { !$0.isEmpty }
+    }
+
+    /// A JSON array as strings (null entries dropped); nil when the value is not an array.
+    static func strings(_ value: Any?) -> [String]? {
+        guard let list = value as? [Any] else { return nil }
+        return list.compactMap { $0 is NSNull ? nil : String(describing: $0) }
     }
 
     static func nonEmpty(_ value: Any?) -> String? {
