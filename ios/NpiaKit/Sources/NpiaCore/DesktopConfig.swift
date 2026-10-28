@@ -121,6 +121,8 @@ public enum DesktopConfig {
         if engines.enabled().isEmpty { engines.disabled = [] }  // never leave every engine off
         s.engines = engines
 
+        s.appUpdateCheck = bool(c["app_update_check"]) ?? s.appUpdateCheck
+
         let secrets = Secrets(
             email: nonEmpty(c["email"]),
             password: nonEmpty(c["wd"]),
@@ -215,6 +217,8 @@ public enum DesktopConfig {
         c["source_engines_off"] = s.engines.disabled.map { $0.rawValue }
         c["novel_downloader_auto_update"] = s.engines.novelDownloaderAutoUpdate
         c["webtoepub_auto_update"] = s.engines.webtoepubAutoUpdate
+
+        c["app_update_check"] = s.appUpdateCheck
         return c
     }
 

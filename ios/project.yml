@@ -38,6 +38,8 @@ targets:
         product: NpiaWebEngine
       - package: NpiaKit
         product: NpiaNet
+      - package: NpiaKit
+        product: NpiaUpdate
     info:
       path: App/Info.plist
       properties:
