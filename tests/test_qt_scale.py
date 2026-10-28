@@ -27,6 +27,12 @@ def test_the_factor_follows_the_tighter_side_between_one_and_the_cap():
     assert factor_for(2560, 1400, enabled=False) == 1.0
 
 
+def test_stylesheet_points_scale_too():
+    assert scale_stylesheet("QPlainTextEdit#log { font-size: 10pt; }", 1.45) == "QPlainTextEdit#log { font-size: 14.5pt; }"
+    assert scale_stylesheet("a { font-size: 10pt; }", 1.0) == "a { font-size: 10pt; }"
+    assert scale_stylesheet("QWidget#opt10pt { }", 2.0) == "QWidget#opt10pt { }"
+
+
 def test_stylesheet_pixels_scale_but_hairlines_stay():
     qss = "QPushButton { border: 1px solid red; padding: 6px 16px; border-radius: 16px; } #id12px { width: 0.5px; }"
     out = scale_stylesheet(qss, 1.5)

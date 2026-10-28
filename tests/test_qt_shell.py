@@ -90,10 +90,39 @@ def test_cart_lines_leave_the_cart_once_queued(window, context):
     context.cart.add(CartItem("https://example.com/other"))
     assert "(2)" in window.download.cart_button.text()
     window.download.add_lines(["12345"])
-    window.download.download.click()
+    window.download.download.click()  # the links above and the whole cart
     assert context.runner.wait_idle(5)
-    assert context.cart.urls == ["https://example.com/other"]
-    assert "(1)" in window.download.cart_button.text()
+    assert context.cart.urls == []
+    assert "(0)" in window.download.cart_button.text()
+
+
+def test_download_queues_the_links_above_and_the_link_cart(window, context):
+    page = window.download
+    assert not page.download.isEnabled()
+    context.cart.add(CartItem("12345", "A"))
+    context.cart.add(CartItem("67890", "B"))
+    assert page.download.isEnabled() and page.download.text() == "Download 2"  # the cart alone
+    page.add_lines(["12345", "11111"])
+    page._detect()
+    assert page.download.text() == "Download 3"  # 12345 is in both, and counts once
+    page.download.click()
+    assert context.runner.wait_idle(5)
+    assert sorted(context.ran) == ["11111", "12345", "67890"]
+    assert context.cart.urls == []
+    assert page.input.toPlainText() == ""
+    assert not page.download.isEnabled()
+
+
+def test_download_sits_on_the_first_button_row_before_the_cart(window, qtbot):
+    window.resize(1500, 900)
+    window.show()
+    qtbot.waitExposed(window)
+    page = window.download
+    row = page.download.parentWidget()
+    order = [row.layout().itemAt(i).widget() for i in range(row.layout().count())]
+    assert order.index(page.download) + 1 == order.index(page.cart_button)
+    qtbot.waitUntil(lambda: page.download.isVisible(), timeout=3000)
+    assert page.download.y() == order[0].y()  # not wrapped below Paste, even in a narrow column
 
 
 def test_share_agreement_is_asked_once(context, monkeypatch):
@@ -266,17 +295,14 @@ def test_shutdown_after_a_successful_queue_counts_down_and_can_be_cancelled(wind
     assert calls == ["off"]
 
 
-def test_options_keep_a_compact_width_and_the_log_gets_the_rest(window, qtbot):
+def test_the_log_keeps_its_share_and_the_options_get_the_rest(window, qtbot):
     from noveldb.qt.pages.download import LOG_SHARE
-    from noveldb.qt.scale import ui_scale
 
     window.resize(2560, 1300)
     window.show()
     qtbot.waitExposed(window)
     window.show_page(0)
     page = window.download
-    page._user_split = False
     page._fit_split()
     left, right = page.split.sizes()
-    assert left <= page._columns.maximumWidth() + ui_scale.px(24)
-    assert right >= int((left + right) * LOG_SHARE) - 2
+    assert abs(right - round((left + right) * LOG_SHARE)) <= 2
