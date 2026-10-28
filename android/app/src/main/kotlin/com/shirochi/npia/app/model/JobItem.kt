@@ -68,7 +68,16 @@ data class JobItem(
         is JobPhase.Failed -> copy(status = phase.message, error = phase.message)
     }
 
-    fun appendingLog(line: String): JobItem = copy(log = (log + line).takeLast(MAX_LOG_LINES))
+    /**
+     * Adds a log line. Past `MAX_LOG_LINES` the oldest lines go, except the first `KEEP_HEAD_LINES`:
+     * how the run started (the source, the engine attempts, the first errors) is what a long
+     * download of hundreds of chapter lines would otherwise push out.
+     */
+    fun appendingLog(line: String): JobItem {
+        val next = log + line
+        if (next.size <= MAX_LOG_LINES) return copy(log = next)
+        return copy(log = next.take(KEEP_HEAD_LINES) + next.takeLast(MAX_LOG_LINES - KEEP_HEAD_LINES))
+    }
 
     /** Back to the queue with progress and results cleared. */
     fun resetForRetry(): JobItem = copy(
@@ -77,7 +86,8 @@ data class JobItem(
     )
 
     companion object {
-        const val MAX_LOG_LINES = 500
+        const val MAX_LOG_LINES = 1000
+        const val KEEP_HEAD_LINES = 100
 
         private fun ratio(done: Int, total: Int) = if (total > 0) minOf(1.0, done.toDouble() / total) else 1.0
 

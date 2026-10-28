@@ -69,6 +69,7 @@ import com.shirochi.npia.sources.engines.RuleEngine
 import com.shirochi.npia.sources.engines.RuleEngines
 import com.shirochi.npia.sources.npia.NpiaFontMapping
 import com.shirochi.npia.upload.Uploader
+import com.shirochi.npia.core.UploadSettings
 import com.shirochi.npia.upload.UploaderCatalog
 
 @Composable
@@ -563,6 +564,19 @@ fun UploadSettingsScreen(model: AppViewModel) {
     SettingsColumn {
         SwitchRow("Upload finished files", upload.autoUpload, { v -> set { it.copy(autoUpload = v) } })
         SwitchRow("Copy link to clipboard", upload.copyLinkToClipboard, { v -> set { it.copy(copyLinkToClipboard = v) } })
+
+        SectionHeader("ZIP bundles")
+        SwitchRow("Bundle several files into ZIP uploads", upload.zipBundle, { v -> set { it.copy(zipBundle = v) } })
+        StepperRow(
+            "Largest ZIP (MB)", upload.zipMaxMb.coerceIn(UploadSettings.MIN_ZIP_MAX_MB, UploadSettings.MAX_ZIP_MAX_MB),
+            UploadSettings.MIN_ZIP_MAX_MB..UploadSettings.MAX_ZIP_MAX_MB, { v -> set { it.copy(zipMaxMb = v) } },
+            step = 128, enabled = upload.zipBundle,
+        )
+        Footnote(
+            "An upload of two or more files is packed into as few ZIPs as fit this size (or the host's own limit, if smaller), " +
+                "so you get one link per ZIP instead of one per book. ZIPs are named NovelDB_<number>_EPUBs.zip and keep each book's " +
+                "original file name inside. A file bigger than the limit is uploaded by itself.",
+        )
 
         SectionHeader("Hosts, in order")
         upload.hosts.forEachIndexed { index, id ->

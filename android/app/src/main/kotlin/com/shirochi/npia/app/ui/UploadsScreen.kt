@@ -65,7 +65,17 @@ fun UploadsScreen(model: AppViewModel, topBar: TopBarState) {
             items(pending, key = { "pending|${it.path}" }) { state ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(state.fileName, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    UploadStatus(model, state, onRetry = { model.requestUpload { manager.upload(File(state.path), state.jobId, state.bookId) } })
+                    if (state.contents.isNotEmpty()) {
+                        Text(state.contents.joinToString("\n"), style = MaterialTheme.typography.bodySmall, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    }
+                    UploadStatus(
+                        model, state,
+                        onRetry = {
+                            model.requestUpload {
+                                if (state.paths.size > 1) manager.retryUpload(state) else manager.upload(File(state.path), state.jobId, state.bookId)
+                            }
+                        },
+                    )
                 }
                 HorizontalDivider()
             }
@@ -98,7 +108,17 @@ fun UploadRow(model: AppViewModel, upload: UploadResult, onRemove: (() -> Unit)?
     val host = UploaderCatalog.uploader(upload.hostId)?.displayName ?: upload.hostId
     val now = System.currentTimeMillis()
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(upload.fileName, maxLines = 2)
+        Text(upload.label, maxLines = 2)
+        if (upload.isArchive) {
+            // What the ZIP holds: the book titles, as they are named inside it.
+            Text(
+                upload.contents.joinToString("\n") { it.removeSuffix(".epub") },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 12,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         val expiry = upload.expiresAt?.let { expires ->
             if (expires < now) "expired" else "expires " + DateUtils.getRelativeTimeSpanString(expires, now, DateUtils.MINUTE_IN_MILLIS)
         }

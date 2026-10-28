@@ -76,6 +76,14 @@ class MainActivity : ComponentActivity() {
         // update check at a local server (an empty value goes back to GitHub). Ignored in other builds.
         if (BuildConfig.DEBUG) {
             intent.getStringExtra(EXTRA_UPDATE_BASE)?.let { model.manager.preferences.updateBaseOverride = it }
+            // `--es noveldb_upload_base http://10.0.2.2:8765 --el noveldb_upload_max_bytes 1048576` sends uploads to a
+            // local test server whose files may be at most that large (an empty base goes back to the real hosts).
+            if (intent.hasExtra(EXTRA_UPLOAD_BASE)) {
+                val preferences = model.manager.preferences
+                preferences.uploadTestBase = intent.getStringExtra(EXTRA_UPLOAD_BASE).orEmpty()
+                preferences.uploadTestMaxBytes = intent.getLongExtra(EXTRA_UPLOAD_MAX_BYTES, 0L)
+                model.manager.setUploadTestHost(preferences.uploadTestBase, preferences.uploadTestMaxBytes.takeIf { it > 0 })
+            }
         }
         val uploadRun = intent.getStringExtra(EXTRA_UPLOAD_RUN)
         if (uploadRun != null) {
@@ -90,6 +98,12 @@ class MainActivity : ComponentActivity() {
                 model.sharedText = text
                 model.select(Tab.ADD)
             }
+        } else if (intent.getStringExtra(EXTRA_OPEN_JOB) != null) {
+            // A notification about one book opens that book.
+            model.openJob(intent.getStringExtra(EXTRA_OPEN_JOB).orEmpty())
+        } else if (intent.getBooleanExtra(EXTRA_OPEN_LOG, false)) {
+            // A notification about several books opens the queue's combined log.
+            model.openQueueLog()
         } else if (intent.getBooleanExtra(EXTRA_OPEN_QUEUE, false)) {
             model.tab = Tab.QUEUE
         }
@@ -121,6 +135,10 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_QUEUE = "openQueue"
+        const val EXTRA_OPEN_LOG = "openLog"
+        const val EXTRA_OPEN_JOB = "openJob"
+        const val EXTRA_UPLOAD_BASE = "noveldb_upload_base"
+        const val EXTRA_UPLOAD_MAX_BYTES = "noveldb_upload_max_bytes"
         const val EXTRA_UPLOAD_RUN = "uploadRun"
         const val EXTRA_UPDATE_BASE = "noveldb_update_base"
     }
