@@ -61,9 +61,12 @@ struct JobItem: Identifiable, Codable {
         }
     }
 
+    /// The most lines a job keeps. Every line also goes to the combined queue log.
+    static let logLimit = 1_500
+
     mutating func appendLog(_ line: String) {
         log.append(line)
-        if log.count > 500 { log.removeFirst(log.count - 500) }
+        if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
     }
 
     private static func ratio(_ done: Int, _ total: Int) -> Double {
