@@ -1,4 +1,4 @@
-"""A lazy, bounded feed with independent mobile and desktop preferences."""
+"""A lazy, bounded feed behind one Infinite scrolling switch (on by default only on phones)."""
 import asyncio
 import gzip
 import json
@@ -27,7 +27,7 @@ class FeedSite(FixtureSite):
         else:await super().route(r)
 
 
-def test_desktop_feed_is_optional_responsive_and_saved_independently():
+def test_desktop_feed_is_optional_responsive_and_one_switch_covers_every_screen():
     async def scenario():
         async with async_playwright() as p:
             browser=await p.chromium.launch(headless=True)
@@ -35,12 +35,12 @@ def test_desktop_feed_is_optional_responsive_and_saved_independently():
             errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             await page.route('**/*',FeedSite(covers=True).route)
             await page.goto('https://metadata.test/');await wait_loaded(page)
-            assert not await page.locator('#desktopInfiniteScroll').is_checked()
+            assert not await page.locator('#infiniteScroll').is_checked()
             assert await page.locator('#paginationTop').is_visible()
             assert await page.locator('.batch-control').is_visible()
             await page.locator('#batchSelect').select_option('60')
             await page.wait_for_function('document.querySelectorAll(".novel-card").length===60')
-            await page.locator('#desktopInfiniteScroll').check();await wait_loaded(page)
+            await page.locator('#infiniteScroll').check();await wait_loaded(page)
             assert not await page.locator('#paginationTop').is_visible()
             assert not await page.locator('.batch-control').is_visible()
             assert await page.locator('.mobile-feed-grid').evaluate('g=>getComputedStyle(g).gridTemplateColumns.split(" ").length')==5
@@ -75,25 +75,24 @@ def test_desktop_feed_is_optional_responsive_and_saved_independently():
             await page.wait_for_function('document.querySelector("#results").dataset.feedStart==="0"')
             assert await page.locator('.novel-card').first.get_attribute('data-novel-id')==first
             await page.reload();await wait_loaded(page)
-            assert await page.locator('#desktopInfiniteScroll').is_checked()
+            assert await page.locator('#infiniteScroll').is_checked()
             assert not await page.locator('#paginationTop').is_visible()
-            # Changing the other device's preference leaves the active feed intact.
-            await page.evaluate('window.keptCard=document.querySelector(".novel-card")')
-            await page.locator('#mobileInfiniteScroll').uncheck()
-            assert await page.evaluate('keptCard.isConnected')
+            # The one switch covers every screen size once it has been chosen.
             await page.set_viewport_size({'width':390,'height':844});await wait_loaded(page)
-            assert await page.locator('#paginationTop').is_visible()
+            assert await page.locator('#infiniteScroll').is_checked()
+            assert not await page.locator('#paginationTop').is_visible()
             await page.set_viewport_size({'width':1440,'height':900});await wait_loaded(page)
             assert not await page.locator('#paginationTop').is_visible()
-            await page.locator('#desktopInfiniteScroll').uncheck();await wait_loaded(page)
-            assert await page.locator('#paginationTop').is_visible()
+            await page.locator('#infiniteScroll').uncheck();await wait_loaded(page)
+            # Turned off right after a resize, the feed finishes re-flowing before the pages return.
+            await page.locator('#paginationTop').wait_for(state='visible')
             assert await page.locator('.batch-control').is_visible()
             assert await page.locator('#batchSelect').input_value()=='60'
             assert await page.locator('.novel-card').count()==60
             await page.locator('#paginationTop .next-page').click()
             await page.wait_for_function('document.querySelector("#paginationTop [aria-current=page]")?.textContent==="2"')
             await page.reload();await wait_loaded(page)
-            assert not await page.locator('#desktopInfiniteScroll').is_checked()
+            assert not await page.locator('#infiniteScroll').is_checked()
             assert await page.locator('#paginationTop').is_visible()
             assert not errors
             await browser.close()
@@ -108,7 +107,7 @@ def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_p
             errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             await page.route('**/*',FeedSite(covers=True).route)
             await page.goto('https://metadata.test/');await wait_loaded(page)
-            assert await page.locator('#mobileInfiniteScroll').is_checked()
+            assert await page.locator('#infiniteScroll').is_checked()
             assert await page.locator('.pagination:visible').count()==0
             assert not await page.locator('.batch-control').is_visible()
             assert 4<=await page.locator('.novel-card').count()<=16
@@ -142,7 +141,7 @@ def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_p
             await page.wait_for_function('document.querySelector("#results").dataset.feedStart==="0"')
             assert await page.locator('.novel-card').first.get_attribute('data-novel-id')==first
             await open_settings(page)
-            await page.locator('#mobileInfiniteScroll').uncheck()
+            await page.locator('#infiniteScroll').uncheck()
             await close_settings(page);await wait_loaded(page)
             assert await page.locator('.novel-card').count()==30
             assert await page.locator('#paginationTop').is_visible()
@@ -150,10 +149,10 @@ def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_p
             await page.locator('#paginationTop .next-page').click()
             await page.wait_for_function('document.querySelector("#paginationTop [aria-current=page]")?.textContent==="2"')
             await page.reload();await wait_loaded(page)
-            assert not await page.locator('#mobileInfiniteScroll').is_checked()
+            assert not await page.locator('#infiniteScroll').is_checked()
             assert await page.locator('#paginationTop').is_visible()
             await open_settings(page)
-            await page.locator('#mobileInfiniteScroll').check()
+            await page.locator('#infiniteScroll').check()
             await close_settings(page);await wait_loaded(page)
             assert not await page.locator('#paginationTop').is_visible()
             await page.locator('#searchInput').fill('Novel 0001')
@@ -161,9 +160,11 @@ def test_mobile_feed_recycles_in_both_directions_reveals_controls_and_restores_p
             await page.wait_for_function('document.querySelectorAll(".novel-card").length===1')
             assert await page.locator('.novel-card').get_attribute('data-novel-id')=='1'
             await page.reload();await wait_loaded(page)
-            assert await page.locator('#mobileInfiniteScroll').is_checked()
+            assert await page.locator('#infiniteScroll').is_checked()
+            # Chosen on a phone, the switch stays on when the window gets wider.
             await page.set_viewport_size({'width':1440,'height':900});await wait_loaded(page)
-            assert not await page.locator('body').evaluate('b=>b.classList.contains("mobile-infinite")')
+            assert await page.locator('body').evaluate('b=>b.classList.contains("mobile-infinite")')
+            assert not await page.locator('#paginationTop').is_visible()
             assert not errors
             await browser.close()
     asyncio.run(scenario())
@@ -214,5 +215,32 @@ def test_mobile_feed_keeps_rank_preview_order_when_import_finishes(previews):
             assert await page.evaluate('lockedIds.every((id,i)=>lockedCards[i].dataset.novelId===id)')
             assert await page.locator('.novel-card').count()<=16
             assert not await page.locator('#paginationTop').is_visible()
+            await browser.close()
+    asyncio.run(scenario())
+
+
+def test_one_infinite_scrolling_switch_with_earlier_choices_honoured():
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            for width,mobile,saved,expected in (
+                (390,True,None,True),          # phones: on by default
+                (1440,False,None,False),       # wider screens: off by default
+                (1440,False,('noveldb.desktopInfiniteScroll','true'),True),   # earlier desktop choice
+                (390,True,('noveldb.mobileInfiniteScroll','false'),False),    # earlier phone choice
+                (390,True,('noveldb.infiniteScroll','false'),False),          # the new choice wins
+            ):
+                page=await browser.new_page(viewport={'width':width,'height':900},is_mobile=mobile)
+                errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+                if saved:
+                    await page.add_init_script(f"localStorage.setItem({saved[0]!r},{saved[1]!r})")
+                await page.route('**/*',FeedSite().route)
+                await page.goto('https://metadata.test/');await wait_loaded(page)
+                assert await page.locator('input[type=checkbox][id$=InfiniteScroll], #infiniteScroll').count()==1
+                assert (await page.locator('label:has(#infiniteScroll)').inner_text()).strip()=='Infinite scrolling'
+                assert await page.locator('#infiniteScroll').is_checked()==expected
+                assert await page.locator('body').evaluate('b=>b.classList.contains("mobile-infinite")')==expected
+                assert not errors
+                await page.close()
             await browser.close()
     asyncio.run(scenario())

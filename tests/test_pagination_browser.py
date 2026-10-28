@@ -12,7 +12,7 @@ def test_mobile_pagination_stays_in_one_row_and_keeps_navigation_working():
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page(viewport={'width': 390, 'height': 844}, is_mobile=True)
-            await page.add_init_script("localStorage.setItem('noveldb.mobileInfiniteScroll','false')")
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")
             site = FixtureSite()
 
             async def route(request):
