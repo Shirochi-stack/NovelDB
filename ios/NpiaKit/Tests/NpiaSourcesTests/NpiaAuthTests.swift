@@ -53,7 +53,7 @@ final class NpiaAuthTests: XCTestCase {
         XCTAssertNotNil(key.range(of: keyPattern, options: .regularExpression))
         XCTAssertNil(secrets.string(for: .npiaLoginKey))
         XCTAssertEqual(jar.keys.last, key)
-        XCTAssertTrue(logger.lines.contains("npia sign-in failed; check the email and password in Settings > npia"))
+        XCTAssertTrue(logger.lines.contains("npia sign-in failed; check the email and password in Settings > npia login"))
         XCTAssertTrue(logger.lines.contains("npia: no saved login; only free chapters can be read."))
     }
 
@@ -81,7 +81,7 @@ final class NpiaAuthTests: XCTestCase {
         XCTAssertEqual(key, "saved_key")
         XCTAssertEqual(jar.keys.last, "saved_key")
         XCTAssertEqual(http.requested("/proc/login").count, 1)
-        XCTAssertTrue(logger.lines.contains("npia sign-in failed; check the email and password in Settings > npia"))
+        XCTAssertTrue(logger.lines.contains("npia sign-in failed; check the email and password in Settings > npia login"))
     }
 
     func testWithoutCredentialsOrKeyUsesThrowawayKey() async throws {
