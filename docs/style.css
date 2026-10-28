@@ -838,6 +838,11 @@ a.card-cover-wrap.cover-ready {
     flex-wrap: wrap;
 }
 
+/* The filter panel's bottom margin already separates it from the top bar. */
+#paginationTop {
+    padding: 0 0 1rem;
+}
+
 .page-numbers {
     display: flex;
     gap: 0.35rem;
@@ -1066,6 +1071,10 @@ a.card-cover-wrap.cover-ready {
     .pagination {
         gap: 0.3rem;
         padding: 1rem 0;
+    }
+
+    #paginationTop {
+        padding: 0 0 0.6rem;
     }
 
     .page-btn {
