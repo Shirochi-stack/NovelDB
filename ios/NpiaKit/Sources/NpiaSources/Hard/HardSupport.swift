@@ -14,7 +14,8 @@ actor HardPacer {
         self.clock = clock
     }
 
-    private func reserve() -> TimeInterval {
+    /// The seconds the caller has to wait for its turn; the next caller's turn comes one gap later.
+    func reserve() -> TimeInterval {
         let now = clock()
         let start = max(now, next)
         next = start + minGap

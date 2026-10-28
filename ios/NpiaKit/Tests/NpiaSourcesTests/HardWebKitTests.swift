@@ -149,13 +149,25 @@ final class HardWebKitTests: XCTestCase {
         return page
     }
 
+    /// Compares decoded paragraphs one by one, so a failure names the paragraphs instead of printing both texts.
+    private func assertSameLines(_ actual: [String], _ expected: [String], _ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(actual.count, expected.count, "\(label): paragraph count", file: file, line: line)
+        var wrong = 0
+        for (position, text) in expected.enumerated() where position < actual.count && actual[position] != text {
+            wrong += 1
+            if wrong <= 5 { XCTFail("\(label): paragraph \(position) is \(actual[position]) but should be \(text)", file: file, line: line) }
+        }
+        XCTAssertEqual(wrong, 0, "\(label): paragraphs that differ", file: file, line: line)
+    }
+
     private func decode(_ page: any WebPageDriving, _ payload: String) async throws -> QdnDecoded {
         let started = Date()
         let text = try await page.hardTask(
             "qdn.decoder.decodeJson", argsJSON: "[\(HardScripts.literal(payload))]", pollSeconds: 0.25, maxPolls: 2400
         )
-        print("WebKit decoded a payload in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
-        return QdnDecoded(HardJSON(text: text))
+        let decoded = QdnDecoded(HardJSON(text: text))
+        print("WebKit decoded a payload in \(Int(Date().timeIntervalSince(started) * 1000)) ms: \(decoded.stats)")
+        return decoded
     }
 
     // MARK: The script itself
@@ -286,11 +298,7 @@ final class HardWebKitTests: XCTestCase {
 
         // 1,729 glyphs of a real chapter, matched against the reference without the verified table.
         let result = try await decode(page, try RepoFixtures.capturedPayload())
-        XCTAssertEqual(result.lines.count, expected.count)
-        for (position, line) in expected.enumerated() where position < result.lines.count {
-            XCTAssertEqual(result.lines[position], line, "paragraph \(position)")
-        }
-        XCTAssertEqual(result.lines, expected)
+        assertSameLines(result.lines, expected, "shape matching")
         XCTAssertEqual(result.stats.decoded, 1729)
         XCTAssertEqual(result.stats.shapeMatchedGlyphs, 1729)
         XCTAssertEqual(result.stats.verifiedGlyphs, 0)
@@ -301,20 +309,21 @@ final class HardWebKitTests: XCTestCase {
         // Glyphs checked against a screenshot.
         let sample = try RepoFixtures.json("qdn_screenshot_excerpt.json")
         let excerpt = try await decode(page, HardScripts.json(sample["payload"] ?? [:]))
-        XCTAssertEqual(excerpt.lines, sample["expected"] as? [String] ?? [])
+        assertSameLines(excerpt.lines, sample["expected"] as? [String] ?? [], "screenshot excerpt")
         XCTAssertGreaterThan(excerpt.stats.decoded, 0)
     }
 
     func testVerifiedGlyphsNeverNeedTheReferenceInWebKit() async throws {
         let page = try await decoderPage(verified: true, prepare: false)
         let result = try await decode(page, try RepoFixtures.capturedPayload())
-        XCTAssertEqual(result.lines, try RepoFixtures.expectedLines())
+        assertSameLines(result.lines, try RepoFixtures.expectedLines(), "verified glyphs")
         XCTAssertEqual(result.stats.decoded, 1729)
         XCTAssertEqual(result.stats.verifiedGlyphs, 1729)
         XCTAssertEqual(result.stats.shapeMatchedGlyphs, 0)
         XCTAssertEqual(result.stats.lowConfidence, 0)
-        let prepared = try await page.hardObject("qdn.decoder.status()")
-        XCTAssertFalse(prepared.bool("prepared"))
+        let status = try await page.hardObject("qdn.decoder.status()")
+        print("WebKit decoder status after verified glyphs: \(status.raw)")
+        XCTAssertFalse(status.bool("prepared"))
     }
 
     func testTheProductionDecoderBuildsTheReferenceOnceAndDecodes() async throws {
@@ -322,7 +331,8 @@ final class HardWebKitTests: XCTestCase {
         try await decoder.prepare()
         try await decoder.prepare() // a second call does nothing
         let result = try await decoder.decode(try RepoFixtures.capturedPayload())
-        XCTAssertEqual(result.lines, try RepoFixtures.expectedLines())
+        print("WebKit production decoder stats: \(result.stats)")
+        assertSameLines(result.lines, try RepoFixtures.expectedLines(), "production decoder")
         // The cipher fonts it has seen are named by digest, so the next extraction can leave them out.
         let known = try await decoder.knownFonts()
         XCTAssertFalse(known.isEmpty)
