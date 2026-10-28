@@ -662,7 +662,27 @@ final class QdnAdapterTests: XCTestCase {
         XCTAssertLessThan(waited, 0.5)
     }
 
-    func testWorkersReachingThePacerTogetherLeaveOneGapApart() async throws {
+    func testWorkersReachingThePacerTogetherLeaveOneGapApart() async {
+        // The clock stands still: three workers arrive at once and are given turns one gap apart.
+        let pacer = HardPacer(minGap: 2.5) { 100 }
+        let first = await pacer.reserve()
+        let second = await pacer.reserve()
+        let third = await pacer.reserve()
+        XCTAssertEqual([first, second, third], [0, 2.5, 5.0])
+
+        // A worker that arrives later only waits for what is left of the last turn.
+        let later = HardPacer(minGap: 2.5) { 100 }
+        _ = await later.reserve()
+        let clock = Collected<Double>()
+        clock.add(101)
+        let resting = HardPacer(minGap: 2.5) { clock.all.last ?? 0 }
+        _ = await resting.reserve()
+        clock.add(101.5)
+        let left = await resting.reserve()
+        XCTAssertEqual(left, 2.0, accuracy: 0.0001)
+    }
+
+    func testRealWorkersAreSpacedOutByTheGap() async throws {
         let pacer = HardPacer(minGap: 0.1)
         let times = Collected<Double>()
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -676,8 +696,9 @@ final class QdnAdapterTests: XCTestCase {
         }
         let sorted = times.all.sorted()
         XCTAssertEqual(sorted.count, 3)
-        XCTAssertGreaterThan(sorted[1] - sorted[0], 0.07)
-        XCTAssertGreaterThan(sorted[2] - sorted[1], 0.07)
+        print("WebKit-free pacer times: \(sorted.map { $0 - sorted[0] })")
+        // The last worker waited about two gaps for its turn.
+        XCTAssertGreaterThan(sorted[2] - sorted[0], 0.15)
     }
 
     func testChapterWorkersAreCappedWhateverThreadsSays() async throws {
