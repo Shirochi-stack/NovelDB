@@ -5702,6 +5702,12 @@
     const clearExcludeBtn = $("#clearExclude");
     const tagSearchInput = $("#tagSearch");
     const excludeTagSearchInput = $("#excludeTagSearch");
+    const tagMenuButton = $("#tagMenuButton");
+    const tagMenuEl = $("#tagMenu");
+    const tagMenuSearch = $("#tagMenuSearch");
+    const tagMenuList = $("#tagMenuList");
+    const tagMenuNote = $("#tagMenuNote");
+    const tagMenuBadge = $("#tagMenuBadge");
     const batchSelect = $("#batchSelect");
     const statusSelect = $("#statusSelect");
     const audienceSelect = $("#audienceSelect");
@@ -5793,14 +5799,24 @@
     }
 
     let builtTagsVersion = -1;
+    let builtCloudVersion = -1;
     function buildTags() {
         if (builtTagsVersion === tagsVersion) return;
         builtTagsVersion = tagsVersion;
         allTagGroups = [...mergedTagGroups(selectedSources).values()].map(resolveGroupSpelling)
             .sort((a, b) => b.count - a.count || TAG_COLLATOR.compare(a.label, b.label));
-        const sorted = allTagGroups.slice(0, 80);
-        top80Tags = new Set(sorted.map((group) => group.key));
+        top80Tags = new Set(allTagGroups.slice(0, 80).map((group) => group.key));
+        // Phones list tags in the dropdown from the same groups, so the chip clouds are
+        // only built where they are shown (they are built later if the screen widens).
+        if (mobileView.matches) updateActiveTagsSummary();
+        else buildTagCloud();
+        refreshTagMenu();
+    }
 
+    function buildTagCloud() {
+        if (builtCloudVersion === builtTagsVersion) return;
+        builtCloudVersion = builtTagsVersion;
+        const sorted = allTagGroups.slice(0, 80);
         tagContainer.innerHTML = "";
         excludeTagContainer.innerHTML = "";
         for (const group of sorted) {
@@ -5855,6 +5871,7 @@
         preTagScrollY = null;
         tagSearchInput.value = "";
         excludeTagSearchInput.value = "";
+        tagMenuSearch.value = "";
         statusSelect.value = "all";
         audienceSelect.value = "all";
         if (clearSearch) {
@@ -5872,6 +5889,7 @@
             c.classList.remove("excluded");
         });
         updateActiveTagsSummary();
+        refreshTagMenu();
     }
 
     function snapshotFilterState() {
@@ -6019,6 +6037,7 @@
             });
             excludeSummary.appendChild(chip);
         }
+        syncTagMenu();
     }
 
     // Add a tag to include filter (from card click)
@@ -6790,67 +6809,373 @@
         if (compactPagination.matches) settingsButton.focus({preventScroll: true});
     });
 
+    // === Phone tag dropdown ===
+    // One list for include and exclude, opened from the tag button on the sort row. Its rows are built
+    // from allTagGroups (the per-source tag counts the worker already reported) only while it is open:
+    // no per-record data is read, and no copy of the tag list is kept.
+    const TAG_MENU_TOP = 80;
+    const TAG_MENU_MATCHES = 50;
+    let tagMenuOpen = false;
+    let tagMenuTimer = 0;
+    let scrollBaseline = 0;
+
+    function tagMenuQuery() {
+        const raw = tagMenuSearch.value.trim();
+        const exclude = raw.startsWith("-");
+        return { exclude, text: (exclude ? raw.slice(1) : raw).trim().toLowerCase() };
+    }
+
+    // Selected tags come first, so they can be switched off where they were switched on; then the most
+    // used tags. A search lists the matching tags instead.
+    function tagMenuEntries(text) {
+        if (text) {
+            const matches = [];
+            for (const group of allTagGroups) {
+                if (!tagGroupMatchesQuery(group, text)) continue;
+                matches.push({ tag: group.tag, group });
+                if (matches.length >= TAG_MENU_MATCHES) break;
+            }
+            return matches;
+        }
+        const selected = new Map();
+        for (const set of [andTags, orTags, excludeTags]) {
+            for (const tag of set) {
+                const key = tagMatchKey(tag);
+                if (!selected.has(key)) selected.set(key, { tag, group: null });
+            }
+        }
+        const top = [];
+        let unmatched = selected.size;
+        for (const group of allTagGroups) {
+            const entry = selected.get(group.key);
+            if (entry) {
+                if (!entry.group) { entry.group = group; unmatched--; }
+            } else if (top.length < TAG_MENU_TOP) top.push({ tag: group.tag, group });
+            else if (!unmatched) break;
+        }
+        return [...selected.values(), ...top];
+    }
+
+    function tagMenuRow({ tag, group }) {
+        const label = group ? group.label : displayTagLabel(tag);
+        const row = document.createElement("li");
+        row.className = "tag-menu-row";
+        row.dataset.tag = tag;
+        const name = document.createElement("span");
+        name.className = "tag-menu-name";
+        if (group) name.title = tagGroupTitle(group);
+        const text = document.createElement("span");
+        text.className = "tag-menu-label";
+        text.textContent = label;
+        name.append(text);
+        if (group && normalizeTagText(group.tag) !== normalizeTagText(group.label)) {
+            const native = document.createElement("span");
+            native.className = "tag-menu-native";
+            native.textContent = group.tag;
+            name.append(native);
+        }
+        const pill = document.createElement("span");
+        pill.className = "tag-menu-pill";
+        name.append(pill);
+        const count = document.createElement("span");
+        count.className = "tag-menu-count";
+        count.textContent = group ? group.count.toLocaleString() : "";
+        row.append(name, count);
+        for (const [kind, glyph, verb] of [["include", "+", "Include"], ["exclude", "−", "Exclude"]]) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = `tag-menu-act ${kind}`;
+            button.dataset.kind = kind;
+            button.textContent = glyph;
+            button.setAttribute("aria-pressed", "false");
+            button.setAttribute("aria-label", `${verb} ${label}`);
+            row.append(button);
+        }
+        return row;
+    }
+
+    // Marks one row from the current selection: tint, a text pill (not colour alone) and pressed buttons.
+    function syncTagMenuRow(row) {
+        const tag = row.dataset.tag;
+        const and = tagSetHasMatch(andTags, tag);
+        const or = !and && tagSetHasMatch(orTags, tag);
+        const excluded = tagSetHasMatch(excludeTags, tag);
+        row.classList.toggle("is-and", and && !excluded);
+        row.classList.toggle("is-or", or && !excluded);
+        row.classList.toggle("is-excluded", excluded);
+        row.querySelector(".tag-menu-pill").textContent = excluded ? "NOT" : and ? "AND" : or ? "OR" : "";
+        row.querySelector(".tag-menu-act.include").setAttribute("aria-pressed", String(and || or));
+        row.querySelector(".tag-menu-act.exclude").setAttribute("aria-pressed", String(excluded));
+    }
+
+    // Badge on the tag button plus the marks on any open rows. Runs whenever the selection changes.
+    function syncTagMenu() {
+        const active = andTags.size + orTags.size + excludeTags.size;
+        tagMenuBadge.hidden = active === 0;
+        tagMenuBadge.textContent = active > 99 ? "99+" : String(active);
+        tagMenuButton.classList.toggle("has-tags", active > 0);
+        const label = active ? `Tags, ${active} selected` : "Tags";
+        tagMenuButton.setAttribute("aria-label", label);
+        tagMenuButton.title = label;
+        if (!tagMenuOpen) return;
+        for (const row of tagMenuList.querySelectorAll(".tag-menu-row")) syncTagMenuRow(row);
+    }
+
+    function renderTagMenu() {
+        clearTimeout(tagMenuTimer);
+        const { exclude, text } = tagMenuQuery();
+        const entries = allTagGroups.length ? tagMenuEntries(text) : [];
+        const rows = entries.map(tagMenuRow);
+        if (!rows.length) {
+            const empty = document.createElement("li");
+            empty.className = "tag-menu-empty";
+            empty.textContent = allTagGroups.length ? "No matching tags." : "Tags appear when the catalog has finished loading.";
+            rows.push(empty);
+        }
+        tagMenuList.replaceChildren(...rows);
+        tagMenuList.scrollTop = 0;
+        if (!allTagGroups.length) tagMenuNote.textContent = "";
+        else if (!text) tagMenuNote.textContent = `Counts are for the whole catalog · ${allTagGroups.length.toLocaleString()} tags`;
+        else tagMenuNote.textContent = `${entries.length}${entries.length >= TAG_MENU_MATCHES ? "+" : ""} match${entries.length === 1 ? "" : "es"} · Enter ${exclude ? "excludes" : "includes"} the first`;
+        syncTagMenu();
+    }
+
+    // Rebuild the rows only if the dropdown is showing them (tags loaded, source or filters reset).
+    function refreshTagMenu() {
+        if (tagMenuOpen) renderTagMenu();
+        else syncTagMenu();
+    }
+
+    // A pressed button un-presses itself; pressing the other kind swaps the tag over.
+    function toggleTagFromMenu(tag, kind) {
+        if (kind === "include") {
+            const included = tagSetHasMatch(andTags, tag) || tagSetHasMatch(orTags, tag);
+            const dropped = !included && findMatchingSelectedTag(excludeTags, tag);
+            if (dropped) excludeTags.delete(dropped);
+            toggleTag(tag, null);
+        } else {
+            if (!tagSetHasMatch(excludeTags, tag)) {
+                for (const set of [andTags, orTags]) {
+                    const dropped = findMatchingSelectedTag(set, tag);
+                    if (dropped) set.delete(dropped);
+                }
+            }
+            toggleExcludeTag(tag, null);
+        }
+    }
+
+    function clearTagSelections() {
+        andTags.clear();
+        orTags.clear();
+        excludeTags.clear();
+        focusedCard = null;
+        syncSelectedTagChips();
+        updateActiveTagsSummary();
+        deferApplyFilters();
+    }
+
+    // Keep the list inside the visible screen: bring it up on a short screen rather than squeezing it.
+    function fitTagMenu() {
+        const viewport = window.visualViewport;
+        const bottom = () => (viewport ? viewport.offsetTop + viewport.height : window.innerHeight) - 12;
+        tagMenuEl.style.maxHeight = "";
+        let top = tagMenuEl.getBoundingClientRect().top;
+        const wanted = Math.min(340, bottom() - 12);
+        const floating = tagMenuEl.closest(".controls").classList.contains("mobile-controls-floating");
+        if (!floating && bottom() - top < wanted) {
+            window.scrollBy({ top: top + wanted - bottom(), behavior: "instant" });
+            top = tagMenuEl.getBoundingClientRect().top;
+        }
+        tagMenuEl.style.maxHeight = `${Math.round(Math.max(160, Math.min(512, bottom() - top)))}px`;
+    }
+
+    function openTagMenu(focusSearch) {
+        if (tagMenuOpen) return;
+        tagMenuOpen = true;
+        tagMenuEl.hidden = false;
+        tagMenuButton.setAttribute("aria-expanded", "true");
+        renderTagMenu();
+        fitTagMenu();
+        scrollBaseline = window.scrollY;
+        if (focusSearch) tagMenuSearch.focus({ preventScroll: true });
+    }
+
+    // Closing frees the rows. `focus` returns focus to the button; otherwise focus inside is dropped
+    // (which also puts the on-screen keyboard away).
+    function closeTagMenu({ focus = false } = {}) {
+        if (!tagMenuOpen) return;
+        tagMenuOpen = false;
+        clearTimeout(tagMenuTimer);
+        const hadFocus = tagMenuEl.contains(document.activeElement);
+        tagMenuEl.hidden = true;
+        tagMenuButton.setAttribute("aria-expanded", "false");
+        tagMenuList.replaceChildren();
+        tagMenuSearch.value = "";
+        if (hadFocus) {
+            if (focus) tagMenuButton.focus({ preventScroll: true });
+            else document.activeElement.blur();
+        }
+    }
+
+    tagMenuButton.addEventListener("click", (event) => {
+        // A click with no pointer (Enter or Space) also moves focus into the search box.
+        if (tagMenuOpen) closeTagMenu({ focus: event.detail === 0 });
+        else openTagMenu(event.detail === 0);
+    });
+    document.getElementById("tagMenuClose").addEventListener("click", () => closeTagMenu({ focus: true }));
+    document.getElementById("tagMenuClear").addEventListener("click", () => {
+        clearTagSelections();
+        tagMenuSearch.value = "";
+        renderTagMenu();
+    });
+    tagMenuList.addEventListener("click", (event) => {
+        const button = event.target.closest(".tag-menu-act");
+        if (button) toggleTagFromMenu(button.closest(".tag-menu-row").dataset.tag, button.dataset.kind);
+    });
+    tagMenuSearch.addEventListener("input", () => {
+        clearTimeout(tagMenuTimer);
+        tagMenuTimer = setTimeout(renderTagMenu, 60);
+    });
+    tagMenuSearch.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        renderTagMenu();
+        const first = tagMenuList.querySelector(".tag-menu-row");
+        if (!first) return;
+        toggleTagFromMenu(first.dataset.tag, tagMenuQuery().exclude ? "exclude" : "include");
+        tagMenuSearch.value = "";
+        renderTagMenu();
+    });
+    // Escape closes it from anywhere (focus may be on the button or a row).
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !tagMenuOpen) return;
+        event.preventDefault();
+        closeTagMenu({ focus: true });
+    });
+    tagMenuEl.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        const current = document.activeElement;
+        if (current === tagMenuSearch) {
+            if (event.key !== "ArrowDown") return;
+            event.preventDefault();
+            tagMenuList.querySelector(".tag-menu-act.include")?.focus();
+            return;
+        }
+        if (!current.classList?.contains("tag-menu-act")) return;
+        event.preventDefault();
+        const row = current.closest(".tag-menu-row");
+        const next = event.key === "ArrowDown" ? row.nextElementSibling : row.previousElementSibling;
+        if (next?.classList.contains("tag-menu-row")) next.querySelector(`.tag-menu-act.${current.dataset.kind}`).focus();
+        else if (event.key === "ArrowUp") tagMenuSearch.focus();
+    });
+    tagMenuEl.addEventListener("focusout", (event) => {
+        const next = event.relatedTarget;
+        if (next && !tagMenuEl.contains(next) && next !== tagMenuButton) closeTagMenu();
+    });
+    document.addEventListener("pointerdown", (event) => {
+        if (tagMenuOpen && !tagMenuEl.contains(event.target) && !tagMenuButton.contains(event.target)) closeTagMenu();
+    }, true);
+    // The on-screen keyboard shrinks the visible area: keep the whole list reachable above it.
+    window.visualViewport?.addEventListener("resize", () => { if (tagMenuOpen) fitTagMenu(); });
+
     // Move the same controls between desktop and mobile without resetting values.
     const settingsContent = settingsDialog.querySelector(".site-settings");
-    const tagToolbar = document.querySelector(".tag-toolbar");
-    const tagModeControls = tagToolbar.querySelector(".tag-mode");
+    const tagModeControls = document.querySelector(".tag-mode");
     const responsiveTags = [
-        ["tagToggle", "includeTagsPanel", "tagContainer", "activeTagsSummary", "Filter by tags", "＋ Tags"],
-        ["excludeToggle", "excludeTagsPanel", "excludeTagContainer", "activeExcludeTagsSummary", "Exclude tags", "− Tags"]
+        ["includeTagsPanel", "activeTagsSummary"],
+        ["excludeTagsPanel", "activeExcludeTagsSummary"]
     ];
     function updateControlsLayout() {
         const mobile = compactPagination.matches;
         if (!mobile && settingsDialog.open) settingsDialog.close();
-        if (mobile) tagToolbar.appendChild(tagModeControls);
         (mobile ? settingsDialog : document.getElementById("settingsInline")).appendChild(settingsContent);
-        for (const [toggleId, panelId, containerId, summaryId, desktopLabel, mobileLabel] of responsiveTags) {
-            const toggle = document.getElementById(toggleId);
+        closeTagMenu();
+        // Phones use the tag dropdown (AND/OR lives in its header); the two inline panels are for wider screens.
+        for (const [panelId, summaryId] of responsiveTags) {
             const panel = document.getElementById(panelId);
-            const header = panel.querySelector(".tag-header");
             const summary = document.getElementById(summaryId);
-            toggle.querySelector("span").textContent = mobile ? mobileLabel : desktopLabel;
-            if (mobile) {
-                tagToolbar.insertBefore(toggle, tagModeControls);
-                tagToolbar.after(summary);
-            } else {
-                header.prepend(toggle);
-                header.after(summary);
-            }
-            panel.hidden = mobile && document.getElementById(containerId).classList.contains("collapsed");
+            if (mobile) panel.before(summary);
+            else panel.querySelector(".tag-header").after(summary);
+            panel.hidden = mobile;
         }
-        if (mobile) {
-            tagToolbar.appendChild(tagModeControls);
-            document.getElementById("activeTagsSummary").after(document.getElementById("activeExcludeTagsSummary"));
-        } else {
-            document.getElementById("tagToggle").after(tagModeControls);
-        }
+        if (mobile) document.getElementById("tagMenuMode").appendChild(tagModeControls);
+        else document.getElementById("tagToggle").after(tagModeControls);
+        if (!mobile) buildTagCloud();
     }
     compactPagination.addEventListener("change", updateControlsLayout);
     updateControlsLayout();
 
     // === Tag section toggle ===
-    function setupToggle(headerId, containerId, searchInputEl) {
-        const header = document.getElementById(headerId);
-        const container = document.getElementById(containerId);
-        header.addEventListener("click", (e) => {
+    const tagPanels = [
+        { toggle: document.getElementById("tagToggle"), region: document.getElementById("includeTagsPanel"), container: tagContainer, search: tagSearchInput },
+        { toggle: document.getElementById("excludeToggle"), region: document.getElementById("excludeTagsPanel"), container: excludeTagContainer, search: excludeTagSearchInput },
+    ];
+    const tagPanelCollapsed = (panel) => panel.container.classList.contains("collapsed");
+    function setTagPanelCollapsed(panel, collapsed) {
+        panel.container.classList.toggle("collapsed", collapsed);
+        panel.search.classList.toggle("collapsed", collapsed);
+        panel.toggle.setAttribute("aria-expanded", String(!collapsed));
+        panel.toggle.querySelector(".tag-disclosure").textContent = collapsed ? "▸" : "▾";
+    }
+    for (const panel of tagPanels) {
+        panel.toggle.addEventListener("click", (e) => {
             // Don't toggle when clicking buttons or inputs inside the header
-            if ((e.target.closest("button") && e.target.closest("button") !== header) || e.target.closest("input")) return;
-            const collapsed = container.classList.toggle("collapsed");
-            // Also toggle the search input visibility
-            if (searchInputEl) {
-                if (collapsed) {
-                    searchInputEl.classList.add("collapsed");
-                } else {
-                    searchInputEl.classList.remove("collapsed");
-                }
-            }
-            header.setAttribute("aria-expanded", String(!collapsed));
-            document.getElementById(header.getAttribute("aria-controls")).hidden = compactPagination.matches && collapsed;
-            header.querySelector(".tag-disclosure").textContent = collapsed ? "▸" : "▾";
+            if ((e.target.closest("button") && e.target.closest("button") !== panel.toggle) || e.target.closest("input")) return;
+            const collapsed = !tagPanelCollapsed(panel);
+            setTagPanelCollapsed(panel, collapsed);
+            if (!collapsed) scrollBaseline = window.scrollY;
         });
     }
-    setupToggle("tagToggle", "tagContainer", tagSearchInput);
-    setupToggle("excludeToggle", "excludeTagContainer", excludeTagSearchInput);
+
+    // === An open tag panel closes when the results scroll ===
+    // Only a scroll the person makes counts (wheel, touch, keys, the scrollbar). The page also scrolls on
+    // its own (card anchoring, the keyboard revealing the search box); that, scrolling inside the dropdown
+    // and typing in a search box leave the panel open.
+    const SCROLL_CLOSE_DISTANCE = 24;
+    const SCROLL_INTENT_MS = 800;
+    let scrollIntentAt = -Infinity;
+    const markScrollIntent = () => { scrollIntentAt = performance.now(); };
+    window.addEventListener("wheel", markScrollIntent, { passive: true, capture: true });
+    window.addEventListener("touchmove", markScrollIntent, { passive: true, capture: true });
+    window.addEventListener("pointerdown", (event) => {
+        // The page's own scrollbar belongs to the document element; a middle click starts auto-scroll.
+        if (event.target === document.documentElement || event.button === 1) markScrollIntent();
+    }, { passive: true, capture: true });
+    window.addEventListener("keydown", (event) => {
+        if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+        if (!["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) return;
+        const target = event.target;
+        if (target.closest?.("input, textarea, select, [contenteditable]")) return;
+        if (event.key === " " && target.closest?.("button, a, summary")) return;
+        markScrollIntent();
+    });
+
+    function tagPanelsOpen() {
+        return mobileView.matches ? tagMenuOpen : tagPanels.some((panel) => !tagPanelCollapsed(panel));
+    }
+
+    function closeTagPanelsOnScroll() {
+        if (mobileView.matches) { closeTagMenu(); return; }
+        const floating = document.querySelector(".controls").classList.contains("mobile-controls-floating");
+        for (const panel of tagPanels) {
+            if (tagPanelCollapsed(panel)) continue;
+            // A panel in the page flow only needs to close once the page has scrolled past it.
+            if (!floating && panel.region.getBoundingClientRect().bottom > 40) continue;
+            const before = resultsEl.getBoundingClientRect().top;
+            setTagPanelCollapsed(panel, true);
+            // Closing a panel that is above the viewport would pull the cards up: scroll by the same amount.
+            const shift = resultsEl.getBoundingClientRect().top - before;
+            if (!floating && shift) window.scrollBy({ top: shift, behavior: "instant" });
+        }
+    }
+
+    window.addEventListener("scroll", () => {
+        const y = window.scrollY;
+        if (!tagPanelsOpen() || performance.now() - scrollIntentAt > SCROLL_INTENT_MS) { scrollBaseline = y; return; }
+        if (Math.abs(y - scrollBaseline) < SCROLL_CLOSE_DISTANCE) return;
+        scrollBaseline = y;
+        closeTagPanelsOnScroll();
+    }, { passive: true });
 
     // === Tag search filtering ===
     function setupTagSearch(searchInput, container, isExclude) {
@@ -8033,6 +8358,7 @@ const worker = new Worker("catalog-worker.js?v=15");
         lastFilter = null;
         sortedKey = null;
         tagsVersion++;
+        refreshTagMenu();
         catalogWarnings = new Set();
         catalogDiagnosticRecords = new Map();
         catalogDiagnostics.open = false;
