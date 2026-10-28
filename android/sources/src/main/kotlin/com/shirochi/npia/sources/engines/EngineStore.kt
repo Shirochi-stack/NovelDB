@@ -67,10 +67,13 @@ class EngineStore(private val root: File? = null, private val shippedFiles: Ship
         val manifestFile = File(folder, MANIFEST)
         val libFile = File(folder, engine.lib)
         if (!manifestFile.isFile || !libFile.isFile) return null
-        val stamp = listOf(manifestFile.lastModified(), manifestFile.length(), libFile.lastModified(), libFile.length())
+        // The manifest is small, so its contents key the cache: a rewrite within one clock tick that keeps
+        // its length (an edited "api") must not return the old verdict. The script goes by time and size.
+        val manifestBytes = runCatching { manifestFile.readBytes() }.getOrNull() ?: return null
+        val stamp = listOf(manifestBytes.contentHashCode().toLong(), manifestBytes.size.toLong(), libFile.lastModified(), libFile.length())
         downloadedCache[engine.name]?.takeIf { it.first == stamp }?.let { return it.second }
         val bundle = runCatching {
-            val manifest = parseObject(manifestFile.readBytes())
+            val manifest = parseObject(manifestBytes)
             val data = libFile.readBytes()
             if (manifest == null || !hasApi(manifest, engine) || sha256(data) != manifest.text("sha256")) {
                 null
