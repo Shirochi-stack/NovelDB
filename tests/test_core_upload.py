@@ -4,7 +4,6 @@ import json
 import os
 from dataclasses import replace
 from types import SimpleNamespace
-from urllib.parse import unquote
 
 import pytest
 
@@ -54,8 +53,8 @@ def test_multipart_sends_ascii_filename_and_utf8_filename_star(tmp_path):
     text = data.decode("utf-8")
     assert len(data) == len(body)
     assert 'filename="419368.epub"' in text
-    star = text.split("filename*=UTF-8''")[1].split("\r\n")[0]
-    assert unquote(star) == KOREAN
+    # No filename*: hosts that read it would strip the Korean title down to "-_.epub".
+    assert "filename*" not in text and KOREAN not in text
     assert 'name="expire"\r\n\r\n60' in text and "EPUBDATA" in text
     assert content_type.startswith("multipart/form-data; boundary=")
     assert seen[-1] == (len(body), len(body))

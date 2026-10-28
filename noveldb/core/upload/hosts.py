@@ -41,6 +41,10 @@ class UploadResult:
     delete_link: Optional[str] = None
     expires_at: Optional[float] = None  # epoch seconds
     uploaded_at: float = field(default_factory=time.time)
+    # A ZIP of several files: how many it holds, their titles, and whether all are EPUBs.
+    entries: int = 1
+    titles: list = field(default_factory=list)
+    epubs: bool = False
 
     @property
     def expired(self) -> bool:

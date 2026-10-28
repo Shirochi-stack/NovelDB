@@ -25,6 +25,8 @@ from noveldb.core.settings.model import (
     OUTPUT_FORMATS,
     SITE_ENGINES,
     THEMES,
+    UPLOAD_ZIP_MB_MAX,
+    UPLOAD_ZIP_MB_MIN,
     AppSettings,
     LastInput,
     Secrets,
@@ -371,6 +373,8 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         auto_upload=_first_bool(c, "upload_auto", up.auto_upload),
         hosts=tuple(h for h in hosts if h) if hosts else up.hosts,
         copy_link=_first_bool(c, "upload_copy_link", up.copy_link),
+        zip_bundle=_first_bool(c, "upload_zip_bundle", up.zip_bundle),
+        zip_max_mb=int(_clamp(_int(c.get("upload_zip_max_mb")), UPLOAD_ZIP_MB_MIN, UPLOAD_ZIP_MB_MAX, up.zip_max_mb)),
         agreement_accepted=_first_bool(c, "share_agreement_accepted", up.agreement_accepted),
     )
 
@@ -567,6 +571,8 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["upload_auto"] = s.upload.auto_upload
     c["upload_hosts"] = list(s.upload.hosts)
     c["upload_copy_link"] = s.upload.copy_link
+    c["upload_zip_bundle"] = s.upload.zip_bundle
+    c["upload_zip_max_mb"] = s.upload.zip_max_mb
     c["share_agreement_accepted"] = s.upload.agreement_accepted
 
     c["novel_id"] = s.last_input.novel_id

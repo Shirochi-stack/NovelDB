@@ -1,4 +1,4 @@
-"""Queue page: every download, with Stop / Retry / Remove / Open / Upload."""
+"""Queue page: every download, with Stop / Retry / Remove / Open / Show files / Upload (several at once)."""
 
 from __future__ import annotations
 
@@ -68,14 +68,14 @@ class QueuePage(QWidget):
         self.banner_text = QLabel("")
         open_folder = QPushButton("Open folder")
         open_folder.clicked.connect(self._open_batch_folder)
-        upload_all = QPushButton("Upload all")
-        upload_all.clicked.connect(lambda: upload_jobs(self.context, self._batch_done(), self))
+        self.upload_all = QPushButton("Upload all")
+        self.upload_all.clicked.connect(lambda: upload_jobs(self.context, self._batch_done(), self))  # bundled like Upload
         dismiss = QPushButton("Dismiss")
         dismiss.clicked.connect(self.banner.hide)
         banner_row = QHBoxLayout(self.banner)
         banner_row.addWidget(self.banner_text, 1)
         banner_row.addWidget(open_folder)
-        banner_row.addWidget(upload_all)
+        banner_row.addWidget(self.upload_all)
         banner_row.addWidget(dismiss)
         self.banner.hide()
         self._last_batch: list[str] = []
@@ -107,12 +107,16 @@ class QueuePage(QWidget):
         self.remove.clicked.connect(self._remove)
         self.open = QPushButton("Open")
         self.open.clicked.connect(self._open)
-        self.reveal = QPushButton("Show in folder")
+        # Desktop has no share sheet: "Show files" opens the folder with the selected files highlighted.
+        self.reveal = QPushButton("Show files")
         self.reveal.clicked.connect(self._reveal)
         self.upload = QPushButton("Upload")
-        self.upload.clicked.connect(lambda: upload_jobs(self.context, self._selected_jobs(), self))
+        self.upload.clicked.connect(self._upload)
+        self.select_finished = QPushButton("Select finished")
+        self.select_finished.setToolTip("Select every finished download that has files")
+        self.select_finished.clicked.connect(self._select_finished)
         actions = QHBoxLayout()
-        for button in (self.stop, self.retry, self.remove):
+        for button in (self.stop, self.retry, self.remove, self.select_finished):
             actions.addWidget(button)
         actions.addStretch(1)
         for button in (self.open, self.reveal, self.upload):
@@ -196,12 +200,24 @@ class QueuePage(QWidget):
         bar.setToolTip(f"{job.value} / {job.total}" if job.total else "")
 
     def _selected_jobs(self):
+        """The selected jobs in table order (not the order they were clicked in)."""
         ids = []
-        for index in self.table.selectionModel().selectedRows() if self.table.selectionModel() else []:
+        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
+        for index in sorted(rows, key=lambda i: i.row()):
             item = self.table.item(index.row(), 0)
             if item is not None:
                 ids.append(item.data(Qt.UserRole))
         return [job for job in (self.runner.job(job_id) for job_id in ids) if job is not None]
+
+    def _select_finished(self) -> None:
+        """Select every finished download that still has files, ready to Upload or Show files."""
+        model = self.table.selectionModel()
+        model.clearSelection()
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            job = self.runner.job(item.data(Qt.UserRole)) if item is not None else None
+            if job is not None and job.state == DONE and self._existing_outputs(job):
+                model.select(self.table.model().index(row, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
 
     def _selection_changed(self) -> None:
         jobs = self._selected_jobs()
@@ -212,6 +228,7 @@ class QueuePage(QWidget):
         self.open.setEnabled(has_outputs)
         self.reveal.setEnabled(has_outputs or any(job.output_dir for job in jobs))
         self.upload.setEnabled(has_outputs)
+        self.select_finished.setEnabled(any(job.state == DONE and job.outputs for job in self.runner.jobs))
         if len(jobs) == 1:
             job = jobs[0]
             lines = [job.input]
@@ -222,8 +239,11 @@ class QueuePage(QWidget):
             if job.warnings:
                 lines.append("Warnings: " + "; ".join(str(w) for w in job.warnings[:3]))
             self.detail.setText("\n".join(lines))
+        elif jobs:
+            files = sum(len(self._existing_outputs(job)) for job in jobs)
+            self.detail.setText(f"{len(jobs)} selected, {files} file(s) ready to upload" if files else f"{len(jobs)} selected")
         else:
-            self.detail.setText(f"{len(jobs)} selected" if jobs else "")
+            self.detail.setText("")
 
     @staticmethod
     def _existing_outputs(job) -> list:
@@ -249,17 +269,27 @@ class QueuePage(QWidget):
             if outputs:
                 platform_services.open_path(outputs[0])
 
+    def _upload(self) -> None:
+        upload_jobs(self.context, self._selected_jobs(), self)
+
     def _reveal(self) -> None:
-        for job in self._selected_jobs()[:5]:
+        """Show the selected jobs' files, selected in their folders (one window per folder)."""
+        files: list[str] = []
+        folders: list[str] = []
+        for job in self._selected_jobs():
             outputs = self._existing_outputs(job)
-            if outputs:
-                platform_services.reveal_path(outputs[0])
-            elif job.output_dir and os.path.isdir(job.output_dir):
-                platform_services.open_path(job.output_dir)
+            files.extend(outputs)
+            if not outputs and job.output_dir and os.path.isdir(job.output_dir) and job.output_dir not in folders:
+                folders.append(job.output_dir)
+        if files:
+            platform_services.reveal_paths(files)
+        for folder in folders[:5]:
+            platform_services.open_path(folder)
 
     def _menu(self, pos) -> None:
         menu = QMenu(self)
-        for button in (self.stop, self.retry, self.remove, None, self.open, self.reveal, self.upload):
+        for button in (self.stop, self.retry, self.remove, None, self.open, self.reveal, self.upload, None,
+                       self.select_finished):
             if button is None:
                 menu.addSeparator()
                 continue
