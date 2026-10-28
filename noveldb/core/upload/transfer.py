@@ -7,7 +7,6 @@ import os
 import re
 import unicodedata
 import uuid
-from urllib.parse import quote
 from typing import Callable, Iterable, Optional
 
 Progress = Callable[[int, int], None]  # (sent bytes, total bytes)
@@ -44,32 +43,67 @@ def upload_name(path: str) -> str:
 
 
 def book_id_from_url(url: str) -> str:
-    """An ASCII id for a book URL or input: the last numeric path segment, else a short slug."""
+    """An ASCII id for a book URL or input: the last number in the path (else in the query), else a short slug."""
     from urllib.parse import urlsplit
 
     value = (url or "").strip()
     if value.isdigit():
         return value
-    path = urlsplit(value).path if "://" in value else value
+    parts = urlsplit(value) if "://" in value else None
+    path = parts.path if parts else value
     numbers = re.findall(r"\d+", path)
+    if numbers:
+        return numbers[-1]
+    numbers = re.findall(r"\d+", parts.query) if parts else []
     if numbers:
         return numbers[-1]
     slug = re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")[-40:]
     return slug or "book"
 
 
-def ascii_upload_name(path: str, fallback_id: str = "") -> str:
-    """The name sent to hosts: the original when it is plain ASCII, else "<id>.<ext>".
+# A title must keep this many ASCII letters to name an upload. Shorter remains ("-_", "VR_") and
+# bare numbers ("100" from "100일 후에 ...") are useless as links, so those uploads use
+# "<source>_<book id>" instead.
+MIN_NAME_LETTERS = 3
+_MAX_STEM = 100
+
+
+def _letter_count(text: str) -> int:
+    return sum(1 for ch in text if ch.isascii() and ch.isalpha())
+
+
+def _extension(name: str) -> str:
+    ext = os.path.splitext(name)[1]
+    return ext if re.fullmatch(r"\.[A-Za-z0-9]{1,10}", ext) else ""
+
+
+def ascii_safe_stem(stem: str) -> str:
+    """A title with every run of non-ASCII characters replaced by "_" and the ends trimmed."""
+    text = re.sub(r"[^ -~]+", "_", stem)  # anything but printable ASCII (space to tilde)
+    text = re.sub(r"[ _]*_[ _]*", "_", text)
+    return text.strip(" ._-")[:_MAX_STEM].rstrip(" ._-")
+
+
+def ascii_upload_name(path: str, fallback_id: str = "", source: str = "") -> str:
+    """The name sent to hosts: an ASCII-safe form of the original, else "<source>_<book id>.<ext>".
 
     Several hosts drop non-ASCII characters from the multipart file name (a Korean title became
-    "epub.epub"), so titles in other scripts upload under the book's id instead.
+    "epub.epub"), so the title is cleaned up here instead: a plain ASCII name stays as it is, other
+    scripts become "_", and a title that keeps fewer than three ASCII letters (digits alone do not
+    count) is replaced by the source codename and book id (`npia_123456.epub`).
     """
     name = upload_name(path)
-    if name.isascii() and name.isprintable() and name.strip(". "):
+    root = os.path.splitext(name)[0]
+    ext = _extension(name)
+    title = root if ext else name  # the part that must carry the letters and digits
+    if name.isascii() and name.isprintable() and _letter_count(title) >= MIN_NAME_LETTERS:
         return name
-    _stem, ext = os.path.splitext(name)
+    stem = ascii_safe_stem(title)
+    if _letter_count(stem) >= MIN_NAME_LETTERS:
+        return f"{stem}{ext}"
     ident = re.sub(r"[^A-Za-z0-9._-]+", "-", fallback_id or "").strip("-.") or "book"
-    return f"{ident}{ext}"
+    prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", source or "").strip("-")
+    return f"{prefix}_{ident}{ext}" if prefix else f"{ident}{ext}"
 
 
 class StreamBody:
@@ -136,8 +170,9 @@ def multipart(field: str, path: str, fields: Iterable[tuple[str, str]] = (),
               name: Optional[str] = None):
     """(body, content type) for a multipart/form-data upload of one file plus text fields.
 
-    `filename` carries the ASCII upload name and `filename*` (RFC 5987) the original UTF-8 name,
-    which hosts that support it keep.
+    `filename` carries the ASCII upload name only. There is no `filename*` with the real (Korean)
+    title: hosts that read it prefer it over `filename`, strip the non-ASCII characters and store
+    "-_.epub".
     """
     boundary = f"----NovelDB{uuid.uuid4().hex}"
 
@@ -150,11 +185,9 @@ def multipart(field: str, path: str, fields: Iterable[tuple[str, str]] = (),
             f'--{boundary}\r\nContent-Disposition: form-data; name="{quoted(field_name)}"\r\n\r\n{value}\r\n'.encode("utf-8")
         )
     ascii_name = name or ascii_upload_name(path)
-    original = upload_name(path)
-    extended = f"; filename*=UTF-8''{quote(original, safe='')}" if original != ascii_name else ""
     parts.append(
         (f'--{boundary}\r\nContent-Disposition: form-data; name="{quoted(field)}"; '
-         f'filename="{quoted(ascii_name)}"{extended}\r\nContent-Type: application/octet-stream\r\n\r\n').encode("utf-8")
+         f'filename="{quoted(ascii_name)}"\r\nContent-Type: application/octet-stream\r\n\r\n').encode("utf-8")
     )
     parts.append(path)
     parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
