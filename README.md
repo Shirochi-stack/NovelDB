@@ -9,6 +9,7 @@ A fork of that enhances the user experience and output quality. This version add
   - [✨ Features]
   - [🌐 NovelDB Metadata Website](#-noveldb-metadata-website)
   - [🌐 External Novel Downloader](#-external-novel-downloader)
+  - [💻 Desktop Downloads](#-desktop-downloads)
   - [🚀 Usage]
   - [💾 Space-Saving Tips]
   - [🛠️ Command-Line Arguments]
@@ -99,6 +100,28 @@ share one browser identity. If Rbooks requests verification, open the URL with
 
 The site-specific scraping rules are compiled from the upstream [novel-downloader](https://github.com/404-novel-project/novel-downloader) project. To update to the latest rules, run `update_rules.bat` in the project root. This clones/pulls the upstream repo, applies a bridge-mode patch, builds via webpack, and copies the output as `rules-lib.js`.
 
+
+## 💻 Desktop Downloads
+
+Each release has three builds for Windows, macOS and Linux. Every build has the same app: Download, Catalog, Queue and Settings pages, a link cart and cloud uploads.
+
+| Build | What it includes | Pick it when |
+|---|---|---|
+| **Full** | A bundled Chromium (for browser-based sources and Enter Browser), plus the embedded Catalog | You want every source to work |
+| **Lite** | The embedded Catalog and Google sign-in, but no bundled Chromium | You only use sources that need no browser |
+| **TurboLite** | No browser engine at all; the Catalog opens in your own browser | You want the smallest, fastest download |
+
+| OS | Files | Notes |
+|---|---|---|
+| Windows 10/11 (64-bit) | `NovelDB97-windows-x86_64.exe` (single file), `NovelDB97-windows-x86_64.zip` (Full as a folder: starts faster), `NovelDB97_Lite-…exe`, `NovelDB97_TurboLite-…exe` | SmartScreen may warn about an unknown publisher: choose **More info → Run anyway**. The single-file Full build unpacks itself on every start, so the zip starts faster. |
+| macOS 13+ (Apple silicon `arm64`, Intel `x86_64`) | `NovelDB97-macos-arm64.dmg` and the `_Lite` / `_TurboLite` DMGs | Drag the app to Applications. The app is not notarised: the first time, right-click it and choose **Open** (or allow it in System Settings → Privacy & Security). |
+| Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04+) | `NovelDB97-linux-x86_64.AppImage` and the `_Lite` / `_TurboLite` AppImages | `chmod +x` the file and run it. AppImages need FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04) or `--appimage-extract-and-run`. The embedded Catalog runs without Chromium's sandbox inside an AppImage. |
+
+Settings live in `config.json` next to the app. When that folder can't be written to (a macOS `.app`, a Linux install), they go to the per-user folder instead: `%LOCALAPPDATA%/NovelDB` on Windows, `~/Library/Application Support/NovelDB` on macOS, `~/.config/NovelDB` on Linux. A `SHA256SUMS-<os>.txt` file in each release lists the checksums.
+
+To run from source, install `requirements-full.txt` (or `-webengine` / `-gui` for Lite / TurboLite), then run `python noveldb_app.py`. To build, run `python scripts/build_desktop.py --variant full --package` (or `build.bat` on Windows).
+
+-----
 
 ## 🚀 Usage
 
