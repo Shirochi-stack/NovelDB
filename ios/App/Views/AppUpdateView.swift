@@ -64,12 +64,12 @@ struct AppUpdateSheet: View {
         case .ready(let file):
             Section {
                 Label("Downloaded and checked", systemImage: "checkmark.seal")
+                // Up here, not in a footer, so it shows without scrolling the sheet.
+                Text(Self.explanation).font(.caption).foregroundStyle(.secondary)
                 ShareLink(item: file) { Label("Share the IPA", systemImage: "square.and.arrow.up") }
                 Button { savingToFiles = true } label: { Label("Save to Files", systemImage: "folder") }
                 Link("Release notes", destination: offer.releaseURL)
                 Button("Done", role: .cancel) { updates.dismissOffer() }
-            } footer: {
-                Text(Self.explanation)
             }
         case .failed(let text):
             Section {
