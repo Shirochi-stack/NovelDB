@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PySide6.QtCore import QByteArray, Qt
+from PySide6.QtCore import QByteArray, QSize, Qt
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -45,7 +45,11 @@ class MainWindow(QMainWindow):
         self.sidebar.setFixedWidth(176)
         self.sidebar.setFocusPolicy(Qt.NoFocus)
         for name in PAGES:
-            self.sidebar.addItem(QListWidgetItem(name))
+            item = QListWidgetItem(name)
+            # Explicit height: QListView lays rows out from the unstyled size, so the stylesheet's
+            # padding made rows overlap.
+            item.setSizeHint(QSize(0, 44))
+            self.sidebar.addItem(item)
 
         self.download = DownloadPage(context)
         self.catalog = catalog_page(context)
@@ -74,6 +78,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.download.openCart.connect(self.show_cart)
+        if hasattr(self.catalog, "openCart"):
+            self.catalog.openCart.connect(self.show_cart)
         self.download.queued.connect(self._queued)
         self.queue.activeCountChanged.connect(self._active_count)
         self.queue.finishedBatch.connect(self._finished_batch)
@@ -149,6 +155,8 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.Yes:
                 event.ignore()
                 return
+        if hasattr(self.catalog, "release"):
+            self.catalog.release()
         geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
         self.context.update_settings(lambda s: replace(s, ui=replace(s.ui, window_geometry=geometry)))
         super().closeEvent(event)

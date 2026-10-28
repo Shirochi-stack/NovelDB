@@ -39,4 +39,14 @@ class BrowserCatalogPage(QWidget):
 
 
 def catalog_page(context: AppContext) -> QWidget:
+    """The embedded catalog when QtWebEngine is available (Full, Lite), else the browser fallback."""
+    from noveldb import features
+
+    if features.has_webengine():
+        try:
+            from noveldb.qt.catalog.web import CatalogPage
+
+            return CatalogPage(context)
+        except ImportError:
+            pass
     return BrowserCatalogPage(context)

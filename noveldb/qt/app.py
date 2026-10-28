@@ -175,6 +175,7 @@ def main(argv=None) -> int:
     QCoreApplication.setApplicationName("NovelDB")
     QCoreApplication.setApplicationVersion(VERSION)
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)  # QtWebEngine loads later (Catalog page)
     app = QApplication.instance() or QApplication(sys.argv[:1])
 
     key = _instance_key()
