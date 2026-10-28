@@ -417,7 +417,7 @@ def test_floo_download_does_not_start_browser_for_metadata(monkeypatch):
         def get(self):
             return False
 
-    monkeypatch.setattr('external_dialog.ExternalScraper', Scraper)
+    monkeypatch.setattr('noveldb.core.external.pipeline.ExternalScraper', Scraper)
     dialog = SimpleNamespace(
         _scraper=None, _book_data=None, _downloading=True,
         _download_cancelled=False, _active_generate_on_stop=False,

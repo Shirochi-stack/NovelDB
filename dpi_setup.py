@@ -7,8 +7,9 @@
 #   1. Sets QT_ENABLE_HIGHDPI_SCALING=1  → enables Qt6 native high-DPI rendering
 #      (text is rasterised at the correct resolution → sharp glyphs)
 #   2. Detects the OS-level DPI scale (e.g. 1.5× on a 150 % Windows display)
-#   3. Sets QT_SCALE_FACTOR = desired / system_scale so the user's configured
-#      factor represents the *total* scale, not an additional multiplier.
+#   3. Sets QT_SCALE_FACTOR to the user's factor: a multiplier on top of the
+#      OS scaling (1.0 = the size the OS asks for), the same meaning tkinter's
+#      apply_to_tk() gives it.
 #
 # The scale factor is read from config.json ("gui_scale_factor" key).
 # If the file is missing or unreadable a resolution-based default is used.
@@ -338,7 +339,13 @@ def _read_scale_factor():
             base_dir = os.path.dirname(os.path.abspath(sys.executable))
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-        cfg_path = os.path.join(base_dir, "config.json")
+        try:
+            # The same config.json the app uses: next to the exe, the AppImage or the .app
+            # bundle, else the per-user folder (paths imports nothing from Qt).
+            from noveldb.core import paths as _paths
+            cfg_path = str(_paths.config_path())
+        except Exception:
+            cfg_path = os.path.join(base_dir, "config.json")
         if os.path.isfile(cfg_path):
             with open(cfg_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
@@ -391,19 +398,14 @@ def configure():
     os.environ.pop("QT_FONT_DPI", None)
 
     # ── Apply user-configured scale factor ──────────────────────────────────
-    # The user's factor is the desired *total* scale.  Qt will auto-detect
-    # the system DPI (e.g. 1.5× on a 150 % Windows display), so we divide
-    # out the system scale to keep the total correct.
+    # Qt 6 already applies the OS scaling (150 % on Windows, Retina on macOS),
+    # so the user's factor multiplies it. Dividing by the system scale made the
+    # window render at 100 % on a 150 % display (too small), and a fractional
+    # QT_SCALE_FACTOR also shrank the window when QtWebEngine's native view was
+    # created (the Catalog page).
     factor = _read_scale_factor()
     system_scale = _get_system_dpi_scale()
-    if sys.platform == "darwin":
-        # Qt 6 handles Retina 2.0x scaling natively via
-        # QT_ENABLE_HIGHDPI_SCALING; dividing by the backing factor
-        # would double-downscale the UI, making it unreadably small.
-        qt_scale = factor
-    else:
-        qt_scale = factor / system_scale if system_scale > 0.5 else factor
-    qt_scale = max(0.25, min(4.0, qt_scale))
+    qt_scale = max(0.25, min(4.0, factor))
     os.environ["QT_SCALE_FACTOR"] = str(round(qt_scale, 4))
 
     _TOTAL_SCALE = float(factor)

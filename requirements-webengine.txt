@@ -1,0 +1,3 @@
+# Lite: adds QtWebEngine for the embedded Catalog and Google login.
+-r requirements-gui.txt
+PySide6-Addons==6.11.1
