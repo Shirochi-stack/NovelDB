@@ -958,6 +958,7 @@
 100792|||35살의 사랑|||Love at Thirty-Five
 1007920|||명암대제(明暗大帝)|||The Great Emperor of Light and Darkness
 1007926|||[해리포터] 카르멘|||[Harry Potter] Carmen
+1007932|||[이나즈마] 상냥한 Everyday|||[Inazuma] Gentle Everyday
 1007940|||마지막 게임|||The Final Game
 1007959|||내가 돌아갈 방법을 찾아서|||Searching for a Way Back
 1007965|||[은혼] 유우|||[Gintama] Yuu
@@ -15752,6 +15753,7 @@
 1141004|||[연중]2026년 그와 그녀의 이야기|||[On Hiatus] His and Her Story in 2026
 1141011|||아프수에 부는 바람|||The Wind Blowing over Apsu
 1141024|||라온하제|||Raonhaje
+1141039|||[백룸]백룸에서 빠져나갈 수가 없다|||[Backrooms] I Can't Escape the Backrooms
 1141046|||[하이큐] 소원성취|||[Haikyuu!!] Wish Fulfillment
 114106|||레아|||Leah
 1141082|||[이나이레/이나고] 아이고, 못살겠다. 인생쓰벌...!|||[Inazuma Eleven/Inazuma Eleven GO] Oh, I Can’t Live Like This. Damn This Life...!
@@ -32210,6 +32212,7 @@
 12738|||드래곤피어전|||The Dragon Spear War
 1273818|||인투 더 다크|||Into the Dark
 1273823|||[던만추] 미궁도시에서 살아간다|||[DanMachi] Living in the Labyrinth City
+1273837|||[블리치 X 나이트런 X 다중]사신 기사|||[Bleach x Nightrun x Multiverse] Shinigami Knight
 1273838|||[마블] Amazing Avengers|||[Marvel] Amazing Avengers
 1273847|||[레이디버그]우리의 끝은,|||[Miraculous Ladybug] Our End Is,
 1273853|||차원이동자가 집으로 돌아가는 법|||How a Dimension Traveler Returns Home
@@ -38788,6 +38791,7 @@
 1323278|||[해리포터]  Man in the dream|||[Harry Potter] Man in the Dream
 13233|||Escape|||Escape
 1323305|||왕조의 아침|||Morning of the Dynasty
+1323306|||영웅이란 이름으로|||In the Name of Hero
 1323307|||낭만적 아이러니 (Romantic Irony)|||Romantic Irony
 1323313|||주인님이 되어줘|||Please Become My Master
 1323334|||너의 시선|||Your Gaze
@@ -48799,6 +48803,7 @@
 1395629|||[해리포터/bl] 런던 채식주의자|||[Harry Potter/BL] London Vegetarian
 1395630|||[해리포터] 낭만을 찾아서|||[Harry Potter] In Search of Romance
 1395631|||All속성-정령왕의 기사|||All-Attribute: Knight of the Spirit King
+1395634|||[이누야샤] 화용월태(花容月態)|||[InuYasha] Beauty Like Flowers and Moon
 1395635|||욕망덩어리|||A Mass of Desire
 1395639|||[유희왕GX] 붉은 룡|||[Yu-Gi-Oh! GX] Red Dragon
 1395647|||[원피스] 신경증 神經症|||[One Piece] Neurosis
@@ -50391,6 +50396,7 @@
 1406545|||소재 모음집|||Collection of Ideas
 1406546|||[이영싫]X[이누야샤]_전율의 귀공녀|||[I Don't Like Mondays] x [Inuyasha] The Trembling Young Lady
 1406553|||[소녀전선 x 건그레이브] Here comes the rain.|||[Girls' Frontline x Gungrave] Here Comes the Rain
+1406556|||기브 앤 테이크(출간)|||Give and Take (Published)
 1406560|||여왕의 정원|||The Queen's Garden
 1406566|||상상일기|||Imagination Diary
 1406569|||도피성|||Escapism
@@ -50610,6 +50616,7 @@
 1407992|||이계에서 멘탈이 바사삭|||My Mental State Shattered in Another World
 1408011|||야행성 소년|||The Nocturnal Boy
 1408028|||도박중독자의 삶에서 프로 킬러로 전직!|||From Gambling Addict to Professional Killer!
+1408033|||[하이큐] 반했습니다(연중)|||[Haikyuu] I'm Smitten (Ongoing)
 1408034|||자살을 막는 자|||The Suicide Preventionist
 1408045|||[데어라]위자드, 다트|||[Date A Live] Wizard, Dart
 1408052|||[나루토]부서지는 하늘|||[Naruto] Shattered Sky
@@ -64868,6 +64875,7 @@
 1501|||A Lonely Gray Elf Story|||A Lonely Gray Elf Story
 1501023|||[주술회전] 한 끗 차이|||[Jujutsu Kaisen] A Hair’s-Breadth Difference
 1501029|||[작안의 샤나] 팬픽|||[Shakugan no Shana] Fanfic
+1501039|||관 속의 당신에게 메리골드를|||Marigolds for You in the Coffin
 1501041|||another door|||another door
 1501044|||여름안에서|||Within Summer
 1501050|||[도검난무] 빙의물을 좋아하는 날 용서해줘!|||[Touken Ranbu] Forgive Me for Loving Possession Stories!
@@ -67109,6 +67117,7 @@
 1515467|||단편선 작품|||Short Story Works
 1515469|||도라다니자|||Dora Danija
 151547|||기억|||Memory
+1515490|||[하이큐]  이나리자키 청춘 일지 <리메>|||[Haikyuu] Inarizaki Youth Diary <Remake>
 1515493|||쇼윈도 좀비|||Show Window Zombie
 15155|||Gray Ruin - Black Rain|||Gray Ruin - Black Rain
 1515502|||나의 단편|||My Short Stories
@@ -71018,6 +71027,7 @@
 1537885|||걸 걸 헤이 유교걸|||Girl, Girl, Hey, Confucian Girl
 1537893|||마왕환생|||Reincarnated as the Demon King
 1537897|||[벽람항로 X 스노우레인2] 이 하늘아래|||[Azur Lane x Snowbreak: Containment Zone] Under This Sky
+1537899|||[던만추/나이트런/다중]최종 re 던전에서 기사를 추구하면 안되는 걸까|||[DMCH/Nightrun/Multiverse] Is It Wrong to Pursue Knighthood in the Final Re Dungeon?
 15379|||(미정)|||(TBD)
 1537901|||신경 쓰여|||It Bothers Me
 1537920|||[주술회전] 펜팔의 사정|||[Jujutsu Kaisen] The Pen Pal’s Circumstances
@@ -80082,6 +80092,7 @@
 1591677|||[fromis_9/aespa/ohmygirl] 밴드동아리 F|||[fromis_9/aespa/ohmygirl] Band Club F
 1591682|||추어탕, 당신의 소원을 들어드립니다.|||Loach Soup, We Grant Your Wish.
 1591702|||[해리포터] 뱀과 뱀|||[Harry Potter] Snake and Snake
+1591725|||나의 오메가는 졸부!|||My Omega Is a Nouveau Riche!
 1591726|||루벨파스트의 노예|||Slave of Rubelfast
 1591728|||안녕자두야|||Hello Jadoo
 1591739|||대배우가 돌아왔다|||The Great Actor Has Returned
@@ -85487,6 +85498,7 @@
 1620783|||[귀칼X은혼] 이세계에 떨어져도 겁먹지 마라|||[Demon Slayer × Gintama] Don’t Be Afraid Even If You Fall into Another World
 1620791|||[마블] 막내같이 생겼는데요 나이가 제일 많아요|||[Marvel] He Looks Like the Youngest, but He’s Actually the Oldest
 16208|||괴기 단편집|||Collection of Strange Short Stories
+1620812|||교만한 너의 짝사랑|||Your Arrogant One-Sided Love
 1620830|||[귀멸의 칼날/마비]푸른 별|||[Demon Slayer/Mabinogi] Blue Star
 1620833|||세월의 망기(忘棄)|||Forgotten by Time
 1620835|||그들의 후회를 바랍니다|||I Hope They Regret It
@@ -88538,6 +88550,7 @@
 1637547|||ME:scape|||ME:scape
 1637548|||내 남편을 죽여주세요|||Please Kill My Husband
 1637569|||고려심왕|||The Heart King of Goryeo
+1637572|||우성 알파 스캔들|||Dominant Alpha Scandal
 1637574|||[히로아카] 에카르스토|||[My Hero Academia] Ekarsto
 1637577|||귀찮은건 싫은데요?|||I Don’t Like Troublesome Things
 1637582|||전설의 레전드(完)|||Legend of Legends (Complete)
@@ -89553,6 +89566,7 @@
 1643793|||주문을 걸어 드립니다|||I’ll Cast a Spell on You
 1643797|||집착하는 후원자|||The Obsessed Sponsor
 1643803|||어쩌다 보니 키쿄우가 되었습니다.|||Somehow, I Became Kikyo
+1643826|||[해리포터] K-고딩의 호그와트 생존기|||[Harry Potter] A Korean High Schooler's Hogwarts Survival Log
 1643848|||사랑해사랑해사랑해|||I Love You, I Love You, I Love You
 1643863|||얼음 대공가의 아기 구원자|||The Ice Grand Duke’s Baby Savior
 1643874|||민폐는 적성에 안 맞아서|||Being a Nuisance Isn’t My Calling
@@ -92661,6 +92675,7 @@
 1661073|||돈지랄 마법사|||The Money-Spending Mage
 1661074|||취운록: 재생하는 세계|||The Azure Cloud Record: A World Reborn
 1661076|||악으로 깡으로 버티는 성기사 생활|||The Holy Knight Life I Endure Through Grit and Evil
+1661084|||[히로아카] 외팔로 히어로는 될 수 있나요|||[My Hero Academia] Can a One-Armed Hero Make It?
 16611|||드래곤 플레이어(Dragon Player)|||Dragon Player
 1661103|||최초의 추상 (Première Abstraction)|||The First Abstraction (Première Abstraction)
 1661107|||둘이서 걷는 꿈|||A Dream We Walk Together
@@ -92726,6 +92741,7 @@
 166145|||flesh get|||flesh get
 1661450|||Dry your tears with love|||Dry your tears with love
 1661452|||오렌지 나무 아래 그늘|||Shade Beneath the Orange Tree
+1661460|||[원피스] SIDE :|||[One Piece] SIDE :
 1661461|||WISH (도깨비반지의 주인)|||WISH (The Owner of the Goblin Ring)
 1661495|||잡기무적(雜技無敵)|||Unbeatable in Miscellaneous Arts
 1661499|||[히로아카]밤의 소녀|||[My Hero Academia] Girl of the Night
@@ -94650,6 +94666,7 @@
 1672304|||특전사의 이세계 뽀개기|||A Special Forces Soldier Wrecks Another World
 1672307|||우주 마법사|||Space Mage
 1672308|||네 손가락의 피아니스트|||The Four-Fingered Pianist
+1672313|||그라운드 보이 파이터(Ground Boy Fighter)(~31토 삭제)|||Ground Boy Fighter (Deleted on the 31st)
 1672319|||가드 : 방패의 뒷면|||Guard: Behind the Shield
 167232|||이것이 우리들의 이야기|||This Is Our Story
 1672322|||[나와 호랑이님]나와 냥이님|||[My Tiger] Me and My Kitty
@@ -95437,6 +95454,7 @@
 1676696|||베드 시그날|||Bad Signal
 1676710|||더 이상 세계를 구하지 않겠습니다|||I Won’t Save the World Anymore
 167672|||천상의세계|||The Heavenly World
+1676721|||[데못죽] Dear my name|||[Dead Dead Demon's Dededecode] Dear My Name
 1676723|||저는 남부 담당 천사인데요?!|||I’m the Angel in Charge of the South?!
 1676733|||[마블/MCU] Victim|||[Marvel/MCU] Victim
 1676744|||[해리포터] 논문과 지팡이|||[Harry Potter] Thesis and Wand
@@ -96138,6 +96156,7 @@
 1680593|||아|||Ah
 16806|||space warp|||space warp
 1680606|||그녀와 나는 다르지만 난 살아야겠어|||She and I Are Different, but I Have to Live
+1680621|||[연예인] 아헤라디야|||[Celebrity] Aheradiya
 1680632|||시작의 별|||The Star of Beginnings
 1680635|||날 지켜주는 서브남주가 너무 많아!|||There Are Too Many Second Male Leads Protecting Me!
 1680645|||나는 영원이라 말했다|||I Said I Was Eternity
@@ -96553,6 +96572,7 @@
 1683159|||[NewJeans] 청춘낙서|||[NewJeans] Scribbles of Youth
 1683160|||[IVE] 사실 어그로 맞음|||[IVE] It Really Is Bait
 1683169|||[소재창고] 잡다하긔|||[Idea Warehouse] Miscellaneous Stuff
+1683174|||[데못죽] Square|||[Dead Dead Demon's Dededecode] Square
 1683180|||이 계약 연애가 우리를 구원할 수 있을까?|||Can This Contract Relationship Save Us?
 1683198|||할매 내 소는 어디 갔노..|||Grandma, Where Did My Cow Go..
 16832|||불꽃의 정령 화루|||Haru, Spirit of Flame
@@ -99484,6 +99504,7 @@
 1699401|||연하남편 길들이기|||Taming My Younger Husband
 1699406|||나의 생명줄 [명탐정 코난]|||My Lifeline [Detective Conan]
 1699407|||[주술회전X귀멸의 칼날] 린네(リンネ)|||[Jujutsu Kaisen x Demon Slayer] Rinne
+1699409|||[완결]도련님과 첫날밤 하드트레이닝(10/23출간)|||[Complete] Hard Training on the First Night with the Young Master (Published 10/23)
 1699412|||청춘|||Youth
 1699426|||[나루토] 너 눈을 왜 그렇게 떠|||[Naruto] Why Are You Looking at Me Like That?
 1699454|||살인 누명 메이드|||The Maid Framed for Murder
@@ -99709,6 +99730,7 @@
 170061|||마지막 드래곤 (The Last Dragon)|||The Last Dragon
 1700611|||꿈의 놀이동산|||Dream Amusement Park
 1700612|||사천당가 잃어버린 딸이었다니요|||I Was the Lost Daughter of the Sacheondang Clan
+1700629|||[뷰티풀 군바리] 이시아의 군생활|||[Beautiful Soldier] Isia's Military Life
 1700636|||[은혼/BL] 브라콤은 약도 없다|||[Gintama/BL] There’s No Cure for a Brocon
 1700641|||되돌려진 세계의 신|||God of the Restored World
 1700642|||100번째 신부|||The 100th Bride
@@ -102586,6 +102608,7 @@
 1716368|||너의 집착이 싫어 책 밖으로 도망쳤다.|||I Hated Your Obsession, So I Ran Out of the Book
 1716379|||언어설정이 안 된 로판에서 살아남기|||Surviving in a Romance Fantasy Without Language Settings
 1716393|||AI로 바둑왕|||Go King with AI
+1716398|||[원피스x해리포터] 불사조의 안식년|||[One Piece x Harry Potter] Phoenix's Sabbatical
 1716399|||에너지 황제가 된 재벌서자|||The Chaebol Bastard Who Became the Energy Emperor
 17164|||※신입사원 이민우, 신회장님 삼키다!※|||※New Employee Lee Minwoo Swallows Chairman Shin!※
 1716403|||[주술회전 / 히로아카]오타쿠 3인방의 사시스로 살아남기|||[Jujutsu Kaisen/My Hero Academia] Surviving as the Sashisu Trio of Otaku
@@ -109516,6 +109539,7 @@
 1753915|||[악입문] 마계의 마법사|||[The Demon Prince Goes to the Academy] The Mage of the Demon Realm
 1753926|||그 날에 일어났던 일|||What Happened That Day
 1753929|||둥탄신도시가이드|||Guide to Dongtan New Town
+1753938|||나의 아저씨|||My Mister
 1753941|||XX 일기|||XX's Diary
 1753973|||[은하영웅전설] 질풍 볼프는 반역을 꿈꾸는가|||[Legend of the Galactic Heroes] Does Swift Wolf Dream of Rebellion?
 1753976|||[해즈빈 호텔/헬루바 보스] 존재적 의문|||[Hazbin Hotel/Helluva Boss] Existential Questions
@@ -110060,6 +110084,7 @@
 1756658|||찬란한 이혼|||A Brilliant Divorce
 1756660|||[히로아카] 이제 괜찮아|||[My Hero Academia] It’s Okay Now
 1756670|||가제) 좀비언니|||Working Title) Zombie Noona
+1756678|||[완]마왕이 용사인 날 TS 해버리고 책임지겠다고 한다|||[Complete] The Demon King Says He'll Take Responsibility After Gender-Swapping Me, the Hero
 1756683|||너의 수렁에서|||From Your Mire
 175669|||이상한 사람.|||A Strange Person
 1756693|||밖에서 온 심판자|||The Judge from Outside
@@ -112028,6 +112053,7 @@
 1766192|||편의점솔저|||Convenience Store Soldier
 1766195|||악녀로 빙의했는데 세상이 망하다니요|||I Possessed the Villainess, and the World Is Ending
 1766198|||[주술회전] 인터탈주|||[Jujutsu Kaisen] Inter-Defection
+1766206|||AI.|||AI.
 1766208|||[포켓몬]가출 소녀 귀가 일지|||[Pokémon] Runaway Girl's Journey Home
 1766211|||물매맞기|||Being Beaten with a Water Club
 1766212|||[해즈빈 호텔/BL]아니,미연시라면서요.|||[Hazbin Hotel/BL] No, You Said It Was a Dating Sim
@@ -112373,6 +112399,7 @@
 1767796|||[해리포터/BL] 머로더즈와 그 슬리데린 선배!|||[Harry Potter/BL] The Marauders and Their Slytherin Senior!
 1767799|||[괴수 8호X주술회전] 주술계귀환|||[Kaiju No. 8 X Jujutsu Kaisen] Return to the Jujutsu World
 1767800|||모 불사 헌터|||The Immortal Hunter
+1767802|||[ Free! / 프리! ] 히키코모리 탈출기|||[ Free! ] Hikikomori Escape Diary
 1767817|||편지를 전하는 황녀님|||The Princess Who Delivers Letters
 176782|||동방신기[붉은노을]|||TVXQ [Red Sunset]
 1767822|||[나나/NANA] 선명하게 피어날|||[NANA] Bloom Brightly
@@ -113561,6 +113588,7 @@
 1773|||내가아닌 나|||The Me Who Isn’t Me
 17730|||세안고 얼짱 그녀ミ 세현고 포커스한테 찍히다?!ㅇㅅㅇ?|||The Pretty Girl of Seango Gets Spotted by Sehyun High's Focus?! ㅇㅅㅇ?
 1773006|||나의 배덕한 뱀파이어|||My Immoral Vampire
+1773008|||에덴에게 낙원은 없다|||Eden Has No Paradise
 1773010|||40년 만에 제대했는데, 다시 이등병|||Discharged After 40 Years, but Back to Private
 1773011|||뒷산파고 1000조 골드재벌|||Digging Behind the Mountain Makes Me a Quadrillion-Gold Tycoon
 1773012|||순두부상 연기 천재|||The Soft-Faced Acting Genius
@@ -115193,6 +115221,7 @@
 1780322|||[주술회전] 바니바니|||[Jujutsu Kaisen] Bunny Bunny
 1780330|||[화산귀환/화귀] 온실 속 난초|||[Return of the Blossoming Blade] An Orchid in a Greenhouse
 1780335|||[리본] Am i Fran??!|||[Katekyo Hitman Reborn!] Am I Fran??!
+1780346|||진도가 너무 빠릅니다, 교수님. 좋은 지적이다, 슬리데린에 30점!|||The Pace Is Too Fast, Professor. Good Point, 30 Points to Slytherin!
 178035|||검[劒]|||Sword
 1780363|||아직도! 그 인문관에|||Still! In That Humanities Building
 1780367|||시공의 검투사 (4/16 외전)|||Gladiator of Time and Space (April 16 Side Story)
@@ -117162,6 +117191,7 @@
 1789610|||[ 주술회전 ] 뭐야 살려주세요!|||[Jujutsu Kaisen] What?! Somebody Save Me!
 1789619|||[괴담출근]우리 열차 운행을 안하지는 않습니다.|||[Ghost Story Work] It's Not Like Our Train Doesn't Run
 1789625|||[화산귀환/다중] 시리즈들. 1부 - 진동룡씨 힘내라! by. 작가가|||[Return of the Blossoming Blade/Multi] Series, Part 1 - Cheer Up, Jin Dongryong! by the Author
+1789639|||[원피스] 장르 이상한데요|||[One Piece] The Genre Feels Off
 1789643|||[주술회전] 회중시계는 거꾸로 흐른다.|||[Jujutsu Kaisen] The Pocket Watch Runs Backward
 1789649|||어느 날 갑자기 또 다른 자아가 탈출했다.|||One Day, Another Self Suddenly Escaped
 178965|||THE MAN WHO TRY TO FORGET|||THE MAN WHO TRY TO FORGET
@@ -117750,6 +117780,7 @@
 1792034|||현실에선 대사제 딸인 내가, 꿈 속에선 동양 거지?!|||I'm a High Priest's Daughter in Reality, but an Eastern Beggar in Dreams?!
 1792037|||추남으로 살아남기|||Surviving as an Ugly Man
 1792043|||아카데미에 입학한 슬라임|||The Slime Enrolled in the Academy
+1792049|||[사카데이] 애프터썬(完)|||[Sakaday] After Sun (Complete)
 1792053|||연애 독재|||Romance Dictatorship
 1792065|||그대라는 마지막 희망|||The Last Hope Called You
 1792069|||소나무와 소리, 빛|||Pine Trees, Sound, and Light
@@ -119036,6 +119067,7 @@
 1797615|||[꼬마마법사 레미/카드캡터 사쿠라] 죽었는데 빙의라고요?|||[Ojamajo Doremi/Cardcaptor Sakura] I Died, So How Am I Possessed?
 1797626|||천년지애|||Love Across a Thousand Years
 1797628|||[귀멸의 칼날/ 귀칼] 푸른 피인화|||[Demon Slayer] Blue Blood Flower
+1797634|||[해리포터] 내가 죽기 하루 전|||[Harry Potter] One Day Before I Die
 1797640|||세상이 날 시한부로 착각한다|||The World Mistakes Me for the Terminally Ill
 1797641|||내가 쓴 망작속 히로인에 빙의했다|||I Possessed the Heroine of the Terrible Novel I Wrote
 1797648|||[정령왕 엘퀴네스/정엘] Nocturne Requiem|||[The Spirit King Elquiness] Nocturne Requiem
@@ -119437,6 +119469,7 @@
 1799241|||[주술회전] 옆집에 토우지?|||[Jujutsu Kaisen] Toji Next Door?
 1799243|||[귀멸의 칼날] 네? 저요?|||[Demon Slayer] Me?
 1799250|||[은혼] 리치걸 오버도즈|||[Gintama] Rich Girl Overdose
+1799256|||[完] 랭킹 1위한테 공개구혼 받는 중인데요!|||[Complete] I'm Getting a Public Proposal from the #1 Ranked Player!
 1799261|||너무 다른 그놈들|||Those Men Who Are Too Different
 1799274|||날개 없는 새|||Bird Without Wings
 1799279|||[전독시/BL] 기다리세요, 상공. 부인이 갑니다!|||[Omniscient Reader/BL] Wait, My Lord. Your Wife Is Coming!
@@ -120193,6 +120226,7 @@
 1802104|||[원피스] 새장 속의 새|||[One Piece] Bird in a Cage
 1802114|||[화산귀환/+@] 환톡방|||[Return of the Blossoming Blade] Reincarnation Chatroom
 1802116|||뉴톤, 헨델, 세익스피어, 찰스 다윈을 만나러 떠나다|||Setting Out to Meet Newton, Handel, Shakespeare, and Charles Darwin
+1802123|||차원이동했더니 무급 노예가 되었다|||After Dimension Travel, I Became an Unpaid Slave
 1802134|||[사카데이] 연락도 없던 후배가 갑자기 찾아왔다|||[Sakamoto Days] My Junior Who Never Contacted Me Suddenly Showed Up
 1802135|||비 오는 날의 고양이|||Cat on a Rainy Day
 1802139|||넋살 -1부 완-|||N e o k s a l - Part 1 Complete
@@ -121000,6 +121034,7 @@
 1805346|||[아이브/안유진] 슈퍼맨이 사라졌다.|||[IVE/An Yujin] Superman Has Disappeared
 180535|||혼을 울리는 함성|||A Roar That Shakes the Soul
 1805350|||필로의 소피|||Sophie's Philo
+1805355|||[트위스테/twst] 쟈밀 바이퍼로 산다는 것은|||[Twisted Wonderland] Living as Jamil Viper
 1805357|||절대갑 길들이기|||Taming the Absolute Top
 1805358|||영업의 신|||God of Sales
 1805360|||하이틴 영화 속 여왕벌이 되었다|||I Became the Queen Bee in a Teen Movie
@@ -121193,6 +121228,7 @@
 1806293|||Obliviate|||Obliviate
 1806294|||공작저로 간 반쪽짜리 치유술사|||The Half-Healer Who Went to the Duke’s Estate
 1806295|||좀비와 작별하는 방법|||How to Say Goodbye to a Zombie
+1806296|||사랑을 끝냈다고 생각했는데|||I Thought I Had Ended Love
 18063|||빛을 찾는 별들|||Stars Seeking the Light
 1806305|||헌터 리셋: 회귀자의 복수극|||Hunter Reset: A Regressor’s Revenge
 1806317|||혼에서 혼으로|||From Soul to Soul
@@ -121620,6 +121656,7 @@
 180795|||잘리에르|||Jalliere
 1807952|||[문스독] 희망 진로는 명탐정입니다|||[Bungo Stray Dogs] My Career Goal Is Detective
 1807956|||황후의 계약|||The Empress’s Contract
+1807959|||[히로아카] 토가 히미코의 언니로 살아남기|||[My Hero Academia] Surviving as Himiko Toga's Older Sister
 1807966|||[원피스] 토트 무지카|||[One Piece] Tot Musica
 1807974|||[패러디/소재집]메말라 갈라질 것 같아서 직접 파는 찍먹 우물|||[Parody/Idea Collection] A Tasting Well I Dig Myself Before I Dry Up
 1807981|||바람이 바다를 넘어|||The Wind Crosses the Sea
@@ -122833,6 +122870,7 @@
 1813137|||쓰나미도 피하는 위치선정 축구천재|||The Soccer Genius with Positioning That Even Dodges Tsunamis
 1813138|||아포칼립스의 킹|||King of the Apocalypse
 1813140|||영약을 팔았더니 거물들이 몰려온다|||I Sold Elixirs and the Big Shots Came Running
+1813141|||빙의에서 벗어나고 싶었을 뿐인데|||I Just Wanted to Escape the Possession
 1813142|||예쁜 아내랑 농사짓고 정령 키우면서 알콩달콩 산다|||Living Sweetly Farming with My Pretty Wife and Raising Spirits
 1813143|||악녀 황후의 전속 시녀|||The Villainess Empress's Personal Maid
 1813144|||전남친이 오해를 했다|||My Ex-Boyfriend Got the Wrong Idea
@@ -123851,6 +123889,7 @@
 1817163|||[괴담출근] 괴담 레스토랑|||[Office Horror] Horror Restaurant
 1817173|||[원피스] Look Back|||[One Piece] Look Back
 1817174|||망상지연 望想之戀|||Delayed Delusion
+1817180|||[完] 인코그니토|||[Complete] Incognito
 1817181|||[원피스] 사람 잘못보셨어요!!!|||[One Piece] You've Got the Wrong Person!!!
 1817186|||세상에서 가장 다정한 복수|||The Kindest Revenge in the World
 1817188|||그를 사랑한 죄, 이젠 복수로 갚는다|||The Sin of Loving Him, Now Repaying It with Revenge
@@ -126019,6 +126058,7 @@
 182564|||[자작]존재의 이유|||[Original] Reason for Existence
 1825643|||이번에도 졸업 못 하면 학교 태워버릴 예정|||If I Don't Graduate This Time, I'll Burn Down the School
 1825645|||[꿈빛파티시엘/꿈파]원하는 대로|||[Yumeiro Patissiere] As You Wish
+1825646|||[괴담출근] 세계관 창조자여도 출근을 해야 하는구나|||[Ghost Story Commute] Even as the Creator of This World, I Still Have to Go to Work
 1825647|||[명탐정 코난] 저기요, 여기 알바생이 경찰학생이랑 싸우는데요?|||[Detective Conan] Excuse Me, the Part-Timer Here Is Fighting a Police Student?
 1825655|||빙의한다면, 치유물이 좋습니다.|||If I'm Possessing Someone, I Want a Healing Story
 182567|||WSADI(세계 특수 능력 개발 기구)|||WSADI (World Special Ability Development Institute)
@@ -126697,6 +126737,7 @@
 182812|||로또 살인사건|||Lottery Murder Case
 1828124|||일반인 비투비|||Ordinary BTOB
 1828126|||사랑이 지나가면|||When Love Passes
+1828130|||라이드 홈[3/13일 출간]|||Ride Home [Published 3/13]
 1828146|||[괴담출근]그리고 아무도 없었다.|||[Goes to Work in a Ghost Story] And Then There Were None
 1828152|||사랑|||Love
 1828154|||외계 기억을 가진 남자와, 조용한 동거|||A Quiet Cohabitation with a Man Who Has Alien Memories
@@ -127608,6 +127649,7 @@
 1831859|||마수 케르키르의 주인|||Master of the Magical Beast Kerkir
 1831866|||[화산귀환] 봄이 오다.|||[Return of the Blossoming Blade] Spring Comes
 1831868|||스포츠 메시아,리규|||Sports Messiah, Lee Gyoo
+1831872|||[원피스×파판14] 모험가의 식도락|||[One Piece x FF14] An Adventurer's Gourmet Journey
 1831875|||달빛 아래에서 찾아온 그리움|||Longing That Came Beneath the Moonlight
 1831877|||[히로아카] 우리 선생님이 이럴 리 없어!|||[My Hero Academia] Our Teacher Would Never Do This!
 1831883|||[주술회전]나의 상냥하지 않은 교주님을 위하여|||[Jujutsu Kaisen] For My Unkind Messiah
@@ -128731,6 +128773,7 @@
 1835871|||[해리포터] 내 아버지를 아시나요?|||[Harry Potter] Do You Know My Father?
 1835874|||악역 이물질 오메가는 회개합니다!|||The Villainous Intruder Omega Repents!
 1835880|||금릉춘|||Spring in Jinling
+1835891|||지칠 대로 지쳐서 (삭제예정)|||Completely Worn Out (To Be Deleted)
 1835892|||알수없는 존재들의 동거|||Cohabitation with Unknown Beings
 1835894|||탈조선 후 대박 스트라이커|||A Blockbuster Striker After Escaping Joseon
 1835896|||노답인방BJ로 현생환생|||Reborn in Real Life as a Hopeless Streamer
@@ -128899,6 +128942,7 @@
 1836534|||소소한 농부는 사실 SSS급 정령사?!|||The Humble Farmer Is Actually an SSS-Rank Spirit Master?!
 1836540|||[토리코]너의 곁에 있고 싶어|||[Toriko] I Want to Stay by Your Side
 1836544|||「너에게만 보이는 비밀」|||“A Secret Only You Can See”
+1836545|||병약한 가이드 탈출하기 프로젝트(完)~10/29|||Escaping the Sickly Guide Project (Complete) ~10/29
 1836548|||도망친 천사를 체포하는 법|||How to Arrest a Runaway Angel
 1836553|||공포게임 보스님은 탈출하고 싶어|||The Horror Game Boss Wants to Escape
 1836558|||[귀멸의 칼날] 겨우살이 아래 약속|||[Demon Slayer] A Promise Beneath the Mistletoe
@@ -131697,6 +131741,7 @@
 1847285|||옆 반, 그 애|||That Girl in the Next Class
 1847287|||악녀님이 너무 좋아!|||I Love the Villainess!
 1847290|||회귀라는 기회|||The Opportunity Called Regression
+1847292|||[주술회전] 우리는 모두 친구!|||[Jujutsu Kaisen] We Are All Friends!
 1847293|||[앙스타/프리파라]빙판 위의 백조|||[Ensemble Stars!/PriPara] Swan on Ice
 18473|||메모지|||Memo Pad
 1847301|||[괴담출근] 소꿉친구가 되살아온 건에 대하여|||[Ghost Story Commute] Regarding My Childhood Friend Coming Back to Life
@@ -132456,11 +132501,13 @@
 1850071|||조용한 팬이 위험하다|||The Quiet Fan Is Dangerous
 1850075|||커플박살 레스토랑즈|||Couple-Breaker Restaurants
 1850081|||사라진 여친을 찾습니다|||Looking for My Missing Girlfriend
+1850082|||지하철 비둘기가 너무 강함|||The Subway Pigeon Is Too Strong
 1850083|||[귀멸의칼날/귀칼]저쪽 남매분께서 넘기신 폭탄입니다|||[Demon Slayer] The Bomb Those Siblings Handed Over
 1850085|||[화산귀환] 유일무이唯一無二|||[Return of the Blossoming Blade] One and Only
 1850087|||[메이플/메이플스토리] 유일무이 수속성 마법사|||[Maple/MapleStory] The One and Only Water Mage
 1850088|||[스파이 패밀리] 매부가 친동생인것 같다|||[Spy x Family] I Think My Brother-in-Law Is My Real Brother
 1850094|||단군 이래 최대 스캔들|||The Biggest Scandal Since Dangun
+1850095|||[프로세카/보컬로이드] 익?명게시판|||[Project Sekai/Vocaloid] Anonymous Bulletin Board
 1850096|||[원피스/로보토미] 이상한 친구들을 찾습니다!|||[One Piece/Lobotomy Corporation] Looking for Strange Friends!
 1850097|||이번 생은 아이돌 센터로 행복해질 겁니다|||In This Life, I’ll Be Happy as an Idol Center
 1850098|||[아이브/이서] 사계|||[IVE/Leeseo] Four Seasons
@@ -134303,6 +134350,7 @@
 1856296|||과분한 호흡|||A Breath Too Precious
 185630|||은빛 나비 ~Silver butterfly ~|||Silver Butterfly
 1856308|||[해리포터] 죽음의 항해|||[Harry Potter] Voyage of Death
+1856310|||[10/30 23:59 完]제너럴 위크니스(General Weaknes)|||[10/30 23:59 Complete] General Weakness
 1856312|||좋아하는소재 모아모아|||A Collection of Favorite Tropes
 1856313|||전 남친과 같은 팀이면 안 되는 이유|||Why You Shouldn't Be on the Same Team as Your Ex
 1856316|||[해리포터/BL] 아픈 손가락|||[Harry Potter/BL] The Aching Finger
@@ -134367,6 +134415,7 @@
 1856475|||AI, 이산이 되다|||AI Becomes Yi San
 1856477|||그 소설, 내가 아니었는데...|||That Novel Wasn't Me...
 1856483|||신이 없는 세계의 성기사|||The Holy Knight of a Godless World
+1856484|||낭만상실기록|||Record of Lost Romance
 1856486|||수레바퀴의 이야기는 끝이 없다.|||The Wheel's Story Never Ends
 1856492|||나를 부른 꿈|||The Dream That Called Me
 1856496|||[죠죠의 기묘한 모험/7부] STEEL BALL RUN|||[JoJo's Bizarre Adventure Part 7] STEEL BALL RUN
@@ -135057,6 +135106,7 @@
 1858966|||[해리포터] 기록되지 않은 전후사|||[Harry Potter] The Unrecorded Before and After
 1858971|||[주술회전] 네가 옥문강에 갇히면 안 되는 101가지 이유|||[Jujutsu Kaisen] 101 Reasons You Mustn't Be Trapped in the Prison Realm
 1858982|||完[주술회전]Betting|||Complete [Jujutsu Kaisen] Betting
+1858983|||[해리포터] 포터 교수님에게 포터 결혼식 주례 맡기기|||[Harry Potter] Asking Professor Potter to Officiate Potter's Wedding
 1858987|||[주술회전] 순애가 세상을 구하는 방식|||[Jujutsu Kaisen] How Pure Love Saves the World
 1858989|||[포켓몬] 카페 직원 A양|||[Pokémon] Café Employee Miss A
 1858996|||무제|||Untitled
@@ -135216,6 +135266,7 @@
 1859577|||이혼을 위해 시한부인 척 했는데 집착 당한다.|||I Pretended to Be Terminally Ill for a Divorce, but Now He's Obsessed
 1859584|||메듀사|||Medusa
 1859585|||데드 튜브|||Dead Tube
+1859591|||[完] 널 체포하겠어! ~11/3|||[Complete] I'll Arrest You! ~11/3
 1859597|||악녀는 동생을 편애한다|||The Villainess Favors Her Younger Sibling
 18596|||DREAMS~악몽의 반복|||DREAMS~Repetition of Nightmares
 1859600|||[해리포터]게임 초기화를 간절히 기원|||[Harry Potter] I Pray Desperately for a Game Reset
@@ -135869,6 +135920,7 @@
 1861855|||1952 종합병원|||General Hospital, 1952
 1861857|||당신의 사랑이 정답이 되기를|||May Your Love Be the Right Answer
 1861858|||[해리포터] 마루더즈 시대에 K마법소녀 강림★|||[Harry Potter] A K-Magical Girl Descends in the Marauders Era★
+1861861|||거래의 조건 Terms & Conditions 10/27출간|||Terms & Conditions [Published 10/27]
 1861863|||검은 숲의  식물학자|||The Botanist of the Black Forest
 1861872|||저승 콤파니 - 고객 지원팀|||The Afterlife Company — Customer Support Team
 1861875|||[디지몬] 시맨틱 에러|||[Digimon] Semantic Error
@@ -136237,6 +136289,7 @@
 1863086|||유크로니아의 메르헨|||The Märchen of Eucronia
 1863088|||[해리포터/bl]78세김칠복 할아버지의 20세기 런던 생존기|||[Harry Potter/BL] 78-Year-Old Kim Chilbok's Survival in 20th-Century London
 1863089|||[포켓몬] 마린과 애니|||[Pokémon] Marine and Annie
+1863090|||피치 쇼크 (Peach Shock) (完 ~25일 습작)|||Peach Shock (Complete ~25th Practice Piece)
 1863091|||[DC] 형아는 힘들다.|||[DC] Being an Older Brother Is Hard
 1863093|||잿빛의 사신|||The Ashen Reaper
 1863107|||《오늘도 나는 나를 버리지 않았다》|||《Today, I Didn't Abandon Myself》
@@ -136291,6 +136344,7 @@
 1863284|||천재투수는 투심 마스터|||The Genius Pitcher Masters the Two-Seam
 1863286|||당신이 남주인가요?|||Are You the Male Lead?
 1863290|||망한 빙의에서 살아남기|||Surviving a Failed Possession
+1863297|||사적인 추앙과 구원(~11/1)|||Private Worship and Salvation (~11/1)
 18633|||운명을 믿는 내 사랑하는 여자친구|||My Beloved Girlfriend Who Believes in Fate
 1863325|||ㅓㅓㅓ|||Uh Uh Uh
 1863327|||[어바등] 끝없이 파란|||[The Sea at the End of the World] Endless Blue
@@ -136764,6 +136818,7 @@
 1864822|||그림자 가이드 (8/21 출간)|||Shadow Guide (Releases 8/21)
 1864829|||나를 죽인 신이 첫사랑입니다?|||The God Who Killed Me Is My First Love?
 1864830|||[해리포터] 위조된 섭리|||[Harry Potter] Forged Providence
+1864832|||가짜 연인을 위한 상처 19금 무료 에디션1|||Wounds for a Fake Lover, 19+ Free Edition 1
 1864834|||[주술회전/코난] 보고 싶어서 보는 게 아니야!|||[Jujutsu Kaisen/Detective Conan] I'm Not Watching Because I Want to See You!
 1864843|||오늘, 내가 죽었다|||Today, I Died
 1864846|||악녀는 남주들을 상대로 구원튀한다|||The Villainess Runs Away from the Male Leads She Saved
@@ -137104,6 +137159,7 @@
 1865987|||친구야, 그 부지깽이는 내려놓으렴!|||My Friend, Put Down That Poker!
 1865989|||“죽은 그녀를, 내가 다시 만들었다”|||“I Recreated the Woman Who Died”
 1865994|||시한부 스킬을 얻었다|||I Acquired a Terminal Skill
+1865996|||完)꼬리치는 영주님/출간했습니다!|||Complete) The Flirtatious Lord / Published!
 1866|||Dream Of Fantasy|||Dream Of Fantasy
 1866004|||『우리는 여름처럼 』|||『We Were Like Summer』
 1866011|||[해리포터] 5번째 머로더즈 ( 5th Marauder)|||[Harry Potter] The Fifth Marauder
@@ -137149,6 +137205,7 @@
 1866144|||램 마개조로 전설을 쓰다|||Writing Legend with a Completely Modded RAM
 1866145|||상냥한 아이돌 리더가 되기 위한 조건|||How to Become a Kind Idol Leader
 1866146|||어느 회귀자의 버킷리스트|||A Regresser's Bucket List
+1866147|||[완결]어쩐지 광공의 비서가 체질인 것 같다(~10.28)|||[Complete] Somehow I Seem Suited to Be the Mad Dog Lord's Secretary (~10/28)
 1866151|||2040년 전시수능대비 대한민국 국사|||Korean History for the 2040 College Entrance Exam
 1866155|||연하의 반란|||The Younger Man's Rebellion
 1866158|||퇴사 후 버섯 농사가 너무 쉽다|||Mushroom Farming Is Too Easy After Quitting My Job
@@ -137247,6 +137304,7 @@
 1866424|||이혼 후 랜덤박스로 인생 역전|||I Turned My Life Around with a Random Box After Divorce
 1866425|||자연인 되려 입산하니 돈이 쌓임|||I Went to the Mountains to Live in Nature, and Money Piled Up
 1866429|||해고당한 음향감독이 작곡 천재였다|||The Fired Sound Director Was a Composition Genius
+1866430|||[전독시/주술회전]  시나리오 속에서 주술사로 살아남는 3가지 방법|||[Ultimate Shorter/Jujutsu Kaisen] Three Ways to Survive as a Sorcerer in the Scenario
 1866432|||[히로아카/나히아] 과로사하면 안 되는 이유|||[My Hero Academia] Why You Mustn't Die from Overwork
 1866435|||원 테이크 세이비어|||One-Take Savior
 1866436|||분명 남편님은 절 사랑하게 될 거예요.|||My Husband Will Surely Come to Love Me
@@ -138101,6 +138159,7 @@
 1869403|||흑막의 병약한 아내는 과보호가 싫어요|||The Secret Villain's Sickly Wife Hates Being Overprotected
 1869404|||다시, 탑스타가 되기로 했다|||I Decided to Become a Top Star Again
 1869411|||[주술회전]후시구로가 주령입니다|||[Jujutsu Kaisen] Fushiguro Is a Curse
+1869431|||[화산귀환/메이플] 추락한 별에게 내일을 바친다|||[Return of the Mount Hua Sect/MapleStory] Dedicating Tomorrow to a Fallen Star
 1869439|||검은돈 20조 빼돌리니 투자가 너무 쉬움|||Investing Is Easy After Siphoning Off 20 Trillion in Black Money
 1869440|||망한 기업 경영했더니 돈이 미쳐 날뛴다|||I Managed a Failing Company, and Money Went Wild
 1869443|||유연적 사고|||Flexible Thinking
@@ -138748,6 +138807,7 @@
 187159|||피의 교단, 크루오르|||The Blood Cult, Cruor
 1871590|||마도수신전|||The Demon-Way Beast God
 1871595|||호형호부 (呼兄呼父)|||Calling You Brother and Father
+1871596|||황자랑 사귀는 걸 나만 모름 (~11/3 회차 삭제)|||Everyone Knows I'm Dating the Prince But Me (~11/3 Episode Deleted)
 1871604|||그 이야기에서 살아남는 방법|||How to Survive That Story
 1871605|||[해리포터] 아픈 기억이 되지 않게|||[Harry Potter] So It Won’t Become a Painful Memory
 1871621|||사자의 심장|||Heart of the Lion
@@ -138834,6 +138894,7 @@
 1871833|||[원피스] 프로 트립퍼|||[One Piece] Pro Tripper
 1871837|||가짜 신분|||A False Identity
 1871841|||[주술회전] 주술계 사이버 상담사|||[Jujutsu Kaisen] The Jujutsu World’s Cyber Counselor
+1871849|||황제는 개를 길들인다(공지 읽어주세요!)|||The Emperor Tames the Dog (Please Read the Notice!)
 1871857|||사악한 용 죽이기|||Slaying the Wicked Dragon
 187186|||사신[死神]|||The Grim Reaper
 1871861|||위버멘쉬께서 우릴 이끄신다!|||The Übermensch Leads Us!
@@ -139074,6 +139135,7 @@
 1872643|||다운타운 클리너|||Downtown Cleaner
 1872645|||느티나무 앞에서|||Before the Zelkova Tree
 1872647|||[화산귀환×흑백무제] 당씨문중 막내소저의 만독학개론|||[Return of the Blossoming Blade x The Black-and-White Martial Emperor] The Youngest Tang Lady’s Introduction to Ten Thousand Poisons
+1872648|||[히로아카/포켓몬] Resonance 完|||[My Hero Academia/Pokémon] Resonance Complete
 1872651|||[데못죽X백망되] 가농성진|||[Debut or Die x Lout of Count’s Family] Ganonseongjin
 1872653|||E.N-1[이름 없는 자들의 기록]|||E.N-1 [Records of the Nameless]
 1872654|||랭킹 1위 남편이 나를 잊었다|||My No. 1-Ranked Husband Forgot Me
@@ -139411,6 +139473,7 @@
 1873625|||수배중인 왕자님은 호텔의 여종업원입니다.|||The Wanted Prince Is a Hotel Maid
 1873628|||칼끝이 닿은 자리|||Where the Blade’s Tip Touched
 1873635|||그래도, 정말 행복했다.|||Even So, I Was Truly Happy
+1873636|||[원피스/포켓몬] 친구야 完|||[One Piece/Pokémon] Friend Complete
 1873637|||[나루토] 누가 까마귀를 죽였나?|||[Naruto] Who Killed the Crow?
 1873638|||[해리포터] 미움받는 악녀는 죽고 싶습니다|||[Harry Potter] The Hated Villainess Wants to Die
 1873650|||879년 후, 나만 살아남았다|||879 Years Later, I Alone Survived
@@ -139705,6 +139768,7 @@
 1874464|||[完] 잿빛 늑대는 용의 목줄을 쥔다 (10월10일 습작)|||[Complete] The Ashen Wolf Holds the Dragon's Leash (To Be Unpublished October 10)
 1874470|||끝이라고 부르지 못한 것들|||Things We Couldn’t Call the End
 1874471|||(주)이야기지원회사|||Story Support Co., Ltd.
+1874472|||[Eve家/히로아카] 영구불변|||[Eve Family/My Hero Academia] Eternal Immutability
 1874479|||[원피스] 내 에이스가 이럴 리가 없어|||[One Piece] My Ace Can’t Be Like This
 1874481|||레플리카|||Replica
 1874487|||[다중/fgo/fate/페이트]불타는 성녀님|||[Multi/FGO/Fate] The Burning Saint
@@ -139895,6 +139959,7 @@
 1875032|||경멸하는 세상의 멸망|||The End of the World I Despise
 1875033|||무리하면 죽는 아이돌|||An Idol Who Dies If He Overworks
 1875035|||직장인 마씨는 살인을 꿈꾼다|||Office Worker Mr. Ma Dreams of Murder
+1875036|||그러니까, (~11월 24일)|||So, (~November 24)
 1875050|||[주술회전] 저주가 저주에게|||[Jujutsu Kaisen] From One Curse to Another
 1875064|||착륙 후에도 그녀는 우리집으로 왔다|||She Came to My House Even After Landing
 1875065|||저주받은 공녀는 사랑받기 충분하다|||The Cursed Lady Deserves to Be Loved
@@ -140053,6 +140118,7 @@
 1875515|||[블리치] 백귀야행|||[Bleach] Night Parade of One Hundred Demons
 1875520|||[인소의 법칙/bl] 푸른 봄의 바다|||[The Law of Insomnia/BL] Sea of Blue Spring
 1875521|||분신자살하고 인생 역전|||I Turned My Life Around by Faking My Suicide
+1875522|||「지옥군주의 중간계 유학기」|||「Study Abroad Log of the Hell Lord in the Middle Realm」
 1875525|||M|||M
 1875529|||최애와 죽이는 동거중|||Living with My Favorite, Who Wants to Kill Me
 187554|||망상★소년|||Delusion★Boy
@@ -140196,6 +140262,7 @@
 1875873|||[해리포터] 순혈주의자를 상대하는 최고의 방법|||[Harry Potter] The Best Way to Deal with a Pure-Blood Supremacist
 1875877|||사대천왕이 사랑하는 방법|||How the Four Heavenly Kings Love
 1875880|||우린 선을 넘지 않기로 했다|||We Agreed Not to Cross the Line
+1875882|||[完] 이레귤러 싱크 (irregular sync)  ~11/8|||[Complete] Irregular Sync ~11/8
 1875883|||[fgo] 쿤티로 살아남기!|||[FGO] Surviving as Kunti!
 1875886|||[원신/HL/BL/GL]  이 세계 저 세계|||[Genshin Impact/HL/BL/GL] This World and That World
 1875887|||우연이 아니라면!|||If It’s Not Coincidence!
@@ -140622,6 +140689,7 @@
 18771|||무림출두(武林出頭)|||Entering the Murim
 1877116|||[기생충] 고래회충 따윈|||[Parasite] Forget About Anisakis
 1877124|||[괴담출근] 생긴 대로 사는 법|||[Working in a Horror Story] How to Live as You Look
+1877130|||가이딩은 비과학적이라 싫다고 (~10/30 22:00)|||Guiding Is Unscientific, So I Hate It (~10/30 22:00)
 1877132|||망가진 사랑의 시작|||The Beginning of Broken Love
 1877139|||모래시계|||Hourglass
 1877140|||질 낮은 거래|||A Low-Grade Deal
@@ -140783,6 +140851,7 @@
 1877609|||[데못죽/bl] 멸종 위기 2세 복구 프로젝트|||[Debut or Die/BL] Endangered Second-Generation Restoration Project
 1877614|||찬란한그대|||My Radiant One
 1877618|||괴담출근×데못죽ㅣ미자도 정예팀 조장을 할 수 있구나|||Working in a Horror Story x Debut or Die: Even a Minor Can Lead an Elite Team
+1877620|||[주술회전] 주령 퇴치 튜토리얼|||[Jujutsu Kaisen] Cursed Spirit Extermination Tutorial
 1877623|||[명탐정 코난] 회귀한 아이돌님|||[Detective Conan] The Regressed Idol
 1877626|||[ 마블:스파이더맨 ] 햇살이 머무는 자리|||[Marvel: Spider-Man] Where Sunlight Rests
 1877629|||[화산귀환] 매화를 머금고|||[Return of the Blossoming Blade] Holding Plum Blossoms
@@ -140901,6 +140970,7 @@
 1877955|||[나루토] 하찮은 참새는 사막에서 날로 먹고 싶다|||[Naruto] The Lowly Sparrow Wants to Live off the Desert
 187796|||< 천하제일미(天下第一美), 천하제일요녀(天下第一妖女) >|||< The Most Beautiful Woman Under Heaven, the Most Bewitching Woman Under Heaven >
 1877970|||내일을 빌려줘|||Lend Me Tomorrow
+1877973|||[주술회전] 히메나는 주술사니까..|||[Jujutsu Kaisen] Because Hime Is a Sorcerer..
 1877975|||자꾸만 닿는 사이|||We Keep Touching
 1877976|||스트라테구스|||Strategus
 1877977|||갓반인 연예계 생존기|||A Normie’s Survival Guide to Showbiz
@@ -141017,6 +141087,7 @@
 1878312|||전역했더니 남친과 남사친의 몸이 뒤바뀜|||After Discharge, My Boyfriend and Guy Friend Switched Bodies
 1878313|||독주 대신 밀크티로|||Milk Tea Instead of Poisoned Wine
 1878315|||[해즈빈호텔]당신이란 가능성|||[Hazbin Hotel] The Possibility Called You
+1878316|||(~10/29)[完]치팅 앤 블랙메일|||(~10/29) [Complete] Cheating and Blackmail
 1878317|||[히로아카]다비와 소년과 커튼 콜|||[My Hero Academia] Dabi, the Boy, and the Curtain Call
 1878318|||[ 원피스 / BL ] 침식 (浸水)|||[One Piece/BL] Inundation
 187832|||벚꽃의 전설|||Legend of the Cherry Blossoms
@@ -141326,6 +141397,7 @@
 1879239|||이웃사촌의 불장난|||The Neighbor's Dangerous Game
 1879241|||악녀의 저주가 폭군에게 닿을때|||When the Villainess's Curse Reaches the Tyrant
 1879247|||레아 하벨리안: 런던의 사냥꾼|||Rhea Havelian: Hunter of London
+1879249|||쇠락하던 우리 나라가 이세계에서는 군사 최강국(명왕의 성조기 휘날리며)|||Our Declining Nation Becomes a Military Superpower in Another World (Under the Flag of the Demon King)
 1879251|||영거 선|||Younger Son
 1879257|||대본 나왔습니다.|||The Script Is Ready.
 1879259|||[원피스] 해적세상에서 정신과로 살아남기|||[One Piece] Surviving as a Psychiatrist in the Pirate World
@@ -141447,6 +141519,7 @@
 1879591|||캐릭터 흡수로 지구권력급 헌터|||A Planetary-Level Hunter Through Character Absorption
 1879592|||대기업이 내 쓰레기에 줄을 선다.|||Conglomerates Line Up for My Trash
 1879593|||세계말 사랑론|||A Theory of Love in Every Language
+1879594|||계약은 거짓말하지 않는다|||Contracts Don't Lie
 1879595|||엄청난 기연과 회귀 [개정판]|||A Fortuitous Encounter and Regression
 1879596|||돈에 미친 천재 타자가 회귀함|||The Money-Mad Genius Batter Regressed
 1879597|||방출 투수에게 상태창이 생김|||The Released Pitcher Got a Status Window
@@ -141509,6 +141582,7 @@
 1879756|||재벌3세로 이직합니다|||I'm Changing Jobs to Become a Chaebol Heir
 1879757|||사고 대응 매뉴얼|||Accident Response Manual
 1879759|||내 언니의 약혼자|||My Sister's Fiancé
+1879761|||[完] 테이크 케어 오브 ※~11/02 00시까지|||[Complete] Take Care Of ※~11/02 00:00
 1879765|||원앙가 백조혼례담|||The Mandarin Ducks' Song: A Swan Wedding Tale
 1879769|||메멘토|||Memento
 1879772|||어쩔 수 없이 살아갑니다|||I Live Because I Have To
@@ -141686,6 +141760,7 @@
 1880239|||포말|||Foam
 1880243|||비인간적 헌터물을 연기하는 법|||How to Act Like an Inhuman Hunter
 1880246|||내 사수는 내가 회장인 줄 모른다|||My Supervisor Doesn't Know I'm the Chairman
+1880247|||거울아 거울아, 내 리즈 돌려줘|||Mirror, Mirror, Give Me Back My Prime
 1880248|||죽은 대공님은 백작가 손님|||The Dead Grand Duke Is a Guest of the Count's Family
 1880254|||해식애(海蝕崖)|||Sea Cliff
 1880256|||[어바등] 이곳의 발광물질은 나다|||[The Earth Sinks, the Stars Rise] I Am the Luminescent Material Here
@@ -141699,6 +141774,7 @@
 1880270|||정략결혼 상대는 나를 기억하고 있다|||My Arranged Marriage Partner Remembers Me
 1880274|||나폴리탄 괴담에서 살아남는 법|||How to Survive a Neapolitan Horror Story
 1880275|||[소아온] 소울류 1만 시간 고인물씨는 데스게임에 떨어져버렸다.|||[SAO] A 10,000-Hour Soulslike Veteran Fell into a Death Game
+1880277|||여우 후궁이 꼬리를 숨김|||The Fox Consort Hides Her Tail
 1880286|||[아이엠스타 × 하이큐] Winter Solstice|||[Aikatsu! × Haikyuu] Winter Solstice
 1880291|||전직 장교인 내가 마법 학교 체육선생님으로 임명됨|||I, a Former Officer, Was Appointed Gym Teacher at a Magic School
 1880295|||위장 취업했는데 커피 맛집이 되었습니다|||I Took a Fake Job and Became a Famous Coffee Shop
@@ -142212,6 +142288,7 @@
 1881731|||이국의 천하를 삼킨 적안의 늑대|||The Red-Eyed Wolf Who Devoured a Foreign Realm
 1881733|||우리 집에는 초월자가 산다|||A Transcendent Lives in My House
 1881734|||취준생은 괴이 먹방을 찍는다|||A Job Seeker Films Anomaly Mukbangs
+1881735|||덕업일치가 좋은 것만은 아니다 (完) ~11.01|||Turning Hobby Into Career Isn't All Good (Complete) ~11/01
 1881736|||갑자기 분위기 연애|||Suddenly, It's Romance
 1881737|||[트위스테] 스위트 하트|||[Twisted Wonderland] Sweetheart
 1881739|||해태전(海豸傳)|||Tale of Haetae
@@ -142264,6 +142341,7 @@
 1881858|||나 혼자 아포칼립스에서 뽑기로 꿀빠는 법|||How I Profit from Gacha Alone in an Apocalypse
 1881859|||러브 포션|||Love Potion
 1881862|||학사무신록|||Chronicles of the Scholar Martial God
+1881863|||연애는임신부터(~11월 출간)|||Romance Starts With Pregnancy (Published in November)
 1881865|||넥타이의 끝, 공교롭게 비|||The End of the Tie, Coincidentally Rain
 1881866|||결혼하지 말아야 할 신사들|||Gentlemen You Should Never Marry
 1881868|||사람 찾아 삼만리|||A Long Search for Someone
@@ -142420,6 +142498,7 @@
 1882298|||이번생은마녀|||This Life, I'm a Witch
 1882299|||품위 없는 그대에게|||To You Without Dignity
 18823|||태양 속으로|||Into the Sun
+1882300|||[FATE/ZERO]한없이 빛나는 그 별의 이름은|||[Fate/Zero] The Name of That Endlessly Shining Star
 1882302|||[체인소맨] 회귀자를 위한 구원은 없다|||[Chainsaw Man] No Salvation for the Regressor
 1882303|||비가 오면 이력서를 씁니다.|||I Write Resumes When It Rains
 1882305|||[원피스] 작은 호랑이의 도둑 일지|||[One Piece] Little Tiger's Thief Diary
@@ -142530,6 +142609,7 @@
 1882629|||week|||week
 1882630|||[주술회전] 등가교환|||[Jujutsu Kaisen] Equivalent Exchange
 1882631|||[코난/명탐정 코난]신원미상자(들)|||[Conan/Detective Conan] Unknown Person(s)
+1882633|||오버라이드(完)~10/31|||Override (Complete) ~10/31
 1882634|||러브 올, 러브리스|||Love All, Loveless
 1882635|||구원을 부수는 혁명가|||The Revolutionary Who Destroys Salvation
 1882636|||속국에 팔려온 공주님의 생존형 결혼생활|||The Princess's Survival Marriage in a Vassal State
@@ -142676,6 +142756,7 @@
 1882993|||햇살 가득 베타 사범님!|||Sunshine-Filled Beta Master!
 1882994|||[정령왕 엘퀴네스/정엘] 동양풍으로 살아남기|||[The Elemental Lord Elquiness] Surviving in an Eastern Fantasy World
 1882996|||[괴담출근] 디스토피아 vs 괴있세|||[Office of Horror Stories] Dystopia vs. Strange World
+1882997|||재의 값 (11/1까지 공개)|||The Price of Ash (Public Until 11/1)
 1882998|||[명탐정 코난×주술회전] 선을 지킨다는 것|||[Detective Conan x Jujutsu Kaisen] Keeping the Line
 1882999|||별을 사랑한 은하여주|||The Galaxy's Daughter Who Loved a Star
 1883|||임페리얼|||Imperial
@@ -143640,6 +143721,7 @@
 1885637|||괴담저택 탈출하기|||Escaping the Horror Mansion
 1885640|||테크트리 찍는 초능력자|||The Psychic Who Builds His Tech Tree
 1885642|||나는 내 남편을 버리기로 했다|||I Decided to Abandon My Husband
+1885644|||사랑의 혈흔(중단편집)|||Traces of Love (Short Story Collection)
 1885649|||[코난] 진홍|||[Conan] Crimson
 1885650|||딸기맛사탕|||Strawberry Candy
 1885651|||서브 남주 보기를 돌같이 하라|||Treat the Second Male Lead Like a Stone
@@ -143882,6 +143964,7 @@
 1886164|||옥안(玉眼)|||Jade Eyes
 1886168|||[하이큐] 누님이 되고 싶어!|||[Haikyuu] I Want to Be a Big Sister!
 1886173|||늑대는 설원의 장미를 꺾고자|||The Wolf Wants to Pluck the Rose of the Snowfield
+1886174|||죽는 날까지 꼬셔볼게|||I'll Seduce You Until the Day I Die
 1886176|||최애의 정신건강을 담당하게 되었다|||I Became Responsible for My Favorite's Mental Health
 1886178|||용이 잠드는 성|||The Castle Where the Dragon Sleeps
 1886185|||파트너 버스|||Partner Verse
@@ -144030,6 +144113,7 @@
 1886577|||[닥터스톤/다중] 아이디어 모음집|||[Dr. Stone/Multiple] Idea Collection
 1886578|||인연을 찾아 드립니다. 미미 사주 상담소.|||We Find Your Fated Match. Mimi's Fortune Counseling Center.
 1886580|||여자한테 100번 차이고 남자 100명을 꼬시게 됐다|||After Being Rejected by 100 Women, I Seduced 100 Men
+1886581|||[주술회전/BL] 나의 오래된 반려(完)|||[Jujutsu Kaisen/BL] My Old Companion (Complete)
 1886582|||[해즈빈 호텔] 빛 없는 백야 아래|||[Hazbin Hotel] Beneath the Lightless White Night
 1886585|||세 개의 박자|||Three Beats
 1886586|||친애하는 여름에게.|||To My Dear Summer
@@ -144411,6 +144495,7 @@
 1887580|||[이영싫] 跨過星河來愛你 (과과성하래애니)|||[No Such Thing as a Bad Guy] Crossing the Galaxy to Love You
 1887582|||[괴담출근/림버스] 아무 것도|||[Working the Horror Shift/Limbus] Nothing
 1887587|||도화리의 봄은 늦게 온다.|||Spring Comes Late to Dohwari
+1887592|||렌탈 남친|||Rental Boyfriend
 1887595|||퇴근이 싫어졌습니다|||I've Come to Hate Going Home from Work
 1887607|||원수의 아내가 되었다|||I Became My Enemy's Wife
 1887612|||순간이동 노무사|||The Teleporting Labor Attorney
@@ -144687,6 +144772,7 @@
 1888290|||만월기담(滿月奇談)|||Tales of the Full Moon
 1888292|||붉은 반려|||Red Companion
 1888293|||[GL]하루는 사랑받는다!|||[GL] Haru Is Loved!
+1888297|||[히로아카/주술회전] 낙원의 주술사 完|||[My Hero Academia/Jujutsu Kaisen] Sorcerer of Paradise Complete
 1888299|||공략 대상이 사위와 아들 뿐이라니|||Why Are My Only Targets the Son-in-Law and the Son?
 18883|||연화(年華)|||Years of Splendor
 1888301|||원수는 어디에서든 만난다|||Enemies Meet Everywhere
@@ -144846,8 +144932,10 @@
 1888671|||솔직해질 수 있다면|||If I Could Be Honest
 1888673|||무당진경|||The True Scripture of Wudang
 1888674|||복종의 낙인, 그대는 내 맹견|||Brand of Submission, You Are My Hound
+1888675|||예언자는 미래를 보고 싶지 않다|||The Prophet Does Not Want to See the Future
 1888676|||베개 밑의 로지|||Rosie Under the Pillow
 1888677|||미소 플러팅|||Flirting with a Smile
+1888680|||낙월: 달에 지다|||Falling Moon: The Moon Sets
 1888682|||시티 오브 뱅크|||City of Bank
 1888689|||초월급 풍수사가 전능의 힘으로 인생역전|||A Transcendent Feng Shui Master Turns His Life Around with Omnipotent Power
 1888690|||마왕 삼촌이 돌아왔다|||The Demon King Uncle Is Back
@@ -144869,6 +144957,8 @@
 1888749|||내일을 빌려주는 회사의 경영자가 되었다|||I Became the CEO of a Company That Lends Out Tomorrows
 1888750|||백천일의 골목무관|||Baek Cheon-il's Alley Dojo
 1888751|||서류만 봐도 돈이 벌림|||I Earn Money Just By Looking at Documents
+1888752|||사상 최강의 제자가 되었다|||I Became the Strongest Disciple of All Time
+1888753|||무신회귀|||Regression of the Martial God
 1888754|||[블리치] 나비가 잠드는 곳 (完)|||[Bleach] Where the Butterflies Sleep (Complete)
 1888758|||전생 도서관으로 만능 배우가 되었다|||I Became a Versatile Actor Thanks to Reincarnating into a Library
 1888759|||메가밀리언즈 1등인데 오늘도 출근했다|||I Won the Mega Millions Jackpot and Still Went to Work Today
@@ -144880,6 +144970,7 @@
 1888787|||규격 외 각성자의 아포칼립스|||The Apocalypse of an Out-of-Spec Awakened
 1888788|||#이세계 #제국식당 #용1사, 고선생|||#AnotherWorld #ImperialRestaurant #Hero, Mr. Ko
 1888789|||깡촌 한의사인데 AI가 보임|||A Country Doctor Who Can See AI
+1888791|||인성이 부족한 천재배우|||The Genius Actor Lacking Character
 1888797|||《 사랑은 끝났는데 대출이 남았다 》|||Love Is Over, but the Loan Remains
 18888|||힘든 사랑이란..|||What Difficult Love Means...
 1888806|||[하이큐] 꽃의 죽음(完)|||[Haikyuu] Death of a Flower (Complete)
@@ -144944,6 +145035,8 @@
 1888932|||여우 낭군, 꼬리 흔들지 마|||Fox Husband, Don't Wag Your Tail
 1888934|||내 여자친구는 외계인|||My Girlfriend Is an Alien
 1888940|||THE K[불멸자]|||THE K [The Immortal]
+1888944|||열애 부부|||Passionate Married Couple
+1888945|||아 루아 이니마타|||A Lua Inimata
 1888946|||[보보경심/BL] 왕원이 되었다.|||[Scarlet Heart/BL] I Became Wang Won
 1888948|||싸패 아닌데?!|||I'm Not a Psychopath?!
 1888949|||버려진 스킬은 내가 줍는다|||I Pick Up Abandoned Skills
@@ -145072,10 +145165,13 @@
 1889204|||400년 후, 너를 구하는 마지막 주술|||The Last Spell to Save You 400 Years Later
 1889206|||[원피스] 바다를 사랑한 별|||[One Piece] The Star Who Loved the Sea
 1889207|||대서양 횡단 중 아포칼립스가 터졌다|||The Apocalypse Hit While Crossing the Atlantic
+1889208|||마도공학 통신장교가 전장을 캐리함|||The Magitech Communications Officer Carries the Battlefield
 188921|||To Heart[투 하트]|||To Heart
+1889229|||버려진 악녀는 좀비가 되었다|||The Abandoned Villainess Became a Zombie
 1889231|||거짓된 낙원의 중심에서|||At the Heart of a False Paradise
 1889232|||남주님, 좋은 말로 할 때 다치지 마세요.|||Male Lead, Don't Get Hurt While I'm Asking Nicely
 1889236|||푸른 눈에 깃든 검은 사랑|||Black Love Dwelling in Blue Eyes
+1889239|||피폐물 남주가 상대를 잘못 고름|||The Tragic Male Lead Chose the Wrong Partner
 1889242|||[가히리/리본] I be witch|||[Katekyo Hitman Reborn!] I be witch
 1889243|||과보(果報)|||Karma
 1889244|||선을 넘지 말아주세요|||Please Don't Cross the Line
@@ -145111,6 +145207,7 @@
 1889304|||사이버서울의 초능력자|||The Psychic of Cyber Seoul
 1889305|||회귀 중독자를 짝사랑 중|||I'm in Love with a Regression Addict
 1889307|||악녀는 아직 아무도 죽이지 않았다|||The Villainess Hasn't Killed Anyone Yet
+1889308|||명교 교주 일가의 회고록|||Memoirs of the Ming Cult Leader's Family
 1889309|||다시 회귀 하시겠습니까?|||Would You Like to Regress Again?
 1889313|||아이버 컬렌의 순정|||Ivor Cullen's Pure Love
 1889316|||제발 삽질을 멈춰 주세요!|||Please Stop Making Things Worse!
@@ -145165,6 +145262,7 @@
 1889408|||구원자|||The Savior
 1889409|||반경 안에서|||Within the Radius
 1889411|||죽은 사람의 편지를 배달합니다|||I Deliver Letters from the Dead
+1889412|||절대자도 아빠는 처음이라|||Even the Absolute Being Is a First-Time Dad
 1889416|||충복지처|||Loyal Servant Consort
 1889423|||19금 출신 귀환자입니다|||I'm a Returnee from an R-Rated World
 1889424|||전략적 파혼 계약|||Strategic Broken Engagement Contract
@@ -145200,6 +145298,7 @@
 1889517|||[BL]웜홀 안까지 얀데레가 따라왔다.|||[BL] A Yandere Followed Me into the Wormhole
 1889518|||남매 둘이 로판에서 살아남기|||Two Siblings Survive in a Romance-Fantasy Novel
 1889522|||이 나라를 없앨 예정인데요|||I Plan to Destroy This Country
+1889523|||의선명가 천재막내|||The Genius Youngest of the Medical Immortal Family
 1889524|||[하이큐/쿠농/도리벤/앙스타] 자급자족하는 캐릭터 드림 모음집|||[Haikyuu!!/Kuroko's Basketball/Tokyo Revengers/Ensemble Stars] Self-Sufficient Character Dreams Collection
 1889525|||신인인데 천만배우|||A Rookie, Yet a Ten-Million-Star Actor
 1889526|||[포겟몬/이누야샤BL] 당당한 꼬부기다.-(완)-|||[Pokémon/Inuyasha BL] I Am a Proud Squirtle. (Complete)
@@ -145232,6 +145331,8 @@
 1889576|||예고의 미술 천재가 되었다|||I Became a Art Prodigy at an Arts High School
 1889577|||이번 생은 부동산이다|||In This Life, I'm Real Estate
 1889578|||회귀한 천재 닥터의 미국 정복기|||The Regressed Genius Doctor Conquers America
+1889588|||돌아온 하녀는 복수를 원한다|||The Returned Maid Seeks Revenge
+1889589|||몰닉|||Morning Nick
 1889592|||린린|||Linlin
 1889594|||[코난] 피차일반|||[Conan] We're Both the Same
 1889595|||내 이야기|||My Story
@@ -145243,9 +145344,12 @@
 1889610|||병약하신 용사님|||The Frail Hero
 1889611|||[나루토] 생일 축하해|||[Naruto] Happy Birthday
 1889612|||손바닥에 새긴 맹약|||The Pact Carved in the Palm
+1889613|||성황가의 이단아가 되었다|||I Became the Heretic of the Seonghwang Family
 1889614|||폭군에게 사기계약당해 친구 된 사연|||How I Became Friends with a Tyrant After a Fraudulent Contract
 1889617|||저주 짝꿍을 찾습니다|||Looking for a Cursed Partner
 1889618|||호텔 윈터스: 우리의 밤을 아는 손님|||Hotel Winters: The Guest Who Knows Our Night
+1889620|||내가 광공인데 수가 없어|||I'm the Mad Dog Lord but I Have No Luck
+1889623|||3등은 누가 기억해 주나|||Who Remembers the Third Place?
 1889625|||방송천재 막내작가|||The Broadcast Genius Junior Writer
 1889626|||자본주의 스트라이커|||The Capitalist Striker
 1889627|||낙양진가 막내아들|||The Youngest Son of the Luoyang Jin Family
@@ -145268,6 +145372,8 @@
 1889645|||조연은 복상사 엔딩을 피하고 싶다.|||The Supporting Character Wants to Avoid a Death by Ecstasy Ending
 188965|||온이수에게외치다|||Calling Out to On Isu
 1889650|||SAS 출신 고고학자, 궁극의 돌도끼가 되었다!|||An SAS-Veteran Archaeologist Became the Ultimate Stone Axe!
+1889657|||새벽이 머문 자리|||Where Dawn Lingers
+1889658|||전하, 이제 그만 놓아주세요|||Your Highness, Please Let Me Go Now
 1889695|||[주술회전] 저주를 그리는 방법|||[Jujutsu Kaisen] How to Draw a Curse
 1889696|||피폐 비엘소설 조연에 빙의했는데 몸이 여자다!!!|||I Possessed a Supporting Character in a Torment BL Novel, but My Body Is Female!!!
 1889698|||별점 모으는 소환수|||The Star-Collecting Summon
@@ -145276,17 +145382,22 @@
 1889706|||배우가 글을 잘씀|||The Actor Writes Well
 1889707|||천벌받은 플레이어의 귀환|||Return of the Divinely Punished Player
 1889708|||천재 게이머의 네크로맨서|||The Genius Gamer's Necromancer
+1889709|||타이틀을 수집하는 배우|||The Actor Who Collects Titles
+1889710|||잘못 소환된 줄 알았던 초월급 용사|||The Transcendent Hero I Thought Was Summoned by Mistake
 1889711|||별빛이 사라진 은하수 아래서|||Beneath the Milky Way Where the Starlight Faded
 1889723|||헬 난이도에서 캠핑합니다|||Camping on Hell Difficulty
 1889724|||0살부터 미술천재|||A Born Art Genius from Age Zero
 1889725|||그날 밤 사정|||What Happened That Night
 1889727|||순정적 구혼|||A Pure-Hearted Proposal
 1889728|||레벨업 하는 약물 치료사|||The Leveling Pharmacist
+1889732|||회장님이 보우하사|||The Chairman Protects the Realm
 1889734|||맛이 이상하다|||It Tastes Strange
 1889735|||황제는 죽어야만 한다|||The Emperor Must Die
 1889738|||[괴담출근/전독시] 줍줍(가제)|||[Working the Horror Shift/Omniscient Reader] Pick-Up (Working Title)
+1889742|||돌아온 천재 타자가 서바이벌을 씹어 먹음|||The Returned Genius Batter Crushes the Survival Game
 1889744|||구독만 했는데 역대급 탑 헌터|||I Only Subscribed and Became the Greatest Tower Hunter
 1889745|||해고 후 999레벨 요리사로 각성했다|||After Being Fired, I Awakened as a Level 999 Chef
+1889748|||폭군의 품 안에서|||In the Arms of the Tyrant
 1889751|||전역했더니 저작권료가 쏟아짐|||I Got Out of the Military and Royalties Came Pouring In
 1889752|||대박나는 땅이 보여|||I Can See Land That's About to Make a Killing
 1889753|||중세 마법사가 돈을 잘 벎|||The Medieval Mage Makes Good Money
@@ -145294,6 +145405,7 @@
 1889755|||마왕님 연기하사|||The Demon King Acts Out
 1889756|||라스트 콘스탄틴|||Last Constantine
 1889759|||[히로아카×사이버 펑크: 엣지러너] 투 더 문|||[My Hero Academia × Cyberpunk: Edgerunners] To the Moon
+1889760|||비서 과외|||Secretary Tutoring
 1889762|||6666년만에 귀환한 언데드 플레이어|||The Undead Player Returns After 6666 Years
 1889763|||기억을 읽는 탐정사무소|||The Detective Agency That Reads Memories
 1889764|||전쟁포로 황녀가 공작의 약혼녀로 회귀했습니다|||The War-Captive Princess Regressed as the Duke's Fiancée
@@ -145323,6 +145435,7 @@
 1889826|||코인부자 청년가장의 힐링 라이프|||A Young Breadwinner's Healing Life as a Crypto Millionaire
 1889827|||폐급 헌터가 세계관 최강 스탯을 숨김|||A F-Rank Hunter Hides the Strongest Stats in the World
 1889828|||회귀한 줄 모르고 국가가 나를 버렸다|||The Nation Abandoned Me, Not Knowing I Had Regressed
+1889829|||망한 교단의 성기사|||The Holy Knight of a Ruined Sect
 1889830|||S급 타자가 낭만 대신 돈을 선택함|||The S-Rank Batter Chose Money Over Romance
 1889831|||감정 스킬로 고물을 보물로 바꿈|||Turning Junk into Treasure with an Appraisal Skill
 1889832|||내 탑만 클리어|||Only I Clear the Tower
@@ -145331,6 +145444,15 @@
 1889835|||장진호에서 중공군을 궤멸시켰다|||I Annihilated the Chinese Army at Chosin Reservoir
 1889836|||해고 후, 전생들이 나를 도움|||After Being Fired, My Past Lives Help Me
 1889837|||화산파 천재는 게이트에서 레벨업한다|||The Mount Hua Sect Genius Levels Up in the Gate
+1889838|||천재 총기제작자는 방산업이 너무 쉽다|||For the Genius Gunsmith, the Defense Industry Is Too Easy
+1889839|||SSSSS급 새틀라이트 빔을 각성하니 탑등반이 너무쉬움|||Awakening the SSSSS-Rank Satellite Beam Makes Tower Climbing Too Easy
+1889840|||극딜 탱커는 미궁 공략이 쉽다|||A Burst-Damage Tank Finds Labyrinth Clearing Easy
+1889841|||몰락한 이계 영지와 내 시너지가 엄청나다.|||The Fallen Otherworld Territory and My Synergy Are Immense.
+1889842|||방구석 탑 등반러는 헬 모드가 너무 쉽다|||The Armchair Tower Climber Finds Hell Mode Too Easy
+1889843|||쉬었음 삼촌이 너무 유능함|||The Unemployed Uncle Is Too Capable
+1889844|||천재 사학도가 국보급 유물을 잘 찾음|||The Genius History Student Finds National Treasures Easily
+1889845|||회귀한 EX급 삼촌이 다 해먹음|||The Regressed EX-Rank Uncle Takes Everything
+1889846|||흡수 능력으로 연기를 너무 잘함|||With an Absorption Power, Acting Comes Too Easily
 1889847|||살인마 갤러리 보는 회사원|||An Office Worker Who Browses the Murderer Gallery
 1889848|||재벌 매니저는 조용히 살고 싶다|||The Conglomerate's Manager Wants to Live Quietly
 1889849|||분신술사의 미궁 공략법|||A Clone Mage's Guide to the Labyrinth
@@ -145459,6 +145581,7 @@
 1890129|||[화산귀환] 어머니의 사랑은 아름답다|||[Return of the Blossoming Blade] A Mother's Love Is Beautiful
 1890130|||안드레아는 빙의자의 꿈을 꾸는가|||Does Andrea Dream of Possessors?
 1890135|||학생회장이 청소부랑 사귄다더라|||I Heard the Student Council President Is Dating a Janitor
+1890136|||헤센에는 붉은 장미가 핀다|||Red Roses Bloom in Hessen
 1890137|||[해리포터] 애플 페티그루|||[Harry Potter] Apple Pettigrew
 1890142|||내가 흑화시킨 제자에게 집착당하고 있다.|||The Disciple I Corrupted Is Obsessed with Me
 1890143|||[44교시 생존수업] beyond <휴재>|||[44th Period Survival Class] Beyond <On Hiatus>
@@ -145622,6 +145745,7 @@
 1890439|||[44교시 생존수업] 교칙 외 존재|||[44th-Period Survival Class] An Entity Outside the School Rules
 1890440|||내가 괴롭혔던 여자애도 회귀했다|||The Girl I Bullied Also Regressed
 1890443|||붉은 꽃을 찾아서|||In Search of the Red Flower
+1890444|||집에 보내줘![포켓몬]|||Send Me Home! [Pokémon]
 1890446|||찢어진 일기장|||The Torn Diary
 1890447|||서라벌 아뜰리에|||Seorabeol Atelier
 1890448|||신의안의 용두, 장민|||Dragon Head in the Divine Eye, Jang Min
@@ -145750,6 +145874,7 @@
 1890689|||사신국: 반혼불성|||Kingdom of Death: The Soul-Returning City
 1890690|||이건 진심이 아니야|||I Don't Mean It
 1890691|||[괴담출근] 망각의 선율|||[Working the Night Shift in a Horror Game] Melody of Oblivion
+1890694|||저주받은 영웅이 죽고 싶을 때|||When the Cursed Hero Wants to Die
 1890695|||너의 궤적에 대하여|||About Your Path
 1890698|||신을 위한 변명|||An Excuse for God
 1890707|||[괴담출근x우호정] 그럼에도 불구하고|||[Working the Night Shift in a Horror Game x Woo Hojeong] Nevertheless
@@ -145901,6 +146026,7 @@
 1890977|||영겁의 1분: 정지된 잔상|||One Minute of Eternity: A Frozen Afterimage
 1890978|||내 딸의 딸이 되었습니다|||I Became My Daughter's Daughter
 1890982|||[사이키/도리벤] 쿠보야스 아렌의 연애 재난|||[Saiki K./Tokyo Revengers] Kuboyasu Aren's Romantic Disaster
+1890983|||[화산귀환] 천하제일|||[Return of the Mount Hua Sect] Number One Under Heaven
 1890991|||이혼했는데 자꾸 마주칩니다|||We're Divorced, So Why Do We Keep Running Into Each Other?
 1890998|||옆집 남자의 습격|||The Neighbor's Assault
 1891|||비(悲)애(愛)|||Sorrowful Love
@@ -146040,6 +146166,7 @@
 1891247|||어쩌다 살아남음|||Somehow, I Survived
 1891248|||[FATE/ZERO]당신과 나의 시간은.|||[Fate/Zero] The Time Between You and Me.
 1891250|||어쩌다보니 2인조!|||Somehow, We're a Duo!
+1891253|||욕망과 숭배에 관한 고찰|||A Study on Desire and Worship
 1891255|||[데못죽] 나의 뮤즈|||[Debut or Die] My Muse
 1891256|||수능 전날 빙의 해버렸습니다|||I Possessed Someone the Day Before the College Entrance Exam
 1891258|||퇴사를 원합니다. 이 개새야|||I Want to Quit. You Bastard.
@@ -146102,6 +146229,7 @@
 1891390|||가이딩에 나이는 상관없잖아요!|||Age Doesn't Matter When It Comes to Guiding!
 1891392|||하늘길, 바람길 나의 길.(표지AI)|||Sky Roads, Wind Roads, My Road (AI Cover)
 1891393|||적국의 스파이와 위험한 공조를 시작했다|||I Began a Dangerous Partnership with an Enemy Spy
+1891395|||소원을 말해봐|||Tell Me Your Wish
 1891396|||남주들은 미연시를 즐긴다.|||The Male Leads Enjoy Dating Sims.
 1891398|||다시, 담프하임으로 가는 기차|||The Train to Dampheim, Once More
 1891399|||[주술회전][BL][게토 스구루X고죠 사토루] 《너는 나만큼》|||[Jujutsu Kaisen][BL][Geto Suguru x Gojo Satoru] 《As Much as You》
@@ -146208,6 +146336,7 @@
 1891581|||그 황제의 노예 스승|||The Emperor's Slave Tutor
 1891582|||다시는 서포터 랭킹 1위를 무시하지 마라|||Never Underestimate the Top-Ranked Supporter Again
 1891583|||《한반도 좀비: 절망의 섬, 마지막 인간》|||《Korean Peninsula Zombies: Island of Despair, Last Human》
+1891585|||망춘록(望春錄) (15세 개정판)|||Record of Looking at Spring (15+ Revised Edition)
 1891586|||사랑하는 너를 위해 할 수 있는 것 (15세 개정판)|||What I Can Do for You, My Love (15+ Revised Edition)
 1891589|||[블랙클로버]멈춘 시간의 앤티카|||[Black Clover] Antica in Stopped Time
 1891591|||플레이어 시스템의 비밀|||The Secret of the Player System
@@ -146529,6 +146658,7 @@
 1892387|||도망친 오메가|||The Omega Who Ran Away
 1892391|||[괴담출근/카캡사] 귀여운 마법소녀님!|||[Working the Night Shift/Cardcaptor Sakura] Dear Cute Magical Girl!
 1892394|||메신저|||Messenger
+1892395|||독안귀의가 주운 늑대 새끼|||The Wolf Pup the One-Eyed Ghost Doctor Picked Up
 1892396|||전투력 0의 천재가 이계를 털어먹는 법|||How a Combat-Power-Zero Genius Plunders Another World
 1892397|||[은혼] 그 아이|||[Gintama] That Child
 1892399|||세상이 망했는데 안 죽는다.|||The World Ended, but I Won't Die.
@@ -146595,6 +146725,7 @@
 1892505|||당신이 내게 남긴 계절|||The Season You Left Me
 1892506|||삼국지 : 관우를 구했더니 천마가 되었다|||Three Kingdoms: I Saved Guan Yu and Became the Heavenly Demon
 1892510|||검은 머리 미국 대재벌(개정판)|||The Black-Haired American Chaebol (Revised Edition)
+1892512|||사랑의시차 1|||Time Difference of Love 1
 1892513|||망한용병회사에 회귀한 F급용병|||An F-Rank Mercenary Regresses to a Failing Mercenary Company
 1892515|||소꿉친구 셋과 한방에서 삽니다|||I Live in One Room with Three Childhood Friends
 1892516|||미미아델|||Mimiadel
@@ -146639,6 +146770,7 @@
 1892615|||[해리포터] 시리우스 블랙 딸인데 모두가 나한테 집착한다|||[Harry Potter] I'm Sirius Black's Daughter, and Everyone's Obsessed with Me
 1892616|||하이틴 영화 속 너드로 살아남기|||Surviving as a Nerd in a Teen Movie
 1892617|||소심해서 죄송합니다, 제 파티가 좀 셉니다|||Sorry I'm Shy—My Party's Just a Little Overpowered
+1892618|||온 앤 언더 (On and Under)|||On and Under
 1892620|||이번 생에도 악당 가문의 막내가 되겠습니다|||I'll Be the Youngest in a Villainous Family Again
 1892621|||가장 보통의 애정|||The Most Ordinary Affection
 1892623|||음유시인 디트리히|||Dietrich the Bard
@@ -146781,6 +146913,7 @@
 1892912|||[가히리X히로아카] 황혼의 히어로|||[Katekyo Hitman Reborn! × My Hero Academia] Hero of Twilight
 1892913|||[인소의 법칙] 영원한 달|||[The Law of Webnovels] Eternal Moon
 1892914|||화산귀환[또 화귀하다?!]|||Return of the Mount Hua Sect [Again?!]
+1892916|||굿보이가 되어야만 삽니다|||I Can Only Survive If I Become a Good Boy
 1892919|||버려진 영웅의 무덤을 훔쳤다|||I Stole the Abandoned Hero's Grave
 1892920|||안겨요, 사제님!|||Come Here, Priest!
 1892925|||[원피스/괴담출근] 해양탐사기록|||[One Piece/Working the Night Shift] Ocean Exploration Log
@@ -146980,6 +147113,7 @@
 1893264|||[데못죽] 재능이 없는 사람은 아이돌의 꿈을 꾸는가?|||[Debut or Die] Do the Talentless Dream of Becoming Idols?
 1893265|||병이 낫는다면 그녀에게|||If My Illness Is Cured, I'll Go to Her
 1893266|||나의 베스퍼 씨|||My Dear Vesper
+1893268|||세상을 구하라길래 남주의 형부터 구했습니다|||You Said to Save the World, So I Saved the Male Lead's Brother First
 1893270|||시공간을 역습한 인간물약을 사야 함|||I Have to Buy a Human Potion That Attacked Space-Time
 1893271|||[외모지상주의] 나약한 낭만주의자|||[Lookism] A Fragile Romantic
 1893272|||[해리포터/BL] 스펠바운드 (Spell-bounD)|||[Harry Potter/BL] Spell-bounD
@@ -147125,6 +147259,7 @@
 1893645|||거울 너머의 연인|||Lovers Beyond the Mirror
 1893646|||드림 킹덤(꿈의 왕국)|||Dream Kingdom
 1893647|||봄꽃을 피운 달|||The Moon That Brought Spring Blossoms
+1893648|||[후세대/ 판타지]Daydream's story (데이드림탄생전)|||[Next Generation/Fantasy] Daydream's Story (Birth of Daydream)
 1893649|||[전문수정] 괴담 무림의 검선이 내 로그아웃을 반대한다|||[Professional Revision] The Sword Immortal of the Ghost Story Martial World Opposes My Logout
 1893650|||별에서 온 외계인들은 물지 않아요!|||Aliens from the Stars Don't Bite!
 1893651|||잔흔|||Afterimage
@@ -147132,6 +147267,7 @@
 1893653|||우리 그룹엔 정상인이 없습니다|||There's Not a Single Normal Person in Our Group
 1893655|||불치병이라 악당만 구하고 퇴장하려고 했는데|||I Have an Incurable Disease, So I Planned to Save Only the Villains and Bow Out
 1893659|||내 가이드는 이세계인|||My Guide Is from Another World
+1893660|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||My Divorced Wife and Resigned Company Went Under, and I Chased the American Dream
 1893662|||마왕님, 그렇게 쳐다보시면|||Demon Lord, If You Look at Me Like That
 1893664|||티카타카|||Tiki-Taka
 1893669|||병약미인의 공략법|||How to Win Over a Frail Beauty
@@ -147291,6 +147427,7 @@
 1894116|||사회화 훈련|||Socialization Training
 1894118|||탱킹이 문제가 아니라|||It's Not About Tanking
 1894119|||마스터 듀오의 중매사무소|||The Matchmaking Office of Master Duo
+1894120|||[해리포터]마트리카리아|||[Harry Potter] Matricaria
 1894121|||나는 고담시에 사는 고독한 배트맨의 망토가 되었습니다.|||I Became the Cape of the Lonely Batman Living in Gotham City.
 1894123|||성군의 자격|||Qualifications of a Sage King
 1894127|||도깨비의 아이|||Child of the Goblin
@@ -147349,6 +147486,7 @@
 1894244|||여백의지도|||Map of Blank Space
 1894246|||게이트 공략도 대행이 필요합니다|||Gate Clearing Also Needs a Proxy
 1894247|||환생,빙의,트립 (ver환생)|||Reincarnation, Possession, Trip (Reincarnation Ver.)
+1894253|||첫사랑이 이생망|||My First Love Is a Lost Cause in This Life
 1894261|||드래곤의 보물|||The Dragon's Treasure
 1894262|||Defect : 완전한 불완전|||Defect: Perfect Imperfection
 1894264|||[해리포터] 41갈레온 8시클 28크넛|||[Harry Potter] 41 Galleons, 8 Sickles, 28 Knuts
@@ -147397,6 +147535,7 @@
 189437|||검은심장|||Black Heart
 1894380|||좋아하는 일과 잘하는 일|||What You Love and What You're Good At
 1894381|||비정상적 온도|||Abnormal Temperature
+1894390|||[붕괴3rd] 사모님은 전 발키리|||[Honkai Impact 3rd] The Madam Is a Former Valkyrie
 1894397|||[해리포터] 마루더즈의 왕자|||[Harry Potter] Prince of the Marauders
 1894398|||나밖에 모르는 똥강아지|||A Little Puppy Who Only Knows Me
 1894399|||커플 유튜버? 하수! 앵무새 유튜버? 굿잡! ②|||Couple YouTubers? Amateur! Parrot YouTubers? Good Job! ②
@@ -147413,6 +147552,7 @@
 1894549|||[블루록] 요즘은 배신하기도 힘들다.|||[Blue Lock] Even Betrayal Is Hard These Days.
 1894566|||이끼 정령|||Moss Spirit
 189460|||알바생들|||The Part-Timers
+1894602|||[주술회전] 지장보살 아래서|||[Jujutsu Kaisen] Under Jizo Bodhisattva
 1894612|||그섬에는 봄이 늦게 왔다|||Spring Came Late to That Island
 1894687|||[하렘] Harlequin glorybower|||[Harem] Harlequin Glorybower
 1894688|||[마블/mcu] I'm your father|||[Marvel/MCU] I'm Your Father
@@ -147461,6 +147601,7 @@
 1894776|||《주접은 다 떨어놓고 도망칠 수 있을 줄 알았나》|||《Did You Think You Could Run After Spilling All That Fawning?》
 1894778|||뉴비지만 저스펙은 싫어요|||I'm a Newbie, But I Don't Want Low Specs
 1894779|||벼리, 내린다.|||Byeori, Descending.
+1894785|||크툴루의 두 번째 촉수가 되었다|||I Became Cthulhu's Second Tentacle
 1894786|||[히로아카] 코카투와 크리킨디|||[My Hero Academia] Cockatoo and Kricket
 1894788|||다시 만난 너에게, 1996 (개정)|||To You Who I Met Again, 1996 (Revised)
 1894793|||베타라며!|||You Said You're a Beta!
@@ -147518,8 +147659,10 @@
 1894921|||악취 나는 세상에서 유일하게 향기로운 하녀|||The Only Fragrant Maid in a Stinking World
 1894922|||[흑집사]시엘이 여자였다면? 아니 근데 그게 왜 난데…!|||[Black Butler] What If Ciel Were a Girl? Wait, Why Is It Me...!
 1894925|||퇴사 사유: 대표님|||Reason for Resignation: The CEO
+1894927|||그에겐 두 명의 아내가 있다|||He Has Two Wives
 1894931|||여자가 되었더니 여사친들이 선을 넘는다|||After Becoming a Woman, My Female Friends Cross the Line
 1894934|||블라디보스토크의 파한, 미아|||Pahan and Mia of Vladivostok
+1894935|||인외뱀 생태보고서|||Ecological Report on Non-Human Snakes
 1894939|||악마를 관리하는 회사원|||The Office Worker Who Manages Demons
 1894940|||[원피스] 불꽃의 도화|||[One Piece] Peach Blossom of Flame
 1894943|||《누나, 나 제대했어!》|||《Noona, I've Been Discharged!》
@@ -147558,7 +147701,11 @@
 1895019|||[원피스] 미치광이|||[One Piece] Lunatic
 1895023|||콜럼버스 프라이트|||Columbus Fright
 1895024|||정라진 마법소녀 장명진|||Jeong Ra-jin, Magical Girl Jang Myeong-jin
+1895029|||푸른 비단끈|||The Blue Silk Cord
 1895032|||스마일 심부름센타|||Smile Errand Center
+1895034|||무인도인데 우리 집이 풀옵션임|||It's an Uninhabited Island, But My House Is Fully Furnished
+1895037|||미국 노동자는 천재 프로듀서|||The American Worker Is a Genius Producer
+1895045|||무한한 마법을 만드는 융합의 천재 마탑주|||The Fusion Genius Tower Master Who Creates Infinite Magic
 1895047|||누구나 한번은 첫사랑을 한다|||Everyone Has a First Love Once
 1895050|||AI한테 무공비급을 전수받았다|||I Received Martial Arts Manuals From an AI
 1895055|||정적의 밀도|||The Density of Silence
@@ -147591,6 +147738,7 @@
 1895110|||괴이인데 S급 헌터로 착각 당함|||I'm a Monster, But I Was Mistaken for an S-Rank Hunter
 1895111|||불행이란 무엇인가(19)|||What Is Misfortune? (19)
 1895114|||놓아주지 못해 미안해|||Sorry I Couldn't Let You Go
+1895115|||병약한 마법사도 살아남을 수 있나요|||Can a Sickly Mage Survive Too?
 1895117|||나만 사랑하는 병|||The Illness of Loving Only Me
 1895118|||최애의 전남친이 내게 집착한다|||My Favorite's Ex-Boyfriend Is Obsessed With Me
 1895121|||조금 느린 마음|||A Slightly Slower Heart
@@ -147616,6 +147764,7 @@
 1895166|||몰락한 영애의 집사는 고물이 아니다|||The Fallen Lady's Butler Is Not a Junk
 1895167|||우리들의 작은 이야기|||Our Little Story
 1895168|||내일을 말하는 너에게 오늘의 내가|||To You Who Speaks of Tomorrow, Today's Me
+1895172|||프레야 영애를 조심하세요|||Beware of Lady Freya
 1895177|||[해리포터] 왕의 오른손 2부ー톰 리들과 세 마법학교 그리고 별빛무도회|||[Harry Potter] The King's Right Hand Part 2 - Tom Riddle, the Three Schools, and the Starlight Ball
 1895178|||무당장문|||Shaman Sect Leader
 1895181|||백작 영애는 덕질이 하고 싶다|||The Countess Wants to Be a Fan
@@ -147631,6 +147780,7 @@
 1895206|||두둠칫한 여행길|||A Bouncy Journey
 1895208|||[문스독]변수는 한국에서 왔다|||[Bungo Stray Dogs] The Variable Came From Korea
 1895209|||사랑에는 키가 없습니다 ❤️|||Love Has No Height ❤️
+1895213|||계정주인 바뀌었다구요.|||They Say the Account Owner Has Changed.
 1895214|||귀족 영애로 전생하긴 했는데 너무 척박한 개척도시입니다?|||I Reincarnated as a Noble Lady, but This Frontier City Is Too Harsh?
 1895218|||연애할 때는 슈퍼갑인데요?|||I'm a Super Dominant Partner When Dating, Though?
 1895220|||[스파이더맨/해리피터] 그물에 얽히는 시간|||[Spider-Man/Harry Potter] Time Tangled in the Web
@@ -147737,6 +147887,7 @@
 1895422|||기억의 끝에 너를 만나러 갈게|||I'll Go Meet You at the End of Memory
 1895423|||망가진 배우를 구원하는 방법|||How to Save a Broken Actor
 1895424|||[건담 철혈의 오펀스] 복수의 레퀴엠|||[Gundam Iron-Blooded Orphans] Requiem of Vengeance
+1895426|||[해리포터] 모리안 싱클레어의 포뮬러|||[Harry Potter] Morian Sinclair's Formula
 1895427|||호랑이 절벽|||Tiger Cliff
 1895428|||룸메이트 알파가 계략공입니다|||My Roommate Alpha Is a Schemer
 1895432|||망자처리팀 김서현입니다|||I'm Kim Seo-hyeon of the Death Processing Team
@@ -147756,6 +147907,7 @@
 1895453|||[앙스타] 온화의 폭풍|||[Ensemble Stars] Storm of Gentleness
 1895454|||우아한 영애들의 갱스터 생활|||The Gangster Life of Elegant Ladies
 1895455|||그림자에 물들지 않는 법|||How Not to Be Stained by Shadows
+1895459|||빨리말했어야지!![44교시 생존수업]|||You Should Have Said So Sooner!! [44th Period Survival Class]
 1895460|||[먼작귀/괴담출근] 먼가 크고 힘없는 녀석들|||[Mamorukun/Ghost Story Commute] Big and Powerless Guys, Somehow
 1895462|||지옥 탐험기|||Hell Exploration Diary
 1895463|||[주술회전] 우리 집에 왜 왔니|||[Jujutsu Kaisen] Why Did You Come to My House?
@@ -147782,6 +147934,7 @@
 1895500|||카피 능력으로 기술을 극대화 시킴|||Maximizing Skills With Copy Ability
 1895501|||[주술회전] 미오짱 간바레!|||[Jujutsu Kaisen] Mio-chan, Ganbare!
 1895504|||[Fate] 카르나(ts)가 되어버렸다|||[Fate] I Became Karna (TS)
+1895505|||아이돌이 아니라 영매사라고![앙스타×귀곡의 문]|||I'm Not an Idol, I'm a Medium! [Ensemble Stars x Gate of Spirits]
 1895507|||새끼손가락의 실|||The Thread on the Pinky
 1895508|||신조|||Shinjo
 1895510|||[하이큐] 이름없는 계절에게|||[Haikyu!!] To a Nameless Season
@@ -147794,6 +147947,7 @@
 1895525|||진짜 완벽한 아이돌|||The Truly Perfect Idol
 1895526|||빡쳐도 전남친과 자야합니다.|||Even If I'm Furious, I Have to Sleep With My Ex
 1895527|||[히로아카 / 나히아] 유에이 생존반|||[My Hero Academia / Nahia] U.A. Survival Class
+1895528|||어느날 집착광공 욕실에 마탑주가 떨어짐?!|||One Day, a Tower Master Falls Into the Obsessive Mad Dog Lord's Bathroom?!
 1895529|||꽃뱀 생존기|||Survival Record of a Gold Digger
 1895548|||나무는 밤에도 소리를 낸다|||Trees Make Sounds at Night Too
 1895557|||옆집 여자가 사라졌다|||The Woman Next Door Disappeared
@@ -147812,6 +147966,7 @@
 1895582|||[대장금]평생이라 믿었던 한때|||[Jewel in the Palace] The Time I Believed Was Forever
 1895585|||[하이큐] 어느 날 세상이 바뀌었다|||[Haikyu!!] One Day, the World Changed
 1895586|||나에게만 냉정한 선배|||The Senior Who's Cold Only to Me
+1895588|||청담동 느와르|||Cheongdam-dong Noir
 189559|||조각사|||The Sculptor
 1895590|||이러한 사기결혼|||Such a Sham Marriage
 1895592|||마스크 2023|||Mask 2023
@@ -147823,6 +147978,7 @@
 1895606|||사랑하고 사랑했던 나의 계절에게|||To the Season of Love I Loved
 1895610|||야구의신은 축구천재 스트라이커|||The God of Baseball Is a Soccer Genius Striker
 1895611|||사자와 사귀고 싶습니다.|||I Want to Date a Lion.
+1895612|||잠깐만요, 연애할 시간이 없어요|||Wait, I Don't Have Time for Romance
 1895614|||세계 멸망급 세입자들이 월세를 안 낸다|||World-Ending Tenants Won't Pay Rent
 1895617|||[히로아카] 꿈 꾸는 조카님|||[My Hero Academia] The Dreaming Nephew
 1895618|||죽지않으려고뽑는다|||Drawing to Avoid Dying
@@ -147849,12 +148005,16 @@
 1895671|||[Fate/Fate zero] 로드 엘멜로이 2세의 2세|||[Fate/Fate Zero] The Second Son of Lord El-Melloi II
 1895672|||괴담을 봉인해 드립니다|||I'll Seal Ghost Stories for You
 1895673|||스텔라 블레이드 X BRS|||Stellar Blade x BRS
+1895674|||늦은 발걸음이지만 그저 행복하게 걸어간다면|||If I Walk Slowly but Happily
 1895675|||적국의 황태자비가 되었다.|||I Became the Enemy Kingdom's Crown Princess Consort.
 1895684|||내 남편은 외계인|||My Husband Is an Alien
+1895685|||시체발에게 사랑을 말해 주세요.|||Please Tell the Corpse Sherlock About Love.
 1895690|||신랑의 불륜을 생중계합니다|||Live-Streaming My Husband's Affair
 1895691|||나의 태양에게|||To My Sun
 1895692|||그날이오면|||When That Day Comes
+1895694|||언더커버 큐피드 (구:나를사랑하게만드는~)|||Undercover Cupid (formerly: Making You Fall in Love With Me)
 1895695|||나는 드레이코 말포이다|||I Am Draco Malfoy
+1895697|||[낮에 뜨는 달] 나는 여기에 고여있는데|||[Moon Rising by Day] I'm Stuck Here
 1895698|||[해리포터] 그 위대한 마법을 위하여!|||[Harry Potter] For That Great Magic!
 18957|||양의 시^-^*|||Poem of Sheep ^-^*
 1895700|||피학의 꽃|||Flower of Masochism
@@ -147862,6 +148022,7 @@
 1895703|||[킬빌/해리포터] He deserves, what?|||[Kill Bill/Harry Potter] He Deserves, What?
 1895704|||기억상실 파트너|||Amnesiac Partner
 1895706|||운명연구소|||Fate Research Institute
+1895707|||공작님, 혁명은 제 취향이 아닙니다만|||Duke, Revolution Isn't My Taste, However
 1895709|||유리벽 위의 침묵|||Silence on the Glass Wall
 1895712|||[데못죽] 멸망 당하지 않게 조심해|||[Dead Mans Death] Be Careful Not to Get Destroyed
 1895713|||[나루토] 사과할 용기|||[Naruto] The Courage to Apologize
@@ -147873,6 +148034,7 @@
 1895729|||딸을 되찾고 싶었을 뿐인데|||I Just Wanted to Get My Daughter Back
 1895730|||살아남으면 월급을 받습니다|||Survive and Get Paid
 1895731|||부처가 되다 : 현대 불교 퇴마기|||Becoming a Buddha: A Modern Buddhist Exorcism Record
+1895732|||그들의 청춘은 어디까지 일까|||How Far Does Their Youth Go?
 1895734|||당신이 망하기까지 30일|||30 Days Until You're Ruined
 1895735|||我命由我不由天|||My Fate Is Mine, Not Heaven's
 1895739|||Begin? 나의 청년 이야기:제 2의 고향으로....|||Begin? My Youth Story: To My Second Hometown...
@@ -147902,6 +148064,9 @@
 1895800|||남이 포기한 퀘스트를 줍는다|||Picking Up Quests Others Gave Up On
 1895802|||비아부화|||Biabuhwa
 1895804|||내가 완결 낸 추리소설에 빙의했다|||I Possessed the Mystery Novel I Completed
+1895806|||과거의 애인에게서 문자가 왔다|||I Got a Text From My Ex
+1895807|||조선 후기 한량 종친이 되었다.|||I Became a Idle Royal Relative in Late Joseon
+1895813|||[해리포터] 목적지보다 더 중요한 건|||[Harry Potter] What Matters More Than the Destination
 1895815|||[로보토미/라오루] 탐하는 자|||[Lobotomy/Laoru] The One Who Desires
 1895817|||그대가 잊더라도|||Even If You Forget
 1895818|||사건명 : 미제 (사라진 자의 기록)|||Case Name: Unsolved (Record of the Vanished)
@@ -147938,7 +148103,9 @@
 1895890|||[히로아카] 빌런을 위한 히어로는 없다|||[My Hero Academia] There Is No Hero for Villains
 1895891|||회귀했더니 세계관이 바뀌었습니다.|||After Regressing, the Worldview Changed.
 1895892|||[블리치] 바다에 내리는 눈|||[Bleach] Snow Falling on the Sea
+1895894|||우아한 유혹|||Elegant Temptation
 1895895|||무비게임|||Movie Game
+1895896|||[주술회전/코난]주술회전이 맞는 거지? 맞다고 해주세요.|||[Jujutsu Kaisen/Conan] This Is Jujutsu Kaisen, Right? Please Say Yes.
 1895899|||[나루토/귀칼] 시간은 언제 멈출까...|||[Naruto/Demon Slayer] When Will Time Stop...?
 1895900|||[신의탑] 일단 하고 나서 생각하자|||[Tower of God] Let's Do It First and Think Later
 1895901|||꼬리잡기|||Tag
@@ -147966,23 +148133,410 @@
 1895947|||전역 2일차, 농장알바 중 마법 주움|||Day Two After Discharge, Picked Up Magic While Working a Farm Job
 1895948|||신탁 좀 그만 내려주세요.|||Please Stop Sending Down Prophecies.
 1895949|||나를 놓지 못하는 형이 둘이다|||Two Older Brothers Who Can't Let Me Go
+1895950|||[오란] 비호감이 되고 싶었는데|||[Ouran] I Wanted to Be Disliked
+1895954|||호구의 인생역전|||The Sucker's Life Reversal
+1895955|||[GL] 남성향 미연시 주인공의 오작교 여동생이 되었다|||[GL] I Became the Matchmaking Sister of a Male-Oriented Dating Sim Protagonist
+1895957|||[해리포터] 후플푸프 소녀|||[Harry Potter] Hufflepuff Girl
+1895959|||[주술회전×하이큐] 효고로 떠나는 주령잡이 생활|||[Jujutsu Kaisen x Haikyuu] Cursed Spirit Hunting Life in Hyogo
+1895960|||[강철의 연금술사] 동쪽으로|||[Fullmetal Alchemist] Heading East
+1895961|||주워온 개가 날 먹으려고 한다|||The Dog I Picked Up Wants to Eat Me
+1895965|||[원피스/헌터] 맘마미아|||[One Piece/Hunter] Mamma Mia
+1895969|||[ 림버스] 소나기 내리는|||[ Limbus ] Under the Pouring Rain
+1895970|||빙의했더니 최애가 혐오하는 스폰서가 되어버렸다|||I Possessed a Body and Became the Sponsor My Favorite Hates
+1895971|||헌터들 살려 줬더니 변태로 찍혔다|||I Saved the Hunters and Was Labeled a Pervert
+1895974|||신입 요원을 위한 초자연현상 분석 지침|||Supernatural Phenomena Analysis Guide for New Agents
+1895975|||[트위스테] Miracle of Wonderland|||[Twisted Wonderland] Miracle of Wonderland
+1895977|||[뷰티풀 군바리] Nice Guy Syndrome|||[Beautiful Soldier] Nice Guy Syndrome
+1895978|||경력직 용사는 재소환을 거부합니다|||The Experienced Hero Refuses Re-Summoning
+1895979|||성기사인데 마왕이 됨|||I'm a Holy Knight Who Became the Demon King
+1895980|||신세계기행|||Travelogue of a New World
+1895981|||주님, 이 남자는 아닙니다|||Lord, This Man Is Not the One
+1895982|||《폐업 직전 호텔의 막내 지배인이되다》|||I Became the Youngest Manager of a Hotel on the Brink of Closure
+1895983|||검은 별의 기사|||Knight of the Black Star
+1895984|||박살내는 성녀님(ai 아님)|||The Saintess Who Crushes Everything (Not AI)
+1895985|||우리는 밴드|||We Are a Band
+1895987|||페이크 리치 : 캐나다 영끌 이민|||Fake Lich: Canadian Immigration on Borrowed Money
+1895988|||건곤지록 : 태자전하, 소인은 이만 도망가겠습니다|||Record of Heaven and Earth: Your Highness, This Humble One Will Run Away Now
+1895993|||[해리포터/후세대]Daydream's story(본편)|||[Harry Potter/Next Generation] Daydream's Story (Main Story)
+1895997|||너클 앤 크로키|||Knuckle and Croquis
+1895999|||아카데미에서 남주가 김치를 볶는다|||At the Academy, the Male Lead Stir-Fries Kimchi
 1896|||영|||Zero
+1896001|||[해리포터] 블랙 가의 유령|||[Harry Potter] The Ghost of House Black
+1896002|||PD 수난 시대|||The Era of PD Suffering
+1896007|||[약한영웅] 질투하는 연시은|||[Weak Hero] Jealous Yeon Si-eun
+1896008|||[진격의 거인]리사 로웰|||[Attack on Titan] Lisa Lowell
+1896010|||페로몬 취급주의|||Pheromone Handle With Care
+1896012|||내가 아는 우주|||The Universe I Know
+1896013|||상무님이 나랑만 잔다|||The Managing Director Only Sleeps With Me
+1896015|||여장했더니 미래가 보인다|||After Cross-Dressing, I Can See the Future
+1896016|||[불수호/작두] 그 환생자에게는 수호신이 있다.|||[Buddha Protector/Jakdu] That Reincarnated Person Has a Guardian God.
+1896017|||원피스 세계관에 떨어졌는데 아무도 나를 반가워하지 않는다|||I Fell Into the One Piece World, and No One Is Glad to See Me
 189602|||판타지|||Fantasy
+1896021|||소꿉친구 (너의 방은 아직 어지럽다)|||Childhood Friend (Your Room Is Still a Mess)
+1896027|||마약 딜러는 괴담 공무원이 되고 싶어|||The Drug Dealer Wants to Become a Ghost Story Civil Servant
+1896028|||퍽이나 좋아하시겠어요|||I'm Sure You'll Love It
+1896040|||열일곱, 첫사랑|||Seventeen, First Love
+1896043|||dd|||dd
+1896049|||[화산귀환]최애를 후원하겠습니다!|||[Return of the Mount Hua Sect] I'll Support My Favorite!
+1896052|||게임에 접속하셨습니다.|||You Have Logged Into the Game.
 189606|||마나의 지배자(Mana Lord)|||Mana Lord
+1896060|||[쿠로바스] 꽃은 말하지 못한다|||[Kurobas] Flowers Cannot Speak
+1896061|||[유유백서] 못다핀 꽃이 피기 위하여|||[Yu Yu Hakusho] So the Unbloomed Flower Can Bloom
+1896064|||단천우 전기|||Biography of Dan Cheonwoo
+1896066|||[젤다의전설] 푸른 눈의 용사는 복제인간의 꿈을 꾸는가|||[Legend of Zelda] Does the Blue-Eyed Hero Dream of Replicant Humans?
+1896067|||대마법사 바이올라와 이름 없는 그림자들|||The Great Mage Viola and the Nameless Shadows
+1896068|||[닥터스톤] MORTEM|||[Dr. Stone] MORTEM
+1896071|||운명의 끈|||The Thread of Fate
+1896072|||[데못죽] 레티 15년차면 음기미소년과 범죄자를 구분할 수 있다|||[Dead Dead Demon's Dededecode] After 15 Years, Letty Can Tell Yin-Energy Boys From Criminals
+1896076|||노란 집의 편지|||Letter from the Yellow House
+1896080|||차분한 계절 끝에서 그대와|||With You at the End of a Calm Season
+1896081|||여보, 들킨 건 불륜뿐이잖아|||Honey, Only the Affair Got Caught, Right?
+1896082|||The Name They Erased 《그들이 지워버린 이름》|||The Name They Erased
+1896088|||S급으로 각성했는데 알파다|||I Awakened as S-Rank, but I'm an Alpha
+1896089|||[우사비치] 위험한 토끼, 어벙한 토끼, 소심한 토끼|||[Usavich] Dangerous Rabbit, Dim Rabbit, Timid Rabbit
+1896090|||[하이큐!!] 업계 청산은 무리인가요|||[Haikyuu!!] Is Clearing Out the Industry Too Much to Ask?
 1896092|||쓸모없는 오메가|||Useless Omega
+1896094|||다시,그날의 하늘 아래|||Again, Under That Day's Sky
+1896097|||[해리포터] 제발 나 좀 봐다오|||[Harry Potter] Please Just Look at Me
+1896098|||성녀, 사실 우리는 이미 한번 죽었습니다.|||Saintess, Actually We Already Died Once.
+1896099|||The never blooming flowers|||The Never Blooming Flowers
+1896101|||요걸|||This One
+1896102|||제국마법부 민원2실의 하루|||A Day at the Imperial Magic Ministry's Complaints Office 2
+1896106|||《친구가 사라진 자리에는》|||Where My Friend Disappeared
+1896109|||[코난X주술회전] 포와로 알바생의 이중생활|||[Conan x Jujutsu Kaisen] Poirot Part-Timer's Double Life
+1896111|||무엇이든 수리해드립니다|||We Fix Anything
+1896112|||여명|||Dawn
+1896113|||[리메이크] 기억 책방의 문을 열면|||[Remake] Opening the Door of the Memory Bookstore
+1896116|||회귀한 축구 천재는 전생에 군대스리가 반칙왕이었다.|||The Regressed Soccer Genius Was a Foul King in a Previous Life
+1896118|||따까리의 법칙|||The Law of the Lackey
+1896124|||[해리포터] 왕의 오른손 4부 - 톰 리들과 왕이 없는 왕국의 삼인조|||[Harry Potter] King's Right Hand Part 4: Tom Riddle and the Trio of the Kingless Kingdom
+1896127|||[Gl/로맨스] 완벽한 그녀가 모르는 것|||[GL/Romance] What the Perfect Her Doesn't Know
+1896128|||《우리가 모르는 사이》|||Without Us Knowing
+1896130|||쓰레기 인성이라 벌받은 줄 알았는데 내가 재앙급이래|||I Thought I Was Punished for My Trash Character, But Apparently I'm Disaster-Class
+1896133|||잔혹한 황녀는 감정을 배우는 중 입니다 : (가제) 나의 루시안|||The Cruel Princess Is Learning Emotions: (Working Title) My Lucian
+1896134|||폐급남편후보들만남았습니다.|||Only Useless Husband Candidates Remain.
+1896139|||헤어졌어도 미드는 살려야지|||Even After Breaking Up, We Must Save the Midseason
+1896141|||분명 최애가 됐는데, 왜 리더한테 더 설레지?|||I Was Sure They'd Be My Favorite, So Why Do I Feel More Excited for the Leader?
+1896143|||멸종대상|||Endangered Target
+1896146|||대답하지 않아도 됩니다.|||You Don't Have to Answer.
+1896153|||평범한 영애의 쓸모|||The Usefulness of an Ordinary Lady
+1896154|||마교주의 아들이 정파에서 살아남는 법|||How the Demon Cult Leader's Son Survives in the Righteous Sect
+1896156|||부러진 칼날은 엎드리지 않는다|||A Broken Blade Does Not Kneel
+1896161|||스폰서의 주인|||Master of the Sponsor
+1896162|||야옹이 드라이버|||Meow Driver
+1896165|||끝내 전하지 못한 말|||Words Never Delivered
+1896170|||오빠를 죽인 놈을 찾을 때까지, 나는 황태자다|||Until I Find the Man Who Killed My Brother, I Am the Crown Prince
+1896172|||시크릿 보이스|||Secret Voice
+1896174|||[도쿄 리벤저스/도리벤/은혼] 육식토끼|||[Tokyo Revengers/Gintama] Carnivorous Rabbit
+1896176|||저승 변호사 시보는 미친놈|||The Underworld Lawyer Trainee Is a Lunatic
+1896177|||신이시여, 저를 구원해주세요|||Oh God, Please Save Me
+1896178|||쟤만 (아니면) 돼요|||Only That One (Or Else) Will Do
+1896181|||황자는 맛있어|||The Prince Is Delicious
+1896182|||대한민국을 정상화했더니 국민들이 집착함|||After I Normalized South Korea, the Citizens Became Obsessed
+1896183|||새벽 네 시 십 분|||4:10 AM
+1896184|||남장 검안관의 정체를 대군만 모른 척한다|||Only the Grand Prince Pretends Not to Know the Cross-Dressing Coroner's Identity
+1896185|||그만 좀 오세요 [닌타마]|||Please Stop Coming [Ninja Tama]
+1896187|||떼인 돈 받아 드립니다|||We Collect Unpaid Debts
+1896189|||쫓겨난 공녀가 차린 상단에 친정이 손을 벌리러 왔다|||My Birth Family Came Begging to the Trading House Founded by the Exiled Princess
+1896190|||등선했더니 헬창이 됐다.|||After Ascending, I Became a Gym Freak.
+1896192|||[괴담출근] 원길의 죄송|||[Ghost Story Commute] Won-gil's Apology
+1896193|||[괴담출근] 괴담에서 과학을 추구하면 안되는 걸까?|||[Ghost Story Commute] Is It Wrong to Pursue Science in Ghost Stories?
+1896195|||탈피, 인류의 실패작으로 태어났다.|||Molting: Born as Humanity's Failed Work
+1896197|||[BL]  편의점 알바생과 오토바이 배달원|||[BL] Convenience Store Part-Timer and Motorcycle Courier
+1896198|||ON 다혜, OFF 다혜|||Da-hye ON, Da-hye OFF
+1896200|||동갑 주의보|||Same-Age Warning
+1896202|||괴물의 아이들|||Children of the Monster
+1896204|||[헌터X헌터] 키르아와 고양이|||[Hunter x Hunter] Kirua and the Cat
+1896206|||[해리포터] 무당의 양놈체험기|||[Harry Potter] A Shaman's Western Experience Log
+1896207|||[해리포터] Down by the Elm Gardens|||[Harry Potter] Down by the Elm Gardens
+1896209|||[원펀맨] 고스트? 고스트!|||[One Punch Man] Ghost? Ghost!
+1896210|||커피우유맛 애증|||Coffee Milk Flavored Love-Hate
+1896211|||극광이 머무는 곳으로|||To Where the Aurora Lingers
+1896212|||7년 짝사랑을 폐업했더니 길 건너 약사가 단골이 됐다|||After Closing My Seven-Year Crush, the Pharmacist Across the Street Became My Regular
+1896218|||짝사랑은 끝났고 집착은 시작 됐다.|||The One-Sided Love Ended, and Obsession Began.
+1896219|||시한부 가이드는 감금이 싫어요|||The Terminal Guide Doesn't Want to Be Confined
+1896220|||SUN KISS 선키스|||Sun Kiss
+1896222|||버릇|||Habit
+1896223|||괴담은 모르겠고 비서가 수상하다|||I Don't Know About Ghost Stories, But the Secretary Is Suspicious
+1896227|||알파여친과 오메가남친|||Alpha Girlfriend and Omega Boyfriend
+1896228|||최애를 고용했습니다|||I Hired My Favorite
 189623|||흑마도사 령|||The Black Mage Ryeong
+1896230|||[도리벤/오란고교] 무도에도 꽃은 핀다|||[Tokyo Revengers/Ouran High] Flowers Bloom Even in Martial Arts
+1896231|||말괄량이 길들이기: 전국시대 한복판에서 사랑을 외치다!|||The Taming of the Shrew: Shouting of Love in the Middle of the Sengoku Era!
+1896232|||남주의 이웃 나라 공주인데 흑막과 약혼함|||As the Princess of the Male Lead's Neighboring Country, I'm Engaged to the Mastermind
+1896233|||백업|||Backup
+1896234|||[괴담출근] 오래된 식사|||[Ghost Story Commute] An Old Meal
+1896242|||세자빈 간택에서 떨어지려고 회귀했더니 세자가 장독대로 찾아왔다|||I Regressed to Fail the Crown Princess Selection, but the Crown Prince Came to Find Me at the Jar Terrace
+1896244|||[원피스] 롱로스트 피터 팬|||[One Piece] Long-Lost Peter Pan
+1896247|||마지막 야근은 이세계에서|||My Last Overtime Shift Was in Another World
+1896253|||오늘 밤, 나는 다른 사람이 된다|||Tonight, I Become Someone Else
+1896255|||외계 병기를 얻었다|||I Obtained an Alien Weapon
+1896257|||이 이야기는 해피엔딩입니다|||This Story Has a Happy Ending
+1896258|||{블루록/BL} NG!! 스포츠물이잖아..??!|||{Blue Lock/BL} NG!! Isn't This a Sports Story..??!
+1896260|||10년 전 사랑이 바꾼 내 인생|||The Love From Ten Years Ago That Changed My Life
+1896261|||[괴담출근/이영싫] 공무원 D씨는 집에 가고 싶다|||[Ghost Story Commute/Lee Young-sil] Civil Servant Mr. D Wants to Go Home
+1896262|||이혼 서류는 만료일에 받겠습니다|||I'll Receive the Divorce Papers on the Expiration Date
+1896267|||마교에서 나만 무공을 훔친다|||In the Demon Cult, Only I Steal Martial Arts
+1896271|||[포켓몬] 이 곳은 게임이 아니다|||[Pokémon] This Place Is Not a Game
+1896274|||귀환한 SS랭크 왕녀의 문명개혁 프로젝트|||The Returned SS-Rank Princess's Civilization Reform Project
+1896277|||게임은 못하는데 NPC들이 날 숭배함|||I'm Bad at Games, but the NPCs Worship Me
+1896278|||너를 위하여|||For You
+1896282|||죽음에 이르는 병(무연버젼)|||The Sickness Unto Death (Non-Romance Version)
+1896284|||20대의 온도|||The Temperature of My Twenties
+1896285|||19금 가이드버스 만화에 햄스터로 빙의했습니다|||I Possessed a Hamster in an 18+ Guide Bus Comic
+1896289|||스스로 피어 만개하리라|||I Will Bloom on My Own
 189629|||김웅기 단편집1|||Kim Woong-gi Short Stories 1
+1896290|||[원피스/좋피위피] 그만 드세요|||[One Piece/Good Fish Wi-Pi] Please Stop Eating
+1896291|||[귀멸의 칼날/bl] 저는 무잔의 친구이자 푸른 피안화입니다.|||[Demon Slayer/BL] I'm Muzan's Friend and the Blue Spider Lily
+1896293|||악녀평정:가짜 성녀를 폭로하는 법|||Villainess Pacification: How to Expose the Fake Saintess
+1896297|||[데못죽x상냥돌] null|||[Dead Dead Demon's Dededecode x Gentle Stone] null
+1896299|||[강연금/바이올렛 에버가든] 아메스트리스에 어서오세요 바이올렛 씨|||[Fullmetal Alchemist/Violet Evergarden] Welcome to Ametris, Miss Violet
 18963|||술법사(術法士)|||Spellcaster
+1896303|||[프리렌] 프리렌의 강호여행기|||[Frieren] Frieren's Journey Through the Martial World
+1896305|||둥지는 언제나 소란스럽다|||The Nest Is Always Noisy
+1896306|||오픈 코트|||Open Coat
+1896307|||[먼작귀/치이카와]이누|||[Chiikawa] Inu
+1896310|||19금 BL 옴니버스|||18+ BL Omnibus
+1896312|||[하이스쿨dxd]조연 레이나레가 되었다.|||[High School DxD] I Became Reynare, the Supporting Character
+1896313|||일렉트로닉 타입 (Electronic type)|||Electronic Type
+1896314|||너를 구원할 시간|||Time to Save You
+1896316|||뜻대로 하세요|||As You Like It
+1896320|||기묘한 편의점 이야기|||Strange Convenience Store Story
+1896323|||유치원 버스 조수석에 소령님이 탑승했습니다|||The Major Boarded the Kindergarten Bus Passenger Seat
+1896326|||사랑의시차2|||Time Difference of Love 2
+1896328|||[데못죽] 넘버원 악플러!|||[Dead Dead Demon's Dededecode] Number One Troll!
+1896329|||[해리포터] 그들도 마법을 꿈꾸니까|||[Harry Potter] Because They Also Dream of Magic
+1896330|||악역은 행복하게 살았습니다!|||The Villain Lived Happily!
+1896332|||도베르만 수인 아저씨와 OL씨 (오피스 레이디)|||The Doberman Beastman Uncle and the OL (Office Lady)
+1896333|||마지막 황녀가 기술혁명을 일으킴|||The Last Princess Sparks a Technological Revolution
+1896335|||가짜 연인을 위한 상처 19금 무료 에디션2|||Wounds for a Fake Lover, 19+ Free Edition 2
+1896338|||[해리포터/BL] Turning Time|||[Harry Potter/BL] Turning Time
+1896340|||[릭앤모티] 무한 원숭이 정리와 볼츠만 두뇌|||[Rick and Morty] Infinite Monkey Theorem and Boltzmann Brain
+1896342|||남편 몰래 연애|||Secret Romance Behind My Husband's Back
+1896343|||낙원의 유실|||Lost Paradise
+1896345|||회귀한 소가주는 계약 아내를 들였다|||The Regressed Heir Took a Contract Wife
+1896346|||[주술회전] - 원숭이 합격|||[Jujutsu Kaisen] - Monkey Passed
+1896349|||[인소의 법칙] 빈 유리잔|||[Law of Insoo] Empty Glass
+1896350|||[외모지상주의] 최애살려|||[Lookism] Save My Favorite
+1896351|||[해리포터] Miss Greengrass|||[Harry Potter] Miss Greengrass
+1896354|||I am the ultimate glitch|||I am the ultimate glitch
+1896355|||제작 능력으로 이세계에서 살아남기|||Surviving Another World With Crafting Skills
+1896356|||악귀|||Evil Spirit
+1896357|||본부장님의 야간 결재|||The Division Chief's Night Approval
+1896358|||마운드를 방문합니다|||Visiting the Mound
 189636|||W.O.O|||W.O.O
+1896360|||[도리벤] 키쿠의 난|||[Tokyo Revengers] Kiku's Rebellion
+1896361|||EX급 성기사는 F급 힐러로 착각 당했다|||The EX-Rank Holy Knight Was Mistaken for an F-Rank Healer
+1896362|||불경한 마음을 깨달았을 땐|||When I Realized My Impious Heart
+1896363|||『하얀 늑대들, 그 후 이야기 — 검을 내려놓은 날들』|||『White Wolves: Tales After — Days of Laying Down the Sword』
 1896364|||[셜록 홈즈] 조앤 왓슨|||[Sherlock Holmes] Joan Watson
+1896365|||교서관 활자공 막내가 되었더니 임금이 내 활자로 병서를 찍으라 한다|||I Became the Youngest Type Caster at the Royal Library, and the King Orders Military Texts Printed With My Type
+1896367|||파혼당한 영애가 등대지기가 되었더니 제독이 밤마다 불을 확인하러 온다|||The Jilted Lady Became a Lighthouse Keeper, and the Admiral Comes Nightly to Check the Light
+1896368|||《서방님은 오늘도 담을 넘는다》|||My Husband Climbs Over the Wall Again Today
+1896369|||AI 비정상회담|||AI Abnormal Summit
+1896370|||[먼작귀×마비노기] 우호형 케라우노스|||[Chiikawa x Mabinogi] Friendly Type Keraunos
+1896371|||폐업을 앞둔 서점을 물려받았더니 단골이 매일 같은 책을 사 간다|||After Inheriting a Bookstore About to Close, a Regular Buys the Same Book Every Day
+1896372|||[닌타마] 꿈꾸는 천녀님|||[Ninja Tama] The Dreaming Celestial Maiden
+1896373|||대통령 임도현|||President Im Do-hyun
+1896374|||열한 번째 보모가 되었더니 말 없는 대군의 딸이 나에게만 속삭인다|||As the Eleventh Governess, the Silent Grand Prince's Daughter Whispers Only to Me
+1896377|||미친 딜러의 전속 음유시인입니다|||I'm the Exclusive Bard of a Crazy Dealer
+1896378|||[해즈빈호텔/헬루바] 사랑이라 해도 되나요?|||[Hazbin Hotel/Helluva Boss] Can I Call It Love?
+1896379|||내일이 사라지는 역|||The Station Where Tomorrow Disappears
 189638|||미의 여신|||Goddess of Beauty
+1896380|||장화 신은 사기꾼|||The Con Artist in Boots
+1896383|||사또의 첫사랑은 형수님|||The Magistrate's First Love Is His Sister-in-Law
+1896385|||시스템에 오류가 발생했습니다|||A System Error Has Occurred
+1896386|||SSS급 조련사|||SSS-Rank Tamer
+1896387|||[FATE/ZERO]그 별 앞에서.|||[Fate/Zero] Before That Star.
+1896388|||하얀 달, 황금 들판|||White Moon, Golden Field
+1896394|||오빠가 사라진 동물병원의 야간 진료 수칙|||Night Care Rules at the Animal Hospital Where My Brother Vanished
+1896395|||맞는 거 좋아하시는 줄 알았죠!|||I Thought You Liked Being Hit!
+1896397|||아픔아, 사라져라!|||Pain, Go Away!
+1896398|||[주술회전] 기억을 걷는 시간|||[Jujutsu Kaisen] Time Walking Through Memories
+1896399|||아르카디아 가든|||Arcadia Garden
 189640|||한편의 꿈같은 이야기|||A Dreamlike Story
+1896403|||눈에서 멀어지면 마음에서도|||Out of Sight, Out of Mind
+1896405|||드래곤과 천년의 카라|||The Dragon and the Thousand-Year Kara
+1896407|||소재창고/한번만 잡숴보세요|||Ingredient Storage / Just Try One Bite
+1896409|||[주술회전/도리벤] 긴 머리가 좋다니까?|||[Jujutsu Kaisen/Tokyo Revengers] I Told You Long Hair Is Good, Right?
+1896411|||[정글에서 살아남기] 오빠 찾아 삼만리|||[Surviving the Jungle] A Long Journey to Find My Brother
+1896418|||[고스트바둑왕] 첫사랑|||[Hikaru no Go] First Love
+1896423|||[원피스/주술회전/bl] 바다에 떨어졌는데|||[One Piece/Jujutsu Kaisen/BL] I Fell Into the Sea
+1896424|||[히로아카] 소녀는 미완성된 존재다|||[My Hero Academia] The Girl Is an Unfinished Being
+1896426|||어느 날 그대 품으로 안드로이드가 들어왔다.|||One Day, an Android Entered Your Arms.
+1896428|||[괴담출근] 견우와 직녀|||[Ghost Story Commute] Cowherd and Weaver Girl
+1896432|||꼴값의 대가|||The Price of Acting Smug
+1896434|||접근금지|||No Approach
+1896439|||[소재창고] 상자 속을 보자|||[Ingredient Storage] Let's Look Inside the Box
+1896440|||나의 치명적 안정제, 버그픽스|||My Fatal Tranquilizer, Bugfix
+1896441|||경계선|||Boundary Line
+1896442|||[괴담출근/BL] 괴담 속에서 서방님 찾기|||[Ghost Story Commute/BL] Finding My Husband in a Ghost Story
+1896444|||전남친의 스캔들 상대가 되어 드립니다|||I'll Be the Scandal Partner of My Ex-Boyfriend
+1896446|||[춘향전] 현대 AU|||[Chunhyang] Modern AU
+1896451|||상처 입은 깃털로 너에게 날아오를 때|||When I Fly to You With Wounded Feathers
+1896452|||[지하군] 이번 생은 너의 곁에서|||[Underground Army] In This Life, By Your Side
+1896456|||너를 지우다|||Erasing You
+1896457|||[명탐정 코난] 테세우스의 배|||[Detective Conan] Ship of Theseus
+1896460|||[괴담출근] 지식인 답변 부탁드립니다|||[Ghost Story Commute] Please Answer as an Intellectual
+1896463|||친구의 전남편과의 로맨스|||Romance With My Friend's Ex-Husband
+1896464|||[SCP] 전 절대 사이비가 아닙니다|||[SCP] I Am Absolutely Not a Cultist
+1896465|||[은혼] 지금부터 얘랑 우주 정복하러 감|||[Gintama] Now I'm Going to Conquer the Universe With Him
+1896470|||S급헌터에게 감금된 안락한 일상|||A Comfortable Life Confined by an S-Rank Hunter
+1896474|||무능력자의 모험가친구들은 오늘도 장난을 친다!|||The Incompetent One's Adventurer Friends Still Pull Pranks Today!
+1896504|||성스럽고 고결한 그대에게|||To You, Holy and Noble
+1896509|||애증과 신념을 담아 그대에게 고백합니다|||I Confess to You With Love, Hate, and Conviction
+1896512|||지옥 콜센터에 입사했습니다|||I Joined a Hell Call Center
+1896514|||최악의 하루였던 그 날|||That Worst Day
 189652|||자기 사랑은 자기가 지켜!|||Protect Your Own Love!
+1896520|||사일런트|||Silent
+1896523|||대삼림의 끝에서|||At the End of the Great Forest
+1896526|||[프좀] 무한 스폰으로 켄터키 정복|||[Project Sekai] Conquering Kentucky With Infinite Sponsorship
+1896529|||[화산귀환]무협에서 낭만을 추구하면 안되는 걸까|||[Return of the Mount Hua Sect] Is It Wrong to Pursue Romance in Martial Arts?
+1896530|||지옥의 피사체들.|||Subjects of Hell.
+1896535|||청춘남남|||Youthful Men
+1896536|||Hurt|||Hurt
+1896539|||[명탐정 코난/BL] 당신의 내일을 맡아두었다|||[Detective Conan/BL] I Kept Your Tomorrow
+1896541|||[명탐정 코난] 마음 가는 대로|||[Detective Conan] Following My Heart
+1896542|||일곱 번 죽은 황태자비|||The Crown Princess Who Died Seven Times
+1896546|||회귀한 국무총리는 대한민국을 바꾼다|||The Regressed Prime Minister Changes South Korea
+1896549|||제1급 비밀요원은 여장 중|||The First-Class Secret Agent Is Cross-Dressing
+1896550|||시골|||Countryside
+1896552|||저기요, 전 용사가 아닌데요.|||Excuse me, I'm Not the Hero.
+1896556|||귀환 경로를 찾을 수 없습니다|||Cannot Find the Return Route
+1896557|||서로에게 길들여진|||Tamed by Each Other
+1896559|||사랑했던 당신에게 복수를|||Revenge on the One I Loved
+1896569|||완벽한 나의 예외|||My Perfect Exception
+1896570|||누가 황태자비를 연프로 뽑아요!|||Who Picked the Crown Princess for a Dating Show!
+1896573|||The Last Order|||The Last Order
+1896574|||우리 사이의 가격|||The Price Between Us
+1896576|||하늘을 묶은 깃|||The Feather That Bound the Sky
+1896577|||[작두×전독시] 대감님들, 여기 멸망한 세계래요.|||[Jakdu x Ultimate Shorter] Gentlemen, This Is a Ruined World.
+1896579|||가장 사랑스러운 거짓말|||The Most Lovely Lie
 189658|||이행하는자...|||The One Who Carries On...
+1896580|||유능한 집사의 가주 아가씨|||The Capable Butler's Young Lady of the Household
+1896581|||EX급 지휘관의 전투능력 발동|||EX-Rank Commander's Combat Ability Activated
+1896582|||구원|||Salvation
+1896587|||부자놀이터 3|||Rich Playground 3
+1896588|||[주술회전] 바람이 불어오는 곳|||[Jujutsu Kaisen] Where the Wind Blows
+1896589|||[마블]폐급의 트립일지|||[Marvel] Trip Log of a Useless Man
+1896590|||서른 번의 아침|||Thirty Mornings
+1896593|||나의 퀘스트는 이세계 트럭을 찾아 사고 나기|||My Quest Is to Find an Otherworld Truck and Get Hit
+1896594|||내 눈에는 좀비가 뽀삐로 보여|||To My Eyes, the Zombies Look Like Poppy
+1896596|||Be Happy? 엘지트윈스:our the spin off stories|||Be Happy? LG Twins: Our Spin-Off Stories
+1896597|||[괴담출근x나츠메의 우인장]요괴도 괴담으로 쳐주나요?|||[Ghost Story Commute x Natsume's Book of Friends] Do Youkai Count as Ghost Stories?
 189660|||교주! 학교가다|||Cult Leader Goes to School!
+1896601|||[다중]공겜 마네킹은 그저 가만히 있고 싶은데 세상이 그렇게 놔두질 않음|||[Multiverse] The Mannequin in a Public Game Just Wants to Stay Still, but the World Won't Let Him
+1896602|||안락생 프로젝트|||Painless Life Project
+1896603|||[림버스/전오수] 크렉과 황금가지의 연관성에 대한 보고서.pdf|||[Limbus/Jeon Osu] Report on the Connection Between Crake and the Golden Bough.pdf
+1896604|||[해리포터/bl] safe and sound|||[Harry Potter/BL] Safe and Sound
+1896607|||[주술회전]유이괜-유지의 행복, 이대로 괜찮은가-|||[Jujutsu Kaisen] Yuiqwan: Yuji's Happiness, Is This Really Okay?
+1896610|||[귀멸의 칼날/BL] 환생자의 고난|||[Demon Slayer/BL] The Reincarnate's Hardships
+1896611|||베이징 스캔들|||Beijing Scandal
+1896612|||'찐' 가족은 아닙니다만|||We're Not Really Family, But
+1896617|||[나히아/히로아카]무제|||[Nahia/My Hero Academia] Untitled
+1896618|||게이트 붙은 건물을 샀더니 보스가 월세를 낸다|||After Buying a Building With a Gate, the Boss Pays Rent
+1896619|||아카시아 꽃이 활짝 폈네|||The Acacia Flowers Have Fully Bloomed
+1896620|||[괴담출근] 아이|||[Ghost Story Commute] Child
+1896622|||[황천의 츠가이] 호접지몽|||[Tsugai of the Yellow Springs] Butterfly Dream
+1896625|||라그나로크|||Ragnarok
+1896626|||[괴담출근] 무념무상에 어서오세요|||[Ghost Story Commute] Welcome to Nirvana
+1896627|||공격력 1인데 공속에 다 박았습니다|||I Have Attack Power of 1, So I Put Everything Into Attack Speed
+1896630|||레디 컷 리테이크 (Ready, Cut, Retake)|||Ready, Cut, Retake
+1896633|||[메이플] 제른 다르모어의 딸|||[MapleStory] Daughter of Zern Darmore
+1896636|||퇴사한 회계사가 동대표가 되었더니 관리소장이 김치에 보관증을 끊어 준다|||After a Retired Accountant Became Building Representative, the Manager Issues Storage Receipts for Kimchi
+1896638|||내가 버린 오메가|||The Omega I Abandoned
+1896641|||나루터 사공이 되었더니 첫 배 손님이 다리 놓을 자리를 나에게 묻는다|||As a Ferryman, My First Passenger Asks Me Where to Build a Bridge
+1896646|||비무장지대의 최여민|||Choi Yeo-min of the DMZ
+1896647|||지워진 영애가 문장원 도안사가 되었더니 원장이 위조 인장만 올려 둔다|||The Erased Lady Became a Crest Designer, and the Director Only Hands Me Forged Seals
+1896649|||이상한 룸메이트|||The Strange Roommate
+1896650|||[메이플] 신왕이 ○○을 허락하지 않아|||[MapleStory] The New King Won't Allow ○○
+1896651|||[해리포터/BL] 호수 밑바닥의 남자친구|||[Harry Potter/BL] Boyfriend at the Bottom of the Lake
+1896655|||염색방이 망하기 전 해로 돌아왔더니 복색 감찰관이 내 쪽빛만 들춰 본다|||Returning to the Year Before My Dye Shop Failed, the Costume Inspector Keeps Checking My Indigo
+1896656|||마음이 쉬어가는 작은 카페 하또지|||Hattoji, a Small Café Where Hearts Rest
+1896657|||한 떨기 꽃|||A Single Flower
+1896658|||한강뷰에 사는 여자는 다르다|||Women Living With a Han River View Are Different
+1896659|||환생했으니 잘생긴 남친 주세요!!|||I Reincarnated, So Give Me a Handsome Boyfriend!!
+1896660|||매춘부의 딸이 되었습니다.|||I Became the Daughter of a Prostitute.
+1896665|||[나를 죽인 자들에게 두 번째 무대를...]|||[A Second Stage for Those Who Killed Me...]
+1896666|||천국은 배급되지 않는다|||Heaven Is Not Rationed
+1896668|||태양 아래서 너를|||You Under the Sun
 189667|||죽이는 게임|||The Killing Game
+1896670|||예외의 온도|||The Temperature of Exception
+1896672|||[문호 스트레이 독스/문스독] 추리의 미학|||[Bungo Stray Dogs] The Aesthetics of Deduction
+1896679|||바라오니 이 찬연한 세계를 지켜주세요.|||I Pray You Protect This Radiant World.
+1896680|||저한테 관심 많으시네|||You're Quite Interested in Me, Aren't You
+1896682|||당신이 버린딸이 진짜였다|||The Daughter You Abandoned Was the Real One
+1896686|||(GL/백합)천장에서 도깨비가 떨어졌다|||(GL/Yuri) A Goblin Fell From the Ceiling
+1896688|||마차 수리점을 열었더니 황태자가 매일 고장을 핑계로 온다|||After Opening a Carriage Repair Shop, the Crown Prince Comes Daily Using Breakdowns as an Excuse
+1896690|||회귀한 말장이 딸이 환곡 말을 다시 깎았더니 검정관이 눈금을 재러 온다|||The Regressed Horse Keeper's Daughter Reshaped the Grain Loan Measures, and the Inspector Comes to Check the Marks
+1896691|||전설의 헌터|||The Legendary Hunter
+1896692|||[원신] 신을 구한 내가 전생으로 살게 됐다|||[Genshin Impact] I Saved a God and Now Live a Past Life
+1896693|||발버둥|||Struggle
+1896694|||서강천호묘채의 여왕, 왕웨이|||Wang Wei, Queen of the Xijiang Thousand Household Miao Village
+1896697|||눈떠보니 조선시대라니!!|||I Woke Up and It's the Joseon Era!!
 18967|||怪괴  譚담  集집|||Collection of Strange Tales
+1896700|||프로게이머 복귀시키려다가 프로게이머 됨|||I Tried to Bring a Pro Gamer Back and Became One Myself
+1896702|||다정한 악의를 담아|||With a Gentle Malice
+1896705|||내가 떨어진 별세계에서 살아남기 위한 미덕|||Virtues for Surviving the Other World I Fell Into
+1896706|||순애 요로시쿠|||Pure Love Yoroshiku
+1896707|||[작두] 푸른 달|||[Jakdu] Blue Moon
+1896708|||All the While|||All the While
+1896709|||제국의 사형수가 되었다.|||I Became a Death Row Inmate of the Empire.
 189671|||사신기(死神記)|||Record of the Grim Reaper
+1896710|||[뷰티풀 군바리] 화이트 프리지아|||[Beautiful Soldier] White Freesia
+1896711|||GH ACADEMY|||GH Academy
+1896712|||[히로아카] 모든 걸 오직 너를 위해|||[My Hero Academia] Everything Only for You
+1896714|||[도쿄 리벤져스] 달빛이 내려앉은|||[Tokyo Revengers] Where Moonlight Settles
+1896717|||언박싱 알리바이|||Unboxing Alibi
+1896718|||철운객 : 사라진 이름|||Cheolunkaek: The Vanished Name
+1896719|||[신의탑/엔드필드] 왜 내가 밍순?|||[Tower of God/Endfield] Why Am I Mingshun?
+1896720|||[원피스] 이것도 인생이라고|||[One Piece] Calling This Life Too
+1896723|||나, 그리고 너|||Me, and You
+1896724|||홀씨를 불지 말아 주세요.|||Please Don't Blow the Dandelion Seeds.
+1896727|||히어로 씨에게!|||To Mr. Hero!
+1896728|||지구 종말 1일 전, 던전 메타를 독점했다|||One Day Before the End of the World, I Monopolized the Dungeon Meta
+1896729|||내 에스퍼가 나를 잊었다.|||My Esper Forgot Me.
+1896734|||[전오수]Ctrl + S|||[Jeon Osu] Ctrl + S
+1896735|||세인트 세이야 The Lost Canvas 명왕신화|||Saint Seiya The Lost Canvas: Myth of the Underworld King
+1896736|||네가 골을 넣으면, 나는 너를 본다|||When You Score, I Watch You
+1896737|||해진 손목을 맞잡고|||Holding Worn-Out Wrists
+1896738|||[ㅋㄴ/bl] 비어|||[KN/BL] Beer
+1896739|||호시탐탐 ; 구름을 밟고 선 호랑이|||Watching Eagerly; The Tiger Standing on Clouds
+1896741|||미제 괴이 사건 사무소|||Unsolved Strange Case Office
+1896756|||《물어 죽일 수 없는 것》|||The Thing That Cannot Be Bitten to Death
+1896772|||[해리포터] 이모와 꼬마 마법사|||[Harry Potter] Aunt and the Little Wizard
+1896774|||새 친구|||New Friend
+1896775|||[해리포터] 아리아드네의 낙원|||[Harry Potter] Ariadne's Paradise
+1896776|||구원은 검 끝에서 시작된다|||Salvation Begins at the Tip of the Sword
+1896780|||[남자 연예인]93명이 나를 미친듯이 좋아할지도?|||[Male Celebrity] Maybe 93 People Are Madly in Love With Me?
+1896781|||[퍼시잭슨×DC] 올빼미가 배트하우스에 들어갑니다|||[Percy Jackson x DC] The Owl Enters the Bat House
+1896782|||[코난] 장르는 로맨스 코미디|||[Conan] The Genre Is Romantic Comedy
+1896783|||[원피스] 삼선장과 할아버지들.|||[One Piece] The Three Elders and Grandpas.
+1896785|||눈 떠보니 악녀에게 멍줍당했습니다|||I Woke Up and Was Bullied by the Villainess
+1896787|||강과장 복권 당첨되다|||Section Chief Kang Wins the Lottery
+1896788|||이누야샤]달비해|||InuYasha] Moon Viewing Sea
+1896791|||공과 수를 길들여버렸다|||I Tamed the Alpha and the Omega
+1896797|||천재 형사가 반한 괴도가 나였다|||I Was the Phantom Thief the Genius Detective Fell For
+1896798|||월잠의 밤|||Night of Moonlit Sleep
+1896800|||[단편연재] 체크인, 교토|||[Short Serial] Check-In, Kyoto
+1896804|||[쿠키런:킹덤] 환생이란|||[Cookie Run: Kingdom] What Is Reincarnation
+1896805|||스파이 잡으러 데뷔했습니다|||I Debuted to Catch a Spy
+1896807|||빌런을 사랑하는 법|||How to Love a Villain
+1896814|||수인의 신부|||Bride of the Beastman
+1896815|||[닌타마] 보건위원은 오늘도 사람과 귀신을 헷갈린다|||[Ninja Tama] The Health Committee Member Still Confuses Humans and Ghosts Today
+1896816|||북부 대공이지만 공은 아닙니다|||I'm the Northern Grand Duke, But I'm Not a Duke
+1896818|||같은 아침을 맞을 수 있을까요?|||Can We Greet the Same Morning?
+1896819|||은월 : 담벼락에 숨어든 달|||Eunwol: The Moon Hiding Behind the Wall
+1896825|||이번에도, 여기|||Here Again, This Time
+1896827|||별이 새긴 이름|||A Name Carved by Stars
+1896828|||[원피스/은혼][bl]타카스기 신스케의 우울|||[One Piece/Gintama][BL] The Melancholy of Takasugi Shinsuke
+1896831|||[윈브레] 청춘우정물이 버겁다|||[Winbreak] Youth Friendship Stories Are Too Much
+1896833|||하필이면 거기에서|||Of All Places, There
+1896834|||강과장 복권 당첨되다|||Section Chief Kang Wins the Lottery
+1896838|||[괴담출근/BL] 영물도 사랑은 한다|||[Ghost Story Commute/BL] Even Spirits Can Love
+1896839|||집착광공 키워서 잡아먹기|||Raising an Obsessive Mad Dog Lord to Devour
+1896845|||지칠 대로 지쳐서 (이사했습니다)|||Completely Worn Out (I Moved)
+1896846|||제 스폰서는 몸을 원하지 않습니다|||My Sponsor Doesn't Want My Body
 189698|||[테니프리] 나쁜여자|||[Prince of Tennis] Bad Girl
 1897|||society or 미친세카이|||society or Crazy World
 18970|||◈ 소녀의 음험한 기도|||◈ The Girl's Sinister Prayer
@@ -237468,7 +238022,6 @@
 1005477|||.|||
 1005551|||.|||
 1007660|||36.5|||
-1007932|||[이나즈마] 상냥한 Everyday|||
 1008617|||--|||
 1009613|||2070|||
 1010625|||.|||
@@ -237572,7 +238125,6 @@
 1137231|||.|||
 1138686|||.|||
 1139671|||1|||
-1141039|||[백룸]백룸에서 빠져나갈 수가 없다|||
 1152777|||\\0|||
 1153017|||.|||
 1155115|||.|||
@@ -237654,7 +238206,6 @@
 1270147|||31|||
 1270817|||꿻E뛟G쀏|||
 1271045|||..,|||
-1273837|||[블리치 X 나이트런 X 다중]사신 기사|||
 1274140|||.|||
 1274959|||.|||
 1275860|||123|||
@@ -237717,7 +238268,6 @@
 1321828|||ㅁㄴㅇㄹㄹㅇㅁ|||
 1322082|||..|||
 1322103|||.|||
-1323306|||영웅이란 이름으로|||
 1328833|||.|||
 1329053|||.|||
 1332888|||.|||
@@ -237808,7 +238358,6 @@
 1389953|||.|||
 1391713|||.|||
 1394093|||.|||
-1395634|||[이누야샤] 화용월태(花容月態)|||
 1395975|||.|||
 1396183|||.|||
 1396676|||2000.01.18|||
@@ -237821,9 +238370,7 @@
 1405145|||.|||
 1406338|||123|||
 1406386|||-|||
-1406556|||기브 앤 테이크(출간)|||
 1407551|||-|||
-1408033|||[하이큐] 반했습니다(연중)|||
 1408418|||,|||
 1410088|||1|||
 1410438|||333|||
@@ -237914,7 +238461,6 @@
 1499232|||.|||
 1499806|||1835|||
 1500988|||999999999|||
-1501039|||관 속의 당신에게 메리골드를|||
 1501525|||.|||
 1503575|||###|||
 1505748|||.|||
@@ -237922,7 +238468,6 @@
 1509673|||.,,,..|||
 1511944|||.|||
 1514980|||123|||
-1515490|||[하이큐]  이나리자키 청춘 일지 <리메>|||
 1516175|||.|||
 1516978|||.|||
 1517413|||- · · · - · - · · · - - · - · · - - - -|||
@@ -237957,7 +238502,6 @@
 1534853|||.|||
 1537092|||.|||
 1537540|||-|||
-1537899|||[던만추/나이트런/다중]최종 re 던전에서 기사를 추구하면 안되는 걸까|||
 1538494|||.|||
 1539595|||...|||
 1540973|||26|||
@@ -238018,7 +238562,6 @@
 1590237|||.|||
 1590521|||.|||
 1590630|||237|||
-1591725|||나의 오메가는 졸부!|||
 1594399|||........................................|||
 1595291|||.|||
 1596225|||.|||
@@ -238043,7 +238586,6 @@
 1619951|||11|||
 1619954|||1|||
 1620652|||112123|||
-1620812|||교만한 너의 짝사랑|||
 1621012|||-|||
 1621640|||ㅇㄹㅇㄹㅇㄹ|||
 1622259|||161514|||
@@ -238066,10 +238608,8 @@
 1636526|||1003|||
 1636879|||[화산귀환] 하늘 天|||
 1637460|||.|||
-1637572|||우성 알파 스캔들|||
 1642734|||ㅅㄷㅂㄷㄱ|||
 1642916|||.|||
-1643826|||[해리포터] K-고딩의 호그와트 생존기|||
 1645680|||1267|||
 1645785|||*|||
 1645982|||.|||
@@ -238089,8 +238629,6 @@
 1659915|||.0|||
 1660129|||.|||
 1660256|||.|||
-1661084|||[히로아카] 외팔로 히어로는 될 수 있나요|||
-1661460|||[원피스] SIDE :|||
 1662433|||.|||
 1663753|||...|||
 1663936|||.|||
@@ -238102,15 +238640,11 @@
 1668774|||.|||
 1668926|||[체인소맨] 마마! (ママ!)|||
 1670142|||,|||
-1672313|||그라운드 보이 파이터(Ground Boy Fighter)(~31토 삭제)|||
 1675510|||--|||
-1676721|||[데못죽] Dear my name|||
 1677793|||24/7|||
 1678418|||今; now|||
 1680134|||.|||
-1680621|||[연예인] 아헤라디야|||
 1680888|||.|||
-1683174|||[데못죽] Square|||
 168447|||;;;|||
 16847|||3.31|||
 1685696|||...|||
@@ -238142,12 +238676,10 @@
 1697373|||.|||
 1697571|||.|||
 1697858|||.|||
-1699409|||[완결]도련님과 첫날밤 하드트레이닝(10/23출간)|||
 1699819|||.|||
 1700325|||ㅆ|||
 1700337|||14|||
 1700561|||0|||
-1700629|||[뷰티풀 군바리] 이시아의 군생활|||
 1700958|||1|||
 1701100|||.|||
 1701435|||,|||
@@ -238176,7 +238708,6 @@
 1715424|||.|||
 1715555|||.|||
 1716001|||ㅡ|||
-1716398|||[원피스x해리포터] 불사조의 안식년|||
 1717624|||-|||
 1718673|||.|||
 1719493|||.|||
@@ -238217,11 +238748,9 @@
 1751584|||.|||
 1752824|||-|||
 1752968|||0|||
-1753938|||나의 아저씨|||
 1754108|||.|||
 1754441|||.|||
 1756318|||.|||
-1756678|||[완]마왕이 용사인 날 TS 해버리고 책임지겠다고 한다|||
 1758112|||.|||
 1760045|||.|||
 1760181|||00|||
@@ -238240,15 +238769,12 @@
 1765755|||.|||
 1765870|||.|||
 1766181|||..|||
-1766206|||AI.|||
 1767244|||ㅡ|||
-1767802|||[ Free! / 프리! ] 히키코모리 탈출기|||
 1767826|||.|||
 1771183|||...|||
 1771295|||:)|||
 1772645|||ㅗ|||
 1772891|||.|||
-1773008|||에덴에게 낙원은 없다|||
 1774166|||1|||
 1775426|||..|||
 1775798|||.|||
@@ -238257,7 +238783,6 @@
 1778608|||1|||
 1778744|||.|||
 1778961|||..|||
-1780346|||진도가 너무 빠릅니다, 교수님. 좋은 지적이다, 슬리데린에 30점!|||
 1781174|||.|||
 1781680|||[  ]|||
 1783250|||-|||
@@ -238271,12 +238796,10 @@
 1788475|||ㅁㄴㅇㄹ|||
 1788643|||1988|||
 1789456|||?|||
-1789639|||[원피스] 장르 이상한데요|||
 1791113|||-|||
 1791342|||.|||
 1791948|||04|||
 1791970|||-|||
-1792049|||[사카데이] 애프터썬(完)|||
 1792732|||?|||
 1793040|||ㅡ|||
 1793340|||0|||
@@ -238294,31 +238817,23 @@
 1796389|||..|||
 1797385|||.|||
 1797434|||ㆍ|||
-1797634|||[해리포터] 내가 죽기 하루 전|||
 1797903|||-|||
 1798255|||.|||
 1798521|||.|||
-1799256|||[完] 랭킹 1위한테 공개구혼 받는 중인데요!|||
 1799425|||1|||
 1799679|||.|||
 1799812|||.|||
 1800894|||2|||
 1801213|||.|||
 1801430|||.|||
-1802123|||차원이동했더니 무급 노예가 되었다|||
 1802155|||.|||
 1802612|||.|||
 1803162|||.|||
 1803840|||.|||
 1805052|||-|||
-1805355|||[트위스테/twst] 쟈밀 바이퍼로 산다는 것은|||
-1806296|||사랑을 끝냈다고 생각했는데|||
-1807959|||[히로아카] 토가 히미코의 언니로 살아남기|||
-1813141|||빙의에서 벗어나고 싶었을 뿐인데|||
 1813773|||ㅣ|||
 1814923|||ㅤㅤㅤ|||
 1816034|||-|||
-1817180|||[完] 인코그니토|||
 1817997|||.|||
 1818013|||2040|||
 1818351|||..|||
@@ -238339,11 +238854,9 @@
 1824184|||25|||
 1824823|||ㆍ|||
 1825160|||.|||
-1825646|||[괴담출근] 세계관 창조자여도 출근을 해야 하는구나|||
 1826303|||.|||
 1826755|||1|||
 1826941|||.|||
-1828130|||라이드 홈[3/13일 출간]|||
 1829410|||.|||
 1829425|||.|||
 1829518|||1|||
@@ -238352,16 +238865,13 @@
 1830287|||.|||
 1830621|||---|||
 1831227|||.|||
-1831872|||[원피스×파판14] 모험가의 식도락|||
 1832201|||22|||
 1832631|||.|||
 1834784|||ㅀㄻㅎㅇㅎㄹㄹ|||
 18356|||사랑[愛]|||
 1835842|||[귀멸의 칼날] 목숨[寿]을 사랑[愛]으로|||
-1835891|||지칠 대로 지쳐서 (삭제예정)|||
 1836093|||.|||
 1836403|||1|||
-1836545|||병약한 가이드 탈출하기 프로젝트(完)~10/29|||
 1836743|||.|||
 1837347|||.|||
 1838035|||.|||
@@ -238377,12 +238887,9 @@
 1846557|||-|||
 1846636|||.|||
 1847253|||.|||
-1847292|||[주술회전] 우리는 모두 친구!|||
 1847593|||111|||
 1848260|||.|||
 1849821|||111|||
-1850082|||지하철 비둘기가 너무 강함|||
-1850095|||[프로세카/보컬로이드] 익?명게시판|||
 1850208|||0|||
 1850785|||1903|||
 1850860|||8888|||
@@ -238393,585 +238900,78 @@
 1854648|||.|||
 1855007|||.|||
 18561|||111|||
-1856310|||[10/30 23:59 完]제너럴 위크니스(General Weaknes)|||
 18564|||...|||
-1856484|||낭만상실기록|||
 1856546|||001|||
 18567|||213|||
 1857570|||,|||
 1858195|||ㅤ|||
 1858934|||.|||
-1858983|||[해리포터] 포터 교수님에게 포터 결혼식 주례 맡기기|||
-1859591|||[完] 널 체포하겠어! ~11/3|||
 1860968|||.|||
 1861345|||.|||
-1861861|||거래의 조건 Terms & Conditions 10/27출간|||
-1863090|||피치 쇼크 (Peach Shock) (完 ~25일 습작)|||
 1863163|||1973|||
 1863229|||[작두] 권용진 힐링 라이프(ヽ´ω`)|||
-1863297|||사적인 추앙과 구원(~11/1)|||
-1864832|||가짜 연인을 위한 상처 19금 무료 에디션1|||
-1865996|||完)꼬리치는 영주님/출간했습니다!|||
-1866147|||[완결]어쩐지 광공의 비서가 체질인 것 같다(~10.28)|||
-1866430|||[전독시/주술회전]  시나리오 속에서 주술사로 살아남는 3가지 방법|||
 1868336|||1890|||
 1868363|||ㅅㄷㄴㅅ|||
-1869431|||[화산귀환/메이플] 추락한 별에게 내일을 바친다|||
-1871596|||황자랑 사귀는 걸 나만 모름 (~11/3 회차 삭제)|||
-1871849|||황제는 개를 길들인다(공지 읽어주세요!)|||
-1872648|||[히로아카/포켓몬] Resonance 完|||
 1872938|||.|||
 1873044|||3+1|||
 1873180|||.|||
-1873636|||[원피스/포켓몬] 친구야 完|||
 1873833|||3:33|||
-1874472|||[Eve家/히로아카] 영구불변|||
 1874595|||.|||
 1874749|||.|||
-1875036|||그러니까, (~11월 24일)|||
-1875522|||「지옥군주의 중간계 유학기」|||
 1875625|||[완] 아시타비(我是他非) 10월 21일 출간|||
-1875882|||[完] 이레귤러 싱크 (irregular sync)  ~11/8|||
-1877130|||가이딩은 비과학적이라 싫다고 (~10/30 22:00)|||
-1877620|||[주술회전] 주령 퇴치 튜토리얼|||
-1877973|||[주술회전] 히메나는 주술사니까..|||
 1878126|||하늘 아래 떨어진 별[鼈]|||
-1878316|||(~10/29)[完]치팅 앤 블랙메일|||
 1878797|||.|||
-1879249|||쇠락하던 우리 나라가 이세계에서는 군사 최강국(명왕의 성조기 휘날리며)|||
 1879394|||逆(거스를역)|||
-1879594|||계약은 거짓말하지 않는다|||
-1879761|||[完] 테이크 케어 오브 ※~11/02 00시까지|||
-1880247|||거울아 거울아, 내 리즈 돌려줘|||
-1880277|||여우 후궁이 꼬리를 숨김|||
 1881530|||.|||
-1881735|||덕업일치가 좋은 것만은 아니다 (完) ~11.01|||
-1881863|||연애는임신부터(~11월 출간)|||
-1882300|||[FATE/ZERO]한없이 빛나는 그 별의 이름은|||
-1882633|||오버라이드(完)~10/31|||
 1882825|||-|||
-1882997|||재의 값 (11/1까지 공개)|||
 1884587|||.|||
 1885463|||ㅌ|||
-1885644|||사랑의 혈흔(중단편집)|||
 1885904|||.|||
 1886118|||.|||
-1886174|||죽는 날까지 꼬셔볼게|||
 1886312|||ㄴ|||
 1886519|||ㆍ|||
-1886581|||[주술회전/BL] 나의 오래된 반려(完)|||
 1887427|||.|||
-1887592|||렌탈 남친|||
-1888297|||[히로아카/주술회전] 낙원의 주술사 完|||
-1888675|||예언자는 미래를 보고 싶지 않다|||
-1888680|||낙월: 달에 지다|||
-1888752|||사상 최강의 제자가 되었다|||
-1888753|||무신회귀|||
-1888791|||인성이 부족한 천재배우|||
-1888944|||열애 부부|||
-1888945|||아 루아 이니마타|||
-1889208|||마도공학 통신장교가 전장을 캐리함|||
-1889229|||버려진 악녀는 좀비가 되었다|||
-1889239|||피폐물 남주가 상대를 잘못 고름|||
-1889308|||명교 교주 일가의 회고록|||
-1889412|||절대자도 아빠는 처음이라|||
-1889523|||의선명가 천재막내|||
-1889588|||돌아온 하녀는 복수를 원한다|||
-1889589|||몰닉|||
-1889613|||성황가의 이단아가 되었다|||
-1889620|||내가 광공인데 수가 없어|||
-1889623|||3등은 누가 기억해 주나|||
-1889657|||새벽이 머문 자리|||
-1889658|||전하, 이제 그만 놓아주세요|||
-1889709|||타이틀을 수집하는 배우|||
-1889710|||잘못 소환된 줄 알았던 초월급 용사|||
-1889732|||회장님이 보우하사|||
-1889742|||돌아온 천재 타자가 서바이벌을 씹어 먹음|||
-1889748|||폭군의 품 안에서|||
-1889760|||비서 과외|||
-1889829|||망한 교단의 성기사|||
-1889838|||천재 총기제작자는 방산업이 너무 쉽다|||
-1889839|||SSSSS급 새틀라이트 빔을 각성하니 탑등반이 너무쉬움|||
-1889840|||극딜 탱커는 미궁 공략이 쉽다|||
-1889841|||몰락한 이계 영지와 내 시너지가 엄청나다.|||
-1889842|||방구석 탑 등반러는 헬 모드가 너무 쉽다|||
-1889843|||쉬었음 삼촌이 너무 유능함|||
-1889844|||천재 사학도가 국보급 유물을 잘 찾음|||
-1889845|||회귀한 EX급 삼촌이 다 해먹음|||
-1889846|||흡수 능력으로 연기를 너무 잘함|||
-1890136|||헤센에는 붉은 장미가 핀다|||
 1890305|||0|||
-1890444|||집에 보내줘![포켓몬]|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
-1890694|||저주받은 영웅이 죽고 싶을 때|||
-1890983|||[화산귀환] 천하제일|||
 1891144|||설 하 : 偰 河|||
 1891200|||1|||
-1891253|||욕망과 숭배에 관한 고찰|||
-1891395|||소원을 말해봐|||
 1891411|||[해리포터] 파랑 波浪|||
-1891585|||망춘록(望春錄) (15세 개정판)|||
 1891738|||[괴담출근] 신원미상(身元未詳)|||
 1892225|||17-19|||
 1892227|||무귀 (無歸) : 돌아갈 곳이 없는|||
-1892395|||독안귀의가 주운 늑대 새끼|||
 1892425|||[의다살/메이플] 雪中梅|||
 1892428|||[도리벤/오란고교] 하니노즈카의 무도(武道)|||
-1892512|||사랑의시차 1|||
-1892618|||온 앤 언더 (On and Under)|||
 1892665|||번학무사 (番學武士)|||
 1892819|||상산(常山)|||
-1892916|||굿보이가 되어야만 삽니다|||
 1892954|||[작두/BL] 辰|||
 1893191|||[화산귀환] 《화산월야 (華山月夜)》|||
-1893268|||세상을 구하라길래 남주의 형부터 구했습니다|||
-1893648|||[후세대/ 판타지]Daydream's story (데이드림탄생전)|||
-1893660|||이혼한 아내와 퇴사한 회사는 망하고 나는 아메리칸 드림|||
 1893958|||위무(慰武)|||
-1894120|||[해리포터]마트리카리아|||
 1894167|||[문스독] 렌(廉)|||
 1894252|||화花|||
-1894253|||첫사랑이 이생망|||
 1894292|||[작두X내스급] 외부인(外部人)|||
-1894390|||[붕괴3rd] 사모님은 전 발키리|||
-1894602|||[주술회전] 지장보살 아래서|||
-1894785|||크툴루의 두 번째 촉수가 되었다|||
 1894874|||[주술회전]사신(死神)|||
 1894896|||[도리벤] 수계혼(收繼婚)|||
-1894927|||그에겐 두 명의 아내가 있다|||
 1894933|||상흔가(傷痕歌)|||
-1894935|||인외뱀 생태보고서|||
 1894981|||유랑(流浪)하는|||
-1895029|||푸른 비단끈|||
-1895034|||무인도인데 우리 집이 풀옵션임|||
-1895037|||미국 노동자는 천재 프로듀서|||
-1895045|||무한한 마법을 만드는 융합의 천재 마탑주|||
-1895115|||병약한 마법사도 살아남을 수 있나요|||
 1895160|||.|||
-1895172|||프레야 영애를 조심하세요|||
-1895213|||계정주인 바뀌었다구요.|||
 1895229|||[주술회전/히로아카] 대의(大意)|||
 1895246|||[화산귀환] 가인재자(佳人才子)|||
 1895263|||[나루토] 범인몽 (凡人夢)|||
-1895426|||[해리포터] 모리안 싱클레어의 포뮬러|||
 1895433|||선영(線影) : 그늘을 비추는 햇볕|||
-1895459|||빨리말했어야지!![44교시 생존수업]|||
 1895473|||불멸(不滅)|||
 1895476|||무망(無望)의 운데침|||
-1895505|||아이돌이 아니라 영매사라고![앙스타×귀곡의 문]|||
-1895528|||어느날 집착광공 욕실에 마탑주가 떨어짐?!|||
-1895588|||청담동 느와르|||
-1895612|||잠깐만요, 연애할 시간이 없어요|||
 1895668|||[주술회전] 만연지연(晩後之緣)|||
-1895674|||늦은 발걸음이지만 그저 행복하게 걸어간다면|||
-1895685|||시체발에게 사랑을 말해 주세요.|||
-1895694|||언더커버 큐피드 (구:나를사랑하게만드는~)|||
 1895696|||기화氣化|||
-1895697|||[낮에 뜨는 달] 나는 여기에 고여있는데|||
-1895707|||공작님, 혁명은 제 취향이 아닙니다만|||
-1895732|||그들의 청춘은 어디까지 일까|||
-1895806|||과거의 애인에게서 문자가 왔다|||
-1895807|||조선 후기 한량 종친이 되었다.|||
-1895813|||[해리포터] 목적지보다 더 중요한 건|||
-1895894|||우아한 유혹|||
-1895896|||[주술회전/코난]주술회전이 맞는 거지? 맞다고 해주세요.|||
-1895950|||[오란] 비호감이 되고 싶었는데|||
-1895954|||호구의 인생역전|||
-1895955|||[GL] 남성향 미연시 주인공의 오작교 여동생이 되었다|||
-1895957|||[해리포터] 후플푸프 소녀|||
-1895959|||[주술회전×하이큐] 효고로 떠나는 주령잡이 생활|||
-1895960|||[강철의 연금술사] 동쪽으로|||
-1895961|||주워온 개가 날 먹으려고 한다|||
-1895965|||[원피스/헌터] 맘마미아|||
-1895969|||[ 림버스] 소나기 내리는|||
-1895970|||빙의했더니 최애가 혐오하는 스폰서가 되어버렸다|||
-1895971|||헌터들 살려 줬더니 변태로 찍혔다|||
 1895973|||연의 우기 (年의 雨期)|||
-1895974|||신입 요원을 위한 초자연현상 분석 지침|||
-1895975|||[트위스테] Miracle of Wonderland|||
-1895977|||[뷰티풀 군바리] Nice Guy Syndrome|||
-1895978|||경력직 용사는 재소환을 거부합니다|||
-1895979|||성기사인데 마왕이 됨|||
-1895980|||신세계기행|||
-1895981|||주님, 이 남자는 아닙니다|||
-1895982|||《폐업 직전 호텔의 막내 지배인이되다》|||
-1895983|||검은 별의 기사|||
-1895984|||박살내는 성녀님(ai 아님)|||
-1895985|||우리는 밴드|||
-1895987|||페이크 리치 : 캐나다 영끌 이민|||
-1895988|||건곤지록 : 태자전하, 소인은 이만 도망가겠습니다|||
-1895993|||[해리포터/후세대]Daydream's story(본편)|||
-1895997|||너클 앤 크로키|||
-1895999|||아카데미에서 남주가 김치를 볶는다|||
-1896001|||[해리포터] 블랙 가의 유령|||
-1896002|||PD 수난 시대|||
 1896003|||[주술회전] 唯一性유일성|||
-1896007|||[약한영웅] 질투하는 연시은|||
-1896008|||[진격의 거인]리사 로웰|||
-1896010|||페로몬 취급주의|||
-1896012|||내가 아는 우주|||
-1896013|||상무님이 나랑만 잔다|||
-1896015|||여장했더니 미래가 보인다|||
-1896016|||[불수호/작두] 그 환생자에게는 수호신이 있다.|||
-1896017|||원피스 세계관에 떨어졌는데 아무도 나를 반가워하지 않는다|||
-1896021|||소꿉친구 (너의 방은 아직 어지럽다)|||
-1896027|||마약 딜러는 괴담 공무원이 되고 싶어|||
-1896028|||퍽이나 좋아하시겠어요|||
-1896040|||열일곱, 첫사랑|||
-1896043|||dd|||
-1896049|||[화산귀환]최애를 후원하겠습니다!|||
-1896052|||게임에 접속하셨습니다.|||
 1896055|||십년생사량망망 : 十年生死兩茫茫|||
-1896060|||[쿠로바스] 꽃은 말하지 못한다|||
-1896061|||[유유백서] 못다핀 꽃이 피기 위하여|||
-1896064|||단천우 전기|||
-1896066|||[젤다의전설] 푸른 눈의 용사는 복제인간의 꿈을 꾸는가|||
-1896067|||대마법사 바이올라와 이름 없는 그림자들|||
-1896068|||[닥터스톤] MORTEM|||
-1896071|||운명의 끈|||
-1896072|||[데못죽] 레티 15년차면 음기미소년과 범죄자를 구분할 수 있다|||
-1896076|||노란 집의 편지|||
-1896080|||차분한 계절 끝에서 그대와|||
-1896081|||여보, 들킨 건 불륜뿐이잖아|||
-1896082|||The Name They Erased 《그들이 지워버린 이름》|||
-1896088|||S급으로 각성했는데 알파다|||
-1896089|||[우사비치] 위험한 토끼, 어벙한 토끼, 소심한 토끼|||
-1896090|||[하이큐!!] 업계 청산은 무리인가요|||
-1896094|||다시,그날의 하늘 아래|||
-1896097|||[해리포터] 제발 나 좀 봐다오|||
-1896098|||성녀, 사실 우리는 이미 한번 죽었습니다.|||
-1896099|||The never blooming flowers|||
-1896101|||요걸|||
-1896102|||제국마법부 민원2실의 하루|||
-1896106|||《친구가 사라진 자리에는》|||
-1896109|||[코난X주술회전] 포와로 알바생의 이중생활|||
-1896111|||무엇이든 수리해드립니다|||
-1896112|||여명|||
-1896113|||[리메이크] 기억 책방의 문을 열면|||
-1896116|||회귀한 축구 천재는 전생에 군대스리가 반칙왕이었다.|||
-1896118|||따까리의 법칙|||
-1896124|||[해리포터] 왕의 오른손 4부 - 톰 리들과 왕이 없는 왕국의 삼인조|||
-1896127|||[Gl/로맨스] 완벽한 그녀가 모르는 것|||
-1896128|||《우리가 모르는 사이》|||
-1896130|||쓰레기 인성이라 벌받은 줄 알았는데 내가 재앙급이래|||
-1896133|||잔혹한 황녀는 감정을 배우는 중 입니다 : (가제) 나의 루시안|||
-1896134|||폐급남편후보들만남았습니다.|||
-1896139|||헤어졌어도 미드는 살려야지|||
-1896141|||분명 최애가 됐는데, 왜 리더한테 더 설레지?|||
-1896143|||멸종대상|||
-1896146|||대답하지 않아도 됩니다.|||
-1896153|||평범한 영애의 쓸모|||
-1896154|||마교주의 아들이 정파에서 살아남는 법|||
-1896156|||부러진 칼날은 엎드리지 않는다|||
-1896161|||스폰서의 주인|||
-1896162|||야옹이 드라이버|||
-1896165|||끝내 전하지 못한 말|||
-1896170|||오빠를 죽인 놈을 찾을 때까지, 나는 황태자다|||
-1896172|||시크릿 보이스|||
-1896174|||[도쿄 리벤저스/도리벤/은혼] 육식토끼|||
-1896176|||저승 변호사 시보는 미친놈|||
-1896177|||신이시여, 저를 구원해주세요|||
-1896178|||쟤만 (아니면) 돼요|||
-1896181|||황자는 맛있어|||
-1896182|||대한민국을 정상화했더니 국민들이 집착함|||
-1896183|||새벽 네 시 십 분|||
-1896184|||남장 검안관의 정체를 대군만 모른 척한다|||
-1896185|||그만 좀 오세요 [닌타마]|||
-1896187|||떼인 돈 받아 드립니다|||
-1896189|||쫓겨난 공녀가 차린 상단에 친정이 손을 벌리러 왔다|||
-1896190|||등선했더니 헬창이 됐다.|||
-1896192|||[괴담출근] 원길의 죄송|||
-1896193|||[괴담출근] 괴담에서 과학을 추구하면 안되는 걸까?|||
-1896195|||탈피, 인류의 실패작으로 태어났다.|||
-1896197|||[BL]  편의점 알바생과 오토바이 배달원|||
-1896198|||ON 다혜, OFF 다혜|||
-1896200|||동갑 주의보|||
-1896202|||괴물의 아이들|||
-1896204|||[헌터X헌터] 키르아와 고양이|||
-1896206|||[해리포터] 무당의 양놈체험기|||
-1896207|||[해리포터] Down by the Elm Gardens|||
-1896209|||[원펀맨] 고스트? 고스트!|||
-1896210|||커피우유맛 애증|||
-1896211|||극광이 머무는 곳으로|||
-1896212|||7년 짝사랑을 폐업했더니 길 건너 약사가 단골이 됐다|||
-1896218|||짝사랑은 끝났고 집착은 시작 됐다.|||
-1896219|||시한부 가이드는 감금이 싫어요|||
-1896220|||SUN KISS 선키스|||
-1896222|||버릇|||
-1896223|||괴담은 모르겠고 비서가 수상하다|||
-1896227|||알파여친과 오메가남친|||
-1896228|||최애를 고용했습니다|||
-1896230|||[도리벤/오란고교] 무도에도 꽃은 핀다|||
-1896231|||말괄량이 길들이기: 전국시대 한복판에서 사랑을 외치다!|||
-1896232|||남주의 이웃 나라 공주인데 흑막과 약혼함|||
-1896233|||백업|||
-1896234|||[괴담출근] 오래된 식사|||
-1896242|||세자빈 간택에서 떨어지려고 회귀했더니 세자가 장독대로 찾아왔다|||
-1896244|||[원피스] 롱로스트 피터 팬|||
-1896247|||마지막 야근은 이세계에서|||
 1896250|||11시 47분|||
-1896253|||오늘 밤, 나는 다른 사람이 된다|||
-1896255|||외계 병기를 얻었다|||
-1896257|||이 이야기는 해피엔딩입니다|||
-1896258|||{블루록/BL} NG!! 스포츠물이잖아..??!|||
-1896260|||10년 전 사랑이 바꾼 내 인생|||
-1896261|||[괴담출근/이영싫] 공무원 D씨는 집에 가고 싶다|||
-1896262|||이혼 서류는 만료일에 받겠습니다|||
-1896267|||마교에서 나만 무공을 훔친다|||
-1896271|||[포켓몬] 이 곳은 게임이 아니다|||
-1896274|||귀환한 SS랭크 왕녀의 문명개혁 프로젝트|||
-1896277|||게임은 못하는데 NPC들이 날 숭배함|||
-1896278|||너를 위하여|||
-1896282|||죽음에 이르는 병(무연버젼)|||
-1896284|||20대의 온도|||
-1896285|||19금 가이드버스 만화에 햄스터로 빙의했습니다|||
-1896289|||스스로 피어 만개하리라|||
-1896290|||[원피스/좋피위피] 그만 드세요|||
-1896291|||[귀멸의 칼날/bl] 저는 무잔의 친구이자 푸른 피안화입니다.|||
-1896293|||악녀평정:가짜 성녀를 폭로하는 법|||
-1896297|||[데못죽x상냥돌] null|||
-1896299|||[강연금/바이올렛 에버가든] 아메스트리스에 어서오세요 바이올렛 씨|||
-1896303|||[프리렌] 프리렌의 강호여행기|||
-1896305|||둥지는 언제나 소란스럽다|||
-1896306|||오픈 코트|||
-1896307|||[먼작귀/치이카와]이누|||
-1896310|||19금 BL 옴니버스|||
-1896312|||[하이스쿨dxd]조연 레이나레가 되었다.|||
-1896313|||일렉트로닉 타입 (Electronic type)|||
-1896314|||너를 구원할 시간|||
-1896316|||뜻대로 하세요|||
-1896320|||기묘한 편의점 이야기|||
-1896323|||유치원 버스 조수석에 소령님이 탑승했습니다|||
-1896326|||사랑의시차2|||
-1896328|||[데못죽] 넘버원 악플러!|||
-1896329|||[해리포터] 그들도 마법을 꿈꾸니까|||
-1896330|||악역은 행복하게 살았습니다!|||
-1896332|||도베르만 수인 아저씨와 OL씨 (오피스 레이디)|||
-1896333|||마지막 황녀가 기술혁명을 일으킴|||
-1896335|||가짜 연인을 위한 상처 19금 무료 에디션2|||
-1896338|||[해리포터/BL] Turning Time|||
-1896340|||[릭앤모티] 무한 원숭이 정리와 볼츠만 두뇌|||
-1896342|||남편 몰래 연애|||
-1896343|||낙원의 유실|||
-1896345|||회귀한 소가주는 계약 아내를 들였다|||
-1896346|||[주술회전] - 원숭이 합격|||
-1896349|||[인소의 법칙] 빈 유리잔|||
-1896350|||[외모지상주의] 최애살려|||
-1896351|||[해리포터] Miss Greengrass|||
-1896354|||I am the ultimate glitch|||
-1896355|||제작 능력으로 이세계에서 살아남기|||
-1896356|||악귀|||
-1896357|||본부장님의 야간 결재|||
-1896358|||마운드를 방문합니다|||
-1896360|||[도리벤] 키쿠의 난|||
-1896361|||EX급 성기사는 F급 힐러로 착각 당했다|||
-1896362|||불경한 마음을 깨달았을 땐|||
-1896363|||『하얀 늑대들, 그 후 이야기 — 검을 내려놓은 날들』|||
-1896365|||교서관 활자공 막내가 되었더니 임금이 내 활자로 병서를 찍으라 한다|||
-1896367|||파혼당한 영애가 등대지기가 되었더니 제독이 밤마다 불을 확인하러 온다|||
-1896368|||《서방님은 오늘도 담을 넘는다》|||
-1896369|||AI 비정상회담|||
-1896370|||[먼작귀×마비노기] 우호형 케라우노스|||
-1896371|||폐업을 앞둔 서점을 물려받았더니 단골이 매일 같은 책을 사 간다|||
-1896372|||[닌타마] 꿈꾸는 천녀님|||
-1896373|||대통령 임도현|||
-1896374|||열한 번째 보모가 되었더니 말 없는 대군의 딸이 나에게만 속삭인다|||
-1896377|||미친 딜러의 전속 음유시인입니다|||
-1896378|||[해즈빈호텔/헬루바] 사랑이라 해도 되나요?|||
-1896379|||내일이 사라지는 역|||
-1896380|||장화 신은 사기꾼|||
-1896383|||사또의 첫사랑은 형수님|||
-1896385|||시스템에 오류가 발생했습니다|||
-1896386|||SSS급 조련사|||
-1896387|||[FATE/ZERO]그 별 앞에서.|||
-1896388|||하얀 달, 황금 들판|||
-1896394|||오빠가 사라진 동물병원의 야간 진료 수칙|||
-1896395|||맞는 거 좋아하시는 줄 알았죠!|||
-1896397|||아픔아, 사라져라!|||
-1896398|||[주술회전] 기억을 걷는 시간|||
-1896399|||아르카디아 가든|||
-1896403|||눈에서 멀어지면 마음에서도|||
-1896405|||드래곤과 천년의 카라|||
-1896407|||소재창고/한번만 잡숴보세요|||
-1896409|||[주술회전/도리벤] 긴 머리가 좋다니까?|||
-1896411|||[정글에서 살아남기] 오빠 찾아 삼만리|||
-1896418|||[고스트바둑왕] 첫사랑|||
-1896423|||[원피스/주술회전/bl] 바다에 떨어졌는데|||
-1896424|||[히로아카] 소녀는 미완성된 존재다|||
-1896426|||어느 날 그대 품으로 안드로이드가 들어왔다.|||
-1896428|||[괴담출근] 견우와 직녀|||
-1896432|||꼴값의 대가|||
-1896434|||접근금지|||
-1896439|||[소재창고] 상자 속을 보자|||
-1896440|||나의 치명적 안정제, 버그픽스|||
-1896441|||경계선|||
-1896442|||[괴담출근/BL] 괴담 속에서 서방님 찾기|||
-1896444|||전남친의 스캔들 상대가 되어 드립니다|||
-1896446|||[춘향전] 현대 AU|||
 1896448|||귀문(鬼門)|||
-1896451|||상처 입은 깃털로 너에게 날아오를 때|||
-1896452|||[지하군] 이번 생은 너의 곁에서|||
-1896456|||너를 지우다|||
-1896457|||[명탐정 코난] 테세우스의 배|||
-1896460|||[괴담출근] 지식인 답변 부탁드립니다|||
-1896463|||친구의 전남편과의 로맨스|||
-1896464|||[SCP] 전 절대 사이비가 아닙니다|||
-1896465|||[은혼] 지금부터 얘랑 우주 정복하러 감|||
-1896470|||S급헌터에게 감금된 안락한 일상|||
-1896474|||무능력자의 모험가친구들은 오늘도 장난을 친다!|||
-1896504|||성스럽고 고결한 그대에게|||
-1896509|||애증과 신념을 담아 그대에게 고백합니다|||
-1896512|||지옥 콜센터에 입사했습니다|||
-1896514|||최악의 하루였던 그 날|||
-1896520|||사일런트|||
-1896523|||대삼림의 끝에서|||
-1896526|||[프좀] 무한 스폰으로 켄터키 정복|||
-1896529|||[화산귀환]무협에서 낭만을 추구하면 안되는 걸까|||
-1896530|||지옥의 피사체들.|||
-1896535|||청춘남남|||
-1896536|||Hurt|||
-1896539|||[명탐정 코난/BL] 당신의 내일을 맡아두었다|||
-1896541|||[명탐정 코난] 마음 가는 대로|||
-1896542|||일곱 번 죽은 황태자비|||
-1896546|||회귀한 국무총리는 대한민국을 바꾼다|||
-1896549|||제1급 비밀요원은 여장 중|||
-1896550|||시골|||
-1896552|||저기요, 전 용사가 아닌데요.|||
-1896556|||귀환 경로를 찾을 수 없습니다|||
-1896557|||서로에게 길들여진|||
-1896559|||사랑했던 당신에게 복수를|||
-1896569|||완벽한 나의 예외|||
-1896570|||누가 황태자비를 연프로 뽑아요!|||
-1896573|||The Last Order|||
-1896574|||우리 사이의 가격|||
-1896576|||하늘을 묶은 깃|||
-1896577|||[작두×전독시] 대감님들, 여기 멸망한 세계래요.|||
-1896579|||가장 사랑스러운 거짓말|||
-1896580|||유능한 집사의 가주 아가씨|||
-1896581|||EX급 지휘관의 전투능력 발동|||
-1896582|||구원|||
-1896587|||부자놀이터 3|||
-1896588|||[주술회전] 바람이 불어오는 곳|||
-1896589|||[마블]폐급의 트립일지|||
-1896590|||서른 번의 아침|||
-1896593|||나의 퀘스트는 이세계 트럭을 찾아 사고 나기|||
-1896594|||내 눈에는 좀비가 뽀삐로 보여|||
-1896596|||Be Happy? 엘지트윈스:our the spin off stories|||
-1896597|||[괴담출근x나츠메의 우인장]요괴도 괴담으로 쳐주나요?|||
-1896601|||[다중]공겜 마네킹은 그저 가만히 있고 싶은데 세상이 그렇게 놔두질 않음|||
-1896602|||안락생 프로젝트|||
-1896603|||[림버스/전오수] 크렉과 황금가지의 연관성에 대한 보고서.pdf|||
-1896604|||[해리포터/bl] safe and sound|||
-1896607|||[주술회전]유이괜-유지의 행복, 이대로 괜찮은가-|||
-1896610|||[귀멸의 칼날/BL] 환생자의 고난|||
-1896611|||베이징 스캔들|||
-1896612|||'찐' 가족은 아닙니다만|||
-1896617|||[나히아/히로아카]무제|||
-1896618|||게이트 붙은 건물을 샀더니 보스가 월세를 낸다|||
-1896619|||아카시아 꽃이 활짝 폈네|||
-1896620|||[괴담출근] 아이|||
 1896621|||戀慕(연모) : 꽃을 꺾는 자|||
-1896622|||[황천의 츠가이] 호접지몽|||
-1896625|||라그나로크|||
-1896626|||[괴담출근] 무념무상에 어서오세요|||
-1896627|||공격력 1인데 공속에 다 박았습니다|||
 1896628|||《천산국지 川山國志》|||
-1896630|||레디 컷 리테이크 (Ready, Cut, Retake)|||
-1896633|||[메이플] 제른 다르모어의 딸|||
-1896636|||퇴사한 회계사가 동대표가 되었더니 관리소장이 김치에 보관증을 끊어 준다|||
-1896638|||내가 버린 오메가|||
-1896641|||나루터 사공이 되었더니 첫 배 손님이 다리 놓을 자리를 나에게 묻는다|||
-1896646|||비무장지대의 최여민|||
-1896647|||지워진 영애가 문장원 도안사가 되었더니 원장이 위조 인장만 올려 둔다|||
-1896649|||이상한 룸메이트|||
-1896650|||[메이플] 신왕이 ○○을 허락하지 않아|||
-1896651|||[해리포터/BL] 호수 밑바닥의 남자친구|||
-1896655|||염색방이 망하기 전 해로 돌아왔더니 복색 감찰관이 내 쪽빛만 들춰 본다|||
-1896656|||마음이 쉬어가는 작은 카페 하또지|||
-1896657|||한 떨기 꽃|||
-1896658|||한강뷰에 사는 여자는 다르다|||
-1896659|||환생했으니 잘생긴 남친 주세요!!|||
-1896660|||매춘부의 딸이 되었습니다.|||
-1896665|||[나를 죽인 자들에게 두 번째 무대를...]|||
-1896666|||천국은 배급되지 않는다|||
-1896668|||태양 아래서 너를|||
-1896670|||예외의 온도|||
-1896672|||[문호 스트레이 독스/문스독] 추리의 미학|||
-1896679|||바라오니 이 찬연한 세계를 지켜주세요.|||
-1896680|||저한테 관심 많으시네|||
-1896682|||당신이 버린딸이 진짜였다|||
-1896686|||(GL/백합)천장에서 도깨비가 떨어졌다|||
-1896688|||마차 수리점을 열었더니 황태자가 매일 고장을 핑계로 온다|||
-1896690|||회귀한 말장이 딸이 환곡 말을 다시 깎았더니 검정관이 눈금을 재러 온다|||
-1896691|||전설의 헌터|||
-1896692|||[원신] 신을 구한 내가 전생으로 살게 됐다|||
-1896693|||발버둥|||
-1896694|||서강천호묘채의 여왕, 왕웨이|||
-1896697|||눈떠보니 조선시대라니!!|||
-1896700|||프로게이머 복귀시키려다가 프로게이머 됨|||
-1896702|||다정한 악의를 담아|||
-1896705|||내가 떨어진 별세계에서 살아남기 위한 미덕|||
-1896706|||순애 요로시쿠|||
-1896707|||[작두] 푸른 달|||
-1896708|||All the While|||
-1896709|||제국의 사형수가 되었다.|||
-1896710|||[뷰티풀 군바리] 화이트 프리지아|||
-1896711|||GH ACADEMY|||
-1896712|||[히로아카] 모든 걸 오직 너를 위해|||
-1896714|||[도쿄 리벤져스] 달빛이 내려앉은|||
-1896717|||언박싱 알리바이|||
-1896718|||철운객 : 사라진 이름|||
-1896719|||[신의탑/엔드필드] 왜 내가 밍순?|||
-1896720|||[원피스] 이것도 인생이라고|||
-1896723|||나, 그리고 너|||
-1896724|||홀씨를 불지 말아 주세요.|||
-1896727|||히어로 씨에게!|||
-1896728|||지구 종말 1일 전, 던전 메타를 독점했다|||
-1896729|||내 에스퍼가 나를 잊었다.|||
-1896734|||[전오수]Ctrl + S|||
-1896735|||세인트 세이야 The Lost Canvas 명왕신화|||
-1896736|||네가 골을 넣으면, 나는 너를 본다|||
-1896737|||해진 손목을 맞잡고|||
-1896738|||[ㅋㄴ/bl] 비어|||
-1896739|||호시탐탐 ; 구름을 밟고 선 호랑이|||
-1896741|||미제 괴이 사건 사무소|||
-1896756|||《물어 죽일 수 없는 것》|||
 1896758|||[채운국 이야기] 梅桃|||
 1896763|||상강(霜降)|||
-1896772|||[해리포터] 이모와 꼬마 마법사|||
-1896774|||새 친구|||
-1896775|||[해리포터] 아리아드네의 낙원|||
-1896776|||구원은 검 끝에서 시작된다|||
-1896780|||[남자 연예인]93명이 나를 미친듯이 좋아할지도?|||
-1896781|||[퍼시잭슨×DC] 올빼미가 배트하우스에 들어갑니다|||
-1896782|||[코난] 장르는 로맨스 코미디|||
-1896783|||[원피스] 삼선장과 할아버지들.|||
-1896785|||눈 떠보니 악녀에게 멍줍당했습니다|||
-1896787|||강과장 복권 당첨되다|||
-1896788|||이누야샤]달비해|||
-1896791|||공과 수를 길들여버렸다|||
 1896793|||용궁정사(龍宮情事)|||
-1896797|||천재 형사가 반한 괴도가 나였다|||
-1896798|||월잠의 밤|||
-1896800|||[단편연재] 체크인, 교토|||
-1896804|||[쿠키런:킹덤] 환생이란|||
-1896805|||스파이 잡으러 데뷔했습니다|||
-1896807|||빌런을 사랑하는 법|||
-1896814|||수인의 신부|||
-1896815|||[닌타마] 보건위원은 오늘도 사람과 귀신을 헷갈린다|||
-1896816|||북부 대공이지만 공은 아닙니다|||
-1896818|||같은 아침을 맞을 수 있을까요?|||
-1896819|||은월 : 담벼락에 숨어든 달|||
-1896825|||이번에도, 여기|||
-1896827|||별이 새긴 이름|||
-1896828|||[원피스/은혼][bl]타카스기 신스케의 우울|||
-1896831|||[윈브레] 청춘우정물이 버겁다|||
-1896833|||하필이면 거기에서|||
-1896834|||강과장 복권 당첨되다|||
-1896838|||[괴담출근/BL] 영물도 사랑은 한다|||
-1896839|||집착광공 키워서 잡아먹기|||
-1896845|||지칠 대로 지쳐서 (이사했습니다)|||
-1896846|||제 스폰서는 몸을 원하지 않습니다|||
 193749|||200.|||
 198509|||6666666666|||
 20001|||득 <<得>>|||
