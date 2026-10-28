@@ -38,6 +38,24 @@ def _relaunch() -> None:
     QProcess.startDetached(program, arguments)
 
 
+def _set_icon(app) -> None:
+    """The mobile app's icon for the window and taskbar (its own taskbar entry on Windows)."""
+    from PySide6.QtGui import QIcon
+
+    from noveldb.core import paths
+
+    icon = paths.bundle_dir() / "assets" / "app-icon.png"
+    if icon.is_file():
+        app.setWindowIcon(QIcon(str(icon)))
+    if sys.platform == "win32" and not getattr(sys, "frozen", False):
+        try:  # from source, without this the taskbar shows Python's icon
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NovelDB.Desktop.source")
+        except Exception:
+            pass
+
+
 def _parse(argv) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="NovelDB", add_help=True)
     parser.add_argument("--smoke", action="store_true", help="build the window, then quit")
@@ -200,6 +218,7 @@ def main(argv=None) -> int:
     if not args.smoke and _already_running(key):
         return 0
 
+    _set_icon(app)
     font = app.font()
     font.setPointSizeF(max(font.pointSizeF(), 11.0))  # Qt's 9 pt default reads small next to the site
     app.setFont(font)
