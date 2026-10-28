@@ -45,7 +45,8 @@ env:
 jobs:
   preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Checking out the repository (daily data commits make it large) has taken over 10 minutes on busy runners.
+    timeout-minutes: 25
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       tag: ${{ steps.plan.outputs.tag }}
