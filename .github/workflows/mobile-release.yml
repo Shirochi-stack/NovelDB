@@ -41,12 +41,14 @@ concurrency:
 
 jobs:
   android:
+    if: github.event_name != 'release' || github.event.release.tag_name != 'engines'
     uses: Shirochi-stack/NovelDB/.github/workflows/android.yml@android/integration
     with:
       ref: ${{ inputs.android_ref || 'android/integration' }}
     secrets: inherit
 
   ios:
+    if: github.event_name != 'release' || github.event.release.tag_name != 'engines'
     uses: Shirochi-stack/NovelDB/.github/workflows/ios.yml@ios/integration
     with:
       ref: ${{ inputs.ios_ref || 'ios/integration' }}

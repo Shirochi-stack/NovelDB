@@ -18,6 +18,27 @@ THEMES = ("system", "light", "dark", "amoled")
 ACCENTS = ("halgakos_rose", "desktop_blue", "library_violet")
 NPIA_ENGINES = ("native", "browser")
 
+# Site engines, tried in the user's order until one returns chapters: the app's own scrapers,
+# the novel-downloader rules, then the WebToEpub parsers.
+ENGINE_NATIVE = "native"
+ENGINE_ND = "novel_downloader"
+ENGINE_W2E = "webtoepub"
+SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E)
+ENGINE_LABELS = {
+    ENGINE_NATIVE: "Built-in scrapers",
+    ENGINE_ND: "novel-downloader rules",
+    ENGINE_W2E: "WebToEpub parsers",
+}
+
+
+def engine_order(order, disabled=()) -> tuple[str, ...]:
+    """Known engines in the given order (missing ones appended), minus the switched-off ones."""
+    seen = []
+    for name in list(order or ()) + list(SITE_ENGINES):
+        if name in SITE_ENGINES and name not in seen:
+            seen.append(name)
+    return tuple(name for name in seen if name not in set(disabled or ()))
+
 DEFAULT_CATALOG_URL = "https://shirochi-stack.github.io/NovelDB/"
 
 # Source whose run settings live in its override by default (mobile `editRunSettings`).
@@ -198,6 +219,25 @@ class CatalogSettings:
 
 
 @dataclass(frozen=True)
+class EngineSettings:
+    """Which site engines run, in what order, and which rule engines update themselves (opt-in)."""
+
+    order: tuple[str, ...] = SITE_ENGINES
+    disabled: tuple[str, ...] = ()
+    nd_auto_update: bool = False
+    webtoepub_auto_update: bool = False
+
+    def auto_update(self, engine: str) -> bool:
+        return {ENGINE_ND: self.nd_auto_update, ENGINE_W2E: self.webtoepub_auto_update}.get(engine, False)
+
+    def enabled(self) -> tuple[str, ...]:
+        return engine_order(self.order, self.disabled)
+
+    def full_order(self) -> tuple[str, ...]:
+        return engine_order(self.order)
+
+
+@dataclass(frozen=True)
 class QueueSettings:
     max_concurrent_jobs: int = 1
 
@@ -246,6 +286,7 @@ class AppSettings:
     output: OutputSettings = field(default_factory=OutputSettings)
     ui: UiSettings = field(default_factory=UiSettings)
     catalog: CatalogSettings = field(default_factory=CatalogSettings)
+    engines: EngineSettings = field(default_factory=EngineSettings)
     queue: QueueSettings = field(default_factory=QueueSettings)
     upload: UploadSettings = field(default_factory=UploadSettings)
     secrets: Secrets = field(default_factory=Secrets)

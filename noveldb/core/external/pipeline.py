@@ -109,6 +109,9 @@ class ExternalPipelineMixin:
         self._scraper.kobo_horizontal_layout = (
             self._var_kobo_horizontal_layout.get()
         )
+        engine_order = getattr(self, '_var_engine_order', None)
+        if engine_order is not None:
+            self._scraper.engine_order = list(engine_order.get())
 
     # ------------------------------------------------------------------
     # Persistent worker thread (all Playwright calls run here)

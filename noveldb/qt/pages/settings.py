@@ -12,6 +12,7 @@ from typing import Callable
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -36,9 +37,12 @@ from noveldb.core.catalog.urls import NOVELDB_NEXT_URL, valid_catalog_url
 from noveldb.core.settings.model import (
     ACCENTS,
     DEFAULT_CATALOG_URL,
+    ENGINE_LABELS,
+    ENGINE_W2E,
     IMAGE_FORMATS,
     NAMING_MODES,
     OUTPUT_FORMATS,
+    SITE_ENGINES,
     THEMES,
     AppSettings,
     SharedOverrides,
@@ -538,6 +542,138 @@ def sources_form(context: AppContext) -> Form:
     return f
 
 
+ENGINE_HINTS = {
+    "native": "The app's own scrapers for the sites it knows best.",
+    "novel_downloader": "novel-downloader's rules, mostly Chinese and Japanese sites.",
+    ENGINE_W2E: "WebToEpub's parsers for 650+ sites, mostly English translations.",
+}
+
+
+def engines_form(context: AppContext) -> Form:
+    """The site engines a link tries, in order, and the rule engines' opt-in updates."""
+    from noveldb.core import engine_updates
+
+    f = Form(context, "Site engines")
+    f.add_hint("Each link tries these in order until one finds chapters. Drag to reorder, "
+               "and untick an engine to skip it.")
+    engines = QListWidget()
+    engines.setDragDropMode(QAbstractItemView.InternalMove)
+    engines.setDefaultDropAction(Qt.MoveAction)
+    engines.setSelectionMode(QAbstractItemView.SingleSelection)
+    engines.setMaximumWidth(560)
+    f.add(engines)
+
+    def current_items():
+        return [engines.item(i) for i in range(engines.count())]
+
+    def store():
+        order = tuple(item.data(Qt.UserRole) for item in current_items())
+        disabled = tuple(item.data(Qt.UserRole) for item in current_items()
+                         if item.checkState() != Qt.Checked)
+        if len(disabled) == len(order):
+            show(context.settings)  # one engine always stays on
+            return
+        context.update_settings(lambda s: replace(s, engines=replace(s.engines, order=order, disabled=disabled)))
+
+    def move(step):
+        row = engines.currentRow()
+        target = row + step
+        if row < 0 or not 0 <= target < engines.count():
+            return
+        item = engines.takeItem(row)
+        engines.insertItem(target, item)
+        engines.setCurrentRow(target)
+        store()
+
+    up, down, default = QPushButton("Move up"), QPushButton("Move down"), QPushButton("Default order")
+    up.clicked.connect(lambda: move(-1))
+    down.clicked.connect(lambda: move(1))
+    default.clicked.connect(lambda: context.update_settings(
+        lambda s: replace(s, engines=replace(s.engines, order=SITE_ENGINES, disabled=()))))
+    f.add(flow(up, down, default))
+
+    def show(s):
+        engines.blockSignals(True)
+        try:
+            selected = engines.currentItem().data(Qt.UserRole) if engines.currentItem() else None
+            engines.clear()
+            for position, name in enumerate(s.engines.full_order(), 1):
+                item = QListWidgetItem(f"{position}. {ENGINE_LABELS[name]}  —  {ENGINE_HINTS[name]}")
+                item.setData(Qt.UserRole, name)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
+                item.setFlags(item.flags() & ~Qt.ItemIsDropEnabled)
+                item.setCheckState(Qt.Unchecked if name in s.engines.disabled else Qt.Checked)
+                item.setSizeHint(QSize(0, 36))
+                engines.addItem(item)
+                if name == selected:
+                    engines.setCurrentItem(item)
+            engines.setFixedHeight(36 * engines.count() + 6)
+        finally:
+            engines.blockSignals(False)
+
+    engines.itemChanged.connect(lambda _item: store())
+    engines.model().rowsMoved.connect(lambda *_args: store())
+    f._refreshers.append(show)
+
+    f.add_section("Updates")
+    in_use = {engine.name: f.add_hint("") for engine in engine_updates.ENGINES}
+    status = f.add_hint("")
+    status.hide()
+    messages = {}
+
+    def show_bundles(_s=None):
+        for engine in engine_updates.ENGINES:
+            bundle = engine_updates.current(engine)
+            in_use[engine.name].setText(
+                f"{engine.title}: {bundle.label}." if bundle else f"{engine.title}: missing from this build.")
+
+    f._refreshers.append(show_bundles)
+    f.check("Update the novel-downloader rules automatically", "engines.nd_auto_update")
+    f.check("Update the WebToEpub parsers automatically", "engines.webtoepub_auto_update")
+    f.add_hint("Both are off by default and checked once a day. Updates come from NovelDB's GitHub releases, "
+               "where a daily job rebuilds each engine from its official repository and checks that it loads "
+               "before publishing it. A downloaded update that fails to load is set aside.")
+    check_now = QPushButton("Check for updates now")
+    check_feedback = ButtonFeedback(check_now)
+    pending = set()
+
+    def check():
+        messages.clear()
+        pending.update(engine.name for engine in engine_updates.ENGINES)
+        check_feedback.busy("Checking")
+        context.check_engine_updates()
+
+    def checked(result):
+        show_bundles()
+        messages[result.engine.name] = result
+        status.setText("\n".join(r.message for r in messages.values()))
+        status.show()
+        pending.discard(result.engine.name)
+        if not pending and check_feedback._spin.isActive():
+            results = list(messages.values())
+            failed = any(r.status == "failed" for r in results)
+            updated = any(r.status == "updated" for r in results)
+            check_feedback.done(not failed, "Failed" if failed else "Updated" if updated else "Up to date")
+
+    check_now.clicked.connect(check)
+    context.engineUpdateChecked.connect(checked)
+    f.add(flow(check_now))
+
+    def opted_in():
+        now = {e.name for e in engine_updates.ENGINES if context.settings.engines.auto_update(e.name)}
+        if now - opted_in.before:
+            context.check_engine_updates(automatic=True)
+        opted_in.before = now
+
+    opted_in.before = {e.name for e in engine_updates.ENGINES if context.settings.engines.auto_update(e.name)}
+    context.settingsChanged.connect(opted_in)
+    f.add_hint("novel-downloader is made by the 404 Novel Project (AGPL-3.0): "
+               "https://github.com/404-novel-project/novel-downloader. WebToEpub is made by David Teviotdale "
+               "and contributors (GPL-3.0): https://github.com/dteviot/WebToEpub")
+    f.finish()
+    return f
+
+
 def images_form(context: AppContext, panel: bool = False) -> Form:
     """Image options in two columns: compression on the left; animations, cover and comics on the right."""
     f = Form(context, "Images", panel=panel)
@@ -740,6 +876,7 @@ CATEGORIES = (
     ("npia login", npia_form),
     ("Per-source overrides", OverridesForm),
     ("Source options", sources_form),
+    ("Site engines", engines_form),
     ("Text and PDF", text_form),
     ("Upload and share", upload_form),
     ("Catalog site", catalog_form),

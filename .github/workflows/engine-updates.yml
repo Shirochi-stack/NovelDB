@@ -1,0 +1,155 @@
+name: Engine Updates
+
+# Rebuilds the two rule engines from their official repositories every day, checks that each loads
+# (and parses a fixture book) in Chromium, and publishes them to the "engines" release:
+#   novel-downloader  https://github.com/404-novel-project/novel-downloader  (AGPL-3.0)
+#   WebToEpub         https://github.com/dteviot/WebToEpub                  (GPL-3.0)
+# NovelDB apps download them from there only when the user turns on that engine's updates in
+# Settings. The release is a prerelease that is never marked latest, so app release workflows
+# ignore it.
+
+on:
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: 'Which engine'
+        type: choice
+        options: [both, novel-downloader, webtoepub]
+        default: both
+      force:
+        description: 'Publish even when upstream and the build patch are unchanged'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: engine-updates
+  cancel-in-progress: false
+
+env:
+  TAG: engines
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Make sure the release exists
+        run: |
+          if ! gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --target "${{ github.event.repository.default_branch }}" \
+              --title "Site engine updates" --prerelease --latest=false \
+              --notes "Rule-engine updates for NovelDB, rebuilt daily from [novel-downloader](https://github.com/404-novel-project/novel-downloader) (AGPL-3.0) and [WebToEpub](https://github.com/dteviot/WebToEpub) (GPL-3.0). The apps download these only when an engine's updates are turned on in Settings. This is not an app release."
+          fi
+
+  update:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: novel-downloader
+            script: scripts/update_nd_rules.py
+            ref: master
+            out: --out build/nd --no-sanitize
+            manifest: novel-downloader-manifest.json
+            prefix: rules-lib-
+          - engine: webtoepub
+            script: scripts/update_webtoepub.py
+            ref: ExperimentalTabMode
+            out: --out build/webtoepub
+            manifest: webtoepub-manifest.json
+            prefix: webtoepub-lib-
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Skip engines not asked for
+        id: wanted
+        run: |
+          want="${{ inputs.engine || 'both' }}"
+          if [ "$want" = both ] || [ "$want" = "${{ matrix.engine }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.wanted.outputs.run == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.wanted.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Decide whether anything changed
+        id: decide
+        if: steps.wanted.outputs.run == 'true'
+        run: |
+          key=$(python ${{ matrix.script }} --ref "${{ matrix.ref }}" --print-key)
+          published=""
+          if gh release download "$TAG" --repo "$REPO" --pattern "${{ matrix.manifest }}" --dir current 2>/dev/null; then
+            published=$(python -c "import json; m = json.load(open('current/${{ matrix.manifest }}')); print(m['commit'] + '-' + m['shim'])")
+          fi
+          echo "Upstream and patch: $key"
+          echo "Published:          ${published:-none}"
+          if [ "$key" = "$published" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.engine }} $key is already published." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.decide.outputs.publish == 'true' && matrix.engine == 'novel-downloader'
+        with:
+          node-version: '22'
+
+      - name: Install Chromium for the checks
+        if: steps.decide.outputs.publish == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright requests pytest
+          python -m playwright install --with-deps chromium
+
+      - name: Build and load the bundle
+        if: steps.decide.outputs.publish == 'true'
+        run: python ${{ matrix.script }} --ref "${{ matrix.ref }}" --validate ${{ matrix.out }} --release-dir out
+
+      - name: Check it parses a book
+        if: steps.decide.outputs.publish == 'true' && matrix.engine == 'webtoepub'
+        env:
+          WEBTOEPUB_DIR: build/webtoepub
+        run: python -m pytest tests/test_webtoepub_bundle.py -q
+
+      - name: Publish
+        if: steps.decide.outputs.publish == 'true'
+        run: |
+          manifest="out/${{ matrix.manifest }}"
+          file=$(python -c "import json; print(json.load(open('$manifest'))['file'])")
+          # The bundle first, then the manifest that points at it.
+          gh release upload "$TAG" "out/$file" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$manifest" --clobber --repo "$REPO"
+          # Keep the newest two bundles, so a download that started a moment ago still finishes.
+          gh release view "$TAG" --repo "$REPO" --json assets \
+            -q '.assets | map(select(.name | startswith("${{ matrix.prefix }}"))) | sort_by(.createdAt) | .[:-2][] | .name' |
+          while read -r old; do
+            gh release delete-asset "$TAG" "$old" --repo "$REPO" -y
+          done
+          python - "$manifest" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import sys
+          m = json.load(open(sys.argv[1]))
+          sites = m.get("sites") or m.get("hosts")
+          print(f"Published {m['engine']} {m.get('version', '')} {m['commit'][:12]} ({m['date']}): "
+                f"{sites} sites, {m['size'] / 1e6:.1f} MB")
+          PY

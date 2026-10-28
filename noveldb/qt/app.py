@@ -248,6 +248,7 @@ def main(argv=None) -> int:
         secrets = context.settings.secrets
         if context.settings.npia.auto_login and ((secrets.email and secrets.password) or secrets.loginkey):
             context.sign_in()
+        context.check_engine_updates(automatic=True)  # only engines the user opted in to
         if context.runner.interrupted or (context.runner.paused and context.runner.jobs):
             window.statusBar().showMessage("Downloads from the last session are in the Queue (press Start).", 10000)
 

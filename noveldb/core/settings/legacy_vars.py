@@ -126,6 +126,7 @@ def external_values(
         "_var_long_image_layout": images.long_image_layout,
         "_var_kobo_horizontal_layout": sources.kobo_horizontal_layout,
         "_var_regular_browser": sources.regular_browser,
+        "_var_engine_order": list(settings.engines.enabled()),
         "_var_ntk_npia_cover": sources.ntk_npia_cover,
         "_var_syosetu_amazon_cover": sources.nweb_store_cover,
         "_var_kpage_skip_last_page": sources.kpage.skip_last_page,
