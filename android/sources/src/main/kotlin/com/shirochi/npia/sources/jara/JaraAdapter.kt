@@ -39,6 +39,7 @@ import kotlin.coroutines.coroutineContext
 class JaraAdapter : SourceAdapter {
     override val id = SourceId.JARA
     override val tier = SourceTier.HTTP
+    override val sites: Set<String> = setOf(HOST)
 
     private val session = JaraSession()
 

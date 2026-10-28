@@ -25,6 +25,7 @@ import org.jsoup.Jsoup
 class SfcAdapter : SourceAdapter {
     override val id = SourceId.SFC
     override val tier = SourceTier.HTTP
+    override val sites: Set<String> = setOf(BOOK_HOST)
 
     override fun matches(url: String): Boolean = Companion.matches(url)
 

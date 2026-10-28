@@ -60,6 +60,7 @@ private class KpageApiResult(val status: Int, val body: ByteArray)
 class KpageAdapter : SourceAdapter {
     override val id = SourceId.KPAGE
     override val tier = SourceTier.LIGHT_BROWSER
+    override val sites: Set<String> = setOf(KpageHosts.SITE_HOST)
 
     override fun matches(url: String): Boolean {
         val uri = runCatching { URI(url.trim()) }.getOrNull() ?: return false

@@ -38,6 +38,7 @@ class NpiaAdapter(
 ) : SourceAdapter {
     override val id = SourceId.NPIA
     override val tier = SourceTier.HTTP
+    override val sites: Set<String> = setOf(NpiaParser.HOST)
 
     /** Key from the last `parseBook`; chapters fall back to the saved key when it is unset. */
     @Volatile private var sessionKey: String? = null

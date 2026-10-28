@@ -39,6 +39,7 @@ import kotlin.random.Random
 class FenrirAdapter : SourceAdapter {
     override val id = SourceId.FENRIR
     override val tier = SourceTier.LIGHT_BROWSER
+    override val sites: Set<String> = FenrirParsing.hosts
 
     override fun matches(url: String): Boolean = FenrirParsing.isFenrirUrl(url)
 

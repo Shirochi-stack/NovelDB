@@ -34,6 +34,7 @@ import java.net.URI
 class KoboAdapter : SourceAdapter {
     override val id = SourceId.KOBO
     override val tier = SourceTier.LIGHT_BROWSER
+    override val sites: Set<String> = KoboParsing.SITES
 
     override fun matches(url: String): Boolean = KoboParsing.matches(url)
 

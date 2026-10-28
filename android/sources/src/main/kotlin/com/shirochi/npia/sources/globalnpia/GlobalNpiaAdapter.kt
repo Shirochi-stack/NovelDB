@@ -61,6 +61,7 @@ class GlobalNpiaAdapter(
 ) : SourceAdapter {
     override val id = SourceId.GLOBAL_NPIA
     override val tier = SourceTier.LIGHT_BROWSER
+    override val sites: Set<String> = setOf(GlobalNpiaParsing.HOST)
 
     private val auth = GlobalNpiaAuth()
 

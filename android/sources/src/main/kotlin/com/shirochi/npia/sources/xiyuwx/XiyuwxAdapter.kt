@@ -29,6 +29,7 @@ import kotlin.random.Random
 class XiyuwxAdapter : SourceAdapter {
     override val id = SourceId.XIYUWX
     override val tier = SourceTier.LIGHT_BROWSER
+    override val sites: Set<String> = XiyuwxParser.hosts
 
     override fun matches(url: String): Boolean = XiyuwxParser.matches(url)
 
