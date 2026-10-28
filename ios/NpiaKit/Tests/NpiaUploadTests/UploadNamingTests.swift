@@ -61,18 +61,24 @@ final class UploadNamingTests: UploadTestCase {
         XCTAssertEqual(UploadNaming.asciiTitle("My Book #1 (v2)"), "My Book #1 (v2)")
         XCTAssertEqual(UploadNaming.asciiTitle("Title (한글)"), "Title")
         XCTAssertEqual(UploadNaming.asciiTitle("시리즈 Vol 12 완결"), "Vol 12")
+        // Digits may stay next to the letters that make the name.
+        XCTAssertEqual(UploadNaming.asciiTitle("ABC 100일"), "ABC 100")
     }
 
-    func testASCIITitleNeedsThreeLettersOrDigits() {
+    func testASCIITitleNeedsThreeLettersNotDigits() {
         // The cases from the phone: Korean titles used to shrink to almost nothing.
         XCTAssertNil(UploadNaming.asciiTitle("소설 제목"))
         XCTAssertNil(UploadNaming.asciiTitle("-_"))
         XCTAssertNil(UploadNaming.asciiTitle(""))
         XCTAssertNil(UploadNaming.asciiTitle("VR게임"), "two letters are not enough")
         XCTAssertNil(UploadNaming.asciiTitle("a-b"), "separators do not count")
-        XCTAssertEqual(UploadNaming.asciiTitle("VR 게임 7"), "VR 7")
-        XCTAssertEqual(UploadNaming.asciiTitle("100화"), "100")
-        XCTAssertEqual(UploadNaming.minimumTitleCharacters, 3)
+        XCTAssertNil(UploadNaming.asciiTitle("VR 게임 7"), "two letters and a digit are not enough")
+        // Digits alone do not make a name: a Korean title that starts with a number must not become "100".
+        XCTAssertNil(UploadNaming.asciiTitle("100화"))
+        XCTAssertNil(UploadNaming.asciiTitle("100일 후에 죽는 악당"))
+        XCTAssertNil(UploadNaming.asciiTitle("419368"))
+        XCTAssertNil(UploadNaming.asciiTitle("12 34 56"))
+        XCTAssertEqual(UploadNaming.minimumTitleLetters, 3)
     }
 
     func testASCIITitleIsCutAtOneHundredCharacters() throws {
@@ -87,8 +93,15 @@ final class UploadNamingTests: UploadTestCase {
         XCTAssertEqual(asciiUploadName(url("Solo Leveling 나 혼자만 레벨업.epub"), id: "npia_419368"), "Solo Leveling.epub")
         XCTAssertEqual(asciiUploadName(url("소설 제목.epub"), id: "npia_419368"), "npia_419368.epub")
         XCTAssertEqual(asciiUploadName(url("VR게임.epub"), id: "npia_419368"), "npia_419368.epub")
-        XCTAssertEqual(asciiUploadName(url("100화.txt"), id: "npia_419368"), "100.txt")
-        XCTAssertEqual(asciiUploadName(url("a.epub"), id: "npia_419368"), "npia_419368.epub", "an ASCII title this short is replaced too")
+        // Digits plus Korean: the number alone is not a name.
+        XCTAssertEqual(asciiUploadName(url("100화.txt"), id: "npia_419368"), "npia_419368.txt")
+        XCTAssertEqual(asciiUploadName(url("100일 후에 죽는 악당.epub"), id: "npia_419368"), "npia_419368.epub")
+        // Digits plus Latin letters: the Latin part makes the name, digits next to it stay.
+        XCTAssertEqual(asciiUploadName(url("100일 Solo Leveling.epub"), id: "npia_419368"), "100 Solo Leveling.epub")
+        XCTAssertEqual(asciiUploadName(url("Day 100 후에.epub"), id: "npia_419368"), "Day 100.epub")
+        // A plain number (naming by id) or a very short ASCII title is replaced too.
+        XCTAssertEqual(asciiUploadName(url("419368.epub"), id: "npia_419368"), "npia_419368.epub")
+        XCTAssertEqual(asciiUploadName(url("a.epub"), id: "npia_419368"), "npia_419368.epub")
         XCTAssertEqual(asciiUploadName(url("NovelDB_3_EPUBs.zip"), id: nil), "NovelDB_3_EPUBs.zip")
         // What the Android phone showed (".epub" with the Korean part stripped, "-_", "VR_"): none
         // of these reaches a host as a name.
@@ -97,13 +110,7 @@ final class UploadNamingTests: UploadTestCase {
         XCTAssertEqual(asciiUploadName(url("_.epub"), id: "npia_9"), "npia_9.epub")
     }
 
-    func testRFC5987Encoding() {
-        XCTAssertEqual(UploadNaming.rfc5987("소설 \"1\".epub"), "%EC%86%8C%EC%84%A4%20%221%22.epub")
-        XCTAssertEqual(UploadNaming.rfc5987("a-b_c.d~e"), "a-b_c.d~e")
-        XCTAssertEqual(UploadNaming.rfc5987("50%"), "50%25")
-    }
-
-    func testMultipartHeaderCarriesBothNames() throws {
+    func testMultipartHeaderCarriesOnlyTheASCIIName() throws {
         let file = try makeFile("소설 제목.epub", bytes: 10)
         var ctx = context()
         ctx.nameID = "419368"
@@ -111,16 +118,17 @@ final class UploadNamingTests: UploadTestCase {
         form.boundary = "B"
         let head = String(decoding: form.head, as: UTF8.self)
         XCTAssertTrue(head.contains(#"filename="419368.epub""#), head)
-        XCTAssertTrue(
-            head.contains("filename*=UTF-8''%EC%86%8C%EC%84%A4%20%EC%A0%9C%EB%AA%A9.epub"), head
-        )
+        // A host that reads filename* would prefer it and strip the Korean: it is never sent.
+        XCTAssertFalse(head.contains("filename*"), head)
+        XCTAssertFalse(head.contains("%EC%86%8C"), head)
+        XCTAssertNil(head.range(of: "소설"), "the real name does not appear in the header")
     }
 
-    func testPlainNamesGetNoExtendedParameter() throws {
+    func testPlainNamesAreSentAsTheyAre() throws {
         let file = try makeFile("book.epub", bytes: 10)
         let head = String(decoding: context().form(fileField: "file", file: file).head, as: UTF8.self)
         XCTAssertTrue(head.contains(#"filename="book.epub""#))
-        XCTAssertFalse(head.contains("filename*="))
+        XCTAssertFalse(head.contains("filename*"))
     }
 
     func testHostsReceiveTheASCIINameButTheResultKeepsTheTitle() async throws {
@@ -135,7 +143,7 @@ final class UploadNamingTests: UploadTestCase {
         if let body = StubURLProtocol.seen.first?.body {
             let text = String(decoding: body, as: UTF8.self)
             XCTAssertNotNil(text.range(of: #"filename="419368.epub""#))
-            XCTAssertNotNil(text.range(of: "filename*=UTF-8''"))
+            XCTAssertNil(text.range(of: "filename*"))
         }
     }
 

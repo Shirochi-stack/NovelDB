@@ -1,8 +1,8 @@
 import Foundation
 
 /// Names for uploaded files. Hosts such as temp.sh drop every non-ASCII character from the
-/// multipart file name, so a Korean title arrives as ".epub". Those files go up as
-/// "<id>.<ext>" instead, with the real name sent alongside for hosts that understand it.
+/// multipart file name, so a Korean title arrives as ".epub". A file goes up under the ASCII part
+/// of its title, or `<source>_<id>.<ext>` when that part is too short; only that ASCII name is sent.
 public enum UploadNaming {
     /// Letters, digits, "-" and "_" of `value` (other runs become "-"), at most 60 characters;
     /// nil when nothing usable is left.
@@ -41,14 +41,15 @@ public enum UploadNaming {
         return prefix + "_" + id
     }
 
-    /// The fewest ASCII letters and digits a title must keep to name an upload.
-    public static let minimumTitleCharacters = 3
+    /// The fewest ASCII letters (A-Z, a-z) a title must keep to name an upload. Digits do not
+    /// count, or a Korean title that starts with a number would be uploaded as just "100.epub".
+    public static let minimumTitleLetters = 3
 
     /// The ASCII-safe form of a title (without its extension): characters outside printable
     /// ASCII become spaces, empty brackets and loose punctuation at the ends are dropped, runs of
     /// spaces collapse, and it is cut at 100 characters. nil when fewer than
-    /// `minimumTitleCharacters` ASCII letters or digits are left, so a Korean title never turns
-    /// into ".epub" or "-_".
+    /// `minimumTitleLetters` ASCII letters are left (digits do not count), so a Korean title
+    /// never turns into ".epub", "-_" or a bare number.
     public static func asciiTitle(_ title: String) -> String? {
         var text = ""
         var lastWasSpace = false
@@ -77,14 +78,8 @@ public enum UploadNaming {
         let loose = CharacterSet(charactersIn: " -_.,;:~")
         text = text.trimmingCharacters(in: loose)
         if text.count > 100 { text = String(text.prefix(100)).trimmingCharacters(in: loose) }
-        let kept = text.unicodeScalars.filter { $0.isASCII && CharacterSet.alphanumerics.contains($0) }.count
-        return kept >= minimumTitleCharacters ? text : nil
-    }
-
-    /// RFC 5987 `ext-value` percent-encoding for the `filename*` parameter.
-    public static func rfc5987(_ value: String) -> String {
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$&+-.^_`|~")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let letters = text.unicodeScalars.filter { ($0.value >= 0x41 && $0.value <= 0x5A) || ($0.value >= 0x61 && $0.value <= 0x7A) }.count
+        return letters >= minimumTitleLetters ? text : nil
     }
 }
 
@@ -95,8 +90,8 @@ func isPlainPrintableASCII(_ name: String) -> Bool {
 
 /// The name hosts get in `filename="..."`. A title that is plain ASCII is kept as it is; one
 /// with other characters in it keeps its ASCII part (`UploadNaming.asciiTitle`); a title with
-/// fewer than three ASCII letters or digits left becomes `id` (for example `npia_419368`), else
-/// "book". The extension is kept when it is ASCII.
+/// fewer than three ASCII letters left (digits do not count) becomes `id` (for example
+/// `npia_419368`), else "book". The extension is kept when it is ASCII.
 func asciiUploadName(_ file: URL, id: String?) -> String {
     let original = uploadName(file)
     let ext = file.pathExtension.precomposedStringWithCanonicalMapping
@@ -119,8 +114,8 @@ extension UploadContext {
         asciiUploadName(file, id: nameID)
     }
 
-    /// A multipart form whose file part carries the host-safe name and the original name.
+    /// A multipart form whose file part carries the host-safe ASCII name.
     func form(fileField: String, file: URL, fields: [(name: String, value: String)] = []) -> MultipartForm {
-        MultipartForm(fileField: fileField, file: file, fileName: hostFileName(for: file), displayName: uploadName(file), fields: fields)
+        MultipartForm(fileField: fileField, file: file, fileName: hostFileName(for: file), fields: fields)
     }
 }

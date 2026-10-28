@@ -11,8 +11,7 @@ final class MultipartTests: UploadTestCase {
         let size = try form.write(to: out, chunkSize: 1024)
 
         let expectedHead = "--B\r\nContent-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n"
-            + "--B\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"book.epub\"; "
-            + "filename*=UTF-8''%EC%86%8C%EC%84%A4%20%221%22.epub\r\n"
+            + "--B\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"book.epub\"\r\n"
             + "Content-Type: application/octet-stream\r\n\r\n"
         var expected = Data(expectedHead.utf8)
         expected.append(try Data(contentsOf: file))
