@@ -63,6 +63,14 @@ interface WebPageDriving {
      */
     suspend fun exposeTransport(handler: suspend (String) -> String) {}
 
+    /**
+     * Presents the page as a desktop browser: `userAgent` (null keeps the web view's own) and a layout
+     * viewport of `width` x `height` CSS pixels. Call before `load`; it applies to every later load of
+     * this page. Sites that serve a phone layout (or no reader at all) to a phone need it. The default
+     * ignores the request.
+     */
+    suspend fun emulateDesktop(userAgent: String?, width: Int, height: Int) {}
+
     suspend fun close()
 }
 

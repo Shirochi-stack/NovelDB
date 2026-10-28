@@ -191,6 +191,7 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
         pageUrl = url
         reported = url to title
         showMode()
+        showCart(model.cart.items.value)
     }
 
     private fun bareHost(url: String) = Uri.parse(url).host.orEmpty().lowercase().removePrefix("www.")
@@ -217,7 +218,10 @@ class CatalogWeb(context: Context, private val model: AppViewModel) {
     }
 
     fun showCart(items: List<CartItem>) {
-        val urls = JsonArray(items.map { JsonPrimitive(it.url) })
+        val known = items.mapTo(LinkedHashSet()) { it.url }
+        // The cart keeps a phone-site book under its desktop address; the page's own address counts too.
+        pageUrl?.let { if (model.cart.contains(items, it)) known += it }
+        val urls = JsonArray(known.map { JsonPrimitive(it) })
         view.evaluateJavascript("window.NovelDBApp && window.NovelDBApp.setCart($urls)", null)
     }
 

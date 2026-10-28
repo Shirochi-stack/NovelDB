@@ -16,6 +16,7 @@ import com.shirochi.npia.core.SourceException
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.SourceTier
 import com.shirochi.npia.core.UnavailableWebEngine
+import com.shirochi.npia.sources.qdn.QdnSite
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -25,6 +26,20 @@ import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
 class SourceCatalogTest {
+    @Test
+    fun mobileAndDesktopQdnLinksAreTheSameSourceAndTheSameBook() {
+        val desktop = "https://www.${QdnSite.DOMAIN}/book/42/"
+        val mobile = "https://m.${QdnSite.DOMAIN}/book/42/?source=m_jump"
+        assertEquals(SourceId.QDN, SourceCatalog.adapterFor(mobile)?.id)
+        assertEquals(SourceId.QDN, SourceCatalog.adapterFor(desktop)?.id)
+        assertEquals(desktop, SourceCatalog.canonicalUrl(mobile))
+        assertEquals(desktop, SourceCatalog.canonicalUrl(desktop))
+        // With the other engines on, the phone host is still only the built-in scraper's: they do not list it.
+        assertEquals(SourceId.QDN, SourceCatalog.resolve(mobile)?.id)
+        assertEquals("https://example.com/x", SourceCatalog.canonicalUrl("https://example.com/x"))
+        assertNull(SourceCatalog.adapterFor("https://m.${QdnSite.DOMAIN}/"))
+    }
+
     @Test
     fun everySourceHasExactlyOneAdapter() {
         val ids = SourceCatalog.adapters.map { it.id }

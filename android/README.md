@@ -46,6 +46,14 @@ The app checks the releases of this repository for a newer build of itself and i
 - **Setting.** Settings > App updates > "Check for app updates automatically", on by default, `app_update_check` in the desktop `config.json` and `appUpdateCheck` in the app settings file. The check runs when the app starts or returns to the foreground, at most once per 24 hours (the last check time is in app preferences, not in the settings). "Check for app updates now" always checks.
 - **Testing against a local server (debug builds only).** Settings > App updates > "Update server", or `adb shell am start -n com.shirochi.npiamobile/com.shirochi.npia.app.MainActivity --es noveldb_update_base http://10.0.2.2:8000` (an empty value goes back to GitHub). The address replaces `https://github.com/Shirochi-stack/NovelDB/releases`, so serve `<address>/latest/download/update-android.json` and `<address>/download/<tag>/<name>`. Plain http is allowed for `10.0.2.2`, `localhost` and `127.0.0.1` only (`app/src/debug`); on a phone use `adb reverse tcp:8000 tcp:8000` and `http://localhost:8000`. Build the app with a small `-PnoveldbBuild` and the update with a larger one, both signed with the same key.
 
+## Browser-driven sources (qdn, rbooks) and Enter App
+
+qdn and rbooks need a real rendering engine and the user's own sign-in. Their page-side logic is one JavaScript file, `sources/src/main/resources/com/shirochi/npia/sources/hard/hard-sources.js`, that the iOS app runs unchanged; the Kotlin side only navigates, keeps the session, paces loads and builds results. The contract (entry points, JSON shapes, resources, session handling, what differs from the desktop) is [`docs/hard-sources.md`](docs/hard-sources.md).
+
+- **Enter App** (Settings > Enter App, and a button on the Add screen) signs in to sfc (username and password through the app API, or a pasted app cookie) and, in the app's own browser, to qdn and rbooks. Downloads use the browser's cookies, and a saved copy of the login cookies is restored if the cookie store loses them.
+- qdn bought chapters are decrypted by the site's own script, read off the screen and matched against a bundled reference font (`hard/qdn/`). Chapters the account has not bought are refused, never bypassed.
+- The JavaScript is tested in Playwright Chromium from the repository root: `python -m pytest tests/test_hard_sources_js.py` (needs `playwright`, `fonttools`, `brotli`; the fixtures are in `tests/fixtures/`). The Kotlin side has scripted-page tests in `:sources`.
+
 ## Porting from iOS
 
 Each placeholder carries a `TODO(<workstream>)`. The finished Swift code on the `ios/integration` branch is the closest reference: port its logic and test fixtures, and use the desktop Python as the source of truth when the two differ.

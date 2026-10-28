@@ -61,6 +61,9 @@ class SfcAdapter : SourceAdapter {
 
         fun hasAppSession(secrets: SecretStore): Boolean = SfcAppApi.savedCookie(secrets) != null
 
+        /** Forgets the saved app session. */
+        fun signOut(secrets: SecretStore) = secrets.set(SfcAppApi.cookieKey, null)
+
         fun book(indexHtml: String, infoHtml: String, bookId: String, infoUrl: String, indexUrl: String): BookInfo {
             val index = Jsoup.parse(indexHtml, indexUrl)
             val info = Jsoup.parse(infoHtml, infoUrl)

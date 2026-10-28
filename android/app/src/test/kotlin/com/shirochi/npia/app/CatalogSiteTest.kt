@@ -69,9 +69,14 @@ class CatalogSiteTest {
         assertEquals(CatalogKind.SUPPORTED, catalogKind("https://www.$qdn/rank/", engines))
         assertFalse(catalogPageMode("https://www.$qdn/rank/", engines, true).download)
         assertFalse(catalogPageMode("https://www.$qdn/", engines, true).download)
-        // The rules switched off: nobody lists the site any more.
-        val noRules = EngineSettings(disabled = listOf(SiteEngine.NOVEL_DOWNLOADER.raw, SiteEngine.WEBTOEPUB.raw))
-        assertEquals(CatalogKind.OTHER, catalogKind("https://www.$qdn/", noRules))
+        // qdn's own scraper reads phone-site book pages, which the rules do not list.
+        assertTrue(catalogPageMode("https://m.$qdn/book/1035420986/", engines, true).download)
+        assertFalse(catalogPageMode("https://m.$qdn/", engines, true).download)
+        // The scraper and the rules switched off: the site is still a supported one (no renamed links),
+        // but only WebToEpub is left, it does not list the site, so no page is offered.
+        val onlyParsers = EngineSettings(disabled = listOf(SiteEngine.NATIVE.raw, SiteEngine.NOVEL_DOWNLOADER.raw))
+        assertEquals(CatalogKind.SUPPORTED, catalogKind("https://www.$qdn/", onlyParsers))
+        assertFalse(catalogPageMode("https://m.$qdn/book/1035420986/", onlyParsers, true).download)
     }
 
     @Test
