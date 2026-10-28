@@ -12,9 +12,16 @@ public struct MaruAdapter: SourceAdapter {
 
     public init() {}
 
+    /// The numbered domain keeps moving, so the site is recognised by its name pattern.
+    static let hostPattern = "^(?:www\\.)?marumaru\\d*\\.[a-z]{2,}$"
+
+    public static func ownsSite(_ host: String) -> Bool {
+        host.range(of: hostPattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
     /// `(workID, episodeID)` for a novel or episode URL.
     static func parts(_ url: URL) -> (work: String, episode: String)? {
-        guard url.host?.range(of: "^(?:www\\.)?marumaru\\d*\\.[a-z]{2,}$", options: [.regularExpression, .caseInsensitive]) != nil else {
+        guard let host = url.host, ownsSite(host) else {
             return nil
         }
         let groups = HTTPSourceSupport.allMatches("^/novel/(\\d+)(?:/(\\d+))?", in: url.path).first

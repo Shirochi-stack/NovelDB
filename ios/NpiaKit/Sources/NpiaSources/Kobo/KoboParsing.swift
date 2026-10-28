@@ -56,6 +56,8 @@ struct KoboSnapshot: Codable, Sendable {
 
 /// Pure helpers for the kobo source (port of `is_kobo`, `_kobo_*` and `KoboWebReader`).
 enum KoboParsing {
+    /// The store sites the adapter reads (the reader host only opens from them).
+    static let sites: Set<String> = ["kobo.com", "books.rakuten.co.jp"]
     static let readerHost = "readnow.kobo.com"
     static let defaultTOCBase = "OEBPS/Text/toc.xhtml"
 

@@ -9,6 +9,7 @@ import NpiaCore
 public struct NpiaAdapter: SourceAdapter {
     public static let id: SourceID = .npia
     public static let tier: SourceTier = .http
+    public static let sites: Set<String> = [NpiaParser.host]
 
     var cookies: any NpiaCookieSetting
     /// Seconds to wait before retry `attempt` (1-based); tests pass zero.

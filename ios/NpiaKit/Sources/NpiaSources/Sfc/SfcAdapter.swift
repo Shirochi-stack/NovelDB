@@ -9,6 +9,7 @@ import SwiftSoup
 public struct SfcAdapter: SourceAdapter {
     public static let id: SourceID = .sfc
     public static let tier: SourceTier = .http
+    public static let sites: Set<String> = [bookHost]
 
     static let bookHost = "book.\u{73}\u{66}\u{61}\u{63}\u{67}.com"
     /// Byte sizes of the placeholder image served instead of a VIP chapter image.
