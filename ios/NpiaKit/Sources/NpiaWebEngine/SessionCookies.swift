@@ -10,10 +10,15 @@ import WebKit
 /// A cookie found in several places counts once; the Browser tab's store wins, because that is where
 /// the user signs in.
 public struct WebKitSessionCookies: SessionCookieAccess {
-    public init() {}
+    private let persistent: Bool
+
+    /// - Parameter persistent: whether the engine's profiles are kept on disk (the app's are).
+    public init(persistent: Bool = true) {
+        self.persistent = persistent
+    }
 
     public func cookies(for url: URL) async -> [String: String] {
-        await Self.read(url)
+        await Self.read(url, persistent: persistent)
     }
 
     public func setCookie(name: String, value: String, url: URL, domain: String) async {
@@ -21,13 +26,20 @@ public struct WebKitSessionCookies: SessionCookieAccess {
     }
 
     public func removeCookie(name: String, url: URL) async {
-        await Self.delete(name: name, url: url)
+        await Self.delete(name: name, url: url, persistent: persistent)
     }
 
+    /// The Browser tab's store first, then the scrapers' (a profile's store is opened here if nothing has
+    /// opened it yet in this run, so a login a scraper page left on disk is looked at and removed too), then
+    /// any other profile opened so far.
     @MainActor
-    private static func stores() -> [WKWebsiteDataStore] {
+    private static func stores(persistent: Bool) -> [WKWebsiteDataStore] {
         let browser = BrowserProfile.dataStore()
-        return [browser] + WKWebEngine.stores.values.filter { $0 !== browser }
+        var found = [browser]
+        let scrapers = WKWebEngine.dataStore(for: WebProfile.external, persistent: persistent)
+        if scrapers !== browser { found.append(scrapers) }
+        for store in WKWebEngine.stores.values where !found.contains(where: { $0 === store }) { found.append(store) }
+        return found
     }
 
     /// Whether a browser would send `cookie` to `url`.
@@ -39,9 +51,9 @@ public struct WebKitSessionCookies: SessionCookieAccess {
     }
 
     @MainActor
-    private static func read(_ url: URL) async -> [String: String] {
+    private static func read(_ url: URL, persistent: Bool) async -> [String: String] {
         var found: [String: String] = [:]
-        for store in stores() {
+        for store in stores(persistent: persistent) {
             for cookie in await store.httpCookieStore.allCookies() where applies(cookie, to: url) {
                 if !cookie.value.isEmpty, found[cookie.name] == nil { found[cookie.name] = cookie.value }
             }
@@ -60,9 +72,9 @@ public struct WebKitSessionCookies: SessionCookieAccess {
     }
 
     @MainActor
-    private static func delete(name: String, url: URL) async {
+    private static func delete(name: String, url: URL, persistent: Bool) async {
         let host = url.host ?? ""
-        for store in stores() {
+        for store in stores(persistent: persistent) {
             for cookie in await store.httpCookieStore.allCookies() where cookie.name == name && CookieDomain.covers(cookie.domain, host: host) {
                 await store.httpCookieStore.deleteCookie(cookie)
             }

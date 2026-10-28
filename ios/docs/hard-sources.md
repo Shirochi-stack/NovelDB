@@ -261,4 +261,75 @@ The status comes from the cookies (`SiteSessions.status`); it does not ask the s
 
 ## iOS
 
-(written with the CI results)
+The iOS app (`ios/NpiaKit`, branch `ios/hard-sources`) follows the design above. This section says where things are, what WebKit needed beyond the contract, and what was verified.
+
+### Where things are
+
+| What | Where (under `ios/NpiaKit/Sources/`) |
+|---|---|
+| The shared script and its resources | `NpiaSources/Hard/HardResources/` (`hard-sources.js`, `qdn/NotoSansCJKsc-Regular-hanzi.otf`, `qdn/OFL.txt`, `qdn/zh_char_frequency.txt`, `qdn/qdn_verified_maps.json`), bundled as a SwiftPM resource folder |
+| Loading and calling the script | `NpiaSources/Hard/HardScripts.swift` (`ensureHard`, `hardObject`, `hardTask`, `HardJSON`), `HardSupport.swift` (pacer, once-per-book prompts, page factory, concurrency) |
+| qdn | `NpiaSources/Qdn/` (`QdnSite`, `QdnModels`, `QdnDecoder`, `QdnAdapter`) |
+| rbooks | `NpiaSources/Rbooks/` (`RbooksSite`, `RbooksModels`, `RbooksAdapter`) |
+| Sessions | `NpiaSources/Session/` (`SiteSessions`, `HardSessions`), `NpiaCore/SessionCookies.swift` (`SessionCookieAccess`, `CookieDomain`, `HTTPCookieStorageAccess`), `NpiaWebEngine/SessionCookies.swift` (`WebKitSessionCookies`) |
+| Desktop identity in WKWebView | `NpiaWebEngine/WKWebEngine.swift` (`emulateDesktop`, `addMainFrameInitScript`) |
+| Enter App screen | `ios/App/Views/EnterAppView.swift`; entries in `SettingsView` (Downloads > Enter App) and `AddURLView` (under Download) |
+
+The script and its four resources are the Android bytes (they are marked `-text` in `.gitattributes`, so no line-ending change reaches them). `HardResourcesTests` checks their SHA-256 against Android's committed blobs:
+
+| File | SHA-256 |
+|---|---|
+| `hard-sources.js` | `f1b4f3e53c6e999eac4ae21ff6864fddb469eb3d86f5069764ce1a7ba0f6c289` |
+| `qdn/NotoSansCJKsc-Regular-hanzi.otf` | `81805f27acfad19ca7509a17e0b8d2fdf0bb944558612de120047b194f195eaa` |
+| `qdn/OFL.txt` | `acc077d31316a689a0b0512998c47331278e4ae61d134e1edeae5a7a95916961` |
+| `qdn/qdn_verified_maps.json` | `9e6ff0c465fa50b511eede08bf07272fa39d7a32d49ff836af3e315892b90793` |
+| `qdn/zh_char_frequency.txt` | `555c0d7862cf307c7aeacf3091e081dc8e80ca6e60baf79b93d7ff26af1ff7e2` |
+
+(On a Windows checkout with `core.autocrlf=true`, the working copies of the three text files are CRLF; the committed blobs are LF and are the ones that count.)
+
+### What WebKit needed beyond the contract
+
+**1. Telling a character a cipher font lacks from its own (a patch applied at load time).** The decoder decides whether a cipher font really draws a character by drawing it with the font and with a family that does not exist; a character the font lacks comes out the same both ways (`coreCovers`). WebKit does not give the same answer: a loaded font asked for a character it lacks falls back to the **sans-serif** fallback, a family that does not exist to the **serif** one. Measured on the captured chapter's first cipher font (a woff2 face that lacks 36 of the chapter's characters, 90 occurrences): the unknown-family comparison finds 0 of the 36; comparing with `sans-serif` finds all 36 and none of the 387 characters the font has. Unpatched, the 90 literal characters were shape matched (1,819 glyphs decoded instead of 1,729, and two came out wrong: 啥 as 晗 and 奈 as 亲). Chromium, where the unknown family and the lacking font fall back alike, is not affected.
+
+`HardScripts.webKitAdjusted` therefore compares with the generic families too (the unknown family, `sans-serif`, `serif`, `system-ui`, `monospace`) before it calls a character the font's own. The change is applied to the text the web views run, only where the original line is found, so the resource file stays Android's bytes and a shared file that carries the fix itself is used as it is. In Chromium the first comparison already decides, so the patch changes no answer there; **it should be made in the shared file** (one statement in `coreCovers`) so both apps run one text. `HardWebKitDiagnostics` fixes the rule against the 36 characters.
+
+With the patch the captured chapter decodes exactly in WebKit (all 94 paragraphs, 1,729 shape-matched glyphs, 69 below the confidence thresholds, 90 passed through, nothing missing) with the verified table off; with it on, 1,729 glyphs are verified and the reference is never built, as on Chromium. The screenshot excerpt decodes exactly. A woff2 face loaded from an `ArrayBuffer` draws on a canvas in WebKit like a TrueType one.
+
+**2. Desktop identity.** `WebPageDriving.emulateDesktop(userAgent:width:height:)` is implemented by `WKWebPage`: `customUserAgent` is the Chrome string of the contract, the web view's frame is set to the requested size (the layout viewport follows it), and on iOS the page asks for the desktop content mode on every navigation (`webView(_:decidePolicyFor:preferences:)`), because a phone is otherwise given the phone layout. The width a phone really reports could not be measured here: macOS reports 1280 x 800 (`qdn.pageState().viewport`; the adapter logs "Reading as a desktop browser (W x H px)"). Nothing in the script depends on it. Pages stay attached to the hidden window the engine already uses on iOS, so timers and animation frames run.
+
+**3. The script as a document-start user script, main frame only.** `WebPageDriving.addMainFrameInitScript` adds a `WKUserScript` (`atDocumentStart`, `forMainFrameOnly: true`); the existing `addInitScript` is for every frame and is not used for these sources. User scripts are not subject to a page's content security policy, which is why the contract's document-start route is the main one on iOS: `(0, eval)(source)` into a page can be refused by a strict policy. The blank decoder page has no policy and gets the script by evaluation (`ensureHard`).
+
+**4. Calls.** `evaluateJSON` runs an async function body through `callAsyncJavaScript` in the page's content world. The call strings are exactly Android's (`return await window.__npiaHard.<call>;`, `tasks.start(<path literal>, <args>)`, `tasks.poll(<ticket literal>)`), so a scripted test page can answer both platforms alike. Big arguments (the extraction payload, base64 resource chunks) are passed as JavaScript string literals inside the body, like on Android; `HardScripts.literal` escapes U+2028 and U+2029.
+
+**5. Cookies.** `WebEngineProviding.sessionCookies` gives the adapters their cookie access; the default reads `HTTPCookieStorage.shared`, and `WKWebEngine` answers with `WebKitSessionCookies`, which reads, writes and deletes in the Browser tab's store, the scrapers' (`external`) store, every other profile opened so far, and the shared jar. This is needed because `CookieBridge` mirrors stores into the shared jar only as they change and only by adding, and an iOS app can start with a login in a store nobody has opened yet. Status, restore and sign-out all go through it, so a sign-out leaves no copy behind that the bridge could carry back.
+
+**6. Sign-in.** `presentLogin` shows `WebLoginSession` (profile `browser`, the Browser tab's store) as a sheet with Cancel and Done; AutoFill works. The pipeline's `loginRequired` handling (`DownloadPipeline.signIn`) already opens it on the book's address, and the adapters raise `loginRequired` once per book exactly as the contract says; the "once" state is process wide (`HardPrompts`) because `SiteEngineRouter` builds a new adapter for the second try. Enter App opens the site's own sign-in address (`SessionSite.signInURL`).
+
+### Sessions on iOS
+
+`SiteSessions` is the contract's, with async calls. The saved copy is `{saved, cookies}` under the Keychain key `<source>.sessionCookies`. WKWebView drops session cookies on relaunch more readily than Android's WebView, so the copy is refreshed more often than the contract requires:
+
+- when a sign-in sheet closes (Enter App, or the pipeline's prompt: the next `parseBook` snapshots it);
+- at the end of `parseBook` when the session is usable, and after every batch;
+- whenever the app becomes inactive or goes to the background (`RootView`, `scenePhase`).
+
+`restoreOnce` runs at app start (`RootView` `.task`) and at the start of every `parseBook`. The Browser tab's per-site and "all sites" sign-out call `AppModel.forgetSavedSessions`, which calls `forgetSavedCopy`. Restored cookies are session cookies again (no expiry), set in the shared jar and in the Browser tab's store; scraper pages are seeded from the jar when they load.
+
+### Links
+
+`SourceAdapter.canonicalURL` (static; default: the link itself) maps a qdn book or chapter link on `m.<domain>`, `www.<domain>` or the bare domain to `https://www.<domain>/book/<id>/`. It is applied in `SourceInfo.parseURL` (Add screen text, paste, share), `LinkCart`, `AppModel.enqueue` and the Browser tab's "Download this book" button, and `parseBook` reads the desktop address whatever it is given. `SourceCatalog` lists both adapters; `QdnAdapter.matches` and `RbooksAdapter.matches` are Android's matchers.
+
+### Tests
+
+- XCTest over a scripted page (`HardTestSupport.swift` answers the entry points with canned JSON, the way `HardTestSupport.kt` does): `QdnAdapterTests`, `RbooksAdapterTests` (matchers, normalisation, book and chapter flows, refusals, pacing, firewall waits, sign-in prompts, the library, images with the book as referer), `SiteSessionsTests` (status, copy, restore, sign-out, status text, cookie domains), `HardResourcesTests` (hashes, the load-time adjustment, string literals).
+- `HardWebKitTests` runs the script in a real `WKWebView` (`swift test` on macOS): the entry points, the font hook, tasks, SHA-256 and base64 against CryptoKit, the saved qdn and rbooks pages of `tests/fixtures/hard_sources` (loaded with their site address as base URL), the glyph decoder on `tests/fixtures/qdn_chapter76_capture.json` and `qdn_screenshot_excerpt.json`, and a synthetic reader with every protection layer (`tests/fixtures/hard_sources/qdn_synthetic_reader.html`, built by `build_reader()` in `tests/hard_sources_support.py`: stylesheet and script-built cipher fonts, mirrored glyphs, characters in random tags ordered by CSS `order`, `::after` attribute text, hidden decoys, poisoned off-screen paragraphs that only swap to the real text near the viewport). The extraction runs in a visible `NSWindow`, because a web view that is not in a window gets no rendering updates and the reader's intersection observers never fire (the iOS app keeps its pages in a hidden window for the same reason).
+- Timings on a GitHub macOS runner: building the glyph reference 2.8 s (9,853 characters); decoding the captured chapter by shape 21 s; extracting the synthetic reader 6.6 s and decoding it 9 s; decoding with the verified table 0.3 s.
+
+### Limits and what differs
+
+- **Only what the fixtures and free pages cover was exercised.** No account was used. Bought-chapter decryption in a WKWebView, the live cipher fonts and the live ownership answers are not exercised, as on Android.
+- **Whether the site's reader decrypts in WKWebView with a spoofed Chrome user agent is unknown**; its checks for embedded browsers could refuse it.
+- **Background.** iOS suspends the app, and with it the web views' timers, when it is not in the foreground. A bought chapter's decryption and the paragraph scrolling need the app open; the "keep screen awake while downloading" setting helps.
+- **Per-load referer.** The pages do not set one (the sites read both); image downloads from the adapters send the book address as `Referer`.
+- **Not possible on a phone**, as on Android: rbooks' PC-viewer export of titles the web viewer refuses.
+- **Viewport on a phone** is not verified (see above). The log line "Reading as a desktop browser" reports it at the start of every qdn book.

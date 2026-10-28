@@ -30,7 +30,7 @@ public final class WKWebEngine: WebEngineProviding, @unchecked Sendable {
     }
 
     /// The cookies of every web-view profile and the shared jar together (see `WebKitSessionCookies`).
-    public var sessionCookies: any SessionCookieAccess { WebKitSessionCookies() }
+    public var sessionCookies: any SessionCookieAccess { WebKitSessionCookies(persistent: persistent) }
 
     /// Copies the profile's web-view cookies into `HTTPCookieStorage.shared` and back.
     @MainActor
