@@ -73,9 +73,18 @@ public protocol WebPageDriving: Sendable {
     func evaluateJSON(_ functionBody: String) async throws -> Data
     /// Registers a script that runs at document start in every frame (fetch/XHR hooks).
     func addInitScript(_ source: String) async
+    /// Lets page scripts call into Swift: `await window.webkit.messageHandlers[name].postMessage(text)`
+    /// sends a string and resolves with the string `handler` returns. Add it before loading the
+    /// page; the page's cookies are copied to `HTTPCookieStorage.shared` before each call, so the
+    /// handler can make requests with them. Pages that cannot message ignore this.
+    func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async
     func currentURL() async -> URL?
     func html() async throws -> String
     func close() async
+}
+
+public extension WebPageDriving {
+    func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async {}
 }
 
 public protocol WebEngineProviding: Sendable {

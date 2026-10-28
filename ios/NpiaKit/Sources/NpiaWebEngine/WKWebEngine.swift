@@ -153,6 +153,7 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
     private var navigation: CheckedContinuation<Void, Error>?
     private var navigationToken = 0
     private var waitState: WebLoadState = .load
+    private var relays: [ReplyRelay] = []
 
     init(store: WKWebsiteDataStore) {
         self.store = store
@@ -207,6 +208,12 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         webView.configuration.userContentController.addUserScript(script)
     }
 
+    func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async {
+        let relay = ReplyRelay(store: store, handler: handler)
+        relays.append(relay)
+        webView.configuration.userContentController.addScriptMessageHandler(relay, contentWorld: .page, name: name)
+    }
+
     func currentURL() async -> URL? {
         webView.url
     }
@@ -221,6 +228,8 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.configuration.userContentController.removeAllUserScripts()
+        webView.configuration.userContentController.removeAllScriptMessageHandlers()
+        relays.removeAll()
         HiddenHost.detach(webView)
         await CookieBridge.shared.copyToShared(from: store.httpCookieStore)
     }
@@ -287,6 +296,28 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
 
     nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         Task { @MainActor in self.finish(with: WebEngineError.navigationFailed("web content process terminated")) }
+    }
+}
+
+// MARK: - Script messages
+
+/// Answers `window.webkit.messageHandlers[name].postMessage(text)` with what the handler returns.
+@MainActor
+private final class ReplyRelay: NSObject, WKScriptMessageHandlerWithReply {
+    private let store: WKWebsiteDataStore
+    private let handler: @Sendable (String) async -> String
+
+    init(store: WKWebsiteDataStore, handler: @escaping @Sendable (String) async -> String) {
+        self.store = store
+        self.handler = handler
+        super.init()
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
+        guard let body = message.body as? String else { return (nil, "The message must be a string.") }
+        // Requests made by the handler carry the page's cookies.
+        await CookieBridge.shared.copyToShared(from: store.httpCookieStore)
+        return (await handler(body), nil)
     }
 }
 

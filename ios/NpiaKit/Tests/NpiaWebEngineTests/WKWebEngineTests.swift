@@ -54,6 +54,24 @@ final class WKWebEngineTests: XCTestCase {
         await page.close()
     }
 
+    func testMessageHandlerRepliesToThePage() async throws {
+        let engine = WKWebEngine(persistent: false)
+        let page = try await engine.newPage(profile: "test-message")
+        await page.addMessageHandler("echo") { text in "echo:" + text }
+        try await page.load(dataURL("<p>message</p>"), until: .load, timeout: 30)
+        let reply = try await page.evaluate(String.self, "return await window.webkit.messageHandlers.echo.postMessage('hi');")
+        XCTAssertEqual(reply, "echo:hi")
+        // Handlers can wait: the page's promise stays pending until the reply arrives.
+        await page.addMessageHandler("slow") { text in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            return text.uppercased()
+        }
+        try await page.load(dataURL("<p>again</p>"), until: .load, timeout: 30)
+        let slow = try await page.evaluate(String.self, "return await window.webkit.messageHandlers.slow.postMessage('wait');")
+        XCTAssertEqual(slow, "WAIT")
+        await page.close()
+    }
+
     func testFileURLLoads() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
