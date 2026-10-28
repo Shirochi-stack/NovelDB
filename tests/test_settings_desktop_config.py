@@ -232,3 +232,14 @@ def test_new_install_has_no_overrides_and_mobile_defaults(tmp_path):
     assert settings.overrides == {}
     assert settings.effective("npia").threads == settings.shared.threads == 4
     assert settings.effective("npia").interval_range == (2.0, 5.0)
+
+
+def test_store_keeps_its_file_when_the_environment_changes(tmp_path, monkeypatch):
+    from noveldb.core.settings.store import ConfigStore
+
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "first"))
+    store = ConfigStore()
+    monkeypatch.setenv("NOVELDB_HOME", str(tmp_path / "second"))
+    store.save(AppSettings())
+    assert (tmp_path / "first" / "config.json").is_file()
+    assert not (tmp_path / "second" / "config.json").exists()

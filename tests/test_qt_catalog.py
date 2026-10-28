@@ -50,7 +50,8 @@ def catalog(tmp_path, monkeypatch, qapp):
     opened = []
     monkeypatch.setattr(web.QDesktopServices, "openUrl", lambda url: opened.append(url.toString()))
     page.opened = opened
-    return page
+    yield page
+    ctx._save_timer.stop()  # a pending save must not outlive the test's NOVELDB_HOME
 
 
 def test_cart_messages_update_the_link_cart(catalog):

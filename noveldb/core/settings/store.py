@@ -72,12 +72,14 @@ class ConfigStore:
     """Loads `AppSettings` from config.json and saves them back, merging with what is on disk."""
 
     def __init__(self, path: Optional[os.PathLike | str] = None):
-        self._path = Path(path) if path is not None else None
+        # Resolved once: a store never changes files later (a save that fires after NOVELDB_HOME
+        # or the working folder changed must not land in another config.json).
+        self._path = Path(path) if path is not None else paths.config_path()
         self._lock = threading.RLock()
 
     @property
     def path(self) -> Path:
-        return self._path if self._path is not None else paths.config_path()
+        return self._path
 
     def exists(self) -> bool:
         return self.path.is_file()
