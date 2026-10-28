@@ -62,6 +62,68 @@ def reveal_path(path: os.PathLike | str) -> bool:
     return open_path(target.parent if target.is_file() else target)
 
 
+def _select_on_windows(folder: str, files: list[Path]) -> bool:
+    """One Explorer window on `folder` with all of `files` selected (the shell API; `/select,` takes one)."""
+    import ctypes
+    from ctypes import wintypes
+
+    shell32, ole32 = ctypes.windll.shell32, ctypes.windll.ole32  # type: ignore[attr-defined]
+    shell32.ILCreateFromPathW.restype = ctypes.c_void_p
+    shell32.ILCreateFromPathW.argtypes = [wintypes.LPCWSTR]
+    shell32.ILFindLastID.restype = ctypes.c_void_p
+    shell32.ILFindLastID.argtypes = [ctypes.c_void_p]
+    shell32.ILFree.argtypes = [ctypes.c_void_p]
+    shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
+    shell32.SHOpenFolderAndSelectItems.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p), wintypes.DWORD]
+    initialised = ole32.CoInitialize(None) in (0, 1)  # S_OK, S_FALSE: this thread now counts one more
+    folder_id = shell32.ILCreateFromPathW(os.path.normpath(folder))
+    full_ids = [shell32.ILCreateFromPathW(os.path.normpath(str(f))) for f in files]
+    full_ids = [item for item in full_ids if item]
+    try:
+        if not folder_id or not full_ids:
+            return False
+        children = (ctypes.c_void_p * len(full_ids))(*[shell32.ILFindLastID(item) for item in full_ids])
+        return shell32.SHOpenFolderAndSelectItems(folder_id, len(full_ids), children, 0) == 0
+    finally:
+        for item in [folder_id, *full_ids]:
+            if item:
+                shell32.ILFree(item)
+        if initialised:
+            ole32.CoUninitialize()
+
+
+def reveal_paths(paths, max_folders: int = 5) -> bool:
+    """Show files selected in their folders: one file-manager window per folder, all its files selected.
+
+    Windows and macOS select every file; where the file manager cannot be told to select (Linux) the
+    folder opens instead. At most `max_folders` windows open.
+    """
+    groups: dict[str, list[Path]] = {}
+    for path in paths:
+        target = Path(path)
+        groups.setdefault(str(target.parent), []).append(target)
+    shown = False
+    for folder, files in list(groups.items())[:max_folders]:
+        if len(files) == 1:
+            shown = reveal_path(files[0]) or shown
+        elif sys.platform == "win32":
+            try:
+                ok = _select_on_windows(folder, files)
+            except (OSError, AttributeError, ValueError):
+                ok = False
+            shown = (ok or reveal_path(files[0])) or shown
+        elif sys.platform == "darwin":
+            try:
+                subprocess.Popen(["open", "-R", *map(str, files)])
+                shown = True
+            except OSError:
+                pass
+        else:
+            shown = open_path(folder) or shown
+    return shown
+
+
 def shutdown_command(delay_seconds: int = 60) -> Optional[list[str]]:
     """The command that shuts this computer down, or None when this platform cannot.
 

@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from noveldb.core.upload import UploadCancelled, upload
-from noveldb.core.upload.transfer import book_id_from_url, upload_name
+from noveldb.core.upload import UploadItem, UploadOutcome, links_text, upload_items
+from noveldb.core.upload.transfer import book_id_from_url
 from noveldb.qt.context import AppContext
 
 AGREEMENT_TEXT = (
@@ -69,16 +69,17 @@ def ensure_agreement(context: AppContext, parent: Optional[QWidget] = None) -> b
 
 
 class UploadTask(QObject):
-    """Uploads files one after another on a worker thread."""
+    """Uploads files on a worker thread: lone files, and ZIPs of several when bundling is on."""
 
-    progress = Signal(int, int, str, int, int)  # file index, file count, host, sent, total
-    fileDone = Signal(str, str, str)  # file name, link ("" on failure), error
+    prepare = Signal(int, int, str, int, int)  # upload index, upload count, ZIP name, bytes written, bytes in total
+    progress = Signal(int, int, str, int, int)  # upload index, upload count, host, sent, total
+    outcome = Signal(object)  # an UploadOutcome
     finished = Signal()
 
-    def __init__(self, context: AppContext, items: list[tuple[str, str]]) -> None:
+    def __init__(self, context: AppContext, items: list[UploadItem]) -> None:
         super().__init__()
         self.context = context
-        self.items = items  # (path, book id)
+        self.items = items
         self._stop = threading.Event()
         self._host = ""
 
@@ -89,29 +90,22 @@ class UploadTask(QObject):
         self._stop.set()
 
     def _work(self) -> None:
-        count = len(self.items)
-        hosts = self.context.settings.upload.hosts
-        upload_context = self.context.upload_context(stopped=self._stop.is_set)
-        for index, (path, book_id) in enumerate(self.items):
-            if self._stop.is_set():
-                break
-            name = upload_name(path)
+        settings = self.context.settings.upload
 
-            def on_host(host, index=index):
-                self._host = host
-                self.progress.emit(index, count, host, 0, 0)
+        def on_host(index, count, host):
+            self._host = host
+            self.progress.emit(index, count, host, 0, 0)
 
-            def on_progress(sent, total, index=index):
-                self.progress.emit(index, count, self._host, sent, total)
-
-            try:
-                result = upload(path, hosts, upload_context, on_progress, on_host, self.context.uploads, book_id)
-                self.fileDone.emit(name, result.link, "")
-            except UploadCancelled:
-                self.fileDone.emit(name, "", "Cancelled")
-                break
-            except Exception as exc:
-                self.fileDone.emit(name, "", str(exc) or type(exc).__name__)
+        try:
+            upload_items(
+                self.items, settings.hosts, self.context.upload_context(stopped=self._stop.is_set),
+                bundle=settings.zip_bundle, max_mb=settings.zip_max_mb, history=self.context.uploads,
+                on_prepare=self.prepare.emit, on_host=on_host,
+                progress=lambda index, count, sent, total: self.progress.emit(index, count, self._host, sent, total),
+                on_outcome=self.outcome.emit,
+            )
+        except Exception as exc:  # never leave the dialog waiting
+            self.outcome.emit(UploadOutcome("Upload", error=str(exc) or type(exc).__name__))
         self.finished.emit()
 
 
@@ -120,12 +114,13 @@ def _mb(value: int) -> str:
 
 
 class UploadDialog(QDialog):
-    def __init__(self, context: AppContext, items: list[tuple[str, str]], parent: Optional[QWidget] = None) -> None:
+    def __init__(self, context: AppContext, items: list[UploadItem], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.context = context
         self.setWindowTitle("Upload and share")
         self.setMinimumWidth(480)
-        self.links: list[str] = []
+        self.outcomes: list[UploadOutcome] = []
+        self.file_count = len(items)
         self.heading = QLabel(f"Uploading {len(items)} file(s)...")
         self.detail = QLabel("")
         self.detail.setProperty("hint", True)
@@ -151,10 +146,21 @@ class UploadDialog(QDialog):
         layout.addLayout(row)
 
         self.task = UploadTask(context, items)
+        self.task.prepare.connect(self._prepare, Qt.QueuedConnection)
         self.task.progress.connect(self._progress, Qt.QueuedConnection)
-        self.task.fileDone.connect(self._file_done, Qt.QueuedConnection)
+        self.task.outcome.connect(self._outcome, Qt.QueuedConnection)
         self.task.finished.connect(self._finished, Qt.QueuedConnection)
         self.task.start()
+
+    @property
+    def links(self) -> list[str]:
+        return [outcome.link for outcome in self.outcomes if outcome.link]
+
+    def _prepare(self, index: int, count: int, name: str, done: int, total: int) -> None:
+        self.heading.setText(f"Preparing ZIP {index + 1} of {count}")
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(int(done * 1000 / total) if total > 0 else 0)
+        self.detail.setText(f"{name}  ({_mb(done)} of {_mb(total)})")
 
     def _progress(self, index: int, count: int, host: str, sent: int, total: int) -> None:
         self.heading.setText(f"Uploading {index + 1} of {count} to {host}")
@@ -166,27 +172,37 @@ class UploadDialog(QDialog):
             self.bar.setRange(0, 0)
             self.detail.setText("Connecting...")
 
-    def _file_done(self, name: str, link: str, error: str) -> None:
-        if link:
-            self.links.append(link)
-            self.results.appendPlainText(f"{name}\n{link}\n")
+    def _outcome(self, outcome: UploadOutcome) -> None:
+        self.outcomes.append(outcome)
+        lines = [outcome.label]
+        if outcome.link:
+            lines.append(outcome.link)
         else:
-            self.results.appendPlainText(f"{name}\nNot uploaded: {error}\n")
+            lines.append(f"Not uploaded: {outcome.error}")
+        if outcome.is_zip:
+            lines.extend(f"    {title}" for title in outcome.titles)
+        self.results.appendPlainText("\n".join(lines) + "\n")
 
     def _finished(self) -> None:
         self.bar.setRange(0, 1)
         self.bar.setValue(1)
-        ok = len(self.links)
-        self.heading.setText(f"Uploaded {ok} file(s)" if ok else "Nothing was uploaded")
+        done = [outcome for outcome in self.outcomes if outcome.link]
+        files = sum(outcome.entries for outcome in done)
+        if not done:
+            self.heading.setText("Nothing was uploaded")
+        elif files == len(done):
+            self.heading.setText(f"Uploaded {files} file(s)")
+        else:
+            self.heading.setText(f"Uploaded {files} files in {len(done)} link{'s' if len(done) != 1 else ''}")
         self.detail.setText("")
-        self.copy.setEnabled(ok > 0)
+        self.copy.setEnabled(bool(done))
         self.cancel.setText("Close")
-        if ok and self.context.settings.upload.copy_link:
+        if done and self.context.settings.upload.copy_link:
             self._copy()
             self.detail.setText("Links copied to the clipboard.")
 
     def _copy(self) -> None:
-        QGuiApplication.clipboard().setText("\n".join(self.links))
+        QGuiApplication.clipboard().setText(links_text(self.outcomes))
 
     def _cancel(self) -> None:
         if self.cancel.text() == "Close":
@@ -201,13 +217,21 @@ class UploadDialog(QDialog):
         super().reject()
 
 
-def upload_jobs(context: AppContext, jobs, parent: Optional[QWidget] = None) -> None:
-    """Agreement (once), then upload every existing output of `jobs`."""
-    items = []
+def items_for_jobs(jobs) -> list[UploadItem]:
+    """The files to upload for `jobs` (every output that still exists), each with its naming details."""
+    items: list[UploadItem] = []
+    seen: set[str] = set()
     for job in jobs:
         for path in job.outputs:
-            if path and os.path.exists(path):
-                items.append((path, book_id_from_url(job.input)))
+            if path and os.path.exists(path) and path not in seen:
+                seen.add(path)
+                items.append(UploadItem(path, book_id_from_url(job.input), job.source or "", job.title or ""))
+    return items
+
+
+def upload_jobs(context: AppContext, jobs, parent: Optional[QWidget] = None) -> None:
+    """Agreement (once), then upload every existing output of `jobs`, bundled as the settings say."""
+    items = items_for_jobs(jobs)
     if not items:
         return
     if not ensure_agreement(context, parent):
