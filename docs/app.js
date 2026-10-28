@@ -5665,13 +5665,20 @@
     let allTagGroups = [];   // display tag groups for the current source
     let top80Tags = new Set(); // display group keys shown in the default top-80 cloud
     const mobileView = matchMedia('(max-width: 650px)');
-    const infiniteScrollToggle = document.getElementById("mobileInfiniteScroll");
-    const desktopInfiniteScrollToggle = document.getElementById("desktopInfiniteScroll");
-    try {
-        infiniteScrollToggle.checked = localStorage.getItem('noveldb.mobileInfiniteScroll') !== 'false';
-        desktopInfiniteScrollToggle.checked = localStorage.getItem('noveldb.desktopInfiniteScroll') === 'true';
-    } catch (_) {}
-    const infiniteScrollEnabled = () => mobileView.matches ? infiniteScrollToggle.checked : desktopInfiniteScrollToggle.checked;
+    const infiniteScrollToggle = document.getElementById("infiniteScroll");
+    // One switch for every screen. Until it is changed, phones keep their earlier default (on) and
+    // wider screens theirs (off), as do choices saved by the two switches it replaced.
+    function savedInfiniteScroll() {
+        try {
+            const chosen = localStorage.getItem('noveldb.infiniteScroll');
+            if (chosen !== null) return chosen === 'true';
+            const earlier = localStorage.getItem(mobileView.matches ? 'noveldb.mobileInfiniteScroll' : 'noveldb.desktopInfiniteScroll');
+            if (earlier !== null) return earlier === 'true';
+        } catch (_) {}
+        return mobileView.matches;
+    }
+    infiniteScrollToggle.checked = savedInfiniteScroll();
+    const infiniteScrollEnabled = () => infiniteScrollToggle.checked;
     const catalogPageSize = () => infiniteScrollEnabled() ? 30 : BATCH;
     let BATCH = 30;
     let currentPage = 1;
@@ -6684,19 +6691,21 @@
     });
     mobileFeed.setEnabled(infiniteScrollEnabled());
     function updateMobileFeedMode() {
-        try {
-            localStorage.setItem('noveldb.mobileInfiniteScroll',String(infiniteScrollToggle.checked));
-            localStorage.setItem('noveldb.desktopInfiniteScroll',String(desktopInfiniteScrollToggle.checked));
-        } catch (_) {}
         if(mobileFeed.enabled===infiniteScrollEnabled())return;
         const details=document.querySelector('.novel-details[open]');
         if(details){details.addEventListener('close',updateMobileFeedMode,{once:true});return;}
         mobileFeed.setEnabled(infiniteScrollEnabled()); currentPage=1; diskPageKey='';
         applyFilters();
     }
-    infiniteScrollToggle.addEventListener('change',updateMobileFeedMode);
-    desktopInfiniteScrollToggle.addEventListener('change',updateMobileFeedMode);
-    mobileView.addEventListener('change',updateMobileFeedMode);
+    infiniteScrollToggle.addEventListener('change',()=>{
+        try { localStorage.setItem('noveldb.infiniteScroll',String(infiniteScrollToggle.checked)); } catch (_) {}
+        updateMobileFeedMode();
+    });
+    // Without a choice yet, the default follows the screen size.
+    mobileView.addEventListener('change',()=>{
+        infiniteScrollToggle.checked=savedInfiniteScroll();
+        updateMobileFeedMode();
+    });
     const compactPagination = mobileView;
     compactPagination.addEventListener('change', () => {
         if (paginationBars.some(bar => bar.style.display !== 'none')) {

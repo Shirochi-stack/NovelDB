@@ -264,7 +264,7 @@ def test_three_preview_pages_lock_during_import_and_repeat_switches_are_immediat
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
-            await page.add_init_script("localStorage.setItem('noveldb.mobileInfiniteScroll','false')")
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")
             site = PreviewSite(previews,blocked=True)
             await page.route('**/*',site.route)
             await page.goto('https://metadata.test/')
@@ -321,7 +321,7 @@ def test_generic_native_and_combined_sort_pages_never_shift_on_import(previews):
             browser=await p.chromium.launch(headless=True)
             for source,sort,order in cases:
                 page=await browser.new_page(viewport={'width':390,'height':844},is_mobile=True)
-                await page.add_init_script("localStorage.setItem('noveldb.mobileInfiniteScroll','false')")
+                await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','false')")
                 site=PreviewSite(previews,blocked=True)
                 await page.route('**/*',site.route)
                 await page.goto(f'https://metadata.test/#src={source}&sort={sort}&order={order}&batch=90')
