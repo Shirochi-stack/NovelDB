@@ -36,6 +36,14 @@ A link is read by the site engines in the order of Settings > Site engines (defa
 - Both rule engines can update themselves from the `engines` release of this repository. This is opt in and checked at most once a day. A download is used only when its checksum and API match and it is newer than the shipped copy; one that fails to load is deleted and not fetched again (`sources/.../engines/`).
 - `WebViewTransportTest` and `WebToEpubLiveTest` (`app/src/androidTest`) run on an emulator or device: `gradle :app:connectedDebugAndroidTest`, and `-Pandroid.testInstrumentationRunnerArguments.live=true` for the live site check.
 
+## Browser-driven sources (qdn, rbooks) and Enter App
+
+qdn and rbooks need a real rendering engine and the user's own sign-in. Their page-side logic is one JavaScript file, `sources/src/main/resources/com/shirochi/npia/sources/hard/hard-sources.js`, that the iOS app runs unchanged; the Kotlin side only navigates, keeps the session, paces loads and builds results. The contract (entry points, JSON shapes, resources, session handling, what differs from the desktop) is [`docs/hard-sources.md`](docs/hard-sources.md).
+
+- **Enter App** (Settings > Enter App, and a button on the Add screen) signs in to sfc (username and password through the app API, or a pasted app cookie) and, in the app's own browser, to qdn and rbooks. Downloads use the browser's cookies, and a saved copy of the login cookies is restored if the cookie store loses them.
+- qdn bought chapters are decrypted by the site's own script, read off the screen and matched against a bundled reference font (`hard/qdn/`). Chapters the account has not bought are refused, never bypassed.
+- The JavaScript is tested in Playwright Chromium from the repository root: `python -m pytest tests/test_hard_sources_js.py` (needs `playwright`, `fonttools`, `brotli`; the fixtures are in `tests/fixtures/`). The Kotlin side has scripted-page tests in `:sources`.
+
 ## Porting from iOS
 
 Each placeholder carries a `TODO(<workstream>)`. The finished Swift code on the `ios/integration` branch is the closest reference: port its logic and test fixtures, and use the desktop Python as the source of truth when the two differ.
