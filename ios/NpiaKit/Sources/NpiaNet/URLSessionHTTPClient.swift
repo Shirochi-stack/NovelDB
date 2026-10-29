@@ -90,6 +90,14 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
                     headers[String(describing: key).lowercased()] = String(describing: value)
                 }
                 return HTTPResponse(url: http.url ?? request.url, status: http.statusCode, headers: headers, body: data)
+            } catch let error as URLError where error.code == .appTransportSecurityRequiresSecureConnection && urlRequest.url?.scheme == "http" {
+                // App Transport Security allows the app no plain http. Sites that still link http://
+                // covers and images (sfc's, for one) serve them over https too, so ask again that way.
+                guard let url = urlRequest.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw error }
+                components.scheme = "https"
+                if components.port == 80 { components.port = nil }
+                guard let secure = components.url else { throw error }
+                urlRequest.url = secure
             } catch let error as URLError where attempt < maxRetries && Self.isRetryable(error) {
                 attempt += 1
                 try await backoff(attempt, because: "\(label) failed: \(error.localizedDescription)")
