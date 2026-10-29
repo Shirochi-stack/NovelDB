@@ -141,6 +141,39 @@ final class SfcAdapterTests: XCTestCase {
         let awaited5 = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http, secrets: secrets))
         XCTAssertTrue(isRefused(awaited5))
     }
+
+    func testWebsiteSignInTicketIsOfferedToTheAppAPI() async throws {
+        let http = RoutedHTTP()
+        http.on("/Chaps/7002", json: ["status": ["httpCode": 200], "data": ["title": "第二章", "content": "正文"]])
+        let adapter = SfcAdapter(websiteTicket: { "ticket" })
+        let ref = ChapterRef(id: "7002", index: 2, title: "第二章", url: URL(string: "https://\(host)/Novel/12345/600/7002/"), isPaid: true)
+        let first = try await adapter.parseChapter(ref, book: book(), context: makeContext(http))
+        XCTAssertNotNil(content(first))
+        XCTAssertEqual(http.requested("/Chaps/7002").first?.headers["Cookie"], ".SFCommunity=ticket")
+        // An app session wins over the website ticket.
+        let secrets = InMemorySecretStore([SfcAppAPI.cookieKey: ".SFCommunity=a; session_APP=b"])
+        let second = try await adapter.parseChapter(ref, book: book(), context: makeContext(http, secrets: secrets))
+        XCTAssertNotNil(content(second))
+        XCTAssertEqual(http.requested("/Chaps/7002").last?.headers["Cookie"], ".SFCommunity=a; session_APP=b")
+    }
+
+    func testATicketTheAppAPITurnsDownFallsBackToTheWebsite() async throws {
+        let http = RoutedHTTP()
+        http.on("/Chaps/7002", json: ["status": ["httpCode": 401]])
+        http.on("/Chaps/7003", json: ["status": ["httpCode": 401]])
+        http.on("/Novel/12345/600/7002/", "<div class=\"pay-section\">购买</div>")
+        http.on("/Novel/12345/600/7003/", "<div class=\"article-content\"><p>免费</p></div>")
+        let adapter = SfcAdapter(websiteTicket: { "ticket" })
+        let lockedRef = ChapterRef(id: "7002", index: 2, title: "第二章", url: URL(string: "https://\(host)/Novel/12345/600/7002/"), isPaid: true)
+        let locked = try await adapter.parseChapter(lockedRef, book: book(), context: makeContext(http))
+        guard case .refused(_, let reason) = locked else { return XCTFail("expected a refusal") }
+        XCTAssertTrue(reason.contains("not bought"))
+        // The turned-down ticket is not offered again; the next chapter comes from the website.
+        let freeRef = ChapterRef(id: "7003", index: 3, title: "第三章", url: URL(string: "https://\(host)/Novel/12345/600/7003/"))
+        let free = try await adapter.parseChapter(freeRef, book: book(), context: makeContext(http))
+        XCTAssertNotNil(content(free))
+        XCTAssertTrue(http.requested("/Chaps/7003").isEmpty)
+    }
 }
 
 /// Returns canned JSON replies in order.

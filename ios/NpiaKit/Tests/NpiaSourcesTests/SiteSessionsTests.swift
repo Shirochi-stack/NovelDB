@@ -206,7 +206,17 @@ final class SiteSessionsTests: XCTestCase {
         XCTAssertTrue(HardSessions.forHost("example.com").isEmpty)
         XCTAssertEqual(HardSessions.of(.qdn)?.source, .qdn)
         XCTAssertEqual(HardSessions.of(.rbooks)?.source, .rbooks)
-        XCTAssertNil(HardSessions.of(.sfc))
+        XCTAssertEqual(HardSessions.forHost("m." + SfcAdapter.domain).map(\.source), [.sfc])
+        XCTAssertEqual(HardSessions.of(.sfc)?.source, .sfc)
+        XCTAssertNil(HardSessions.of(.npia))
+    }
+
+    func testTheSfcWebsiteLoginIsItsTicket() {
+        let sfc = HardSessions.sfc
+        XCTAssertEqual(sfc.cookieNames, [".SFCommunity"])
+        XCTAssertEqual(sfc.signInURL.absoluteString, "https://m." + SfcAdapter.domain + "/login")
+        XCTAssertTrue(sfc.isUsable([".SFCommunity", "other"]))
+        XCTAssertFalse(sfc.isUsable(["other"]))
     }
 
     func testCookieNamesAndSignInPagesAreTheDocumentedOnes() {

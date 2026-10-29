@@ -3,19 +3,32 @@ import NpiaCore
 import SwiftSoup
 
 /// Chinese light-novel platform. The book page and free chapters are plain HTML; VIP
-/// chapters come from the Android app API with the user's app session (`login`).
+/// chapters come from the Android app API with the user's app session (`login`), or from the
+/// website with its sign-in (`session`), which shows bought VIP chapters as an image.
 /// Port of the sfc rule in `rules-lib.js` plus `_sfc_*` / `login_sfc_app` in the desktop
-/// `external_scraper.py`.
+/// `external_scraper.py`, and of the Android `SfcAdapter`.
 public struct SfcAdapter: SourceAdapter {
     public static let id: SourceID = .sfc
     public static let tier: SourceTier = .http
     public static let sites: Set<String> = [bookHost]
 
-    static let bookHost = "book.\u{73}\u{66}\u{61}\u{63}\u{67}.com"
+    static let domain = "\u{73}\u{66}\u{61}\u{63}\u{67}.com"
+    static let bookHost = "book." + domain
     /// Byte sizes of the placeholder image served instead of a VIP chapter image.
     static let placeholderImageSizes: Set<Int> = [53658, 42356]
 
-    public init() {}
+    /// The website sign-in's ticket, from the cookies the app's browser and downloads share.
+    private let websiteTicket: @Sendable () -> String?
+    /// A website ticket the app API turned down (401), so later chapters go straight to the website.
+    private let refused = RefusedTicket()
+
+    public init() {
+        self.init(websiteTicket: { SfcAdapter.sharedTicket() })
+    }
+
+    init(websiteTicket: @escaping @Sendable () -> String?) {
+        self.websiteTicket = websiteTicket
+    }
 
     public static func matches(_ url: URL) -> Bool {
         (url.host ?? "").lowercased() == bookHost && bookID(url) != nil
@@ -56,6 +69,31 @@ public struct SfcAdapter: SourceAdapter {
     /// Forgets the saved app session.
     public static func signOut(_ secrets: any SecretStore) {
         secrets.set(nil, for: SfcAppAPI.cookieKey)
+    }
+
+    // MARK: - Website sign-in
+
+    /// The login ticket every sfc host shares; the website's sign-in sets it, as does the app API's.
+    static let ticketCookie = SfcAppAPI.communityCookieName
+
+    /// The website's sign-in page in the app's own browser. Besides a password it offers Facebook, QQ,
+    /// WeChat and Weibo, which the app API's sign-in does not; the sfc app's own login stays inside that app.
+    static let session = SessionSite(
+        source: .sfc,
+        signInURL: URL(string: "https://m." + domain + "/login")!,
+        cookieURLs: [URL(string: "https://" + bookHost + "/")!, URL(string: "https://m." + domain + "/")!,
+                     URL(string: "https://passport." + domain + "/")!],
+        domain: domain,
+        cookieNames: [ticketCookie],
+        requirement: ticketCookie
+    ) { present in
+        present.contains(SfcAdapter.ticketCookie)
+    }
+
+    /// The ticket in `HTTPCookieStorage.shared`, which the web engine mirrors its web views into.
+    static func sharedTicket() -> String? {
+        let cookies = HTTPCookieStorage.shared.cookies(for: URL(string: "https://" + bookHost + "/")!) ?? []
+        return cookies.first { $0.name == ticketCookie && !$0.value.isEmpty }?.value
     }
 
     // MARK: - Book
@@ -111,11 +149,20 @@ public struct SfcAdapter: SourceAdapter {
         guard let url = ref.url else { return .failed(ref, message: "missing chapter URL") }
         let chapterID = Self.chapterID(url) ?? ref.id
         var apiStatus: Int?
-        // With an app session the app API serves every chapter, VIP ones included.
-        if let cookie = SfcAppAPI.savedCookie(context.secrets) {
+        // With an app session the app API serves every chapter, VIP ones included. Without one, the app API
+        // is offered the website sign-in's ticket: text if it takes it, the website's image if it does not.
+        let appCookie = SfcAppAPI.savedCookie(context.secrets)
+        let ticket = appCookie == nil ? websiteTicket() : nil
+        let offered = ticket.flatMap { refused.contains($0) ? nil : $0 }
+        if let cookie = appCookie ?? offered.map({ Self.ticketCookie + "=" + $0 }) {
             switch try await SfcAppAPI.chapter(ref, chapterID: chapterID, cookie: cookie, http: context.http) {
             case .content(let content): return .content(content)
-            case .noAccess(let status): apiStatus = status
+            case .noAccess(let status):
+                if appCookie != nil {
+                    apiStatus = status
+                } else if status == 401, let offered {
+                    refused.set(offered)
+                }
             case .unavailable: break
             }
         }
@@ -130,7 +177,10 @@ public struct SfcAdapter: SourceAdapter {
             if apiStatus != nil {
                 return .refused(ref, reason: "the app session cannot read this VIP chapter")
             }
-            return .refused(ref, reason: "VIP chapter: sign in with the sfc app account that bought it")
+            if ticket != nil {
+                return .refused(ref, reason: "VIP chapter the signed-in account has not bought")
+            }
+            return .refused(ref, reason: "VIP chapter: sign in to sfc in Settings > Enter App with the account that bought it")
         case .empty:
             return .failed(ref, message: "no chapter text")
         }
@@ -179,5 +229,23 @@ public struct SfcAdapter: SourceAdapter {
         let filename = ReaderBlocks.imageFilename(URL(string: "vip.gif")!, chapter: ref.index, number: 1)
         let html = "<div class=\"sfc-content\"><p class=\"img\"><img src=\"\(filename)\" alt=\"\"/></p></div>"
         return .content(ChapterContent(ref: ref, html: html, images: [ImageRef(url: imageURL, filename: filename, data: response.body)]))
+    }
+}
+
+/// The website ticket the app API turned down; shared by copies of the adapter.
+final class RefusedTicket: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+
+    func contains(_ ticket: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value == ticket
+    }
+
+    func set(_ ticket: String) {
+        lock.lock()
+        value = ticket
+        lock.unlock()
     }
 }

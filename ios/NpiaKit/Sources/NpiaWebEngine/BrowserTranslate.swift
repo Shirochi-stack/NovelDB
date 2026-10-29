@@ -13,15 +13,19 @@ public struct TranslateLanguage: Sendable, Equatable, Identifiable {
 }
 
 /// How the page translation is going; the Browser tab polls the page for it.
+/// How the page translation is going. `unchanged`: the translator changed nothing (the page may be in
+/// that language already). `failed`: nothing was translated in time, with no sign the site refused it.
+/// `blocked`: the site's security policy refused the translator.
 public enum TranslateStatus: Sendable, Equatable {
-    case off, working, translated, unchanged, blocked
+    case off, working, translated, unchanged, failed, blocked
 }
 
 /// Page translation for the Browser tab, which has none of its own.
 ///
 /// The page is translated in place: `browser-translate.js` loads Google's website translator
-/// (`translate_a/element.js`) into it and picks the target language through the translator's
-/// select box (`.goog-te-combo`), so the real site (sign-in, the app's buttons) stays. Sites whose
+/// (`translate_a/element.js`) into it, or uses the copy a site loads for itself, and picks the target
+/// language through the translator's select box (`.goog-te-combo`), so the real site (sign-in, the
+/// app's buttons) stays. Sites whose
 /// security policy refuses the translator get a translated copy instead, served by Google from
 /// `<site>.translate.goog`; the helpers below build that address and map it back to the original
 /// site, which downloads and the link cart need. The Android app (`BrowserTranslate.kt`) does the same.

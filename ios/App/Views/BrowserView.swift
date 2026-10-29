@@ -115,6 +115,21 @@ struct BrowserView: View {
         if browser.translating && browser.translateStatus == .unchanged {
             note("Nothing was translated. The page may already be in \(language.name).")
         }
+        if browser.translating && browser.translateStatus == .failed {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("The page was not translated.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 16) {
+                    Button("Try again") { browser.translateAgain() }
+                    Button("Open a translated copy") { browser.openTranslatedCopy(language: language.code) }
+                }
+                .font(.caption)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 2)
+        }
         if browser.translating && browser.translateStatus == .blocked {
             HStack {
                 Text("This site blocks the translator. A translated copy cannot use your sign-ins.")
