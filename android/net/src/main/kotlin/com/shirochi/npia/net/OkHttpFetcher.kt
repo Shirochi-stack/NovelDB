@@ -22,6 +22,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.net.UnknownServiceException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -99,7 +100,7 @@ class OkHttpFetcher(
         val builder = Request.Builder().url(request.url).header("User-Agent", userAgent)
         request.headers.forEach { (name, value) -> builder.header(name, value) }
         builder.method(request.method, request.body?.toRequestBody() ?: if (request.method == "GET" || request.method == "HEAD") null else ByteArray(0).toRequestBody())
-        val okRequest = builder.build()
+        var okRequest = builder.build()
         // The timeout is how long the server may stay silent, as on iOS and the desktop (OkHttp's own
         // default is 10 s); a whole request, a large image on a slow line included, gets 10 minutes.
         val timeout = timeoutFor(request.timeoutSeconds, minTimeoutSeconds)
@@ -132,8 +133,15 @@ class OkHttpFetcher(
                     }
                 }
             } catch (e: IOException) {
+                // Android allows the app no plain http (cleartext policy). Sites that still link http://
+                // covers and images (sfc's, for one) serve them over https too, so ask again that way.
+                if (e is UnknownServiceException && okRequest.url.scheme == "http") {
+                    okRequest = okRequest.newBuilder().url(okRequest.url.newBuilder().scheme("https").build()).build()
+                    continue
+                }
                 val reason = "${e.javaClass.simpleName}: ${e.message ?: "no details"}"
-                if (attempt >= maxRetries) {
+                // A request the system refuses outright fails the same way every time.
+                if (attempt >= maxRetries || e is UnknownServiceException) {
                     logger.log(LogLevel.WARNING, "$reason for $where; giving up after $attempt retries")
                     throw e
                 }
