@@ -487,6 +487,6 @@ class DownloadPage(QWidget):
 
     def _refresh_cart(self) -> None:
         count = len(self.context.cart)
-        self.cart_button.setText(f"\U0001F517 Link cart ({count})")
+        self.cart_button.setText(f"\U0001F6D2 Link cart ({count})")
         self.cart_button.setEnabled(count > 0)
         self._update_download_button()

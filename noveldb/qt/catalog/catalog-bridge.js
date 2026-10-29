@@ -9,12 +9,12 @@
  * - The page address is reported as {type: 'location', url, title}: on start and whenever it changes
  *   (pushState, replaceState, popstate, hashchange; many sites are single-page apps). The app decides
  *   what the page is and answers with setMode({cartLinks, download}); setMode({cartLinks}) alone works too.
- * - download {url, title}: the page can be downloaded, so a floating "🔗 Download" button (bottom right)
+ * - download {url, title}: the page can be downloaded, so a floating "🛒 Download" button (bottom right)
  *   adds it to the cart. It reads "✓ In cart" while the URL is in the cart; tapping again removes it.
  *   The app sends it on supported sites (the ones it downloads from) and never on NovelDB.
  * - cartLinks: only on sites that are neither NovelDB nor supported; links to other sites that show
- *   text are renamed "🔗 Download" and go to the cart. Otherwise no link is renamed.
- * - Fill mode (desktop app) widens page columns capped narrower than the window.
+ *   text are renamed "🛒 Download" and go to the cart. Otherwise no link is renamed.
+ * - Fill mode (desktop app) widens page columns capped narrower than the window, up to 1300px.
  * - Taps show no highlight flash, the NovelDB header is slimmer, and NovelDB Next's hover preview is off.
  * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
  *   and the details cover is kept short without changing its shape.
@@ -38,8 +38,9 @@
         return link ? link.href : '';
     }
     function paint(button) {
-        var inCart = cart.has(button.dataset.url);
-        button.setAttribute('aria-pressed', String(inCart));
+        var inCart = cart.has(button.dataset.url), pressed = String(inCart);
+        if (button.getAttribute('aria-pressed') === pressed) return;
+        button.setAttribute('aria-pressed', pressed);
         button.title = inCart ? 'Remove from link cart' : 'Add to link cart';
         button.setAttribute('aria-label', button.title);
     }
@@ -49,7 +50,7 @@
             button = document.createElement('button');
             button.type = 'button';
             button.className = 'noveldb-cart' + (extraClass ? ' ' + extraClass : '');
-            button.textContent = '🔗';
+            button.textContent = '🛒';
             parent.appendChild(button);
         }
         return button;
@@ -68,22 +69,35 @@
         if (keys.length > 2000) keys.slice(0, keys.length - 2000).forEach(function (key) { delete nextLinks[key]; });
         try { localStorage.setItem('noveldb-app-links', JSON.stringify(nextLinks)); } catch (_) {}
     }
+    // What each NovelDB Next card was last decorated for. The list reuses its card elements while it
+    // scrolls, so a card gets work again only when it shows another novel (or after a resize).
+    var nextSeen = new WeakMap();
     function decorateNext() {
-        var cards = document.querySelectorAll('div.card[data-gid]');
+        var cards = document.querySelectorAll('div.card[data-gid]'), fresh = [];
         for (var i = 0; i < cards.length; i++) {
             var card = cards[i];
             if (!card.querySelector('.card-btn')) continue;
             var cover = card.querySelector('.bg-raised') || card;
-            var button = cartButton(cover, 'noveldb-cart-next');
             // The compact layout prints the title on a strip across the bottom of the cover.
             var strip = cover.querySelector('.bg-gradient-to-t');
+            var key = nextKey(card), seen = key + (strip ? '|strip' : '');
+            var known = cover.querySelector('.noveldb-cart');
+            if (known && nextSeen.get(card) === seen) { paint(known); continue; }
+            fresh.push({card: card, cover: cover, strip: strip, key: key, seen: seen});
+        }
+        // Measure every new strip first, then write: one layout for all of them, not one per card.
+        fresh.forEach(function (item) {
             // Its middle sits on the strip's top edge, just above the title text.
-            var bottom = strip ? Math.max(4, strip.offsetHeight - 15) + 'px' : '';
-            if (button.style.bottom !== bottom) button.style.bottom = bottom;
-            var url = nextLinks[nextKey(card)] || '';
+            item.bottom = item.strip ? Math.max(4, item.strip.offsetHeight - 15) + 'px' : '';
+        });
+        fresh.forEach(function (item) {
+            var button = cartButton(item.cover, 'noveldb-cart-next');
+            if (button.style.bottom !== item.bottom) button.style.bottom = item.bottom;
+            var url = nextLinks[item.key] || '';
             if (button.dataset.url !== url) button.dataset.url = url;
             paint(button);
-        }
+            nextSeen.set(item.card, item.seen);
+        });
     }
     /** Opens a NovelDB Next card's details out of sight and reads its source link and title. */
     function peekNext(card) {
@@ -117,7 +131,7 @@
     }
     // Outside links renamed while the app sends them to the cart; their original text, to restore.
     var mode = {cartLinks: false, fill: false, download: null};
-    var DOWNLOAD_LABEL = '🔗 Download';
+    var DOWNLOAD_LABEL = '🛒 Download';
     var renamed = new Map();
     function shownText(anchor) {
         var nodes = [], walker = document.createTreeWalker(anchor, NodeFilter.SHOW_TEXT), node;
@@ -125,6 +139,7 @@
         return nodes;
     }
     function renameLinks() {
+        if (!mode.cartLinks && !renamed.size) return;
         var anchors = document.querySelectorAll('a[href]');
         for (var i = 0; i < anchors.length; i++) {
             var anchor = anchors[i];
@@ -141,12 +156,17 @@
         }
     }
     // Fill mode (desktop): page columns capped at 900px or more (NovelDB Next keeps 1100px) widen to
-    // the window. Dialogs and side panels keep their size.
-    var lastFill = 0;
+    // the window, up to 1300px. Dialogs and side panels keep their size. A full-width NovelDB Next grid
+    // on a large window holds 180 cards, more than the desktop app's browser draws at 60 frames a
+    // second while scrolling (it held about 45); at 1300px it holds 100 and keeps about 60.
+    var lastFill = 0, fillChecked = new WeakSet(), filled = false;
     function fillWidth() {
-        var marked = document.querySelectorAll('[data-noveldb-fill]'), i;
+        var i;
         if (!mode.fill) {
+            if (!filled) return;
+            var marked = document.querySelectorAll('[data-noveldb-fill]');
             for (i = 0; i < marked.length; i++) marked[i].removeAttribute('data-noveldb-fill');
+            filled = false;
             return;
         }
         var now = Date.now();
@@ -155,10 +175,12 @@
         var candidates = document.querySelectorAll('[class*="max-w-"],[class*="container"],main,#app > div,body > div');
         for (i = 0; i < candidates.length; i++) {
             var el = candidates[i];
+            if (fillChecked.has(el)) continue;
+            fillChecked.add(el);
             if (el.hasAttribute('data-noveldb-fill')) continue;
             if (el.closest('[role=dialog],dialog,aside,[aria-modal=true],.novel-details')) continue;
             var max = parseFloat(getComputedStyle(el).maxWidth);
-            if (max >= 900 && max < innerWidth - 40) el.setAttribute('data-noveldb-fill', '');
+            if (max >= 900 && max < innerWidth - 40) { el.setAttribute('data-noveldb-fill', ''); filled = true; }
         }
     }
     // The page address, reported to the app on start and whenever it changes. The app answers with
@@ -177,7 +199,7 @@
         reported = href;
         reportedTitle = title;
         // The old page's Download button must not outlive the address it was made for.
-        if (moved && mode.download) { mode.download = null; schedule(); }
+        if (moved && mode.download) { mode.download = null; downloadButton(); }
         send({type: 'location', url: href, title: title});
     }
     function toggleDownload(info) {
@@ -186,7 +208,7 @@
         send({type: adding ? 'cartAdd' : 'cartRemove', url: info.url, title: info.title, source: ''});
         decorate();
     }
-    /** The floating button for the page the app can download: "🔗 Download", or "✓ In cart" once added. */
+    /** The floating button for the page the app can download: "🛒 Download", or "✓ In cart" once added. */
     function downloadButton() {
         var info = mode.download, button = document.querySelector('.noveldb-download');
         if (!info || !sameAddress(info.url, location.href) || !document.body) {
@@ -222,14 +244,26 @@
             paint(button);
         }
     }
-    var queued = false;
+    var queued = false, lastDecorated = 0, SPACING = 100;
     function schedule() {
         if (queued) return;
         queued = true;
         // A hidden page (another tab on top, an offscreen view) gets no animation frames; the timer still decorates it.
-        function run() { if (queued) { queued = false; decorate(); } }
-        requestAnimationFrame(run);
-        setTimeout(run, 150);
+        function run() { if (queued) { queued = false; lastDecorated = Date.now(); decorate(); } }
+        function soon() { requestAnimationFrame(run); setTimeout(run, 150); }
+        // The first change shows on the next frame; while a list keeps changing (scrolling), every 100 ms.
+        var wait = lastDecorated + SPACING - Date.now();
+        if (wait > 0) setTimeout(soon, wait); else soon();
+    }
+    /** A change made by this script only (a cart button going in, its label): no second pass needed. */
+    function ours(record) {
+        var target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+        if (target && target.closest && target.closest('.noveldb-cart,.noveldb-download')) return true;
+        if (record.type !== 'childList') return false;
+        var nodes = Array.prototype.slice.call(record.addedNodes).concat(Array.prototype.slice.call(record.removedNodes));
+        return nodes.length > 0 && nodes.every(function (node) {
+            return node.nodeType === 1 && (node.classList.contains('noveldb-cart') || node.classList.contains('noveldb-download'));
+        });
     }
     /** A name for a link going to the cart: its text, or the nearest heading when the text is generic ("Source page"). */
     function linkTitle(anchor) {
@@ -303,6 +337,7 @@
         if (innerHeight > 100 && document.documentElement) document.documentElement.style.setProperty('--noveldb-vh', innerHeight + 'px');
     }
     addEventListener('resize', viewport);
+    addEventListener('resize', function () { nextSeen = new WeakMap(); fillChecked = new WeakSet(); schedule(); });
     var style = document.createElement('style');
     style.textContent =
         '*{-webkit-tap-highlight-color:transparent!important}' +
@@ -324,7 +359,7 @@
         '.noveldb-download[aria-pressed="true"]{background:#E18F98;opacity:1;box-shadow:0 0 0 2px #fff}' +
         // NovelDB Next's hover preview covers the neighbouring cards; the details view shows the same.
         '.scroll-main div.pop[role=presentation]{display:none!important}' +
-        '[data-noveldb-fill]{max-width:none!important}' +
+        '[data-noveldb-fill]{max-width:1300px!important}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
         '{visibility:hidden!important;animation:none!important;transition:none!important}';
     // Phone-sized dialogs (window height instead of dvh, a short cover). The desktop app keeps the
@@ -365,7 +400,9 @@
     setInterval(reportLocation, 1000);
     function start() {
         viewport();
-        new MutationObserver(schedule).observe(document.body, {childList: true, subtree: true, characterData: true});
+        new MutationObserver(function (records) {
+            for (var i = 0; i < records.length; i++) if (!ours(records[i])) { schedule(); return; }
+        }).observe(document.body, {childList: true, subtree: true, characterData: true});
         var titleNode = document.querySelector('title');
         if (titleNode) new MutationObserver(reportLocation).observe(titleNode, {childList: true, characterData: true, subtree: true});
         schedule();
@@ -382,6 +419,7 @@
                     ? {url: page.url, title: String(page.title || '')} : null
             };
             lastFill = 0;
+            fillChecked = new WeakSet();
             schedule();
         }
     };

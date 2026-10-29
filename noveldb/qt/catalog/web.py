@@ -162,7 +162,7 @@ class CatalogView(QWebEngineView):
         request = self.lastContextMenuRequest()
         link = request.linkUrl() if request is not None else QUrl()
         if link.isValid() and link.scheme() in ("http", "https"):
-            action = QAction("\U0001F517 Add link to cart", menu)
+            action = QAction("\U0001F6D2 Add link to cart", menu)
             action.triggered.connect(lambda: self.addToCart.emit(link.toString(), request.linkText()))
             first = menu.actions()[0] if menu.actions() else None
             menu.insertAction(first, action)
@@ -461,7 +461,7 @@ class CatalogPage(QWidget):
         if announce:
             text = ("Added to the link cart: " if added else "Already in the link cart: ") + (title or url)
             self.context.hub.message.emit(text)
-            self.toast.show_message("\U0001F517 " + text)
+            self.toast.show_message("\U0001F6D2 " + text)
             if added:
                 self.cart_feedback.label = self.cart_button.text()
                 self.cart_feedback.done(True, f"Added ({len(self.context.cart)})")
@@ -469,9 +469,9 @@ class CatalogPage(QWidget):
     def _cart_changed(self) -> None:
         count = len(self.context.cart)
         if hasattr(self, "cart_feedback"):
-            self.cart_feedback.label = f"\U0001F517 Cart ({count})"
+            self.cart_feedback.label = f"\U0001F6D2 Cart ({count})"
         if not (hasattr(self, "cart_feedback") and self.cart_feedback._restore.isActive()):
-            self.cart_button.setText(f"\U0001F517 Cart ({count})")
+            self.cart_button.setText(f"\U0001F6D2 Cart ({count})")
         self.run.setText(f"Download {count}" if count > 1 else "Download")
         self.run.setEnabled(count > 0)
         self._push_state()
