@@ -89,6 +89,24 @@ class OkHttpFetcherTest {
     }
 
     @Test
+    fun aRefusedPlainHttpAddressIsAskedForOverHttps() = runTest {
+        val seen = mutableListOf<String>()
+        val client = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            seen += request.url.toString()
+            if (request.url.scheme == "http") throw java.net.UnknownServiceException("CLEARTEXT communication not permitted by network security policy")
+            okhttp3.Response.Builder().request(request).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("OK")
+                .body(okhttp3.ResponseBody.Companion.run { "cover".toResponseBody() }).build()
+        }.build()
+        val lines = mutableListOf<String>()
+        val fetcher = OkHttpFetcher(client = client, maxRetries = 10, logger = JobLogging { _, message -> lines += message })
+        val response = fetcher.get("http://rs.example.test/cover.jpg?x=1")
+        assertEquals("cover", response.text)
+        assertEquals(listOf("http://rs.example.test/cover.jpg?x=1", "https://rs.example.test/cover.jpg?x=1"), seen)
+        assertEquals(emptyList<String>(), lines) // no retries with pauses
+    }
+
+    @Test
     fun postsBody() = runTest {
         server.enqueue(MockResponse().setBody("ok"))
         OkHttpFetcher().post(server.url("/c").toString(), "x=1".toByteArray())
