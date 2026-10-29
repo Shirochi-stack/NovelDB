@@ -225,13 +225,13 @@ Why the phone host's account page: a bare passport sign-in page would sign the u
 
 Verified on the emulator with placeholder values (no account): cookies set through the WebView show "Signed in (found ywguid, ywkey)"; the WebView alone keeps them across a force-stop; with the WebView's cookie database deleted and the encrypted copy kept they come back at launch; Sign out removes them and a restart does not bring them back.
 
-**sfc** is unchanged: username and password go to the app API (`SfcAdapter.login`), or a pasted cookie header containing `session_APP` is saved (`saveAppCookie`); the cookie lives in the secret store under `sfc.appCookie`; Sign out clears it.
+**sfc** signs in two ways. The website sign-in (`SfcAdapter.session`, also in `HardSessions`) opens the mobile site's login page in the app's browser, which offers Facebook, QQ and Weibo besides a password; its login is the `.SFCommunity` ticket, which downloads send to the website (bought VIP chapters come as the website's image) and offer to the app API (text if it takes it; a ticket it turns down with 401 is not offered again). The app API sign-in is unchanged: username and password go to `SfcAdapter.login`, or a pasted cookie header containing `session_APP` is saved (`saveAppCookie`); the cookie lives in the secret store under `sfc.appCookie` and wins over the website ticket; "Remove the app session" clears it.
 
 ## Enter App screen
 
-Reachable from **Settings** (row "Enter App", under npia login) and from the **Add** screen (an "Enter App" button under Download, as the desktop Download page has it). Settings-style column of sections:
+Reachable from **Settings** (row "Enter App", under npia login). Settings-style column of sections:
 
-- **sfc**: status line ("App session saved..." or "No app session saved..."), Username, Password, **Sign in**, an "App cookie" field with the hint `.SFCommunity=...; session_APP=...`, **Save cookie**, **Sign out** when a session exists, and a note that it is stored only in encrypted storage. Sign-in is disabled until both fields are filled; the password field is cleared after use.
+- **sfc**: status line (app session saved, signed in on the website, or not signed in), **Sign in on the website** (and **Sign out** of it), then Username, Password, **Sign in**, an "App cookie" field with the hint `.SFCommunity=...; session_APP=...`, **Save cookie**, **Remove the app session** when one exists, and a note that it is stored only in encrypted storage. Sign-in is disabled until both fields are filled; the password field is cleared after use.
 - **qdn** and **rbooks**: status ("Signed in (found ...)", "Partly signed in: found X, but ywkey and ywguid are needed", "Not signed in. A saved copy exists...", "Not signed in. Free chapters still download."), help text, **Sign in** ("Sign in again" when signed in) which opens the site's page in the app's browser and re-reads the status when it closes, and **Sign out** (clears the cookies and the saved copy).
 
 The status comes from the cookies (`SiteSessions.status`); it does not ask the site. A cookie can still be expired (the site's own check, `qdn.userInfo()`, runs at the start of a qdn book).
