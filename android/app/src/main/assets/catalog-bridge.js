@@ -9,11 +9,11 @@
  * - The page address is reported as {type: 'location', url, title}: on start and whenever it changes
  *   (pushState, replaceState, popstate, hashchange; many sites are single-page apps). The app decides
  *   what the page is and answers with setMode({cartLinks, download}); setMode({cartLinks}) alone works too.
- * - download {url, title}: the page can be downloaded, so a floating "🛒 Download" button (bottom right)
+ * - download {url, title}: the page can be downloaded, so a floating "⬇️ Download" button (bottom right)
  *   adds it to the cart. It reads "✓ In cart" while the URL is in the cart; tapping again removes it.
  *   The app sends it on supported sites (the ones it downloads from) and never on NovelDB.
  * - cartLinks: only on sites that are neither NovelDB nor supported; links to other sites that show
- *   text are renamed "🛒 Download" and go to the cart. Otherwise no link is renamed.
+ *   text are renamed "⬇️ Download" and go to the cart. Otherwise no link is renamed.
  * - Fill mode (desktop app) widens page columns capped narrower than the window, up to 1300px.
  * - Taps show no highlight flash, the NovelDB header is slimmer, and NovelDB Next's hover preview is off.
  * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
@@ -50,7 +50,7 @@
             button = document.createElement('button');
             button.type = 'button';
             button.className = 'noveldb-cart' + (extraClass ? ' ' + extraClass : '');
-            button.textContent = '🛒';
+            button.textContent = '⬇️';
             parent.appendChild(button);
         }
         return button;
@@ -131,7 +131,7 @@
     }
     // Outside links renamed while the app sends them to the cart; their original text, to restore.
     var mode = {cartLinks: false, fill: false, download: null};
-    var DOWNLOAD_LABEL = '🛒 Download';
+    var DOWNLOAD_LABEL = '⬇️ Download';
     var renamed = new Map();
     function shownText(anchor) {
         var nodes = [], walker = document.createTreeWalker(anchor, NodeFilter.SHOW_TEXT), node;
@@ -208,7 +208,7 @@
         send({type: adding ? 'cartAdd' : 'cartRemove', url: info.url, title: info.title, source: ''});
         decorate();
     }
-    /** The floating button for the page the app can download: "🛒 Download", or "✓ In cart" once added. */
+    /** The floating button for the page the app can download: "⬇️ Download", or "✓ In cart" once added. */
     function downloadButton() {
         var info = mode.download, button = document.querySelector('.noveldb-download');
         if (!info || !sameAddress(info.url, location.href) || !document.body) {
