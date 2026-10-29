@@ -13,9 +13,11 @@
             this.status=document.createElement('button');this.status.type='button';this.status.className='mobile-feed-status';this.status.setAttribute('aria-live','polite');
             this.status.addEventListener('click',()=>{this.failed=null;this.schedule();});
             this.placeholder=document.createElement('div');this.placeholder.hidden=true;controls.before(this.placeholder);
-            this.lastY=scrollY;this.direction=0;this.lastScrollAt=0;
+            this.lastY=scrollY;this.direction=0;this.lastScrollAt=0;this.settleUntil=0;this.keep=null;this.kept=null;this.jumpOffset=0;
             window.addEventListener('scroll',()=>{if(!this.enabled)return;this.activity?.();this.menu();this.schedule();},{passive:true});
-            window.addEventListener('resize',()=>{this.layout=null;this.heights=[];this.dirty=true;this.rebuild();this.schedule();});
+            // A zoom or a resize re-lays out every row. The card at the top of the view stays where it is, and the
+            // scrolls the re-layout causes neither move the list nor count as a gesture for the floating menu.
+            window.addEventListener('resize',()=>{if(this.enabled&&!this.keep)this.keep=this.anchor();this.layout=null;this.heights=[];this.dirty=true;this.settle();this.rebuild();this.schedule();});
             document.addEventListener('close',()=>this.schedule(),true);
             // Each card reports its own size after layout, so scrolling never forces a layout to measure rows.
             this.resize=new ResizeObserver(entries=>{
@@ -34,6 +36,18 @@
             else {this.host.replaceChildren(...cards);this.grid.replaceChildren();this.handoff.clear();this.unobserve();}
         }
         invalidate() {this.epoch++;this.identity=null;this.busy=false;this.pending.clear();}
+        // The row at the top of the view (its first card) and how far above the view its top is, from the
+        // layout before the resize: by the time the event fires the cards have already reflowed. None while
+        // the feed starts below the top of the view (the reader is at the controls, so nothing should move).
+        anchor() {
+            const local=-this.host.getBoundingClientRect().top;
+            if(local<=0||this.prefix.length<2)return null;
+            const row=this.rowAt(local);
+            // Zooming in steps keeps the same card, not the first card of each new row, until the reader scrolls.
+            if(this.kept==null||Math.floor(this.kept/this.columns)!==row)this.kept=row*this.columns;
+            return {index:this.kept,offset:(this.prefix[row]||0)-local};
+        }
+        settle() {this.settleUntil=performance.now()+500;this.lastY=Math.max(0,scrollY);this.direction=0;}
         columnCount() {return Math.max(1,parseInt(getComputedStyle(this.host).getPropertyValue('--feed-columns'),10)||2);}
         // Breakpoint values change only with the viewport; reading styles every frame forces a style recalculation.
         metrics() {
@@ -46,7 +60,7 @@
         jumpTo(page) {this.jumpRow=Math.floor((page-1)*this.size/this.columns);this.dirty=true;this.schedule();}
         reset(identity) {
             this.epoch++;this.identity=identity;this.cache.clear();this.pending.clear();this.failed=null;
-            this.heights=[];this.prefix=[0];this.extent=0;this.total=0;this.start=0;this.end=0;this.busy=false;
+            this.heights=[];this.prefix=[0];this.extent=0;this.total=0;this.start=0;this.end=0;this.busy=false;this.keep=null;this.kept=null;this.jumpOffset=0;
             this.handoff=new Map([...this.host.querySelectorAll(".novel-card")].map(c=>[`${c.dataset.source}:${c.dataset.novelId}`,c]));
             this.grid.replaceChildren();this.host.replaceChildren(this.top,this.grid,this.bottom,this.status);
             this.top.style.height=this.bottom.style.height='0px';this.status.hidden=true;this.host.dataset.feedReady="false";
@@ -96,9 +110,11 @@
         async update() {
             if(!this.enabled||!this.identity||this.busy||document.querySelector('dialog[open]'))return;
             const {columns,overscan}=this.metrics();
-            if(columns!==this.columns){
-                const index=this.rowAt(Math.max(0,-this.host.getBoundingClientRect().top))*this.columns;
-                this.columns=columns;this.heights=[];this.jumpRow=Math.floor(index/columns);this.dirty=true;this.rebuild();
+            if(columns!==this.columns||this.keep){
+                // Only a reader scrolled into the feed is taken back to their card; one at the top stays there.
+                const keep=this.keep;this.keep=null;
+                if(columns!==this.columns){this.columns=columns;this.heights=[];this.dirty=true;this.rebuild();}
+                if(keep){this.jumpRow=Math.floor(keep.index/columns);this.jumpOffset=keep.offset;}
             }
             if(!this.total){for(const card of [...this.grid.children,...this.handoff.values()]){card.remove();window.NovelCovers.release?.(card);}this.handoff.clear();this.grid.replaceChildren();this.mounted();this.status.hidden=false;this.status.disabled=true;this.status.textContent='No novels match these filters.';this.host.dataset.feedReady='true';return;}
             const epoch=this.epoch;
@@ -141,7 +157,7 @@
                 this.handoff.clear();this.dirty=false;this.host.dataset.feedReady="true";
                 // Without a wait the scroll offset read before the DOM writes is still current.
                 this.mounted();this.measure(waited?undefined:local);
-                if(this.jumpRow!=null){window.scrollTo({top:scrollY+this.host.getBoundingClientRect().top+(this.prefix[this.jumpRow]||0),behavior:"instant"});this.jumpRow=null;}
+                if(this.jumpRow!=null){window.scrollTo({top:scrollY+this.host.getBoundingClientRect().top+(this.prefix[this.jumpRow]||0)-this.jumpOffset,behavior:"instant"});this.jumpRow=null;this.jumpOffset=0;this.settle();}
             } finally {if(epoch===this.epoch){this.busy=false;if(!this.failed)this.schedule();}}
         }
         // Each slice is a full catalog query (about half a second), so ask for the next one while the
@@ -178,7 +194,10 @@
         menu() {
             const y=Math.max(0,scrollY),delta=y-this.lastY;this.lastY=y;
             if(!this.enabled||document.querySelector('dialog[open]')){this.direction=0;this.lastScrollAt=0;return;}
+            // Scrolls from a zoom or from the feed putting the reader back on their card are not an upward gesture.
+            if(performance.now()<this.settleUntil||this.keep||this.jumpRow!=null){this.direction=0;return;}
             if(Math.abs(delta)<2)return;
+            this.kept=null;
             const now=performance.now();
             // Small corrections separated by a pause are not one upward gesture.
             if(now-this.lastScrollAt>400||(delta<0)!==(this.direction<0))this.direction=0;
