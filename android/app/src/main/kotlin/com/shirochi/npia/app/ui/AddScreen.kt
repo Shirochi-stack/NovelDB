@@ -2,17 +2,23 @@ package com.shirochi.npia.app.ui
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,11 +35,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import com.shirochi.npia.app.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.model.SourceInfo
@@ -180,7 +194,19 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
 @Composable
 private fun LinkCartRow(count: Int, onOpen: () -> Unit) {
     if (count == 0) return
-    NavRow("🛒 Link cart ($count)", "Books from the Catalog tab; Download queues them too", onOpen)
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(painterResource(R.drawable.halgakos_cart), contentDescription = null, modifier = Modifier.size(36.dp))
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text("Link cart ($count)")
+            Text("Books from the Catalog tab; Download queues them too", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    HorizontalDivider()
 }
 
 /** The books in the link cart, each removable. */
@@ -193,7 +219,20 @@ fun LinkCartScreen(model: AppViewModel, topBar: TopBarState) {
         }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 16.dp)) {
-        if (items.isEmpty()) Text("The cart is empty. Tap the ⬇️ button on a card in the Catalog tab to add a book.", style = MaterialTheme.typography.bodyMedium)
+        if (items.isEmpty()) {
+            // The card buttons' artwork, inline in the sentence.
+            Text(
+                buildAnnotatedString {
+                    append("The cart is empty. Tap the ")
+                    appendInlineContent("download", "download")
+                    append(" button on a card in the Catalog tab to add a book.")
+                },
+                inlineContent = mapOf("download" to InlineTextContent(Placeholder(1.6.em, 1.6.em, PlaceholderVerticalAlign.TextCenter)) {
+                    Image(painterResource(R.drawable.halgakos_download), contentDescription = null, modifier = Modifier.fillMaxSize())
+                }),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         items.forEach { item ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
