@@ -72,7 +72,7 @@ public enum NpiaAuth {
         cookies.setLoginKey(key)
         let url = URL(string: "https://\(NpiaParser.host)/proc/login")!
         let body = formBody([("redirectrurl", ""), ("email", email), ("wd", password)])
-        let response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers(form: true), body: body, timeout: 15))
+        let response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers(form: true), body: body))
         guard response.text.contains(successMarker) else {
             context.logger.log(.warning, "npia login failed.")
             return nil

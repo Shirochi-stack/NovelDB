@@ -81,7 +81,7 @@ enum NpiaAuthorCatalog {
                     ("paging[order]", "date"), ("paging[sort][date]", "1"),
                 ])
                 let reply = try await context.http.send(
-                    HTTPRequest(url: url, method: "POST", headers: NpiaAuth.headers(form: true), body: body, timeout: 30)
+                    HTTPRequest(url: url, method: "POST", headers: NpiaAuth.headers(form: true), body: body)
                 )
                 response = reply
                 return try validate(reply, author: author, page: page, pageSize: pageSize, signatures: signatures)

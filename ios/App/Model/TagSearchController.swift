@@ -125,11 +125,15 @@ final class TagSearchController {
         let delay = max(0, shared.intervalMin)
         let threads = max(1, shared.threads)
         let age = npia.tagAgeFilter
+        let requestTimeout = TimeInterval(shared.requestTimeoutSeconds)
+        let pageLoadWait = TimeInterval(shared.pageLoadTimeoutSeconds)
 
         task = Task { [weak self] in
-            let client = URLSessionHTTPClient(maxRetries: 0)
+            let client = URLSessionHTTPClient(maxRetries: 0, minTimeout: requestTimeout)
             let logger = JobLogBridge { _, line in continuation.yield(line) }
-            let sourceContext = SourceContext(http: client, web: WKWebEngine(), secrets: secrets, settings: settings, logger: logger)
+            let engine = WKWebEngine()
+            engine.pageLoadWait = pageLoadWait
+            let sourceContext = SourceContext(http: client, web: engine, secrets: secrets, settings: settings, logger: logger)
             let context = NpiaSearchContext(http: client, log: { continuation.yield($0) }, progress: progress)
 
             let finished: Finished

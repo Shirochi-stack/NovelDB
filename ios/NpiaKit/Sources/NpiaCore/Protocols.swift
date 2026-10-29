@@ -7,9 +7,10 @@ public struct HTTPRequest: Sendable {
     public var method: String
     public var headers: [String: String]
     public var body: Data?
+    /// The least this request waits for the server; 0 leaves it to the app's request timeout, which also wins when longer.
     public var timeout: TimeInterval
 
-    public init(url: URL, method: String = "GET", headers: [String: String] = [:], body: Data? = nil, timeout: TimeInterval = 30) {
+    public init(url: URL, method: String = "GET", headers: [String: String] = [:], body: Data? = nil, timeout: TimeInterval = 0) {
         self.url = url
         self.method = method
         self.headers = headers
@@ -67,7 +68,10 @@ public enum WebLoadState: Sendable {
 
 /// One browser tab. Replaces a Playwright `Page` from the desktop scraper.
 public protocol WebPageDriving: Sendable {
+    /// Loads `url`, waiting at least `timeout` (the app's page load wait wins when longer).
     func load(_ url: URL, until state: WebLoadState, timeout: TimeInterval) async throws
+    /// The app's page load wait: `waitFor` and `waitForResponse` on this page last at least this long.
+    var minimumWait: TimeInterval { get }
     /// Runs an async JavaScript function body and returns its result encoded as JSON.
     /// `return document.title` yields `"\"...\""`; decode with `JSONDecoder`.
     func evaluateJSON(_ functionBody: String) async throws -> Data
@@ -93,6 +97,8 @@ public protocol WebPageDriving: Sendable {
 }
 
 public extension WebPageDriving {
+    var minimumWait: TimeInterval { 0 }
+
     func addMessageHandler(_ name: String, handler: @escaping @Sendable (String) async -> String) async {}
 
     func addMainFrameInitScript(_ source: String) async {

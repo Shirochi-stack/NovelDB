@@ -40,6 +40,8 @@ public enum DesktopConfig {
         s.shared.imageWorkers = int(c["ext_image_workers"]) ?? s.shared.imageWorkers
         s.shared.generateOnStop = bool(c["ext_generate_on_stop"]) ?? s.shared.generateOnStop
         s.shared.maxRetries = int(c["max_retries"]) ?? s.shared.maxRetries
+        s.shared.requestTimeoutSeconds = int(c["request_timeout"]).map { min(600, max(10, $0)) } ?? s.shared.requestTimeoutSeconds
+        s.shared.pageLoadTimeoutSeconds = int(c["page_load_timeout"]).map { min(600, max(10, $0)) } ?? s.shared.pageLoadTimeoutSeconds
         s.shared.namingMode = (c["naming_mode"] as? String).flatMap(NamingMode.init(rawValue:)) ?? s.shared.namingMode
         s.shared.appendRange = bool(c["append_range"]) ?? s.shared.appendRange
 
@@ -159,6 +161,8 @@ public enum DesktopConfig {
         c["ext_image_workers"] = shared.imageWorkers
         c["ext_generate_on_stop"] = shared.generateOnStop
         c["max_retries"] = shared.maxRetries
+        c["request_timeout"] = shared.requestTimeoutSeconds
+        c["page_load_timeout"] = shared.pageLoadTimeoutSeconds
         c["naming_mode"] = shared.namingMode.rawValue
         c["append_range"] = shared.appendRange
 

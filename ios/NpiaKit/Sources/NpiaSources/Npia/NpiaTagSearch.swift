@@ -410,7 +410,7 @@ public enum NpiaCatalogSearch {
                 let url = URL(string: "https://\(NpiaParser.host)/top100/all/\(period.path)/view/\(audience.path)")!
                 context.log("  Fetching \(label)...")
                 do {
-                    let response = try await context.http.send(HTTPRequest(url: url, headers: NpiaAuth.headers(), timeout: 30))
+                    let response = try await context.http.send(HTTPRequest(url: url, headers: NpiaAuth.headers()))
                     if response.status != 200 {
                         context.log("  \(label): HTTP \(response.status)")
                         rankings.append(NpiaRanking(label: label, ids: []))

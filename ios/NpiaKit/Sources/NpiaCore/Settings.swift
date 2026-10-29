@@ -22,6 +22,10 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     public var intervalMin = 2.0
     public var intervalMax = 5.0
     public var maxRetries = 10
+    /// How long a request waits for the server, at least (sources that need longer keep their own); 10...600 s.
+    public var requestTimeoutSeconds = SharedSettings.defaultTimeoutSeconds
+    /// How long a hidden browser page may take to load, and waits for its content may last, at least; 10...600 s.
+    public var pageLoadTimeoutSeconds = SharedSettings.defaultTimeoutSeconds
     public var formats: [OutputFormat] = [.epub]
     public var rangeFrom: Int?
     public var rangeTo: Int?
@@ -36,6 +40,39 @@ public struct SharedSettings: Codable, Sendable, Equatable {
     public var appendRange = false
 
     public init() {}
+
+    /// The request timeout and page load wait the app starts with, in seconds (Settings > Network).
+    public static let defaultTimeoutSeconds = 60
+
+    private enum CodingKeys: String, CodingKey {
+        case threads, intervalMin, intervalMax, maxRetries, requestTimeoutSeconds, pageLoadTimeoutSeconds, formats
+        case rangeFrom, rangeTo, useCache, cacheImages, numberChapters, separateTXT, skipPaid, imageWorkers
+        case generateOnStop, namingMode, appendRange
+    }
+
+    /// Every key is optional, so settings stored before a field existed (the queue keeps a copy
+    /// with each job) still decode.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        threads = try c.decodeIfPresent(Int.self, forKey: .threads) ?? threads
+        intervalMin = try c.decodeIfPresent(Double.self, forKey: .intervalMin) ?? intervalMin
+        intervalMax = try c.decodeIfPresent(Double.self, forKey: .intervalMax) ?? intervalMax
+        maxRetries = try c.decodeIfPresent(Int.self, forKey: .maxRetries) ?? maxRetries
+        requestTimeoutSeconds = try c.decodeIfPresent(Int.self, forKey: .requestTimeoutSeconds) ?? requestTimeoutSeconds
+        pageLoadTimeoutSeconds = try c.decodeIfPresent(Int.self, forKey: .pageLoadTimeoutSeconds) ?? pageLoadTimeoutSeconds
+        formats = try c.decodeIfPresent([OutputFormat].self, forKey: .formats) ?? formats
+        rangeFrom = try c.decodeIfPresent(Int.self, forKey: .rangeFrom)
+        rangeTo = try c.decodeIfPresent(Int.self, forKey: .rangeTo)
+        useCache = try c.decodeIfPresent(Bool.self, forKey: .useCache) ?? useCache
+        cacheImages = try c.decodeIfPresent(Bool.self, forKey: .cacheImages) ?? cacheImages
+        numberChapters = try c.decodeIfPresent(Bool.self, forKey: .numberChapters) ?? numberChapters
+        separateTXT = try c.decodeIfPresent(Bool.self, forKey: .separateTXT) ?? separateTXT
+        skipPaid = try c.decodeIfPresent(Bool.self, forKey: .skipPaid) ?? skipPaid
+        imageWorkers = try c.decodeIfPresent(Int.self, forKey: .imageWorkers) ?? imageWorkers
+        generateOnStop = try c.decodeIfPresent(Bool.self, forKey: .generateOnStop) ?? generateOnStop
+        namingMode = try c.decodeIfPresent(NamingMode.self, forKey: .namingMode) ?? namingMode
+        appendRange = try c.decodeIfPresent(Bool.self, forKey: .appendRange) ?? appendRange
+    }
 
     /// Desktop `_normalize_interval_range`: each bound clamped to 0...300 s, swapped when
     /// the maximum is below the minimum.

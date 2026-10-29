@@ -15,6 +15,7 @@ final class AppModel {
     var settings: AppSettings {
         didSet {
             if settings != oldValue { saveSettings() }
+            web.pageLoadWait = TimeInterval(settings.shared.pageLoadTimeoutSeconds)
             // Opting in to engine updates (the toggle, or an imported desktop config) checks right away.
             let optedIn = RuleEngine.allCases.filter {
                 settings.engines.autoUpdate($0.siteEngine) && !oldValue.engines.autoUpdate($0.siteEngine)
@@ -87,6 +88,7 @@ final class AppModel {
 
     init() {
         settings = store.load()
+        web.pageLoadWait = TimeInterval(settings.shared.pageLoadTimeoutSeconds)
         jobs = jobStore.load() ?? []
         uploadHistory = historyStore.load() ?? []
         // Jobs that were running when the app was killed cannot resume mid-way.
@@ -570,7 +572,8 @@ final class AppModel {
     func signInToNpia() async -> Bool {
         guard let email = secrets.string(for: .npiaEmail), !email.isEmpty,
               let password = secrets.string(for: .npiaPassword), !password.isEmpty else { return false }
-        let context = SourceContext(http: URLSessionHTTPClient(maxRetries: 1), web: web, secrets: secrets, settings: settings)
+        let http = URLSessionHTTPClient(maxRetries: 1, minTimeout: TimeInterval(settings.shared.requestTimeoutSeconds))
+        let context = SourceContext(http: http, web: web, secrets: secrets, settings: settings)
         do {
             return try await NpiaAuth.login(email: email, password: password, context: context, cookies: SharedCookieStorageJar()) != nil
         } catch {
@@ -634,7 +637,7 @@ final class AppModel {
     func signInToSfc(username: String, password: String) async {
         guard !sfcWorking else { return }
         sfcWorking = true
-        let ok = (try? await SfcAdapter.login(username: username, password: password, http: URLSessionHTTPClient(maxRetries: 1), secrets: secrets)) ?? false
+        let ok = (try? await SfcAdapter.login(username: username, password: password, http: URLSessionHTTPClient(maxRetries: 1, minTimeout: TimeInterval(settings.shared.requestTimeoutSeconds)), secrets: secrets)) ?? false
         sfcWorking = false
         sessionVersion += 1
         message = ok ? "Signed in to sfc" : "sfc sign-in failed: check the username and password"
