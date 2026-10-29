@@ -641,7 +641,7 @@ def test_ntk_cover_falls_back_to_numbered_cdn_mirror(monkeypatch):
 
     def fake_urlopen(request, timeout):
         requested_hosts.append(request.host)
-        assert timeout == 8
+        assert timeout == 60  # the 8 s fixed value is raised to the default Request timeout
         if request.host != "aws-cdn1.site":
             raise OSError("unavailable mirror")
         return Response()

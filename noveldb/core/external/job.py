@@ -70,6 +70,9 @@ class ExternalJob(ExternalPipelineMixin):
     def run(self, scraper) -> dict:
         """Fetch and download the book with `scraper` (call on the browser worker thread)."""
         self._scraper = scraper
+        refresh = getattr(scraper, "refresh_net_timeouts", None)
+        if callable(refresh):
+            refresh()  # a shared browser context keeps the Page load wait it started with
         done = threading.Event()
         watcher = threading.Thread(target=self._watch_cancel, args=(done,), daemon=True)
         watcher.start()

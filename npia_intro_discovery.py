@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
+from noveldb.core.net_timeouts import request_timeout
+
 ORIGIN = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com"
 
 
@@ -27,7 +29,7 @@ def discover(session, state, *, max_requests=6, delay=2.0, stopped=lambda: False
         if stopped() or requests_made >= max_requests:
             return None
         requests_made += 1
-        response = getattr(session, method)(ORIGIN + path, timeout=30, allow_redirects=False, **kwargs)
+        response = getattr(session, method)(ORIGIN + path, timeout=request_timeout(30), allow_redirects=False, **kwargs)
         if response.status_code != 200:
             raise ValueError(f"public intro HTTP {response.status_code}")
         return response

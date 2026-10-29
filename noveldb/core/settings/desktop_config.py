@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Optional
 
+from noveldb.core.net_timeouts import clamp_seconds
 from noveldb.core.settings.model import (
     ACCENTS,
     DEFAULT_CATALOG_URL,
@@ -228,6 +229,8 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         image_workers=_int(c.get("ext_image_workers")) or b.image_workers,
         generate_on_stop=_first_bool(c, "ext_generate_on_stop", b.generate_on_stop),
         max_retries=retries if retries is not None and retries >= 1 else b.max_retries,
+        request_timeout=clamp_seconds(_int(c.get("request_timeout")), b.request_timeout),
+        page_load_timeout=clamp_seconds(_int(c.get("page_load_timeout")), b.page_load_timeout),
         naming_mode=_choice(c.get("naming_mode"), NAMING_MODES, b.naming_mode),
         append_range=_first_bool(c, "append_range", b.append_range),
     )
@@ -477,6 +480,8 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["ext_image_workers"] = shared.image_workers
     c["ext_generate_on_stop"] = shared.generate_on_stop
     c["max_retries"] = shared.max_retries
+    c["request_timeout"] = clamp_seconds(shared.request_timeout)
+    c["page_load_timeout"] = clamp_seconds(shared.page_load_timeout)
     c["naming_mode"] = shared.naming_mode
     c["append_range"] = shared.append_range
 

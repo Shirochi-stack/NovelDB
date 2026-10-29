@@ -8,7 +8,7 @@ from typing import Callable
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from noveldb.core import paths
+from noveldb.core import net_timeouts, paths
 from noveldb.core.catalog.cart import LinkCart
 from noveldb.core.external.browser_worker import BrowserWorker
 from noveldb.core.jobs import JobDispatcher
@@ -57,6 +57,7 @@ class AppContext(QObject):
         self.store = store or ConfigStore()
         self.store.ensure_exists()
         self.settings: AppSettings = self.store.load()
+        net_timeouts.configure_from(self.settings)
         self.hub = QtEventHub()
         self.prompts = QtPrompts()
         self.signed_in = False
@@ -86,6 +87,7 @@ class AppContext(QObject):
         if updated == self.settings:
             return
         self.settings = updated
+        net_timeouts.configure_from(updated)
         self.runner.set_max_concurrent(updated.queue.max_concurrent_jobs)
         self.settingsChanged.emit()
         self._save_timer.start()

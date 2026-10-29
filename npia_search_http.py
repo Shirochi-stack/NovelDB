@@ -3,6 +3,7 @@
 import re
 import time
 
+from noveldb.core.net_timeouts import request_timeout
 from npia_search_terms import RETRYABLE_STATUS_CODES
 
 SEARCH_PAGE_ROWS = 2000
@@ -41,7 +42,7 @@ def get_json_with_retry(session, params, headers, retries, timeout=120):
         try:
             response = session.get(
                 "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/novel",
-                params=params, headers=headers, timeout=timeout,
+                params=params, headers=headers, timeout=request_timeout(timeout),
             )
             body = response.text.lstrip('\ufeff \t\r\n')
             memory_error = not body.startswith(('{', '[')) and bool(

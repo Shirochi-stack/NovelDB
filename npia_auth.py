@@ -2,6 +2,9 @@ import random
 import requests
 import time
 
+from noveldb.core.net_timeouts import request_timeout
+
+
 class NpiaAuth:
     """
     Replicates the authentication logic from \u004e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.cs.
@@ -60,7 +63,7 @@ class NpiaAuth:
 
         try:
             # High timeout to account for potential network lag
-            response = self.session.post(url, data=data, timeout=15)
+            response = self.session.post(url, data=data, timeout=request_timeout(15))
             # The C# code checks: if (streamReader.ReadToEnd().Contains("감사합니다")) [10]
             if "감사합니다" in response.text:
                 return True

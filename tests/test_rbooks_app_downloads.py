@@ -179,7 +179,7 @@ def test_volume_switch_reuses_authorized_session_and_closes_previous_reader(monk
     monkeypatch.setattr(proxy, '_locate_owned_volume',
                         lambda *args: calls.append('exact-volume'))
     monkeypatch.setattr(proxy, '_reader_log_snapshot', lambda: None)
-    monkeypatch.setattr(proxy, '_wait', lambda check, *args: check())
+    monkeypatch.setattr(proxy, '_wait', lambda check, *args, **kwargs: check())
     monkeypatch.setattr(proxy, '_wait_for_viewer',
                         lambda *args, **kwargs: calls.append('open'))
     proxy._open_owned_book(context, '2', 'Series 2권')

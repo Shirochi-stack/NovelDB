@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from noveldb.core import paths, platform_services
+from noveldb.core import net_timeouts, paths, platform_services
 from noveldb.core.catalog.urls import NOVELDB_NEXT_URL, valid_catalog_url
 from noveldb.core.settings.model import (
     ACCENTS,
@@ -288,9 +288,19 @@ def general_form(context: AppContext) -> Form:
     f.spin("Retries per chapter", "shared.max_retries", 0, 50)
     if platform_services.shutdown_supported():
         f.check("Shut down the computer when the whole queue finishes", "output.shutdown_after_success", " ")
+    network_section(f)
     app_updates_section(f, context)
     f.finish()
     return f
+
+
+def network_section(f: Form) -> None:
+    """Settings > General > Network: the two minimum waits (noveldb.core.net_timeouts)."""
+    f.add_section("Network")
+    low, high = net_timeouts.MIN_SECONDS, net_timeouts.MAX_SECONDS
+    f.spin("Request timeout", "shared.request_timeout", low, high, " s")
+    f.spin("Page load wait", "shared.page_load_timeout", low, high, " s")
+    f.add_hint("Minimum wait for a server or a page. Sources that need longer keep their own.")
 
 
 def app_updates_section(f: Form, context: AppContext) -> None:
