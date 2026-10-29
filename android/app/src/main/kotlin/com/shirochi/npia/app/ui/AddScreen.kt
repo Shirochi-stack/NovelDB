@@ -180,7 +180,7 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
 @Composable
 private fun LinkCartRow(count: Int, onOpen: () -> Unit) {
     if (count == 0) return
-    NavRow("🔗 Link cart ($count)", "Books from the Catalog tab; Download queues them too", onOpen)
+    NavRow("🛒 Link cart ($count)", "Books from the Catalog tab; Download queues them too", onOpen)
 }
 
 /** The books in the link cart, each removable. */
@@ -193,7 +193,7 @@ fun LinkCartScreen(model: AppViewModel, topBar: TopBarState) {
         }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 16.dp)) {
-        if (items.isEmpty()) Text("The cart is empty. Tap the 🔗 button on a card in the Catalog tab to add a book.", style = MaterialTheme.typography.bodyMedium)
+        if (items.isEmpty()) Text("The cart is empty. Tap the 🛒 button on a card in the Catalog tab to add a book.", style = MaterialTheme.typography.bodyMedium)
         items.forEach { item ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
