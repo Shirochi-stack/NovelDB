@@ -107,6 +107,18 @@ class OkHttpFetcherTest {
     }
 
     @Test
+    fun expectedErrorStatusesAreNotLogged() = runTest {
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(417))
+        server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(417))
+        val lines = mutableListOf<String>()
+        val fetcher = OkHttpFetcher(maxRetries = 0, logger = JobLogging { _, message -> lines += message })
+        fetcher.send(com.shirochi.npia.core.HttpRequest(server.url("/sig").toString(), quietStatuses = setOf(417)))
+        assertEquals(emptyList<String>(), lines)
+        fetcher.send(com.shirochi.npia.core.HttpRequest(server.url("/sig").toString()))
+        assertEquals(1, lines.size)
+    }
+
+    @Test
     fun postsBody() = runTest {
         server.enqueue(MockResponse().setBody("ok"))
         OkHttpFetcher().post(server.url("/c").toString(), "x=1".toByteArray())

@@ -11,6 +11,8 @@ data class HttpRequest(
     val body: ByteArray? = null,
     /** The least this request waits for the server; 0 leaves it to the app's request timeout, which also wins when longer. */
     val timeoutSeconds: Long = 0,
+    /** Error statuses the caller expects and handles itself, so they are not logged (sfc's rejected signatures). */
+    val quietStatuses: Set<Int> = emptySet(),
 )
 
 class HttpResponse(

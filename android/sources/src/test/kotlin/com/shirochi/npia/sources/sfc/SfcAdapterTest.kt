@@ -120,6 +120,19 @@ class SfcAdapterTest {
     """.trimIndent()
 
     @Test
+    fun rejectedSignaturesAreRetriedQuietlyWithALineEveryFifthTime() = runTest {
+        val replies = MutableList(6) { mapOf<String, Any>("status" to mapOf("httpCode" to 417)) to emptyMap<String, String>() }
+        replies += mapOf<String, Any>("status" to mapOf("httpCode" to 200)) to emptyMap()
+        val http = SequenceHttp(replies)
+        val lines = mutableListOf<String>()
+        val (_, payload) = SfcAppApi.send("/Chaps/1", cookie = null, http = http, logger = com.shirochi.npia.core.JobLogging { _, line -> lines += line })
+        assertEquals(200, SfcAppApi.statusCode(payload))
+        assertEquals(7, http.requests.size)
+        assertTrue(http.requests.all { 417 in it.quietStatuses }) // the fetcher does not log each rejection
+        assertEquals(listOf("sfc app API rejected the signature 5 times; trying a new one"), lines)
+    }
+
+    @Test
     fun parseBook() = runTest {
         val http = RoutedHttp()
         http.on("/Novel/12345/MainIndex/", index)

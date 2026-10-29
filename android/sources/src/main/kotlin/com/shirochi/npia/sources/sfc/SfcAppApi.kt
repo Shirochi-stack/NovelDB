@@ -6,6 +6,9 @@ import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
 import com.shirochi.npia.core.ImageRef
+import com.shirochi.npia.core.JobLogging
+import com.shirochi.npia.core.LogLevel
+import com.shirochi.npia.core.NullLogger
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SourceException
@@ -77,19 +80,30 @@ internal object SfcAppApi {
 
     /**
      * One signed request. HTTP code 417 inside the JSON means the signature was rejected
-     * (not a purchase check), so it is retried with a fresh nonce, up to 20 times.
+     * (not a purchase check), so it is retried with a fresh nonce, up to 20 times. The server turns
+     * down valid signatures often, so, as on the desktop, only every fifth rejection is logged.
      */
-    suspend fun send(path: String, method: String = "GET", body: ByteArray? = null, cookie: String?, http: HttpFetching): Pair<HttpResponse, JsonObject> {
+    suspend fun send(
+        path: String,
+        method: String = "GET",
+        body: ByteArray? = null,
+        cookie: String?,
+        http: HttpFetching,
+        logger: JobLogging = NullLogger,
+    ): Pair<HttpResponse, JsonObject> {
         val url = HttpSourceSupport.resolve(path, BASE)!!
         var last: Pair<HttpResponse, JsonObject>? = null
         for (attempt in 1..20) {
             val nonce = UUID.randomUUID().toString().uppercase()
             val headers = headers(nonce, System.currentTimeMillis(), method).toMutableMap()
             if (!cookie.isNullOrEmpty()) headers["Cookie"] = cookie
-            val response = http.send(HttpRequest(url, method, headers, body))
+            val response = http.send(HttpRequest(url, method, headers, body, quietStatuses = setOf(417)))
             val payload = runCatching { HttpSourceSupport.jsonObject(response.body) }.getOrElse { JsonObject(emptyMap()) }
             last = response to payload
             if (statusCode(payload) != 417) return last
+            if (attempt % 5 == 0) {
+                logger.log(LogLevel.DEBUG, "sfc app API rejected the signature $attempt times; " + if (attempt < 20) "trying a new one" else "giving up")
+            }
             if (attempt < 20) HttpSourceSupport.sleep(0.25)
         }
         return last!!
@@ -201,8 +215,8 @@ internal object SfcAppApi {
         data object Unavailable : ChapterOutcome()
     }
 
-    suspend fun chapter(ref: ChapterRef, chapterId: String, cookie: String, http: HttpFetching): ChapterOutcome {
-        val (_, payload) = send("/Chaps/$chapterId?expand=content%2Cexpand.content", cookie = cookie, http = http)
+    suspend fun chapter(ref: ChapterRef, chapterId: String, cookie: String, http: HttpFetching, logger: JobLogging = NullLogger): ChapterOutcome {
+        val (_, payload) = send("/Chaps/$chapterId?expand=content%2Cexpand.content", cookie = cookie, http = http, logger = logger)
         return chapter(payload, ref)
     }
 

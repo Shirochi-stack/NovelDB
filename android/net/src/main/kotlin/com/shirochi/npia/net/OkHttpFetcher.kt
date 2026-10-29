@@ -124,7 +124,7 @@ class OkHttpFetcher(
                     } else {
                         val body = withContext(Dispatchers.IO) { response.body?.bytes() ?: ByteArray(0) }
                         val headers = response.headers.toMultimap().mapKeys { it.key.lowercase() }.mapValues { it.value.joinToString(", ") }
-                        if (response.code !in 200..299) {
+                        if (response.code !in 200..299 && response.code !in request.quietStatuses) {
                             val level = if (isRetryable(response.code)) LogLevel.WARNING else LogLevel.DEBUG
                             val tried = if (attempt > 0) " after $attempt retries" else ""
                             logger.log(level, "HTTP ${response.code} from $where$tried")

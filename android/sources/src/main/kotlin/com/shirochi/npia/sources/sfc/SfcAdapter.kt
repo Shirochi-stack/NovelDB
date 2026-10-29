@@ -184,7 +184,7 @@ class SfcAdapter(
         val offered = ticket?.takeIf { it != refusedTicket }
         val cookie = appCookie ?: offered?.let { "$TICKET_COOKIE=$it" }
         if (cookie != null) {
-            when (val outcome = SfcAppApi.chapter(ref, chapterId, cookie, context.http)) {
+            when (val outcome = SfcAppApi.chapter(ref, chapterId, cookie, context.http, context.logger)) {
                 is SfcAppApi.ChapterOutcome.Content -> return ChapterResult.Content(outcome.content)
                 is SfcAppApi.ChapterOutcome.NoAccess -> when {
                     appCookie != null -> apiStatus = outcome.status
