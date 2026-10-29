@@ -13,6 +13,7 @@ import com.shirochi.npia.sources.http.content
 import com.shirochi.npia.sources.http.isRefused
 import com.shirochi.npia.sources.http.makeContext
 import com.shirochi.npia.sources.http.toJson
+import com.shirochi.npia.sources.hard.FakeCookies
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -181,6 +182,36 @@ class SfcAdapterTest {
         http.onJson("/Chaps/7002", mapOf("status" to mapOf("httpCode" to 403)))
         http.on("/Novel/12345/600/7002/", "<div class=\"pay-section\">购买</div>")
         assertTrue(isRefused(SfcAdapter().parseChapter(ref, book(), makeContext(http, secrets))))
+    }
+
+    @Test
+    fun websiteSignInTicketIsOfferedToTheAppApi() = runTest {
+        val http = RoutedHttp()
+        http.onJson("/Chaps/7002", mapOf("status" to mapOf("httpCode" to 200), "data" to mapOf("title" to "第二章", "content" to "正文")))
+        val adapter = SfcAdapter { FakeCookies(mapOf(".SFCommunity" to "ticket")) }
+        val ref = ChapterRef("7002", 2, "第二章", "https://$host/Novel/12345/600/7002/", isPaid = true)
+        assertNotNull(content(adapter.parseChapter(ref, book(), makeContext(http))))
+        assertEquals(".SFCommunity=ticket", http.requested("/Chaps/7002").first().headers["Cookie"])
+        // An app session wins over the website ticket.
+        val secrets = InMemorySecretStore(mapOf(SfcAppApi.cookieKey to ".SFCommunity=a; session_APP=b"))
+        assertNotNull(content(adapter.parseChapter(ref, book(), makeContext(http, secrets))))
+        assertEquals(".SFCommunity=a; session_APP=b", http.requested("/Chaps/7002").last().headers["Cookie"])
+    }
+
+    @Test
+    fun aTicketTheAppApiTurnsDownFallsBackToTheWebsite() = runTest {
+        val http = RoutedHttp()
+        http.onJson("/Chaps/7002", mapOf("status" to mapOf("httpCode" to 401)))
+        http.onJson("/Chaps/7003", mapOf("status" to mapOf("httpCode" to 401)))
+        http.on("/Novel/12345/600/7002/", "<div class=\"pay-section\">购买</div>")
+        http.on("/Novel/12345/600/7003/", "<div class=\"article-content\"><p>免费</p></div>")
+        val adapter = SfcAdapter { FakeCookies(mapOf(".SFCommunity" to "ticket")) }
+        val locked = adapter.parseChapter(ChapterRef("7002", 2, "第二章", "https://$host/Novel/12345/600/7002/", isPaid = true), book(), makeContext(http))
+        assertTrue(isRefused(locked))
+        assertTrue((locked as com.shirochi.npia.core.ChapterResult.Refused).reason.contains("not bought"))
+        // The turned-down ticket is not offered again; the next chapter comes from the website.
+        assertNotNull(content(adapter.parseChapter(ChapterRef("7003", 3, "第三章", "https://$host/Novel/12345/600/7003/"), book(), makeContext(http))))
+        assertTrue(http.requested("/Chaps/7003").isEmpty())
     }
 }
 

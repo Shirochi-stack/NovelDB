@@ -12,9 +12,10 @@ data class TranslateLanguage(val code: String, val name: String)
  * Page translation for the Browser tab, which has none of its own.
  *
  * The page is translated in place: `browser-translate.js` loads Google's website translator into
- * it, so the real site (sign-in, the app's buttons) stays. Sites whose security policy refuses the
- * translator get a translated copy instead, served by Google from `<site>.translate.goog`; the
- * helpers below build that address and map it back to the original site, which downloads need.
+ * it (or uses the copy a site loads for itself), so the real site (sign-in, the app's buttons) stays.
+ * Sites whose security policy refuses the translator get a translated copy instead, served by Google
+ * from `<site>.translate.goog`; the helpers below build that address and map it back to the original
+ * site, which downloads need.
  */
 object BrowserTranslate {
     const val DEFAULT_LANGUAGE = "en"
@@ -95,5 +96,9 @@ object BrowserTranslate {
     }
 }
 
-/** How the page translation is going; the Browser tab polls the page for it. */
-enum class TranslateStatus { OFF, WORKING, TRANSLATED, UNCHANGED, BLOCKED }
+/**
+ * How the page translation is going; the Browser tab polls the page for it. UNCHANGED: the translator
+ * changed nothing (the page may be in that language already). FAILED: nothing was translated in time,
+ * with no sign the site refused it. BLOCKED: the site's security policy refused the translator.
+ */
+enum class TranslateStatus { OFF, WORKING, TRANSLATED, UNCHANGED, FAILED, BLOCKED }

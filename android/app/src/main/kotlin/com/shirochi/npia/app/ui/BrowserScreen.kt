@@ -164,20 +164,23 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
     val downloadable = sourceUrl != null && remember(sourceUrl, engines) { SourceCatalog.downloadablePage(sourceUrl, engines) }
     val inCart = sourceUrl != null && model.cart.contains(cart, sourceUrl)
 
-    // While Translate is on, ask the page how it is going until it has translated or gives up.
+    // While Translate is on, follow the page until it has translated. The page decides when it has failed
+    // (after 15 s), and a page that translates later still replaces the note; a page that never answers
+    // (the script did not run) counts as failed after 25 s.
     LaunchedEffect(translating, translateRun) {
-        if (!translating || translateStatus != TranslateStatus.WORKING) return@LaunchedEffect
+        if (!translating || translateStatus == TranslateStatus.TRANSLATED) return@LaunchedEffect
         val started = System.currentTimeMillis()
-        while (translateStatus == TranslateStatus.WORKING) {
-            delay(400)
+        while (translateStatus != TranslateStatus.TRANSLATED && System.currentTimeMillis() - started < 45_000) {
+            delay(500)
             val status = suspendCancellableCoroutine { continuation ->
                 webView.evaluateJavascript("window.NpiaTranslate ? NpiaTranslate.status() : 'loading'") { continuation.resume(it.orEmpty().trim('"')) }
             }
-            translateStatus = when {
-                status == "translated" -> TranslateStatus.TRANSLATED
-                status == "same" -> TranslateStatus.UNCHANGED
-                status == "blocked" || System.currentTimeMillis() - started > 10_000 -> TranslateStatus.BLOCKED
-                else -> TranslateStatus.WORKING
+            translateStatus = when (status) {
+                "translated" -> TranslateStatus.TRANSLATED
+                "same" -> TranslateStatus.UNCHANGED
+                "failed" -> TranslateStatus.FAILED
+                "blocked" -> TranslateStatus.BLOCKED
+                else -> if (System.currentTimeMillis() - started > 25_000) TranslateStatus.FAILED else TranslateStatus.WORKING
             }
         }
     }
@@ -197,6 +200,12 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
         } else {
             webView.evaluateJavascript("window.NpiaTranslate && NpiaTranslate.stop()") { webView.reload() }
         }
+    }
+
+    // A fresh copy of the page gets the translator again from the start.
+    fun translateAgain() {
+        translateStatus = TranslateStatus.WORKING
+        webView.reload()
     }
 
     fun openCopy() {
@@ -270,6 +279,15 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
+        }
+        if (translating && translateStatus == TranslateStatus.FAILED) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Text("The page was not translated.", style = MaterialTheme.typography.bodySmall)
+                Row {
+                    TextButton(onClick = ::translateAgain) { Text("Try again") }
+                    TextButton(onClick = ::openCopy) { Text("Open a translated copy") }
+                }
+            }
         }
         if (translating && translateStatus == TranslateStatus.BLOCKED) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
