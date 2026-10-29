@@ -44,6 +44,8 @@ object DesktopConfig {
             imageWorkers = c.int("ext_image_workers") ?: b.imageWorkers,
             generateOnStop = c.bool("ext_generate_on_stop") ?: b.generateOnStop,
             maxRetries = c.int("max_retries") ?: b.maxRetries,
+            requestTimeoutSeconds = c.int("request_timeout")?.coerceIn(10, 600) ?: b.requestTimeoutSeconds,
+            pageLoadTimeoutSeconds = c.int("page_load_timeout")?.coerceIn(10, 600) ?: b.pageLoadTimeoutSeconds,
             namingMode = when (c.string("naming_mode")) { "id" -> NamingMode.ID; "title" -> NamingMode.TITLE; else -> b.namingMode },
             appendRange = c.bool("append_range") ?: b.appendRange,
         )
@@ -187,6 +189,8 @@ object DesktopConfig {
         put("ext_image_workers", shared.imageWorkers)
         put("ext_generate_on_stop", shared.generateOnStop)
         put("max_retries", shared.maxRetries)
+        put("request_timeout", shared.requestTimeoutSeconds)
+        put("page_load_timeout", shared.pageLoadTimeoutSeconds)
         put("naming_mode", if (shared.namingMode == NamingMode.ID) "id" else "title")
         put("append_range", shared.appendRange)
 

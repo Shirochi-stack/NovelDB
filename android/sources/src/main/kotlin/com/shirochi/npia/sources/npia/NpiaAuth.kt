@@ -66,7 +66,7 @@ object NpiaAuth {
         cookies.setLoginKey(key)
         val body = formBody(listOf("redirectrurl" to "", "email" to email, "wd" to password))
         val response = context.http.send(
-            HttpRequest("https://${NpiaParser.HOST}/proc/login", "POST", headers(key, form = true), body, timeoutSeconds = 15),
+            HttpRequest("https://${NpiaParser.HOST}/proc/login", "POST", headers(key, form = true), body),
         )
         if (!response.text.contains(SUCCESS_MARKER)) {
             context.logger.log(LogLevel.WARNING, SIGN_IN_FAILED)

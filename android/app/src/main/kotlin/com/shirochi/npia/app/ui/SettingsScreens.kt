@@ -143,6 +143,11 @@ fun GeneralSettingsScreen(model: AppViewModel) {
         StepperRow("Retries", shared.maxRetries, 0..30, { v -> set { it.copy(maxRetries = v) } })
         StepperRow("Downloads at once", model.manager.preferences.maxConcurrentJobs, 1..3, { model.manager.setMaxConcurrentJobs(it) })
 
+        SectionHeader("Network")
+        StepperRow("Request timeout (s)", shared.requestTimeoutSeconds, 10..600, { v -> set { it.copy(requestTimeoutSeconds = v) } }, step = 10)
+        StepperRow("Page load wait (s)", shared.pageLoadTimeoutSeconds, 10..600, { v -> set { it.copy(pageLoadTimeoutSeconds = v) } }, step = 10)
+        Footnote("Minimum wait for a server or a page. Sources that need longer keep their own.")
+
         SectionHeader("Cache")
         SwitchRow("Use Cache", shared.useCache, { v -> set { it.copy(useCache = v) } })
         SwitchRow("Cache Images", shared.cacheImages, { v -> set { it.copy(cacheImages = v) } })

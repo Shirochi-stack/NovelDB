@@ -100,7 +100,7 @@ internal class NpiaIntroDiscovery(
         requestsMade++
         val url = ORIGIN + path
         val headers = NpiaAuth.headers(loginKey, form = form != null)
-        val request = HttpRequest(url, method, headers, form?.let(NpiaAuth::formBody), timeoutSeconds = 30)
+        val request = HttpRequest(url, method, headers, form?.let(NpiaAuth::formBody))
         val response = abortable(stopped) { http.send(request) } ?: return null
         if (response.status != 200 || response.wasRedirected(url)) throw ValueError("public intro HTTP ${response.status}")
         return response

@@ -76,7 +76,7 @@ class AppUpdateClient(private val http: OkHttpClient = defaultClient()) {
     /** The manifest text, or null for a 404 (older releases have none) and for one that is too large to be a manifest. */
     private suspend fun fetchManifest(url: String): String? = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).header("Accept", "application/json").build()
-        val call = http.newBuilder().callTimeout(30, TimeUnit.SECONDS).build().newCall(request)
+        val call = http.newBuilder().callTimeout(60, TimeUnit.SECONDS).build().newCall(request)
         call.await().use { response ->
             if (response.code == 404) return@use null
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
@@ -160,7 +160,7 @@ class AppUpdateClient(private val http: OkHttpClient = defaultClient()) {
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             // A release address never needs to leave https.
             .followSslRedirects(false)
             .build()

@@ -9,7 +9,8 @@ data class HttpRequest(
     val method: String = "GET",
     val headers: Map<String, String> = emptyMap(),
     val body: ByteArray? = null,
-    val timeoutSeconds: Long = 30,
+    /** The least this request waits for the server; 0 leaves it to the app's request timeout, which also wins when longer. */
+    val timeoutSeconds: Long = 0,
 )
 
 class HttpResponse(
@@ -43,7 +44,11 @@ enum class WebLoadState { DOM_CONTENT_LOADED, LOAD }
 
 /** One browser tab. Replaces a Playwright `Page` from the desktop scraper; `:webengine` uses Android WebView. */
 interface WebPageDriving {
-    suspend fun load(url: String, until: WebLoadState = WebLoadState.LOAD, timeoutSeconds: Long = 30)
+    /** Loads `url`, waiting at least `timeoutSeconds` (0: the app's page load wait, which also wins when longer). */
+    suspend fun load(url: String, until: WebLoadState = WebLoadState.LOAD, timeoutSeconds: Long = 0)
+
+    /** The app's page load wait: `waitFor` and `waitForResponse` on this page last at least this long. */
+    val minimumWaitSeconds: Double get() = 0.0
 
     /** Runs an async JavaScript function body and returns its result as a JSON string. */
     suspend fun evaluateJson(functionBody: String): String

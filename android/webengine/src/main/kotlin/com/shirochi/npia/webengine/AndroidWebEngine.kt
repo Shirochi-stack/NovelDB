@@ -18,6 +18,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.shirochi.npia.core.DEFAULT_TIMEOUT_SECONDS
 import com.shirochi.npia.core.SharedCookies
 import com.shirochi.npia.core.WebEngineException
 import com.shirochi.npia.core.WebLoadTimeoutException
@@ -64,6 +65,8 @@ import kotlin.coroutines.resume
 class AndroidWebEngine(
     context: Context,
     private val loginPresenter: WebLoginPresenting = WebLoginCoordinator,
+    /** The app's page load wait, read when a page loads or waits. */
+    private val pageLoadSeconds: () -> Long = { DEFAULT_TIMEOUT_SECONDS.toLong() },
 ) : WebEngineProviding {
     private val appContext = context.applicationContext
 
@@ -76,7 +79,7 @@ class AndroidWebEngine(
     fun cookieJar(): WebViewCookieJar = WebViewCookieJar()
 
     override suspend fun newPage(profile: String): WebPageDriving = withContext(Dispatchers.Main) {
-        AndroidWebPage(WebView(appContext))
+        AndroidWebPage(WebView(appContext), pageLoadSeconds)
     }
 
     override suspend fun presentLogin(url: String, profile: String) {
@@ -101,7 +104,11 @@ class AndroidWebEngine(
 }
 
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
+internal class AndroidWebPage(
+    private val webView: WebView,
+    private val pageLoadSeconds: () -> Long = { DEFAULT_TIMEOUT_SECONDS.toLong() },
+) : WebPageDriving {
+    override val minimumWaitSeconds: Double get() = pageLoadSeconds().toDouble()
     private var pending: CompletableDeferred<Unit>? = null
     private var navigationToken = 0
 
@@ -210,7 +217,7 @@ internal class AndroidWebPage(private val webView: WebView) : WebPageDriving {
             webView.loadUrl(url)
         }
         try {
-            withTimeout(timeoutSeconds.coerceAtLeast(1) * 1000) { done.await() }
+            withTimeout(maxOf(timeoutSeconds, pageLoadSeconds()).coerceAtLeast(1) * 1000) { done.await() }
         } catch (e: TimeoutCancellationException) {
             throw WebLoadTimeoutException(url)
         } finally {

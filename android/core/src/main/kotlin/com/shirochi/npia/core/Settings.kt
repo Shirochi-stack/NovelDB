@@ -34,6 +34,9 @@ enum class ImageFormat(val raw: String) {
 @Serializable
 enum class NamingMode { @SerialName("title") TITLE, @SerialName("id") ID }
 
+/** The request timeout and page load wait the app starts with, in seconds (Settings > Network). */
+const val DEFAULT_TIMEOUT_SECONDS = 60
+
 /** Settings both desktop downloaders had, under one name. Per-source differences go in `AppSettings.overrides`. */
 @Serializable
 data class SharedSettings(
@@ -41,6 +44,10 @@ data class SharedSettings(
     val intervalMin: Double = 2.0,
     val intervalMax: Double = 5.0,
     val maxRetries: Int = 10,
+    /** How long a request waits for the server, at least (sources that need longer keep their own); 10-600 s. */
+    val requestTimeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS,
+    /** How long a hidden browser page may take to load, and waits for its content may last, at least; 10-600 s. */
+    val pageLoadTimeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS,
     val formats: List<OutputFormat> = listOf(OutputFormat.EPUB),
     val rangeFrom: Int? = null,
     val rangeTo: Int? = null,

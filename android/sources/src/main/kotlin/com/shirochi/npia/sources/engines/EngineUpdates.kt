@@ -38,7 +38,7 @@ class EngineUpdates(
     private val mutex = Mutex()
 
     /** Downloads the release's build of `engine` when it is newer than the one in use. Never throws except on cancellation. */
-    suspend fun check(engine: RuleEngine, fetch: EngineFetch, timeoutSeconds: Long = 30): UpdateResult = mutex.withLock {
+    suspend fun check(engine: RuleEngine, fetch: EngineFetch, timeoutSeconds: Long = 0): UpdateResult = mutex.withLock {
         val title = engine.title
         val state = store.state(engine).toMutableMap()
         state["checked"] = JsonPrimitive(clock() / 1000.0)
