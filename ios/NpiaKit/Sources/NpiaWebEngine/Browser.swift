@@ -14,6 +14,13 @@ public enum BrowserProfile {
         WKWebEngine.dataStore(for: name, persistent: true)
     }
 
+    /// Ends the user agent like Safari's. WKWebView's own stops at "Mobile/15E148", which some
+    /// sign-ins (Facebook's among them) refuse as an embedded browser.
+    public nonisolated static var safariApplicationName: String {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return "Version/\(os.majorVersion).\(os.minorVersion) Mobile/15E148 Safari/604.1"
+    }
+
     /// Turns typed text into a URL: full URLs pass through, bare domains get https, anything
     /// else becomes a search.
     public nonisolated static func normalize(_ input: String) -> URL? {
@@ -113,6 +120,7 @@ public final class BrowserState: NSObject, ObservableObject, WKNavigationDelegat
     public override init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = BrowserProfile.dataStore()
+        configuration.applicationNameForUserAgent = BrowserProfile.safariApplicationName
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         super.init()

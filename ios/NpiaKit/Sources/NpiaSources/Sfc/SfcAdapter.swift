@@ -16,6 +16,10 @@ public struct SfcAdapter: SourceAdapter {
     static let bookHost = "book." + domain
     /// Byte sizes of the placeholder image served instead of a VIP chapter image.
     static let placeholderImageSizes: Set<Int> = [53658, 42356]
+    /// The site sometimes sends the placeholder for a bought chapter; it is asked for again this many times.
+    static let placeholderRetries = 5
+    /// The website can take over a minute to answer (it renders VIP chapter images on request).
+    static let siteTimeout: TimeInterval = 120
 
     /// The website sign-in's ticket, from the cookies the app's browser and downloads share.
     private let websiteTicket: @Sendable () -> String?
@@ -102,8 +106,8 @@ public struct SfcAdapter: SourceAdapter {
         guard let bookID = Self.bookID(url) else { throw SourceError.unsupportedURL(url) }
         let infoURL = URL(string: "https://\(Self.bookHost)/Novel/\(bookID)/")!
         let indexURL = URL(string: "https://\(Self.bookHost)/Novel/\(bookID)/MainIndex/")!
-        let index = try await HTTPSourceSupport.get(indexURL, headers: Self.headers, http: context.http).text
-        let info = try await HTTPSourceSupport.get(infoURL, headers: Self.headers, http: context.http).text
+        let index = try await HTTPSourceSupport.get(indexURL, headers: Self.headers, http: context.http, timeout: Self.siteTimeout).text
+        let info = try await HTTPSourceSupport.get(infoURL, headers: Self.headers, http: context.http, timeout: Self.siteTimeout).text
         return try Self.book(indexHTML: index, infoHTML: info, bookID: bookID, infoURL: infoURL, indexURL: indexURL)
     }
 
@@ -166,7 +170,7 @@ public struct SfcAdapter: SourceAdapter {
             case .unavailable: break
             }
         }
-        let page = try await HTTPSourceSupport.get(url, headers: Self.headers, http: context.http).text
+        let page = try await HTTPSourceSupport.get(url, headers: Self.headers, http: context.http, timeout: Self.siteTimeout).text
         let outcome = try Self.webChapter(page, url: url, ref: ref)
         switch outcome {
         case .content(let content):
@@ -218,11 +222,16 @@ public struct SfcAdapter: SourceAdapter {
 
     /// Bought VIP chapters on the website are a single rendered image.
     func vipImageChapter(_ imageURL: URL, page: URL, ref: ChapterRef, http: any HTTPFetching) async throws -> ChapterResult {
-        let response = try await HTTPSourceSupport.get(imageURL, headers: [
+        let headers = [
             "User-Agent": HTTPSourceSupport.desktopUserAgent,
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             "Referer": page.absoluteString,
-        ], http: http)
+        ]
+        var response = try await HTTPSourceSupport.get(imageURL, headers: headers, http: http, timeout: Self.siteTimeout)
+        for _ in 0..<Self.placeholderRetries where Self.placeholderImageSizes.contains(response.body.count) {
+            try await HTTPSourceSupport.sleep(seconds: 1)
+            response = try await HTTPSourceSupport.get(imageURL, headers: headers, http: http, timeout: Self.siteTimeout)
+        }
         if Self.placeholderImageSizes.contains(response.body.count) {
             return .refused(ref, reason: "VIP chapter image was not served (not bought)")
         }

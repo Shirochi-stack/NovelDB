@@ -102,6 +102,30 @@ final class SfcAdapterTests: XCTestCase {
         BookInfo(source: .sfc, id: "12345", url: URL(string: "https://\(host)/Novel/12345/")!, title: "测试小说")
     }
 
+    func testWebsitePagesGetTheLongTimeout() async throws {
+        let http = RoutedHTTP()
+        http.on("/Novel/12345/600/7001/", "<div class=\"article-content\"><p>正文</p></div>")
+        let ref = ChapterRef(id: "7001", index: 1, title: "第一章", url: URL(string: "https://\(host)/Novel/12345/600/7001/"))
+        let result = try await SfcAdapter().parseChapter(ref, book: book(), context: makeContext(http))
+        XCTAssertNotNil(content(result))
+        XCTAssertEqual(http.requested("/Novel/12345/600/7001/").map(\.timeout), [SfcAdapter.siteTimeout])
+    }
+
+    func testAPlaceholderVIPImageIsAskedForAgain() async throws {
+        let routed = RoutedHTTP()
+        routed.on("/vip/c/7002/", "<div class=\"article-content\"><img id=\"vipImage\" src=\"/ajax/ashx/common.ashx?op=getChapPic&cid=7002\"></div>")
+        let ref = ChapterRef(id: "7002", index: 2, title: "第二章", url: URL(string: "https://\(host)/vip/c/7002/"), isPaid: true)
+        let twice = PlaceholderFirst(routed, placeholders: 2)
+        let first = try await SfcAdapter().parseChapter(ref, book: book(), context: SourceContext(http: twice, web: StubWeb(), secrets: InMemorySecretStore(), settings: AppSettings()))
+        XCTAssertEqual(try XCTUnwrap(content(first)).images.first?.data?.count, 100)
+        XCTAssertEqual(twice.imageRequests, 3)
+
+        let always = PlaceholderFirst(routed, placeholders: 99)
+        let second = try await SfcAdapter().parseChapter(ref, book: book(), context: SourceContext(http: always, web: StubWeb(), secrets: InMemorySecretStore(), settings: AppSettings()))
+        XCTAssertTrue(isRefused(second))
+        XCTAssertEqual(always.imageRequests, 1 + SfcAdapter.placeholderRetries)
+    }
+
     func testFreeChapterFromWebPage() async throws {
         let http = RoutedHTTP()
         http.on("/Novel/12345/600/7001/", "<h1 class=\"article-title\">第一章 开端</h1><div class=\"article-content\"><p>正文</p><p><img src=\"/pic/1.png\"></p></div>")
@@ -177,6 +201,32 @@ final class SfcAdapterTests: XCTestCase {
 }
 
 /// Returns canned JSON replies in order.
+/// Serves the placeholder for the first `placeholders` VIP image requests, then a real image.
+final class PlaceholderFirst: HTTPFetching, @unchecked Sendable {
+    private let routed: RoutedHTTP
+    private var placeholders: Int
+    private(set) var imageRequests = 0
+    private let lock = NSLock()
+
+    init(_ routed: RoutedHTTP, placeholders: Int) {
+        self.routed = routed
+        self.placeholders = placeholders
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard request.url.absoluteString.contains("common.ashx") else { return try await routed.send(request) }
+        return image(request)
+    }
+
+    private func image(_ request: HTTPRequest) -> HTTPResponse {
+        lock.lock(); defer { lock.unlock() }
+        imageRequests += 1
+        placeholders -= 1
+        let size = placeholders >= 0 ? SfcAdapter.placeholderImageSizes.first! : 100
+        return HTTPResponse(url: request.url, status: 200, headers: [:], body: Data(count: size))
+    }
+}
+
 final class SequenceHTTP: HTTPFetching, @unchecked Sendable {
     private var replies: [([String: Any], [String: String])]
     private(set) var requests: [HTTPRequest] = []
