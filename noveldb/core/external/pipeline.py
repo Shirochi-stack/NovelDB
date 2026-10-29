@@ -24,6 +24,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from external_scraper import ExternalScraper, write_text_output
+from noveldb.core.net_timeouts import page_timeout_ms, request_timeout
 
 
 def _get_base_dir():
@@ -422,7 +423,7 @@ class ExternalPipelineMixin:
                         self._scraper._page.goto(
                             self._scraper._book_url,
                             wait_until="domcontentloaded",
-                            timeout=30000,
+                            timeout=page_timeout_ms(30000),
                         )
                         self._scraper._page.wait_for_timeout(1000)
                     except Exception:
@@ -2516,7 +2517,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         last_error = None
         for attempt in range(max_retries):
             try:
-                request_options = {'timeout': 15}
+                request_options = {'timeout': request_timeout(15)}
                 if request_cookies:
                     effective_cookies = dict(request_cookies)
                     cloudfront_names = {

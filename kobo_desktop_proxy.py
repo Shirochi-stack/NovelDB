@@ -22,6 +22,8 @@ import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 
+from noveldb.core.net_timeouts import request_timeout
+
 
 class KoboDesktopError(RuntimeError):
     pass
@@ -118,7 +120,7 @@ class KoboDesktopReader:
                 request = urllib.request.Request(
                     self.INSTALLER_URL, headers={'User-Agent': 'Mozilla/5.0'}
                 )
-                with urllib.request.urlopen(request, timeout=30) as response:
+                with urllib.request.urlopen(request, timeout=request_timeout(30)) as response:
                     final = urllib.parse.urlparse(response.geturl())
                     if final.scheme != 'https' or final.hostname != 'cdn.kobo.com':
                         raise KoboDesktopError(

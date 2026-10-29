@@ -213,12 +213,12 @@ def test_mpia_reader_timeout_is_failure_without_extracting_unready_dom(
 ):
     scraper, clock, messages, extracted = batch_setup
     monkeypatch.setattr(
-        scraper, '_mpia_parallel_pages', lambda *_: [Page(clock, ready_after=60)],
+        scraper, '_mpia_parallel_pages', lambda *_: [Page(clock, ready_after=120)],
     )
     assert scraper.parse_chapter_batch(chapters(1), interval=0) == [None]
     assert extracted == []
     assert any('Timed out waiting for: Chapter 0' in message for message in messages)
-    assert clock.now < 46
+    assert clock.now < 61  # the 45 s wait is raised to the default Page load wait (60 s)
 
 
 def test_mpia_stop_interrupts_long_launch_delay(batch_setup, monkeypatch):

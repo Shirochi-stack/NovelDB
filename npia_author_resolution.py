@@ -9,6 +9,8 @@ import time
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
+
+from noveldb.core.net_timeouts import request_timeout
 from requests.sessions import Session
 
 import npia_author_registry as authors
@@ -99,7 +101,7 @@ def resolve_missing(session, registry, *, failures=None, workers=4, delay=1.0, d
                 stats['requests'] += 1
             response = None
             try:
-                response = client().get(ORIGIN + f'/novel/{nid}', timeout=30, allow_redirects=False)
+                response = client().get(ORIGIN + f'/novel/{nid}', timeout=request_timeout(30), allow_redirects=False)
                 if response.status_code in (404, 410):
                     raise IdentityUnavailable(f'HTTP {response.status_code}: novel unavailable')
                 if response.status_code != 200:
