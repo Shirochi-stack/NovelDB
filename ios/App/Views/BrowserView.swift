@@ -168,10 +168,15 @@ struct BrowserView: View {
                     model.cart.add(CartItem(url: pageAddress, title: CatalogPages.cleanTitle(browser.title, for: page), source: source))
                 }
             } label: {
-                Text(inCart ? "✓ In link cart" : "🛒 Add to link cart")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(maxWidth: .infinity)
+                HStack(spacing: 6) {
+                    if !inCart {
+                        Image("HalgakosCart").resizable().scaledToFit().frame(width: 22, height: 22)
+                    }
+                    Text(inCart ? "✓ In link cart" : "Add to link cart")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
         }

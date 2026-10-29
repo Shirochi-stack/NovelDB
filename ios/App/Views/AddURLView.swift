@@ -54,10 +54,13 @@ struct AddURLView: View {
                     NavigationLink {
                         LinkCartView()
                     } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("🛒 Link cart (\(model.cart.items.count))")
-                            Text("Books from the Catalog tab; Download queues them too")
-                                .font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            Image("HalgakosCart").resizable().scaledToFit().frame(width: 36, height: 36)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Link cart (\(model.cart.items.count))")
+                                Text("Books from the Catalog tab; Download queues them too")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -255,8 +258,13 @@ struct LinkCartView: View {
     var body: some View {
         List {
             if model.cart.items.isEmpty {
-                Text("The cart is empty. Tap the ⬇️ button on a card in the Catalog tab to add a book.")
-                    .foregroundStyle(.secondary)
+                // The card buttons' artwork next to the sentence (a resizable image cannot sit inside a Text).
+                Label {
+                    Text("The cart is empty. Tap the download button on a card in the Catalog tab to add a book.")
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image("HalgakosDownload").resizable().scaledToFit().frame(width: 28, height: 28)
+                }
             }
             ForEach(model.cart.items) { item in
                 VStack(alignment: .leading, spacing: 2) {
