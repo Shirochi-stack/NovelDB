@@ -45,8 +45,7 @@ object VisibleBrowser {
             useWideViewPort = true
             builtInZoomControls = true
             displayZoomControls = false
-            // Some sites refuse sign-in from embedded browsers that announce themselves with "; wv".
-            userAgentString = userAgentString.replace("; wv)", ")")
+            userAgentString = chromeLike(userAgentString)
         }
         // Lets the system password manager (Google, Bitwarden, ...) offer to save and fill logins.
         webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
@@ -84,6 +83,13 @@ object VisibleBrowser {
             }
         }
     }
+
+    /**
+     * Some sign-ins (Facebook's among them) refuse embedded browsers, which they tell from Chrome by
+     * "; wv", "Version/4.0" and the build id in the user agent; this drops all three.
+     */
+    fun chromeLike(userAgent: String): String =
+        userAgent.replace("; wv)", ")").replace(Regex(" Build/[^;)]+"), "").replace(" Version/4.0", "")
 
     /** Turns typed text into a URL: full URLs pass through, bare domains get https, anything else is a search. */
     fun normalize(input: String): String {

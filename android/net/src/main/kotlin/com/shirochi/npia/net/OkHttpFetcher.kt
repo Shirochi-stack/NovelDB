@@ -97,7 +97,11 @@ class OkHttpFetcher(
         request.headers.forEach { (name, value) -> builder.header(name, value) }
         builder.method(request.method, request.body?.toRequestBody() ?: if (request.method == "GET" || request.method == "HEAD") null else ByteArray(0).toRequestBody())
         val okRequest = builder.build()
-        val call = client.newBuilder().callTimeout(request.timeoutSeconds, TimeUnit.SECONDS).build()
+        // OkHttp's default read timeout is 10 s; a slow site can take longer than that to send anything.
+        val call = client.newBuilder()
+            .callTimeout(request.timeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(request.timeoutSeconds, TimeUnit.SECONDS)
+            .build()
 
         val where = "${okRequest.url.host}${okRequest.url.encodedPath}"
         var attempt = 0
