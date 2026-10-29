@@ -77,18 +77,20 @@
             if(!this.enabled||this.frame)return;
             this.frame=requestAnimationFrame(()=>{this.frame=0;this.update();});
         }
-        async request(page) {
+        async request(page,prefetch=false) {
             if(this.cache.has(page))return;
-            if(this.pending.has(page))return this.pending.get(page);
+            const pending=this.pending.get(page);
+            // A prefetch yields to other catalog queries; a slice that is needed now retries instead of failing.
+            if(pending)return prefetch||!pending.prefetch?pending:pending.catch(()=>this.request(page));
             const epoch=this.epoch,identity=this.identity;
             const task=(async()=>{
-                const result=await this.load(page,identity);
+                const result=await this.load(page,identity,prefetch);
                 if(epoch!==this.epoch||!this.enabled)return;
                 if(result.page!==page||!result.rows.length)throw new Error('Catalog is still loading');
                 this.cache.set(page,result.rows);this.extent=Math.max(this.extent,Math.min(this.total,(page-1)*this.size+result.rows.length));
                 this.rebuild();
             })();
-            this.pending.set(page,task);
+            task.prefetch=prefetch;this.pending.set(page,task);
             try{await task;}finally{if(epoch===this.epoch)this.pending.delete(page);}
         }
         async update() {
@@ -101,6 +103,7 @@
             if(!this.total){for(const card of [...this.grid.children,...this.handoff.values()]){card.remove();window.NovelCovers.release?.(card);}this.handoff.clear();this.grid.replaceChildren();this.mounted();this.status.hidden=false;this.status.disabled=true;this.status.textContent='No novels match these filters.';this.host.dataset.feedReady='true';return;}
             const epoch=this.epoch;
             const local=Math.max(0,-this.host.getBoundingClientRect().top);
+            if(this.jumpRow==null)this.prefetch(local);
             const row=this.jumpRow ?? this.rowAt(local),rows=Math.min(8,Math.max(2*overscan,Math.ceil(innerHeight/this.estimate)+2*overscan));
             const start=this.jumpRow ?? Math.max(0,row-overscan),last=Math.min(Math.ceil(this.total/columns),start+rows);
             if(start===this.start&&last===this.end&&this.grid.children.length&&!this.dirty)return;
@@ -129,7 +132,7 @@
                 for(let i=0;i<wanted.length;i++)if(this.grid.children[i]!==wanted[i])this.grid.insertBefore(wanted[i],this.grid.children[i]||null);
                 for(const old of this.handoff.values())if(!keep.has(old)&&!old.isConnected)window.NovelCovers.release?.(old);
                 this.unobserve(keep);for(const card of wanted)if(!this.observed.has(card)){this.resize.observe(card);this.observed.add(card);}
-                for(const page of this.cache.keys())if(page<firstPage-1||page>lastPage+1)this.cache.delete(page);
+                for(const page of this.cache.keys())if(page<firstPage-1||page>lastPage+2)this.cache.delete(page);
                 this.top.style.height=(this.prefix[start]||0)+'px';
                 this.bottom.style.height=Math.max(0,(this.prefix[this.prefix.length-1]||0)-(this.prefix[last]||0))+'px';
                 this.status.hidden=!this.failed&&this.extent<this.total;this.status.disabled=!this.failed;
@@ -140,6 +143,13 @@
                 this.mounted();this.measure(waited?undefined:local);
                 if(this.jumpRow!=null){window.scrollTo({top:scrollY+this.host.getBoundingClientRect().top+(this.prefix[this.jumpRow]||0),behavior:"instant"});this.jumpRow=null;}
             } finally {if(epoch===this.epoch){this.busy=false;if(!this.failed)this.schedule();}}
+        }
+        // Each slice is a full catalog query (about half a second), so ask for the next one while the
+        // reader is still a few screens away; waiting until the end is in view stalls fast scrolling.
+        prefetch(local) {
+            if(this.extent>=this.total||this.failed||this.pending.size||(this.prefix.at(-1)||0)-local>4*innerHeight)return;
+            const epoch=this.epoch;
+            this.request(Math.floor(this.extent/this.size)+1,true).then(()=>{if(epoch===this.epoch){this.dirty=true;this.schedule();}},()=>{});
         }
         measure(local) {
             if(!this.enabled||!this.grid.children.length)return;

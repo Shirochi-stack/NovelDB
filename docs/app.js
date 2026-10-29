@@ -6528,7 +6528,7 @@
         const {page, size, focus, ...query} = diskQuery();
         return JSON.stringify(query);
     }
-    async function mobileFeedPage(page, identity) {
+    async function mobileFeedPage(page, identity, prefetch = false) {
         const check = () => {if (!infiniteScrollEnabled() || identity !== mobileFeedKey()) throw new DOMException('Feed changed', 'AbortError');};
         check();
         if(cacheNeedsReload){await loadSource(currentSource,true);throw new DOMException("Catalog reloaded", "AbortError");}
@@ -6540,6 +6540,8 @@
         }
         if (!result) {
             if (activeCatalogController && !importedSources.size) throw new Error('Catalog is still loading');
+            // The worker keeps only its newest query, so a prefetch must not cancel one that is running.
+            if (prefetch && workerRequests.size) throw new DOMException('Catalog busy', 'AbortError');
             result = await workerRequest('query',activeCatalogController ? {...query,sources:query.sources.filter(source=>importedSources.has(source))} : query);
             check();
         }
