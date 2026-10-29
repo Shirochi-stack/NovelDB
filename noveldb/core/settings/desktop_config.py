@@ -349,7 +349,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         base.catalog,
         url=_valid_url(c.get("catalog_url")) or base.catalog.url,
         cart_links=_first_bool(c, "catalog_cart_links", base.catalog.cart_links),
-        zoom=_clamp(_float(c.get("catalog_zoom")), 0.5, 3.0, base.catalog.zoom),
+        zoom=_clamp(_float(c.get("catalog_zoom")), 0.25, 3.0, base.catalog.zoom),
         fill_width=_first_bool(c, "catalog_fill_width", base.catalog.fill_width),
     )
     eng = base.engines

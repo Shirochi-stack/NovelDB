@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("pytestqt")
 pytest.importorskip("PySide6.QtWebEngineWidgets")
 
-from PySide6.QtCore import QUrl  # noqa: E402
+from PySide6.QtCore import QEvent, Qt, QUrl  # noqa: E402
 
 from noveldb.core.catalog.urls import NOVELDB_NEXT_URL  # noqa: E402
 from noveldb.core.settings.model import DEFAULT_CATALOG_URL  # noqa: E402
@@ -62,6 +62,52 @@ def catalog(tmp_path, monkeypatch, qapp):
     page.opened = opened
     yield page
     ctx._save_timer.stop()  # a pending save must not outlive the test's NOVELDB_HOME
+
+
+def test_zoom_moves_in_browser_steps():
+    assert web.next_zoom(1.0, -1) == 0.9
+    assert web.next_zoom(0.9, -1) == 0.8
+    assert web.next_zoom(0.8, -1) == 0.75
+    assert web.next_zoom(0.25, -1) == 0.25
+    assert web.next_zoom(1.0, 1) == 1.1
+    assert web.next_zoom(0.85, 1) == 0.9  # an older setting snaps to the next step
+    assert web.next_zoom(3.0, 1) == 3.0
+
+
+def test_zoom_gestures_inside_the_page_zoom_instead_of_scrolling(qapp):
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QKeyEvent, QWheelEvent
+
+    view = web.CatalogView()
+    steps = []
+    view.zoomRequested.connect(steps.append)
+
+    def wheel(dy, modifiers):
+        return QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, dy), Qt.MouseButton.NoButton,
+                           modifiers, Qt.ScrollPhase.NoScrollPhase, False)
+
+    ctrl = Qt.KeyboardModifier.ControlModifier
+    assert view.eventFilter(view, wheel(-120, ctrl)) is True  # consumed: the page does not scroll
+    assert view.eventFilter(view, wheel(120, ctrl)) is True
+    for _ in range(3):  # a touchpad's small deltas add up to one step
+        view.eventFilter(view, wheel(-40, ctrl))
+    assert view.eventFilter(view, wheel(-120, Qt.KeyboardModifier.NoModifier)) is False  # plain scrolling
+    override = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_Minus, ctrl)
+    assert view.eventFilter(view, override) is True and override.isAccepted()
+    view.eventFilter(view, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Minus, ctrl))
+    view.eventFilter(view, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_0, ctrl))
+    assert steps == [-1, 1, -1, -1, 0]
+    view.deleteLater()
+
+
+def test_zoom_steps_update_the_setting_and_the_label(catalog):
+    catalog.zoom_step(-1)
+    catalog.zoom_step(-1)
+    assert catalog.context.settings.catalog.zoom == 0.8
+    catalog._show_zoom()
+    assert catalog.zoom_label.text() == "80%"
+    catalog.set_zoom(0.1)
+    assert catalog.context.settings.catalog.zoom == 0.25
 
 
 def test_cart_messages_update_the_link_cart(catalog):
