@@ -585,12 +585,12 @@ struct CatalogSiteForm: View {
                 }
                 .disabled(site == CatalogSite.nextAddress)
             } footer: {
-                Text("On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. NovelDB Next cards have a link-cart button too, at the bottom right of the cover. On the sites NovelDB downloads from, links to other sites open in the Browser tab, and a page it can download gets a floating \"🛒 Download\" button (bottom right) that adds the page to the cart.")
+                Text("On NovelDB, cards open their details, \"Open novel\" opens the Browser tab, and the link-cart button (bottom left of the cover) adds the book to the Add tab. NovelDB Next cards have a link-cart button too, at the bottom right of the cover. On the sites NovelDB downloads from, links to other sites open in the Browser tab, and a page it can download gets a floating \"⬇️ Download\" button (bottom right) that adds the page to the cart.")
             }
             Section {
                 Toggle("Send outside links to the link cart", isOn: $cartLinks)
             } footer: {
-                Text("Applies only to sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from. There, links to other sites read \"🛒 Download\" and add the link to the cart. Off: they open in the Browser tab.")
+                Text("Applies only to sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from. There, links to other sites read \"⬇️ Download\" and add the link to the cart. Off: they open in the Browser tab.")
             }
         }
         .themedBackground()
