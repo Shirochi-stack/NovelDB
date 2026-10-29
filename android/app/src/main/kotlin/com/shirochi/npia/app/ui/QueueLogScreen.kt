@@ -170,7 +170,7 @@ private fun LogLine(entry: LogEntry, titles: Map<String, String>) {
     Text(
         "${LogLines.clock(entry.time)} ${LogLines.tag(entry.level)} $title: ${entry.message}",
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 1.dp),
-        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp),
+        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 9.5.sp, lineHeight = 13.sp),
         color = color,
     )
 }
