@@ -101,7 +101,7 @@ class AppPreferences(context: Context) {
 
     /**
      * On catalog sites other than NovelDB, links to other sites go to the link cart (and read
-     * "🔗 Download"); off, they open in the Browser tab.
+     * "🛒 Download"); off, they open in the Browser tab.
      */
     var catalogCartLinks: Boolean
         get() = prefs.getBoolean("catalogCartLinks", true)

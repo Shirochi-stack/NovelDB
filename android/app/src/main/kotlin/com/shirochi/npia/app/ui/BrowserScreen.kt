@@ -301,7 +301,7 @@ fun BrowserScreen(model: AppViewModel, topBar: TopBarState) {
                     },
                     contentPadding = PaddingValues(horizontal = 8.dp),
                     modifier = Modifier.weight(1f),
-                ) { Text(if (inCart) "✓ In link cart" else "🔗 Add to link cart", maxLines = 1) }
+                ) { Text(if (inCart) "✓ In link cart" else "🛒 Add to link cart", maxLines = 1) }
             }
         }
         if (pageUrl == null) {
