@@ -161,6 +161,48 @@ def test_download_sits_on_the_first_button_row_before_the_cart(window, qtbot):
     assert page.download.y() == order[0].y()  # not wrapped below Paste, even in a narrow column
 
 
+def test_wrapped_button_rows_are_evenly_spaced_and_centred(window, qtbot):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QPushButton, QWidget
+
+    window.show()
+    qtbot.waitExposed(window)
+    page = window.download
+    flow_layout = page.download.parentWidget().layout()
+    browser_row = next(b for b in page.findChildren(QPushButton) if b.text() == "Enter Browser").parentWidget()
+
+    def top(widget):
+        return widget.mapTo(page, QPoint(0, 0)).y()
+
+    def lines():
+        buttons = [flow_layout.itemAt(i).widget() for i in range(flow_layout.count())]
+        rows = []
+        for button in sorted((b for b in buttons if b.isVisible()), key=top):
+            if rows and top(button) < max(top(b) + b.height() for b in rows[-1]):
+                rows[-1].append(button)
+            else:
+                rows.append([button])
+        return rows
+
+    # Narrow the window until the buttons wrap onto a second row, as in a small window.
+    for width in range(1400, 600, -20):
+        window.resize(width, 900)
+        qtbot.wait(30)
+        if len(lines()) > 1:
+            break
+    rows = lines()
+    assert len(rows) > 1, "the buttons never wrapped"
+    browser = [w for w in browser_row.findChildren(QWidget) if w.isVisible() and w.parentWidget() is browser_row]
+    gaps = [min(top(w) for w in below) - max(top(w) + w.height() for w in above)
+            for above, below in zip(rows, rows[1:] + [browser])]
+    # The wrapped rows and the row below them (Enter Browser) are equally far apart.
+    assert max(gaps) - min(gaps) <= 1, gaps
+    # Buttons of different heights share their row's centre line.
+    for row in rows:
+        centres = [top(w) + w.height() / 2 for w in row]
+        assert max(centres) - min(centres) <= 1, centres
+
+
 def test_share_agreement_is_asked_once(context, monkeypatch):
     from noveldb.qt import uploads
 

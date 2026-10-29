@@ -81,20 +81,31 @@ class FlowLayout(QLayout):
         margins = self.contentsMargins()
         area = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
         x, y, line_height = area.x(), area.y(), 0
+        # Items wait for their row's height so each is centred in it: a taller neighbour (a menu
+        # button, say) then leaves no extra gap below the shorter ones.
+        line = []
+
+        def place() -> None:
+            if not test:
+                for item, left, hint in line:
+                    item.setGeometry(QRect(QPoint(left, y + (line_height - hint.height()) // 2), hint))
+            line.clear()
+
         for item in self._items:
             if item.widget() is not None and not item.widget().isVisibleTo(item.widget().parentWidget()):
                 continue
             hint = item.sizeHint()
             next_x = x + hint.width() + self._h
             if next_x - self._h > area.right() + 1 and line_height > 0:
+                place()
                 x = area.x()
                 y += line_height + self._v
                 next_x = x + hint.width() + self._h
                 line_height = 0
-            if not test:
-                item.setGeometry(QRect(QPoint(x, y), hint))
+            line.append((item, x, hint))
             x = next_x
             line_height = max(line_height, hint.height())
+        place()
         return y + line_height - rect.y() + margins.bottom()
 
 
