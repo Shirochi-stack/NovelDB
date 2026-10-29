@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shirochi.npia.app.AppViewModel
 import com.shirochi.npia.app.FileActions
@@ -334,7 +335,7 @@ fun JobDetailScreen(model: AppViewModel, id: String) {
             item { SectionHeader("Log") }
             items(job.log) { line ->
                 SelectionContainer {
-                    Text(line, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(horizontal = 16.dp))
+                    Text(line, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, fontSize = 9.5.sp, lineHeight = 13.sp, modifier = Modifier.padding(horizontal = 16.dp))
                 }
             }
         }
