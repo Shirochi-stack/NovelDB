@@ -55,7 +55,7 @@ struct AddURLView: View {
                         LinkCartView()
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("🔗 Link cart (\(model.cart.items.count))")
+                            Text("🛒 Link cart (\(model.cart.items.count))")
                             Text("Books from the Catalog tab; Download queues them too")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
@@ -255,7 +255,7 @@ struct LinkCartView: View {
     var body: some View {
         List {
             if model.cart.items.isEmpty {
-                Text("The cart is empty. Tap the 🔗 button on a card in the Catalog tab to add a book.")
+                Text("The cart is empty. Tap the 🛒 button on a card in the Catalog tab to add a book.")
                     .foregroundStyle(.secondary)
             }
             ForEach(model.cart.items) { item in
