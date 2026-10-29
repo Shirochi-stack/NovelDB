@@ -148,11 +148,14 @@ class DownloadPage(QWidget):
         self.download.clicked.connect(self._download)
         self.summary = hint("")
         # The buttons wrap instead of being cut off when the column is narrow; the summary sits below.
+        # The rows are as far apart as the flow's own wrapped rows, so a wrapped Link cart sits evenly
+        # between the buttons and the browser row.
         input_actions = QVBoxLayout()
-        input_actions.setSpacing(4)
+        input_actions.setSpacing(8)
         # Download sits before the link cart it also queues, so a narrow column wraps the cart button, not it.
         input_actions.addWidget(flow(paste, clear, tools, self.download, self.cart_button))
         input_actions.addWidget(self.summary)
+        input_actions.addWidget(browser_row)
         self.summary.hide()
 
         self.detected = QWidget()
@@ -226,7 +229,6 @@ class DownloadPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(self.input)
         layout.addLayout(input_actions)
-        layout.addWidget(browser_row)
         layout.addLayout(self.detected_holder)
         layout.addWidget(section("Output formats"))
         layout.addWidget(formats_row)
