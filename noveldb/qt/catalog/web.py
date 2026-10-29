@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QFile, QIODevice, QObject, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import QEvent, QFile, QIODevice, QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineSettings
@@ -156,8 +156,57 @@ class CatalogWebPage(QWebEnginePage):
         return popup
 
 
+# The zoom steps Chrome and Edge use, so the Catalog zooms the way the site does in a browser.
+ZOOM_LEVELS = (0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
+
+
+def next_zoom(current: float, direction: int) -> float:
+    """The browser zoom step above (direction > 0) or below the current zoom."""
+    if direction > 0:
+        return next((z for z in ZOOM_LEVELS if z > current + 0.001), ZOOM_LEVELS[-1])
+    return next((z for z in reversed(ZOOM_LEVELS) if z < current - 0.001), ZOOM_LEVELS[0])
+
+
 class CatalogView(QWebEngineView):
     addToCart = Signal(str, str)
+    # Zoom gestures inside the page: 1 or -1 for a step, 0 to reset. Left to Qt's web view, Ctrl+wheel
+    # scrolls the page and a pinch only magnifies it, out of step with the toolbar's zoom, which is a
+    # browser zoom (the page re-lays out and the site adds cards as it gets wider).
+    zoomRequested = Signal(int)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._wheel = 0
+
+    def childEvent(self, event):
+        # The page's render widget is a child created later; it is the one that receives the input.
+        super().childEvent(event)
+        if event.type() == QEvent.Type.ChildAdded and event.child().isWidgetType():
+            event.child().installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        kind = event.type()
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        if kind == QEvent.Type.Wheel and event.modifiers() & ctrl:
+            # One step per wheel notch; a touchpad's small deltas add up to one.
+            self._wheel += event.angleDelta().y() or event.angleDelta().x()
+            while abs(self._wheel) >= 120:
+                step = 1 if self._wheel > 0 else -1
+                self._wheel -= 120 * step
+                self.zoomRequested.emit(step)
+            return True
+        if kind == QEvent.Type.NativeGesture and event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
+            if event.value():
+                self.zoomRequested.emit(1 if event.value() > 0 else -1)
+            return True
+        if kind in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress) and event.modifiers() & ctrl:
+            step = {Qt.Key.Key_Plus: 1, Qt.Key.Key_Equal: 1, Qt.Key.Key_Minus: -1, Qt.Key.Key_0: 0}.get(event.key())
+            if step is not None:
+                if kind == QEvent.Type.KeyPress:
+                    self.zoomRequested.emit(step)
+                event.accept()  # the key comes here rather than to the window's shortcuts: one zoom step
+                return True
+        return super().eventFilter(watched, event)
 
     def contextMenuEvent(self, event):
         menu = self.createStandardContextMenu()
@@ -202,13 +251,14 @@ class CatalogPage(QWidget):
         self.address = QLabel("")
         self.address.setProperty("hint", True)
         self.address.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.zoom_out = tool("−", "Zoom out (Ctrl+-)", lambda: self.zoom_by(-0.1))
+        self.zoom_out = tool("−", "Zoom out (Ctrl+- or Ctrl+wheel)", lambda: self.zoom_step(-1))
         self.zoom_label = QLabel("100%")
         self.zoom_label.setProperty("hint", True)
-        self.zoom_in = tool("+", "Zoom in (Ctrl++)", lambda: self.zoom_by(0.1))
+        self.zoom_in = tool("+", "Zoom in (Ctrl++ or Ctrl+wheel)", lambda: self.zoom_step(1))
         self.external = tool("↗", "Open this page in your browser", self._open_external)
-        for keys, step in (("Ctrl++", 0.1), ("Ctrl+=", 0.1), ("Ctrl+-", -0.1)):
-            QShortcut(QKeySequence(keys), self, activated=lambda s=step: self.zoom_by(s))
+        # For when the toolbar has the focus; inside the page the view sends these itself (zoomRequested).
+        for keys, step in (("Ctrl++", 1), ("Ctrl+=", 1), ("Ctrl+-", -1)):
+            QShortcut(QKeySequence(keys), self, activated=lambda s=step: self.zoom_step(s))
         QShortcut(QKeySequence("Ctrl+0"), self, activated=lambda: self.set_zoom(1.0))
         self.cart_button = QPushButton()
         icons.set_icon(self.cart_button, icons.CART)
@@ -303,6 +353,7 @@ class CatalogPage(QWidget):
         self.view = CatalogView(self)
         self.view.setPage(self.page)
         self.view.addToCart.connect(lambda url, title: self._add_to_cart(url, title, announce=True))
+        self.view.zoomRequested.connect(lambda step: self.zoom_step(step) if step else self.set_zoom(1.0))
         self.view.loadStarted.connect(self._load_started)
         self.view.loadProgress.connect(self.progress.setValue)
         self.view.loadFinished.connect(self._load_finished)
@@ -323,13 +374,13 @@ class CatalogPage(QWidget):
 
     # -- zoom ------------------------------------------------------------------------------------
 
-    def zoom_by(self, step: float) -> None:
-        self.set_zoom(self.context.settings.catalog.zoom + step)
+    def zoom_step(self, direction: int) -> None:
+        self.set_zoom(next_zoom(self.context.settings.catalog.zoom, direction))
 
     def set_zoom(self, value: float) -> None:
         from dataclasses import replace
 
-        value = round(min(3.0, max(0.5, value)), 2)
+        value = round(min(ZOOM_LEVELS[-1], max(ZOOM_LEVELS[0], value)), 2)
         self.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, zoom=value)))
 
     def _show_zoom(self) -> None:

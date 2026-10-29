@@ -236,6 +236,18 @@ def make_dmg(app: Path, target: Path, volume: str) -> Path:
     return target
 
 
+def open_to_everyone(root: Path) -> None:
+    """`chmod -R a+rX`: the AppImage runs as whoever starts it, and appimagetool refuses an AppDir with
+    entries other users cannot read (the trimmed Qt locales folder comes out 0700)."""
+    for path in [root, *root.rglob("*")]:
+        if path.is_symlink():
+            continue
+        mode = path.stat().st_mode
+        wanted = mode | 0o444 | (0o111 if path.is_dir() or mode & 0o111 else 0)
+        if wanted != mode:
+            path.chmod(wanted)
+
+
 def make_appimage(folder: Path, variant: str, target: Path, arch: str) -> Path:
     name = app_version.app_name(variant)
     display = app_version.display_name(variant)
@@ -263,6 +275,7 @@ def make_appimage(folder: Path, variant: str, target: Path, arch: str) -> Path:
     if not tool:
         raise SystemExit("appimagetool not found (set APPIMAGETOOL)")
     target.unlink(missing_ok=True)
+    open_to_everyone(appdir)
     env = dict(os.environ, ARCH={"x86_64": "x86_64", "arm64": "aarch64"}.get(arch, arch))
     run([tool, "--appimage-extract-and-run", "--no-appstream", appdir, target], env=env)
     return target

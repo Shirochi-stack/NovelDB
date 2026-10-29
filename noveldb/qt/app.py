@@ -218,6 +218,10 @@ def main(argv=None) -> int:
     QCoreApplication.setApplicationVersion(VERSION)
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)  # QtWebEngine loads later (Catalog page)
+    # The Catalog zooms like a browser (the page re-lays out); Chromium's pinch zoom only magnifies it.
+    flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    if "--disable-pinch" not in flags.split():
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (flags + " --disable-pinch").strip()
     app = QApplication.instance() or QApplication(sys.argv[:1])
 
     key = _instance_key()

@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import app_version
 from desktop_build.variants import VARIANTS, asset_name, expected_assets, package_ext
 
@@ -65,3 +67,23 @@ def test_workflows_call_the_reusable_build():
     reusable = (ROOT / ".github" / "workflows" / "desktop-build.yml").read_text(encoding="utf-8")
     assert "gh release upload" in reusable and "--clobber" in reusable
     assert "tests/test_desktop_build.py" in reusable
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions")
+def test_the_appdir_is_opened_to_every_user(tmp_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("build_desktop", ROOT / "scripts" / "build_desktop.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    locales = tmp_path / "AppDir" / "usr" / "lib" / "locales"
+    locales.mkdir(parents=True)
+    (locales / "en-US.pak").write_bytes(b"x")
+    (tmp_path / "AppDir" / "run").write_bytes(b"#!/bin/sh")
+    locales.chmod(0o700)
+    (locales / "en-US.pak").chmod(0o600)
+    (tmp_path / "AppDir" / "run").chmod(0o700)
+    build.open_to_everyone(tmp_path / "AppDir")
+    assert locales.stat().st_mode & 0o777 == 0o755
+    assert (locales / "en-US.pak").stat().st_mode & 0o777 == 0o644
+    assert (tmp_path / "AppDir" / "run").stat().st_mode & 0o777 == 0o755

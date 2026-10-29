@@ -248,6 +248,37 @@ def test_one_infinite_scrolling_switch_on_by_default_with_earlier_choices_honour
     asyncio.run(scenario())
 
 
+def test_zooming_keeps_the_reader_on_their_card_and_never_floats_the_menu():
+    first_visible = '(()=>{for(const c of document.querySelectorAll(".mobile-feed-grid .novel-card")){if(c.getBoundingClientRect().bottom>0)return +c.dataset.feedIndex;}return -1;})()'
+    columns = '(n)=>getComputedStyle(document.querySelector(".mobile-feed-grid")).gridTemplateColumns.split(" ").length===n'
+    async def scenario():
+        async with async_playwright() as p:
+            browser=await p.chromium.launch(headless=True)
+            page=await browser.new_page(viewport={'width':1920,'height':900})
+            await page.add_init_script("localStorage.setItem('noveldb.infiniteScroll','true')")
+            await page.route('**/*',FeedSite().route)
+            await page.goto('https://metadata.test/');await wait_loaded(page)
+            # At the top of the page a zoom (the window's CSS width changing) leaves the scroll alone.
+            await page.set_viewport_size({'width':2400,'height':900})
+            await page.wait_for_function(columns,arg=8);await page.wait_for_timeout(700)
+            assert await page.evaluate('scrollY')==0
+            await page.set_viewport_size({'width':1920,'height':900})
+            await page.wait_for_function(columns,arg=6);await page.wait_for_timeout(700)
+            assert await page.evaluate('scrollY')==0
+            # Scrolled into the list, the row at the top of the view stays there through zooming out and back in.
+            await page.evaluate('scrollTo({top:5000,behavior:"instant"})');await page.wait_for_timeout(900)
+            first=await page.evaluate(first_visible)
+            assert first>20
+            for width,count in ((2400,8),(3840,12),(1920,6)):
+                await page.set_viewport_size({'width':width,'height':900})
+                await page.wait_for_function(columns,arg=count);await page.wait_for_timeout(900)
+                now=await page.evaluate(first_visible)
+                assert now<=first<now+count,(width,first,now)
+                assert await page.locator('.mobile-controls-floating').count()==0
+            await browser.close()
+    asyncio.run(scenario())
+
+
 def test_wider_or_zoomed_out_windows_show_more_cards_per_row():
     async def scenario():
         async with async_playwright() as p:
