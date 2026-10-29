@@ -23,7 +23,7 @@ PAGE = """<!doctype html><html><head><title>{title}</title></head><body>
 <a id="inside" href="/inner">Inside link</a>
 <iframe id="frame" srcdoc="<p>embedded</p>"></iframe>
 </body></html>"""
-CART_LABEL = "\U0001F517 Download"
+CART_LABEL = "\U0001F6D2 Download"
 IN_CART = "✓ In cart"
 NPIA_GLOBAL = "global." + "novel" + "pia.com"  # the real host, kept out of the source text
 
@@ -232,10 +232,14 @@ def test_a_supported_site_gets_the_button_on_its_novel_pages_only(page):
     assert added["title"] == "Title of home"  # the pushed page has not changed its title
     assert external_text(page) == "Source page"
 
-    page.evaluate("history.pushState({}, '', '/ranking')")  # a page that cannot be downloaded
-    wait_for_location(page, "https://%s/ranking" % NPIA_GLOBAL)
-    answer(page)
+    # Back on the home page, which cannot be downloaded. (Its other pages can: WebToEpub lists the
+    # site, so /ranking would get a button too.)
+    page.evaluate("history.pushState({}, '', '/')")
+    wait_for_location(page, "https://%s/" % NPIA_GLOBAL)
+    assert not answer(page).download
     page.wait_for_function("!document.querySelector('.noveldb-download')")
+    page.wait_for_timeout(300)
+    assert download_button(page).count() == 0
 
 
 def test_noveldb_never_gets_the_button_or_renamed_links(page):

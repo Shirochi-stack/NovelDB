@@ -28,12 +28,12 @@ class CartDialog(QDialog):
     def __init__(self, context: AppContext, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.context = context
-        self.setWindowTitle("\U0001F517 Link cart")
+        self.setWindowTitle("\U0001F6D2 Link cart")
         self.resize(560, 420)
         self.list = QListWidget()
         self.list.setUniformItemSizes(True)
         self.list.itemChanged.connect(self._update_buttons)
-        self.empty = QLabel("The cart is empty. Use the \U0001F517 button on Catalog cards to add books.")
+        self.empty = QLabel("The cart is empty. Use the \U0001F6D2 button on Catalog cards to add books.")
         self.empty.setWordWrap(True)
         self.empty.setProperty("hint", True)
         select_all = QPushButton("Select all")

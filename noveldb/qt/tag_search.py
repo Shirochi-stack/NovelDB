@@ -231,7 +231,7 @@ class TagSearchDialog(QDialog):
         self.save.clicked.connect(self._save)
         self.to_download = QPushButton("Add to Download")
         self.to_download.clicked.connect(self._to_download)
-        self.to_cart = QPushButton("\U0001F517 Add to link cart")
+        self.to_cart = QPushButton("\U0001F6D2 Add to link cart")
         self.to_cart.clicked.connect(self._to_cart)
         self.log = QPlainTextEdit()
         self.log.setObjectName("log")
