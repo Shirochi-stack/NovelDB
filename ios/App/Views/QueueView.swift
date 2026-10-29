@@ -302,7 +302,7 @@ struct JobDetailView: View {
                         Label("Open in the Queue log", systemImage: "text.alignleft")
                     }
                     ForEach(Array(job.log.enumerated()), id: \.offset) { _, line in
-                        Text(line).font(.caption.monospaced()).textSelection(.enabled)
+                        Text(line).font(.caption2.monospaced()).textSelection(.enabled)
                     }
                 }
             }
