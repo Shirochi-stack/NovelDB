@@ -30,6 +30,7 @@ public final class WebLoginSession: NSObject, ObservableObject, Identifiable, WK
         self.profile = profile
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
+        configuration.applicationNameForUserAgent = BrowserProfile.safariApplicationName
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self

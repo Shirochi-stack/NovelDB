@@ -9,8 +9,8 @@ enum HTTPSourceSupport {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 
     /// GET that throws on HTTP errors.
-    static func get(_ url: URL, headers: [String: String], http: any HTTPFetching) async throws -> HTTPResponse {
-        let response = try await http.get(url, headers: headers)
+    static func get(_ url: URL, headers: [String: String], http: any HTTPFetching, timeout: TimeInterval = 30) async throws -> HTTPResponse {
+        let response = try await http.send(HTTPRequest(url: url, headers: headers, timeout: timeout))
         guard (200..<400).contains(response.status) else { throw HTTPError.status(response.status, url) }
         return response
     }
