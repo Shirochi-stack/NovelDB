@@ -98,6 +98,14 @@ final class HTTPClientLogTests: XCTestCase {
         XCTAssertEqual(lines[0].message, "HTTP 404 for GET example.test/missing.jpg")
     }
 
+    func testAnExpectedErrorStatusIsNotLogged() async throws {
+        ScriptedProtocol.script([.status(417)])
+        let log = LineBox()
+        let response = try await client(retries: 0, log: log).send(HTTPRequest(url: URL(string: "https://example.test/sig")!, quietStatuses: [417]))
+        XCTAssertEqual(response.status, 417)
+        XCTAssertTrue(log.all.isEmpty)
+    }
+
     func testARefusedPlainHttpAddressIsAskedForOverHttps() async throws {
         ScriptedProtocol.script([.failure(.appTransportSecurityRequiresSecureConnection), .status(200)])
         let log = LineBox()

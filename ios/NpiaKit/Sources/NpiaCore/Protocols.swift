@@ -9,13 +9,16 @@ public struct HTTPRequest: Sendable {
     public var body: Data?
     /// The least this request waits for the server; 0 leaves it to the app's request timeout, which also wins when longer.
     public var timeout: TimeInterval
+    /// Error statuses the caller expects and handles itself, so they are not logged (sfc's rejected signatures).
+    public var quietStatuses: Set<Int>
 
-    public init(url: URL, method: String = "GET", headers: [String: String] = [:], body: Data? = nil, timeout: TimeInterval = 0) {
+    public init(url: URL, method: String = "GET", headers: [String: String] = [:], body: Data? = nil, timeout: TimeInterval = 0, quietStatuses: Set<Int> = []) {
         self.url = url
         self.method = method
         self.headers = headers
         self.body = body
         self.timeout = timeout
+        self.quietStatuses = quietStatuses
     }
 }
 

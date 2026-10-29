@@ -159,7 +159,7 @@ public struct SfcAdapter: SourceAdapter {
         let ticket = appCookie == nil ? websiteTicket() : nil
         let offered = ticket.flatMap { refused.contains($0) ? nil : $0 }
         if let cookie = appCookie ?? offered.map({ Self.ticketCookie + "=" + $0 }) {
-            switch try await SfcAppAPI.chapter(ref, chapterID: chapterID, cookie: cookie, http: context.http) {
+            switch try await SfcAppAPI.chapter(ref, chapterID: chapterID, cookie: cookie, http: context.http, logger: context.logger) {
             case .content(let content): return .content(content)
             case .noAccess(let status):
                 if appCookie != nil {
