@@ -84,7 +84,7 @@ internal class NpiaAuthorCatalog(
                             "paging[order]" to "date", "paging[sort][date]" to "1",
                         ),
                     )
-                    val request = HttpRequest(AUTHOR_URL, "POST", NpiaAuth.headers(loginKey, form = true), body, timeoutSeconds = 30)
+                    val request = HttpRequest(AUTHOR_URL, "POST", NpiaAuth.headers(loginKey, form = true), body)
                     val reply = abortable(abortRequest) { http.send(request) }
                     if (reply == null) {
                         aborted = true

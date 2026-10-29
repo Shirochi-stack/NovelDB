@@ -89,7 +89,7 @@ class DownloadManager(private val app: Application) {
         runCatching { EncryptedSecretStore(app) }.getOrElse { InMemorySecretStore() }
     }
     val preferences = AppPreferences(app)
-    private val web by lazy { AndroidWebEngine(app) }
+    private val web by lazy { AndroidWebEngine(app, pageLoadSeconds = { _settings.value.shared.pageLoadTimeoutSeconds.toLong() }) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val settingsFile = File(app.filesDir, "settings.json")
@@ -228,7 +228,8 @@ class DownloadManager(private val app: Application) {
 
     /** Reads release files over HTTP; GitHub answers 404 until the `engines` release exists. */
     private val engineFetch = EngineFetch { url, timeoutSeconds ->
-        val response = OkHttpFetcher(maxRetries = 1).send(HttpRequest(url, timeoutSeconds = timeoutSeconds))
+        val fetcher = OkHttpFetcher(maxRetries = 1, minTimeoutSeconds = _settings.value.shared.requestTimeoutSeconds.toLong())
+        val response = fetcher.send(HttpRequest(url, timeoutSeconds = timeoutSeconds))
         if (response.status !in 200..299) throw IOException("HTTP ${response.status}")
         response.body
     }
@@ -463,7 +464,10 @@ class DownloadManager(private val app: Application) {
 
     /** A context for one-off calls outside the download pipeline (sign-in, tag search). */
     fun sourceContext(logger: JobLogging = NullLogger, maxRetries: Int = 1): SourceContext =
-        SourceContext(OkHttpFetcher(cookieJar = web.cookieJar(), maxRetries = maxRetries), web, secrets, _settings.value, logger)
+        SourceContext(
+            OkHttpFetcher(cookieJar = web.cookieJar(), maxRetries = maxRetries, minTimeoutSeconds = _settings.value.shared.requestTimeoutSeconds.toLong()),
+            web, secrets, _settings.value, logger,
+        )
 
     /** Signs in with the saved npia account in the background and reports the result as a message. */
     fun signInToNpia() {

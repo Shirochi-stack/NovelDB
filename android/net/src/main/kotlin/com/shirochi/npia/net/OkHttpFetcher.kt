@@ -1,5 +1,6 @@
 package com.shirochi.npia.net
 
+import com.shirochi.npia.core.DEFAULT_TIMEOUT_SECONDS
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
@@ -59,6 +60,8 @@ class OkHttpFetcher(
     client: OkHttpClient? = null,
     /** Where retries and failed requests are reported (host and path only, never the query). */
     private val logger: JobLogging = NullLogger,
+    /** The app's request timeout: every request waits at least this long for the server. */
+    private val minTimeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS.toLong(),
 ) : HttpFetching {
     /**
      * No request pacing: like the desktop scraper, the rate limit is a pause each chapter worker
@@ -66,7 +69,7 @@ class OkHttpFetcher(
      * in parallel.
      */
     constructor(settings: SharedSettings, cookieJar: CookieJar = CookieJar.NO_COOKIES, logger: JobLogging = NullLogger) :
-        this(cookieJar, null, settings.maxRetries, logger = logger)
+        this(cookieJar, null, settings.maxRetries, logger = logger, minTimeoutSeconds = settings.requestTimeoutSeconds.toLong())
 
     private val client = client ?: OkHttpClient.Builder()
         .cookieJar(cookieJar)
@@ -97,10 +100,13 @@ class OkHttpFetcher(
         request.headers.forEach { (name, value) -> builder.header(name, value) }
         builder.method(request.method, request.body?.toRequestBody() ?: if (request.method == "GET" || request.method == "HEAD") null else ByteArray(0).toRequestBody())
         val okRequest = builder.build()
-        // OkHttp's default read timeout is 10 s; a slow site can take longer than that to send anything.
+        // The timeout is how long the server may stay silent, as on iOS and the desktop (OkHttp's own
+        // default is 10 s); a whole request, a large image on a slow line included, gets 10 minutes.
+        val timeout = timeoutFor(request.timeoutSeconds, minTimeoutSeconds)
         val call = client.newBuilder()
-            .callTimeout(request.timeoutSeconds, TimeUnit.SECONDS)
-            .readTimeout(request.timeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(timeout, TimeUnit.SECONDS)
+            .writeTimeout(timeout, TimeUnit.SECONDS)
+            .callTimeout(maxOf(timeout, MAX_CALL_SECONDS), TimeUnit.SECONDS)
             .build()
 
         val where = "${okRequest.url.host}${okRequest.url.encodedPath}"
@@ -144,6 +150,12 @@ class OkHttpFetcher(
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
         fun isRetryable(status: Int) = status == 429 || status in 500..599
+
+        /** The longest a whole request may take, however steadily the server sends. */
+        const val MAX_CALL_SECONDS = 600L
+
+        /** What a request asks for or the app's request timeout, whichever is longer. */
+        fun timeoutFor(requested: Long, minimum: Long): Long = maxOf(requested, minimum).coerceAtLeast(1)
 
         private fun seconds(millis: Long): String = String.format(java.util.Locale.US, "%.1f", millis / 1000.0)
 

@@ -66,6 +66,25 @@ class SettingsTest {
     }
 
     @Test
+    fun timeoutsRoundTripThroughTheDesktopConfig() {
+        val fresh = DesktopConfig.export(AppSettings())
+        assertEquals(60, fresh["request_timeout"]!!.jsonPrimitive.int)
+        assertEquals(60, fresh["page_load_timeout"]!!.jsonPrimitive.int)
+        val (imported, _) = DesktopConfig.import("""{"request_timeout": 90, "page_load_timeout": 120}""")
+        assertEquals(90, imported.shared.requestTimeoutSeconds)
+        assertEquals(120, imported.shared.pageLoadTimeoutSeconds)
+        val (again, _) = DesktopConfig.import(DesktopConfig.export(imported))
+        assertEquals(imported.shared, again.shared)
+        // Missing keys leave the values alone; out-of-range ones are clamped to 10-600.
+        assertEquals(90, DesktopConfig.import("""{"ext_threads": 3}""", imported).first.shared.requestTimeoutSeconds)
+        val clamped = DesktopConfig.import("""{"request_timeout": 5, "page_load_timeout": 9999}""").first.shared
+        assertEquals(10, clamped.requestTimeoutSeconds)
+        assertEquals(600, clamped.pageLoadTimeoutSeconds)
+        // Settings saved before the keys existed decode with the defaults.
+        assertEquals(60, SettingsCoding.decode("""{"shared": {"threads": 2}}""").shared.requestTimeoutSeconds)
+    }
+
+    @Test
     fun encodeDecodeRoundTrip() {
         val settings = AppSettings(
             shared = SharedSettings(rangeFrom = 5),

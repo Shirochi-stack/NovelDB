@@ -343,7 +343,7 @@ class NpiaTagSearch(
                 val url = "https://${NpiaParser.HOST}/top100/all/$periodUrl/view/$audienceUrl"
                 log("  Fetching $label...")
                 try {
-                    val request = HttpRequest(url, "GET", NpiaAuth.headers(loginKey), null, timeoutSeconds = 30)
+                    val request = HttpRequest(url, "GET", NpiaAuth.headers(loginKey), null)
                     val response = abortable(stopped) { http.send(request) }
                     if (response == null) {
                         log("  Stopped by user.")

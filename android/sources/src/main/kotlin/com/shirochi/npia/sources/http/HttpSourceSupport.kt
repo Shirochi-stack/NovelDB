@@ -30,7 +30,7 @@ object HttpSourceSupport {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 
     /** GET that throws on HTTP errors. */
-    suspend fun get(url: String, headers: Map<String, String>, http: HttpFetching, timeoutSeconds: Long = 30): HttpResponse {
+    suspend fun get(url: String, headers: Map<String, String>, http: HttpFetching, timeoutSeconds: Long = 0): HttpResponse {
         val response = http.send(HttpRequest(url, headers = headers, timeoutSeconds = timeoutSeconds))
         if (response.status !in 200 until 400) throw HttpStatusException(response.status, url)
         return response

@@ -100,8 +100,8 @@ suspend fun WebPageDriving.capturedResponses(): List<CapturedResponse> =
     NetworkCapture.decode(evaluateJson("return window.${NetworkCapture.STORE_NAME} || [];"))
 
 /** Polls until a captured response's URL contains `pattern`, then returns the newest one. */
-suspend fun WebPageDriving.waitForResponse(pattern: String, timeoutSeconds: Double = 30.0): CapturedResponse? {
-    val deadline = System.currentTimeMillis() + (timeoutSeconds * 1000).toLong()
+suspend fun WebPageDriving.waitForResponse(pattern: String, timeoutSeconds: Double = 0.0): CapturedResponse? {
+    val deadline = System.currentTimeMillis() + (maxOf(timeoutSeconds, minimumWaitSeconds) * 1000).toLong()
     do {
         capturedResponses().lastOrNull { pattern in it.url }?.let { return it }
         delay(250)
@@ -114,8 +114,8 @@ suspend inline fun <reified T> WebPageDriving.evaluate(functionBody: String): T 
     NetworkCapture.json.decodeFromString(evaluateJson(functionBody))
 
 /** Polls `condition` (a JavaScript expression) until it is truthy. */
-suspend fun WebPageDriving.waitFor(condition: String, timeoutSeconds: Double = 30.0, intervalSeconds: Double = 0.25): Boolean {
-    val deadline = System.currentTimeMillis() + (timeoutSeconds * 1000).toLong()
+suspend fun WebPageDriving.waitFor(condition: String, timeoutSeconds: Double = 0.0, intervalSeconds: Double = 0.25): Boolean {
+    val deadline = System.currentTimeMillis() + (maxOf(timeoutSeconds, minimumWaitSeconds) * 1000).toLong()
     do {
         val truthy = try {
             evaluateJson("return !!($condition);").trim() == "true"

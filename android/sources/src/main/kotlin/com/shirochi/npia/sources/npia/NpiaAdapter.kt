@@ -54,7 +54,7 @@ class NpiaAdapter(
         sessionKey = key
 
         val pageUrl = NpiaParser.novelUrl(novelId)
-        val page = context.http.send(HttpRequest(pageUrl, headers = NpiaAuth.headers(key), timeoutSeconds = 15))
+        val page = context.http.send(HttpRequest(pageUrl, headers = NpiaAuth.headers(key)))
         if (page.status != 200) throw HttpStatusException(page.status, pageUrl)
         if (page.text.isBlank()) throw SourceException.Parse("empty novel page")
         val meta = NpiaParser.parseMetadata(page.text, novelId)
@@ -89,7 +89,7 @@ class NpiaAdapter(
         while (page < 5000) {
             coroutineContext.ensureActive()
             val body = NpiaAuth.formBody(listOf("novel_no" to novelId, "sort" to "DOWN", "page" to page.toString()))
-            val response = context.http.send(HttpRequest(url, "POST", headers, body, timeoutSeconds = 30))
+            val response = context.http.send(HttpRequest(url, "POST", headers, body))
             if (response.status != 200) {
                 throw SourceException.Parse("chapter list page $page returned HTTP ${response.status}; stopping to avoid an incomplete book")
             }
@@ -126,7 +126,7 @@ class NpiaAdapter(
                 if (wait > 0) delay((wait * 1000).toLong())
             }
             val response: HttpResponse = try {
-                context.http.send(HttpRequest(url, "POST", headers, ByteArray(0), timeoutSeconds = 15))
+                context.http.send(HttpRequest(url, "POST", headers, ByteArray(0)))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
