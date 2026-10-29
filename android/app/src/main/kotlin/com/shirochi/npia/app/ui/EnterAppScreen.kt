@@ -24,8 +24,11 @@ import com.shirochi.npia.sources.session.SessionSite
 
 /**
  * The desktop's "Enter App": one place to sign in to the sources whose chapters need the user's own
- * account. sfc signs in through its app API (or takes a pasted app cookie); qdn and rbooks sign in
- * on their websites, in the app's own browser, and downloads share that browser's cookies.
+ * account. qdn, rbooks and the sfc website sign in on their websites, in the app's own browser, and
+ * downloads share that browser's cookies. sfc can also sign in through its app API (or take a pasted
+ * app cookie), which gets VIP chapters as text. The desktop reads the sfc app's login out of an
+ * emulator; on a phone that login stays inside the sfc app, so its website sign-in (with the same
+ * Facebook, QQ and Weibo options) stands in for it.
  */
 @Composable
 fun EnterAppScreen(model: AppViewModel) {
@@ -34,6 +37,7 @@ fun EnterAppScreen(model: AppViewModel) {
     val version by manager.sessionVersion.collectAsStateWithLifecycle()
     val sfcWorking by manager.sfcWorking.collectAsStateWithLifecycle()
     val sfcSignedIn = remember(version) { manager.sfcSignedIn() }
+    val sfcSite = remember(version) { manager.siteStatus(HardSessions.sfc) }
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -41,7 +45,28 @@ fun EnterAppScreen(model: AppViewModel) {
 
     SettingsColumn {
         SectionHeader("sfc")
-        Footnote(if (sfcSignedIn) "App session saved: VIP chapters you bought download through the app API." else "No app session saved. Only free chapters can be read.")
+        Footnote(
+            when {
+                sfcSignedIn -> "App session saved: VIP chapters you bought download as text through the app API."
+                sfcSite.usable -> "Signed in on the website: VIP chapters you bought download from it."
+                sfcSite.hasSavedCopy -> "Not signed in on the website. A saved copy exists and is restored when the app starts."
+                else -> "Not signed in. Only free chapters download."
+            },
+        )
+        Footnote(
+            "Sign in on the sfc website with your password, Facebook, QQ or Weibo, then tap Done. The sfc app keeps its own " +
+                "login to itself, so the app signs in on the website instead. The website shows bought VIP chapters as pictures, " +
+                "so they may download that way; signing in with a username and password below gets them as text.",
+        )
+        Row(Modifier.padding(start = 8.dp)) {
+            TextButton(onClick = { manager.signInToSite(HardSessions.sfc) }) {
+                Text(if (sfcSite.usable) "Sign in on the website again" else "Sign in on the website")
+            }
+            if (sfcSite.present.isNotEmpty() || sfcSite.hasSavedCopy) {
+                TextButton(onClick = { manager.signOutOfSite(HardSessions.sfc) }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+            }
+        }
+        Footnote("Or sign in with a username and password:")
         OutlinedTextField(
             value = username, onValueChange = { username = it }, label = { Text("Username") }, singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -70,7 +95,7 @@ fun EnterAppScreen(model: AppViewModel) {
         Row(Modifier.padding(start = 8.dp)) {
             TextButton(enabled = cookie.isNotBlank(), onClick = { if (manager.saveSfcCookie(cookie)) cookie = "" }) { Text("Save cookie") }
             if (sfcSignedIn) {
-                TextButton(onClick = { manager.signOutOfSfc() }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { manager.signOutOfSfc() }) { Text("Remove the app session", color = MaterialTheme.colorScheme.error) }
             }
         }
         Footnote("Stored only in encrypted app storage, never in settings files or exports.")

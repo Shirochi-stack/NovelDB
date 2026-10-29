@@ -6,6 +6,7 @@ import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.sources.hard.FakeCookies
 import com.shirochi.npia.sources.qdn.QdnSite
 import com.shirochi.npia.sources.rbooks.RbooksSite
+import com.shirochi.npia.sources.sfc.SfcAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -206,7 +207,20 @@ class SiteSessionsTest {
         assertEquals(emptyList<SessionSite>(), HardSessions.forHost("example.com"))
         assertEquals(qdn, HardSessions.of(SourceId.QDN))
         assertEquals(rbooks, HardSessions.of(SourceId.RBOOKS))
-        assertNull(HardSessions.of(SourceId.SFC))
+        assertEquals(listOf(HardSessions.sfc), HardSessions.forHost("m.${SfcAdapter.DOMAIN}"))
+        assertEquals(HardSessions.sfc, HardSessions.of(SourceId.SFC))
+        assertNull(HardSessions.of(SourceId.NPIA))
+    }
+
+    @Test
+    fun theSfcWebsiteLoginIsItsTicket() {
+        val sfc = HardSessions.sfc
+        assertEquals(listOf(".SFCommunity"), sfc.cookieNames)
+        assertTrue(sfc.signInUrl.endsWith("/login"))
+        val signedIn = SiteSessions(InMemorySecretStore()) { FakeCookies(mapOf(".SFCommunity" to "ticket", "other" to "x")) }
+        assertTrue(signedIn.status(sfc).usable)
+        assertEquals(setOf(".SFCommunity"), signedIn.status(sfc).present)
+        assertFalse(SiteSessions(InMemorySecretStore()) { FakeCookies(mapOf("other" to "x")) }.status(sfc).usable)
     }
 
     @Test
