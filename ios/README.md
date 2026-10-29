@@ -56,14 +56,14 @@ A link goes through the site engines in the order set in Settings > Site engines
 The Catalog tab shows a website in a web view, and `CatalogBridge` (`NpiaWebEngine/Resources/catalog-bridge.js`) runs on every page of it. The app decides what the page on screen is each time its address changes, single-page sites included (`CatalogPages.mode`, `CatalogPageTracker`):
 
 - NovelDB and NovelDB Next: links are never renamed; outside links open in the Browser tab.
-- A supported site (a built-in scraper's site, or one a switched-on rule engine lists): outside links open in the Browser tab, and a downloadable page gets a floating "🔗 Download" button that adds it to the link cart ("✓ In cart", tap again to remove).
+- A supported site (a built-in scraper's site, or one a switched-on rule engine lists): outside links open in the Browser tab, and a downloadable page gets a floating "🛒 Download" button that adds it to the link cart ("✓ In cart", tap again to remove).
 - Any other site: the "Send outside links to the link cart" setting decides whether outside links are renamed and sent to the cart.
 
 A page is downloadable (`SourceCatalog.downloadablePage`) when a built-in scraper's `matches` takes it while the built-in scrapers are on, when the novel-downloader rules list it (the `@match`, `@include` and `@exclude` patterns in the header of the rules bundle in use, read by `UserScriptPatterns` with Greasemonkey semantics), or when WebToEpub lists its host and it is not the home page. `SourceAdapter.sites` lists each built-in scraper's hosts; `SourceCatalog.supportedSite` says whether a site is one of ours even with the built-in scrapers off.
 
 - The bridge sends `{type: 'location', url, title}` and the app answers `setMode({cartLinks, download: {url, title} | null})`; `download.url` must be the reported address. Reports count only from the host the view shows.
-- `catalog-bridge.js` is byte-identical to the Android and desktop copies (SHA-256 `f58147ea...` in `CatalogBridgeTests`, LF line endings, marked `-text` in `.gitattributes`). Change all three together.
-- The Browser tab shows "Download this book" and "🔗 Add to link cart" side by side on a downloadable page. The 文A menu translates the page in place (`BrowserTranslate`, `browser-translate.js`): Google's website translator is injected and its language box is set, which keeps sign-ins working. A site that blocks the translator can be opened as a translated copy through Google's proxy (sign-ins do not apply there); the buttons then use the original address. Settings > Browser picks the language.
+- `catalog-bridge.js` is byte-identical to the Android and desktop copies (SHA-256 `106a6dd4...` in `CatalogBridgeTests`, LF line endings, marked `-text` in `.gitattributes`). Change all three together.
+- The Browser tab shows "Download this book" and "🛒 Add to link cart" side by side on a downloadable page. The 文A menu translates the page in place (`BrowserTranslate`, `browser-translate.js`): Google's website translator is injected and its language box is set, which keeps sign-ins working. A site that blocks the translator can be opened as a translated copy through Google's proxy (sign-ins do not apply there); the buttons then use the original address. Settings > Browser picks the language.
 
 ## Queue log and notifications
 

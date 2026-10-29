@@ -13,7 +13,7 @@ enum CatalogSite {
     /// NovelDB Next, offered as a suggestion; its cards get link-cart buttons too.
     static let nextAddress = CatalogPages.nextAddress
     /// On sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from, links to
-    /// other sites go to the link cart (and read "🔗 Download"); off, they open in the Browser tab.
+    /// other sites go to the link cart (and read "🛒 Download"); off, they open in the Browser tab.
     static let cartLinksKey = "catalogCartLinks"
 
     static var cartLinksEnabled: Bool {

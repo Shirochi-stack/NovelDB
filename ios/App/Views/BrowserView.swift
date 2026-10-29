@@ -168,7 +168,7 @@ struct BrowserView: View {
                     model.cart.add(CartItem(url: pageAddress, title: CatalogPages.cleanTitle(browser.title, for: page), source: source))
                 }
             } label: {
-                Text(inCart ? "✓ In link cart" : "🔗 Add to link cart")
+                Text(inCart ? "✓ In link cart" : "🛒 Add to link cart")
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity)
