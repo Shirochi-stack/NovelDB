@@ -69,6 +69,14 @@ struct SharedSettingsForm: View {
                 Stepper("Retries: \(model.settings.shared.maxRetries)", value: $model.settings.shared.maxRetries, in: 0...30)
                 Stepper("Downloads at once: \(model.maxConcurrentJobs)", value: $model.maxConcurrentJobs, in: 1...3)
             }
+            Section {
+                Stepper("Request timeout: \(model.settings.shared.requestTimeoutSeconds) s", value: $model.settings.shared.requestTimeoutSeconds, in: 10...600, step: 10)
+                Stepper("Page load wait: \(model.settings.shared.pageLoadTimeoutSeconds) s", value: $model.settings.shared.pageLoadTimeoutSeconds, in: 10...600, step: 10)
+            } header: {
+                Text("Network")
+            } footer: {
+                Text("Minimum wait for a server or a page. Sources that need longer keep their own.")
+            }
             Section("Cache") {
                 Toggle("Use Cache", isOn: $model.settings.shared.useCache)
                 Toggle("Cache Images", isOn: $model.settings.shared.cacheImages)

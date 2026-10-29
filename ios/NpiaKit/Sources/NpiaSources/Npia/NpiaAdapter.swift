@@ -33,7 +33,7 @@ public struct NpiaAdapter: SourceAdapter {
         try await NpiaAuth.prepare(context: context, cookies: cookies)
 
         let pageURL = NpiaParser.novelURL(novelID)
-        let page = try await context.http.send(HTTPRequest(url: pageURL, headers: NpiaAuth.headers(), timeout: 15))
+        let page = try await context.http.send(HTTPRequest(url: pageURL, headers: NpiaAuth.headers()))
         guard page.status == 200 else { throw HTTPError.status(page.status, pageURL) }
         guard !page.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw SourceError.parse("empty novel page")
@@ -69,7 +69,7 @@ public struct NpiaAdapter: SourceAdapter {
         while page < 5000 {
             try Task.checkCancellation()
             let body = NpiaAuth.formBody([("novel_no", novelID), ("sort", "DOWN"), ("page", String(page))])
-            let response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers, body: body, timeout: 30))
+            let response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers, body: body))
             guard response.status == 200 else {
                 throw SourceError.parse("chapter list page \(page) returned HTTP \(response.status); stopping to avoid an incomplete book")
             }
@@ -106,7 +106,7 @@ public struct NpiaAdapter: SourceAdapter {
             }
             let response: HTTPResponse
             do {
-                response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers, body: Data(), timeout: 15))
+                response = try await context.http.send(HTTPRequest(url: url, method: "POST", headers: headers, body: Data()))
             } catch is CancellationError {
                 throw CancellationError()
             } catch {

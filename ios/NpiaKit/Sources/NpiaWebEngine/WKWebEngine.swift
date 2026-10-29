@@ -12,6 +12,13 @@ import WebKit
 public final class WKWebEngine: WebEngineProviding, @unchecked Sendable {
     private let persistent: Bool
     private let presenter: (any WebLoginPresenting)?
+    private let waits = PageWait()
+
+    /// The app's page load wait: page loads and waits for page content last at least this long.
+    public var pageLoadWait: TimeInterval {
+        get { waits.seconds }
+        set { waits.seconds = newValue }
+    }
 
     /// - Parameters:
     ///   - persistent: false keeps every profile in memory only (tests, private sessions).
@@ -55,7 +62,7 @@ public final class WKWebEngine: WebEngineProviding, @unchecked Sendable {
     private func makePage(profile: String) async -> WKWebPage {
         let store = Self.dataStore(for: profile, persistent: persistent)
         await CookieBridge.shared.copyFromShared(into: store.httpCookieStore, for: nil)
-        return WKWebPage(store: store)
+        return WKWebPage(store: store, waits: waits)
     }
 
     @MainActor
@@ -150,6 +157,17 @@ final class CookieBridge: NSObject, WKHTTPCookieStoreObserver {
 // MARK: - Page
 
 @MainActor
+/// The page load wait, shared by an engine and its pages so a settings change reaches open pages.
+final class PageWait: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = TimeInterval(SharedSettings.defaultTimeoutSeconds)
+
+    var seconds: TimeInterval {
+        get { lock.lock(); defer { lock.unlock() }; return value }
+        set { lock.lock(); value = newValue; lock.unlock() }
+    }
+}
+
 final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
     let webView: WKWebView
     private let store: WKWebsiteDataStore
@@ -159,9 +177,13 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
     private var relays: [ReplyRelay] = []
     /// Set by `emulateDesktop`: every navigation asks for the desktop version of a site.
     private var wantsDesktop = false
+    private let waits: PageWait
 
-    init(store: WKWebsiteDataStore) {
+    nonisolated var minimumWait: TimeInterval { waits.seconds }
+
+    init(store: WKWebsiteDataStore, waits: PageWait = PageWait()) {
         self.store = store
+        self.waits = waits
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
         configuration.suppressesIncrementalRendering = false
@@ -183,6 +205,7 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
         waitState = state
         navigationToken += 1
         let token = navigationToken
+        let wait = max(timeout, waits.seconds)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             navigation = continuation
             if url.isFileURL {
@@ -191,7 +214,7 @@ final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
                 webView.load(URLRequest(url: url))
             }
             Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(max(0.1, timeout) * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(max(0.1, wait) * 1_000_000_000))
                 guard let self, self.navigationToken == token else { return }
                 self.finish(with: WebEngineError.timeout(url))
             }

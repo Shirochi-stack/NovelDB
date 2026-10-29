@@ -138,7 +138,7 @@ public actor AppUpdateChecker {
         if build.isDevelopment { return .development }
         var request = URLRequest(
             url: endpoints.manifestURL(platform: Self.platform),
-            cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30
+            cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60
         )
         request.setValue("NovelDB", forHTTPHeaderField: "User-Agent")
         let session = URLSession(configuration: configuration)

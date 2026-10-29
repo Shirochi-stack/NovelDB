@@ -62,7 +62,7 @@ public actor EngineUpdater {
     }
 
     /// Downloads the release's build of `engine` when it is newer than the one in use.
-    public func check(_ engine: RuleEngine, timeout: TimeInterval = 30) async -> EngineUpdateResult {
+    public func check(_ engine: RuleEngine, timeout: TimeInterval = 60) async -> EngineUpdateResult {
         let title = engine.title
         store.markChecked(engine, at: now())
 

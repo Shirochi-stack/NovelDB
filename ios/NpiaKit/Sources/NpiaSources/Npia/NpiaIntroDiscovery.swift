@@ -71,9 +71,9 @@ enum NpiaIntroDiscovery {
             let url = URL(string: "https://\(NpiaParser.host)\(path)")!
             let request: HTTPRequest
             if let form {
-                request = HTTPRequest(url: url, method: "POST", headers: NpiaAuth.headers(form: true), body: NpiaAuth.formBody(form), timeout: 30)
+                request = HTTPRequest(url: url, method: "POST", headers: NpiaAuth.headers(form: true), body: NpiaAuth.formBody(form))
             } else {
-                request = HTTPRequest(url: url, headers: NpiaAuth.headers(), timeout: 30)
+                request = HTTPRequest(url: url, headers: NpiaAuth.headers())
             }
             let response = try await context.http.send(request)
             // The desktop refuses redirects; URLSession follows them, so a changed path means one happened.

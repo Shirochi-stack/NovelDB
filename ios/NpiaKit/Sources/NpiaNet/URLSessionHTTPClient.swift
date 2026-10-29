@@ -34,11 +34,14 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
     private let maxRetries: Int
     private let userAgent: String
     private let logger: (any JobLogging)?
+    /// The app's request timeout: every request waits at least this long for the server.
+    private let minTimeout: TimeInterval
 
     /// `logger` receives every retry and every request that ends in an error, so the job log
     /// shows why a page was slow or missing.
-    public init(session: URLSession = .shared, pacer: RequestPacer? = nil, maxRetries: Int = 3, userAgent: String = URLSessionHTTPClient.defaultUserAgent, logger: (any JobLogging)? = nil) {
+    public init(session: URLSession = .shared, pacer: RequestPacer? = nil, maxRetries: Int = 3, userAgent: String = URLSessionHTTPClient.defaultUserAgent, logger: (any JobLogging)? = nil, minTimeout: TimeInterval = TimeInterval(SharedSettings.defaultTimeoutSeconds)) {
         self.session = session
+        self.minTimeout = minTimeout
         self.pacer = pacer
         self.maxRetries = max(0, maxRetries)
         self.userAgent = userAgent
@@ -48,11 +51,12 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
     /// Retries follow `maxRetries`. The chapter delay is not applied here: like the desktop
     /// scraper, each chapter worker sleeps `SharedSettings.chapterDelay()` after a chapter.
     public convenience init(settings: SharedSettings, logger: (any JobLogging)? = nil) {
-        self.init(maxRetries: settings.maxRetries, logger: logger)
+        self.init(maxRetries: settings.maxRetries, logger: logger, minTimeout: TimeInterval(settings.requestTimeoutSeconds))
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        var urlRequest = URLRequest(url: request.url, timeoutInterval: request.timeout)
+        // How long the server may stay silent: what the request asks for or the app's request timeout.
+        var urlRequest = URLRequest(url: request.url, timeoutInterval: max(1, request.timeout, minTimeout))
         urlRequest.httpMethod = request.method
         urlRequest.httpBody = request.body
         urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")

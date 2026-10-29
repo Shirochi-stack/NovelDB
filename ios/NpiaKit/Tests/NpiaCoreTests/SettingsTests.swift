@@ -11,6 +11,26 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(settings.upload.hosts, UploadSettings().hosts)
     }
 
+    func testTimeoutsRoundTripThroughDesktopConfig() throws {
+        let fresh = DesktopConfig.exportConfig(AppSettings())
+        XCTAssertEqual(fresh["request_timeout"] as? Int, 60)
+        XCTAssertEqual(fresh["page_load_timeout"] as? Int, 60)
+        let (imported, _) = DesktopConfig.importConfig(["request_timeout": 90, "page_load_timeout": 120])
+        XCTAssertEqual(imported.shared.requestTimeoutSeconds, 90)
+        XCTAssertEqual(imported.shared.pageLoadTimeoutSeconds, 120)
+        let (again, _) = DesktopConfig.importConfig(DesktopConfig.exportConfig(imported))
+        XCTAssertEqual(again.shared, imported.shared)
+        // Out-of-range values are clamped to 10...600.
+        let (clamped, _) = DesktopConfig.importConfig(["request_timeout": 5, "page_load_timeout": 9999])
+        XCTAssertEqual(clamped.shared.requestTimeoutSeconds, 10)
+        XCTAssertEqual(clamped.shared.pageLoadTimeoutSeconds, 600)
+        // Settings saved before the keys existed still decode, with the defaults.
+        let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"shared": {"threads": 2}}"#.utf8))
+        XCTAssertEqual(old.shared.threads, 2)
+        XCTAssertEqual(old.shared.requestTimeoutSeconds, 60)
+        XCTAssertEqual(old.shared.formats, SharedSettings().formats)
+    }
+
     func testEncodeDecodeRoundTrip() throws {
         var settings = AppSettings()
         settings.shared.rangeFrom = 5

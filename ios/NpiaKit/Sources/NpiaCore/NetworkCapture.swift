@@ -94,8 +94,8 @@ public extension WebPageDriving {
     }
 
     /// Polls until a captured response's URL contains `pattern`, then returns the newest one.
-    func waitForResponse(containing pattern: String, timeout: TimeInterval = 30) async throws -> CapturedResponse? {
-        let deadline = Date().addingTimeInterval(timeout)
+    func waitForResponse(containing pattern: String, timeout: TimeInterval = 0) async throws -> CapturedResponse? {
+        let deadline = Date().addingTimeInterval(max(timeout, minimumWait))
         repeat {
             if let match = try await capturedResponses().last(where: { $0.url.contains(pattern) }) {
                 return match
@@ -112,8 +112,8 @@ public extension WebPageDriving {
 
     /// Polls `condition` (a JavaScript expression) until it is truthy.
     @discardableResult
-    func waitFor(_ condition: String, timeout: TimeInterval = 30, interval: TimeInterval = 0.25) async throws -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+    func waitFor(_ condition: String, timeout: TimeInterval = 0, interval: TimeInterval = 0.25) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(max(timeout, minimumWait))
         repeat {
             if (try? await evaluate(Bool.self, "return !!(\(condition));")) == true { return true }
             try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
