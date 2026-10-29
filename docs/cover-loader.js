@@ -1,8 +1,19 @@
 /* Bounded, near-viewport cover decoding with small retained pixel buffers. */
 (function () {
     'use strict';
-    const MAX_WIDTH = 320, MAX_HEIGHT = 480, CONCURRENCY = 2;
+    const MAX_WIDTH = 320, MAX_HEIGHT = 480, CONCURRENCY = 2, CHEAP_PIXELS = 300000, SCROLL_PAUSE_MS = 150, MAX_WAITING = 4;
     const queue = [], active = new Map(), blockedOrigins = new Set();
+    let loading = 0, waiting = 0, lastScroll = -Infinity;
+    addEventListener('scroll',()=>{lastScroll=performance.now();},{capture:true,passive:true});
+    function scrollPause(signal) {
+        return new Promise(resolve=>{
+            const check=()=>{
+                const wait=lastScroll+SCROLL_PAUSE_MS-performance.now();
+                if (wait<=0 || signal.aborted) resolve(); else setTimeout(check,wait);
+            };
+            check();
+        });
+    }
     const objectUrls = new Map(), recoverable = new WeakMap();
     let lowResolution = true, quality=72, resolution=72;
     try {
@@ -120,12 +131,25 @@
         }
         return null;
     }
-    async function displayNative(img,url,policy,signal) {
-        await nativeImage(img,url,policy,signal);
-        if (!img.isConnected || signal.aborted) return;
-        return drawThumbnail(img,img);
+    async function displayNative(img,url,policy,signal,job) {
+        // A detached image is never painted, so the compositor does not
+        // decode the full-size original while it waits to be drawn.
+        const source = new Image();
+        try {
+            await nativeImage(source,url,policy,signal);
+            // Drawing the original decodes and uploads every pixel on the main
+            // thread, about 35 ms per megapixel. Large ones wait for a pause
+            // in scrolling; a few hand their loading slot to the next cover.
+            if (source.naturalWidth*source.naturalHeight > CHEAP_PIXELS) {
+                if (waiting < MAX_WAITING) job?.yieldSlot();
+                waiting++;
+                try {await scrollPause(signal);} finally {waiting--;}
+            }
+            if (!img.isConnected || signal.aborted) return;
+            return await drawThumbnail(img,source);
+        } finally {source.removeAttribute('src');}
     }
-    async function decode(img,url,policy,signal) {
+    async function decode(img,url,policy,signal,job) {
         if (!lowResolution) {
             await nativeImage(img,url,policy,signal);
             return img;
@@ -158,7 +182,7 @@
                 const objectUrl = URL.createObjectURL(blob);
                 let cover;
                 try {
-                    cover = await displayNative(img,objectUrl,policy,signal);
+                    cover = await displayNative(img,objectUrl,policy,signal,job);
                     if (cover === img) objectUrls.set(img,objectUrl);
                     return cover;
                 } finally {if (cover !== img) URL.revokeObjectURL(objectUrl);}
@@ -166,7 +190,7 @@
         }
         // Drawing a cross-origin image is allowed even when canvas readback is
         // denied. Retain only the small canvas, then release the original image.
-        return displayNative(img,url,policy,signal);
+        return displayNative(img,url,policy,signal,job);
     }
     async function load(job,controller) {
         const {img,ready,missing,fallback} = job;
@@ -174,7 +198,7 @@
         if (fallback && fallback !== img.dataset.src) attempts.push([fallback,'no-referrer']);
         for (const [url,policy] of attempts) {
             try {
-                const cover = await decode(img,url,policy,controller.signal);
+                const cover = await decode(img,url,policy,controller.signal,job);
                 if (cover?.isConnected) {cover.dataset.originalSrc=url;ready(cover);}
                 return;
             } catch (error) {if (controller.signal.aborted || !img.isConnected) return;}
@@ -182,11 +206,13 @@
         if (img.isConnected) missing(img);
     }
     function pump() {
-        while (active.size < CONCURRENCY && queue.length) {
+        while (loading < CONCURRENCY && queue.length) {
             const job = queue.shift(), img = job.img;
             if (!img.isConnected) {img._coverQueued = false;continue;}
             const controller = new AbortController(); active.set(img,controller);
-            load(job,controller).finally(()=>{active.delete(img);img._coverQueued=false;pump();});
+            let holding = true; loading++;
+            job.yieldSlot = () => {if (holding) {holding = false;loading--;pump();}};
+            load(job,controller).finally(()=>{active.delete(img);img._coverQueued=false;job.yieldSlot();});
         }
     }
     window.NovelCovers = {

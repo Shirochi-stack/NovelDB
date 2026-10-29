@@ -6130,47 +6130,73 @@
     compactCardsToggle.checked = cardPreference("compactCards", "true") !== "false";
     synopsisLinesControl.value = boundedLines(cardPreference("synopsisLines", "5"), 1, 12, 5);
     tagRowsControl.value = boundedLines(cardPreference("tagRows", "3"), 1, 8, 3);
-    let compactCardsFrame = 0;
-    function fitCardTags(card) {
-        const tags = card.querySelector(".card-tags");
-        if (!tags || !tags.clientWidth) return;
-        const chips = [...tags.querySelectorAll(".card-tag")];
-        // Retain raw record order as the tie-breaker when a filter is cleared.
-        chips.sort((a,b) => Number(b.classList.contains("active") || b.classList.contains("active-or"))
-            - Number(a.classList.contains("active") || a.classList.contains("active-or"))
-            || Number(a.dataset.tagOrder) - Number(b.dataset.tagOrder));
-        let more = tags.querySelector(".card-tags-more");
-        if (!more) {
-            more = document.createElement("button"); more.type = "button"; more.className = "card-tags-more";
-            tags.appendChild(more);
+    let compactCardsFrame = 0, tagFontVersion = 0;
+    const tagFitCache = new WeakMap();
+    // Fit every card's tags in lockstep (all writes, then all reads) so a new
+    // row of cards forces a few layouts instead of two per card. Tag lists
+    // already fitted at this width and setting are left alone.
+    function fitCardTags(cards) {
+        const settings = `${compactCardsToggle.checked}|${tagRowsControl.value}|${tagFontVersion}`;
+        const work = [];
+        for (const card of cards) {
+            const tags = card.querySelector(".card-tags");
+            if (!tags || !tags.clientWidth) continue;
+            const key = `${tags.clientWidth}|${settings}`;
+            if (tagFitCache.get(tags) === key) continue;
+            tagFitCache.set(tags, key);
+            work.push({ tags });
         }
-        for (const chip of chips) {chip.hidden = false; tags.insertBefore(chip, more);}
-        more.hidden = true;
-        if (!compactCardsToggle.checked || !chips.length) return;
-        const rows = Number(tagRowsControl.value), tops = [];
-        let visible = 0;
-        for (const chip of chips) {
-            // Local row positions survive scroll anchoring as hidden tags shrink the card.
-            const top = chip.offsetTop;
-            if (!tops.length || Math.abs(top - tops[tops.length - 1]) > 1) tops.push(top);
-            if (tops.length <= rows) visible++;
+        for (const item of work) {
+            const { tags } = item;
+            const chips = [...tags.querySelectorAll(".card-tag")];
+            // Retain raw record order as the tie-breaker when a filter is cleared.
+            chips.sort((a,b) => Number(b.classList.contains("active") || b.classList.contains("active-or"))
+                - Number(a.classList.contains("active") || a.classList.contains("active-or"))
+                || Number(a.dataset.tagOrder) - Number(b.dataset.tagOrder));
+            let more = tags.querySelector(".card-tags-more");
+            if (!more) {
+                more = document.createElement("button"); more.type = "button"; more.className = "card-tags-more";
+                tags.appendChild(more);
+            }
+            for (const chip of chips) {chip.hidden = false; tags.insertBefore(chip, more);}
+            more.hidden = true;
+            Object.assign(item, { chips, more });
         }
-        if (visible === chips.length) return;
-        const lastTop = tops[Math.min(rows, tops.length) - 1];
-        for (let i = visible; i < chips.length; i++) chips[i].hidden = true;
-        more.hidden = false;
-        do {
-            more.textContent = `+${chips.length - visible} tags`;
-            more.setAttribute("aria-label", `View ${chips.length - visible} more tags in Details`);
-            if (more.offsetTop <= lastTop + 1 || visible === 0) break;
-            chips[--visible].hidden = true;
-        } while (true);
+        if (!compactCardsToggle.checked) return;
+        const rows = Number(tagRowsControl.value);
+        let pending = [];
+        for (const item of work) {
+            const { chips } = item, tops = [];
+            if (!chips.length) continue;
+            let visible = 0;
+            for (const chip of chips) {
+                // Local row positions survive scroll anchoring as hidden tags shrink the card.
+                const top = chip.offsetTop;
+                if (!tops.length || Math.abs(top - tops[tops.length - 1]) > 1) tops.push(top);
+                if (tops.length <= rows) visible++;
+            }
+            if (visible === chips.length) continue;
+            Object.assign(item, { visible, lastTop: tops[Math.min(rows, tops.length) - 1] });
+            pending.push(item);
+        }
+        for (const { chips, more, visible } of pending) {
+            for (let i = visible; i < chips.length; i++) chips[i].hidden = true;
+            more.hidden = false;
+        }
+        while (pending.length) {
+            for (const { chips, more, visible } of pending) {
+                more.textContent = `+${chips.length - visible} tags`;
+                more.setAttribute("aria-label", `View ${chips.length - visible} more tags in Details`);
+            }
+            pending = pending.filter(item => item.more.offsetTop > item.lastTop + 1 && item.visible > 0);
+            for (const item of pending) item.chips[--item.visible].hidden = true;
+        }
     }
     function scheduleCompactCards() {
         if (compactCardsFrame) return;
         compactCardsFrame = requestAnimationFrame(() => {
             compactCardsFrame = 0;
-            resultsEl.querySelectorAll(".novel-card").forEach(fitCardTags);
+            fitCardTags(resultsEl.querySelectorAll(".novel-card"));
         });
     }
     function updateCardPreferences(save = false) {
@@ -6197,7 +6223,10 @@
     });
     compactResize?.observe(resultsEl);
     window.addEventListener("resize", scheduleCompactCards);
-    document.fonts?.ready.then(scheduleCompactCards);
+    // Late fonts change chip widths without changing the card width.
+    const tagFontsChanged = () => { tagFontVersion++; scheduleCompactCards(); };
+    document.fonts?.ready.then(tagFontsChanged);
+    document.fonts?.addEventListener?.("loadingdone", tagFontsChanged);
     window.NovelTagSelected = tag => tagSetHasMatch(andTags, tag) || tagSetHasMatch(orTags, tag);
     window.NovelTagFilter = (card, tag) => {
         const chip = [...card.querySelectorAll(".card-tag")].find(chip => chip.dataset.tag === tag);
@@ -6499,7 +6528,7 @@
         const {page, size, focus, ...query} = diskQuery();
         return JSON.stringify(query);
     }
-    async function mobileFeedPage(page, identity) {
+    async function mobileFeedPage(page, identity, prefetch = false) {
         const check = () => {if (!infiniteScrollEnabled() || identity !== mobileFeedKey()) throw new DOMException('Feed changed', 'AbortError');};
         check();
         if(cacheNeedsReload){await loadSource(currentSource,true);throw new DOMException("Catalog reloaded", "AbortError");}
@@ -6511,6 +6540,8 @@
         }
         if (!result) {
             if (activeCatalogController && !importedSources.size) throw new Error('Catalog is still loading');
+            // The worker keeps only its newest query, so a prefetch must not cancel one that is running.
+            if (prefetch && workerRequests.size) throw new DOMException('Catalog busy', 'AbortError');
             result = await workerRequest('query',activeCatalogController ? {...query,sources:query.sources.filter(source=>importedSources.has(source))} : query);
             check();
         }
