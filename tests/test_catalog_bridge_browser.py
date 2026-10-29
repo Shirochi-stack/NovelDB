@@ -23,7 +23,7 @@ PAGE = """<!doctype html><html><head><title>{title}</title></head><body>
 <a id="inside" href="/inner">Inside link</a>
 <iframe id="frame" srcdoc="<p>embedded</p>"></iframe>
 </body></html>"""
-CART_LABEL = "\U0001F6D2 Download"
+CART_LABEL = "\u2B07\uFE0F Download"
 IN_CART = "✓ In cart"
 NPIA_GLOBAL = "global." + "novel" + "pia.com"  # the real host, kept out of the source text
 
