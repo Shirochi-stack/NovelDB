@@ -60,6 +60,10 @@ class SharedSettings:
     interval_min: float = 2.0
     interval_max: float = 5.0
     max_retries: int = 5
+    # Minimum waits in whole seconds (10-600): for a server's answer, and for a page to load or
+    # show its content. A source with a longer fixed wait of its own keeps it (noveldb.core.net_timeouts).
+    request_timeout: int = 60
+    page_load_timeout: int = 60
     formats: tuple[str, ...] = ("epub",)
     range_from: Optional[int] = None
     range_to: Optional[int] = None

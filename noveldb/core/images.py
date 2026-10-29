@@ -6,6 +6,8 @@ import re
 import threading
 import time
 
+from noveldb.core.net_timeouts import request_timeout
+
 try:
     from PIL import Image
 except Exception:
@@ -147,7 +149,7 @@ def _download_image_with_progress(
 
     for attempt in range(max_retries):
         try:
-            r = session.get(url, timeout=30, stream=True)
+            r = session.get(url, timeout=request_timeout(30), stream=True)
             if r.status_code != 200:
                 logger(f"  ✗ {label}: HTTP {r.status_code}")
                 if r.status_code >= 500 and attempt < max_retries - 1:

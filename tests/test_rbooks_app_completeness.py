@@ -148,7 +148,7 @@ def test_old_reader_and_contents_close_without_closing_library(monkeypatch):
     closed = []
     monkeypatch.setattr(proxy, '_evaluate_target',
                         lambda tab, code: closed.append((tab['id'], code)))
-    monkeypatch.setattr(proxy, '_wait', lambda check, *args: check())
+    monkeypatch.setattr(proxy, '_wait', lambda check, *args, **kwargs: check())
     proxy._reader_targets['Viewer'] = 'old-reader'
     proxy._close_reader_windows()
     assert closed == [('old-reader', 'window.close()'),

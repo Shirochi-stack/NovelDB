@@ -9,6 +9,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
+from noveldb.core.net_timeouts import request_timeout
 from npia_author_catalog import author_id, iter_author_pages, parallel_author_pages, matches_age
 from npia_intro_discovery import discover as discover_intro
 
@@ -455,7 +456,7 @@ class DownloaderCore:
                 "get",
                 url,
                 label=f"Metadata {novel_id}",
-                timeout=15,
+                timeout=request_timeout(15),
                 require_body=True,
             )
             if response is None:
@@ -593,7 +594,7 @@ class DownloaderCore:
                     max_retries=max_retries,
                     data=data,
                     headers=headers,
-                    timeout=30,
+                    timeout=request_timeout(30),
                     require_body=False,
                 )
                 if response is None:
@@ -699,7 +700,7 @@ class DownloaderCore:
                     # LOGINKEY is already in session cookies via npia_auth.
                     # Don't manually override the Cookie header — it clobbers
                     # other cookies (USERKEY, NPK*) that the server needs.
-                    response = self.auth.session.post(url, timeout=15)
+                    response = self.auth.session.post(url, timeout=request_timeout(15))
 
                     if response.status_code == 429:
                         raise AccessBlockedError(
@@ -797,7 +798,7 @@ class DownloaderCore:
             data = {"novel_no": novel_id, "page": 0}
             # Set proper Referer header to avoid empty responses
             headers = {"Referer": f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"}
-            resp = self.auth.session.post(url, data=data, headers=headers, timeout=15)
+            resp = self.auth.session.post(url, data=data, headers=headers, timeout=request_timeout(15))
             text = resp.text or ""
             if not text.strip():
                 self.log("Notices: empty response.")
@@ -847,7 +848,7 @@ class DownloaderCore:
         try:
             url = f"https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/novel/{novel_id}"
             self.log(f"Scanning notices on novel page for {novel_id}...")
-            resp = self.auth.session.get(url, timeout=15)
+            resp = self.auth.session.get(url, timeout=request_timeout(15))
             text = resp.text or ""
             results = parse_npia_notice_html(text)
             if not re.search(r'\bnotice_table\b', text, re.IGNORECASE):
@@ -1028,7 +1029,7 @@ img { max-width: 100%; height: auto; }
                 self.log(f"  Fetching {label}...")
 
                 try:
-                    r = self.auth.session.get(url, timeout=30)
+                    r = self.auth.session.get(url, timeout=request_timeout(30))
                     if r.status_code != 200:
                         self.log(f"  {label}: HTTP {r.status_code}")
                         results[label] = []
@@ -1129,7 +1130,7 @@ img { max-width: 100%; height: auto; }
                             if self.stop_signal:
                                 break
                             try:
-                                response = self.auth.session.get(url, params=params, headers=headers, timeout=120)
+                                response = self.auth.session.get(url, params=params, headers=headers, timeout=request_timeout(120))
                                 if response.status_code not in RETRYABLE_STATUS_CODES:
                                     break
                                 last_error = f"HTTP {response.status_code}"
@@ -1322,7 +1323,7 @@ img { max-width: 100%; height: auto; }
                 "list_display": "grid",
             }
             label = f"{tag}{' ∩ ' + genre_filter if genre_filter else ''}"
-            response = _timed_get(label, url=url, params=params, headers=headers, timeout=60)
+            response = _timed_get(label, url=url, params=params, headers=headers, timeout=request_timeout(60))
             data = response.json()
 
             if data.get("status") != 200:

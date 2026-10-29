@@ -15,6 +15,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import requests
 
+from noveldb.core.net_timeouts import request_pair
 from noveldb.core.upload.transfer import (
     NotSignedIn,
     Rejected,
@@ -60,7 +61,10 @@ class UploadContext:
     catbox_userhash: str = ""
     session: Optional[requests.Session] = None
     stopped: Callable[[], bool] = lambda: False
-    timeout: tuple = (30, 300)
+    timeout: tuple = (30, 300)  # (connect, read) minimums; the Network setting can raise them
+
+    def http_timeout(self) -> tuple:
+        return request_pair(*self.timeout)
 
     def http(self) -> requests.Session:
         if self.session is None:
@@ -97,7 +101,7 @@ class Uploader:
         body, content_type = multipart(field_name, path, fields, progress, context.stopped, name)
         try:
             return context.http().post(url, data=body, headers={"Content-Type": content_type, **(headers or {})},
-                                       timeout=context.timeout)
+                                       timeout=context.http_timeout())
         finally:
             body.close()
 
@@ -165,7 +169,8 @@ class PixeldrainUploader(Uploader):
         body = StreamBody([path], progress, context.stopped)
         try:
             reply = context.http().put(url, data=body, auth=("", context.pixeldrain_key),
-                                       headers={"Content-Type": "application/octet-stream"}, timeout=context.timeout)
+                                       headers={"Content-Type": "application/octet-stream"},
+                                       timeout=context.http_timeout())
         finally:
             body.close()
         data = json_of(reply)
@@ -202,7 +207,8 @@ class KrakenFilesUploader(Uploader):
     SITE = "https://krakenfiles.com"
 
     def upload(self, path, context, progress=None, name=None):
-        lookup = context.http().get(self.SERVER_LOOKUP, headers={"Accept": "application/json"}, timeout=context.timeout)
+        lookup = context.http().get(self.SERVER_LOOKUP, headers={"Accept": "application/json"},
+                                    timeout=context.http_timeout())
         require_success(lookup, "KrakenFiles")
         server = ((json_of(lookup) or {}).get("data") or {}).get("url")
         if not server:
@@ -234,7 +240,8 @@ class SendNowUploader(Uploader):
     )
 
     def upload(self, path, context, progress=None, name=None):
-        page = context.http().get(self.HOME, headers={"User-Agent": "Mozilla/5.0"}, timeout=context.timeout)
+        page = context.http().get(self.HOME, headers={"User-Agent": "Mozilla/5.0"},
+                                  timeout=context.http_timeout())
         require_success(page, "Send.now")
         server = None
         for pattern in self._SERVERS:

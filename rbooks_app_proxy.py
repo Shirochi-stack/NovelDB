@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 
 from bs4 import BeautifulSoup
+from noveldb.core.net_timeouts import page_timeout, page_timeout_ms, request_timeout
 from scripts.source_names import dumps as source_dumps
 
 
@@ -220,7 +221,7 @@ class RbooksAppProxy:
         )
         self.port = port
         self._wait(lambda: bool(self._tabs(port)), 30,
-                   'RBOOKS PC viewer did not start with local reader access.')
+                   'RBOOKS PC viewer did not start with local reader access.', local=True)
 
     def _find_executable(self):
         local_app_data = os.environ.get('LOCALAPPDATA')
@@ -251,7 +252,7 @@ class RbooksAppProxy:
                     self.INSTALLER_URL,
                     headers={'User-Agent': 'Mozilla/5.0'},
                 )
-                with urllib.request.urlopen(request, timeout=30) as response:
+                with urllib.request.urlopen(request, timeout=request_timeout(30)) as response:
                     final = urllib.parse.urlparse(response.geturl())
                     host = (final.hostname or '').lower()
                     if (final.scheme != 'https' or
@@ -331,8 +332,10 @@ class RbooksAppProxy:
         self.log('  [Rbooks] PC viewer installed; opening the owned volume...')
         return executable
 
-    def _wait(self, check, timeout, message, progress=None):
-        end = time.monotonic() + timeout
+    def _wait(self, check, timeout, message, progress=None, local=False):
+        """Poll `check` until it is truthy. Waits for the viewer's pages to render last at least the
+        Page load wait; `local=True` (the app starting, its windows closing) keeps `timeout` as given."""
+        end = time.monotonic() + (timeout if local else page_timeout(timeout))
         next_report = time.monotonic() + 10
         while time.monotonic() < end:
             if self.stop_requested():
@@ -664,7 +667,7 @@ class RbooksAppProxy:
         page = context.new_page()
         try:
             page.goto('https://account.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
-                      wait_until='domcontentloaded', timeout=30000)
+                      wait_until='domcontentloaded', timeout=page_timeout_ms(30000))
             otp = page.evaluate("""async () => {
               const r = await fetch('/sso/otp', {
                 method: 'POST', credentials: 'include',
@@ -785,7 +788,7 @@ class RbooksAppProxy:
             def closed():
                 return not any(tab.get('id') in old_ids for tab in self._tabs(self.port))
             try:
-                self._wait(closed, 6, 'Previous RBOOKS reader windows did not close.')
+                self._wait(closed, 6, 'Previous RBOOKS reader windows did not close.', local=True)
             except RbooksAppError:
                 # A reader held open by a dialog (a rental notice, an unload prompt)
                 # would block every later volume. Close it through the debugger.
@@ -793,7 +796,7 @@ class RbooksAppProxy:
                     self._close_target(target_id)
                 self._wait(closed, 10,
                            'Previous RBOOKS reader windows did not close. '
-                           'Export stopped to avoid reading the wrong volume.')
+                           'Export stopped to avoid reading the wrong volume.', local=True)
                 self.log('  [Rbooks] Force-closed a RBOOKS reader window that did '
                          'not close by itself.')
         self._reader_targets.clear()

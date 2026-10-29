@@ -58,7 +58,7 @@ def test_ntk_refresh_navigates_to_book_once_after_startup(startup):
 
     assert launch.call_args.args[0] == "about:blank"
     page.goto.assert_called_once_with(
-        book_url, wait_until="domcontentloaded", timeout=45000,
+        book_url, wait_until="domcontentloaded", timeout=60000,
     )
     context.clear_cookies.assert_not_called()
 
@@ -106,7 +106,7 @@ def test_ntk_site_router_stops_when_homepage_is_blocked(startup, status):
     )
 
     page.goto.assert_called_once_with(
-        "https://sbxh9.com/", wait_until="domcontentloaded", timeout=45000,
+        "https://sbxh9.com/", wait_until="domcontentloaded", timeout=60000,
     )
     page.wait_for_function.assert_not_called()
     assert page.evaluate.call_count == 1
@@ -172,7 +172,7 @@ def test_ntk_site_router_reloads_homepage_before_retrying_same_chapter(startup):
     assert scraper._ntk_navigate_site_route(page, chapter_url)
 
     page.goto.assert_called_once_with(
-        "https://sbxh9.com/", wait_until="domcontentloaded", timeout=45000,
+        "https://sbxh9.com/", wait_until="domcontentloaded", timeout=60000,
     )
     assert page.evaluate.call_args.args[1] == chapter_url
 
