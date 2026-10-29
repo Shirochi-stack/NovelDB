@@ -157,7 +157,7 @@ private struct LogRow: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
             Text(entry.message)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(entry.level == .debug ? Color.secondary : Color.primary)
                 .textSelection(.enabled)
         }
