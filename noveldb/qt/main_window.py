@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 
 from PySide6.QtCore import QByteArray, QEvent, QRect, QSize, Qt, QTimer
@@ -39,6 +40,55 @@ JUMP = 0.15
 # A normal (not maximised) window this close to the screen's size fills it: restoring to it would
 # look like nothing happened, so it gets the default window size instead.
 FILLS_SCREEN = 0.95
+
+
+def _is_jump(old: QSize, new: QSize) -> bool:
+    return not old.isValid() or abs(new.width() - old.width()) > old.width() * JUMP \
+        or abs(new.height() - old.height()) > old.height() * JUMP
+
+
+def _windows_target_size(window: QWidget, message) -> QSize | None:
+    """The client size a WM_WINDOWPOSCHANGING is about to give `window`, or None for other messages."""
+    import ctypes
+    from ctypes import wintypes
+
+    msg = wintypes.MSG.from_address(int(message))
+    if msg.message != 0x0046 or not msg.lParam:  # WM_WINDOWPOSCHANGING
+        return None
+
+    class WINDOWPOS(ctypes.Structure):
+        _fields_ = [("hwnd", wintypes.HWND), ("insertAfter", wintypes.HWND), ("x", ctypes.c_int),
+                    ("y", ctypes.c_int), ("cx", ctypes.c_int), ("cy", ctypes.c_int), ("flags", ctypes.c_uint)]
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("size", wintypes.DWORD), ("monitor", wintypes.RECT), ("work", wintypes.RECT),
+                    ("flags", wintypes.DWORD)]
+
+    user32 = ctypes.windll.user32
+    pos = WINDOWPOS.from_address(msg.lParam)
+    if pos.flags & 0x0001:  # SWP_NOSIZE
+        return None
+    outer, client = wintypes.RECT(), wintypes.RECT()
+    if not user32.GetWindowRect(msg.hWnd, ctypes.byref(outer)) or not user32.GetClientRect(msg.hWnd, ctypes.byref(client)):
+        return None
+    # Physical pixels: the frame keeps its thickness, so the client grows by what the outer rectangle grows.
+    frame_w = (outer.right - outer.left) - client.right
+    frame_h = (outer.bottom - outer.top) - client.bottom
+    width, height = pos.cx - frame_w, pos.cy - frame_h
+    user32.GetWindowLongW.restype = ctypes.c_long
+    if user32.GetWindowLongW(msg.hWnd, -16) & 0x01000000:  # GWL_STYLE has WS_MAXIMIZE
+        # Asked for the whole monitor, it ends up on the work area (without the taskbar), its side
+        # and bottom borders off screen: the client is the work area under the title bar.
+        target = wintypes.RECT(pos.x, pos.y, pos.x + pos.cx, pos.y + pos.cy)
+        user32.MonitorFromRect.restype = ctypes.c_void_p
+        monitor = user32.MonitorFromRect(ctypes.byref(target), 2)  # MONITOR_DEFAULTTONEAREST
+        info = MONITORINFO(ctypes.sizeof(MONITORINFO))
+        if monitor and user32.GetMonitorInfoW(ctypes.c_void_p(monitor), ctypes.byref(info)):
+            border = frame_w // 2
+            width = min(width, info.work.right - info.work.left)
+            height = min(height, info.work.bottom - info.work.top - (frame_h - 2 * border))
+    ratio = window.devicePixelRatioF() or 1.0
+    return QSize(round(width / ratio), round(height / ratio))
 
 
 class MainWindow(QMainWindow):
@@ -118,7 +168,9 @@ class MainWindow(QMainWindow):
         self._appearance = (context.settings.ui.theme, context.settings.ui.accent)
         hints = QGuiApplication.styleHints()
         if hasattr(hints, "colorSchemeChanged"):
-            hints.colorSchemeChanged.connect(lambda _scheme: self._apply_theme(force=True))
+            # Only System follows it; the other themes set it themselves (apply_theme).
+            hints.colorSchemeChanged.connect(
+                lambda _scheme: self._appearance[0] == "system" and self._apply_theme(force=True))
         for index in range(len(PAGES)):
             QShortcut(QKeySequence(f"Ctrl+{index + 1}"), self, activated=lambda i=index: self.show_page(i))
         QShortcut(QKeySequence(Qt.Key.Key_F11), self, activated=self.toggle_full_screen)
@@ -130,6 +182,7 @@ class MainWindow(QMainWindow):
         self._scale_timer.setInterval(150)
         self._scale_timer.timeout.connect(self._rescale)
         self._scaled_state = self._size_state()
+        self._relayout = False
         on_scale(self, lambda: self._apply_theme(force=True), now=False)
         self._restore_geometry()
 
@@ -242,13 +295,30 @@ class MainWindow(QMainWindow):
         # Maximising, restoring and snapping jump straight to the new size. Waiting for the timer
         # there painted the old scale at the new size first (a small form in a big window, or a
         # clipped one). Dragging an edge moves a little at a time and waits until it settles.
-        old, new = event.oldSize(), event.size()
-        jumped = not old.isValid() or abs(new.width() - old.width()) > old.width() * JUMP \
-            or abs(new.height() - old.height()) > old.height() * JUMP
-        if jumped or self._size_state() != self._scaled_state:
+        if _is_jump(event.oldSize(), event.size()) or self._size_state() != self._scaled_state:
             self._rescale()
         else:
             self._scale_timer.start()
+
+    def nativeEvent(self, event_type, message):
+        if sys.platform == "win32" and event_type == b"windows_generic_MSG":
+            target = _windows_target_size(self, message)
+            if target is not None:
+                self._scale_before(target)
+        return super().nativeEvent(event_type, message)
+
+    def _scale_before(self, target: QSize) -> None:
+        """Restyle for a jump before Windows moves the window (WM_WINDOWPOSCHANGING).
+
+        Restyling the whole app takes a few hundred ms. Done in resizeEvent it ran after Windows had
+        resized the window, so the maximise / restore animation faded into the old frame (a ghost
+        of the old size, unpainted edges) until it finished. Done first, the window's first frame
+        at the new size is already the final one."""
+        if not self.isVisible() or not _is_jump(self.size(), target):
+            return
+        if ui_scale.set_factor(factor_for(target.width(), target.height(), self.context.settings.ui.scale_with_window)):
+            self._relayout = True
+        self._scale_timer.start()  # puts it right if the move ends at another size (or not at all)
 
     def _size_state(self) -> Qt.WindowState:
         return self.windowState() & (Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen)
@@ -257,7 +327,8 @@ class MainWindow(QMainWindow):
         self._scale_timer.stop()
         self._scaled_state = self._size_state()
         factor = factor_for(self.width(), self.height(), self.context.settings.ui.scale_with_window)
-        if ui_scale.set_factor(factor):
+        if ui_scale.set_factor(factor) or self._relayout:
+            self._relayout = False
             # Windows paints right after a resize, before queued layout passes run: lay out with
             # the new sizes now, so the first paint is the final layout.
             QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
