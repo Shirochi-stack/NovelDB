@@ -156,7 +156,6 @@ final class CookieBridge: NSObject, WKHTTPCookieStoreObserver {
 
 // MARK: - Page
 
-@MainActor
 /// The page load wait, shared by an engine and its pages so a settings change reaches open pages.
 final class PageWait: @unchecked Sendable {
     private let lock = NSLock()
@@ -168,6 +167,7 @@ final class PageWait: @unchecked Sendable {
     }
 }
 
+@MainActor
 final class WKWebPage: NSObject, WebPageDriving, WKNavigationDelegate {
     let webView: WKWebView
     private let store: WKWebsiteDataStore
