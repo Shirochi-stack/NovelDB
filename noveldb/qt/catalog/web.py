@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+from html import escape
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
@@ -43,6 +44,7 @@ from noveldb.core.catalog import sites
 from noveldb.core.catalog.urls import valid_catalog_url
 from noveldb.core.settings.model import DEFAULT_CATALOG_URL
 from noveldb.core.sources import detect_source
+from noveldb.qt import icons
 from noveldb.qt.context import AppContext
 from noveldb.qt.widgets import ButtonFeedback, Toast, hint
 
@@ -162,7 +164,7 @@ class CatalogView(QWebEngineView):
         request = self.lastContextMenuRequest()
         link = request.linkUrl() if request is not None else QUrl()
         if link.isValid() and link.scheme() in ("http", "https"):
-            action = QAction("\U0001F517 Add link to cart", menu)
+            action = QAction(icons.icon(icons.CART), "Add link to cart", menu)
             action.triggered.connect(lambda: self.addToCart.emit(link.toString(), request.linkText()))
             first = menu.actions()[0] if menu.actions() else None
             menu.insertAction(first, action)
@@ -209,6 +211,7 @@ class CatalogPage(QWidget):
             QShortcut(QKeySequence(keys), self, activated=lambda s=step: self.zoom_by(s))
         QShortcut(QKeySequence("Ctrl+0"), self, activated=lambda: self.set_zoom(1.0))
         self.cart_button = QPushButton()
+        icons.set_icon(self.cart_button, icons.CART)
         self.cart_button.clicked.connect(self.openCart.emit)
         self.run = QPushButton("Download")
         self.run.setProperty("primary", True)
@@ -461,7 +464,7 @@ class CatalogPage(QWidget):
         if announce:
             text = ("Added to the link cart: " if added else "Already in the link cart: ") + (title or url)
             self.context.hub.message.emit(text)
-            self.toast.show_message("\U0001F517 " + text)
+            self.toast.show_message(f"{icons.inline(icons.CART)}&nbsp;{escape(text)}")
             if added:
                 self.cart_feedback.label = self.cart_button.text()
                 self.cart_feedback.done(True, f"Added ({len(self.context.cart)})")
@@ -469,9 +472,9 @@ class CatalogPage(QWidget):
     def _cart_changed(self) -> None:
         count = len(self.context.cart)
         if hasattr(self, "cart_feedback"):
-            self.cart_feedback.label = f"\U0001F517 Cart ({count})"
+            self.cart_feedback.label = f"Cart ({count})"
         if not (hasattr(self, "cart_feedback") and self.cart_feedback._restore.isActive()):
-            self.cart_button.setText(f"\U0001F517 Cart ({count})")
+            self.cart_button.setText(f"Cart ({count})")
         self.run.setText(f"Download {count}" if count > 1 else "Download")
         self.run.setEnabled(count > 0)
         self._push_state()
