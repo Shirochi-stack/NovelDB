@@ -1,12 +1,14 @@
 import Foundation
 import NpiaCore
 
-/// The sources whose sign-in is a browser session (qdn and rbooks); sfc signs in through its app API.
+/// The sources whose sign-in is a browser session: qdn, rbooks, and the sfc website (sfc can also sign in
+/// through its app API, which is kept apart; see `SfcAdapter`).
 public enum HardSessions {
     public static var qdn: SessionSite { QdnSite.session }
     public static var rbooks: SessionSite { RbooksSite.session }
+    public static var sfc: SessionSite { SfcAdapter.session }
 
-    public static var all: [SessionSite] { [qdn, rbooks] }
+    public static var all: [SessionSite] { [qdn, rbooks, sfc] }
 
     public static func of(_ source: SourceID) -> SessionSite? {
         all.first { $0.source == source }

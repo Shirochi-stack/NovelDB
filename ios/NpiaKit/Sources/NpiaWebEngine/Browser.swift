@@ -186,6 +186,13 @@ public final class BrowserState: NSObject, ObservableObject, WKNavigationDelegat
         }
     }
 
+    /// Loads the page again, so the translator starts over on a fresh copy of it.
+    public func translateAgain() {
+        guard translating, !isCopy(webView.url) else { return }
+        translateStatus = .working
+        webView.reload()
+    }
+
     /// Opens Google's translated copy of the page, for sites that refuse the in-page translator.
     /// Sign-ins do not apply there; downloads and the link cart use the original address (`sourceURL`).
     public func openTranslatedCopy(language: String) {
@@ -208,25 +215,27 @@ public final class BrowserState: NSObject, ObservableObject, WKNavigationDelegat
         webView.evaluateJavaScript(BrowserTranslate.injection(language: translateLanguage), completionHandler: nil)
     }
 
-    /// Asks the page how the translation is going until it has translated or gives up.
+    /// Follows the page until it has translated. The page decides when it has failed (after 15 s), and a
+    /// page that translates later still replaces the note; one that never answers (the script did not run)
+    /// counts as failed after 25 s.
     private func pollTranslation() {
         translatePoll?.cancel()
-        guard translating, translateStatus == .working else { return }
+        guard translating, translateStatus != .translated else { return }
         let started = Date()
         translatePoll = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard let self, !Task.isCancelled, self.translating, self.translateStatus == .working else { return }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, !Task.isCancelled, self.translating, self.translateStatus != .translated,
+                      Date().timeIntervalSince(started) < 45 else { return }
                 let reply = try? await self.webView.callAsyncJavaScript(
                     "return " + BrowserTranslate.statusScript + ";", arguments: [:], in: nil, contentWorld: .page)
                 guard !Task.isCancelled, self.translating else { return }
-                let word = (reply as? String) ?? "loading"
-                if word == "translated" {
-                    self.translateStatus = .translated
-                } else if word == "same" {
-                    self.translateStatus = .unchanged
-                } else if word == "blocked" || Date().timeIntervalSince(started) > 10 {
-                    self.translateStatus = .blocked
+                switch (reply as? String) ?? "loading" {
+                case "translated": self.translateStatus = .translated
+                case "same": self.translateStatus = .unchanged
+                case "failed": self.translateStatus = .failed
+                case "blocked": self.translateStatus = .blocked
+                default: self.translateStatus = Date().timeIntervalSince(started) > 25 ? .failed : .working
                 }
             }
         }

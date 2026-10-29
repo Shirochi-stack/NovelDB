@@ -3,8 +3,11 @@ import NpiaSources
 import SwiftUI
 
 /// The desktop's "Enter App": one place to sign in to the sources whose chapters need the user's own
-/// account. sfc signs in through its app API (or takes a pasted app cookie); qdn and rbooks sign in on their
-/// websites, in the app's own browser, and downloads share that browser's cookies.
+/// account. qdn, rbooks and the sfc website sign in on their websites, in the app's own browser, and
+/// downloads share that browser's cookies. sfc can also sign in through its app API (or take a pasted app
+/// cookie), which gets VIP chapters as text. The desktop reads the sfc app's login out of an emulator; on a
+/// phone that login stays inside the sfc app, so its website sign-in (with the same Facebook, QQ and Weibo
+/// options) stands in for it.
 struct EnterAppView: View {
     @Environment(AppModel.self) private var model
     @State private var username = ""
@@ -17,8 +20,8 @@ struct EnterAppView: View {
         // Reading the version makes the screen read the sessions again when a sign-in or sign-out ends.
         let version = model.sessionVersion
         Form {
-            sfcSection(signedIn: model.sfcSignedIn)
-            ForEach(HardSessions.all, id: \.source) { site in
+            sfcSection(signedIn: model.sfcSignedIn, site: statuses[.sfc])
+            ForEach(HardSessions.all.filter { $0.source != .sfc }, id: \.source) { site in
                 browserSection(site)
             }
             Section {
@@ -42,8 +45,19 @@ struct EnterAppView: View {
     // MARK: sfc
 
     @ViewBuilder
-    private func sfcSection(signedIn: Bool) -> some View {
+    private func sfcSection(signedIn: Bool, site: SessionStatus?) -> some View {
         Section {
+            Button(site?.usable == true ? "Sign in on the website again" : "Sign in on the website") {
+                Task { await model.signInToSite(HardSessions.sfc) }
+            }
+            if let site, !site.present.isEmpty || site.hasSavedCopy {
+                Button("Sign out of the website", role: .destructive) {
+                    Task { await model.signOutOfSite(HardSessions.sfc) }
+                }
+            }
+            Text("Sign in on the sfc website with your password, Facebook, QQ or Weibo, then tap Done. The sfc app keeps its own login to itself, so the app signs in on the website instead. The website shows bought VIP chapters as pictures, so they may download that way; signing in with a username and password below gets them as text.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextField("Username", text: $username)
                 .textContentType(.username)
                 .textInputAutocapitalization(.never)
@@ -72,18 +86,23 @@ struct EnterAppView: View {
             }
             .disabled(cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             if signedIn {
-                Button("Sign out", role: .destructive) { model.signOutOfSfc() }
+                Button("Remove the app session", role: .destructive) { model.signOutOfSfc() }
             }
         } header: {
             Text("sfc")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(signedIn
-                    ? "App session saved: VIP chapters you bought download through the app API."
-                    : "No app session saved. Only free chapters can be read.")
+                Text(sfcSummary(signedIn: signedIn, site: site))
                 Text("Stored only in the iOS Keychain, never in settings files or exports.")
             }
         }
+    }
+
+    private func sfcSummary(signedIn: Bool, site: SessionStatus?) -> String {
+        if signedIn { return "App session saved: VIP chapters you bought download as text through the app API." }
+        if site?.usable == true { return "Signed in on the website: VIP chapters you bought download from it." }
+        if site?.hasSavedCopy == true { return "Not signed in on the website. A saved copy exists and is restored when the app starts." }
+        return "Not signed in. Only free chapters download."
     }
 
     // MARK: qdn and rbooks
