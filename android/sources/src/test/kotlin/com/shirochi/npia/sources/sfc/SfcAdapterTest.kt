@@ -150,6 +150,30 @@ class SfcAdapterTest {
     }
 
     @Test
+    fun websitePagesGetTheLongTimeout() = runTest {
+        val http = RoutedHttp()
+        http.on("/Novel/12345/600/7001/", "<div class=\"article-content\"><p>正文</p></div>")
+        val ref = ChapterRef("7001", 1, "第一章", "https://$host/Novel/12345/600/7001/")
+        assertNotNull(content(SfcAdapter().parseChapter(ref, book(), makeContext(http))))
+        assertEquals(SfcAdapter.SITE_TIMEOUT_SECONDS, http.requested("/Novel/12345/600/7001/").single().timeoutSeconds)
+    }
+
+    @Test
+    fun aPlaceholderVipImageIsAskedForAgain() = runTest {
+        val routed = RoutedHttp()
+        routed.on("/vip/c/7002/", "<div class=\"article-content\"><img id=\"vipImage\" src=\"/ajax/ashx/common.ashx?op=getChapPic&cid=7002\"></div>")
+        val ref = ChapterRef("7002", 2, "第二章", "https://$host/vip/c/7002/", isPaid = true)
+        val twice = PlaceholderFirst(routed, placeholders = 2)
+        val body = content(SfcAdapter().parseChapter(ref, book(), makeContext(twice)))
+        assertEquals(100, body!!.images.single().data!!.size)
+        assertEquals(3, twice.imageRequests)
+
+        val always = PlaceholderFirst(routed, placeholders = 99)
+        assertTrue(isRefused(SfcAdapter().parseChapter(ref, book(), makeContext(always))))
+        assertEquals(1 + SfcAdapter.PLACEHOLDER_RETRIES, always.imageRequests)
+    }
+
+    @Test
     fun vipChapterWithoutSessionIsRefused() = runTest {
         val http = RoutedHttp()
         http.on("/Novel/12345/600/7002/", "<div class=\"article-content\"><p>预览</p></div><div class=\"pay-section\">购买</div>")
@@ -212,6 +236,18 @@ class SfcAdapterTest {
         // The turned-down ticket is not offered again; the next chapter comes from the website.
         assertNotNull(content(adapter.parseChapter(ChapterRef("7003", 3, "第三章", "https://$host/Novel/12345/600/7003/"), book(), makeContext(http))))
         assertTrue(http.requested("/Chaps/7003").isEmpty())
+    }
+}
+
+/** Serves the placeholder for the first `placeholders` VIP image requests, then a real image. */
+private class PlaceholderFirst(private val routed: RoutedHttp, private var placeholders: Int) : HttpFetching {
+    var imageRequests = 0
+
+    override suspend fun send(request: HttpRequest): HttpResponse {
+        if ("common.ashx" !in request.url) return routed.send(request)
+        imageRequests++
+        val size = if (placeholders-- > 0) SfcAdapter.placeholderImageSizes.first() else 100
+        return HttpResponse(request.url, 200, emptyMap(), ByteArray(size))
     }
 }
 

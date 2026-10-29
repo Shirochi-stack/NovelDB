@@ -43,6 +43,12 @@ class SfcAdapter(
         /** Byte sizes of the placeholder image served instead of a VIP chapter image. */
         val placeholderImageSizes = setOf(53658, 42356)
 
+        /** The site sometimes sends the placeholder for a bought chapter; it is asked for again this many times. */
+        const val PLACEHOLDER_RETRIES = 5
+
+        /** The website can take over a minute to answer (it renders VIP chapter images on request). */
+        const val SITE_TIMEOUT_SECONDS = 120L
+
         val headers = mapOf(
             "User-Agent" to HttpSourceSupport.DESKTOP_USER_AGENT,
             "Accept" to "text/html,application/xhtml+xml,*/*;q=0.8",
@@ -152,8 +158,8 @@ class SfcAdapter(
         val bookId = bookId(url) ?: throw SourceException.UnsupportedUrl(url)
         val infoUrl = "https://$BOOK_HOST/Novel/$bookId/"
         val indexUrl = "https://$BOOK_HOST/Novel/$bookId/MainIndex/"
-        val index = HttpSourceSupport.get(indexUrl, headers, context.http).text
-        val info = HttpSourceSupport.get(infoUrl, headers, context.http).text
+        val index = HttpSourceSupport.get(indexUrl, headers, context.http, SITE_TIMEOUT_SECONDS).text
+        val info = HttpSourceSupport.get(infoUrl, headers, context.http, SITE_TIMEOUT_SECONDS).text
         return book(index, info, bookId, infoUrl, indexUrl)
     }
 
@@ -187,7 +193,7 @@ class SfcAdapter(
                 SfcAppApi.ChapterOutcome.Unavailable -> Unit
             }
         }
-        val page = HttpSourceSupport.get(url, headers, context.http).text
+        val page = HttpSourceSupport.get(url, headers, context.http, SITE_TIMEOUT_SECONDS).text
         return when (val outcome = webChapter(page, url, ref)) {
             is WebChapter.Content -> ChapterResult.Content(outcome.content)
             is WebChapter.VipImage -> vipImageChapter(outcome.url, url, ref, context.http)
@@ -202,15 +208,17 @@ class SfcAdapter(
 
     /** Bought VIP chapters on the website are a single rendered image. */
     private suspend fun vipImageChapter(imageUrl: String, page: String, ref: ChapterRef, http: HttpFetching): ChapterResult {
-        val response = HttpSourceSupport.get(
-            imageUrl,
-            mapOf(
-                "User-Agent" to HttpSourceSupport.DESKTOP_USER_AGENT,
-                "Accept" to "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-                "Referer" to page,
-            ),
-            http,
+        val imageHeaders = mapOf(
+            "User-Agent" to HttpSourceSupport.DESKTOP_USER_AGENT,
+            "Accept" to "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer" to page,
         )
+        var response = HttpSourceSupport.get(imageUrl, imageHeaders, http, SITE_TIMEOUT_SECONDS)
+        repeat(PLACEHOLDER_RETRIES) {
+            if (response.body.size !in placeholderImageSizes) return@repeat
+            HttpSourceSupport.sleep(1.0)
+            response = HttpSourceSupport.get(imageUrl, imageHeaders, http, SITE_TIMEOUT_SECONDS)
+        }
         if (response.body.size in placeholderImageSizes) {
             return ChapterResult.Refused(ref, "VIP chapter image was not served (not bought)")
         }
