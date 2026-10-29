@@ -43,6 +43,7 @@ from noveldb.core.catalog.cart import CartItem
 from noveldb.core.npia import tags as T
 from noveldb.core.npia.ids import novel_url
 from noveldb.core.settings.model import NPIA
+from noveldb.qt import icons
 from noveldb.qt.context import AppContext
 from noveldb.qt.scale import bind_size
 from noveldb.qt.widgets import FlowLayout, hint, section
@@ -231,7 +232,8 @@ class TagSearchDialog(QDialog):
         self.save.clicked.connect(self._save)
         self.to_download = QPushButton("Add to Download")
         self.to_download.clicked.connect(self._to_download)
-        self.to_cart = QPushButton("\U0001F6D2 Add to link cart")
+        self.to_cart = QPushButton("Add to link cart")
+        icons.set_icon(self.to_cart, icons.CART)
         self.to_cart.clicked.connect(self._to_cart)
         self.log = QPlainTextEdit()
         self.log.setObjectName("log")
