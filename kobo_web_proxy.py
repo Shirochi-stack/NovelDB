@@ -11,6 +11,7 @@ import posixpath
 import urllib.parse
 
 from bs4 import BeautifulSoup
+from noveldb.core.net_timeouts import page_timeout_ms
 
 
 class KoboReaderError(RuntimeError):
@@ -160,7 +161,7 @@ class KoboWebReader:
     def _open_contents(page):
         page.locator(KoboWebReader._CONTENTS_BUTTON).first.click()
         dialog = page.locator(KoboWebReader._CONTENTS_DIALOG)
-        dialog.wait_for(state='visible', timeout=12000)
+        dialog.wait_for(state='visible', timeout=page_timeout_ms(12000))
         return dialog
 
     def _load_toc(self, page):
@@ -173,7 +174,7 @@ class KoboWebReader:
         page.wait_for_function(
             "() => [...document.querySelectorAll('iframe[data-chapterurl]')]"
             ".some(f => f.contentDocument?.querySelector('nav a[href]'))",
-            timeout=15000,
+            timeout=page_timeout_ms(15000),
         )
         page.wait_for_timeout(1000)
         toc = self._toc_entries(page)
@@ -207,9 +208,9 @@ class KoboWebReader:
         page = context.new_page()
         try:
             self.log(f'  [Kobo] Opening owned volume in Kobo Web Reader: {title}')
-            page.goto(reader_url, wait_until='domcontentloaded', timeout=45000)
+            page.goto(reader_url, wait_until='domcontentloaded', timeout=page_timeout_ms(45000))
             page.locator(self._CONTENTS_BUTTON).first.wait_for(
-                state='visible', timeout=45000)
+                state='visible', timeout=page_timeout_ms(45000))
             toc = self._load_toc(page)
             entries = [
                 {'title': item['title'],
@@ -234,7 +235,7 @@ class KoboWebReader:
                     "path => [...document.querySelectorAll('iframe[data-chapterurl]')]"
                     ".some(f => f.dataset.chapterurl === path && "
                     "f.contentDocument?.body?.innerHTML?.trim())",
-                    arg=path, timeout=20000,
+                    arg=path, timeout=page_timeout_ms(20000),
                 )
                 page.wait_for_timeout(450)
                 snapshot = page.evaluate(self._SNAPSHOT_JS, list(collected))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import TimeoutError as FutureTimeout
 from typing import Callable, Optional
 
+from noveldb.core import net_timeouts
 from noveldb.core.events import CancelToken, JobEvents, Prompts
 from noveldb.core.queue.model import Job
 from noveldb.core.settings.model import AppSettings
@@ -42,6 +43,7 @@ class JobDispatcher:
 
     def __call__(self, job: Job, token: CancelToken) -> dict:
         settings = self._settings()
+        net_timeouts.configure_from(settings)  # the minimum waits this job runs with
         events = self._events_for(job)
         output_dir = job.output_dir or None
         if job.engine == NPIA_NATIVE:

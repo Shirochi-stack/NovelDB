@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from noveldb.core import paths
+from noveldb.core.net_timeouts import request_timeout
 
 RELEASES_URL = "https://github.com/Shirochi-stack/NovelDB/releases/"
 CHECK_EVERY = 24 * 3600  # seconds between automatic checks
@@ -220,7 +221,7 @@ class CheckResult:
 def _http_get(url: str, timeout: float) -> bytes:
     import requests
 
-    response = requests.get(url, timeout=timeout, headers={"User-Agent": "NovelDB"})
+    response = requests.get(url, timeout=request_timeout(timeout), headers={"User-Agent": "NovelDB"})
     if response.status_code == 404:
         raise FileNotFoundError(url)
     response.raise_for_status()
@@ -293,7 +294,7 @@ def updates_dir() -> Path:
 def _http_stream(url: str, timeout: float):
     import requests
 
-    response = requests.get(url, timeout=timeout, stream=True, headers={"User-Agent": "NovelDB"})
+    response = requests.get(url, timeout=request_timeout(timeout), stream=True, headers={"User-Agent": "NovelDB"})
     response.raise_for_status()
     return response.iter_content(chunk_size=1 << 20)
 

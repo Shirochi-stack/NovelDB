@@ -26,6 +26,7 @@ from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 from noveldb.core import paths
+from noveldb.core.net_timeouts import request_timeout
 from noveldb.core.userscript_patterns import UserScriptPatterns, is_home_page
 
 RELEASE_URL = "https://github.com/Shirochi-stack/NovelDB/releases/download/engines/"
@@ -267,7 +268,7 @@ class UpdateResult:
 def _download(url: str, timeout: float) -> bytes:
     import requests
 
-    response = requests.get(url, timeout=timeout, headers={"User-Agent": "NovelDB"})
+    response = requests.get(url, timeout=request_timeout(timeout), headers={"User-Agent": "NovelDB"})
     response.raise_for_status()
     return response.content
 

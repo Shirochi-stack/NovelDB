@@ -106,6 +106,13 @@ def sync_playwright():
 
 
 from downloader_core import parse_npia_notice_html, parse_npia_status
+from noveldb.core.net_timeouts import (
+    apply_page_defaults as _apply_page_defaults,
+    page_timeout as _page_s,
+    page_timeout_ms as _page_ms,
+    request_timeout as _req_s,
+    request_timeout_ms as _req_ms,
+)
 
 APP_DATA_NAME = "NpiaDownloader"
 
@@ -197,6 +204,23 @@ class ExternalScraper:
         chapters = scraper.parse_all_chapters(book['chapters'])
         scraper.stop()
     """
+
+    @property
+    def _context(self):
+        """The Playwright browser context; a new one gets the Page load wait as its default timeouts."""
+        return self._pw_context
+
+    @_context.setter
+    def _context(self, value):
+        self._pw_context = value
+        if value is not None:
+            _apply_page_defaults(value)
+
+    def refresh_net_timeouts(self):
+        """Give the live browser context the current Page load wait (call when a job starts)."""
+        context = getattr(self, "_pw_context", None)
+        if context is not None:
+            _apply_page_defaults(context)
 
     def __init__(self, logger=None):
         self._raw_log = logger or (lambda msg: None)
@@ -391,6 +415,7 @@ class ExternalScraper:
             timeout = max(float(timeout) / 1000.0, 1.0)
         except Exception:
             timeout = 30.0
+        timeout = _req_s(timeout)  # the userscript's own value is a minimum
 
         try:
             import requests
@@ -1124,7 +1149,7 @@ class ExternalScraper:
                 "Accept": "application/octet-stream,*/*",
             },
         )
-        with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as f:
+        with urllib.request.urlopen(req, timeout=_req_s(60)) as resp, open(tmp, "wb") as f:
             total = expected_size or int(resp.headers.get("content-length") or 0)
             while True:
                 chunk = resp.read(1024 * 1024)
@@ -1167,7 +1192,7 @@ class ExternalScraper:
         repo_url = "https://dl.google.com/android/repository/repository2-1.xml"
         import xml.etree.ElementTree as ET
 
-        with urllib.request.urlopen(repo_url, timeout=30) as resp:
+        with urllib.request.urlopen(repo_url, timeout=_req_s(30)) as resp:
             root = ET.fromstring(resp.read())
         host_os = self._android_host_os()
         for pkg in root.findall(".//{*}remotePackage"):
@@ -4143,12 +4168,12 @@ class ExternalScraper:
         try:
             import requests
 
-            response = requests.get(url, headers=headers, timeout=timeout)
+            response = requests.get(url, headers=headers, timeout=_req_s(timeout))
             response.raise_for_status()
             return response.text
         except ImportError:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as response:
+            with urllib.request.urlopen(req, timeout=_req_s(timeout)) as response:
                 raw = response.read(2_500_000)
                 content_type = response.headers.get('content-type', '')
             match = re.search(r'charset=([\w.-]+)', content_type, re.I)
@@ -4453,7 +4478,7 @@ class ExternalScraper:
                 page = self._context.new_page()
                 page.on("console", self._on_console)
                 page.goto(self._book_url, wait_until="domcontentloaded",
-                          timeout=30000)
+                          timeout=_page_ms(30000))
                 self._install_bridge_bindings(page)
                 page.evaluate(self._gm_stubs_js)
                 page.evaluate(self._rules_js)
@@ -4510,7 +4535,7 @@ class ExternalScraper:
         if self._book_url:
             try:
                 self._page.goto(self._book_url,
-                                wait_until="domcontentloaded", timeout=30000)
+                                wait_until="domcontentloaded", timeout=_page_ms(30000))
                 if self._book_data and self._book_data.get('_ntk_novel'):
                     self.log("Page recovered for NewToki scraper.")
                     return True
@@ -4572,7 +4597,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             except Exception as e:
                 last_error = e
                 try:
-                    page.wait_for_load_state("domcontentloaded", timeout=3000)
+                    page.wait_for_load_state("domcontentloaded", timeout=_page_ms(3000))
                 except Exception:
                     pass
                 try:
@@ -4646,7 +4671,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             response = self._context.request.get(
                 'https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/ajax/UserInfo/GetUserInfo'
                 f'?_csrfToken={urllib.parse.quote(csrf)}',
-                headers={'Referer': 'https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/'}, timeout=15000,
+                headers={'Referer': 'https://www.\u0071\u0069\u0064\u0069\u0061\u006e.com/'}, timeout=_req_ms(15000),
             )
             data = response.json()
         except Exception:
@@ -4794,7 +4819,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             return None
 
     def _qdn_wait_for_book(self, page, timeout=45):
-        deadline = time.time() + timeout
+        deadline = time.time() + _page_s(timeout)
         script = """
 (() => {
   const html = document.documentElement?.innerHTML || '';
@@ -4830,7 +4855,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         return False
 
     def _qdn_wait_for_chapter(self, page, timeout=60):
-        deadline = time.time() + timeout
+        deadline = time.time() + _page_s(timeout)
         while time.time() < deadline and not self._stop_requested:
             if self._qdn_chapter_ready(page):
                 return True
@@ -4951,7 +4976,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
         self.log(f"[Qdn] Navigating to: {url}")
         try:
-            self._page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(45000))
         except Exception as e:
             self.log(f"[Qdn] Page load warning: {e}")
 
@@ -5142,7 +5167,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             try:
                 goto_kwargs = {
                     "wait_until": "domcontentloaded",
-                    "timeout": 45000,
+                    "timeout": _page_ms(45000),
                 }
                 if self._book_url:
                     goto_kwargs["referer"] = self._book_url
@@ -5378,7 +5403,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         except Exception:
             pass
         # Decryption runs in the page and can take about a minute.
-        deadline = time.time() + timeout
+        deadline = time.time() + _page_s(timeout)
         state = {}
         while time.time() < deadline and not self._stop_requested:
             state = self._qdn_encryption_state(page)
@@ -5638,7 +5663,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             try:
                 goto_kwargs = {
                     "wait_until": "commit",
-                    "timeout": 15000,
+                    "timeout": _page_ms(15000),
                 }
                 if self._book_url:
                     goto_kwargs["referer"] = self._book_url
@@ -5650,7 +5675,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         results = [None] * len(batch_info)
         pending = {i for i, _, _ in active}
         active_by_index = {i: (page, name) for i, page, name in active}
-        deadline = time.time() + 60
+        deadline = time.time() + _page_s(60)
 
         while pending and time.time() < deadline and not self._stop_requested:
             for i in list(pending):
@@ -5794,7 +5819,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             "[NewToki] Waiting for Cloudflare verification in the visible "
             "Chrome window..."
         )
-        deadline = time.time() + timeout
+        deadline = time.time() + _page_s(timeout)
         while time.time() < deadline and not self._stop_requested:
             if not self._ntk_is_challenge_page(page):
                 self.log("[NewToki] Verification cleared.")
@@ -6177,7 +6202,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             session.post(
                 state['origin'] + '/api/nv-issue',
                 headers=headers,
-                timeout=15,
+                timeout=_req_s(15),
             )
             return bool(session.cookies.get('nv'))
         except Exception as e:
@@ -6217,10 +6242,10 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         return state
 
     def _ntk_request_get(self, session, url, headers):
-        return session.get(url, headers=headers, timeout=30)
+        return session.get(url, headers=headers, timeout=_req_s(30))
 
     def _ntk_request_post_json(self, session, url, payload, headers):
-        return session.post(url, json=payload, headers=headers, timeout=30)
+        return session.post(url, json=payload, headers=headers, timeout=_req_s(30))
 
     def _ntk_clean_plaintext(self, text):
         text = (text or '').replace('\r\n', '\n').replace('\r', '\n')
@@ -6402,7 +6427,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         }
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=15) as response:
+            with urllib.request.urlopen(req, timeout=_req_s(15)) as response:
                 text = response.read().decode('utf-8', 'ignore')
         except Exception as e:
             self.log(
@@ -6667,7 +6692,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                 ready = False
             if not ready:
                 response = page.goto(
-                    origin + '/', wait_until='domcontentloaded', timeout=45000,
+                    origin + '/', wait_until='domcontentloaded', timeout=_page_ms(45000),
                 )
                 if response and response.status >= 400:
                     self.log(
@@ -6677,7 +6702,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     return False
                 page.wait_for_function(
                     """() => typeof window.next?.router?.push === 'function'""",
-                    timeout=15000,
+                    timeout=_page_ms(15000),
                 )
             return bool(page.evaluate(
                 """url => {
@@ -6704,7 +6729,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     response = self._page.goto(
                         url,
                         wait_until="domcontentloaded",
-                        timeout=45000,
+                        timeout=_page_ms(45000),
                     )
                     if response:
                         self.log(
@@ -6759,7 +6784,7 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     """() => document.querySelectorAll(
                       'ul.novel-eps li a, li[data-ep] a, a[href*="/novel/"]'
                     ).length > 0""",
-                    timeout=10000,
+                    timeout=_page_ms(10000),
                 )
             except Exception:
                 pass
@@ -7165,7 +7190,7 @@ async ({ novelId, kind, pageParam }) => {
 }
                     """,
                     arg={'novelId': novel_id, 'kind': kind},
-                    timeout=30000,
+                    timeout=_page_ms(30000),
                 )
             except Exception:
                 pass
@@ -7521,7 +7546,7 @@ async ({ url }) => {
             response = page.goto(
                 chapter_url,
                 wait_until='domcontentloaded',
-                timeout=45000,
+                timeout=_page_ms(45000),
             )
             if response and response.status >= 400:
                 self.log(
@@ -7529,7 +7554,7 @@ async ({ url }) => {
                     f"{response.status}."
                 )
                 return False
-            for _ in range(50):
+            for _ in range(int(_page_s(5) * 10)):
                 if content_attempted:
                     break
                 page.wait_for_timeout(100)
@@ -7750,7 +7775,7 @@ async ({ chapterUrl, payload }) => {
                     else:
                         goto_options = {
                             'wait_until': 'commit',
-                            'timeout': 45000,
+                            'timeout': _page_ms(45000),
                         }
                         if self._book_url:
                             goto_options['referer'] = self._book_url
@@ -7780,7 +7805,7 @@ async ({ chapterUrl, payload }) => {
                         finish_response(completed_index)
 
             pending = set(range(len(batch_info))) - finished
-            deadline = time.time() + 45
+            deadline = time.time() + _page_s(45)
             while pending and time.time() < deadline and not self._stop_requested:
                 for index in list(pending):
                     if navigation_errors[index] is not None:
@@ -8601,7 +8626,7 @@ async ({ url }) => {
                             mirror_url, headers=headers
                         )
                         with urllib.request.urlopen(
-                            request, timeout=8
+                            request, timeout=_req_s(8)
                         ) as response:
                             raw = response.read()
                             content_type = response.headers.get(
@@ -8972,7 +8997,7 @@ async ({ url }) => {
             try:
                 response = session.get(
                     f'{self._GLOBAL_NPIA_API}/v1/login/refresh',
-                    timeout=self._GLOBAL_NPIA_TIMEOUT,
+                    timeout=_req_s(self._GLOBAL_NPIA_TIMEOUT),
                 )
                 payload = response.json()
             except Exception:
@@ -9422,6 +9447,7 @@ async ({ url }) => {
             if not contexts:
                 raise RuntimeError('Chrome did not create a browser context')
             context = contexts[0]
+            _apply_page_defaults(context)
             pages = context.pages
             page = pages[-1] if pages else context.new_page()
             self._global_npia_ad_profile = profile
@@ -9522,7 +9548,7 @@ async ({ url }) => {
             page.goto(
                 chapter_url,
                 wait_until='domcontentloaded',
-                timeout=self._GLOBAL_NPIA_TIMEOUT * 1000,
+                timeout=_page_ms(self._GLOBAL_NPIA_TIMEOUT * 1000),
             )
         except PlaywrightTimeoutError:
             self.log(
@@ -9540,7 +9566,7 @@ async ({ url }) => {
                 pass
             return False
 
-        deadline = time.monotonic() + 240
+        deadline = time.monotonic() + _page_s(240)
         next_ticket_check = time.monotonic() + 3
         next_continue_check = time.monotonic()
         activation_attempted = False
@@ -9737,7 +9763,7 @@ async ({ url }) => {
                     url,
                     headers=headers or None,
                     params=params,
-                    timeout=self._GLOBAL_NPIA_TIMEOUT,
+                    timeout=_req_s(self._GLOBAL_NPIA_TIMEOUT),
                 )
                 last_status = int(response.status_code or 0)
                 try:
@@ -9879,7 +9905,7 @@ async ({ url }) => {
         book_url = f'{self._GLOBAL_NPIA_BASE}/novel/{novel_id}'
         self.log(
             '[Global Npia] Note: this site can respond slowly. API '
-            f'requests may wait up to {self._GLOBAL_NPIA_TIMEOUT} seconds.'
+            f'requests may wait up to {_req_s(self._GLOBAL_NPIA_TIMEOUT)} seconds.'
         )
 
         # Metadata and episode lists do not require loading the website. Read
@@ -10748,10 +10774,10 @@ async ({ url }) => {
             page.goto(
                 api_url,
                 wait_until='domcontentloaded',
-                timeout=45000,
+                timeout=_page_ms(45000),
                 referer=f'https://\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/{book_id}',
             )
-            deadline = time.monotonic() + 30
+            deadline = time.monotonic() + _page_s(30)
             last_text = ''
             while time.monotonic() < deadline and not self._stop_requested:
                 try:
@@ -11096,7 +11122,7 @@ async ({ url }) => {
 
         if is_library:
             try:
-                self._page.goto(url, wait_until='domcontentloaded', timeout=45000)
+                self._page.goto(url, wait_until='domcontentloaded', timeout=_page_ms(45000))
                 current_url = getattr(self._page, 'url', '') or ''
                 if re.search(r'/(?:account/login|account/verify-adult)',
                              current_url, re.I):
@@ -11125,7 +11151,7 @@ async ({ url }) => {
                           ) || !!document.querySelector(
                             'a[href*="\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/books/"], a[href^="/books/"]'
                           )
-                        """, timeout=15000)
+                        """, timeout=_page_ms(15000))
                     except Exception:
                         pass
                 library = self._page.evaluate(r"""
@@ -11209,7 +11235,7 @@ async ({ url }) => {
             self._page.goto(
                 book_url,
                 wait_until='domcontentloaded',
-                timeout=45000,
+                timeout=_page_ms(45000),
             )
             # Do not wait for the full load event: Rbooks's analytics resources
             # can keep it pending for 15 seconds even though the server-rendered
@@ -11227,7 +11253,7 @@ async ({ url }) => {
   );
 }
 """,
-                        timeout=5000,
+                        timeout=_page_ms(5000),
                     )
                 except Exception:
                     pass
@@ -11609,7 +11635,7 @@ async ({ url }) => {
 
     def _rbooks_wait_for_content(self, page, timeout=30):
         """Wait until the rendered viewer text is both complete and stable."""
-        deadline = time.monotonic() + max(1, timeout)
+        deadline = time.monotonic() + _page_s(max(1, timeout))
         last_length = -1
         stable_count = 0
         while time.monotonic() < deadline and not self._stop_requested:
@@ -11973,7 +11999,7 @@ async (ids) => {
                 library_page = self._context.new_page()
                 library_page.goto(
                     'https://library.\u0072\u0069\u0064\u0069\u0062\u006f\u006f\u006b\u0073.com/',
-                    wait_until='domcontentloaded', timeout=30000,
+                    wait_until='domcontentloaded', timeout=_page_ms(30000),
                 )
                 found = library_page.evaluate(self._RBOOKS_OWNED_JS, ids[:500])
                 owned = self._rbooks_library_items(found)
@@ -12097,7 +12123,7 @@ async (ids) => {
         if not self._rbooks_page_is_usable(page):
             return None
         try:
-            page.wait_for_load_state('load', timeout=30000)
+            page.wait_for_load_state('load', timeout=_page_ms(30000))
         except Exception as e:
             if (
                 self._rbooks_browser_closed_error(e)
@@ -12150,13 +12176,13 @@ async (ids) => {
                 try:
                     kwargs = {
                         'wait_until': 'domcontentloaded',
-                        'timeout': 45000,
+                        'timeout': _page_ms(45000),
                     }
                     if self._book_url:
                         kwargs['referer'] = self._book_url
                     page.goto(chapter_url, **kwargs)
                     try:
-                        page.wait_for_load_state('load', timeout=30000)
+                        page.wait_for_load_state('load', timeout=_page_ms(30000))
                     except Exception:
                         pass
                 except Exception as e:
@@ -12214,7 +12240,7 @@ async (ids) => {
             try:
                 kwargs = {
                     'wait_until': 'domcontentloaded',
-                    'timeout': 45000,
+                    'timeout': _page_ms(45000),
                 }
                 if self._book_url:
                     kwargs['referer'] = self._book_url
@@ -12336,7 +12362,7 @@ async (ids) => {
                     )
                     navigation_failed = False
                     try:
-                        kwargs = {'wait_until': 'commit', 'timeout': 15000}
+                        kwargs = {'wait_until': 'commit', 'timeout': _page_ms(15000)}
                         if self._book_url:
                             kwargs['referer'] = self._book_url
                         page.goto(url, **kwargs)
@@ -12635,7 +12661,7 @@ async (ids) => {
             self._page.goto(
                 book_url,
                 wait_until='domcontentloaded',
-                timeout=30000,
+                timeout=_page_ms(30000),
             )
         except Exception as e:
             if 'ERR_ABORTED' not in str(e):
@@ -13002,7 +13028,7 @@ async (ids) => {
         try:
             navigation_options = {
                 'wait_until': 'domcontentloaded',
-                'timeout': 30000,
+                'timeout': _page_ms(30000),
             }
             if self._book_url:
                 navigation_options['referer'] = self._book_url
@@ -13012,7 +13038,7 @@ async (ids) => {
                     r'(?:[/?#]|$)',
                     str(getattr(item, 'url', '') or ''),
                 )),
-                timeout=30000,
+                timeout=_page_ms(30000),
             ) as response_info:
                 target.goto(
                     chapter_url,
@@ -13150,7 +13176,7 @@ async (ids) => {
 
     def _mpia_wait_for_selector(self, page, selector, timeout=45):
         """Wait through Mpia's security interstitial for a target selector."""
-        deadline = time.time() + max(1, timeout)
+        deadline = time.time() + _page_s(max(1, timeout))
         last_marker = ''
         while time.time() < deadline and not self._stop_requested:
             try:
@@ -13331,7 +13357,7 @@ async (ids) => {
         if not self._start_mpia_browser(book_url):
             return None
         try:
-            self._page.goto(book_url, wait_until='domcontentloaded', timeout=30000)
+            self._page.goto(book_url, wait_until='domcontentloaded', timeout=_page_ms(30000))
             if not self._mpia_wait_for_selector(self._page, 'main h1'):
                 self.log(
                     '[Mpia] ERROR: Novel page did not load. Use Enter Browser '
@@ -13786,7 +13812,7 @@ async (ids) => {
             if not self._mpia_prepare_reader_page(target):
                 return None
             target.goto(chapter_url, wait_until="domcontentloaded",
-                        timeout=30000)
+                        timeout=_page_ms(30000))
             ready = self._mpia_wait_for_selector(
                 target, self._MPIA_READER_SELECTOR, timeout=45
             )
@@ -13879,7 +13905,7 @@ async (ids) => {
                 break
             name = chapter.get('fullName', '') or chapter.get('name', '')
             try:
-                goto_kwargs = {'wait_until': 'commit', 'timeout': 15000}
+                goto_kwargs = {'wait_until': 'commit', 'timeout': _page_ms(15000)}
                 if self._book_url:
                     goto_kwargs['referer'] = self._book_url
                 self._mpia_prepare_reader_page(page)
@@ -13889,7 +13915,7 @@ async (ids) => {
                 # tab. Never extract that DOM as the requested chapter.
                 self.log(f"  [Mpia] Page load failed for {name}: {e}")
             else:
-                active[index] = (page, name, time.monotonic() + 45)
+                active[index] = (page, name, time.monotonic() + _page_s(45))
             self._hide_chrome_windows_for_profile(self._get_user_data_dir())
             poll_loaded()
             if offset < len(eligible) - 1:
@@ -13919,7 +13945,7 @@ async (ids) => {
         series_id = m.group(1) if m else ''
 
         try:
-            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
             # Wait for the SPA to render content
             self._page.wait_for_timeout(3000)
         except Exception as e:
@@ -14111,7 +14137,7 @@ async (ids) => {
         try:
             about_url = re.sub(r'(\?.*)?$', '?tab_type=about', url)
             self._page.goto(about_url, wait_until="domcontentloaded",
-                            timeout=15000)
+                            timeout=_page_ms(15000))
             self._page.wait_for_timeout(2000)
             tags = self._page.evaluate("""
                 (function() {
@@ -14338,7 +14364,7 @@ async (ids) => {
             try:
                 target.goto(
                     f'https://page.\u006b\u0061\u006b\u0061\u006f.com/content/{s_id}',
-                    wait_until="domcontentloaded", timeout=30000,
+                    wait_until="domcontentloaded", timeout=_page_ms(30000),
                 )
                 target.wait_for_timeout(1000)
             except Exception as e:
@@ -14780,7 +14806,7 @@ async (ids) => {
                     ),
                     'Referer': 'https://page.\u006b\u0061\u006b\u0061\u006f.com/',
                 })
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with urllib.request.urlopen(req, timeout=_req_s(timeout)) as resp:
                     raw = resp.read()
                 css = raw.decode('utf-8-sig', errors='replace')
                 css = re.sub(r'@charset\s+["\']UTF-8["\'];?', '', css,
@@ -15105,7 +15131,7 @@ async (ids) => {
         for attempt in range(6):
             try:
                 self._1qxs_wait_for_request_slot()
-                response = session.get(url, headers=headers, timeout=timeout)
+                response = session.get(url, headers=headers, timeout=_req_s(timeout))
                 if response.status_code == 403:
                     last_error = RuntimeError('1qxs returned HTTP 403')
                     # This site uses HTTP 403 for its documented 30-second
@@ -15746,13 +15772,13 @@ async (ids) => {
         params = dict(self._JARA_DEFAULT_PARAMS)
         session = self._jara_session()
         try:
-            home = session.get(self._JARA_ORIGIN + '/', timeout=20).text
+            home = session.get(self._JARA_ORIGIN + '/', timeout=_req_s(20)).text
             bundles = re.findall(
                 r'src="(/static/js/main\.[A-Za-z0-9]+\.chunk\.js)"', home
             )
             if bundles:
                 bundle = session.get(
-                    self._JARA_ORIGIN + bundles[-1], timeout=30
+                    self._JARA_ORIGIN + bundles[-1], timeout=_req_s(30)
                 ).text
                 match = re.search(
                     r'["\']https://api\.\u006a\u006f\u0061\u0072\u0061\.com["\']\s*,\s*apiKey\s*:',
@@ -15927,7 +15953,7 @@ async (ids) => {
             query['token'] = token
         query.update(params or {})
         response = self._jara_session().get(
-            self._JARA_API + path, params=query, timeout=30
+            self._JARA_API + path, params=query, timeout=_req_s(30)
         )
         if response.status_code >= 500:
             raise RuntimeError(f'Jara returned HTTP {response.status_code}')
@@ -16017,12 +16043,13 @@ async (ids) => {
                 ],
                 ignore_https_errors=True,
             )
+            _apply_page_defaults(ctx)
             try:
                 page = ctx.new_page()
                 page.goto(
                     self._JARA_ORIGIN + '/defender',
                     wait_until='networkidle',
-                    timeout=20000,
+                    timeout=_page_ms(20000),
                 )
                 # The captcha button may be on the page directly or inside
                 # a reCAPTCHA iframe.  Try the main frame first.
@@ -16470,7 +16497,7 @@ async (ids) => {
             if self._stop_requested:
                 raise RuntimeError('download stopped')
             try:
-                response = session.get(url, headers=headers, timeout=30)
+                response = session.get(url, headers=headers, timeout=_req_s(30))
                 if response.status_code in (429, 500, 502, 503, 504):
                     last_error = RuntimeError(
                         f'HTTP {response.status_code}'
@@ -16755,7 +16782,7 @@ async (ids) => {
                 response = session.get(
                     url,
                     headers={'Referer': referer or self._NWEB_NOVEL_ORIGIN},
-                    timeout=30,
+                    timeout=_req_s(30),
                 )
                 response.raise_for_status()
                 raw = response.content
@@ -17019,7 +17046,7 @@ async (ids) => {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'User-Agent': SHUBA_API_USER_AGENT,
             },
-            timeout=timeout,
+            timeout=_req_s(timeout),
         )
         response.raise_for_status()
         data = response.json()
@@ -17252,7 +17279,7 @@ async (ids) => {
             'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         })
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(req, timeout=_req_s(20)) as resp:
             return resp.read().decode('utf-8', errors='replace')
 
     def _yeduji_parse_book(self, url):
@@ -17606,7 +17633,7 @@ async (ids) => {
         })
         domain = (urllib.parse.urlparse(url).hostname or '').removeprefix('www.')
         self._load_saved_site_cookies(session.cookies, url, domain)
-        response = session.get(url, timeout=30)
+        response = session.get(url, timeout=_req_s(30))
         response.raise_for_status()
         return response.content, response.url
 
@@ -17806,7 +17833,7 @@ async (ids) => {
             if not self._page:
                 break
             try:
-                self._page.goto(target, wait_until='domcontentloaded', timeout=30000)
+                self._page.goto(target, wait_until='domcontentloaded', timeout=_page_ms(30000))
                 if (self._page.title() or '').lower().startswith('just a moment'):
                     verification_blocked = True
                     break
@@ -17959,7 +17986,7 @@ async (ids) => {
             seen.add(current_url)
             try:
                 self._page.goto(current_url, wait_until='domcontentloaded',
-                                timeout=30000)
+                                timeout=_page_ms(30000))
                 result = self._xiyuwx_chapter_from_page(
                     self._page.content(), chapter_name, self._page.url
                 )
@@ -18024,7 +18051,7 @@ async (ids) => {
         })
         self._load_saved_site_cookies(session.cookies, url, '\u0066\u0061\u006c\u006f\u006f.com')
         for _ in range(3):
-            response = session.get(url, timeout=30)
+            response = session.get(url, timeout=_req_s(30))
             response.raise_for_status()
             # Under load Floo answers with a script that sets C3VK and
             # reloads the page. A browser follows it; do the same here.
@@ -18222,7 +18249,7 @@ async (ids) => {
             if not self._page:
                 break
             try:
-                self._page.goto(target, wait_until='domcontentloaded', timeout=30000)
+                self._page.goto(target, wait_until='domcontentloaded', timeout=_page_ms(30000))
                 data = self._floo_book_from_page(
                     self._page.content(), self._page.url, book_id, canonical
                 )
@@ -18230,7 +18257,7 @@ async (ids) => {
                     try:
                         self._page.wait_for_selector(
                             'div.C-Fo-Zuo div.DivTable a, .chapter-list a, '
-                            '.chapterList a, .catalog a', timeout=10000
+                            '.chapterList a, .catalog a', timeout=_page_ms(10000)
                         )
                     except PlaywrightTimeoutError:
                         pass
@@ -18408,7 +18435,7 @@ async (ids) => {
                 url = re.sub(r'([?&]font_size=)\d+', r'\g<1>32', url)
                 url = re.sub(r'([?&]font_color=)\w+', r'\g<1>000000', url)
                 response = requests.get(
-                    url, cookies=cookies or {}, timeout=30,
+                    url, cookies=cookies or {}, timeout=_req_s(30),
                     headers={'Referer': chapter_url, 'User-Agent': self._YEDUJI_UA},
                 )
                 response.raise_for_status()
@@ -18464,7 +18491,7 @@ async (ids) => {
                 self._sleep_interval(interval, interval_max)
             try:
                 pages[index].goto(
-                    chapter.get('url', ''), wait_until='commit', timeout=30000
+                    chapter.get('url', ''), wait_until='commit', timeout=_page_ms(30000)
                 )
                 loaded[index] = True
             except Exception as exc:
@@ -18479,7 +18506,7 @@ async (ids) => {
                     page.wait_for_selector(
                         '.noveContent, #novelContent, .novelContent, '
                         '#chapterContent, .chapter-content',
-                        timeout=8000,
+                        timeout=_page_ms(8000),
                     )
                 except PlaywrightTimeoutError:
                     pass
@@ -18607,10 +18634,10 @@ async (ids) => {
         self.log(f'[Fenrir] Fetching series {slug}...')
         try:
             session = self._fenrir_session()
-            info_response = session.get(api, timeout=30)
+            info_response = session.get(api, timeout=_req_s(30))
             info_response.raise_for_status()
             info = info_response.json()
-            list_response = session.get(api + '/chapters', timeout=60)
+            list_response = session.get(api + '/chapters', timeout=_req_s(60))
             list_response.raise_for_status()
             rows = list_response.json()
         except Exception as e:
@@ -18890,7 +18917,7 @@ async (items) => {
         if not current.startswith(self._FENRIR_ORIGIN):
             try:
                 self._page.goto(
-                    start_url, wait_until='domcontentloaded', timeout=45000
+                    start_url, wait_until='domcontentloaded', timeout=_page_ms(45000)
                 )
             except Exception as e:
                 self.log(f'  [Fenrir] Reader page did not load: {e}')
@@ -18964,7 +18991,7 @@ async (items) => {
                      + ', '.join(c for c in clicked if c))
 
     def _fenrir_wait_for_token(self, seconds):
-        deadline = time.time() + seconds
+        deadline = time.time() + _page_s(seconds)
         while time.time() < deadline and not self._stop_requested:
             if self._fenrir_token_active():
                 return True
@@ -18983,7 +19010,7 @@ async (items) => {
         """
         try:
             self._page.goto(
-                chapter_url, wait_until='domcontentloaded', timeout=45000
+                chapter_url, wait_until='domcontentloaded', timeout=_page_ms(45000)
             )
         except Exception as e:
             self.log(f'  [Fenrir] Reader page did not load: {e}')
@@ -19147,7 +19174,7 @@ async (items) => {
         response = requests.get(
             f'{self._MARU_API}/{path.lstrip("/")}',
             headers={'User-Agent': self._KR_UA, 'Accept': 'application/json'},
-            timeout=30,
+            timeout=_req_s(30),
         )
         response.raise_for_status()
         data = response.json()
@@ -19274,7 +19301,7 @@ async (items) => {
                 response = requests.get(
                     embed_url,
                     headers={'User-Agent': self._KR_UA, 'Accept': 'text/plain'},
-                    timeout=30,
+                    timeout=_req_s(30),
                 )
                 response.raise_for_status()
                 text = response.content.decode('utf-8-sig')
@@ -19303,16 +19330,16 @@ async (items) => {
         if not self._start_rbooks_browser(url, site='Kobo'):
             return None
         try:
-            self._page.goto(url, wait_until='domcontentloaded', timeout=45000)
+            self._page.goto(url, wait_until='domcontentloaded', timeout=_page_ms(45000))
             # The JP storefront renders a hidden desktop/mobile title before
             # its visible title. The first h1 still contains the real title.
-            self._page.locator('h1').first.wait_for(state='attached', timeout=30000)
+            self._page.locator('h1').first.wait_for(state='attached', timeout=_page_ms(30000))
             try:
                 self._page.locator(
                     'a[href*="readnow.kobo.com"], '
                     '[data-kobo-gizmo-config*="readNowUrl"]'
                 ).first.wait_for(
-                    state='attached', timeout=8000)
+                    state='attached', timeout=_page_ms(8000))
             except Exception:
                 pass
             meta = self._page.evaluate(r"""() => {
@@ -19722,7 +19749,7 @@ async (items) => {
             self.start()
         self.log(f"Navigating to: {url}")
         try:
-            self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            self._page.goto(url, wait_until="domcontentloaded", timeout=_page_ms(30000))
         except Exception as e:
             self.log(f"ERROR: Page load failed: {e}")
             return False

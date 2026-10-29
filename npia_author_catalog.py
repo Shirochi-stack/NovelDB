@@ -9,6 +9,8 @@ import time
 
 from requests.sessions import Session as HTTPSession
 
+from noveldb.core.net_timeouts import request_timeout
+
 from npia_search_http import response_details
 
 AUTHOR_URL = "https://\u006e\u006f\u0076\u0065\u006c\u0070\u0069\u0061.com/proc/user"
@@ -63,7 +65,7 @@ def iter_author_pages(session, author, *, start_page=1, max_pages=None, delay=1.
                     "mode": "get_member_writer_novel", "mem_no": str(author),
                     "paging[rowCount]": page_size, "paging[curPage]": page,
                     "paging[order]": "date", "paging[sort][date]": 1,
-                }, timeout=30, allow_redirects=False)
+                }, timeout=request_timeout(30), allow_redirects=False)
                 if response.status_code != 200:
                     raise ValueError(f"author catalog HTTP {response.status_code}")
                 data = response.json()
