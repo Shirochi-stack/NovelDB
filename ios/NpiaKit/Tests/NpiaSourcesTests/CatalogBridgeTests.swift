@@ -97,7 +97,7 @@ final class CatalogBridgeTests: XCTestCase {
         let url = try XCTUnwrap(CatalogBridge.resourceURL, "catalog-bridge.js is missing from the bundle")
         let data = try Data(contentsOf: url)
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        XCTAssertEqual(digest, "cdf91f6d754fd238382df0d65b1c3d08515fe3802aa7657ff3b98edb6b2954a7")
+        XCTAssertEqual(digest, "e5ccc667ba25d03c91e6455d5cdb2e50b8bcdb7df5380c7d616c4fda5911216a")
         XCTAssertFalse(data.contains(13), "the bridge keeps LF line endings")
         XCTAssertEqual(CatalogBridge.source, String(decoding: data, as: UTF8.self))
     }
@@ -141,7 +141,7 @@ final class CatalogBridgeTests: XCTestCase {
 
         let supported = CatalogPageMode(kind: .supported, cartLinks: false, download: true)
         await send(view, supported, download: CatalogDownloadPage(url: book, title: "Book One"))
-        await waitUntil("the Download button") { await buttonText(view) == "⬇️ Download" }
+        await waitUntil("the Download button") { await buttonText(view) == "Download" }
 
         // A click adds the page to the cart, and the button says so...
         await run(view, "document.querySelector('.noveldb-download').click(); return 'clicked';")
@@ -153,14 +153,14 @@ final class CatalogBridgeTests: XCTestCase {
         // ...a second click takes it out again.
         await run(view, "document.querySelector('.noveldb-download').click(); return 'clicked';")
         await waitUntil("cartRemove") { inbox.of("cartRemove").contains { $0["url"] as? String == book } }
-        await waitUntil("the button to read Download again") { await buttonText(view) == "⬇️ Download" }
+        await waitUntil("the button to read Download again") { await buttonText(view) == "Download" }
     }
 
     func testTheButtonLeavesWithTheAddressItWasMadeFor() async {
         let (view, inbox) = await openPage(book)
         let supported = CatalogPageMode(kind: .supported, cartLinks: false, download: true)
         await send(view, supported, download: CatalogDownloadPage(url: book, title: "Book One"))
-        await waitUntil("the Download button") { await buttonText(view) == "⬇️ Download" }
+        await waitUntil("the Download button") { await buttonText(view) == "Download" }
 
         // The page moves on: the button made for the old address goes away at once.
         await run(view, "history.pushState({}, '', '/book/2'); return 'ok';")
@@ -175,7 +175,7 @@ final class CatalogBridgeTests: XCTestCase {
 
         // One for the reported address does.
         await send(view, supported, download: CatalogDownloadPage(url: "https://catalog.test/book/2", title: "Book Two"))
-        await waitUntil("the button for the new address") { await buttonText(view) == "⬇️ Download" }
+        await waitUntil("the button for the new address") { await buttonText(view) == "Download" }
     }
 
     func testOutsideLinksAreOnlyRenamedOnOtherSites() async {
@@ -191,22 +191,22 @@ final class CatalogBridgeTests: XCTestCase {
 
         // Another site: the link reads "Download" (and goes to the cart when tapped).
         await send(view, other)
-        await waitUntil("the link to be renamed") { await linkText(view) == "⬇️ Download" }
+        await waitUntil("the link to be renamed") { await linkText(view) == "Download" }
 
         // NovelDB and NovelDB Next: the link is given back.
         await send(view, noveldb)
         await waitUntil("the link to be restored") { await linkText(view) == "Read more" }
         await send(view, other)
-        await waitUntil("the link to be renamed again") { await linkText(view) == "⬇️ Download" }
+        await waitUntil("the link to be renamed again") { await linkText(view) == "Download" }
         await send(view, next)
         await waitUntil("the link to be restored for NovelDB Next") { await linkText(view) == "Read more" }
 
         // A supported site: the link stays as written, and the page gets its button.
         await send(view, other)
-        await waitUntil("the link to be renamed a third time") { await linkText(view) == "⬇️ Download" }
+        await waitUntil("the link to be renamed a third time") { await linkText(view) == "Download" }
         await send(view, supported, download: CatalogDownloadPage(url: book, title: "Book One"))
         await waitUntil("the link to be restored for a supported site") { await linkText(view) == "Read more" }
-        await waitUntil("the Download button") { await buttonText(view) == "⬇️ Download" }
+        await waitUntil("the Download button") { await buttonText(view) == "Download" }
         // Stays so a moment later (nothing renames it again).
         try? await Task.sleep(nanoseconds: 1_200_000_000)
         let kept = await linkText(view)
@@ -217,7 +217,7 @@ final class CatalogBridgeTests: XCTestCase {
         // The first version of the app sent only the cart setting.
         let (view, _) = await openPage(book, body: "<a id=\"out\" href=\"https://other.test/page\">Read more</a>")
         await run(view, "window.NovelDBApp.setMode({cartLinks: true}); return 'ok';")
-        await waitUntil("the link to be renamed") { await linkText(view) == "⬇️ Download" }
+        await waitUntil("the link to be renamed") { await linkText(view) == "Download" }
         await run(view, "window.NovelDBApp.setMode({cartLinks: false}); return 'ok';")
         await waitUntil("the link to be restored") { await linkText(view) == "Read more" }
         let button = await buttonText(view)
