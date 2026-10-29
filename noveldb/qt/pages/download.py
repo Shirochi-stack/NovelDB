@@ -27,6 +27,7 @@ from noveldb.core import paths
 from noveldb.core.settings.model import NPIA, OUTPUT_FORMATS
 from noveldb.core.sources import BROWSER, detect_source, engine_for, split_inputs
 from noveldb.qt.context import AppContext
+from noveldb.qt import icons
 from noveldb.qt.scale import bind_size, bind_title, on_scale
 from noveldb.qt.widgets import Chip, dspin, field_group, flow, hint, section, set_quietly, spin
 
@@ -101,6 +102,7 @@ class DownloadPage(QWidget):
         clear = QPushButton("Clear")
         clear.clicked.connect(self.input.clear)
         self.cart_button = QPushButton()
+        icons.set_icon(self.cart_button, icons.CART)
         self.cart_button.clicked.connect(self.openCart.emit)
         from noveldb.qt.tools import TOOLS, available
 
@@ -487,6 +489,6 @@ class DownloadPage(QWidget):
 
     def _refresh_cart(self) -> None:
         count = len(self.context.cart)
-        self.cart_button.setText(f"\U0001F6D2 Link cart ({count})")
+        self.cart_button.setText(f"Link cart ({count})")
         self.cart_button.setEnabled(count > 0)
         self._update_download_button()

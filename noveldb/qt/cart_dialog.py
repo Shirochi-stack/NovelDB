@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from noveldb.qt import icons
 from noveldb.qt.context import AppContext
 
 
@@ -28,12 +29,14 @@ class CartDialog(QDialog):
     def __init__(self, context: AppContext, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.context = context
-        self.setWindowTitle("\U0001F6D2 Link cart")
+        self.setWindowTitle("Link cart")
+        self.setWindowIcon(icons.icon(icons.CART))
         self.resize(560, 420)
         self.list = QListWidget()
         self.list.setUniformItemSizes(True)
         self.list.itemChanged.connect(self._update_buttons)
-        self.empty = QLabel("The cart is empty. Use the \u2B07\uFE0F button on Catalog cards to add books.")
+        self.empty = QLabel(f"The cart is empty. Use the {icons.inline(icons.DOWNLOAD)} button on Catalog cards "
+                            "to add books.")
         self.empty.setWordWrap(True)
         self.empty.setProperty("hint", True)
         select_all = QPushButton("Select all")
