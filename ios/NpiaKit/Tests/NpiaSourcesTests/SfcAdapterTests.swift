@@ -126,6 +126,18 @@ final class SfcAdapterTests: XCTestCase {
         XCTAssertEqual(always.imageRequests, 1 + SfcAdapter.placeholderRetries)
     }
 
+    func testRejectedSignaturesAreRetriedQuietlyWithALineEveryFifthTime() async throws {
+        var replies: [([String: Any], [String: String])] = Array(repeating: (["status": ["httpCode": 417]], [:]), count: 6)
+        replies.append((["status": ["httpCode": 200]], [:]))
+        let http = SequenceHTTP(replies: replies)
+        let lines = LogLines()
+        let (_, payload) = try await SfcAppAPI.send("/Chaps/1", cookie: nil, http: http, logger: lines)
+        XCTAssertEqual(SfcAppAPI.statusCode(payload), 200)
+        XCTAssertEqual(http.requests.count, 7)
+        XCTAssertTrue(http.requests.allSatisfy { $0.quietStatuses.contains(417) })  // the client does not log each rejection
+        XCTAssertEqual(lines.all, ["sfc app API rejected the signature 5 times; trying a new one"])
+    }
+
     func testFreeChapterFromWebPage() async throws {
         let http = RoutedHTTP()
         http.on("/Novel/12345/600/7001/", "<h1 class=\"article-title\">第一章 开端</h1><div class=\"article-content\"><p>正文</p><p><img src=\"/pic/1.png\"></p></div>")
@@ -224,6 +236,21 @@ final class PlaceholderFirst: HTTPFetching, @unchecked Sendable {
         placeholders -= 1
         let size = placeholders >= 0 ? SfcAdapter.placeholderImageSizes.first! : 100
         return HTTPResponse(url: request.url, status: 200, headers: [:], body: Data(count: size))
+    }
+}
+
+/// Collects log lines.
+final class LogLines: JobLogging, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func log(_ level: LogLevel, _ message: String) {
+        lock.lock(); values.append(message); lock.unlock()
+    }
+
+    var all: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return values
     }
 }
 

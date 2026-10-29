@@ -79,7 +79,7 @@ public final class URLSessionHTTPClient: HTTPFetching, @unchecked Sendable {
                     try await backoff(attempt, because: "HTTP \(http.statusCode) for \(label)")
                     continue
                 }
-                if http.statusCode >= 400 {
+                if http.statusCode >= 400, !request.quietStatuses.contains(http.statusCode) {
                     // A 404 is often an answer the adapter expects (a missing image, a probe), so
                     // only a server that kept failing is a warning.
                     let level: LogLevel = Self.isRetryable(http.statusCode) ? .warning : .debug

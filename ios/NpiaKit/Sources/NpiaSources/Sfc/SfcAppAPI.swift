@@ -69,18 +69,22 @@ enum SfcAppAPI {
     }
 
     /// One signed request. HTTP code 417 inside the JSON means the signature was rejected
-    /// (not a purchase check), so it is retried with a fresh nonce, up to 20 times.
-    static func send(_ path: String, method: String = "GET", body: Data? = nil, cookie: String?, http: any HTTPFetching) async throws -> (HTTPResponse, [String: Any]) {
+    /// (not a purchase check), so it is retried with a fresh nonce, up to 20 times. The server turns
+    /// down valid signatures often, so, as on the desktop, only every fifth rejection is logged.
+    static func send(_ path: String, method: String = "GET", body: Data? = nil, cookie: String?, http: any HTTPFetching, logger: (any JobLogging)? = nil) async throws -> (HTTPResponse, [String: Any]) {
         let url = URL(string: path, relativeTo: base)!.absoluteURL
         var last: (HTTPResponse, [String: Any])?
         for attempt in 1...20 {
             let nonce = UUID().uuidString.uppercased()
             var headers = headers(nonce: nonce, timestamp: Int64(Date().timeIntervalSince1970 * 1000), method: method)
             if let cookie, !cookie.isEmpty { headers["Cookie"] = cookie }
-            let response = try await http.send(HTTPRequest(url: url, method: method, headers: headers, body: body))
+            let response = try await http.send(HTTPRequest(url: url, method: method, headers: headers, body: body, quietStatuses: [417]))
             let payload = (try? HTTPSourceSupport.jsonObject(response.body)) ?? [:]
             last = (response, payload)
             if statusCode(payload) != 417 { return (response, payload) }
+            if attempt % 5 == 0 {
+                logger?.log(.debug, "sfc app API rejected the signature \(attempt) times; " + (attempt < 20 ? "trying a new one" : "giving up"))
+            }
             if attempt < 20 { try await HTTPSourceSupport.sleep(seconds: 0.25) }
         }
         return last!
@@ -208,8 +212,8 @@ enum SfcAppAPI {
         case unavailable
     }
 
-    static func chapter(_ ref: ChapterRef, chapterID: String, cookie: String, http: any HTTPFetching) async throws -> ChapterOutcome {
-        let (_, payload) = try await send("/Chaps/\(chapterID)?expand=content%2Cexpand.content", cookie: cookie, http: http)
+    static func chapter(_ ref: ChapterRef, chapterID: String, cookie: String, http: any HTTPFetching, logger: (any JobLogging)? = nil) async throws -> ChapterOutcome {
+        let (_, payload) = try await send("/Chaps/\(chapterID)?expand=content%2Cexpand.content", cookie: cookie, http: http, logger: logger)
         return chapter(from: payload, ref: ref)
     }
 
