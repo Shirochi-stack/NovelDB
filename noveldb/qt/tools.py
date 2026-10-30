@@ -218,6 +218,17 @@ class Tools(QObject):
                 text = "No sfc app session is saved yet. Sign in to the app or import it from the emulator first."
             self.context.hub.log("", text)
             self.context.hub.message.emit(text)
+        elif tool == "sfc_android_open":
+            text = ("Opening the Android emulator. Sign in to the sfc app there, then use "
+                    "\"Import the sfc session from the emulator\".") if result else \
+                   "Could not open the Android emulator. See the log."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
+        elif tool == "sfc_android_import":
+            text = "sfc app session imported from the emulator." if result else \
+                   "No sfc app session found in the emulator. Sign in to the sfc app there first."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
         elif tool.startswith("sfc"):
             text = "sfc session saved." if result else "The sfc session was not saved."
             self.context.hub.log("", text)
