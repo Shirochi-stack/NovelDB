@@ -12,6 +12,11 @@ object WebLoginWebView {
                 session.update(url, title, loading)
             }
         })
+        // Append the site's app token (sfc) so its backend may hand our view the app session, while the
+        // base user agent stays a browser's so sign-ins that refuse embedded views (Facebook) still work.
+        session.userAgentSuffix?.takeIf { it.isNotBlank() }?.let { suffix ->
+            webView.settings.userAgentString = "${webView.settings.userAgentString} $suffix"
+        }
         webView.loadUrl(session.url)
         return webView
     }

@@ -34,6 +34,12 @@ class SessionSite(
     val cookieNames: List<String>,
     /** Plain-words description of what makes a login usable, for the UI ("ywkey and ywguid"). */
     val requirement: String,
+    /**
+     * Appended to the sign-in web view's user agent, so a site that serves a different session to its
+     * own app can be told we are it (sfc appends its app token to try for an app session). Null keeps
+     * the browser's user agent, which is what qdn and rbooks sign in with.
+     */
+    val appUserAgentSuffix: String? = null,
     private val usableWith: (Set<String>) -> Boolean,
 ) {
     fun isUsable(present: Set<String>): Boolean = usableWith(present)

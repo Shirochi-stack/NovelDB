@@ -85,8 +85,11 @@ interface WebEngineProviding {
     /** Pages from the same profile share cookies with each other and with `HttpFetching`. */
     suspend fun newPage(profile: String): WebPageDriving
 
-    /** Shows a visible web view so the user can sign in; returns when they finish. */
-    suspend fun presentLogin(url: String, profile: String)
+    /**
+     * Shows a visible web view so the user can sign in; returns when they finish. `userAgentSuffix`
+     * is appended to the view's user agent (sfc appends its app token to try for an app session).
+     */
+    suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String? = null)
 }
 
 open class WebEngineException(message: String) : Exception(message)
@@ -96,7 +99,7 @@ class WebLoadTimeoutException(val url: String) : WebEngineException("Timed out l
 
 object UnavailableWebEngine : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = throw WebEngineException("No web engine in this context")
-    override suspend fun presentLogin(url: String, profile: String) = throw WebEngineException("No web engine in this context")
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = throw WebEngineException("No web engine in this context")
 }
 
 // Images

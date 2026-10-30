@@ -106,7 +106,7 @@ internal class ScriptedWeb(private val make: (index: Int) -> ScriptedPage) : Web
     var logins = 0
     var loginFailure: Throwable? = null
 
-    override suspend fun presentLogin(url: String, profile: String) {
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {
         logins += 1
         loginFailure?.let { throw it }
     }

@@ -312,5 +312,5 @@ private class XiyuwxFakePage(private val pages: Map<String, String>) : WebPageDr
 
 private class XiyuwxStubWeb(private val page: XiyuwxFakePage) : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = page
-    override suspend fun presentLogin(url: String, profile: String) {}
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {}
 }

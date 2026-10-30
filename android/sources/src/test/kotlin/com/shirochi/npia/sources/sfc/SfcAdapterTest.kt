@@ -85,6 +85,32 @@ class SfcAdapterTest {
     }
 
     @Test
+    fun capturesAppSessionFromSignInCookies() {
+        // A website sign-in that was handed an app session: the jar holds session_APP, so it is promoted.
+        val secrets = InMemorySecretStore()
+        val jar = FakeCookies(mapOf(".SFCommunity" to "a", "session_APP" to "b", "other" to "c"))
+        assertTrue(SfcAdapter.captureAppSession(jar, secrets))
+        assertTrue(SfcAdapter.hasAppSession(secrets))
+        assertEquals(".SFCommunity=a; session_APP=b", SfcAppApi.savedCookie(secrets))
+    }
+
+    @Test
+    fun doesNotCaptureWithoutAppSession() {
+        // A plain website sign-in (only .SFCommunity) is not an app session, so nothing is saved.
+        val secrets = InMemorySecretStore()
+        val jar = FakeCookies(mapOf(".SFCommunity" to "a"))
+        assertFalse(SfcAdapter.captureAppSession(jar, secrets))
+        assertFalse(SfcAdapter.hasAppSession(secrets))
+        assertFalse(SfcAdapter.captureAppSession(null, secrets))
+    }
+
+    @Test
+    fun signInSignsInAsTheApp() {
+        // The sign-in view carries the app token, so sfc may hand it an app session.
+        assertEquals(SfcAppApi.WEB_LOGIN_USER_AGENT_SUFFIX, SfcAdapter.session.appUserAgentSuffix)
+    }
+
+    @Test
     fun loginRetriesRejectedNonceAndStoresCookie() = runTest {
         val http = SequenceHttp(
             mutableListOf(

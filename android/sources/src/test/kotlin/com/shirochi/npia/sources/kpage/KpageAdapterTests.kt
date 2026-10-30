@@ -62,7 +62,7 @@ private class KpageFakePage(private val htmlText: String, private val tagsJson: 
 
 private class KpageStubWeb(private val page: KpageFakePage) : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = page
-    override suspend fun presentLogin(url: String, profile: String) {}
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {}
 }
 
 // Fixtures

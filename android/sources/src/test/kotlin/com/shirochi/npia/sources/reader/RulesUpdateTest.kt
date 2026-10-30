@@ -115,7 +115,7 @@ class RulesUpdateTest {
     private fun context(page: RulesPage): SourceContext {
         val web = object : WebEngineProviding {
             override suspend fun newPage(profile: String): WebPageDriving = page
-            override suspend fun presentLogin(url: String, profile: String) = Unit
+            override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = Unit
         }
         return SourceContext(
             FixtureHttp(emptyMap()), web, InMemorySecretStore(),

@@ -82,8 +82,8 @@ class AndroidWebEngine(
         AndroidWebPage(WebView(appContext), pageLoadSeconds)
     }
 
-    override suspend fun presentLogin(url: String, profile: String) {
-        withContext(Dispatchers.Main) { WebLoginSession(url, profile).run(loginPresenter) }
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {
+        withContext(Dispatchers.Main) { WebLoginSession(url, profile, userAgentSuffix).run(loginPresenter) }
         flushCookies()
     }
 
