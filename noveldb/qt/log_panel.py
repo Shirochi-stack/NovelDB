@@ -9,7 +9,6 @@ from typing import Optional
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -23,6 +22,7 @@ from noveldb.core import platform_services
 from noveldb.core.log_paths import find_path
 from noveldb.core.queue.model import RUNNING
 from noveldb.qt.context import AppContext
+from noveldb.qt.widgets import ComboBox
 
 MAX_LINES = 20_000
 
@@ -118,7 +118,7 @@ class LogPanel(QWidget):
         self.stop = QPushButton("Stop")
         self.stop.setEnabled(False)
         self.stop.clicked.connect(self._stop_current)
-        self.filter = QComboBox()
+        self.filter = ComboBox()
         self.filter.addItem("All jobs", "")
         self.filter.currentIndexChanged.connect(self._refilter)
         self.log = LogView()

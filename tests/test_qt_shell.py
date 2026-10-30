@@ -255,15 +255,14 @@ def test_smoke_entry_point(tmp_path):
 def test_mouse_wheel_never_changes_spin_boxes_or_drop_downs(qtbot, qapp):
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QWheelEvent
-    from PySide6.QtWidgets import QComboBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 
-    from noveldb.qt.widgets import disable_wheel_on_inputs
+    from noveldb.qt.widgets import ComboBox, SpinBox
 
-    disable_wheel_on_inputs(qapp)
     area = QScrollArea()
     body = QWidget()
     layout = QVBoxLayout(body)
-    spin, combo = QSpinBox(), QComboBox()
+    spin, combo = SpinBox(), ComboBox()
     spin.setRange(0, 100)
     spin.setValue(50)
     combo.addItems(["a", "b", "c"])

@@ -141,15 +141,19 @@ def smoke(executable: Path, variant: str, report_path: Path) -> dict:
     expected = VARIANTS[variant]
     checks = ["pdf"]
     if expected.webengine:
-        checks.append("webengine")
+        checks += ["webengine", "catalog"]
     if expected.playwright:
         checks.append("browser")
     home = Path(tempfile.mkdtemp(prefix="noveldb-smoke-"))
     env = dict(os.environ, NOVELDB_HOME=str(home), NOVELDB_SMOKE_DELAY_MS="500")
     env.pop("PLAYWRIGHT_BROWSERS_PATH", None)  # the bundled browsers must be found on their own
-    if sys.platform.startswith("linux") and not env.get("DISPLAY"):
-        env.setdefault("QT_QPA_PLATFORM", "offscreen")
     cmd = [str(executable), "--smoke", "--smoke-report", str(report_path), "--smoke-checks", ",".join(checks)]
+    if sys.platform.startswith("linux") and not env.get("DISPLAY"):
+        # A virtual X screen is closer to a desktop than offscreen: the Catalog crash only showed there.
+        if shutil.which("xvfb-run"):
+            cmd = ["xvfb-run", "-a", "-s", "-screen 0 1600x1000x24"] + cmd
+        else:
+            env.setdefault("QT_QPA_PLATFORM", "offscreen")
     log(" ".join(cmd))
     done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
     if not report_path.exists():

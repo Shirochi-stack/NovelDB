@@ -20,7 +20,6 @@ from PySide6.QtGui import QDrag, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -31,7 +30,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QSplitter,
     QToolButton,
     QVBoxLayout,
@@ -46,7 +44,7 @@ from noveldb.core.settings.model import NPIA
 from noveldb.qt import icons
 from noveldb.qt.context import AppContext
 from noveldb.qt.scale import bind_size
-from noveldb.qt.widgets import FlowLayout, hint, section
+from noveldb.qt.widgets import ComboBox, FlowLayout, SpinBox, hint, section
 
 # Above this many results, adding to the link cart asks first (as on mobile).
 CART_CONFIRM_ABOVE = 200
@@ -172,7 +170,7 @@ class TagSearchDialog(QDialog):
         self.custom = QLineEdit()
         self.custom.setPlaceholderText("Add a custom tag and press Enter")
         self.custom.returnPressed.connect(self._add_custom)
-        self.age = QComboBox()
+        self.age = ComboBox()
         for key, text in T.AGE_FILTERS.items():
             self.age.addItem(text, key)
         self.age.setCurrentIndex(max(0, self.age.findData(npia.tag_age_filter)))
@@ -180,7 +178,7 @@ class TagSearchDialog(QDialog):
         self.scrape_all = QCheckBox("Scrape all novels (ignores the query)")
         self.scrape_all.setChecked(npia.tag_scrape_all)
         self.scrape_all.toggled.connect(self._scrape_all_changed)
-        self.queries = QSpinBox()
+        self.queries = SpinBox()
         self.queries.setRange(1, T.DEFAULT_SEARCH_QUERY_COUNT)
         self.queries.setValue(max(1, min(npia.scrape_max_queries, T.DEFAULT_SEARCH_QUERY_COUNT)))
         self.queries_hint = hint(f"More queries find more novels but take longer; {T.DEFAULT_SEARCH_QUERY_COUNT} "
