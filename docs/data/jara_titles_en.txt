@@ -27010,6 +27010,7 @@
 1233687|||[원피스] 안 돼요, 싫어요, 하지 마세요!|||[One Piece] No, I Hate It, Don’t!
 1233688|||소방영웅|||Firefighting Hero
 1233695|||Resign [oneself to]|||Resign [Oneself To]
+1233706|||[해리포터] Agapanthus(아가판서스)|||[Harry Potter] Agapanthus
 1233707|||줄리엣은 수선화 피는 거울 속에|||Juliet Is in the Mirror Where Daffodils Bloom
 1233711|||40대 아재의 이세계생활|||A Forty-Something Man’s Life in Another World
 1233724|||[해리포터]시간아 달려줘|||[Harry Potter] Time, Please Run
@@ -144953,6 +144954,7 @@
 1888725|||투자 실패 후 국민 여가수의 남동생으로 회귀했다|||After My Investment Failed, I Regressed as the Nation's Favorite Singer's Little Brother
 1888730|||회귀한 필드의 독재자|||The Dictator of the Regressed Field
 1888731|||임신한 여자친구가 재벌가 늦둥이 딸이라니|||My Pregnant Girlfriend Turns Out to Be a Chaebol's Late-Born Daughter
+1888735|||야구 게임 속 괴물 유망주가 되었다|||I Became a Monster Prospect in a Baseball Game
 1888740|||우리 집에는 전남친의 시체가 묻혀있다|||My Ex-Boyfriend's Corpse Is Buried in My House
 1888745|||검은 안개에 붉은 빛이 돌면|||When Red Light Shines Through the Black Fog
 1888748|||마교의 천재 의원이 되었다|||I Became the Demonic Sect's Genius Physician
@@ -148182,6 +148184,7 @@
 1896043|||dd|||dd
 1896049|||[화산귀환]최애를 후원하겠습니다!|||[Return of the Mount Hua Sect] I'll Support My Favorite!
 1896052|||게임에 접속하셨습니다.|||You Have Logged Into the Game.
+1896055|||십년생사량망망 : 十年生死兩茫茫|||Ten Years of Life and Death, Both Vast and Vague
 189606|||마나의 지배자(Mana Lord)|||Mana Lord
 1896060|||[쿠로바스] 꽃은 말하지 못한다|||[Kurobas] Flowers Cannot Speak
 1896061|||[유유백서] 못다핀 꽃이 피기 위하여|||[Yu Yu Hakusho] So the Unbloomed Flower Can Bloom
@@ -238187,7 +238190,6 @@
 1227772|||..|||
 1230640|||.|||
 1233076|||000|||
-1233706|||[해리포터] Agapanthus(아가판서스)|||
 1233748|||1=2|||
 1236435|||.|||
 1236789|||....//|||
@@ -238934,7 +238936,6 @@
 1886312|||ㄴ|||
 1886519|||ㆍ|||
 1887427|||.|||
-1888735|||야구 게임 속 괴물 유망주가 되었다|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1891144|||설 하 : 偰 河|||
@@ -238968,7 +238969,6 @@
 1895696|||기화氣化|||
 1895973|||연의 우기 (年의 雨期)|||
 1896003|||[주술회전] 唯一性유일성|||
-1896055|||십년생사량망망 : 十年生死兩茫茫|||
 1896250|||11시 47분|||
 1896448|||귀문(鬼門)|||
 1896621|||戀慕(연모) : 꽃을 꺾는 자|||

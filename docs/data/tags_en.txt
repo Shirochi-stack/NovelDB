@@ -1536,6 +1536,7 @@ Adoption|||Adoption
 Adventure|||Adventure
 Aerak|||Aerak
 Aespa|||Aespa
+Agapanthus|||Agapanthus
 Age|||Age
 AhnSeoHyun|||Ahn Seo-hyun
 Aho|||Aho
@@ -61161,7 +61162,9 @@ z커리어우먼|||Z Career Woman
 아가집|||Baby House
 아가츠마|||Agatsuma
 아가츠마젠이츠|||Agatsuma Zenitsu
+아가판서스|||Agapanthus
 아가페|||Agape
+아가펜서스|||Agapanthus
 아게로|||Aguero
 아게하히나|||Ageha Hina
 아고|||Ago
