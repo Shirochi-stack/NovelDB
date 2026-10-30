@@ -152,6 +152,7 @@ def smoke(executable: Path, variant: str, report_path: Path) -> dict:
         # A virtual X screen is closer to a desktop than offscreen: the Catalog crash only showed there.
         if shutil.which("xvfb-run"):
             cmd = ["xvfb-run", "-a", "-s", "-screen 0 1600x1000x24"] + cmd
+            env.pop("QT_QPA_PLATFORM", None)  # the workflow sets offscreen for the tests; draw on the screen here
         else:
             env.setdefault("QT_QPA_PLATFORM", "offscreen")
     log(" ".join(cmd))
