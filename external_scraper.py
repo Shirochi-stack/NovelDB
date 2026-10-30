@@ -987,12 +987,31 @@ class ExternalScraper:
         return os.path.join(os.path.expanduser("~"), "Android", "Sdk")
 
     @staticmethod
+    def _sdk_from_emulator():
+        """The SDK root taken from the emulator binary's own location (…/Sdk/emulator/emulator.exe).
+        Robust when env vars and %LOCALAPPDATA% do not point at the SDK (e.g. a redirected app sandbox)."""
+        exe = shutil.which("emulator") or shutil.which("emulator.exe")
+        if not exe:
+            return ""
+        sdk = os.path.dirname(os.path.dirname(os.path.abspath(exe)))
+        return sdk if os.path.isdir(sdk) else ""
+
+    @staticmethod
     def _android_sdk_dir():
-        for value in (
+        candidates = [
             os.environ.get("ANDROID_HOME"),
             os.environ.get("ANDROID_SDK_ROOT"),
             ExternalScraper._android_sdk_default_dir(),
-        ):
+        ]
+        if sys.platform == "win32":
+            # %USERPROFILE% survives the %LOCALAPPDATA% redirection some app sandboxes apply.
+            candidates.append(os.path.join(os.path.expanduser("~"), "AppData", "Local", "Android", "Sdk"))
+        candidates.append(ExternalScraper._sdk_from_emulator())
+        # Prefer an SDK that actually holds system images, so a redirected or empty path never wins.
+        for value in candidates:
+            if value and os.path.isdir(os.path.join(value, "system-images")):
+                return value
+        for value in candidates:
             if value and os.path.exists(value):
                 return value
         return ""
@@ -2035,10 +2054,20 @@ class ExternalScraper:
         if "play" in avd_name.lower():
             args.extend(["-gpu", "swiftshader_indirect"])
         try:
+            launch_env = _external_launch_env()
+            sdk = self._android_sdk_dir()
+            if sdk:
+                # The emulator aborts with "Please define ANDROID_SDK_ROOT" when it can't resolve the
+                # SDK itself, so hand it the one we found.
+                launch_env["ANDROID_SDK_ROOT"] = sdk
+                launch_env["ANDROID_HOME"] = sdk
+            avd_home = os.path.join(os.path.expanduser("~"), ".android", "avd")
+            if os.path.isdir(avd_home):
+                launch_env["ANDROID_AVD_HOME"] = avd_home
             proc = subprocess.Popen(
                 args,
                 cwd=os.path.dirname(emulator),
-                env=_external_launch_env(),
+                env=launch_env,
             )
             self._launch_sfc_after_android_boot_async(avd_name)
             return True
