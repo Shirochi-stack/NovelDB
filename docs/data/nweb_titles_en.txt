@@ -40070,6 +40070,7 @@
 1176689|||구속된 풍족함|||Bound Abundance
 1176690|||꿈을 쫓는 자|||The Dream Chaser
 1176691|||나를 본 건, 내가 아니었다|||The One Who Saw Me Wasn’t Me
+1176695|||벽 너머의 짐승|||Beast Beyond the Wall
 1176696|||a strange but special teahous|||a strange but special teahous
 1176698|||동물 화법|||The Language of Animals
 1176702|||환승연애|||Transit Love
@@ -56944,6 +56945,7 @@
 1221223|||나를 위한 힐|||A Heal for Me
 1221224|||미쳤다 불린 세자의 주치의가 되었다|||I Became the Crown Prince Called Mad’s Physician
 1221225|||< 애니멀 머니 :  자본의 두얼굴 >|||<Animal Money: The Two Faces of Capital>
+1221227|||당신이 버린 딸이 진짜였다|||The Daughter You Abandoned Was Real
 1221229|||대동혈맥(大東血脈) : 지맥을 긋는 자|||The Great Eastern Bloodline: The One Who Cuts Earth Veins
 1221234|||블랙(Black)|||Black
 1221235|||아이돌의 몰락 루트를 바꿔버렸다|||I Changed the Idol’s Downfall Route
@@ -245823,7 +245825,6 @@
 1173821|||28|||
 1175259|||🎰|||
 1175429|||40|||
-1176695|||벽 너머의 짐승|||
 1177730|||.|||
 117835|||.|||
 1178599|||1999|||
@@ -245873,7 +245874,6 @@
 1212860|||ㅠ|||
 1215426|||2034|||
 1220480|||3008|||
-1221227|||당신이 버린 딸이 진짜였다|||
 1221805|||206|||
 1223882|||2550|||
 1223925|||.|||
