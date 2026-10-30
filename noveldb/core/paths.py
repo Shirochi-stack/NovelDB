@@ -2,13 +2,16 @@
 
 The app stays portable: `config.json`, `logs/` and `.cache/` live next to the executable (or the
 source checkout) whenever that folder is writable, exactly as before. When it is not - a macOS
-`.app` in /Applications, an AppImage, a Program Files install - they move to the per-user folder:
+`.app` in /Applications, a Program Files install - they move to the per-user folder:
 
     Windows  %LOCALAPPDATA%\\NovelDB
     macOS    ~/Library/Application Support/NovelDB   (logs: ~/Library/Logs, cache: ~/Library/Caches)
-    Linux    $XDG_CONFIG_HOME/NovelDB                 (logs: $XDG_STATE_HOME, cache: $XDG_CACHE_HOME)
+    Linux    $XDG_CONFIG_HOME/NovelDB                 (data: $XDG_DATA_HOME, logs: $XDG_STATE_HOME,
+                                                       cache: $XDG_CACHE_HOME)
 
-A read-only `config.json` found next to the app is copied to the per-user folder once.
+A Linux AppImage always uses the XDG folders: the folder it was downloaded to (often ~/Downloads)
+is not its home. A `config.json` and `data/` an older build left next to it are copied over once,
+as is a read-only `config.json` found next to any app.
 `NOVELDB_HOME` puts everything in one folder (tests, portable USB installs).
 """
 
@@ -101,10 +104,17 @@ def _portable(base: str) -> bool:
     return not config.exists() or os.access(config, os.W_OK)
 
 
+def _appimage() -> bool:
+    """A Linux AppImage, which keeps its files in the XDG folders (see the module notes)."""
+    return sys.platform.startswith("linux") and bool(os.environ.get("APPIMAGE"))
+
+
 def portable(base: os.PathLike | str | None = None) -> bool:
     """Files live next to the app (the folder is writable, and so is any config there)."""
     if _home() is not None:
         return True
+    if base is None and _appimage():
+        return False
     return _portable(str(Path(base) if base is not None else install_dir()))
 
 
@@ -115,7 +125,7 @@ def config_path(base: os.PathLike | str | None = None) -> Path:
         home.mkdir(parents=True, exist_ok=True)
         return home / CONFIG_NAME
     folder = Path(base) if base is not None else install_dir()
-    if portable(folder):
+    if portable(base):
         return folder / CONFIG_NAME
     target_dir = user_dir("config")
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +145,7 @@ def _folder(name: str, kind: str, base: os.PathLike | str | None) -> Path:
         path = home / name
     else:
         folder = Path(base) if base is not None else install_dir()
-        path = folder / name if portable(folder) else user_dir(kind)
+        path = folder / name if portable(base) else user_dir(kind)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -146,10 +156,17 @@ def data_dir(base: os.PathLike | str | None = None) -> Path:
     folder = Path(base) if base is not None else install_dir()
     if home is not None:
         path = home
-    elif portable(folder):
+    elif portable(base):
         path = folder / "data"
     else:
         path = user_dir("data")
+        legacy = folder / "data"
+        # An older AppImage kept its link cart, queue and sign-ins next to the file: take them along once.
+        if base is None and _appimage() and not path.exists() and legacy.is_dir():
+            try:
+                shutil.copytree(legacy, path)
+            except OSError:
+                pass
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -163,9 +180,9 @@ def cache_dir(base: os.PathLike | str | None = None) -> Path:
 
 
 def default_output_dir(base: os.PathLike | str | None = None) -> Path:
-    """Where downloads go when no folder is chosen: the app folder, else ~/Downloads/NovelDB."""
+    """Where downloads go when no folder is chosen: the app folder when portable, else ~/Downloads/NovelDB."""
     folder = Path(base) if base is not None else install_dir()
-    if is_writable_dir(folder):
+    if portable(base) and is_writable_dir(folder):
         return folder
     path = Path.home() / "Downloads" / APP_DIRNAME
     path.mkdir(parents=True, exist_ok=True)

@@ -97,6 +97,33 @@ def test_frozen_macos_install_dir_is_next_to_the_app_bundle(monkeypatch, tmp_pat
     assert paths.install_dir() == (tmp_path / "Apps").resolve()
 
 
+def test_an_appimage_uses_the_xdg_folders_and_takes_its_old_files_along(monkeypatch, tmp_path):
+    folder = tmp_path / "Downloads"  # writable, so an older build kept its files here
+    folder.mkdir()
+    image = folder / "NovelDB98.AppImage"
+    image.write_text("", encoding="utf-8")
+    (folder / "config.json").write_text('{"ext_threads": 3}', encoding="utf-8")
+    (folder / "data").mkdir()
+    (folder / "data" / "link-cart.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("APPIMAGE", str(image))
+    for name in ("CONFIG", "DATA", "STATE", "CACHE"):
+        monkeypatch.setenv(f"XDG_{name}_HOME", str(tmp_path / name.lower()))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    assert not paths.portable()
+    config = paths.config_path()
+    assert config == tmp_path / "config" / "NovelDB" / "config.json"
+    assert config.read_text(encoding="utf-8") == '{"ext_threads": 3}'
+    assert paths.data_dir() == tmp_path / "data" / "NovelDB"
+    assert (paths.data_dir() / "link-cart.json").read_text(encoding="utf-8") == "[]"
+    assert paths.cache_dir() == tmp_path / "cache" / "NovelDB"
+    assert paths.logs_dir() == tmp_path / "state" / "NovelDB" / "logs"
+    assert paths.default_output_dir() == tmp_path / "home" / "Downloads" / "NovelDB"
+    # Nothing new is written next to the AppImage.
+    assert sorted(p.name for p in folder.iterdir()) == ["NovelDB98.AppImage", "config.json", "data"]
+
+
 def test_appimage_install_dir(monkeypatch, tmp_path):
     image = tmp_path / "bin" / "NovelDB97.AppImage"
     image.parent.mkdir()
