@@ -86,9 +86,6 @@ def test_the_network_spin_boxes_ignore_the_mouse_wheel(general, qapp):
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QWheelEvent
 
-    from noveldb.qt.widgets import disable_wheel_on_inputs
-
-    disable_wheel_on_inputs(qapp)
     box = _network_spins(general)["Request timeout"]
     box.setFocus()
     event = QWheelEvent(QPointF(5, 5), QPointF(box.mapToGlobal(QPoint(5, 5))), QPoint(0, 0), QPoint(0, 120),

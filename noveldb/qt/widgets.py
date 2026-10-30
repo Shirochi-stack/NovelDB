@@ -6,7 +6,6 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import (
     QCoreApplication,
-    QEvent,
     QMargins,
     QObject,
     QPoint,
@@ -18,7 +17,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
-    QAbstractSpinBox,
     QComboBox,
     QDoubleSpinBox,
     QGraphicsOpacityEffect,
@@ -162,7 +160,7 @@ def field_group(label: str, *widgets: QWidget) -> QWidget:
 
 
 def spin(value: int, low: int, high: int, on_change: Callable[[int], None], special: str = "") -> QSpinBox:
-    box = QSpinBox()
+    box = SpinBox()
     box.setRange(low, high)
     if special:
         box.setSpecialValueText(special)
@@ -173,7 +171,7 @@ def spin(value: int, low: int, high: int, on_change: Callable[[int], None], spec
 
 
 def dspin(value: float, low: float, high: float, on_change: Callable[[float], None], step: float = 0.5) -> QDoubleSpinBox:
-    box = QDoubleSpinBox()
+    box = DoubleSpinBox()
     box.setRange(low, high)
     box.setDecimals(1)
     box.setSingleStep(step)
@@ -192,26 +190,40 @@ def set_quietly(widget, value) -> None:
     widget.blockSignals(False)
 
 
-class NoWheelFilter(QObject):
-    """Application-wide: spin boxes and drop-downs ignore the mouse wheel, which scrolls the page.
+def scroll_page_instead(widget: QWidget, event) -> None:
+    """Hands a wheel event to the scroll area around `widget`: scrolling a form must never change a
+    value just because the pointer passed over a spin box or a drop-down.
 
-    Scrolling a form must never change a value just because the pointer passed over a control.
-    """
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Wheel and isinstance(obj, (QAbstractSpinBox, QComboBox)):
-            area = obj.parentWidget()
-            while area is not None and not isinstance(area, QAbstractScrollArea):
-                area = area.parentWidget()
-            if area is not None:
-                QCoreApplication.sendEvent(area.verticalScrollBar(), event)
-            return True
-        return False
+    The controls below do this themselves. An application-wide event filter did it before, but it
+    sent every event of every object through Python, and on Linux PySide crashed wrapping Qt
+    WebEngine's internal objects for it when the Catalog opened."""
+    area = widget.parentWidget()
+    while area is not None and not isinstance(area, QAbstractScrollArea):
+        area = area.parentWidget()
+    if area is not None:
+        QCoreApplication.sendEvent(area.verticalScrollBar(), event)
+    event.accept()
 
 
-def disable_wheel_on_inputs(app) -> None:
-    app._no_wheel_filter = NoWheelFilter(app)
-    app.installEventFilter(app._no_wheel_filter)
+class SpinBox(QSpinBox):
+    """A spin box the mouse wheel never changes (see `scroll_page_instead`)."""
+
+    def wheelEvent(self, event):
+        scroll_page_instead(self, event)
+
+
+class DoubleSpinBox(QDoubleSpinBox):
+    """A decimal spin box the mouse wheel never changes (see `scroll_page_instead`)."""
+
+    def wheelEvent(self, event):
+        scroll_page_instead(self, event)
+
+
+class ComboBox(QComboBox):
+    """A drop-down the mouse wheel never changes (see `scroll_page_instead`)."""
+
+    def wheelEvent(self, event):
+        scroll_page_instead(self, event)
 
 
 class ButtonFeedback(QObject):
