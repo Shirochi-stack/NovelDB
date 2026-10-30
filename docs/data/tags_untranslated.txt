@@ -33,7 +33,7 @@
 32|||????|||
 33|||?????|||
 34|||[]|||
-35|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Release
+35|||\uc870\uc544\ub77c단독선공개|||jara Exclusive Preview
 36|||!!|||
 37|||!!!|||
 38|||\"|||
@@ -104,7 +104,7 @@
 103|||cafe.\u006e\u0061\u0076\u0065\u0072.com|||cafe.nweb.com
 104|||tpfla077@\u006e\u0061\u0076\u0065\u0072.com|||tpfla077@nweb.com
 105|||www.\u006a\u006f\u0061\u0072\u0061.com|||www.jara.com
-106|||\u007c서리\u007c|||Seori
+106|||\u007c서리\u007c|||\|Frost\|
 107|||~?|||
 108|||~~|||
 109|||¿?|||
@@ -125,18 +125,18 @@
 124|||✅|||
 125|||》|||
 126|||\ub178\ubca8\ud53c\uc544공식|||npia Official
-127|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel.Sorcery Novel.Magic.Sorcery.Novel.Personal Novel.jara Novel.Fantasy Magic School
-128|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Wuxia.Wuxia Novel.New Wuxia.Wuxia Novel.New Wuxia Novel.Genre Novel.Jianghu.Murim.Action.Novel.jara Wuxia.jara New Wuxia.
-129|||살인\u007c|||Murder
-130|||\uc870\uc544\ub77c_투베도전|||jara_TuBe Challenge
+127|||마법소설.마술소설.마법.마술.소설.개인소설.\uc870\uc544\ub77c소설.공상마법학교|||Magic Novel, Magic Fiction, Magic, Sorcery, Novel, Personal Novel, jara Novel, Fantasy Magic School
+128|||무협.무협지.신무협.무협소설.신무협소설.장르소설.강호.무림.액션.소설.\uc870\uc544\ub77c무협.\uc870\uc544\ub77c신무협.|||Martial Arts, Wuxia, New Wuxia, Wuxia Novel, New Wuxia Novel, Genre Novel, Gangho, Murim, Action, Novel, jara Wuxia, jara New Wuxia
+129|||살인\u007c|||Murder\|
+130|||\uc870\uc544\ub77c_투베도전|||jara Challenge
 131|||\uc870\uc544\ub77c공모전|||jara Contest
 132|||\uc870\uc544\ub77c세계관|||jara Worldbuilding
 133|||\uc870\uc544\ub77c소설|||jara Novel
-134|||\uc870\uc544\ub77c신입사원|||jara Newbie
+134|||\uc870\uc544\ub77c신입사원|||jara New Hire
 135|||\uc870\uc544\ub77c여|||jara Female
 136|||\uc870\uc544\ub77c연재소설|||jara Serial Novel
 137|||\uc870\uc544\ub77c의|||jara's
 138|||\uc870\uc544\ub77c첫작|||jara First Work
 139|||\uc870\uc544\ub77c판타지소설|||jara Fantasy Novel
-140|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Jubyeonsaramdeuli Ridibongseugong
+140|||주변사람들이다\ub9ac\ub514\ubd81\uc2a4공|||Jubyeonsaramdeuri Ridiboongseugong
 141|||／|||
