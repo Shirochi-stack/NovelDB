@@ -823,6 +823,11 @@ class ExternalScraper:
             return ""
         return "; ".join(parts)
 
+    def sfc_app_cookie_header(self):
+        """The saved sfc app cookie (``.SFCommunity=...; session_APP=...``), for copying to the phone;
+        empty when no app session is saved."""
+        return self._sfc_app_cookie_header()
+
     def _sfc_parse_chapter_app_api(
             self, chapter_url, chapter_name, requests_module=None,
             cookie_header=None):
