@@ -89,7 +89,7 @@ class SiteEngineChainTest {
 
         override suspend fun newPage(profile: String): WebPageDriving = CountingPage(timeouts).also { pages += it }
 
-        override suspend fun presentLogin(url: String, profile: String) = throw WebEngineException("no login")
+        override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = throw WebEngineException("no login")
     }
 
     private class CountingPage(private var timeouts: Int = 0) : WebPageDriving {
@@ -322,7 +322,7 @@ class SiteEngineChainTest {
                 throw WebEngineException("No web engine in this context")
             }
 
-            override suspend fun presentLogin(url: String, profile: String) = Unit
+            override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = Unit
         }
         val scripts = Scripts(emptyMap())
         val shared = SharedBookPage(url, context(web = web))

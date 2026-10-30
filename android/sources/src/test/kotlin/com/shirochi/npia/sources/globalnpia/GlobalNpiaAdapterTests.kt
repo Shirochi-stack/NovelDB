@@ -42,7 +42,7 @@ private class GlobalNpiaStubHttp(
 
 private object GlobalNpiaStubWeb : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = throw WebEngineException("unavailable")
-    override suspend fun presentLogin(url: String, profile: String) = throw WebEngineException("unavailable")
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = throw WebEngineException("unavailable")
 }
 
 class GlobalNpiaAdapterTests {

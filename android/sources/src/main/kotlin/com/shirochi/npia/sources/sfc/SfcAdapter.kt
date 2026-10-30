@@ -94,7 +94,25 @@ class SfcAdapter(
             domain = DOMAIN,
             cookieNames = listOf(TICKET_COOKIE),
             requirement = TICKET_COOKIE,
+            // Sign in as the app, so sfc may hand this view an app session we can keep (see `captureAppSession`).
+            appUserAgentSuffix = SfcAppApi.WEB_LOGIN_USER_AGENT_SUFFIX,
         ) { TICKET_COOKIE in it }
+
+        /**
+         * After a website sign-in, promotes an app session the view may have been given: reads
+         * `session_APP`/`.SFCommunity` from the shared cookie jar and saves them as the app cookie, so
+         * the decoder serves VIP text through the app API. Returns true when an app session was saved.
+         */
+        fun captureAppSession(cookies: SharedCookieStore?, secrets: SecretStore): Boolean {
+            val jar = cookies ?: return false
+            val present = LinkedHashMap<String, String>()
+            for (url in listOf("https://api.$DOMAIN/") + session.cookieUrls) {
+                for ((name, value) in jar.cookies(url)) {
+                    if (value.isNotEmpty() && name !in present) present[name] = value
+                }
+            }
+            return SfcAppApi.captureAppSession(present, secrets)
+        }
 
         fun book(indexHtml: String, infoHtml: String, bookId: String, infoUrl: String, indexUrl: String): BookInfo {
             val index = Jsoup.parse(indexHtml, indexUrl)

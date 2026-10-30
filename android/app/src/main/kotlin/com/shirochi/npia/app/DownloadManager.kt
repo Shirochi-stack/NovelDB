@@ -25,6 +25,7 @@ import com.shirochi.npia.core.NullLogger
 import com.shirochi.npia.core.SecretKey
 import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SettingsCoding
+import com.shirochi.npia.core.SharedCookies
 import com.shirochi.npia.core.WebEngineProviding
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
@@ -524,13 +525,19 @@ class DownloadManager(private val app: Application) {
     fun signInToSite(site: SessionSite) {
         scope.launch {
             try {
-                web.presentLogin(site.signInUrl, site.source.raw)
+                web.presentLogin(site.signInUrl, site.source.raw, site.appUserAgentSuffix)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // Closed without finishing: keep whatever login is there.
             } finally {
                 sessions.snapshot(site)
+                // An sfc website sign-in may have been handed an app session; keep it for VIP text.
+                if (site.source == SourceId.SFC && !SfcAdapter.hasAppSession(secrets)) {
+                    if (SfcAdapter.captureAppSession(SharedCookies.store, secrets)) {
+                        message("sfc app session captured — VIP chapters you bought download as text")
+                    }
+                }
                 _sessionVersion.update { it + 1 }
             }
         }
@@ -884,9 +891,9 @@ class DownloadManager(private val app: Application) {
 
 /** The web engine the pipeline gets: after a sign-in browser closes, the new login is copied to its saved copy. */
 private class SnapshotAfterSignIn(private val inner: WebEngineProviding, private val after: () -> Unit) : WebEngineProviding by inner {
-    override suspend fun presentLogin(url: String, profile: String) {
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {
         try {
-            inner.presentLogin(url, profile)
+            inner.presentLogin(url, profile, userAgentSuffix)
         } finally {
             after()
         }

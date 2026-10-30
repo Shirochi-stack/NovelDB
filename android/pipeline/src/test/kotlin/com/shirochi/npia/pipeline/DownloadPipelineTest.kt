@@ -235,6 +235,6 @@ class DownloadPipelineTest {
 
     private class WebOf(private val page: WebPageDriving) : WebEngineProviding {
         override suspend fun newPage(profile: String) = page
-        override suspend fun presentLogin(url: String, profile: String) = Unit
+        override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = Unit
     }
 }

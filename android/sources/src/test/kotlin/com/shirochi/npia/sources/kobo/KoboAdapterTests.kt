@@ -272,5 +272,5 @@ private object KoboStubHttp : HttpFetching {
 
 private object KoboStubEngine : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = throw WebEngineException("unavailable")
-    override suspend fun presentLogin(url: String, profile: String) {}
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {}
 }

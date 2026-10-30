@@ -22,7 +22,7 @@ interface WebLoginPresenting {
 }
 
 /** One visible sign-in page. Every profile shares the process cookie store (see `AndroidWebEngine`). */
-class WebLoginSession(val url: String, val profile: String) {
+class WebLoginSession(val url: String, val profile: String, val userAgentSuffix: String? = null) {
     val id: String = UUID.randomUUID().toString()
 
     private val result = CompletableDeferred<Unit>()

@@ -36,6 +36,13 @@ internal object SfcAppApi {
     const val SESSION_COOKIE_NAME = "session_APP"
     const val COMMUNITY_COOKIE_NAME = ".SFCommunity"
 
+    /**
+     * The app's product token, appended to the sign-in web view's user agent so sfc's backend may hand
+     * that view an app session (`session_APP`), which `captureAppSession` then keeps. The base user agent
+     * stays a browser's, so sign-ins that refuse embedded views (Facebook) still work.
+     */
+    const val WEB_LOGIN_USER_AGENT_SUFFIX = "boluobao/5.2.16"
+
     /** The app's request signature (MD5 over a nonce-scrambled auth string). */
     fun sign(nonce: String, timestamp: Long, deviceToken: String = DEVICE_TOKEN, salt: String = SALT): String {
         // Real nonces are 36-character UUIDs; the modulo only keeps odd input from trapping.
@@ -130,6 +137,21 @@ internal object SfcAppApi {
         if (SESSION_COOKIE_NAME !in cookieNames(trimmed)) return false
         secrets.set(cookieKey, trimmed)
         return true
+    }
+
+    /**
+     * Promotes an app session a sign-in web view picked up: when `present` (the sfc site cookies the
+     * view holds) carries `session_APP`, saves it with `.SFCommunity` as the app cookie, so the app API
+     * serves VIP text. Returns true when an app session was saved. Pure over the map, so it is unit tested.
+     */
+    fun captureAppSession(present: Map<String, String>, secrets: SecretStore): Boolean {
+        val session = present[SESSION_COOKIE_NAME]?.takeIf { it.isNotEmpty() } ?: return false
+        val community = present[COMMUNITY_COOKIE_NAME]?.takeIf { it.isNotEmpty() }
+        val header = buildList {
+            if (community != null) add("$COMMUNITY_COOKIE_NAME=$community")
+            add("$SESSION_COOKIE_NAME=$session")
+        }.joinToString("; ")
+        return saveCookie(header, secrets)
     }
 
     /** `.SFCommunity` and `session_APP` from (possibly comma-joined) `Set-Cookie` headers. */

@@ -37,7 +37,7 @@ private class CountingEngine : WebEngineProviding {
         return ScriptedPage().also { synchronized(pages) { pages += it } }
     }
 
-    override suspend fun presentLogin(url: String, profile: String) = throw WebEngineException("no")
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = throw WebEngineException("no")
 }
 
 class NetworkCaptureTest {
@@ -185,7 +185,7 @@ class WebPagePoolTest {
                 }
                 return ScriptedPage()
             }
-            override suspend fun presentLogin(url: String, profile: String) = Unit
+            override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) = Unit
         }
         val pool = WebPagePool(engine, WebProfile.EXTERNAL, size = 1)
         try {

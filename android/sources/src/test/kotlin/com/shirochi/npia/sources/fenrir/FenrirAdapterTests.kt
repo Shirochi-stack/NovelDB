@@ -311,5 +311,5 @@ private class FenrirFakePage(
 
 private class FenrirStubEngine(private val page: FenrirFakePage) : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = page
-    override suspend fun presentLogin(url: String, profile: String) {}
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {}
 }

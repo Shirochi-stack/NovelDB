@@ -400,5 +400,5 @@ private class FlooFakePage(private val pages: Map<String, String>) : WebPageDriv
 private class FlooStubWeb(private val page: FlooFakePage) : WebEngineProviding {
     override suspend fun newPage(profile: String): WebPageDriving = page
 
-    override suspend fun presentLogin(url: String, profile: String) {}
+    override suspend fun presentLogin(url: String, profile: String, userAgentSuffix: String?) {}
 }
