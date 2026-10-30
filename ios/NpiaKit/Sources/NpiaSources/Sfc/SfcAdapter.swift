@@ -89,9 +89,26 @@ public struct SfcAdapter: SourceAdapter {
                      URL(string: "https://passport." + domain + "/")!],
         domain: domain,
         cookieNames: [ticketCookie],
-        requirement: ticketCookie
+        requirement: ticketCookie,
+        // Sign in as the app, so sfc may hand this view an app session we can keep (see `captureAppSession`).
+        appUserAgentSuffix: SfcAppAPI.webLoginUserAgentSuffix
     ) { present in
         present.contains(SfcAdapter.ticketCookie)
+    }
+
+    /// After a website sign-in, promotes an app session the view may have been given: reads
+    /// `session_APP`/`.SFCommunity` from the shared cookie store and saves them as the app cookie, so the
+    /// decoder serves VIP text through the app API. Returns true when an app session was saved.
+    @discardableResult
+    public static func captureAppSession(cookies: any SessionCookieAccess, secrets: any SecretStore) async -> Bool {
+        var present: [String: String] = [:]
+        let urls = [URL(string: "https://api." + domain + "/")!] + session.cookieURLs
+        for url in urls {
+            for (name, value) in await cookies.cookies(for: url) where !value.isEmpty && present[name] == nil {
+                present[name] = value
+            }
+        }
+        return SfcAppAPI.captureAppSession(present: present, secrets: secrets)
     }
 
     /// The ticket in `HTTPCookieStorage.shared`, which the web engine mirrors its web views into.

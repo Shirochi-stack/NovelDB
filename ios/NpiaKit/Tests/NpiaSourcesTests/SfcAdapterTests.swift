@@ -51,6 +51,30 @@ final class SfcAdapterTests: XCTestCase {
         XCTAssertEqual(SfcAppAPI.sessionCookie(fromSetCookie: header), ".SFCommunity=AAA; session_APP=BBB")
     }
 
+    func testCapturesAppSessionFromSignInCookies() async {
+        // A website sign-in that was handed an app session: the store holds session_APP, so it is promoted.
+        let secrets = InMemorySecretStore()
+        let jar = FakeCookies([".SFCommunity": "a", "session_APP": "b", "other": "c"])
+        let captured = await SfcAdapter.captureAppSession(cookies: jar, secrets: secrets)
+        XCTAssertTrue(captured)
+        XCTAssertTrue(SfcAdapter.hasAppSession(secrets))
+        XCTAssertEqual(SfcAppAPI.savedCookie(secrets), ".SFCommunity=a; session_APP=b")
+    }
+
+    func testDoesNotCaptureWithoutAppSession() async {
+        // A plain website sign-in (only .SFCommunity) is not an app session, so nothing is saved.
+        let secrets = InMemorySecretStore()
+        let jar = FakeCookies([".SFCommunity": "a"])
+        let captured = await SfcAdapter.captureAppSession(cookies: jar, secrets: secrets)
+        XCTAssertFalse(captured)
+        XCTAssertFalse(SfcAdapter.hasAppSession(secrets))
+    }
+
+    func testSignInSignsInAsTheApp() {
+        // The sign-in view carries the app token, so sfc may hand it an app session.
+        XCTAssertEqual(SfcAdapter.session.appUserAgentSuffix, SfcAppAPI.webLoginUserAgentSuffix)
+    }
+
     func testLoginRetriesRejectedNonceAndStoresCookie() async throws {
         let http = SequenceHTTP(replies: [
             (["status": ["httpCode": 417]], [:]),

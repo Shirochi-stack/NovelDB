@@ -151,7 +151,7 @@ final class HardScriptedWeb: WebEngineProviding, @unchecked Sendable {
         return page
     }
 
-    func presentLogin(url: URL, profile: String) async throws {
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {
         lock.lock(); loginCount += 1; loginURLs.append(url); lock.unlock()
         if let loginFailure { throw loginFailure }
     }

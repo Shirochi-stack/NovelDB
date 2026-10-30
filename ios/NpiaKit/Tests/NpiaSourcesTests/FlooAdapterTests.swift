@@ -381,5 +381,5 @@ private final class FlooFakePage: WebPageDriving, @unchecked Sendable {
 private struct FlooStubWeb: WebEngineProviding {
     var page: FlooFakePage
     func newPage(profile: String) async throws -> any WebPageDriving { page }
-    func presentLogin(url: URL, profile: String) async throws {}
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {}
 }

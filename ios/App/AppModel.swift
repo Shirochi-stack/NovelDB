@@ -605,13 +605,18 @@ final class AppModel {
     /// cookies downloads share) and reads the status again when it closes.
     func signInToSite(_ site: SessionSite) async {
         do {
-            try await web.presentLogin(url: site.signInURL, profile: BrowserProfile.name)
+            try await web.presentLogin(url: site.signInURL, profile: BrowserProfile.name, userAgentSuffix: site.appUserAgentSuffix)
         } catch is CancellationError {
             // Closed without finishing: keep whatever login is there.
         } catch {
             message = "The sign-in browser could not open: \(error.localizedDescription)"
         }
         await sessions.snapshot(site)
+        // An sfc website sign-in may have been handed an app session; keep it for VIP text.
+        if site.source == .sfc, !SfcAdapter.hasAppSession(secrets),
+           await SfcAdapter.captureAppSession(cookies: web.sessionCookies, secrets: secrets) {
+            message = "sfc app session captured — VIP chapters you bought download as text"
+        }
         sessionVersion += 1
     }
 

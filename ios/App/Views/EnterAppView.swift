@@ -55,7 +55,7 @@ struct EnterAppView: View {
                     Task { await model.signOutOfSite(HardSessions.sfc) }
                 }
             }
-            Text("Sign in on the sfc website with your password, Facebook, QQ or Weibo, then tap Done. The sfc app keeps its own login to itself, so the app signs in on the website instead. The website shows bought VIP chapters as pictures, so they may download that way; signing in with a username and password below gets them as text.")
+            Text("Sign in on the sfc website with your password, Facebook, QQ or Weibo, then tap Done. The app signs in as the sfc app, so if sfc hands it an app session, VIP chapters you bought download as text; if it does not, they download as the website's pictures. Signing in with a username and password below always gets the app session (text).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             TextField("Username", text: $username)

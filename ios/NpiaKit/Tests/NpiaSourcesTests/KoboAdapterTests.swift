@@ -220,5 +220,5 @@ private struct KoboStubHTTP: HTTPFetching {
 
 private struct KoboStubEngine: WebEngineProviding {
     func newPage(profile: String) async throws -> any WebPageDriving { throw WebEngineError.unavailable }
-    func presentLogin(url: URL, profile: String) async throws {}
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {}
 }

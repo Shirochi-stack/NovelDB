@@ -25,12 +25,18 @@ public final class WebLoginSession: NSObject, ObservableObject, Identifiable, WK
 
     private var continuation: CheckedContinuation<Void, Error>?
 
-    init(url: URL, profile: String, store: WKWebsiteDataStore) {
+    init(url: URL, profile: String, store: WKWebsiteDataStore, userAgentSuffix: String? = nil) {
         self.url = url
         self.profile = profile
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
-        configuration.applicationNameForUserAgent = BrowserProfile.safariApplicationName
+        // The app token (sfc) is appended after the Safari app name, so the backend may hand this view an
+        // app session while the base user agent stays Safari's, which sign-ins like Facebook require.
+        if let suffix = userAgentSuffix, !suffix.isEmpty {
+            configuration.applicationNameForUserAgent = "\(BrowserProfile.safariApplicationName) \(suffix)"
+        } else {
+            configuration.applicationNameForUserAgent = BrowserProfile.safariApplicationName
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self

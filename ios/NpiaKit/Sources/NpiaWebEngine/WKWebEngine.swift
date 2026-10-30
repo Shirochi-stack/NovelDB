@@ -32,8 +32,8 @@ public final class WKWebEngine: WebEngineProviding, @unchecked Sendable {
         await makePage(profile: profile)
     }
 
-    public func presentLogin(url: URL, profile: String) async throws {
-        try await runLogin(url: url, profile: profile)
+    public func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {
+        try await runLogin(url: url, profile: profile, userAgentSuffix: userAgentSuffix)
     }
 
     /// The cookies of every web-view profile and the shared jar together (see `WebKitSessionCookies`).
@@ -66,12 +66,12 @@ public final class WKWebEngine: WebEngineProviding, @unchecked Sendable {
     }
 
     @MainActor
-    private func runLogin(url: URL, profile: String) async throws {
+    private func runLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {
         let presenter = self.presenter ?? WebLoginCoordinator.shared
         guard presenter.canPresent else { throw WebEngineError.unavailable }
         let store = Self.dataStore(for: profile, persistent: persistent)
         await CookieBridge.shared.copyFromShared(into: store.httpCookieStore, for: url)
-        let session = WebLoginSession(url: url, profile: profile, store: store)
+        let session = WebLoginSession(url: url, profile: profile, store: store, userAgentSuffix: userAgentSuffix)
         defer { presenter.dismiss(session) }
         try await session.run(presenter: presenter)
         await CookieBridge.shared.copyToShared(from: store.httpCookieStore)

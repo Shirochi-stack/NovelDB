@@ -313,5 +313,5 @@ private final class XiyuwxFakePage: WebPageDriving, @unchecked Sendable {
 private struct XiyuwxStubWeb: WebEngineProviding {
     var page: XiyuwxFakePage
     func newPage(profile: String) async throws -> any WebPageDriving { page }
-    func presentLogin(url: URL, profile: String) async throws {}
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {}
 }
