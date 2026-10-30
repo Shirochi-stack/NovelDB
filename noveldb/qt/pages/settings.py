@@ -54,7 +54,7 @@ from noveldb.qt import icons
 from noveldb.qt.context import AppContext
 from noveldb.qt.scale import bind_rows, bind_size, bind_title, on_scale, ui_scale
 from noveldb.qt.theme_palettes import ACCENT_LABELS
-from noveldb.qt.widgets import ButtonFeedback, Chip, flow, hint, section
+from noveldb.qt.widgets import ButtonFeedback, Chip, ComboBox, DoubleSpinBox, SpinBox, flow, hint, section
 
 THEME_LABELS = {"system": "System", "light": "Light", "dark": "Dark", "amoled": "AMOLED black"}
 NAMING_LABELS = {"title": "Book title", "id": "Book ID"}
@@ -157,7 +157,7 @@ class Form(QWidget):
         return self.row(label, box) if label else self.add(box)
 
     def spin(self, label: str, path: str, low: int, high: int, suffix: str = "") -> QSpinBox:
-        box = QSpinBox()
+        box = SpinBox()
         box.setRange(low, high)
         box.setSuffix(suffix)
         box.setKeyboardTracking(False)
@@ -167,7 +167,7 @@ class Form(QWidget):
 
     def dspin(self, label: str, path: str, low: float, high: float, step: float = 0.5, suffix: str = "",
               decimals: int = 1) -> QDoubleSpinBox:
-        box = QDoubleSpinBox()
+        box = DoubleSpinBox()
         box.setRange(low, high)
         box.setSingleStep(step)
         box.setDecimals(decimals)
@@ -178,7 +178,7 @@ class Form(QWidget):
         return self.row(label, box)
 
     def combo(self, label: str, path: str, options: dict) -> QComboBox:
-        box = QComboBox()
+        box = ComboBox()
         for key, text in options.items():
             box.addItem(text, key)
         box.currentIndexChanged.connect(lambda _i: self.change(path, box.currentData()))
@@ -446,7 +446,7 @@ class OverridesForm(Form):
         super().__init__(context, "Per-source overrides")
         self.add_hint("Every source uses the shared settings except for the values ticked here. No source "
                       "has an override until you add one.")
-        self.source = QComboBox()
+        self.source = ComboBox()
         self.source.addItem("Choose a source", None)
         for source in OVERRIDE_SOURCES:
             self.source.addItem(source, source)
@@ -457,10 +457,10 @@ class OverridesForm(Form):
         for name, label in self.FIELDS:
             toggle = QCheckBox(label)
             if name in ("threads",):
-                value = QSpinBox()
+                value = SpinBox()
                 value.setRange(1, 64)
             elif name.startswith("interval"):
-                value = QDoubleSpinBox()
+                value = DoubleSpinBox()
                 value.setRange(0, 300)
                 value.setDecimals(1)
                 value.setSingleStep(0.5)
@@ -483,8 +483,8 @@ class OverridesForm(Form):
         self.add(self.format_toggle)
         self.add(flow(*self.format_chips.values()))
         self.range_toggle = QCheckBox("Chapter range (0 = first / last)")
-        self.range_from = QSpinBox()
-        self.range_to = QSpinBox()
+        self.range_from = SpinBox()
+        self.range_to = SpinBox()
         for box in (self.range_from, self.range_to):
             box.setRange(0, 999_999)
             box.valueChanged.connect(lambda _v: self._range())

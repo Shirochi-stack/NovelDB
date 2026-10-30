@@ -86,10 +86,11 @@ elif IS_MAC:
                 binaries.append((lib, "."))
 else:
     # Pango and friends are loaded by name with dlopen, so PyInstaller cannot see them. GL, NSS
-    # and libstdc++ stay with the system.
+    # and libstdc++ stay with the system. Qt WebEngine links libwayland-server, which newer systems
+    # (Ubuntu 24.04) may lack; without it the Catalog's web view does not load.
     wanted = ("libpango-1.0.so.0", "libpangoft2-1.0.so.0", "libharfbuzz.so.0", "libharfbuzz-subset.so.0",
               "libfontconfig.so.1", "libfribidi.so.0", "libthai.so.0", "libdatrie.so.1", "libgraphite2.so.3",
-              "libxcb-cursor.so.0")
+              "libxcb-cursor.so.0", "libwayland-server.so.0")
     for directory in ("/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib"):
         for name in wanted:
             path = os.path.join(directory, name)
