@@ -168,6 +168,45 @@ def _get_app_data_dir():
     )
 
 
+# Qt variables this app sets at startup (see dpi_setup / noveldb.qt.app). They must not reach another
+# Qt program we launch, the Android emulator above all: it reads the parent's QT_SCALE_FACTOR and its
+# window comes up wrong. The Tk app never set these, which is why the emulator only broke after the Qt
+# rewrite. Also restores the frozen Linux library path, as `platform_services.external_process_env` does.
+_INHERITED_QT_VARS = (
+    "QT_SCALE_FACTOR",
+    "QT_SCALE_FACTOR_ROUNDING_POLICY",
+    "QT_ENABLE_HIGHDPI_SCALING",
+    "QT_AUTO_SCREEN_SCALE_FACTOR",
+    "QT_SCREEN_SCALE_FACTORS",
+    "QT_FONT_DPI",
+    "QT_DEVICE_PIXEL_RATIO",
+    "QT_QPA_PLATFORM",
+    "QT_PLUGIN_PATH",
+    "QT_QPA_PLATFORM_PLUGIN_PATH",
+    "QML2_IMPORT_PATH",
+    "QML_IMPORT_PATH",
+    "QTWEBENGINE_CHROMIUM_FLAGS",
+    "QTWEBENGINE_DISABLE_SANDBOX",
+    "QTWEBENGINE_RESOURCES_PATH",
+)
+
+
+def _external_launch_env():
+    """Environment for launching an external GUI program (the Android emulator). Drops the Qt scaling
+    and web-engine variables this app sets, so the child uses its own, and restores the frozen Linux
+    library path."""
+    env = dict(os.environ)
+    for var in _INHERITED_QT_VARS:
+        env.pop(var, None)
+    if sys.platform.startswith("linux") and getattr(sys, "frozen", False):
+        original = env.get("LD_LIBRARY_PATH_ORIG")
+        if original is not None:
+            env["LD_LIBRARY_PATH"] = original
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+    return env
+
+
 def _is_writable_dir(path):
     try:
         os.makedirs(path, exist_ok=True)
@@ -822,6 +861,11 @@ class ExternalScraper:
         if "session_APP" not in names:
             return ""
         return "; ".join(parts)
+
+    def sfc_app_cookie_header(self):
+        """The saved sfc app cookie (``.SFCommunity=...; session_APP=...``), for copying to the phone;
+        empty when no app session is saved."""
+        return self._sfc_app_cookie_header()
 
     def _sfc_parse_chapter_app_api(
             self, chapter_url, chapter_name, requests_module=None,
@@ -1963,6 +2007,7 @@ class ExternalScraper:
             proc = subprocess.Popen(
                 args,
                 cwd=os.path.dirname(emulator),
+                env=_external_launch_env(),
             )
             self._launch_sfc_after_android_boot_async(avd_name)
             return True

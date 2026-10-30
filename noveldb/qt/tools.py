@@ -34,6 +34,7 @@ TOOLS = (
     ("sfc_app", "Enter App (sfc)..."),
     ("sfc_android_open", "Open the Android emulator (sfc)"),
     ("sfc_android_import", "Import the sfc session from the emulator"),
+    ("sfc_copy", "Copy the sfc app cookie (to paste on the phone)"),
     ("-", ""),
     ("cache_folder", "Open the cache folder"),
     ("downloads_folder", "Open the downloads folder"),
@@ -198,12 +199,36 @@ class Tools(QObject):
     def _sfc_android_import(self) -> None:
         self._submit("sfc_android_import", lambda scraper: scraper.import_sfc_app_cookie_from_android())
 
+    def _sfc_copy(self) -> None:
+        self._submit("sfc_copy", lambda scraper: scraper.sfc_app_cookie_header())
+
     def _finished(self, tool: str, result, error: str) -> None:
         if error:
             self.context.hub.log("", f"{tool.replace('_', ' ')} failed: {error}")
             self.context.hub.message.emit(f"Failed: {error}")
         elif tool == "enter_browser":
             self.context.hub.log("", "Browser session ended.")
+        elif tool == "sfc_copy":
+            if result:
+                from PySide6.QtGui import QGuiApplication
+
+                QGuiApplication.clipboard().setText(result)
+                text = "sfc app cookie copied. Paste it into the phone's Settings > Enter App > App cookie, then Save."
+            else:
+                text = "No sfc app session is saved yet. Sign in to the app or import it from the emulator first."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
+        elif tool == "sfc_android_open":
+            text = ("Opening the Android emulator. Sign in to the sfc app there, then use "
+                    "\"Import the sfc session from the emulator\".") if result else \
+                   "Could not open the Android emulator. See the log."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
+        elif tool == "sfc_android_import":
+            text = "sfc app session imported from the emulator." if result else \
+                   "No sfc app session found in the emulator. Sign in to the sfc app there first."
+            self.context.hub.log("", text)
+            self.context.hub.message.emit(text)
         elif tool.startswith("sfc"):
             text = "sfc session saved." if result else "The sfc session was not saved."
             self.context.hub.log("", text)
