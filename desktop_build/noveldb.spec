@@ -143,9 +143,18 @@ a = Analysis(
     noarchive=False,
 )
 
+# Libraries the system's graphics driver shares with the app, so they must be the system's own.
+# The Ubuntu 22.04 copies PyInstaller picked up broke newer Mesa (Ubuntu 24.04): its GLX driver
+# could not load next to the old libstdc++, and Qt aborted ("Could not initialize GLX") when the
+# Catalog opened. Every supported system (Ubuntu 22.04 or later) has the same or newer ones.
+LINUX_SYSTEM_LIBS = {"libstdc++.so.6", "libgcc_s.so.1", "libgbm.so.1"}
+
+
 # Drop QtWebEngine debugging resources and locales nobody reads.
 def _keep(entry):
     dest = entry[0].replace("\\", "/")
+    if IS_LINUX and os.path.basename(dest) in LINUX_SYSTEM_LIBS:
+        return False
     if any(token in dest for token in WEBENGINE_DROP):
         return False
     if "qtwebengine_locales/" in dest:

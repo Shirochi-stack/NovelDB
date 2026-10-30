@@ -195,6 +195,13 @@ def verify_tree(folder: Path, variant: str) -> None:
         problems.append("tkinter is bundled")
     if "qtwebengine_devtools_resources" in joined:
         problems.append("QtWebEngine devtools resources are bundled")
+    if sys.platform.startswith("linux"):
+        # The system's graphics driver needs its own copies (see LINUX_SYSTEM_LIBS in the spec).
+        for name in ("libstdc++.so.6", "libgcc_s.so.1", "libgbm.so.1"):
+            if name in names:
+                problems.append(f"{name} is bundled")
+        if expected.webengine and "libwayland-server.so.0" not in names:
+            problems.append("libwayland-server.so.0 is missing (Qt WebEngine links it)")
     if problems:
         raise SystemExit("Bundle check failed: " + "; ".join(problems))
     log(f"bundle check passed for {variant}")
