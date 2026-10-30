@@ -1978,7 +1978,7 @@ class ExternalScraper:
         # Prefer an sfc/rootable AVD (its session can be imported), then a Play Store one, then any.
         avd_name = (
             avd_name
-            or next((name for name in valid if any(hint in name.lower() for hint in ("sfacg", "sfc", "syfe", "poc"))), "")
+            or next((name for name in valid if any(hint in name.lower() for hint in ("sfc", "syfe", "poc"))), "")
             or next((name for name in valid if "play" in name.lower()), "")
             or (valid[0] if valid else "")
         )
