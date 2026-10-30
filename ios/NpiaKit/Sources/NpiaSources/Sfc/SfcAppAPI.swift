@@ -15,6 +15,11 @@ enum SfcAppAPI {
     static let sessionCookieName = "session_APP"
     static let communityCookieName = ".SFCommunity"
 
+    /// The app's product token, appended to the sign-in web view's user agent so sfc's backend may hand
+    /// that view an app session (`session_APP`), which `captureAppSession` then keeps. The base user agent
+    /// stays Safari's, so sign-ins that refuse embedded views (Facebook) still work.
+    static let webLoginUserAgentSuffix = "boluobao/5.2.16"
+
     /// The app's request signature (MD5 over a nonce-scrambled auth string).
     static func sign(nonce: String, timestamp: Int64, deviceToken: String = deviceToken, salt: String = salt) -> String {
         // Real nonces are 36-character UUIDs; the modulo only keeps odd input from trapping.
@@ -114,6 +119,20 @@ enum SfcAppAPI {
         guard cookieNames(trimmed).contains(sessionCookieName) else { return false }
         secrets.set(trimmed, for: cookieKey)
         return true
+    }
+
+    /// Promotes an app session a sign-in web view picked up: when `present` (the sfc site cookies the
+    /// view holds) carries `session_APP`, saves it with `.SFCommunity` as the app cookie, so the app API
+    /// serves VIP text. Returns true when an app session was saved. Pure over the map, so it is unit tested.
+    @discardableResult
+    static func captureAppSession(present: [String: String], secrets: any SecretStore) -> Bool {
+        guard let session = present[sessionCookieName], !session.isEmpty else { return false }
+        var parts: [String] = []
+        if let community = present[communityCookieName], !community.isEmpty {
+            parts.append("\(communityCookieName)=\(community)")
+        }
+        parts.append("\(sessionCookieName)=\(session)")
+        return saveCookie(parts.joined(separator: "; "), secrets: secrets)
     }
 
     /// `.SFCommunity` and `session_APP` from (possibly comma-joined) `Set-Cookie` headers.

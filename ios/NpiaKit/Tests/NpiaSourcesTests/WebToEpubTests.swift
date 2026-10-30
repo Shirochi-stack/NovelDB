@@ -78,7 +78,7 @@ final class ScriptedPage: WebPageDriving, @unchecked Sendable {
 struct ScriptedWeb: WebEngineProviding {
     let page: ScriptedPage
     func newPage(profile: String) async throws -> any WebPageDriving { page }
-    func presentLogin(url: URL, profile: String) async throws { throw WebEngineError.unavailable }
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws { throw WebEngineError.unavailable }
 }
 
 /// The replies of a WebToEpub bundle that loads and parses a two-chapter book.

@@ -267,5 +267,5 @@ private final class FenrirFakePage: WebPageDriving, @unchecked Sendable {
 private struct FenrirStubEngine: WebEngineProviding {
     let page: FenrirFakePage
     func newPage(profile: String) async throws -> any WebPageDriving { page }
-    func presentLogin(url: URL, profile: String) async throws {}
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {}
 }

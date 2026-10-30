@@ -19,16 +19,21 @@ public struct SessionSite: Sendable {
     public let cookieNames: [String]
     /// Plain-words description of what makes a login usable, for the screen ("ywkey and ywguid").
     public let requirement: String
+    /// Appended to the sign-in web view's user agent, so a site that serves a different session to its
+    /// own app can be told we are it (sfc appends its app token to try for an app session). Nil keeps the
+    /// browser's user agent, which is what qdn and rbooks sign in with.
+    public let appUserAgentSuffix: String?
     private let usableWith: @Sendable (Set<String>) -> Bool
 
     public init(source: SourceID, signInURL: URL, cookieURLs: [URL], domain: String, cookieNames: [String],
-                requirement: String, usableWith: @escaping @Sendable (Set<String>) -> Bool) {
+                requirement: String, appUserAgentSuffix: String? = nil, usableWith: @escaping @Sendable (Set<String>) -> Bool) {
         self.source = source
         self.signInURL = signInURL
         self.cookieURLs = cookieURLs
         self.domain = domain
         self.cookieNames = cookieNames
         self.requirement = requirement
+        self.appUserAgentSuffix = appUserAgentSuffix
         self.usableWith = usableWith
     }
 

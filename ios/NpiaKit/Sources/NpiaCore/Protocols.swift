@@ -114,8 +114,9 @@ public extension WebPageDriving {
 public protocol WebEngineProviding: Sendable {
     /// Pages from the same profile share cookies and storage with each other and with `HTTPFetching`.
     func newPage(profile: String) async throws -> any WebPageDriving
-    /// Presents a visible web view so the user can sign in; returns when they finish.
-    func presentLogin(url: URL, profile: String) async throws
+    /// Presents a visible web view so the user can sign in; returns when they finish. `userAgentSuffix`
+    /// is appended to the view's user agent (sfc appends its app token to try for an app session).
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws
     /// The cookies the engine's pages share with the HTTP client, for sign-in status and the saved copy
     /// of a login. The default reads `HTTPCookieStorage.shared`; engines whose web views keep cookies
     /// elsewhere answer with a store that reads those too.
@@ -124,6 +125,11 @@ public protocol WebEngineProviding: Sendable {
 
 public extension WebEngineProviding {
     var sessionCookies: any SessionCookieAccess { HTTPCookieStorageAccess() }
+
+    /// Signs in with the browser's own user agent (qdn, rbooks, and the pipeline's login prompts).
+    func presentLogin(url: URL, profile: String) async throws {
+        try await presentLogin(url: url, profile: profile, userAgentSuffix: nil)
+    }
 }
 
 public enum WebEngineError: Error, Equatable {

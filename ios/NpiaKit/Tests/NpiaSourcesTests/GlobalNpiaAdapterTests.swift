@@ -17,7 +17,7 @@ private struct GlobalNpiaStubHTTP: HTTPFetching {
 
 private struct GlobalNpiaStubWeb: WebEngineProviding {
     func newPage(profile: String) async throws -> any WebPageDriving { throw WebEngineError.unavailable }
-    func presentLogin(url: URL, profile: String) async throws { throw WebEngineError.unavailable }
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws { throw WebEngineError.unavailable }
 }
 
 final class GlobalNpiaAdapterTests: XCTestCase {

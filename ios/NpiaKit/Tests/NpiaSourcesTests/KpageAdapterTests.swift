@@ -71,7 +71,7 @@ private struct KpageStubWeb: WebEngineProviding {
     var page: KpageFakePage
 
     func newPage(profile: String) async throws -> any WebPageDriving { page }
-    func presentLogin(url: URL, profile: String) async throws {}
+    func presentLogin(url: URL, profile: String, userAgentSuffix: String?) async throws {}
 }
 
 // MARK: - Fixtures
