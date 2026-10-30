@@ -87331,6 +87331,7 @@
 61616|||백조황자의 로맨스|||The Swan Prince's Romance
 616213|||미래를 보고 돌아온 이순신, 정유재란을 준비하다|||Yi Sun-sin Returns From the Future and Prepares for the Jeong-yu War
 616228|||시스템 회귀자의 아포칼립스|||The System Regressor's Apocalypse
+616230|||퇴사한 회사원이 기술 천재로 승승장구함|||The Quitting Office Worker Rises as a Tech Genius
 616240|||빙하기 아포칼립스인데 나만 캠핑 중|||Ice Age Apocalypse, and I'm the Only One Camping
 616300|||이 마법사, 손버릇이 나쁘다|||This Mage Has Sticky Fingers
 616334|||잿빛잔영|||Ashen Afterimage
@@ -92628,5 +92629,4 @@
 603458|||2012|||
 606176|||52|||
 610021|||2035|||
-616230|||퇴사한 회사원이 기술 천재로 승승장구함|||
 63401|||49|||
