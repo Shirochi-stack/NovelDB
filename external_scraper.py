@@ -1382,9 +1382,18 @@ class ExternalScraper:
         return images
 
     def _choose_android_system_image(self, sdkmanager, sdk_dir, env):
-        images = self._available_android_system_images(sdkmanager, sdk_dir, env)
+        images = []
+        try:
+            images = self._available_android_system_images(sdkmanager, sdk_dir, env)
+        except Exception as exc:
+            self.log(f"[Android] Could not list system images ({exc}); using a default package.")
         if not images:
-            raise RuntimeError("No Android emulator system images were found.")
+            # sdkmanager listed nothing (a stale or unreachable repo index, say): fall back to a known
+            # package and let the install fetch it directly, rather than giving up.
+            abi = "arm64-v8a" if self._adoptium_arch() == "aarch64" else "x86_64"
+            self.log(f"[Android] Falling back to system-images;android-35;google_apis;{abi}.")
+            return {"package": f"system-images;android-35;google_apis;{abi}", "api": 35,
+                    "tag": "google_apis", "abi": abi}
 
         if self._adoptium_arch() == "aarch64":
             preferred_abis = ("arm64-v8a", "x86_64")
@@ -1596,6 +1605,48 @@ class ExternalScraper:
                 return False
             full = os.path.join(sdk, image_sysdir)
         return os.path.isdir(full) and os.path.exists(os.path.join(full, "system.img"))
+
+    @classmethod
+    def _avd_system_image_package(cls, avd_name):
+        """The sdkmanager package (``system-images;android-N;tag;abi``) an AVD's config.ini references,
+        so a missing image can be downloaded for it."""
+        avd_dir = cls._android_avd_dir(avd_name)
+        if not avd_dir:
+            return ""
+        sysdir = ""
+        try:
+            with open(os.path.join(avd_dir, "config.ini"), "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith("image.sysdir.1="):
+                        sysdir = line.split("=", 1)[1].strip()
+                        break
+        except Exception:
+            return ""
+        parts = [p for p in re.split(r"[\\/]+", sysdir) if p]
+        if len(parts) >= 4 and parts[0].lower() == "system-images":
+            return ";".join(parts[:4])
+        return ""
+
+    def _install_system_images_for_avds(self, avd_names):
+        """Download the system images the given AVDs reference but are missing, so they can boot.
+        Returns the set of packages installed. Windows only (that is where the auto-setup runs)."""
+        if sys.platform != "win32":
+            return set()
+        packages = {self._avd_system_image_package(name) for name in avd_names}
+        packages = {p for p in packages if p}
+        if not packages:
+            return set()
+        sdk_dir = self._android_sdk_dir() or self._android_sdk_default_dir()
+        os.makedirs(sdk_dir, exist_ok=True)
+        sdkmanager = self._ensure_android_cmdline_tools(sdk_dir)
+        env = self._android_sdk_env(sdk_dir)
+        self._run_sdkmanager(sdkmanager, sdk_dir, env, ["--licenses"], "accept Android SDK licenses", 300)
+        installed = set()
+        for package in sorted(packages):
+            self.log(f"[Android] Downloading system image: {package} ...")
+            self._run_sdkmanager(sdkmanager, sdk_dir, env, [package], f"download {package}", 3600)
+            installed.add(package)
+        return installed
 
     @classmethod
     def _android_avd_ramdisk_arg(cls, avd_name):
@@ -1987,6 +2038,15 @@ class ExternalScraper:
         avds = self.list_android_avds()
         # Only AVDs whose system image is installed can boot; a broken one aborts the emulator.
         valid = [name for name in avds if self._android_avd_system_image_ok(name)]
+        if not valid and avds:
+            # The AVDs exist but their system images are missing: download the images they reference
+            # (so an AVD you've already signed into, e.g. syfe_poc, works) instead of giving up.
+            self.log("[Android] No AVD has its system image installed; downloading it (this can take a while)...")
+            try:
+                if self._install_system_images_for_avds(avds):
+                    valid = [name for name in avds if self._android_avd_system_image_ok(name)]
+            except Exception as e:
+                self.log(f"[Android] Could not download the system image: {e}")
         skipped = [name for name in avds if name not in valid]
         if skipped:
             self.log(
