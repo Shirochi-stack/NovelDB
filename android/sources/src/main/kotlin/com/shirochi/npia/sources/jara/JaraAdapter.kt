@@ -214,7 +214,7 @@ class JaraAdapter : SourceAdapter {
         for (ref in refs) {
             coroutineContext.ensureActive()
             try {
-                results += parseChapter(ref, book, context)
+                results += context.keep(parseChapter(ref, book, context))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: JaraAbort) {

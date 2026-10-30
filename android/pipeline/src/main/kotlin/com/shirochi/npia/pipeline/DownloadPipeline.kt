@@ -78,6 +78,16 @@ class DownloadPipeline(
     private val httpFactory: (SharedSettings) -> HttpFetching = { OkHttpFetcher(it) },
 ) {
     suspend fun run(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit = {}): JobOutcome {
+        // Image bytes wait in files until the book is written (see ImageStore).
+        val store = ImageStore.create()
+        try {
+            return download(url, settings, onPhase, store)
+        } finally {
+            store.close()
+        }
+    }
+
+    private suspend fun download(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit, store: ImageStore): JobOutcome {
         val started = System.nanoTime()
         val adapter = SourceCatalog.require(url, settings.engines)
         val http = httpFactory(settings.effective(adapter.id))
@@ -113,7 +123,7 @@ class DownloadPipeline(
             "Downloading ${selected.size} of ${book.chapters.size} chapters" + (if (range.isNotEmpty()) " ($range)" else ""),
         )
         onPhase(JobPhase.FetchingChapters(0, selected.size))
-        val results = adapter.parseChapters(selected, book, chapterContext(context, selected.size, onPhase))
+        val results = adapter.parseChapters(selected, book, chapterContext(context, selected.size, onPhase, store))
 
         val chapters = mutableListOf<ChapterContent>()
         val skipped = mutableListOf<Pair<ChapterRef, String>>()
@@ -130,7 +140,7 @@ class DownloadPipeline(
             "Chapters: ${chapters.size} downloaded" + (if (skipped.isNotEmpty()) ", ${skipped.size} skipped or failed" else ""),
         )
 
-        val imageOutput = ImageStage(http, settings, owner.id, images, logger).run(chapters) { done, total ->
+        val imageOutput = ImageStage(http, settings, owner.id, images, logger, store).run(chapters) { done, total ->
             onPhase(JobPhase.DownloadingImages(done, total))
         }
         logger.log(
@@ -162,7 +172,7 @@ class DownloadPipeline(
             }
             val targetMb = settings.images.recompressTargetMb
             if (targetMb != null && targetMb > 0 && (format == OutputFormat.EPUB || format == OutputFormat.PDF)) {
-                file = shrink(file, bundle, writer, baseName, (targetMb * 1_048_576).toLong())
+                file = shrink(file, bundle, writer, baseName, (targetMb * 1_048_576).toLong(), store)
             }
             logger.log(LogLevel.INFO, "Wrote ${file.name} (${sizeText(file)})")
             file
@@ -225,7 +235,7 @@ class DownloadPipeline(
      * `recompressTargetMb`: re-encode images at falling quality and rewrite until the file fits,
      * at most four passes (desktop `_recompress_to_target_size`).
      */
-    private suspend fun shrink(file: File, bundle: BookBundle, writer: BookWriter, baseName: String, targetBytes: Long): File {
+    private suspend fun shrink(file: File, bundle: BookBundle, writer: BookWriter, baseName: String, targetBytes: Long, store: ImageStore): File {
         var current = file.length()
         if (current <= targetBytes) return file
         logger.log(LogLevel.INFO, "${file.name} is $current bytes; recompressing images toward $targetBytes")
@@ -237,7 +247,7 @@ class DownloadPipeline(
             quality = ImageStage.nextRecompressQuality(quality, current, targetBytes) ?: break
             val q = quality
             val reencoded = withContext(Dispatchers.Default) {
-                working.images.mapValues { (name, data) -> images.reencode(data, ImageReferences.extension(name), q) }
+                store.transform(working.images, "pass$pass") { name, data -> images.reencode(data, ImageReferences.extension(name), q) }
             }
             val cover = working.cover?.let { BookBundle.Cover(images.reencode(it.data, it.fileExtension, q), it.fileExtension) }
             working = BookBundle(working.book, working.chapters, reencoded, cover, working.settings)
@@ -250,9 +260,9 @@ class DownloadPipeline(
     }
 
     /** A context whose `onChapter` advances the progress bar and logs each chapter as it lands. */
-    private fun chapterContext(base: SourceContext, total: Int, onPhase: (JobPhase) -> Unit): SourceContext {
+    private fun chapterContext(base: SourceContext, total: Int, onPhase: (JobPhase) -> Unit, store: ImageStore): SourceContext {
         val done = AtomicInteger()
-        return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger) { result ->
+        return SourceContext(base.http, base.web, base.secrets, base.settings, base.logger, keep = store::keep, onChapter = { result ->
             val count = done.incrementAndGet().coerceAtMost(total)
             val label = "Chapter ${result.ref.index}: ${result.ref.title}"
             when (result) {
@@ -261,7 +271,7 @@ class DownloadPipeline(
                 is ChapterResult.Failed -> logger.log(LogLevel.WARNING, "$label failed: ${result.message}")
             }
             onPhase(JobPhase.FetchingChapters(count, total))
-        }
+        })
     }
 
     /**

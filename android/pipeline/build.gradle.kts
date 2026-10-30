@@ -16,3 +16,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
 }
+
+// Android gives the app 256 MB; DownloadPipelineMemoryTest proves a larger book of pictures fits in that.
+tasks.test {
+    maxHeapSize = "256m"
+}

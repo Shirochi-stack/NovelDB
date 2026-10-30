@@ -27,7 +27,8 @@ class CbzWriter : BookWriter {
         val temp = File(directory, "$baseName.cbz.part")
         val compressImages = bundle.settings.images.zipCompressImages
         ZipOutputStream(temp.outputStream().buffered()).use { zip ->
-            for ((path, data) in entries) {
+            for ((path, load) in entries) {
+                val data = load()
                 val entry = ZipEntry(path)
                 if (path == "ComicInfo.xml" || compressImages) {
                     entry.method = ZipEntry.DEFLATED
@@ -48,11 +49,11 @@ class CbzWriter : BookWriter {
     }
 
     companion object {
-        /** Archive entries in write order. */
-        internal fun entries(bundle: BookBundle): List<Pair<String, ByteArray>> {
+        /** Archive entries in write order; each image is read only when it is written. */
+        internal fun entries(bundle: BookBundle): List<Pair<String, () -> ByteArray>> {
             val book = bundle.book
-            val out = mutableListOf<Pair<String, ByteArray>>()
-            bundle.cover?.let { out += "0000_cover.${it.fileExtension.lowercase()}" to it.data }
+            val out = mutableListOf<Pair<String, () -> ByteArray>>()
+            bundle.cover?.let { cover -> out += "0000_cover.${cover.fileExtension.lowercase()}" to { cover.data } }
             val info = """
                 <?xml version="1.0" encoding="utf-8"?>
                 <ComicInfo>
@@ -61,20 +62,21 @@ class CbzWriter : BookWriter {
                   <Summary>${OutputSupport.escape(book.synopsis.orEmpty())}</Summary>
                 </ComicInfo>
             """.trimIndent() + "\n"
-            out += "ComicInfo.xml" to info.encodeToByteArray()
+            val infoBytes = info.encodeToByteArray()
+            out += "ComicInfo.xml" to { infoBytes }
             val numbered = bundle.settings.effective(book.source).numberChapters
             val used = mutableSetOf<String>()
             for (chapter in OutputSupport.readingOrder(bundle.chapters)) {
-                val images = chapter.images.mapNotNull { ref -> bundle.images[ref.filename]?.let { ref.filename to it } }
+                val images = chapter.images.map { it.filename }.filter { bundle.images.containsKey(it) }
                 if (images.isEmpty()) continue
                 var number = maxOf(1, chapter.ref.index)
                 val title = safeName(OutputSupport.displayTitle(chapter.ref, numbered))
                 var folder = "${pad4(number)}_$title"
                 while (folder in used) folder = "${pad4(++number)}_$title"
                 used += folder
-                images.forEachIndexed { i, (name, data) ->
+                images.forEachIndexed { i, name ->
                     val ext = name.substringAfterLast('.', "jpg").lowercase()
-                    out += "$folder/${pad4(i + 1)}.$ext" to data
+                    out += "$folder/${pad4(i + 1)}.$ext" to { bundle.images.getValue(name) }
                 }
             }
             return out

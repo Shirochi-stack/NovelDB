@@ -16,6 +16,11 @@ class SourceContext(
     val settings: AppSettings,
     val logger: JobLogging = NullLogger,
     /**
+     * Takes each finished chapter before it is kept for the book, from any thread: the pipeline moves
+     * image bytes a source already holds to disk, so a long book of picture chapters fits in memory.
+     */
+    val keep: (ChapterResult) -> ChapterResult = { it },
+    /**
      * Called once per chapter as soon as its result is known, from any thread. Adapters that
      * override `parseChapters` must call it too, or progress jumps from 0 to done at the end.
      */
@@ -86,13 +91,15 @@ suspend fun SourceAdapter.parseConcurrently(
     refs.map { ref ->
         async {
             permits.withPermit {
-                val result = try {
-                    read(ref)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    ChapterResult.Failed(ref, e.message ?: e.toString())
-                }
+                val result = context.keep(
+                    try {
+                        read(ref)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        ChapterResult.Failed(ref, e.message ?: e.toString())
+                    },
+                )
                 context.onChapter(result)
                 if (ref !== last && result !is ChapterResult.Refused) shared.pauseBetweenChapters()
                 result
