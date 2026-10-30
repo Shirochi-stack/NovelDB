@@ -141,15 +141,20 @@ def smoke(executable: Path, variant: str, report_path: Path) -> dict:
     expected = VARIANTS[variant]
     checks = ["pdf"]
     if expected.webengine:
-        checks.append("webengine")
+        checks += ["webengine", "catalog"]
     if expected.playwright:
         checks.append("browser")
     home = Path(tempfile.mkdtemp(prefix="noveldb-smoke-"))
     env = dict(os.environ, NOVELDB_HOME=str(home), NOVELDB_SMOKE_DELAY_MS="500")
     env.pop("PLAYWRIGHT_BROWSERS_PATH", None)  # the bundled browsers must be found on their own
-    if sys.platform.startswith("linux") and not env.get("DISPLAY"):
-        env.setdefault("QT_QPA_PLATFORM", "offscreen")
     cmd = [str(executable), "--smoke", "--smoke-report", str(report_path), "--smoke-checks", ",".join(checks)]
+    if sys.platform.startswith("linux") and not env.get("DISPLAY"):
+        # A virtual X screen is closer to a desktop than offscreen: the Catalog crash only showed there.
+        if shutil.which("xvfb-run"):
+            cmd = ["xvfb-run", "-a", "-s", "-screen 0 1600x1000x24"] + cmd
+            env.pop("QT_QPA_PLATFORM", None)  # the workflow sets offscreen for the tests; draw on the screen here
+        else:
+            env.setdefault("QT_QPA_PLATFORM", "offscreen")
     log(" ".join(cmd))
     done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
     if not report_path.exists():
@@ -190,6 +195,13 @@ def verify_tree(folder: Path, variant: str) -> None:
         problems.append("tkinter is bundled")
     if "qtwebengine_devtools_resources" in joined:
         problems.append("QtWebEngine devtools resources are bundled")
+    if sys.platform.startswith("linux"):
+        # The system's graphics driver needs its own copies (see LINUX_SYSTEM_LIBS in the spec).
+        for name in ("libstdc++.so.6", "libgcc_s.so.1", "libgbm.so.1"):
+            if name in names:
+                problems.append(f"{name} is bundled")
+        if expected.webengine and "libwayland-server.so.0" not in names:
+            problems.append("libwayland-server.so.0 is missing (Qt WebEngine links it)")
     if problems:
         raise SystemExit("Bundle check failed: " + "; ".join(problems))
     log(f"bundle check passed for {variant}")

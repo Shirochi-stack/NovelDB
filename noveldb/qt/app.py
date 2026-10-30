@@ -67,7 +67,7 @@ def _parse(argv) -> argparse.Namespace:
     parser.add_argument("--smoke", action="store_true", help="build the window, then quit")
     parser.add_argument("--smoke-report", default="", help="write the smoke test result here (JSON)")
     parser.add_argument("--smoke-checks", default="",
-                        help="extra smoke checks, comma separated: webengine, browser, pdf (or all)")
+                        help="extra smoke checks, comma separated: webengine, browser, pdf, catalog (or all)")
     parser.add_argument("--page", default="", help="open this page first (download, catalog, queue, settings)")
     args, _unknown = parser.parse_known_args(argv)
     return args
@@ -174,9 +174,27 @@ def _check_pdf() -> dict:
             "fonts": fonts, "path": handle.name}
 
 
-def _run_checks(app, names) -> dict:
+def _check_catalog(window) -> dict:
+    """Open the Catalog page as a user would and keep the app running while its web view starts.
+
+    Opening it crashed the Linux build once (an application-wide event filter); a crash here leaves
+    no smoke report, which fails the build."""
+    from PySide6.QtCore import QEventLoop
+
+    window.show_page(1)
+    page = window.catalog
+    loop = QEventLoop()
+    QTimer.singleShot(8_000, loop.quit)
+    loop.exec()
+    view = getattr(page, "view", None)
+    return {"ok": view is not None, "url": view.url().toString() if view is not None else ""}
+
+
+def _run_checks(app, names, window=None) -> dict:
     out = {}
-    for name, check in (("webengine", lambda: _check_webengine(app)), ("browser", _check_browser), ("pdf", _check_pdf)):
+    checks = (("webengine", lambda: _check_webengine(app)), ("browser", _check_browser), ("pdf", _check_pdf),
+              ("catalog", lambda: _check_catalog(window)))
+    for name, check in checks:
         if name not in names:
             continue
         try:
@@ -232,9 +250,8 @@ def main(argv=None) -> int:
     font = app.font()
     font.setPointSizeF(max(font.pointSizeF(), 11.0))  # Qt's 9 pt default reads small next to the site
     app.setFont(font)
-    from noveldb.qt.widgets import disable_wheel_on_inputs
-
-    disable_wheel_on_inputs(app)
+    # Spin boxes and drop-downs ignore the mouse wheel on their own (noveldb.qt.widgets.SpinBox and
+    # friends). No application-wide event filter: on Linux one crashed the app when the Catalog opened.
 
     from noveldb.qt.context import AppContext
     from noveldb.qt.main_window import PAGES, MainWindow
@@ -280,8 +297,8 @@ def main(argv=None) -> int:
             report = _smoke_report(window, started)
             names = {n.strip() for n in args.smoke_checks.split(",") if n.strip()}
             if "all" in names:
-                names = {"webengine", "browser", "pdf"}
-            report["checks"] = _run_checks(app, names)
+                names = {"webengine", "browser", "pdf", "catalog"}
+            report["checks"] = _run_checks(app, names, window)
             report["ok"] = report["ok"] and all(item.get("ok") for item in report["checks"].values())
             if args.smoke_report:
                 with open(args.smoke_report, "w", encoding="utf-8") as handle:

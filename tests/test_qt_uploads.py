@@ -334,9 +334,6 @@ def test_the_zip_size_box_ignores_the_mouse_wheel(context, qtbot, qapp):
     from PySide6.QtCore import QPoint, QPointF, Qt
     from PySide6.QtGui import QWheelEvent
 
-    from noveldb.qt.widgets import disable_wheel_on_inputs
-
-    disable_wheel_on_inputs(qapp)
     form, _check, spin = settings_widgets(context, qtbot)
     form.show()
     spin.setFocus()
