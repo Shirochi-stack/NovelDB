@@ -60,7 +60,8 @@ class PdfDocumentPlan(bundle: BookBundle) {
     val chapters: List<Chapter>
 
     private val images: Map<String, ByteArray> = bundle.images
-    private val imagesByLeaf: Map<String, ByteArray> = bundle.images.entries.associate { (name, data) -> name.substringAfterLast('/') to data }
+    // File name -> full name, so finding an image by its leaf reads only that image.
+    private val imagesByLeaf: Map<String, String> = bundle.images.keys.associateBy { it.substringAfterLast('/') }
 
     init {
         val shared = bundle.settings.effective(bundle.book.source)
@@ -78,6 +79,7 @@ class PdfDocumentPlan(bundle: BookBundle) {
         while (trimmed.startsWith("./")) trimmed = trimmed.substring(2)
         images[trimmed]?.let { return it }
         val leaf = src.substringAfterLast('/')
-        return imagesByLeaf[leaf] ?: runCatching { imagesByLeaf[URLDecoder.decode(leaf, "UTF-8")] }.getOrNull()
+        val name = imagesByLeaf[leaf] ?: runCatching { imagesByLeaf[URLDecoder.decode(leaf, "UTF-8")] }.getOrNull()
+        return name?.let { images[it] }
     }
 }

@@ -151,7 +151,7 @@ internal fun context(
         // No pause between chapters in tests.
         overrides = settings.overrides + (source.raw to (settings.overrides[source.raw] ?: SharedOverrides()).copy(intervalMin = 0.0, intervalMax = 0.0)),
     )
-    return SourceContext(http, web, secrets, effective, logger, onChapter)
+    return SourceContext(http, web, secrets, effective, logger, onChapter = onChapter)
 }
 
 /** A load that times out, as a slow site's does. */

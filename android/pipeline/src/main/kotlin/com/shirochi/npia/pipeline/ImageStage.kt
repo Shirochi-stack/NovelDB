@@ -36,6 +36,8 @@ class ImageStage(
     private val source: SourceId,
     private val processor: ImageProcessing,
     private val logger: JobLogging = NullLogger,
+    /** Where encoded bytes wait until the book is written; without one they stay in memory. */
+    private val store: ImageStore? = null,
 ) {
     class Output(
         val chapters: List<ChapterContent>,
@@ -63,7 +65,7 @@ class ImageStage(
                     // The download slot is held through encoding so raw bytes never pile up.
                     val image = downloads.withPermit {
                         download(ref)?.let { data -> encodes.withPermit { encode(data) } }
-                    }
+                    }?.let { stored(ref.filename, it) }
                     progress.withLock {
                         done += 1
                         onProgress(done, unique.size)
@@ -76,13 +78,15 @@ class ImageStage(
         val processed = results.mapNotNull { (name, image) -> image?.let { name to it } }.toMap()
         val failed = results.count { it.second == null }
         val renames = renames(unique.map { it.filename }, processed)
-        val images = processed.entries.associate { (name, image) -> (renames[name] ?: name) to image.data }
+        val images = store?.view(processed.keys.associate { name -> (renames[name] ?: name) to ENCODED + name })
+            ?: processed.entries.associate { (name, image) -> (renames[name] ?: name) to image.data }
         return Output(chapters.map { apply(renames, it, processed.keys) }, images, failed)
     }
 
     private suspend fun download(ref: ImageRef): ByteArray? {
         coroutineContext.ensureActive()
         ref.data?.let { return it }
+        store?.held(ref.filename)?.let { return it }
         return try {
             val response = http.get(ref.url)
             if (response.status !in 200..299 || response.body.isEmpty()) {
@@ -99,6 +103,14 @@ class ImageStage(
         }
     }
 
+    /** With a store, the encoded bytes go to disk at once and only the file type stays in memory. */
+    private fun stored(filename: String, image: ProcessedImage): ProcessedImage {
+        val store = store ?: return image
+        store.put(ENCODED + filename, image.data)
+        store.dropHeld(filename)
+        return ProcessedImage(ByteArray(0), image.fileExtension)
+    }
+
     private suspend fun encode(data: ByteArray): ProcessedImage = withContext(Dispatchers.Default) {
         try {
             processor.process(data)
@@ -110,6 +122,8 @@ class ImageStage(
     }
 
     companion object {
+        private const val ENCODED = "encoded:"
+
         /**
          * Old name -> new name for every image whose extension changed. Collisions get a numeric
          * suffix so two sources never overwrite each other.
