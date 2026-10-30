@@ -1548,6 +1548,33 @@ class ExternalScraper:
         return path if os.path.isdir(path) else ""
 
     @classmethod
+    def _android_avd_system_image_ok(cls, avd_name):
+        """True when the AVD's system image is actually installed. An AVD whose `image.sysdir.1`
+        folder is missing (e.g. a Play Store AVD whose image was never downloaded) makes the emulator
+        abort at launch with "Broken AVD system path", so such AVDs are skipped when choosing one."""
+        avd_dir = cls._android_avd_dir(avd_name)
+        if not avd_dir:
+            return False
+        image_sysdir = ""
+        try:
+            with open(os.path.join(avd_dir, "config.ini"), "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith("image.sysdir.1="):
+                        image_sysdir = line.split("=", 1)[1].strip()
+                        break
+        except Exception:
+            return False
+        if not image_sysdir:
+            return False
+        full = image_sysdir
+        if not os.path.isabs(full):
+            sdk = cls._android_sdk_dir()
+            if not sdk:
+                return False
+            full = os.path.join(sdk, image_sysdir)
+        return os.path.isdir(full) and os.path.exists(os.path.join(full, "system.img"))
+
+    @classmethod
     def _android_avd_ramdisk_arg(cls, avd_name):
         avd_dir = cls._android_avd_dir(avd_name)
         if not avd_dir:
@@ -1935,22 +1962,26 @@ class ExternalScraper:
                 self.log(self._android_sdk_install_instructions())
                 return False
         avds = self.list_android_avds()
-        avd_name = avd_name or next(
-            (
-                name
-                for name in avds
-                if "play" in name.lower()
-            ),
-            next(
-                (
-                    name
-                    for name in avds
-                    if "play" not in name.lower()
-                ),
-                "",
-            ),
+        # Only AVDs whose system image is installed can boot; a broken one aborts the emulator.
+        valid = [name for name in avds if self._android_avd_system_image_ok(name)]
+        skipped = [name for name in avds if name not in valid]
+        if skipped:
+            self.log(
+                "[Android] Skipping AVD(s) with no system image installed: "
+                + ", ".join(skipped)
+                + ". Install the image in Android Studio > SDK Manager if you need them."
+            )
+        if avd_name and avd_name not in valid:
+            if avd_name in skipped:
+                self.log(f"[Android] AVD {avd_name} has no system image; choosing another.")
+            avd_name = ""
+        # Prefer an sfc/rootable AVD (its session can be imported), then a Play Store one, then any.
+        avd_name = (
+            avd_name
+            or next((name for name in valid if any(hint in name.lower() for hint in ("sfacg", "sfc", "syfe", "poc"))), "")
+            or next((name for name in valid if "play" in name.lower()), "")
+            or (valid[0] if valid else "")
         )
-        avd_name = avd_name or (avds[0] if avds else "")
         if not avd_name:
             self.log("[Android] No Android Virtual Devices found; creating one...")
             try:
