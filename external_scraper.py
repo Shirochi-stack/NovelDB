@@ -1472,10 +1472,14 @@ class ExternalScraper:
 
     def _ensure_android_avd(self):
         avds = self.list_android_avds()
-        if avds:
-            return avds[0]
+        valid = [name for name in avds if self._android_avd_system_image_ok(name)]
+        if valid:
+            return valid[0]
         if sys.platform != "win32":
-            return ""
+            return avds[0] if avds else ""
+        # Every existing AVD has a missing/broken system image: install one and build a working AVD,
+        # rather than launching a broken AVD (which aborts with "Broken AVD system path").
+        self.log("[Android] No AVD has a usable system image; installing one and creating an AVD...")
 
         sdk_dir = self._android_sdk_dir() or self._android_sdk_default_dir()
         os.makedirs(sdk_dir, exist_ok=True)
