@@ -18,6 +18,7 @@ BROWSER = "browser"
 
 # (scraper predicate, source codename), in `parse_book` order.
 _PREDICATES = (
+    ("is_sfc", "sfc"),
     ("is_kobo", "kobo"),
     ("is_xiyuwx", "xiyuwx"),
     ("is_floo", "floo"),
