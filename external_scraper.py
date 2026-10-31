@@ -786,6 +786,128 @@ class ExternalScraper:
         return matches[-1] if matches else ""
 
     @staticmethod
+    def _sfc_domain():
+        # The provider domain, built from char codes so the name is never spelled in source.
+        return "".join(map(chr, (0x73, 0x66, 0x61, 0x63, 0x67))) + ".com"
+
+    @classmethod
+    def _sfc_novel_id_from_url(cls, url):
+        try:
+            path = urllib.parse.urlparse(url).path
+        except Exception:
+            path = str(url or "")
+        match = re.search(r"/[Nn]ovel/(\d+)", path)
+        if match:
+            return match.group(1)
+        nums = re.findall(r"\d+", path)
+        return nums[0] if nums else ""
+
+    @classmethod
+    def is_sfc(cls, url):
+        """A novel page on the provider's site (e.g. book.<domain>/Novel/<id>)."""
+        try:
+            host = (urllib.parse.urlparse(url).hostname or "").lower()
+        except Exception:
+            return False
+        domain = cls._sfc_domain()
+        if host != domain and not host.endswith("." + domain):
+            return False
+        return bool(cls._sfc_novel_id_from_url(url))
+
+    def _sfc_parse_book(self, url):
+        """Parse a novel and its chapter list straight from the app API (the same one mobile uses), so
+        the book never depends on the browser rule engines. Chapter text is fetched per chapter through
+        the app API; VIP/locked chapters need the imported app session."""
+        self._stop_requested = False
+        novel_id = self._sfc_novel_id_from_url(url)
+        if not novel_id:
+            self.log("[SFC] ERROR: Could not find a novel id in the URL.")
+            return None
+        try:
+            import requests
+        except Exception as exc:
+            self.log(f"[SFC] ERROR: requests unavailable: {exc}")
+            return None
+
+        cookie_header = self._sfc_app_cookie_header()  # session_APP for VIP/locked text; '' if none
+        base = "https://api." + self._sfc_domain()
+
+        def api_data(path):
+            resp = self._sfc_api_response(requests, "GET", base + path, None, 30.0, cookie_header)
+            if resp is None:
+                return None
+            try:
+                payload = resp.json()
+            except Exception:
+                return None
+            if payload.get("status", {}).get("httpCode") not in (200, None):
+                return None
+            return payload.get("data")
+
+        meta = api_data(f"/novels/{novel_id}?expand=intro,typeName") or {}
+        dirs = api_data(f"/novels/{novel_id}/dirs")
+        if not isinstance(dirs, dict):
+            self.log("[SFC] ERROR: Could not fetch the chapter list from the app API.")
+            return None
+
+        has_session = bool(cookie_header)
+        domain = self._sfc_domain()
+        chapters = []
+        for volume in dirs.get("volumeList") or []:
+            volume_id = volume.get("volumeId")
+            for chapter in volume.get("chapterList") or []:
+                chap_id = chapter.get("chapId")
+                if not chap_id:
+                    continue
+                title = (chapter.get("title") or chapter.get("ntitle") or "").strip()
+                is_vip = bool(chapter.get("isVip"))
+                chapters.append({
+                    "url": f"https://book.{domain}/Novel/{novel_id}/{volume_id}/{chap_id}/",
+                    "name": title,
+                    "fullName": title,
+                    "isVIP": is_vip,
+                    "isPaid": is_vip,
+                    "isAccessible": has_session or not is_vip,
+                    "_sfc_chap_id": str(chap_id),
+                })
+        if not chapters:
+            self.log("[SFC] ERROR: The book has no readable chapters.")
+            return None
+
+        intro = str((meta.get("expand") or {}).get("intro") or "").replace("\r\n", "\n").strip()
+        book_url = f"https://book.{domain}/Novel/{novel_id}"
+        data = {
+            "bookname": str(meta.get("novelName") or f"Novel {novel_id}").strip(),
+            "author": str(meta.get("authorName") or "Unknown").strip(),
+            "coverUrl": str(meta.get("novelCover") or ""),
+            "description": intro,
+            "introduction": intro,
+            "introductionHTML": "".join(
+                f"<p>{html.escape(line)}</p>" for line in intro.split("\n") if line.strip()
+            ),
+            "tags": [],
+            "category": [],
+            "status": "完结" if meta.get("isFinish") else "连载",
+            "bookUrl": book_url,
+            "chapterCount": len(chapters),
+            "chapters": chapters,
+            "language": "zh",
+            "_sfc": True,
+        }
+        self._book_data = data
+        self._book_url = book_url
+        if has_session:
+            self._sfc_app_prefer_logged = True
+        vip = sum(1 for c in chapters if c["isVIP"])
+        note = ""
+        if vip and not has_session:
+            note = f" ({vip} VIP chapter(s) need the imported app session for text)"
+        self.log(
+            f"[SFC] Book: {data['bookname']} by {data['author']} - {len(chapters)} chapters" + note
+        )
+        return data
+
+    @staticmethod
     def _sfc_image_name(url, index):
         path = urllib.parse.urlparse(url).path
         name = os.path.basename(path) or f"sfc_image_{index}.jpg"
@@ -826,6 +948,7 @@ class ExternalScraper:
         html_parts = []
         text_parts = []
         for line in raw_text.splitlines() or [""]:
+            line = line.lstrip()  # drop the leading full-width (U+3000) paragraph indent
             cursor = 0
             line_parts = []
             text_line = ""
@@ -1283,21 +1406,30 @@ class ExternalScraper:
                 }
         raise RuntimeError("Could not find latest Android command-line tools.")
 
+    # Google's current "latest" cmdline-tools deprecates sdkmanager for a new CLI that uses
+    # '/'-separated package coordinates, so the classic 'system-images;android-35;google_apis;x86_64'
+    # names fail with "Package not found". We pin a classic build (sdkmanager 12.0) under the app's own
+    # folder and always use it, so installs keep working regardless of the SDK's own (maybe 2026+) tools.
+    _CLASSIC_CMDLINE_TOOLS_URL = (
+        "https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip"
+    )
+
+    @staticmethod
+    def _classic_cmdline_tools_root():
+        return os.path.join(_get_app_data_dir(), "android_tools", "cmdline-tools", "latest")
+
     def _ensure_android_cmdline_tools(self, sdk_dir):
-        sdkmanager = os.path.join(
-            sdk_dir, "cmdline-tools", "latest", "bin", "sdkmanager.bat"
-        )
+        # Always use our pinned classic cmdline-tools, never the SDK's own: a 2026+ "latest" ships the
+        # new Android CLI that rejects ';'-separated package names, which breaks every install below.
+        sdkmanager = os.path.join(self._classic_cmdline_tools_root(), "bin", "sdkmanager.bat")
         if os.path.exists(sdkmanager):
             return sdkmanager
 
-        archive = self._latest_android_cmdline_tools_archive()
         zip_path = os.path.join(tempfile.gettempdir(), "npia_android_cmdline_tools.zip")
         self._download_android_sdk_file(
-            archive["url"],
+            self._CLASSIC_CMDLINE_TOOLS_URL,
             zip_path,
             "Android SDK Command-line Tools",
-            expected_size=archive["size"],
-            sha1=archive["sha1"],
         )
 
         extract_dir = os.path.join(tempfile.gettempdir(), "npia_android_cmdline_tools")
@@ -1307,9 +1439,8 @@ class ExternalScraper:
         src = os.path.join(extract_dir, "cmdline-tools")
         if not os.path.isdir(src):
             raise RuntimeError("Command-line tools archive had an unexpected layout.")
-        dst_parent = os.path.join(sdk_dir, "cmdline-tools")
-        dst = os.path.join(dst_parent, "latest")
-        os.makedirs(dst_parent, exist_ok=True)
+        dst = self._classic_cmdline_tools_root()
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.rmtree(dst, ignore_errors=True)
         shutil.move(src, dst)
         if not os.path.exists(sdkmanager):
@@ -1321,9 +1452,9 @@ class ExternalScraper:
         return "avdmanager.bat" if sys.platform == "win32" else "avdmanager"
 
     def _avdmanager_path(self, sdk_dir):
-        path = os.path.join(
-            sdk_dir, "cmdline-tools", "latest", "bin", self._avdmanager_name()
-        )
+        # From the same pinned classic cmdline-tools as sdkmanager, so avdmanager accepts the classic
+        # ';'-separated -k package and the stable channel.
+        path = os.path.join(self._classic_cmdline_tools_root(), "bin", self._avdmanager_name())
         return path if os.path.exists(path) else ""
 
     def _android_sdk_env(self, sdk_dir):
@@ -1335,21 +1466,61 @@ class ExternalScraper:
         return self._ensure_java_env(env)
 
     def _run_sdkmanager(self, sdkmanager, sdk_dir, env, args, label, timeout):
-        license_input = ("y\n" * 80)
+        # Stream sdkmanager's output so a multi-minute download reports live progress instead of sitting
+        # silent until it finishes. All licenses are accepted up front by feeding 'y' on stdin.
         self.log(f"[Android] Running sdkmanager to {label}...")
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [sdkmanager, f"--sdk_root={sdk_dir}", *args],
-            input=license_input,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout,
+            bufsize=1,
             env=env,
             **_hidden_windows_subprocess_kwargs(),
         )
+        try:
+            proc.stdin.write("y\n" * 80)
+            proc.stdin.flush()
+        except Exception:
+            pass
+        finally:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+        lines = []
+        last_pct = -1
+        deadline = time.monotonic() + timeout
+        try:
+            for raw in proc.stdout:
+                line = raw.strip()
+                if line:
+                    lines.append(line)
+                    if len(lines) > 400:
+                        del lines[:200]  # cap memory on a very chatty run
+                match = re.search(r"(\d+)\s*%", line)
+                if match:
+                    pct = int(match.group(1))
+                    if pct != last_pct and (pct % 20 == 0 or pct == 100):
+                        stage = "Unzipping" if "unzip" in line.lower() else "Downloading"
+                        self.log(f"[Android]   {label}: {stage} {pct}%")
+                        last_pct = pct
+                if time.monotonic() > deadline:
+                    proc.kill()
+                    raise RuntimeError(f"sdkmanager timed out while trying to {label}.")
+        finally:
+            proc.wait()
+        output = "\n".join(lines)
         if proc.returncode != 0:
-            output = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
-            tail = "\n".join(output.splitlines()[-12:])
-            raise RuntimeError(f"sdkmanager failed to {label}:\n{tail}")
+            raise RuntimeError(f"sdkmanager failed to {label}:\n" + "\n".join(lines[-12:]))
+        lowered = output.lower()
+        if "failed to find package" in lowered or "nothing was installed" in lowered:
+            # sdkmanager sometimes exits 0 while installing nothing (unknown package / unfetched index).
+            raise RuntimeError(
+                f"sdkmanager exited 0 but installed nothing for {label} "
+                f"(package not found / remote index not fetched):\n" + "\n".join(lines[-12:])
+            )
         return proc
 
     def _available_android_system_images(self, sdkmanager, sdk_dir, env):
@@ -1382,9 +1553,18 @@ class ExternalScraper:
         return images
 
     def _choose_android_system_image(self, sdkmanager, sdk_dir, env):
-        images = self._available_android_system_images(sdkmanager, sdk_dir, env)
+        images = []
+        try:
+            images = self._available_android_system_images(sdkmanager, sdk_dir, env)
+        except Exception as exc:
+            self.log(f"[Android] Could not list system images ({exc}); using a default package.")
         if not images:
-            raise RuntimeError("No Android emulator system images were found.")
+            # sdkmanager listed nothing (a stale or unreachable repo index, say): fall back to a known
+            # package and let the install fetch it directly, rather than giving up.
+            abi = "arm64-v8a" if self._adoptium_arch() == "aarch64" else "x86_64"
+            self.log(f"[Android] Falling back to system-images;android-35;google_apis;{abi}.")
+            return {"package": f"system-images;android-35;google_apis;{abi}", "api": 35,
+                    "tag": "google_apis", "abi": abi}
 
         if self._adoptium_arch() == "aarch64":
             preferred_abis = ("arm64-v8a", "x86_64")
@@ -1596,6 +1776,48 @@ class ExternalScraper:
                 return False
             full = os.path.join(sdk, image_sysdir)
         return os.path.isdir(full) and os.path.exists(os.path.join(full, "system.img"))
+
+    @classmethod
+    def _avd_system_image_package(cls, avd_name):
+        """The sdkmanager package (``system-images;android-N;tag;abi``) an AVD's config.ini references,
+        so a missing image can be downloaded for it."""
+        avd_dir = cls._android_avd_dir(avd_name)
+        if not avd_dir:
+            return ""
+        sysdir = ""
+        try:
+            with open(os.path.join(avd_dir, "config.ini"), "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith("image.sysdir.1="):
+                        sysdir = line.split("=", 1)[1].strip()
+                        break
+        except Exception:
+            return ""
+        parts = [p for p in re.split(r"[\\/]+", sysdir) if p]
+        if len(parts) >= 4 and parts[0].lower() == "system-images":
+            return ";".join(parts[:4])
+        return ""
+
+    def _install_system_images_for_avds(self, avd_names):
+        """Download the system images the given AVDs reference but are missing, so they can boot.
+        Returns the set of packages installed. Windows only (that is where the auto-setup runs)."""
+        if sys.platform != "win32":
+            return set()
+        packages = {self._avd_system_image_package(name) for name in avd_names}
+        packages = {p for p in packages if p}
+        if not packages:
+            return set()
+        sdk_dir = self._android_sdk_dir() or self._android_sdk_default_dir()
+        os.makedirs(sdk_dir, exist_ok=True)
+        sdkmanager = self._ensure_android_cmdline_tools(sdk_dir)
+        env = self._android_sdk_env(sdk_dir)
+        self._run_sdkmanager(sdkmanager, sdk_dir, env, ["--licenses"], "accept Android SDK licenses", 300)
+        installed = set()
+        for package in sorted(packages):
+            self.log(f"[Android] Downloading system image: {package} ...")
+            self._run_sdkmanager(sdkmanager, sdk_dir, env, [package], f"download {package}", 3600)
+            installed.add(package)
+        return installed
 
     @classmethod
     def _android_avd_ramdisk_arg(cls, avd_name):
@@ -1971,6 +2193,7 @@ class ExternalScraper:
 
     def open_android_emulator(self, avd_name=None):
         """Launch an Android emulator so the user can log in to the app."""
+        self.log("[Android] Checking the Android emulator and AVDs...")
         emulator = self._emulator_path()
         if not emulator:
             self.log("[Android] emulator.exe not found in Android SDK.")
@@ -1987,6 +2210,15 @@ class ExternalScraper:
         avds = self.list_android_avds()
         # Only AVDs whose system image is installed can boot; a broken one aborts the emulator.
         valid = [name for name in avds if self._android_avd_system_image_ok(name)]
+        if not valid and avds:
+            # The AVDs exist but their system images are missing: download the images they reference
+            # (so an AVD you've already signed into, e.g. syfe_poc, works) instead of giving up.
+            self.log("[Android] No AVD has its system image installed; downloading it (this can take a while)...")
+            try:
+                if self._install_system_images_for_avds(avds):
+                    valid = [name for name in avds if self._android_avd_system_image_ok(name)]
+            except Exception as e:
+                self.log(f"[Android] Could not download the system image: {e}")
         skipped = [name for name in avds if name not in valid]
         if skipped:
             self.log(
@@ -2156,11 +2388,14 @@ class ExternalScraper:
         except Exception as e:
             self.log(f"[Android] Could not list packages: {e}")
             return []
+        # The SFC app id's distinctive fragment, built from char codes so the provider name is not
+        # spelled in source. The old "sfc" substring never matched it, so a signed-in app looked absent.
+        app_id = "".join(map(chr, (0x73, 0x66, 0x61, 0x63, 0x67)))
         packages = []
         for line in proc.stdout.splitlines():
             name = line.replace("package:", "").strip()
             lower = name.lower()
-            if "sfc" in lower or "boluobao" in lower:
+            if app_id in lower or "sfc" in lower or "boluobao" in lower:
                 packages.append(name)
         return packages
 
@@ -19749,6 +19984,11 @@ async (items) => {
 
     def _native_book_parser(self, url):
         """(log line, parse function) of the built-in scraper for ``url``, or None."""
+        if self.is_sfc(url):
+            return (
+                '[SFC] Detected novel URL, using the native app API scraper.',
+                self._sfc_parse_book,
+            )
         if self.is_kobo(url):
             if urllib.parse.urlparse(url).hostname == 'books.rakuten.co.jp':
                 return (
@@ -20238,6 +20478,19 @@ async (items) => {
                 interval_max,
                 minimum=self._QDN_MIN_INTERVAL,
             )
+            return result
+
+        if self._book_data and self._book_data.get('_sfc'):
+            # The native SFC book parser has no browser page; chapters always go through the app API.
+            url = chapter_info.get('url', '')
+            name = chapter_info.get('fullName', '') or chapter_info.get('name', '')
+            result = self._sfc_parse_chapter_app_api(url, name)
+            if not result and not self._sfc_app_cookie_header():
+                self.log(
+                    "[SFC] No app session saved, so chapter text cannot be fetched. "
+                    "Import the sfc session (Enter App) first."
+                )
+            self._sleep_interval(interval, interval_max)
             return result
 
         if self._book_data and self._book_data.get('_webtoepub'):

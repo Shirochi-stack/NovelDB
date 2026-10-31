@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -194,10 +195,28 @@ class Tools(QObject):
             self._submit("sfc_app", lambda scraper: scraper.login_sfc_app(username, password))
 
     def _sfc_android_open(self) -> None:
-        self._submit("sfc_android_open", lambda scraper: scraper.open_android_emulator())
+        self._submit_android("sfc_android_open", lambda scraper: scraper.open_android_emulator())
 
     def _sfc_android_import(self) -> None:
-        self._submit("sfc_android_import", lambda scraper: scraper.import_sfc_app_cookie_from_android())
+        self._submit_android("sfc_android_import", lambda scraper: scraper.import_sfc_app_cookie_from_android())
+
+    def _submit_android(self, tool: str, call) -> None:
+        # Android emulator setup (sdkmanager downloads, a multi-GB image install, launching the
+        # emulator) can run for minutes. Run it on its own thread, never the shared browser worker, so
+        # neither the worker nor anything waiting on it stalls. It needs no Playwright, so a throwaway
+        # scraper on this thread is enough; results reach the UI through the same queued signal.
+        from external_scraper import ExternalScraper
+
+        def log(text):
+            self.context.hub.log("", text)
+
+        def run():
+            try:
+                self._done.finished.emit(tool, call(ExternalScraper(logger=log)), "")
+            except Exception as exc:
+                self._done.finished.emit(tool, None, str(exc) or type(exc).__name__)
+
+        threading.Thread(target=run, name=f"android-{tool}", daemon=True).start()
 
     def _sfc_copy(self) -> None:
         self._submit("sfc_copy", lambda scraper: scraper.sfc_app_cookie_header())
