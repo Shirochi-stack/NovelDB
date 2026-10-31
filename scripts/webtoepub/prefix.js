@@ -104,7 +104,11 @@ const chrome = {
         sendMessage: () => undefined,
         onMessage: { addListener: () => undefined }
     },
-    cookies: { getAll: async () => [], set: async () => null },
+    cookies: {
+        get: async (details) => __w2e_getCookie(details),
+        getAll: async () => [],
+        set: async () => null
+    },
     declarativeNetRequest: {
         getSessionRules: async () => [],
         updateSessionRules: async () => undefined
@@ -156,6 +160,35 @@ const __w2e_transportOrigins = new Set();
 
 function __w2e_transport() {
     return window.__W2E_transport || window.__npia_gm_xmlhttp_request || null;
+}
+
+// Some parsers read a login or anti-bot cookie (for example the sbxh content
+// path reads a session cookie). The page's own document.cookie can't see
+// httpOnly cookies like cf_clearance, so chrome.cookies.get routes the read
+// through the same transport, tagged op "cookie", which the app answers from
+// the browser's cookie store natively. Returns a cookie object or null.
+async function __w2e_getCookie(details) {
+    let transport = __w2e_transport();
+    if (transport == null || details == null) {
+        return null;
+    }
+    let url = details.url || "";
+    if (!url && details.domain) {
+        url = "https://" + String(details.domain).replace(/^\./, "") + "/";
+    }
+    if (!url) {
+        return null;
+    }
+    let result;
+    try {
+        result = await transport({ op: "cookie", action: "get", url: url, name: details.name || "" });
+    } catch (e) {
+        return null;
+    }
+    if (result == null || result.error || result.cookie == null) {
+        return null;
+    }
+    return result.cookie;
 }
 
 function __w2e_headerObject(headers) {

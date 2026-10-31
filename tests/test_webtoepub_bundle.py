@@ -158,3 +158,35 @@ def test_blocked_cross_site_requests_use_the_app_transport():
             assert [c["url"] for c in calls] == ["https://api.example.net/data", "https://api.example.net/more"]
         finally:
             browser.close()
+
+
+def test_cookie_get_reads_through_the_app_transport():
+    # A parser that reads an httpOnly login/anti-bot cookie (e.g. the sbxh
+    # content path) calls chrome.cookies.get; it must reach the app's transport,
+    # tagged as a cookie op, and get the cookie the browser holds.
+    with sync_playwright() as p:
+        browser, page = _page(p)
+        try:
+            calls = []
+
+            def transport(_source, details):
+                calls.append(details)
+                if details.get("op") == "cookie":
+                    return {"cookie": {"name": details["name"], "value": "cf-secret",
+                                       "domain": "novelfull.com"}}
+                return {"status": 404, "statusText": "", "responseText": ""}
+
+            page.expose_binding("__npia_gm_xmlhttp_request", transport)
+            page.goto(f"{SITE}/fixture.html")
+            page.evaluate(_bundle())
+            cookie = page.evaluate(
+                "async () => await window.__W2E_cookie('https://novelfull.com/', 'cf_clearance')")
+            assert cookie == {"name": "cf_clearance", "value": "cf-secret", "domain": "novelfull.com"}
+            assert calls[-1]["op"] == "cookie" and calls[-1]["action"] == "get"
+            assert calls[-1]["url"] == "https://novelfull.com/" and calls[-1]["name"] == "cf_clearance"
+            # A missing cookie comes back as null, which parsers treat as "no cookie".
+            none_result = page.evaluate(
+                "async () => await window.__W2E_cookie('', 'x')")
+            assert none_result is None
+        finally:
+            browser.close()
