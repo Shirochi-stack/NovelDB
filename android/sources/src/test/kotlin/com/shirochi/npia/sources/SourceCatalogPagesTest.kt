@@ -19,9 +19,9 @@ class SourceCatalogPagesTest {
     @Test
     fun builtInScrapersListTheirSites() {
         val withSites = SourceCatalog.adapters.filter { it.sites.isNotEmpty() }.map { it.id }.toSet()
-        // mpia and ntk are not ported yet and have no sites; maru is recognised by a name pattern
-        // (ownsSite), not a fixed list.
-        val unported = setOf(SourceId.MPIA, SourceId.NTK, SourceId.READER, SourceId.MARU)
+        // ntk is not ported yet and has no sites; maru is recognised by a name pattern (ownsSite),
+        // not a fixed list.
+        val unported = setOf(SourceId.NTK, SourceId.READER, SourceId.MARU)
         assertEquals(SourceId.entries.toSet() - unported, withSites)
         SourceCatalog.adapters.flatMap { it.sites }.forEach { host ->
             assertEquals(host.lowercase(), host)

@@ -27,9 +27,10 @@
     rbooksCdn: '\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net',
     rbooksBorderClass: '\u0072\u0069\u0064\u0069border',
     rbooksCenterClass: '\u0072\u0069\u0064\u0069center',
+    mpiaDomain: '\u006d\u0075\u006e\u0070\u0069\u0061.com',
   });
 
-  const hard = { version: VERSION, qdn: {}, rbooks: {}, util: {} };
+  const hard = { version: VERSION, qdn: {}, rbooks: {}, mpia: {}, util: {} };
   const util = hard.util;
 
   // ---------------------------------------------------------------------------------------------
@@ -2139,6 +2140,353 @@
   // ---------------------------------------------------------------------------------------------
 
   // ---------------------------------------------------------------------------------------------
+  // mpia: the mpia site's webnovels. The chapter list comes from the site's JSON API (same-origin fetch).
+  // Chapter text is drawn by the site's own wasm reader onto a canvas; the observer below (installed at
+  // document start) records the reader's own fillText output and the paragraphs are rebuilt from it. A
+  // server-rendered page falls back to its DOM. Ported from external_scraper.py (_mpia_*). No purchases,
+  // access checks or encryption are performed; only the authorized reader's own output is read.
+  // ---------------------------------------------------------------------------------------------
+
+  const mpia = hard.mpia;
+  const mpiaOrigin = () => `https://www.${SITE.mpiaDomain}`;
+  const mpiaViewerUrl = (novelId, chapterId) =>
+    `${mpiaOrigin()}/novel/viewer/${encodeURIComponent(novelId)}/${encodeURIComponent(chapterId)}`;
+
+  const mpiaOnHost = () => {
+    const host = (location.hostname || '').toLowerCase();
+    return host === SITE.mpiaDomain || host.endsWith('.' + SITE.mpiaDomain);
+  };
+
+  const mpiaApiGet = async (path) => {
+    try {
+      const response = await fetch(path, { credentials: 'include', headers: { Accept: 'application/json' } });
+      let body = null;
+      try { body = await response.json(); } catch (e) { body = null; }
+      const code = body && body.code;
+      const result = body && body.result;
+      const ok = response.status === 200 && code === 'M000_00000' && result && typeof result === 'object';
+      return { ok: !!ok, status: response.status, code: code || '', result: ok ? result : null };
+    } catch (e) {
+      return { ok: false, status: 0, code: '', result: null, error: String((e && e.message) || e) };
+    }
+  };
+
+  const mpiaImageName = (url, chapterIndex, number) => {
+    const prefix = String(chapterIndex || 0).padStart(4, '0');
+    let extension = 'jpg';
+    const data = /^data:image\/([a-z0-9]+)/i.exec(url);
+    if (data) {
+      extension = data[1].toLowerCase().replace('jpeg', 'jpg');
+    } else {
+      const last = (url.split(/[?#]/)[0].split('/').pop() || '');
+      const dot = last.lastIndexOf('.');
+      const candidate = dot >= 0 ? last.slice(dot + 1).toLowerCase() : '';
+      if (candidate && candidate.length <= 5 && /^[a-z0-9]+$/.test(candidate)) extension = candidate;
+    }
+    return `images/${prefix}_${String(number).padStart(2, '0')}.${extension}`;
+  };
+
+  // Observe the authorized reader's own requests and canvas output. Installed at document start so the
+  // fetch / XHR / fillText hooks are in place before the site's wasm reader runs.
+  mpia.installReaderHook = function () {
+    if (!mpiaOnHost()) return false;
+    if (window.__ndMpiaReader) return true;
+    const state = window.__ndMpiaReader = { entry: null, entryId: '', contentOK: false, error: null };
+    const path = (value) => {
+      try { return new URL(value, location.href).pathname; } catch (e) { return ''; }
+    };
+    const infoPattern = /\/novel-detail\/\d+\/entries\/(\d+)\/info$/;
+    const contentPattern = /\/novel-detail\/\d+\/entries\/(\d+)\/content$/;
+    const recordInfo = (url, data) => {
+      const match = path(url).match(infoPattern);
+      const entry = data && data.result && data.result.entry;
+      if (match && entry && String(entry.id) === match[1]) {
+        state.entry = { id: entry.id, title: entry.title, attachments: entry.attachments || [] };
+      }
+    };
+    const nativeFetch = window.fetch;
+    window.fetch = async function (input, options) {
+      const url = typeof input === 'string' ? input : (input && input.url);
+      const match = path(url).match(contentPattern);
+      if (match) {
+        state.entryId = match[1];
+        state.contentOK = false;
+        state.error = null;
+        document.documentElement.removeAttribute('data-nd-mpia-ready');
+        document.documentElement.removeAttribute('data-nd-mpia-denied');
+      }
+      const response = await nativeFetch.apply(this, arguments);
+      const json = /application\/json/i.test(response.headers.get('content-type') || '');
+      if (match) {
+        state.contentOK = response.ok && !json;
+        if (!state.contentOK) {
+          state.error = { status: response.status };
+          if (json) response.clone().json().then((data) => {
+            state.error = { status: response.status, code: data && data.code, message: (data && data.message) || '' };
+          }).catch(() => {});
+          document.documentElement.setAttribute('data-nd-mpia-denied', '1');
+        }
+      } else if (path(url).match(infoPattern) && json) {
+        response.clone().json().then((data) => recordInfo(url, data)).catch(() => {});
+      }
+      return response;
+    };
+    const nativeOpen = XMLHttpRequest.prototype.open;
+    const nativeSend = XMLHttpRequest.prototype.send;
+    const requestUrls = new WeakMap();
+    XMLHttpRequest.prototype.open = function (method, url) {
+      requestUrls.set(this, url);
+      return nativeOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function () {
+      const url = requestUrls.get(this);
+      if (path(url).match(infoPattern)) {
+        this.addEventListener('load', () => {
+          try {
+            const data = this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
+            recordInfo(url, data);
+          } catch (e) { /* not the JSON we wanted */ }
+        }, { once: true });
+      }
+      return nativeSend.apply(this, arguments);
+    };
+    const nativeFillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (value) {
+      const result = nativeFillText.apply(this, arguments);
+      if (state.contentOK && String(value == null ? '' : value).trim()) {
+        document.documentElement.setAttribute('data-nd-mpia-ready', '1');
+      }
+      return result;
+    };
+    return true;
+  };
+
+  /** Book metadata from the novel-detail API, shaped for the native side. */
+  mpia.detail = async function (novelId) {
+    const reply = await mpiaApiGet('/api/v1/pc/novel-detail/' + encodeURIComponent(novelId));
+    if (!reply.ok) return { ok: false, status: reply.status, error: reply.error || ('detail ' + (reply.code || reply.status)) };
+    const result = reply.result || {};
+    const info = result.novelInfo || {};
+    const tags = Array.isArray(info.tags) ? info.tags.map((t) => clean(t && t.title)).filter(Boolean) : [];
+    return {
+      ok: true,
+      login: result.login === true,
+      id: String(info.id == null ? novelId : info.id),
+      title: clean(info.title),
+      author: clean(info.authorName),
+      synopsis: String(info.introduction == null ? '' : info.introduction),
+      cover: absolute(info.coverUrl),
+      tags,
+      finished: info.finish === true,
+      total: Number(info.chapterCount) || 0,
+    };
+  };
+
+  /** One page (size 30) of the chapter list, oldest first, shaped for the native side. */
+  mpia.chapters = async function (novelId, page) {
+    const path = '/api/v1/pc/novel-detail/' + encodeURIComponent(novelId)
+      + '/chapters?order=ENTRY_FIRST&page=' + encodeURIComponent(page) + '&size=30';
+    const reply = await mpiaApiGet(path);
+    if (!reply.ok) return { ok: false, status: reply.status, error: reply.error || ('chapters ' + (reply.code || reply.status)) };
+    const result = reply.result || {};
+    const rows = Array.isArray(result.list) ? result.list : [];
+    const list = rows.map((row) => {
+      const id = String(row.id == null ? '' : row.id);
+      const free = row.free === true;
+      const purchased = row.purchased === true;
+      const rented = Number(row.remainRentSec) > 0;
+      return {
+        id,
+        order: Number(row.num) || 0,
+        title: clean(row.title),
+        url: mpiaViewerUrl(novelId, id),
+        isPaid: !free,
+        accessible: !!(free || purchased || rented),
+        date: clean(row.createdAt),
+      };
+    }).filter((row) => row.id);
+    return { ok: true, total: Number(result.total) || 0, list };
+  };
+
+  /** Viewer readiness, mirroring the desktop reader selector. */
+  mpia.readerState = function () {
+    const el = document.documentElement;
+    const denied = el.getAttribute('data-nd-mpia-denied') === '1';
+    const drawn = el.getAttribute('data-nd-mpia-ready') === '1';
+    const domContent = !!document.querySelector('#ENTRY-CONTENT .tcontent');
+    return { ready: drawn || domContent, denied, found: drawn || domContent };
+  };
+
+  // Rebuild the chapter from the reader's own canvas output. Reuses the module the authorized reader
+  // already loaded; its render function draws plaintext, which the fillText hook records. No session
+  // keys or encrypted response bodies are read.
+  const mpiaCanvasExtract = async (chapterIndex) => {
+    const state = window.__ndMpiaReader;
+    if (!state || !state.contentOK) {
+      const error = state && state.error;
+      const locked = !!error && (error.status === 401 || error.status === 403
+        || /로그인|구매|대여|결제|권한|성인.{0,3}인증/.test((error && error.message) || ''));
+      return { locked, error: error ? 'Reader denied content' : 'Reader content is not ready',
+        chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const entryMatch = location.pathname.match(/\/novel\/viewer\/\d+\/(\d+)/);
+    const entryId = entryMatch ? entryMatch[1] : '';
+    if (!entryId || state.entryId !== entryId) {
+      return { error: 'Reader chapter changed', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const moduleUrls = performance.getEntriesByType('resource')
+      .map((item) => item.name)
+      .filter((url) => /\/novel_wasm-[^/]+\.js(?:\?|$)/.test(url));
+    const moduleUrl = moduleUrls[moduleUrls.length - 1];
+    if (!moduleUrl) return { error: 'Reader module was not loaded', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    const renderer = await import(moduleUrl);
+    if (typeof renderer.render_page !== 'function' || typeof renderer.get_total_pages !== 'function') {
+      return { error: 'Reader rendering API changed', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const canvas = document.createElement('canvas');
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(4096 * ratio);
+    canvas.height = Math.round(64 * ratio);
+    canvas.style.width = '4096px';
+    canvas.style.height = '64px';
+    const context = canvas.getContext('2d');
+    if (!context) return { error: 'Canvas rendering is unavailable', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    const fontSize = 17, lineHeight = 1.8, padding = 40, linesPerPage = 80;
+    const font = 'Arial, sans-serif';
+    let draws = [];
+    context.fillText = function (value, x, y) {
+      value = String(value == null ? '' : value);
+      if (value) draws.push({ text: value, x, y, width: this.measureText(value).width });
+    };
+    const pages = renderer.get_total_pages(canvas, linesPerPage, fontSize, lineHeight, font, padding, 0, 0);
+    if (!Number.isInteger(pages) || pages < 1 || pages > 10000) {
+      return { error: 'Reader returned an invalid page count', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const cleanId = (value) => String(value || '').replace(/^(?:@PIC:)+/, '');
+    const attachments = new Map(((state.entry && state.entry.attachments) || []).map((item) => [cleanId(item.id), item]));
+    const blocks = [], imageIds = new Set();
+    for (let page = 0; page < pages; page++) {
+      draws = [];
+      renderer.render_page(canvas, page, linesPerPage, fontSize, lineHeight, font, '#111111', '#ffffff', padding, 0, 0);
+      const rows = [];
+      for (const draw of draws.sort((a, b) => a.y - b.y || a.x - b.x)) {
+        let row = rows[rows.length - 1];
+        if (!row || Math.abs(row.y - draw.y) > 0.5) {
+          row = { kind: 'text', text: '', x: draw.x, y: draw.y, end: draw.x };
+          rows.push(row);
+        }
+        if (row.text && draw.x - row.end > 1 && !/\s$/.test(row.text) && !/^\s/.test(draw.text)) row.text += ' ';
+        row.text += draw.text;
+        row.end = Math.max(row.end, draw.x + draw.width);
+      }
+      if (attachments.size && typeof renderer.get_page_image_rects === 'function') {
+        const rects = JSON.parse(renderer.get_page_image_rects(canvas, page, linesPerPage, fontSize, lineHeight, font, padding, 0, 0));
+        for (const rect of rects) {
+          const id = cleanId(rect.id), attachment = attachments.get(id);
+          if (attachment && attachment.imageUrl && !imageIds.has(id)) {
+            rows.push({ kind: 'image', url: attachment.imageUrl, y: rect.y });
+            imageIds.add(id);
+          }
+        }
+      }
+      rows.sort((a, b) => a.y - b.y);
+      for (const row of rows) {
+        if (row.kind === 'image') {
+          blocks.push({ kind: 'image', url: row.url });
+        } else {
+          const value = row.text.replace(/\u00a0/g, ' ').trim();
+          if (!value) continue;
+          const previous = blocks[blocks.length - 1];
+          if (previous && previous.kind === 'text' && row.x < padding + fontSize / 2
+            && (previous.page !== page || row.y - previous.y <= fontSize * lineHeight * 1.5)) {
+            previous.text += ' ' + value;
+            previous.y = row.y;
+            previous.page = page;
+          } else {
+            blocks.push({ kind: 'text', text: value, y: row.y, page });
+          }
+        }
+      }
+    }
+    for (const [id, attachment] of attachments) {
+      if (attachment.imageUrl && !imageIds.has(id)) blocks.push({ kind: 'image', url: attachment.imageUrl });
+    }
+    const images = [], markup = [], texts = [];
+    for (const block of blocks) {
+      if (block.kind === 'text') {
+        texts.push(block.text);
+        markup.push(`<p>${escapeHtml(block.text)}</p>`);
+      } else {
+        let url;
+        try { url = new URL(block.url, location.href); } catch (e) { continue; }
+        if (!/^https?:$/.test(url.protocol)) continue;
+        const name = mpiaImageName(url.href, chapterIndex, images.length + 1);
+        images.push({ url: url.href, name });
+        markup.push(`<p><img src="${escapeHtml(name)}" /></p>`);
+      }
+    }
+    if (!texts.length && !images.length) {
+      return { error: 'Reader returned empty content', chapterName: (state.entry && state.entry.title) || '', contentText: '', contentHtml: '', images: [] };
+    }
+    return {
+      chapterName: (state.entry && state.entry.title) || '',
+      contentText: texts.join('\n'),
+      contentHtml: `<div class="mpia-content">${markup.join('\n')}</div>`,
+      images,
+    };
+  };
+
+  // A server-rendered chapter page (not the canvas viewer): read its DOM layout directly.
+  const mpiaDomExtract = (chapterIndex) => {
+    const tidy = (value) => (value || '').replace(/[\u00a0\t ]+/g, ' ').replace(/\n\s+/g, '\n').trim();
+    const abs = (value) => { try { return new URL(value || '', location.href).href; } catch (e) { return value || ''; } };
+    const entry = document.querySelector('#ENTRY-CONTENT');
+    const content = document.querySelector('#ENTRY-CONTENT .tcontent');
+    const heading = tidy(
+      (entry && entry.querySelector('.subinfo h3') && entry.querySelector('.subinfo h3').textContent)
+      || (entry && entry.querySelector('h3') && entry.querySelector('h3').textContent)
+      || (document.querySelector('h4') && document.querySelector('h4').textContent)
+      || document.title.replace(/\s*-\s*.*$/, ''),
+    );
+    if (!entry || !content) {
+      const body = tidy(document.body && document.body.textContent);
+      return {
+        locked: /(로그인|구매|대여|결제|성인인증|권한|이용권|보안 점검)/.test(body),
+        chapterName: heading, contentText: '', contentHtml: '', images: [],
+        error: 'Reader content not found',
+      };
+    }
+    const node = content.cloneNode(true);
+    node.querySelectorAll('.dummy, script, style, noscript, iframe, button').forEach((el) => el.remove());
+    const images = [];
+    node.querySelectorAll('img').forEach((img) => {
+      const src = abs(img.getAttribute('src') || '');
+      if (!src || /blank\.png/i.test(src)) { img.remove(); return; }
+      const name = mpiaImageName(src, chapterIndex, images.length + 1);
+      images.push({ url: src, name });
+      img.setAttribute('src', name);
+    });
+    let blocks = Array.from(node.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote'))
+      .map((el) => tidy(el.textContent)).filter(Boolean);
+    if (!blocks.length) blocks = tidy(node.textContent).split('\n').map((line) => tidy(line)).filter(Boolean);
+    const contentText = blocks.join('\n');
+    return {
+      locked: !contentText && !images.length,
+      chapterName: heading,
+      contentText,
+      contentHtml: `<div class="mpia-content">${node.innerHTML.trim()}</div>`,
+      images,
+    };
+  };
+
+  /** Extracts the loaded chapter. The viewer draws on a canvas; a server-rendered page uses its DOM. */
+  mpia.extract = async function (options) {
+    const chapterIndex = (options && options.chapterIndex) || 0;
+    if (/^\/novel\/viewer\/\d+\/\d+/.test(location.pathname)) return await mpiaCanvasExtract(chapterIndex);
+    return mpiaDomExtract(chapterIndex);
+  };
+
+  // ---------------------------------------------------------------------------------------------
   // Tasks: long operations (qdn.extract, qdn.decoder.decodeJson) are started and then polled, so no
   // single native script call has to outlive a platform's script timeout.
   //   tasks.start('qdn.extract', [options])            -> {ticket}
@@ -2180,6 +2528,7 @@
   util.reEscape = reEscape;
   if (root.top === root) {
     try { qdn.installFontHook(); } catch (e) { /* the reader still works; only scripted fonts are missed */ }
+    try { mpia.installReaderHook(); } catch (e) { /* only the mpia reader observer is missed */ }
   }
   root.__npiaHard = hard;
 }(typeof window !== 'undefined' ? window : globalThis));
