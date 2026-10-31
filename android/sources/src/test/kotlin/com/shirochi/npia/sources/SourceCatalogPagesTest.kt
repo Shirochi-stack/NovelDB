@@ -19,8 +19,8 @@ class SourceCatalogPagesTest {
     @Test
     fun builtInScrapersListTheirSites() {
         val withSites = SourceCatalog.adapters.filter { it.sites.isNotEmpty() }.map { it.id }.toSet()
-        // ntk is not ported yet and has no sites; maru is recognised by a name pattern (ownsSite),
-        // not a fixed list.
+        // ntk and maru are recognised by a name pattern (ownsSite), not a fixed `sites` list, so they
+        // list no sites here; `reader` takes any page the script engines list.
         val unported = setOf(SourceId.NTK, SourceId.READER, SourceId.MARU)
         assertEquals(SourceId.entries.toSet() - unported, withSites)
         SourceCatalog.adapters.flatMap { it.sites }.forEach { host ->
@@ -29,6 +29,9 @@ class SourceCatalogPagesTest {
         }
         assertTrue(SourceCatalog.adapterFor(SourceId.MARU).ownsSite("marumaru123.com"))
         assertFalse(SourceCatalog.adapterFor(SourceId.MARU).ownsSite("example.com"))
+        assertTrue(SourceCatalog.adapterFor(SourceId.NTK).ownsSite("newtoki468.com"))
+        assertTrue(SourceCatalog.adapterFor(SourceId.NTK).ownsSite("sbxh12.org"))
+        assertFalse(SourceCatalog.adapterFor(SourceId.NTK).ownsSite("example.com"))
     }
 
     @Test
