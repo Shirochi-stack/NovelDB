@@ -163,7 +163,7 @@ def spin(value: int, low: int, high: int, on_change: Callable[[int], None], spec
     box = SpinBox()
     box.setRange(low, high)
     if special:
-        box.setSpecialValueText(special)
+        box.set_blank_placeholder(special)
     box.setValue(value)
     box.setKeyboardTracking(False)
     box.valueChanged.connect(on_change)
@@ -208,8 +208,34 @@ def scroll_page_instead(widget: QWidget, event) -> None:
 class SpinBox(QSpinBox):
     """A spin box the mouse wheel never changes (see `scroll_page_instead`)."""
 
+    _blank_min = False
+
     def wheelEvent(self, event):
         scroll_page_instead(self, event)
+
+    def set_blank_placeholder(self, text):
+        """Leave the field blank at its minimum and show `text` as a greyed placeholder, instead of a
+        special value the user has to delete before typing (what setSpecialValueText does)."""
+        self._blank_min = True
+        self.lineEdit().setPlaceholderText(text)
+
+    def textFromValue(self, value):
+        if self._blank_min and value == self.minimum():
+            return ""
+        return super().textFromValue(value)
+
+    def validate(self, text, pos):
+        # Accept an empty field so the user can clear it; without this the box reverts to the last value.
+        if self._blank_min and not text.strip():
+            from PySide6.QtGui import QValidator
+            return (QValidator.Acceptable, text, pos)
+        return super().validate(text, pos)
+
+    def valueFromText(self, text):
+        # An empty field means the minimum (the blank/placeholder state), not the previous value.
+        if self._blank_min and not text.strip():
+            return self.minimum()
+        return super().valueFromText(text)
 
 
 class DoubleSpinBox(QDoubleSpinBox):

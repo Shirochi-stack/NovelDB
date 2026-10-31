@@ -14,7 +14,7 @@
  *   The app sends it on supported sites (the ones it downloads from) and never on NovelDB.
  * - cartLinks: only on sites that are neither NovelDB nor supported; links to other sites that show
  *   text are renamed "Download" and go to the cart. Otherwise no link is renamed.
- * - Fill mode (desktop app) widens page columns capped narrower than the window, up to 1300px.
+ * - Fill mode (desktop app) widens page columns that stay narrower than the window to the whole window.
  * - Card buttons, the Download button and renamed links show the app's download artwork (DOWNLOAD_ICON).
  * - Taps show no highlight flash, the NovelDB header is slimmer, and NovelDB Next's hover preview is off.
  * - On phones, dialog heights use the window height (some Android WebViews resolve dvh units to 0)
@@ -161,10 +161,10 @@
             renamed.clear();
         }
     }
-    // Fill mode (desktop): page columns capped at 900px or more (NovelDB Next keeps 1100px) widen to
-    // the window, up to 1300px. Dialogs and side panels keep their size. A full-width NovelDB Next grid
-    // on a large window holds 180 cards, more than the desktop app's browser draws at 60 frames a
-    // second while scrolling (it held about 45); at 1300px it holds 100 and keeps about 60.
+    // Fill mode (desktop): page columns whose max-width is 900px or more but narrower than the window
+    // (NovelDB Next keeps 1100px) widen to the whole window, with no fixed cap. Dialogs and side panels
+    // keep their size. A full-width NovelDB Next grid on a large window holds many more cards, so a very
+    // wide window can scroll below 60fps; that is the trade for using the whole width.
     var lastFill = 0, fillChecked = new WeakSet(), filled = false;
     function fillWidth() {
         var i;
@@ -369,7 +369,7 @@
         'background:url(' + DOWNLOAD_ICON + ') center/contain no-repeat}' +
         // NovelDB Next's hover preview covers the neighbouring cards; the details view shows the same.
         '.scroll-main div.pop[role=presentation]{display:none!important}' +
-        '[data-noveldb-fill]{max-width:1300px!important}' +
+        '[data-noveldb-fill]{max-width:none!important}' +
         'html.noveldb-peek #app > aside,html.noveldb-peek button[aria-label="Close details"]' +
         '{visibility:hidden!important;animation:none!important;transition:none!important}';
     // Phone-sized dialogs (window height instead of dvh, a short cover). The desktop app keeps the

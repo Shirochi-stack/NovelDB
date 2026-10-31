@@ -945,9 +945,100 @@ def advanced_form(context: AppContext) -> Form:
     return f
 
 
+def _sfc_session_saved() -> bool:
+    """True when an sfc app session (session_APP) is saved, so bought VIP chapters download as text."""
+    import json
+    import os
+
+    try:
+        from external_scraper import _get_app_data_dir, _get_base_dir
+    except Exception:
+        return False
+    texts = [os.environ.get("NPIA_SFC_COOKIE") or ""]
+    for base in (_get_base_dir(), _get_app_data_dir()):
+        try:
+            path = os.path.join(base, "sfc_app_cookie.txt")
+            if os.path.exists(path):
+                with open(path, encoding="utf-8", errors="ignore") as handle:
+                    texts.append(handle.read())
+        except Exception:
+            pass
+    try:
+        cfg = str(paths.config_path(_get_base_dir()))
+        if os.path.exists(cfg):
+            with open(cfg, encoding="utf-8") as handle:
+                texts.append(str(json.load(handle).get("sfc_cookie") or ""))
+    except Exception:
+        pass
+    return any("session_APP=" in text for text in texts)
+
+
+def sessions_form(context: AppContext) -> Form:
+    """Saved logins, like the mobile Enter App tab: the sfc app session, the shared login browser,
+    and a pointer to the npia account."""
+    from noveldb.qt.tools import available
+
+    f = Form(context, "Saved sessions")
+    f.add_hint(
+        "The logins the app has saved. They let you download chapters your account has bought; "
+        "nothing is ever purchased."
+    )
+
+    def button(text: str, tool: str) -> QPushButton:
+        btn = QPushButton(text)
+        ok, reason = available(tool)
+        if not ok:
+            btn.setEnabled(False)
+            btn.setToolTip(reason)
+        btn.clicked.connect(lambda: context.toolRequested.emit(tool))
+        return btn
+
+    f.add_section("sfc")
+    sfc_status = QLabel("")
+    sfc_status.setWordWrap(True)
+    f.add(sfc_status)
+    f.add(flow(
+        button("Enter App / paste cookie", "sfc_app"),
+        button("Import from emulator", "sfc_android_import"),
+        button("Open Android emulator", "sfc_android_open"),
+        button("Copy app cookie", "sfc_copy"),
+        spacing=8,
+    ))
+    f.add_hint(
+        "The app session (session_APP) makes bought VIP chapters download as text. Open the Android "
+        "emulator, sign in to the sfc app there, then Import — or paste an app cookie with Enter App."
+    )
+
+    f.add_section("Website logins (qdn, rbooks, jara, kobo and more)")
+    f.add_hint(
+        "These sources sign in through one shared browser. Open it, sign in to the site(s) you use, "
+        "then close it — the logins are saved to the browser profile and reused for downloads."
+    )
+    f.add(flow(button("Enter Browser", "enter_browser"), spacing=8))
+
+    f.add_section("npia")
+    f.add_hint(
+        "Your npia account (email, password, session key, Google sign-in) is on the \"npia login\" "
+        "page in this list, and on the Download page."
+    )
+
+    def refresh_sfc(*_args) -> None:
+        sfc_status.setText(
+            "App session saved: bought VIP chapters download as text."
+            if _sfc_session_saved() else
+            "No app session saved: only free chapters download as text."
+        )
+
+    context.hub.message.connect(lambda _msg: refresh_sfc())
+    f._refreshers.append(lambda _s: refresh_sfc())
+    f.finish()
+    return f
+
+
 CATEGORIES = (
     ("General", general_form),
     ("npia login", npia_form),
+    ("Saved sessions", sessions_form),
     ("Per-source overrides", OverridesForm),
     ("Source options", sources_form),
     ("Site engines", engines_form),
