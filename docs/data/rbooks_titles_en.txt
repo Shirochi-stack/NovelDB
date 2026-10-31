@@ -8296,6 +8296,7 @@
 2259040254|||망가진 모든 것의 사정|||The Circumstances Behind Everything Broken
 2259040446|||대공녀의 여섯 번째 첫날밤|||The Grand Duchess’s Sixth Wedding Night
 2259040576|||천재라뇨, 자동사냥인데요|||A Genius? It’s Just Auto-Hunting!
+2259041150|||마지막 여행이 끝나면|||When the Last Journey Ends
 2282000001|||헌터계급론|||A Theory of Hunter Ranks
 2282000073|||회귀에서 클리어까지|||From Regression to Clear
 2282000164|||나무로 태어난 나의 일상|||My Daily Life as a Tree
@@ -21415,7 +21416,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-2259041150|||마지막 여행이 끝나면|||
 425606091|||1903|||
 425629250|||1973|||
 945008054|||40,41|||
