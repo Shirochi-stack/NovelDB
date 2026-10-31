@@ -74316,6 +74316,7 @@
 1557801|||환상의 포켓몬 엔서루스|||The Mythical Pokémon Encerus
 1557807|||[하이큐] 너에게 고백하는 날 完|||[Haikyuu] The Day I Confess to You (Complete)
 1557811|||흩어지거나,가라앉거나.|||Drift Apart or Sink
+1557822|||[주술회전X헌터] 역시 곤란한가요? 이런 제가 딸이라면!|||[Jujutsu Kaisen X Hunter] Are You Troubled After All? If I Were Your Daughter Like This!
 1557826|||[던만추/다중] Re - '부부'부터 다시 시작하는 오라리오 일상|||[DanMachi/Multiple] Re: Orario Everyday Life, Starting Again as 'Husband and Wife'
 1557832|||홍紅|||Crimson
 1557835|||어딘가에서 들려온 목소리|||A Voice Heard from Somewhere
@@ -123067,6 +123068,7 @@
 1813859|||bl 세계관 속 메인공수의 자식이다|||I Am the Child of the Main Couple in a BL World
 1813864|||탑의 끝 마왕의 귀환|||Return of the Demon King at the End of the Tower
 181387|||My PanTasTic Doll|||My PanTasTic Doll
+1813874|||[괴담출근] 괴담에서 탈출해도 재취업을 해야 하는구나|||[Ghost Story Commute] Even After Escaping the Horror, I Still Have to Find a New Job
 1813877|||약혼자의 하녀에서 왕이 되었다|||From Fiancée's Maid to Queen
 1813880|||[주술회전] 네비게이터|||[Jujutsu Kaisen] Navigator
 1813887|||매니저를 그만두니 배우가 쫓아왔다 完 (4/12자정습작)|||I Quit as a Manager, and an Actor Chased After Me (Complete; Draft Deleted at Midnight 4/12)
@@ -145181,6 +145183,7 @@
 1889244|||선을 넘지 말아주세요|||Please Don't Cross the Line
 1889245|||아르덴의 밤|||Night of Arden
 1889248|||멘헤라 엄마는 오늘부터 육아|||My Menhera Mother Starts Raising a Child Today
+1889250|||마운드의 금태양|||Golden Sun of the Mound
 1889251|||회귀한 검신은 조용히 살고 싶다|||The Regressed Sword God Wants to Live Quietly
 1889253|||[코난] 플래그를 회피하는 방법|||[Conan] How to Avoid Flags
 1889254|||몰락남과 회피녀의 인류보완계획|||The Human Instrumentality Project of a Fallen Man and an Avoidant Woman
@@ -145243,6 +145246,7 @@
 1889354|||칼끝에서 피어난 혼인|||A Marriage Blooming at the Sword's Edge
 1889355|||미국 깡촌에 입양당한 천재 고아는 세계 부자 랭킹 1위|||The Genius Orphan Adopted into a Backwater American Town Is Ranked World's Richest No. 1
 1889357|||약해빠진 마법사라 다행입니다.|||Fortunately, I'm a Pathetically Weak Wizard
+1889358|||검신급 공무원의 회귀|||Regression of a Sword God-Class Civil Servant
 1889359|||랭커 힐러에게 집착당하는 중|||I'm Being Obsessively Pursued by a Ranker Healer
 1889360|||하늘의 빛 세상의 끝|||Light of the Sky, End of the World
 1889363|||과연 내가, 아포칼립스 세계관에 떨어져도 살아남을 수 있을까?(가제)|||Could I Really Survive If I Fell into an Apocalypse World? (Working Title)
@@ -145267,6 +145271,7 @@
 1889409|||반경 안에서|||Within the Radius
 1889411|||죽은 사람의 편지를 배달합니다|||I Deliver Letters from the Dead
 1889412|||절대자도 아빠는 처음이라|||Even the Absolute Being Is a First-Time Dad
+1889413|||가상 현실의 음악 천재|||Music Genius of Virtual Reality
 1889416|||충복지처|||Loyal Servant Consort
 1889423|||19금 출신 귀환자입니다|||I'm a Returnee from an R-Rated World
 1889424|||전략적 파혼 계약|||Strategic Broken Engagement Contract
@@ -145338,6 +145343,7 @@
 1889588|||돌아온 하녀는 복수를 원한다|||The Returned Maid Seeks Revenge
 1889589|||몰닉|||Morning Nick
 1889592|||린린|||Linlin
+1889593|||출근 중 사건 발생 보고서|||Incident Report During Commute
 1889594|||[코난] 피차일반|||[Conan] We're Both the Same
 1889595|||내 이야기|||My Story
 1889596|||책임져주세요. 형|||Take Responsibility, Hyung
@@ -146682,8 +146688,10 @@
 1892421|||[귀멸의 칼날] 귀살대 풍주와 실수로 동침했을 때|||[Demon Slayer] When You Accidentally Sleep with the Wind Hashira
 1892422|||[작두] 미친 상황 연속 발생 이벤트|||[Jakdu] A Chain of Crazy Situations
 1892424|||이게 보이세요? 도와주세요! 살려주세요!|||Can You See This? Help Me! Save Me!
+1892425|||[의다살/메이플] 雪中梅|||[Ida Sal/Maple] Plum in the Snow
 1892426|||태양을 잃은 겨울|||Winter Without the Sun
 1892427|||금붕어는 수족관을 떠난다.|||The Goldfish Leaves the Aquarium.
+1892428|||[도리벤/오란고교] 하니노즈카의 무도(武道)|||[Dorivyen/Ouran High] Hanino-zuka's Martial Way
 1892429|||[하이큐] 너와 나의 배구|||[Haikyuu] Volleyball, You and Me
 1892431|||전직 요원, 조선의 도련님이 되다|||Former Agent Becomes a Young Master in Joseon
 1892432|||[약한 영웅/BL] 신혼집 보모살이|||[Weak Hero/BL] Babysitting in the Newlywed Home
@@ -147555,6 +147563,7 @@
 1894511|||실리나 메르슈도프는 회귀가 싫어서 불사의 몸이 되려고 합니다.|||Silina Mershudov Hates Regression, So She Plans to Become Immortal
 1894529|||[도리벤] 저 그런 사람 아닙니다.|||[Tokyo Revengers] I'm Not That Kind of Person.
 1894549|||[블루록] 요즘은 배신하기도 힘들다.|||[Blue Lock] Even Betrayal Is Hard These Days.
+1894557|||전역당한 헌터는 국가전력급으로 각성했다|||The Discharged Hunter Awakened as a National-Level Power
 1894566|||이끼 정령|||Moss Spirit
 189460|||알바생들|||The Part-Timers
 1894602|||[주술회전] 지장보살 아래서|||[Jujutsu Kaisen] Under Jizo Bodhisattva
@@ -147919,6 +147928,7 @@
 1895465|||라보네(L'abonné)|||L'abonné
 1895470|||적국의 황자는 제가 고르겠습니다|||I'll Choose the Enemy Kingdom's Prince
 1895474|||우리가 버리지 못한 것들|||Things We Couldn't Throw Away
+1895476|||무망(無望)의 운데침|||Hopeless Undercurrent
 1895477|||황후는 대공의 것이 아니다|||The Empress Does Not Belong to the Grand Duke
 1895478|||[원피스] 뉴데이즈|||[One Piece] New Days
 1895479|||아틀란티스, 너 없는 영원|||Atlantis, Eternity Without You
@@ -238529,7 +238539,6 @@
 1556120|||1|||
 1557323|||.|||
 15576|||?~|||
-1557822|||[주술회전X헌터] 역시 곤란한가요? 이런 제가 딸이라면!|||
 1558317|||.|||
 1559113|||.......|||
 1559436|||1|||
@@ -238838,7 +238847,6 @@
 1803840|||.|||
 1805052|||-|||
 1813773|||ㅣ|||
-1813874|||[괴담출근] 괴담에서 탈출해도 재취업을 해야 하는구나|||
 1814923|||ㅤㅤㅤ|||
 1816034|||-|||
 1817997|||.|||
@@ -238938,10 +238946,6 @@
 1886312|||ㄴ|||
 1886519|||ㆍ|||
 1887427|||.|||
-1889250|||마운드의 금태양|||
-1889358|||검신급 공무원의 회귀|||
-1889413|||가상 현실의 음악 천재|||
-1889593|||출근 중 사건 발생 보고서|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1891144|||설 하 : 偰 河|||
@@ -238950,8 +238954,6 @@
 1891738|||[괴담출근] 신원미상(身元未詳)|||
 1892225|||17-19|||
 1892227|||무귀 (無歸) : 돌아갈 곳이 없는|||
-1892425|||[의다살/메이플] 雪中梅|||
-1892428|||[도리벤/오란고교] 하니노즈카의 무도(武道)|||
 1892665|||번학무사 (番學武士)|||
 1892819|||상산(常山)|||
 1892954|||[작두/BL] 辰|||
@@ -238960,7 +238962,6 @@
 1894167|||[문스독] 렌(廉)|||
 1894252|||화花|||
 1894292|||[작두X내스급] 외부인(外部人)|||
-1894557|||전역당한 헌터는 국가전력급으로 각성했다|||
 1894874|||[주술회전]사신(死神)|||
 1894896|||[도리벤] 수계혼(收繼婚)|||
 1894933|||상흔가(傷痕歌)|||
@@ -238971,7 +238972,6 @@
 1895263|||[나루토] 범인몽 (凡人夢)|||
 1895433|||선영(線影) : 그늘을 비추는 햇볕|||
 1895473|||불멸(不滅)|||
-1895476|||무망(無望)의 운데침|||
 1895668|||[주술회전] 만연지연(晩後之緣)|||
 1895696|||기화氣化|||
 1895973|||연의 우기 (年의 雨期)|||
