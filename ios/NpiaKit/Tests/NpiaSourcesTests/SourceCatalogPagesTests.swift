@@ -27,7 +27,7 @@ final class SourceCatalogPagesTests: XCTestCase {
 
     func testBuiltInScrapersListTheirSites() {
         // `reader` takes any page the script engines list, so it lists none; maru is recognised by a name pattern.
-        let ported: Set<SourceID> = [.npia, .globalNpia, .kpage, .sfc, .nweb, .jara, .floo, .fenrir, .xiyuwx, .yeduji, .kobo, .qdn, .rbooks]
+        let ported: Set<SourceID> = [.npia, .globalNpia, .mpia, .kpage, .sfc, .nweb, .jara, .floo, .fenrir, .xiyuwx, .yeduji, .kobo, .qdn, .rbooks]
         let listed = Set(SourceCatalog.adapters.filter { !$0.sites.isEmpty }.map { $0.id })
         XCTAssertTrue(ported.isSubset(of: listed), "missing: \(ported.subtracting(listed))")
         XCTAssertFalse(listed.contains(.reader))
