@@ -92,8 +92,13 @@ actor EnginePage {
 /// is `{status, statusText, responseHeaders, finalUrl, responseBase64}` or `{error}`.
 enum EngineTransport {
     static func handle(_ json: String, http: any HTTPFetching) async -> String {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
-              let text = object["url"] as? String, let url = URL(string: text),
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else {
+            return encode(["error": "invalid request"])
+        }
+        if object["op"] as? String == "cookie" {
+            return cookieReply(object)
+        }
+        guard let text = object["url"] as? String, let url = URL(string: text),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
         else {
             return encode(["error": "invalid request"])
@@ -126,6 +131,20 @@ enum EngineTransport {
         } catch {
             return encode(["error": error.localizedDescription])
         }
+    }
+
+    /// Answers a `chrome.cookies.get` read (op "cookie") from the web view's cookies, which the
+    /// engine copies to the shared jar before each call, so a parser can read an httpOnly login or
+    /// anti-bot cookie such as `cf_clearance` that `document.cookie` cannot see. Replies
+    /// `{cookie: {name, value, domain}}` or `{cookie: null}`.
+    private static func cookieReply(_ object: [String: Any]) -> String {
+        guard let text = object["url"] as? String, let url = URL(string: text),
+              let name = object["name"] as? String, !name.isEmpty,
+              let cookie = HTTPCookieStorage.shared.cookies(for: url)?.first(where: { $0.name == name })
+        else {
+            return encode(["cookie": NSNull()])
+        }
+        return encode(["cookie": ["name": cookie.name, "value": cookie.value, "domain": cookie.domain]])
     }
 
     static func reply(status: Int, url: URL, headers: [String: String], body: Data) -> String {
