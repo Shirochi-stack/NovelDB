@@ -34223,7 +34223,6 @@
 1157654|||소녀:뭉크의절규처럼|||Girl: Like Munch's Scream
 1157657|||줄타기|||Tightrope
 1157660|||환생 했는데 도련님 이었습니다?|||I Reincarnated as a Young Master?
-1157662|||이 끝이 어떻게 되었더라? : 단편들의 그림자|||How Did This End Again? : Shadows of Short Stories
 1157664|||짧은 시|||Short Poems
 1157666|||그남자 그여자|||That Man, That Woman
 1157676|||천벌의 달|||Moon of Divine Punishment
@@ -61074,7 +61073,6 @@
 1230310|||내 남편 내연녀의 딸로 태어났다|||I Was Born as My Husband’s Mistress’s Daughter
 1230312|||뉴 프런티어|||New Frontier
 1230314|||나를먹지마|||Don’t Eat Me
-1230316|||중요한 깨달음.|||An Important Realization
 1230318|||일그러진 관계|||A Distorted Relationship
 1230321|||대표님이 회귀한 것 같다.|||I Think the CEO Regressed
 1230322|||밴드부 보컬과 기타는 무조건 애인이 생긴다던데?|||They Say the Band Club’s Vocalist and Guitarist Always Become a Couple?
@@ -81790,7 +81788,6 @@
 175733|||연애의 계절|||The Season of Love
 175737|||그란디르[게임소설]|||Grandir [Game Novel]
 175738|||꽃에 담는 너의 이야기|||Your Story in a Flower
-175742|||기괴한 동화집-->머리 검은 짐승의 역사(歷史)|||Strange Fairy-Tale Collection --> The History of the Black-Haired Beast
 175746|||쿵떡쿵떡|||Thump-Thump
 175747|||그 야수의 본능|||That Beast's Instinct
 17575|||러시안룰렛|||Russian Roulette
@@ -245797,6 +245794,7 @@
 115132|||.|||
 1156074|||2047|||
 1157486|||18/20|||
+1157662|||미스터리 옴니버스 : 밤의 기록|||
 1158613|||-|||
 1159131|||.|||
 1159265|||--|||
@@ -245893,6 +245891,7 @@
 1229770|||051|||
 1229780|||045|||
 1229790|||044|||
+1230316|||도박을 끊자 눈에 보이는 것|||
 1230379|||038|||
 1230448|||.|||
 1230782|||-|||
@@ -245956,6 +245955,7 @@
 172860|||[......|||
 173775|||.|||
 174140|||0.00%|||
+175742|||기괴한 동화집|||
 17862|||9:00|||
 18110|||ㄴ|||
 182233|||.....|||
