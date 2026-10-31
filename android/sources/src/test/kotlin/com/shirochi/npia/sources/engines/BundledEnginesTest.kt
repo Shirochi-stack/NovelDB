@@ -37,6 +37,8 @@ class BundledEnginesTest {
         // The transport the app provides, tried after the page's own fetch.
         assertTrue(text.contains("__W2E_transport"))
         assertTrue(text.contains("__npia_gm_xmlhttp_request"))
+        // The cookie shim a parser reads a login/anti-bot cookie through.
+        assertTrue(text.contains("__W2E_cookie"))
     }
 
     @Test

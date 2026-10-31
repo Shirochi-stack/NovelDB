@@ -2,9 +2,9 @@
   "engine": "webtoepub",
   "commit": "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39",
   "date": "2026-10-27T04:19:22Z",
-  "ref": "ExperimentalTabMode",
+  "ref": "cc1ef36c89f9e8adddf37094dfd67e8bb500ec39",
   "version": "1.0.14.61",
-  "shim": "6eb45683d5fa",
+  "shim": "c5b0a27309b0",
   "api": 1,
   "scripts": 449,
   "excluded": [],
@@ -14,7 +14,7 @@
   ],
   "sites": 652,
   "file": "webtoepub-lib.js",
-  "size": 1539922,
-  "sha256": "e78ba9dc5f8f07a8c86ba5afcd304d7b24d61d585305763fa53ad91f44ecbdf0",
-  "built": "2026-10-28T10:53:31Z"
+  "size": 1541202,
+  "sha256": "f61fb272e6a3b25af9beada8930b1f3026225e505520b6b94166f29b7887adfa",
+  "built": "2026-10-31T21:21:23Z"
 }

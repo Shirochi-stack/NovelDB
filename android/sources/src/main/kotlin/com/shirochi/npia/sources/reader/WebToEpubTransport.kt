@@ -2,8 +2,10 @@ package com.shirochi.npia.sources.reader
 
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
+import com.shirochi.npia.core.SharedCookies
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -25,6 +27,7 @@ internal object WebToEpubTransport {
     suspend fun handle(requestJson: String, http: HttpFetching): String {
         val reply = try {
             val details = Json.parseToJsonElement(requestJson) as? JsonObject ?: return error("the request is not an object")
+            if (details.string("op") == "cookie") return cookieReply(details)
             val request = request(details) ?: return error("invalid URL ${details.string("url").orEmpty()}")
             val response = http.send(request)
             buildJsonObject {
@@ -43,6 +46,30 @@ internal object WebToEpubTransport {
     }
 
     private fun error(message: String) = buildJsonObject { put("error", message) }.toString()
+
+    /**
+     * Answers a `chrome.cookies.get` read (tagged op "cookie") from the shared cookie store, so a
+     * parser can read an httpOnly login or anti-bot cookie (for example `cf_clearance`) that the
+     * page's own `document.cookie` cannot see. Replies `{cookie: {name, value, domain}}` or `{cookie: null}`.
+     */
+    private fun cookieReply(details: JsonObject): String {
+        val url = details.string("url").orEmpty()
+        val name = details.string("name").orEmpty()
+        val value = if (url.isNotEmpty() && name.isNotEmpty()) SharedCookies.store?.cookies(url)?.get(name) else null
+        return buildJsonObject {
+            if (value == null) {
+                put("cookie", JsonNull)
+            } else {
+                put("cookie", buildJsonObject {
+                    put("name", name)
+                    put("value", value)
+                    put("domain", hostOf(url))
+                })
+            }
+        }.toString()
+    }
+
+    private fun hostOf(url: String): String = runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("")
 
     /** The HTTP request a transport call describes, or null when it is not an http(s) URL. */
     internal fun request(details: JsonObject): HttpRequest? {

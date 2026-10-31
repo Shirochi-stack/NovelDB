@@ -3,9 +3,12 @@ package com.shirochi.npia.sources.reader
 import com.shirochi.npia.core.HttpFetching
 import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.HttpResponse
+import com.shirochi.npia.core.SharedCookieStore
+import com.shirochi.npia.core.SharedCookies
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -95,6 +98,32 @@ class WebToEpubTransportTest {
         WebToEpubTransport.handle("""{"url":"https://novel.example/b","cookie":"sid=1","headers":{"cookie":"own=2"}}""", http)
         assertEquals(mapOf("Cookie" to "sid=1"), http.requests[0].headers)
         assertEquals(mapOf("cookie" to "own=2"), http.requests[1].headers)
+    }
+
+    @Test
+    fun aCookieOpReadsFromTheSharedCookieStore() = runTest {
+        val previous = SharedCookies.store
+        SharedCookies.store = object : SharedCookieStore {
+            override fun cookies(url: String) =
+                if (url.startsWith("https://sbxh9.com")) mapOf("cf_clearance" to "secret", "sid" to "1") else emptyMap()
+            override fun setCookie(url: String, name: String, value: String, domain: String?) {}
+        }
+        try {
+            val http = Recording { error("a cookie op must not touch the HTTP client") }
+            val hit = parse(WebToEpubTransport.handle(
+                """{"op":"cookie","action":"get","url":"https://sbxh9.com/novel/1","name":"cf_clearance"}""", http))
+            val cookie = hit["cookie"]!!.jsonObject
+            assertEquals("cf_clearance", cookie["name"]!!.jsonPrimitive.content)
+            assertEquals("secret", cookie["value"]!!.jsonPrimitive.content)
+            assertEquals("sbxh9.com", cookie["domain"]!!.jsonPrimitive.content)
+
+            val miss = parse(WebToEpubTransport.handle(
+                """{"op":"cookie","action":"get","url":"https://sbxh9.com/novel/1","name":"absent"}""", http))
+            assertEquals(JsonNull, miss["cookie"])
+            assertTrue(http.requests.isEmpty())
+        } finally {
+            SharedCookies.store = previous
+        }
     }
 
     @Test
