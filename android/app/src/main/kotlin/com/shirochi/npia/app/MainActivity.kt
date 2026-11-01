@@ -2,6 +2,7 @@ package com.shirochi.npia.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handle(intent)
         askForNotifications()
         keepScreenAwakeWhileDownloading()
+        openUpdateConfirmations()
         setContent {
             model.manager.preferencesFlow.collectAsStateWithLifecycle().value
             val preferences = model.manager.preferences
@@ -116,6 +118,27 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         preferences.askedForNotifications = true
         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    /**
+     * Opens Android's confirmation screen for an app update from this activity, so it starts in the app's
+     * own task while the app is in front. One that arrived in the background opens when the app is back.
+     */
+    private fun openUpdateConfirmations() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                val updater = model.manager.appUpdater
+                updater.confirmation.collect { confirm ->
+                    if (confirm == null) return@collect
+                    updater.confirmationShown()
+                    try {
+                        startActivity(confirm)
+                    } catch (e: Exception) {
+                        updater.installFailed(InstallOutcome.failure(PackageInstaller.STATUS_FAILURE, e.message))
+                    }
+                }
+            }
+        }
     }
 
     private fun keepScreenAwakeWhileDownloading() {

@@ -83,7 +83,8 @@ fun AppUpdateDialog(model: AppViewModel) {
             onDismissRequest = { updater.dismissNotice() },
             title = { Text("The update was not installed") },
             text = { Text(s.text) },
-            confirmButton = { TextButton(onClick = { updater.dismissNotice() }) { Text("OK") } },
+            confirmButton = { TextButton(onClick = { updater.startUpdate() }) { Text("Try again") } },
+            dismissButton = { TextButton(onClick = { updater.dismissNotice() }) { Text("OK") } },
         )
         else -> Unit
     }

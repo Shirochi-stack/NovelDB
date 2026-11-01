@@ -55,11 +55,15 @@ object InstallOutcome {
         "Android refused the update because it is signed with a different key than the NovelDB on this device. " +
             "Uninstall the old NovelDB first; your settings will be lost."
 
+    const val CANCELLED =
+        "The install was cancelled before Android finished it. Tap Try again to open Android's confirmation screen again; " +
+            "the download is kept."
+
     /** The message for a failed install (`PackageInstaller.STATUS_*`), `message` being Android's own explanation. */
     fun failure(status: Int, message: String?): String {
         val detail = message?.trim().orEmpty()
         return when {
-            status == PackageInstaller.STATUS_FAILURE_ABORTED -> "The install was cancelled."
+            status == PackageInstaller.STATUS_FAILURE_ABORTED -> CANCELLED
             detail.contains("signature", ignoreCase = true) || detail.contains("UPDATE_INCOMPATIBLE", ignoreCase = true) -> SIGNING_KEY
             detail.contains("DOWNGRADE", ignoreCase = true) -> "Android refused the update because the installed NovelDB is newer."
             status == PackageInstaller.STATUS_FAILURE_STORAGE -> "There is not enough storage space to install the update."
@@ -70,7 +74,11 @@ object InstallOutcome {
     }
 }
 
-/** Receives the install session's progress: opens Android's confirmation screen and reports failures to the updater. */
+/**
+ * Receives the install session's progress and reports it to the updater. Android's confirmation screen is
+ * not opened here: `MainActivity` opens it, from the app in front and in the app's own task (see
+ * `AppUpdater.confirmation`).
+ */
 class UpdateInstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val updater = (context.applicationContext as NpiaApplication).downloads.appUpdater
@@ -82,15 +90,12 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                 if (confirm == null) {
                     updater.installFailed(InstallOutcome.failure(PackageInstaller.STATUS_FAILURE, "Android sent no confirmation screen"))
                 } else {
-                    try {
-                        context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (e: Exception) {
-                        updater.installFailed(InstallOutcome.failure(PackageInstaller.STATUS_FAILURE, e.message))
-                    }
+                    updater.confirmationNeeded(confirm)
                 }
             }
             PackageInstaller.STATUS_SUCCESS -> updater.installSucceeded()
-            else -> updater.installFailed(InstallOutcome.failure(status, message))
+            // A cancelled confirmation keeps the checked download, so Try again goes straight back to it.
+            else -> updater.installFailed(InstallOutcome.failure(status, message), keepFile = status == PackageInstaller.STATUS_FAILURE_ABORTED)
         }
     }
 }
