@@ -455,6 +455,29 @@ final class WebToEpubTests: XCTestCase {
         XCTAssertTrue(failed.hasPrefix(#"{"error":""#), failed)
     }
 
+    func testACookieOpReadsFromTheSharedCookieJar() async throws {
+        // A parser that reads an httpOnly login/anti-bot cookie (e.g. the sbxh content path) sends
+        // op "cookie" through the transport; it must come back from the web view's cookie jar, not HTTP.
+        let storage = HTTPCookieStorage.shared
+        let url = URL(string: "https://sbxh-cookie.test/novel/1")!
+        let cookie = HTTPCookie(properties: [.domain: "sbxh-cookie.test", .path: "/", .name: "cf_clearance", .value: "secret"])!
+        storage.setCookie(cookie)
+        defer { storage.deleteCookie(cookie) }
+
+        let http = RoutedHTTP()
+        let hit = await EngineTransport.handle(#"{"op":"cookie","action":"get","url":"https://sbxh-cookie.test/novel/1","name":"cf_clearance"}"#, http: http)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(hit.utf8)) as? [String: Any])
+        let got = try XCTUnwrap(object["cookie"] as? [String: Any])
+        XCTAssertEqual(got["name"] as? String, "cf_clearance")
+        XCTAssertEqual(got["value"] as? String, "secret")
+        XCTAssertEqual(got["domain"] as? String, "sbxh-cookie.test")
+
+        let miss = await EngineTransport.handle(#"{"op":"cookie","url":"https://sbxh-cookie.test/novel/1","name":"absent"}"#, http: http)
+        let missObject = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(miss.utf8)) as? [String: Any])
+        XCTAssertTrue(missObject["cookie"] is NSNull)
+        XCTAssertTrue(http.requested("sbxh-cookie.test").isEmpty, "a cookie op never touches the HTTP client")
+    }
+
     func testThePageReachesTheTransportThroughItsMessageHandler() async throws {
         let http = RoutedHTTP()
         http.on("chapters.test/1", "<p>one</p>")
