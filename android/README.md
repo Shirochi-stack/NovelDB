@@ -56,7 +56,7 @@ qdn and rbooks need a real rendering engine and the user's own sign-in. Their pa
 
 ## Porting from iOS
 
-Each placeholder carries a `TODO(<workstream>)`. The finished Swift code on the `ios/integration` branch is the closest reference: port its logic and test fixtures, and use the desktop Python as the source of truth when the two differ.
+Each placeholder carries a `TODO(<workstream>)`. The finished Swift code under `ios/` is the closest reference: port its logic and test fixtures, and use the desktop Python as the source of truth when the two differ.
 
 ## Rules
 
