@@ -351,6 +351,8 @@ window.__W2E_info = function () {
 
 // The network shim itself, for checks and diagnostics.
 window.__W2E_fetch = fetch;
+// The cookie shim itself, for checks and diagnostics.
+window.__W2E_cookie = function (url, name) { return chrome.cookies.get({ url: url, name: name }); };
 window.__W2E_API = W2E_API;
 window.__W2E_READY = true;
 __w2e_log("WebToEpub " + __W2E_META.commit.substring(0, 12) + " ready, " + parserFactory.parsers.size + " sites");
