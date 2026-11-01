@@ -69,6 +69,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         tab = Tab.QUEUE
     }
 
+    /** Opens the Queue's job list, newest first, closing a job page or log left open there. */
+    fun openQueue() {
+        stacks.getValue(Tab.QUEUE).clear()
+        queueView = QueueView.JOBS
+        logJobFilter = null
+        tab = Tab.QUEUE
+    }
+
     /** Opens one book's job page; the combined log when that job is gone. */
     fun openJob(id: String) {
         if (manager.job(id) == null) {
