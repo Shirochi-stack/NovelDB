@@ -67,6 +67,14 @@ class AppUpdater(
     private val _state = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
     val state: StateFlow<AppUpdateState> = _state.asStateFlow()
 
+    /**
+     * Android's confirmation screen for the install session, until `MainActivity` opens it. It must start
+     * from the app in front, in the app's own task: started by the receiver into a new task, Android often
+     * dropped it and reported the install as cancelled. One that arrives in the background waits for the app.
+     */
+    private val _confirmation = MutableStateFlow<Intent?>(null)
+    val confirmation: StateFlow<Intent?> = _confirmation.asStateFlow()
+
     private var job: Job? = null
 
     /** Where the update is saved; cleaned out whenever a download starts and at app start. */
@@ -135,16 +143,21 @@ class AppUpdater(
         _state.value = AppUpdateState.Downloading(offer, 0, offer.asset.size)
         job = scope.launch {
             try {
-                directory.deleteRecursively()
-                var reported = -1L
-                val file = client.download(offer, urls().asset(offer.tag, offer.asset.name), directory) { received, total ->
-                    // About a hundred progress steps are enough.
-                    val step = received * 100 / total
-                    if (step != reported) {
-                        reported = step
-                        // Only while still downloading: a cancel that just happened must stay cancelled.
-                        val current = _state.value
-                        if (current is AppUpdateState.Downloading) _state.compareAndSet(current, AppUpdateState.Downloading(offer, received, total))
+                // Try again after a cancelled confirmation: the download kept from that attempt, if it still checks out
+                // (verify deletes a file that does not).
+                val kept = File(directory, offer.asset.name).takeIf { it.isFile && runCatching { AppUpdateClient.verify(it, offer.asset) }.isSuccess }
+                val file = kept ?: run {
+                    directory.deleteRecursively()
+                    var reported = -1L
+                    client.download(offer, urls().asset(offer.tag, offer.asset.name), directory) { received, total ->
+                        // About a hundred progress steps are enough.
+                        val step = received * 100 / total
+                        if (step != reported) {
+                            reported = step
+                            // Only while still downloading: a cancel that just happened must stay cancelled.
+                            val current = _state.value
+                            if (current is AppUpdateState.Downloading) _state.compareAndSet(current, AppUpdateState.Downloading(offer, received, total))
+                        }
                     }
                 }
                 // The file sits in app-private storage, but what goes to the installer is checked once more.
@@ -203,9 +216,20 @@ class AppUpdater(
         }
     }
 
-    /** From `UpdateInstallReceiver`. */
-    fun installFailed(text: String) {
-        directory.deleteRecursively()
+    /** From `UpdateInstallReceiver`: Android needs the user to confirm the install; `MainActivity` opens [intent]. */
+    fun confirmationNeeded(intent: Intent) {
+        _confirmation.value = intent
+    }
+
+    /** `MainActivity` took the confirmation screen to open it. */
+    fun confirmationShown() {
+        _confirmation.value = null
+    }
+
+    /** From `UpdateInstallReceiver`; [keepFile] keeps the checked download so Try again does not fetch it again. */
+    fun installFailed(text: String, keepFile: Boolean = false) {
+        _confirmation.value = null
+        if (!keepFile) directory.deleteRecursively()
         val offer = (_state.value as? AppUpdateState.Installing)?.offer
             ?: (_state.value as? AppUpdateState.Available)?.offer
             ?: return
@@ -213,6 +237,7 @@ class AppUpdater(
     }
 
     fun installSucceeded() {
+        _confirmation.value = null
         directory.deleteRecursively()
         _state.value = AppUpdateState.Message("NovelDB was updated.")
     }

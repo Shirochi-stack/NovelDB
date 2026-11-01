@@ -31,7 +31,11 @@ class AppUpdateModelTest {
 
     @Test
     fun otherFailuresAreDescribedWithoutTheUninstallAdvice() {
-        assertEquals("The install was cancelled.", InstallOutcome.failure(PackageInstaller.STATUS_FAILURE_ABORTED, "INSTALL_FAILED_ABORTED: User rejected permissions"))
+        val cancelled = InstallOutcome.failure(PackageInstaller.STATUS_FAILURE_ABORTED, "INSTALL_FAILED_ABORTED: User rejected permissions")
+        assertEquals(InstallOutcome.CANCELLED, cancelled)
+        // A cancelled confirmation can be retried without downloading again.
+        assertTrue(cancelled.contains("Try again"))
+        assertFalse(cancelled.contains("Uninstall"))
         assertTrue(InstallOutcome.failure(PackageInstaller.STATUS_FAILURE_STORAGE, null).contains("storage"))
         assertEquals(
             "Android refused the update because the installed NovelDB is newer.",
