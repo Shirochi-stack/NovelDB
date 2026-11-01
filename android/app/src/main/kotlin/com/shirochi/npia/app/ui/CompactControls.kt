@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -28,7 +29,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -139,6 +143,8 @@ private fun StepButton(symbol: String, enabled: Boolean, onClick: () -> Unit) {
 @Composable
 fun MiniNumberField(value: String, placeholder: String, decimal: Boolean, width: Int = 56, onChange: (String) -> Unit) {
     var text by remember(value) { mutableStateOf(value) }
+    var focused by remember { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
     Surface(shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
         Box(Modifier.width(width.dp).height(32.dp).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
             if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -148,8 +154,13 @@ fun MiniNumberField(value: String, placeholder: String, decimal: Boolean, width:
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                // Leaving the field (tapping elsewhere or Done) saves what it shows.
+                modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+                    if (focused && !state.isFocused) onChange(text)
+                    focused = state.isFocused
+                },
             )
         }
     }
