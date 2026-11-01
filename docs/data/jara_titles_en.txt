@@ -144870,6 +144870,7 @@
 1888501|||불사신은 날뛰어도 되지?-|||The Immortal Can Run Wild, Right?-
 1888503|||퇴마 회사에 취직했는데 나만 귀신이 안보인다|||I Got a Job at an Exorcist Company, but I'm the Only One Who Can't See Ghosts
 1888504|||[명탐정 코난] 경시청의 형사는 피곤하다.|||[Detective Conan] The Metropolitan Police Detective Is Tired
+1888505|||악덕 시어머니는 농사지으며 늙고 싶다|||The Wicked Mother-in-Law Wants to Grow Old Farming
 1888509|||파르파파의 군대 이야기|||Parpapa's Army Story
 1888511|||D급 가이드 사용법|||How to Use a D-Rank Guide
 1888513|||[해리포터] Change the history|||[Harry Potter] Change the history
@@ -147563,7 +147564,11 @@
 1894511|||실리나 메르슈도프는 회귀가 싫어서 불사의 몸이 되려고 합니다.|||Silina Mershudov Hates Regression, So She Plans to Become Immortal
 1894529|||[도리벤] 저 그런 사람 아닙니다.|||[Tokyo Revengers] I'm Not That Kind of Person.
 1894549|||[블루록] 요즘은 배신하기도 힘들다.|||[Blue Lock] Even Betrayal Is Hard These Days.
+1894550|||회귀자의 행복 식당|||The Regressor's Happy Restaurant
 1894557|||전역당한 헌터는 국가전력급으로 각성했다|||The Discharged Hunter Awakened as a National-Level Power
+1894560|||문과 엔지니어는 기술 개발이 너무 쉽다|||A Humanities Major Engineer Finds Tech Development Too Easy
+1894563|||미국 황무지를 샀더니 돈이 쏟아져 내린다|||After Buying American Wasteland, Money Pours In
+1894564|||나 홀로 상점창|||Solo Shop Window
 1894566|||이끼 정령|||Moss Spirit
 189460|||알바생들|||The Part-Timers
 1894602|||[주술회전] 지장보살 아래서|||[Jujutsu Kaisen] Under Jizo Bodhisattva
@@ -238946,7 +238951,6 @@
 1886312|||ㄴ|||
 1886519|||ㆍ|||
 1887427|||.|||
-1888505|||악덕 시어머니는 농사지으며 늙고 싶다|||
 1890305|||0|||
 1890688|||하노(夏爐) - 여름이 끝나지 않는 도시|||
 1891144|||설 하 : 偰 河|||
@@ -238963,10 +238967,6 @@
 1894167|||[문스독] 렌(廉)|||
 1894252|||화花|||
 1894292|||[작두X내스급] 외부인(外部人)|||
-1894550|||회귀자의 행복 식당|||
-1894560|||문과 엔지니어는 기술 개발이 너무 쉽다|||
-1894563|||미국 황무지를 샀더니 돈이 쏟아져 내린다|||
-1894564|||나 홀로 상점창|||
 1894874|||[주술회전]사신(死神)|||
 1894896|||[도리벤] 수계혼(收繼婚)|||
 1894933|||상흔가(傷痕歌)|||
