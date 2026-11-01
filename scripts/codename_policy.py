@@ -14,7 +14,10 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 # Third-party bundles kept exactly as upstream wrote them (their site lists name real sites).
-VERBATIM = {'webtoepub/webtoepub-lib.js'}
+VERBATIM = {
+    'webtoepub/webtoepub-lib.js',
+    'android/sources/src/main/resources/com/shirochi/npia/sources/reader/webtoepub/webtoepub-lib.js',
+}
 
 
 def event_messages():
