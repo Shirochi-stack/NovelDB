@@ -94,6 +94,11 @@ public struct DownloadPipeline: Sendable {
     public var secrets: any SecretStore
     public var outputDirectory: URL
     public var logger: any JobLogging
+    /// The pause before the first retry pass over failed chapters; later passes wait longer.
+    public var retryPause: TimeInterval = 5
+
+    /// At most this many retry passes over failed chapters (fewer when Retries is set lower).
+    public static let maxRetryPasses = 3
 
     public init(web: any WebEngineProviding = WKWebEngine(), secrets: any SecretStore = KeychainSecretStore(), outputDirectory: URL, logger: any JobLogging = NullLogger()) {
         self.web = web
@@ -133,7 +138,20 @@ public struct DownloadPipeline: Sendable {
             selected = book.notices + selected
         }
         onPhase(.fetchingChapters(done: 0, total: selected.count))
-        let results = try await adapter.parseChapters(selected, book: book, context: chapterContext(context, total: selected.count, onPhase: onPhase))
+        let chapterRun = chapterContext(context, total: selected.count, onPhase: onPhase)
+        var results = try await adapter.parseChapters(selected, book: book, context: chapterRun)
+        // Failed chapters (not refused ones) get more passes, each after a longer pause.
+        let passes = min(max(shared.maxRetries, 0), Self.maxRetryPasses)
+        if passes > 0 {
+            for pass in 1...passes {
+                let failed = results.indices.filter { if case .failed = results[$0] { return true } else { return false } }
+                if failed.isEmpty { break }
+                logger.log(.info, "Retrying \(failed.count) failed chapter\(failed.count == 1 ? "" : "s") (pass \(pass) of \(passes))")
+                try await Task.sleep(nanoseconds: UInt64(retryPause * Double(pass) * 1_000_000_000))
+                let again = try await adapter.parseChapters(failed.map { results[$0].ref }, book: book, context: chapterRun)
+                for (offset, result) in again.enumerated() where offset < failed.count { results[failed[offset]] = result }
+            }
+        }
 
         var chapters: [ChapterContent] = []
         var skipped: [(ChapterRef, String)] = []
@@ -157,7 +175,7 @@ public struct DownloadPipeline: Sendable {
         }
         chapters = imageOutput.chapters
         var cover: ProcessedCover?
-        if let coverURL = book.coverURL, let data = try? await client.get(coverURL).body, !data.isEmpty {
+        if let coverURL = book.coverURL, let data = await coverData(coverURL, client: client), !data.isEmpty {
             let processed = try processor.process(data, isCover: true)
             cover = ProcessedCover(data: processed.data, fileExtension: processed.fileExtension)
         }
@@ -251,6 +269,12 @@ public struct DownloadPipeline: Sendable {
     }
 
     /// Applies the chapter range and paid filter.
+    /// A cover's bytes: decoded in place for a data: URL (a cover a source fetched itself), else downloaded.
+    private func coverData(_ url: URL, client: any HTTPFetching) async -> Data? {
+        if url.scheme?.lowercased() == "data" { return try? Data(contentsOf: url) }
+        return try? await client.get(url).body
+    }
+
     public static func select(_ chapters: [ChapterRef], shared: SharedSettings) -> [ChapterRef] {
         chapters.filter { chapter in
             if let from = shared.rangeFrom, chapter.index < from { return false }
