@@ -75310,6 +75310,7 @@
 585855|||톱 여배우를 폐기하는 방법|||How to Dispose of a Top Actress
 585856|||아거스|||Argus
 585880|||괴이한 이세계 일상|||Strange Everyday Life in Another World
+585883|||23시59분60초|||23 Hours 59 Minutes 60 Seconds
 585889|||전하, 양치부터 하시지요|||Your Highness, Perhaps Brush Your Teeth First
 585894|||무당선자|||The Shaman's Successor
 585897|||F급 기공사가 헌터 장비를 고치는 법|||How an F-Rank Engineer Repairs Hunter Gear
@@ -76954,6 +76955,7 @@
 591997|||나의 죽음 이후|||After My Death
 5920|||무당괴공|||The Shaman's Strange Art
 592001|||10조원을 모으다 보니 잡탕이 되어갑니다|||While Saving 10 Trillion Won, I Became a Hotchpotch
+592002|||10시26분|||10 Hours 26 Minutes
 592004|||삼국지 : 천명을 훔친 황제|||Romance of the Three Kingdoms: The Emperor Who Stole Heaven's Mandate
 59201|||내가 이런 사람이야|||This Is Who I Am
 592016|||한입충 슬라임을 얻었다|||I Got a One-Bite Slime
@@ -92619,9 +92621,7 @@
 570221|||2083|||
 574017|||354867|||
 575548|||0100101010000101010|||
-585883|||23시59분60초|||
 588812|||7389|||
-592002|||10시26분|||
 592010|||4095|||
 596700|||.............................|||
 603137|||1-1|||
