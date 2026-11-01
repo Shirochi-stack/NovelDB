@@ -15,6 +15,7 @@ import com.shirochi.npia.core.PassthroughImages
 import com.shirochi.npia.core.ProcessedImage
 import com.shirochi.npia.core.SecretStore
 import com.shirochi.npia.core.SharedSettings
+import com.shirochi.npia.core.SourceAdapter
 import com.shirochi.npia.core.SourceContext
 import com.shirochi.npia.core.SourceId
 import com.shirochi.npia.core.bareHost
@@ -38,6 +39,7 @@ import com.shirochi.npia.upload.UploadStem
 import com.shirochi.npia.upload.UploaderCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -76,6 +78,8 @@ class DownloadPipeline(
     private val images: ImageProcessing = PassthroughImages,
     private val logger: JobLogging = NullLogger,
     private val httpFactory: (SharedSettings) -> HttpFetching = { OkHttpFetcher(it) },
+    /** The pause before the first retry pass over failed chapters; later passes wait longer. */
+    private val retryPauseMillis: Long = 5_000,
 ) {
     suspend fun run(url: String, settings: AppSettings, onPhase: (JobPhase) -> Unit = {}): JobOutcome {
         // Image bytes wait in files until the book is written (see ImageStore).
@@ -123,7 +127,9 @@ class DownloadPipeline(
             "Downloading ${selected.size} of ${book.chapters.size} chapters" + (if (range.isNotEmpty()) " ($range)" else ""),
         )
         onPhase(JobPhase.FetchingChapters(0, selected.size))
-        val results = adapter.parseChapters(selected, book, chapterContext(context, selected.size, onPhase, store))
+        val chapterRun = chapterContext(context, selected.size, onPhase, store)
+        val results = adapter.parseChapters(selected, book, chapterRun).toMutableList()
+        retryFailed(adapter, book, chapterRun, results, shared.maxRetries)
 
         val chapters = mutableListOf<ChapterContent>()
         val skipped = mutableListOf<Pair<ChapterRef, String>>()
@@ -217,6 +223,28 @@ class DownloadPipeline(
         return JobOutcome(book, files, uploads, skipped)
     }
 
+    /**
+     * Gives the chapters that failed (not the refused ones) more passes, each after a longer pause:
+     * at most [MAX_RETRY_PASSES], fewer when Retries is set lower, and none when it is 0.
+     */
+    private suspend fun retryFailed(
+        adapter: SourceAdapter,
+        book: BookInfo,
+        context: SourceContext,
+        results: MutableList<ChapterResult>,
+        maxRetries: Int,
+    ) {
+        val passes = maxRetries.coerceIn(0, MAX_RETRY_PASSES)
+        for (pass in 1..passes) {
+            val failed = results.withIndex().filter { it.value is ChapterResult.Failed }
+            if (failed.isEmpty()) return
+            logger.log(LogLevel.INFO, "Retrying ${failed.size} failed chapter${if (failed.size == 1) "" else "s"} (pass $pass of $passes)")
+            delay(retryPauseMillis * pass)
+            val again = adapter.parseChapters(failed.map { it.value.ref }, book, context)
+            again.forEachIndexed { i, result -> if (i < failed.size) results[failed[i].index] = result }
+        }
+    }
+
     private fun sizeText(file: File): String {
         val bytes = if (file.isDirectory) file.walkTopDown().filter { it.isFile }.sumOf { it.length() } else file.length()
         return when {
@@ -292,6 +320,8 @@ class DownloadPipeline(
     }
 
     companion object {
+        const val MAX_RETRY_PASSES = 3
+
         /** Applies the chapter range and paid filter. */
         fun select(chapters: List<ChapterRef>, shared: SharedSettings): List<ChapterRef> {
             val from = shared.rangeFrom ?: Int.MIN_VALUE

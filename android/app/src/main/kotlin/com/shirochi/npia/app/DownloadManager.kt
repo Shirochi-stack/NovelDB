@@ -317,7 +317,8 @@ class DownloadManager(private val app: Application) {
     fun retry(id: String) {
         val job = job(id) ?: return
         if (job.state.isActive) return
-        update(id) { it.resetForRetry() }
+        // A retry uses the settings as they are now, so a range or option changed since queueing applies.
+        update(id) { it.resetForRetry().copy(settings = _settings.value) }
         jobLog(id, LogLevel.INFO, "Retry: back in the queue")
         persistJobs()
         startNext()

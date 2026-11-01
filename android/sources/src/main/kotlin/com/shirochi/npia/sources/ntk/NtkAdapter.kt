@@ -44,7 +44,13 @@ internal data class NtkTiming(
     val chapterStatePolls: Int = 20,
     val pollMillis: Long = 700,
     val maxPages: Int = 3,
+    /** Reloads of a chapter the site answered with "too many requests", each after a longer pause. */
+    val rateLimitRetries: Int = 4,
+    val rateLimitPauseMillis: Long = 10_000,
 )
+
+/** The site answered the reader's content request with "too many requests". */
+private class NtkRateLimited(message: String) : Exception(message)
 
 /**
  * ntk: a free webtoon/novel aggregator on numbered mirror hosts, behind a Cloudflare / anti-bot gate.
@@ -162,7 +168,25 @@ class NtkAdapter internal constructor(
             min(context.shared(SourceId.NTK).threads, timing.maxPages),
         ) { page -> prepare(page) }
 
-        suspend fun chapter(ref: ChapterRef): ChapterResult = pool.withPage { page -> read(page, ref) }
+        /** When the site last rate-limited a page, every page waits until then before its next chapter. */
+        @Volatile private var coolUntil = 0L
+
+        suspend fun chapter(ref: ChapterRef): ChapterResult {
+            var attempt = 0
+            while (true) {
+                val wait = coolUntil - System.currentTimeMillis()
+                if (wait > 0) delay(wait)
+                try {
+                    return pool.withPage { page -> read(page, ref) }
+                } catch (e: NtkRateLimited) {
+                    if (attempt >= timing.rateLimitRetries) return ChapterResult.Failed(ref, e.message ?: "too many requests")
+                    attempt += 1
+                    val pause = timing.rateLimitPauseMillis shl (attempt - 1)
+                    coolUntil = maxOf(coolUntil, System.currentTimeMillis() + pause)
+                    log(context, LogLevel.INFO, "Chapter ${ref.index}: the site asked to slow down; trying again in ${pause / 1000} s")
+                }
+            }
+        }
 
         suspend fun close() = pool.closeAll()
 
@@ -193,6 +217,7 @@ class NtkAdapter internal constructor(
             val result = hardJson.decodeFromString(NtkChapterResult.serializer(), page.hardTask(entry, args))
             if (!result.ok) {
                 if (result.blocked) return ChapterResult.Failed(ref, "the site's security check blocked this chapter; clear it in the Browser tab, then retry")
+                if (result.stage == "rate-limit") throw NtkRateLimited(result.error.ifEmpty { "too many requests" })
                 return ChapterResult.Failed(ref, result.error.ifEmpty { result.stage.ifEmpty { "the chapter could not be read" } })
             }
             if (result.contentHtml.isBlank() && result.images.isEmpty()) {
