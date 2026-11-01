@@ -6,7 +6,7 @@ import XCTest
 final class HardResourcesTests: XCTestCase {
     /// SHA-256 of each file as committed on the Android side (`android/sources/.../hard/`).
     static let androidHashes: [String: String] = [
-        "hard-sources.js": "35c0584bde29186517d84da1244faeeafd45f318ca9cc3ede59218e84d9f964d",
+        "hard-sources.js": "89175cec12c05903f478626c4e5704483a0b255af3d5ea8b8210e5bd4f9c9057",
         "qdn/NotoSansCJKsc-Regular-hanzi.otf": "81805f27acfad19ca7509a17e0b8d2fdf0bb944558612de120047b194f195eaa",
         "qdn/OFL.txt": "acc077d31316a689a0b0512998c47331278e4ae61d134e1edeae5a7a95916961",
         "qdn/qdn_verified_maps.json": "9e6ff0c465fa50b511eede08bf07272fa39d7a32d49ff836af3e315892b90793",
