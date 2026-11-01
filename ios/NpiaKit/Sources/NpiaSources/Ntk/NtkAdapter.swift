@@ -118,7 +118,7 @@ public struct NtkAdapter: SourceAdapter {
             )
         }
         let book = BookInfo(
-            source: .ntk, id: novelID, url: indexURL,
+            source: .ntk, id: novelID, url: url,
             title: info.title.isEmpty ? "\(kind) \(novelID)" : info.title, author: info.author.isEmpty ? nil : info.author,
             synopsis: info.synopsis.isEmpty ? nil : info.synopsis, coverURL: URL(string: info.cover), tags: info.tags,
             language: "ko", chapters: chapters
