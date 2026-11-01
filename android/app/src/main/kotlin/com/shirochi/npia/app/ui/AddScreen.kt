@@ -147,7 +147,7 @@ fun AddScreen(model: AppViewModel, onQueued: () -> Unit) {
             FieldGroup {
                 MiniLabel("Chapter Range")
                 MiniLabel("From")
-                MiniNumberField(run.rangeFrom?.toString().orEmpty(), "1", decimal = false) { t ->
+                MiniNumberField(run.rangeFrom?.toString().orEmpty(), "first", decimal = false) { t ->
                     if (t.isBlank()) edit { it.copy(rangeFrom = null) } else t.trim().toIntOrNull()?.takeIf { it > 0 }?.let { v -> edit { it.copy(rangeFrom = v) } }
                 }
                 MiniLabel("To")
