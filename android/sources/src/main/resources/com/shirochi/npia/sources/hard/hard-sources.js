@@ -27,9 +27,10 @@
     rbooksCdn: '\u0072\u0069\u0064\u0069\u0063\u0064\u006e.net',
     rbooksBorderClass: '\u0072\u0069\u0064\u0069border',
     rbooksCenterClass: '\u0072\u0069\u0064\u0069center',
+    mpiaDomain: '\u006d\u0075\u006e\u0070\u0069\u0061.com',
   });
 
-  const hard = { version: VERSION, qdn: {}, rbooks: {}, util: {} };
+  const hard = { version: VERSION, qdn: {}, rbooks: {}, mpia: {}, ntk: {}, util: {} };
   const util = hard.util;
 
   // ---------------------------------------------------------------------------------------------
@@ -2139,6 +2140,353 @@
   // ---------------------------------------------------------------------------------------------
 
   // ---------------------------------------------------------------------------------------------
+  // mpia: the mpia site's webnovels. The chapter list comes from the site's JSON API (same-origin fetch).
+  // Chapter text is drawn by the site's own wasm reader onto a canvas; the observer below (installed at
+  // document start) records the reader's own fillText output and the paragraphs are rebuilt from it. A
+  // server-rendered page falls back to its DOM. Ported from external_scraper.py (_mpia_*). No purchases,
+  // access checks or encryption are performed; only the authorized reader's own output is read.
+  // ---------------------------------------------------------------------------------------------
+
+  const mpia = hard.mpia;
+  const mpiaOrigin = () => `https://www.${SITE.mpiaDomain}`;
+  const mpiaViewerUrl = (novelId, chapterId) =>
+    `${mpiaOrigin()}/novel/viewer/${encodeURIComponent(novelId)}/${encodeURIComponent(chapterId)}`;
+
+  const mpiaOnHost = () => {
+    const host = (location.hostname || '').toLowerCase();
+    return host === SITE.mpiaDomain || host.endsWith('.' + SITE.mpiaDomain);
+  };
+
+  const mpiaApiGet = async (path) => {
+    try {
+      const response = await fetch(path, { credentials: 'include', headers: { Accept: 'application/json' } });
+      let body = null;
+      try { body = await response.json(); } catch (e) { body = null; }
+      const code = body && body.code;
+      const result = body && body.result;
+      const ok = response.status === 200 && code === 'M000_00000' && result && typeof result === 'object';
+      return { ok: !!ok, status: response.status, code: code || '', result: ok ? result : null };
+    } catch (e) {
+      return { ok: false, status: 0, code: '', result: null, error: String((e && e.message) || e) };
+    }
+  };
+
+  const mpiaImageName = (url, chapterIndex, number) => {
+    const prefix = String(chapterIndex || 0).padStart(4, '0');
+    let extension = 'jpg';
+    const data = /^data:image\/([a-z0-9]+)/i.exec(url);
+    if (data) {
+      extension = data[1].toLowerCase().replace('jpeg', 'jpg');
+    } else {
+      const last = (url.split(/[?#]/)[0].split('/').pop() || '');
+      const dot = last.lastIndexOf('.');
+      const candidate = dot >= 0 ? last.slice(dot + 1).toLowerCase() : '';
+      if (candidate && candidate.length <= 5 && /^[a-z0-9]+$/.test(candidate)) extension = candidate;
+    }
+    return `images/${prefix}_${String(number).padStart(2, '0')}.${extension}`;
+  };
+
+  // Observe the authorized reader's own requests and canvas output. Installed at document start so the
+  // fetch / XHR / fillText hooks are in place before the site's wasm reader runs.
+  mpia.installReaderHook = function () {
+    if (!mpiaOnHost()) return false;
+    if (window.__ndMpiaReader) return true;
+    const state = window.__ndMpiaReader = { entry: null, entryId: '', contentOK: false, error: null };
+    const path = (value) => {
+      try { return new URL(value, location.href).pathname; } catch (e) { return ''; }
+    };
+    const infoPattern = /\/novel-detail\/\d+\/entries\/(\d+)\/info$/;
+    const contentPattern = /\/novel-detail\/\d+\/entries\/(\d+)\/content$/;
+    const recordInfo = (url, data) => {
+      const match = path(url).match(infoPattern);
+      const entry = data && data.result && data.result.entry;
+      if (match && entry && String(entry.id) === match[1]) {
+        state.entry = { id: entry.id, title: entry.title, attachments: entry.attachments || [] };
+      }
+    };
+    const nativeFetch = window.fetch;
+    window.fetch = async function (input, options) {
+      const url = typeof input === 'string' ? input : (input && input.url);
+      const match = path(url).match(contentPattern);
+      if (match) {
+        state.entryId = match[1];
+        state.contentOK = false;
+        state.error = null;
+        document.documentElement.removeAttribute('data-nd-mpia-ready');
+        document.documentElement.removeAttribute('data-nd-mpia-denied');
+      }
+      const response = await nativeFetch.apply(this, arguments);
+      const json = /application\/json/i.test(response.headers.get('content-type') || '');
+      if (match) {
+        state.contentOK = response.ok && !json;
+        if (!state.contentOK) {
+          state.error = { status: response.status };
+          if (json) response.clone().json().then((data) => {
+            state.error = { status: response.status, code: data && data.code, message: (data && data.message) || '' };
+          }).catch(() => {});
+          document.documentElement.setAttribute('data-nd-mpia-denied', '1');
+        }
+      } else if (path(url).match(infoPattern) && json) {
+        response.clone().json().then((data) => recordInfo(url, data)).catch(() => {});
+      }
+      return response;
+    };
+    const nativeOpen = XMLHttpRequest.prototype.open;
+    const nativeSend = XMLHttpRequest.prototype.send;
+    const requestUrls = new WeakMap();
+    XMLHttpRequest.prototype.open = function (method, url) {
+      requestUrls.set(this, url);
+      return nativeOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function () {
+      const url = requestUrls.get(this);
+      if (path(url).match(infoPattern)) {
+        this.addEventListener('load', () => {
+          try {
+            const data = this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
+            recordInfo(url, data);
+          } catch (e) { /* not the JSON we wanted */ }
+        }, { once: true });
+      }
+      return nativeSend.apply(this, arguments);
+    };
+    const nativeFillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (value) {
+      const result = nativeFillText.apply(this, arguments);
+      if (state.contentOK && String(value == null ? '' : value).trim()) {
+        document.documentElement.setAttribute('data-nd-mpia-ready', '1');
+      }
+      return result;
+    };
+    return true;
+  };
+
+  /** Book metadata from the novel-detail API, shaped for the native side. */
+  mpia.detail = async function (novelId) {
+    const reply = await mpiaApiGet('/api/v1/pc/novel-detail/' + encodeURIComponent(novelId));
+    if (!reply.ok) return { ok: false, status: reply.status, error: reply.error || ('detail ' + (reply.code || reply.status)) };
+    const result = reply.result || {};
+    const info = result.novelInfo || {};
+    const tags = Array.isArray(info.tags) ? info.tags.map((t) => clean(t && t.title)).filter(Boolean) : [];
+    return {
+      ok: true,
+      login: result.login === true,
+      id: String(info.id == null ? novelId : info.id),
+      title: clean(info.title),
+      author: clean(info.authorName),
+      synopsis: String(info.introduction == null ? '' : info.introduction),
+      cover: absolute(info.coverUrl),
+      tags,
+      finished: info.finish === true,
+      total: Number(info.chapterCount) || 0,
+    };
+  };
+
+  /** One page (size 30) of the chapter list, oldest first, shaped for the native side. */
+  mpia.chapters = async function (novelId, page) {
+    const path = '/api/v1/pc/novel-detail/' + encodeURIComponent(novelId)
+      + '/chapters?order=ENTRY_FIRST&page=' + encodeURIComponent(page) + '&size=30';
+    const reply = await mpiaApiGet(path);
+    if (!reply.ok) return { ok: false, status: reply.status, error: reply.error || ('chapters ' + (reply.code || reply.status)) };
+    const result = reply.result || {};
+    const rows = Array.isArray(result.list) ? result.list : [];
+    const list = rows.map((row) => {
+      const id = String(row.id == null ? '' : row.id);
+      const free = row.free === true;
+      const purchased = row.purchased === true;
+      const rented = Number(row.remainRentSec) > 0;
+      return {
+        id,
+        order: Number(row.num) || 0,
+        title: clean(row.title),
+        url: mpiaViewerUrl(novelId, id),
+        isPaid: !free,
+        accessible: !!(free || purchased || rented),
+        date: clean(row.createdAt),
+      };
+    }).filter((row) => row.id);
+    return { ok: true, total: Number(result.total) || 0, list };
+  };
+
+  /** Viewer readiness, mirroring the desktop reader selector. */
+  mpia.readerState = function () {
+    const el = document.documentElement;
+    const denied = el.getAttribute('data-nd-mpia-denied') === '1';
+    const drawn = el.getAttribute('data-nd-mpia-ready') === '1';
+    const domContent = !!document.querySelector('#ENTRY-CONTENT .tcontent');
+    return { ready: drawn || domContent, denied, found: drawn || domContent };
+  };
+
+  // Rebuild the chapter from the reader's own canvas output. Reuses the module the authorized reader
+  // already loaded; its render function draws plaintext, which the fillText hook records. No session
+  // keys or encrypted response bodies are read.
+  const mpiaCanvasExtract = async (chapterIndex) => {
+    const state = window.__ndMpiaReader;
+    if (!state || !state.contentOK) {
+      const error = state && state.error;
+      const locked = !!error && (error.status === 401 || error.status === 403
+        || /로그인|구매|대여|결제|권한|성인.{0,3}인증/.test((error && error.message) || ''));
+      return { locked, error: error ? 'Reader denied content' : 'Reader content is not ready',
+        chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const entryMatch = location.pathname.match(/\/novel\/viewer\/\d+\/(\d+)/);
+    const entryId = entryMatch ? entryMatch[1] : '';
+    if (!entryId || state.entryId !== entryId) {
+      return { error: 'Reader chapter changed', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const moduleUrls = performance.getEntriesByType('resource')
+      .map((item) => item.name)
+      .filter((url) => /\/novel_wasm-[^/]+\.js(?:\?|$)/.test(url));
+    const moduleUrl = moduleUrls[moduleUrls.length - 1];
+    if (!moduleUrl) return { error: 'Reader module was not loaded', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    const renderer = await import(moduleUrl);
+    if (typeof renderer.render_page !== 'function' || typeof renderer.get_total_pages !== 'function') {
+      return { error: 'Reader rendering API changed', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const canvas = document.createElement('canvas');
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(4096 * ratio);
+    canvas.height = Math.round(64 * ratio);
+    canvas.style.width = '4096px';
+    canvas.style.height = '64px';
+    const context = canvas.getContext('2d');
+    if (!context) return { error: 'Canvas rendering is unavailable', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    const fontSize = 17, lineHeight = 1.8, padding = 40, linesPerPage = 80;
+    const font = 'Arial, sans-serif';
+    let draws = [];
+    context.fillText = function (value, x, y) {
+      value = String(value == null ? '' : value);
+      if (value) draws.push({ text: value, x, y, width: this.measureText(value).width });
+    };
+    const pages = renderer.get_total_pages(canvas, linesPerPage, fontSize, lineHeight, font, padding, 0, 0);
+    if (!Number.isInteger(pages) || pages < 1 || pages > 10000) {
+      return { error: 'Reader returned an invalid page count', chapterName: '', contentText: '', contentHtml: '', images: [] };
+    }
+    const cleanId = (value) => String(value || '').replace(/^(?:@PIC:)+/, '');
+    const attachments = new Map(((state.entry && state.entry.attachments) || []).map((item) => [cleanId(item.id), item]));
+    const blocks = [], imageIds = new Set();
+    for (let page = 0; page < pages; page++) {
+      draws = [];
+      renderer.render_page(canvas, page, linesPerPage, fontSize, lineHeight, font, '#111111', '#ffffff', padding, 0, 0);
+      const rows = [];
+      for (const draw of draws.sort((a, b) => a.y - b.y || a.x - b.x)) {
+        let row = rows[rows.length - 1];
+        if (!row || Math.abs(row.y - draw.y) > 0.5) {
+          row = { kind: 'text', text: '', x: draw.x, y: draw.y, end: draw.x };
+          rows.push(row);
+        }
+        if (row.text && draw.x - row.end > 1 && !/\s$/.test(row.text) && !/^\s/.test(draw.text)) row.text += ' ';
+        row.text += draw.text;
+        row.end = Math.max(row.end, draw.x + draw.width);
+      }
+      if (attachments.size && typeof renderer.get_page_image_rects === 'function') {
+        const rects = JSON.parse(renderer.get_page_image_rects(canvas, page, linesPerPage, fontSize, lineHeight, font, padding, 0, 0));
+        for (const rect of rects) {
+          const id = cleanId(rect.id), attachment = attachments.get(id);
+          if (attachment && attachment.imageUrl && !imageIds.has(id)) {
+            rows.push({ kind: 'image', url: attachment.imageUrl, y: rect.y });
+            imageIds.add(id);
+          }
+        }
+      }
+      rows.sort((a, b) => a.y - b.y);
+      for (const row of rows) {
+        if (row.kind === 'image') {
+          blocks.push({ kind: 'image', url: row.url });
+        } else {
+          const value = row.text.replace(/\u00a0/g, ' ').trim();
+          if (!value) continue;
+          const previous = blocks[blocks.length - 1];
+          if (previous && previous.kind === 'text' && row.x < padding + fontSize / 2
+            && (previous.page !== page || row.y - previous.y <= fontSize * lineHeight * 1.5)) {
+            previous.text += ' ' + value;
+            previous.y = row.y;
+            previous.page = page;
+          } else {
+            blocks.push({ kind: 'text', text: value, y: row.y, page });
+          }
+        }
+      }
+    }
+    for (const [id, attachment] of attachments) {
+      if (attachment.imageUrl && !imageIds.has(id)) blocks.push({ kind: 'image', url: attachment.imageUrl });
+    }
+    const images = [], markup = [], texts = [];
+    for (const block of blocks) {
+      if (block.kind === 'text') {
+        texts.push(block.text);
+        markup.push(`<p>${escapeHtml(block.text)}</p>`);
+      } else {
+        let url;
+        try { url = new URL(block.url, location.href); } catch (e) { continue; }
+        if (!/^https?:$/.test(url.protocol)) continue;
+        const name = mpiaImageName(url.href, chapterIndex, images.length + 1);
+        images.push({ url: url.href, name });
+        markup.push(`<p><img src="${escapeHtml(name)}" /></p>`);
+      }
+    }
+    if (!texts.length && !images.length) {
+      return { error: 'Reader returned empty content', chapterName: (state.entry && state.entry.title) || '', contentText: '', contentHtml: '', images: [] };
+    }
+    return {
+      chapterName: (state.entry && state.entry.title) || '',
+      contentText: texts.join('\n'),
+      contentHtml: `<div class="mpia-content">${markup.join('\n')}</div>`,
+      images,
+    };
+  };
+
+  // A server-rendered chapter page (not the canvas viewer): read its DOM layout directly.
+  const mpiaDomExtract = (chapterIndex) => {
+    const tidy = (value) => (value || '').replace(/[\u00a0\t ]+/g, ' ').replace(/\n\s+/g, '\n').trim();
+    const abs = (value) => { try { return new URL(value || '', location.href).href; } catch (e) { return value || ''; } };
+    const entry = document.querySelector('#ENTRY-CONTENT');
+    const content = document.querySelector('#ENTRY-CONTENT .tcontent');
+    const heading = tidy(
+      (entry && entry.querySelector('.subinfo h3') && entry.querySelector('.subinfo h3').textContent)
+      || (entry && entry.querySelector('h3') && entry.querySelector('h3').textContent)
+      || (document.querySelector('h4') && document.querySelector('h4').textContent)
+      || document.title.replace(/\s*-\s*.*$/, ''),
+    );
+    if (!entry || !content) {
+      const body = tidy(document.body && document.body.textContent);
+      return {
+        locked: /(로그인|구매|대여|결제|성인인증|권한|이용권|보안 점검)/.test(body),
+        chapterName: heading, contentText: '', contentHtml: '', images: [],
+        error: 'Reader content not found',
+      };
+    }
+    const node = content.cloneNode(true);
+    node.querySelectorAll('.dummy, script, style, noscript, iframe, button').forEach((el) => el.remove());
+    const images = [];
+    node.querySelectorAll('img').forEach((img) => {
+      const src = abs(img.getAttribute('src') || '');
+      if (!src || /blank\.png/i.test(src)) { img.remove(); return; }
+      const name = mpiaImageName(src, chapterIndex, images.length + 1);
+      images.push({ url: src, name });
+      img.setAttribute('src', name);
+    });
+    let blocks = Array.from(node.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote'))
+      .map((el) => tidy(el.textContent)).filter(Boolean);
+    if (!blocks.length) blocks = tidy(node.textContent).split('\n').map((line) => tidy(line)).filter(Boolean);
+    const contentText = blocks.join('\n');
+    return {
+      locked: !contentText && !images.length,
+      chapterName: heading,
+      contentText,
+      contentHtml: `<div class="mpia-content">${node.innerHTML.trim()}</div>`,
+      images,
+    };
+  };
+
+  /** Extracts the loaded chapter. The viewer draws on a canvas; a server-rendered page uses its DOM. */
+  mpia.extract = async function (options) {
+    const chapterIndex = (options && options.chapterIndex) || 0;
+    if (/^\/novel\/viewer\/\d+\/\d+/.test(location.pathname)) return await mpiaCanvasExtract(chapterIndex);
+    return mpiaDomExtract(chapterIndex);
+  };
+
+  // ---------------------------------------------------------------------------------------------
   // Tasks: long operations (qdn.extract, qdn.decoder.decodeJson) are started and then polled, so no
   // single native script call has to outlive a platform's script timeout.
   //   tasks.start('qdn.extract', [options])            -> {ticket}
@@ -2146,6 +2494,975 @@
   //                          | {state: 'error', error: '...'}
   // The result comes back as JSON text so native code can pass it on without parsing it.
   // ---------------------------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------------------------
+  // ntk: page side (book index + chapter list, chapter content via the site's own ad-ack handshake
+  // and v3 AES-GCM, and webtoon image pages). The site runs a Cloudflare / anti-bot gate; the native
+  // side opens the sign-in browser so the user clears it, then this reads everything in the verified
+  // session. Nothing is purchased; the content request reuses the token/nonce/proof the site's own
+  // reader sends. Ported from the desktop _ntk_* browser path.
+  // ---------------------------------------------------------------------------------------------
+
+  const ntk = hard.ntk;
+
+  const ntkCollectChapters = async (novelId, kind, pageParam) => {
+  const basePath = `/${kind}/${novelId}`;
+  const chapterPrefix = `${basePath}/`;
+  const chapters = new Map();
+  const text = (element) => element && element.textContent
+    ? element.textContent.trim()
+    : '';
+  const pause = (milliseconds) => new Promise(
+    (resolve) => setTimeout(resolve, milliseconds)
+  );
+
+  const collect = (root, baseUrl) => {
+    const allLinks = Array.from(root.querySelectorAll('a[href]'));
+    const episodeRowLinks = allLinks.filter(
+      (link) => link.closest('li[data-ep]')
+    );
+    const candidateLinks = episodeRowLinks.length ? episodeRowLinks : allLinks;
+    for (const link of candidateLinks) {
+      let target;
+      try {
+        const href = link.getAttribute('href') || link.href;
+        target = new URL(href, baseUrl);
+      } catch (_) {
+        continue;
+      }
+      if (target.origin !== location.origin
+          || !target.pathname.startsWith(chapterPrefix)) {
+        continue;
+      }
+      const remainder = target.pathname
+        .slice(chapterPrefix.length)
+        .replace(/\/$/, '');
+      if (!/^\d+$/.test(remainder)) continue;
+      const row = link.closest('li[data-ep], li, tr, article, div');
+      const titleElement = link.querySelector(
+        '.ne-title, .ep-title, [class*="title"]'
+      );
+      const chapterName = text(titleElement) || text(link) || text(row) || '';
+      if (/(?:1\s*화부터\s*보기|최신화부터)/.test(chapterName)) continue;
+      // Not every NewToki build renders data-ep; fall back to the "301화"
+      // number label so cursor paging and ordering still work.
+      const numberLabel = text(
+        link.querySelector('.ne-num, .ep-num, [class*="num"]')
+      );
+      const labelMatch = numberLabel.match(/(\d+)/);
+      chapters.set(remainder, {
+        url: target.href,
+        episodeId: remainder,
+        displayNumber: (row && row.getAttribute('data-ep'))
+          || (labelMatch ? labelMatch[1] : ''),
+        name: chapterName,
+      });
+    }
+  };
+
+  collect(document, location.href);
+
+  // sbxh only renders the newest 100 rows and loads older ones through a
+  // cursor API behind its "이전 회차 더 보기" button. The DOM keeps at most
+  // 300 rows, so read the API directly. The cursor is `${number}:${id}` of
+  // the oldest row seen so far, matching the site's own client.
+  const notes = [];
+  const oldestRow = () => {
+    let oldest = null;
+    for (const item of chapters.values()) {
+      const number = Number.parseInt(item.displayNumber, 10);
+      if (!Number.isFinite(number) || number <= 0) continue;
+      if (!oldest || number < oldest.number
+          || (number === oldest.number
+              && BigInt(item.episodeId) < BigInt(oldest.id))) {
+        oldest = { number, id: item.episodeId };
+      }
+    }
+    return oldest;
+  };
+  // The server-rendered page data carries the list's own olderCursor
+  // (e.g. "301:8702759"); it does not depend on how rows are marked up.
+  let pageCursor = '';
+  for (const script of document.querySelectorAll('script')) {
+    const source = script.textContent || '';
+    const match = source.match(
+      /\\?"hasOlder\\?"\s*:\s*true\s*,[^{}]*?\\?"olderCursor\\?"\s*:\s*\\?"(\d+:\d+)\\?"/
+    );
+    if (match) { pageCursor = match[1]; break; }
+  }
+  const cursorRow = oldestRow();
+  if (pageCursor || (cursorRow && cursorRow.number > 1)) {
+    let cursor = pageCursor || `${cursorRow.number}:${cursorRow.id}`;
+    const seenCursors = new Set();
+    let windows = 0;
+    while (cursor && !seenCursors.has(cursor) && windows < 500) {
+      seenCursors.add(cursor);
+      windows += 1;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      let data = null;
+      try {
+        const query = new URLSearchParams({ direction: 'older', cursor });
+        const response = await fetch(
+          `/api/${kind}/${encodeURIComponent(novelId)}/episodes/window?${query}`,
+          {
+            headers: { Accept: 'application/json' },
+            credentials: 'include',
+            cache: 'no-store',
+            signal: controller.signal,
+          },
+        );
+        const body = await response.text();
+        try { data = JSON.parse(body); } catch (_) { data = null; }
+        if (!response.ok || !data || data.ok !== true
+            || !Array.isArray(data.items)) {
+          notes.push(
+            `Episode window API stopped at cursor ${cursor} `
+            + `(HTTP ${response.status}).`
+          );
+          break;
+        }
+      } catch (error) {
+        notes.push(`Episode window API failed at cursor ${cursor}: ${error}`);
+        break;
+      } finally {
+        clearTimeout(timer);
+      }
+      for (const item of data.items) {
+        const episodeId = String(item && item.id || '');
+        if (!/^\d+$/.test(episodeId)) continue;
+        chapters.set(episodeId, {
+          url: new URL(`${chapterPrefix}${episodeId}`, location.origin).href,
+          episodeId,
+          displayNumber: Number.isInteger(item.number)
+            ? String(item.number) : '',
+          name: String(item.title || item.episodeLabel || '').trim(),
+        });
+      }
+      const nextRow = oldestRow();
+      if (!data.hasOlder || !data.items.length || !nextRow
+          || nextRow.number <= 1) {
+        break;
+      }
+      cursor = typeof data.olderCursor === 'string' && data.olderCursor
+        ? data.olderCursor
+        : `${nextRow.number}:${nextRow.id}`;
+    }
+    if (windows) {
+      notes.push(
+        `Episode window API: ${windows} request(s), `
+        + `${chapters.size} episode(s) collected.`
+      );
+    }
+  } else if (chapters.size) {
+    notes.push(
+      `Episode window API skipped: no older cursor found `
+      + `(${chapters.size} row(s), oldest number `
+      + `${cursorRow ? cursorRow.number : 'unknown'}).`
+    );
+  }
+
+  // Some sbxh indexes virtualize the long episode list. Walk every relevant
+  // scroll container while retaining rows that disappear from the live DOM.
+  const initialNumbers = Array.from(chapters.values())
+    .map((item) => Number.parseInt(item.displayNumber, 10))
+    .filter((number) => Number.isFinite(number) && number > 0);
+  if (initialNumbers.length && Math.min(...initialNumbers) > 1) {
+    const clicked = new Set();
+    let stableRounds = 0;
+    for (let round = 0; round < 80 && stableRounds < 3; round += 1) {
+      const before = chapters.size;
+      let moved = false;
+
+      for (const element of document.querySelectorAll(
+        'button, [role="button"], a[href="#"], a[href^="javascript:"]'
+      )) {
+        if (clicked.has(element)) continue;
+        const label = text(element).replace(/\s+/g, ' ');
+        if (!/(?:더\s*보기|전체\s*(?:목록|보기)|이전\s*(?:목록|회차)|load\s*more|show\s*all|older)/i.test(label)) {
+          continue;
+        }
+        clicked.add(element);
+        try {
+          element.click();
+          moved = true;
+        } catch (_) {}
+      }
+
+      const scrollers = new Set();
+      for (const link of document.querySelectorAll(
+        `a[href*="${chapterPrefix}"]`
+      )) {
+        let node = link.parentElement;
+        while (node && node !== document.body) {
+          const style = getComputedStyle(node);
+          if (node.scrollHeight > node.clientHeight + 8
+              && /(auto|scroll)/.test(style.overflowY)) {
+            scrollers.add(node);
+          }
+          node = node.parentElement;
+        }
+      }
+      if (document.scrollingElement) scrollers.add(document.scrollingElement);
+      for (const scroller of scrollers) {
+        const oldTop = scroller.scrollTop;
+        const step = Math.max(scroller.clientHeight * 0.8, 300);
+        scroller.scrollTop = Math.min(
+          scroller.scrollHeight - scroller.clientHeight,
+          oldTop + step,
+        );
+        if (scroller.scrollTop > oldTop + 1) moved = true;
+        try { scroller.dispatchEvent(new Event('scroll')); } catch (_) {}
+      }
+
+      await pause(100);
+      collect(document, location.href);
+      if (chapters.size === before && !moved) stableRounds += 1;
+      else stableRounds = 0;
+    }
+  }
+
+  // Traditional indexes expose older episode pages as links. Follow them in
+  // the same verified browser session and recursively discover further pages.
+  const queue = [];
+  const queued = new Set();
+  const visited = new Set([new URL(location.href).href.split('#')[0]]);
+  const discoverPages = (root, baseUrl) => {
+    for (const link of root.querySelectorAll('a[href]')) {
+      let target;
+      try {
+        target = new URL(link.getAttribute('href') || link.href, baseUrl);
+      } catch (_) {
+        continue;
+      }
+      target.hash = '';
+      if (target.origin !== location.origin) continue;
+      const normalizedPath = target.pathname.replace(/\/$/, '');
+      const suffix = normalizedPath.startsWith(basePath)
+        ? normalizedPath.slice(basePath.length)
+        : '';
+      const isIndexPage = normalizedPath === basePath && Boolean(target.search);
+      const isPagedPath = /^\/(?:page|p)\/\d+$/i.test(suffix);
+      if (!isIndexPage && !isPagedPath) continue;
+      if (visited.has(target.href) || queued.has(target.href)) continue;
+      queued.add(target.href);
+      queue.push(target.href);
+    }
+  };
+
+  discoverPages(document, location.href);
+  // Current NewToki/sbxh builds do not always render pagination anchors.
+  // Probe the site's page query (epage on NewToki, page on sbxh) so
+  // older/newer rows are still discovered.
+  const requestedUrl = new URL(location.href);
+  requestedUrl.hash = '';
+  requestedUrl.searchParams.delete(pageParam);
+  const probes = new Set();
+  for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+    const target = new URL(requestedUrl.href);
+    target.searchParams.set(pageParam, String(pageNumber));
+    probes.add(target.href);
+    if (!visited.has(target.href) && !queued.has(target.href)) {
+      queued.add(target.href);
+      queue.push(target.href);
+    }
+  }
+  let fetchedPages = 0;
+  let emptyProbes = 0;
+  while (queue.length && fetchedPages < 20) {
+    const pageUrl = queue.shift();
+    queued.delete(pageUrl);
+    if (visited.has(pageUrl)) continue;
+    // Stop blind probing once consecutive probed pages add nothing; the
+    // site has run out of pages. Discovered pager links are still followed.
+    if (probes.has(pageUrl) && emptyProbes >= 2) continue;
+    visited.add(pageUrl);
+    fetchedPages += 1;
+    const sizeBefore = chapters.size;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(pageUrl, {
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (!response.ok) continue;
+      const pageHtml = await response.text();
+      const lowered = pageHtml.toLowerCase();
+      if (lowered.includes('access denied')
+          || lowered.includes('site security policy')
+          || lowered.includes('just a moment')) {
+        continue;
+      }
+      const pageDocument = new DOMParser().parseFromString(pageHtml, 'text/html');
+      collect(pageDocument, pageUrl);
+      discoverPages(pageDocument, pageUrl);
+    } catch (_) {
+      // Keep the already collected rows if one optional index page fails.
+    } finally {
+      clearTimeout(timer);
+      if (probes.has(pageUrl)) {
+        emptyProbes = chapters.size > sizeBefore ? 0 : emptyProbes + 1;
+      }
+    }
+  }
+
+  return Array.from(chapters.values());
+};
+
+  const ntkFetchChapterPlaintext = async (chapterUrl) => {
+  const fetchWithTimeout = async (url, options = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const cookieValue = (name) => {
+    for (const part of document.cookie.split(';')) {
+      const item = part.trim();
+      const split = item.indexOf('=');
+      if (split < 0 || item.slice(0, split) !== name) continue;
+      const value = item.slice(split + 1);
+      try { return decodeURIComponent(value); } catch (_) { return value; }
+    }
+    return '';
+  };
+  const deleteCookie = (name) => {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  };
+  const b64url = (bytes) => {
+    let binary = '';
+    for (const value of bytes) binary += String.fromCharCode(value);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const fromB64url = (value) => {
+    let normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (normalized.length % 4) normalized += '=';
+    const binary = atob(normalized);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  };
+  const randomHex = (size) => Array.from(
+    crypto.getRandomValues(new Uint8Array(size)),
+    (value) => value.toString(16).padStart(2, '0'),
+  ).join('');
+  const jsonPost = async (url, body, extraHeaders = {}) => {
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: {
+        'content-type': 'application/json',
+        ...extraHeaders,
+      },
+      body: JSON.stringify(body),
+    });
+    return {
+      response,
+      data: await response.json().catch(() => null),
+    };
+  };
+  const normalizeChallenge = (data, fallbackScope) => {
+    if (!data || typeof data !== 'object') return null;
+    const nestedData = data.data && typeof data.data === 'object'
+      ? data.data
+      : null;
+    const source = data.challenge
+      || (nestedData && nestedData.challenge)
+      || nestedData
+      || data;
+    if (!source || typeof source !== 'object') return null;
+    const token = source.token || source.challengeToken || '';
+    if (!token) return null;
+    const slotNonces = Array.isArray(source.slotNonces)
+      ? source.slotNonces
+      : (Array.isArray(source.nonces) ? source.nonces : []);
+    return {
+      token,
+      slotNonces,
+      scope: source.scope || data.scope || fallbackScope,
+    };
+  };
+
+  try {
+    const target = new URL(chapterUrl, location.href);
+    const ids = target.pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/);
+    if (!ids) return { ok: false, stage: 'url', status: 0 };
+    const contentScope = target.pathname.split('/')[1] || 'novel';
+    const encoder = new TextEncoder();
+    const extractTokens = (pageHtml) => {
+      const pattern = /(?:\\"|")token(?:\\"|")\s*:\s*(?:\\"|")([A-Za-z0-9_=.-]+)(?:\\"|")/g;
+      return Array.from(pageHtml.matchAll(pattern), (match) => match[1]);
+    };
+
+    for (const badCookie of ['ntk_blk', 'ntk_dev_warn']) {
+      if (cookieValue(badCookie)) deleteCookie(badCookie);
+    }
+
+    if (!window.__npiaNtkEventSynced) {
+      await fetchWithTimeout(new URL('/api/me', target.origin).href, {
+        credentials: 'include',
+        cache: 'no-store',
+      }).catch(() => null);
+      let eventId = cookieValue('__ntk_ev_id');
+      if (!eventId) {
+        eventId = randomHex(32);
+        const secure = location.protocol === 'https:' ? '; Secure' : '';
+        document.cookie = `__ntk_ev_id=${eventId}; Path=/; SameSite=Lax${secure}`;
+      }
+      const sync = await jsonPost(
+        new URL('/api/ev/sync', target.origin).href,
+        { evId: eventId },
+      ).catch(() => null);
+      if (sync && sync.response.ok) window.__npiaNtkEventSynced = true;
+    }
+
+    let forceNvReissue = false;
+    let lastRetryFailure = { ok: false, stage: 'retry', status: 0 };
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      target.searchParams.set('cb', String(Date.now()));
+      const chapterResponse = await fetchWithTimeout(target.href, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const chapterHtml = await chapterResponse.text();
+      if (!chapterResponse.ok) {
+        return { ok: false, stage: 'chapter', status: chapterResponse.status };
+      }
+
+      const tokens = extractTokens(chapterHtml);
+      let token = tokens.find((value) => (
+        value.startsWith('eyJuIjoi') || value.startsWith('eyJlIjoi')
+      ));
+      if (!token) return { ok: false, stage: 'token', status: 0 };
+
+      const cookieMatch = chapterHtml.match(/\\"cookieName\\":\\"([^\\"]+)\\"/)
+        || chapterHtml.match(/"cookieName"\s*:\s*"([^"]+)"/);
+      let cookieName = cookieMatch ? cookieMatch[1] : 'nv';
+      const chapterPath = target.pathname;
+      const handshake = [];
+
+      const explicitChallengeMatch = chapterHtml.match(
+        /(?:\\"|")challengeToken(?:\\"|")\s*:\s*(?:\\"|")([^"\\]+)(?:\\"|")/,
+      );
+      const challengeToken = explicitChallengeMatch
+        ? explicitChallengeMatch[1]
+        : tokens.find((value) => value !== token && value.startsWith('eyJ'));
+      const scopePattern = /(?:\\"|")(?:adScope|challengeScope|scope)(?:\\"|")\s*:\s*(?:\\"|")([^"\\]+)(?:\\"|")/g;
+      const embeddedScopes = Array.from(
+        chapterHtml.matchAll(scopePattern),
+        (match) => match[1],
+      ).filter((value, index, values) => (
+        value && value.length <= 500 && values.indexOf(value) === index
+      ));
+      const slotMatch = chapterHtml.match(
+        /(?:\\"|")slotNonces(?:\\"|")\s*:\s*\[(.*?)\]/,
+      );
+      const slotNonces = slotMatch
+        ? Array.from(
+          slotMatch[1].matchAll(/(?:\\"|")([^"\\]+)(?:\\"|")/g),
+          (match) => match[1],
+        )
+        : [];
+      let challenge = challengeToken
+        ? {
+          token: challengeToken,
+          slotNonces,
+          scope: embeddedScopes[0] || contentScope,
+        }
+        : null;
+      if (!challenge) {
+        const challengeUrl = new URL('/api/ad/challenge', target.origin).href;
+        const scopeCandidates = [
+          ...embeddedScopes,
+          'chapter',
+          `${contentScope}-content`,
+          contentScope,
+          chapterPath,
+        ].filter((value, index, values) => values.indexOf(value) === index);
+        const challengePayloads = [{ path: chapterPath, force: false }];
+        challengePayloads.push(...scopeCandidates.map((scope) => ({
+          scope,
+          path: chapterPath,
+        })));
+        challengePayloads.push({ path: chapterPath });
+        for (const challengePayload of challengePayloads) {
+          const challengeReply = await jsonPost(
+            challengeUrl,
+            challengePayload,
+          );
+          const challengeData = challengeReply.data;
+          const challengeError = challengeData && challengeData.error
+            ? String(challengeData.error)
+            : '';
+          handshake.push(
+            `challenge=${challengeReply.response.status}`
+            + (challengeError ? `/${challengeError}` : ''),
+          );
+          if (challengeReply.response.ok && challengeData) {
+            challenge = normalizeChallenge(
+              challengeData,
+              challengePayload.scope || contentScope,
+            );
+            if (challenge) break;
+          }
+          if (challengeError !== 'bad_scope') break;
+        }
+      } else {
+        handshake.push('challenge=embedded');
+      }
+
+      if (challenge && challenge.token) {
+        const canary = await jsonPost(
+          new URL('/api/ad/canary', target.origin).href,
+          {
+            adAckCanary: true,
+            challengeToken: challenge.token,
+            scope: challenge.scope || contentScope,
+            path: chapterPath,
+          },
+        );
+        const canaryError = canary.data && canary.data.error
+          ? String(canary.data.error)
+          : '';
+        handshake.push(
+          `canary=${canary.response.status}`
+          + (canaryError ? `/${canaryError}` : ''),
+        );
+        let totalAds = Array.from(
+          chapterHtml.matchAll(/data-br-n=(?:\\"|")?(\d+)(?:\\"|")?/g),
+          (match) => Number.parseInt(match[1], 10) || 0,
+        ).reduce((total, value) => total + value, 0);
+        const nonces = Array.isArray(challenge.slotNonces)
+          ? challenge.slotNonces
+          : [];
+        if (!totalAds && nonces.length) totalAds = nonces.length;
+        const visibleNonces = totalAds > 0 ? nonces.slice(0, totalAds) : nonces;
+        const ack = await jsonPost(
+          new URL('/api/ad/ack', target.origin).href,
+          {
+            challengeToken: challenge.token,
+            scope: challenge.scope || contentScope,
+            total: totalAds,
+            visible: totalAds,
+            path: chapterPath,
+            slotNonces: visibleNonces,
+          },
+        );
+        if (!ack.response.ok || !ack.data || !ack.data.ok) {
+          return {
+            ok: false,
+            stage: 'ad-ack',
+            status: ack.response.status,
+            error: ack.data && ack.data.error ? String(ack.data.error) : '',
+          };
+        }
+        handshake.push(`ack=${ack.response.status}`);
+
+        // The content token is scoped to the acknowledgement state. Fetch a
+        // fresh chapter document after a successful acknowledgement instead
+        // of reusing the token issued before it.
+        target.searchParams.set('cb', String(Date.now() + 1));
+        const refreshedResponse = await fetchWithTimeout(target.href, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const refreshedHtml = await refreshedResponse.text();
+        if (!refreshedResponse.ok) {
+          return {
+            ok: false,
+            stage: 'post-ack-chapter',
+            status: refreshedResponse.status,
+          };
+        }
+        const refreshedToken = extractTokens(refreshedHtml).find((value) => (
+          value.startsWith('eyJuIjoi') || value.startsWith('eyJlIjoi')
+        ));
+        if (!refreshedToken) {
+          return { ok: false, stage: 'post-ack-token', status: 0 };
+        }
+        token = refreshedToken;
+        const refreshedCookieMatch = refreshedHtml.match(
+          /\\"cookieName\\":\\"([^\\"]+)\\"/,
+        ) || refreshedHtml.match(/"cookieName"\s*:\s*"([^"]+)"/);
+        if (refreshedCookieMatch) cookieName = refreshedCookieMatch[1];
+        handshake.push('refresh=token');
+      }
+
+      let nv = cookieValue(cookieName);
+      if (!nv || forceNvReissue) {
+        if (forceNvReissue) deleteCookie(cookieName);
+        await fetchWithTimeout(new URL('/api/nv-issue', target.origin).href, {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        nv = cookieValue(cookieName);
+        forceNvReissue = false;
+      }
+      if (!nv) return { ok: false, stage: 'cookie', status: 0 };
+
+      const nonce = b64url(crypto.getRandomValues(new Uint8Array(24)));
+      const hmacKey = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(nv),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      );
+      const signature = await crypto.subtle.sign(
+        'HMAC',
+        hmacKey,
+        encoder.encode(`${token}.${nonce}.${navigator.userAgent}`),
+      );
+      const proof = b64url(new Uint8Array(signature));
+      const contentReply = await jsonPost(
+        new URL('/api/novel-content', target.origin).href,
+        {
+          novelId: ids[1],
+          episodeId: ids[2],
+          token,
+          nonce,
+          proof,
+        },
+        { 'x-novel-client': 'shadow-v3' },
+      );
+      const content = contentReply.data;
+      if (
+        !contentReply.response.ok
+        || !content
+        || !content.ok
+        || !content.payload
+      ) {
+        const error = content && content.error ? String(content.error) : '';
+        if (error === 'expired') {
+          lastRetryFailure = {
+            ok: false,
+            stage: 'content',
+            status: contentReply.response.status,
+            error: `${error} (${handshake.join(', ')})`,
+          };
+          forceNvReissue = true;
+          continue;
+        }
+        if (error === 'ad_ack_required') {
+          lastRetryFailure = {
+            ok: false,
+            stage: 'content',
+            status: contentReply.response.status,
+            error: `${error} (${handshake.join(', ')})`,
+          };
+          continue;
+        }
+        return {
+          ok: false,
+          stage: 'content',
+          status: contentReply.response.status,
+          error,
+        };
+      }
+
+      const cookieKey = fromB64url(nv.split('.')[0] || '');
+      const encrypted = fromB64url(content.payload);
+      if (!cookieKey.length || encrypted.length < 29) {
+        return { ok: false, stage: 'decrypt', status: 0 };
+      }
+      const suffix = encoder.encode(`:${ids[1]}:${ids[2]}:v3`);
+      const material = new Uint8Array(cookieKey.length + suffix.length);
+      material.set(cookieKey, 0);
+      material.set(suffix, cookieKey.length);
+      const aesKeyBytes = await crypto.subtle.digest('SHA-256', material);
+      const aesKey = await crypto.subtle.importKey(
+        'raw',
+        aesKeyBytes,
+        { name: 'AES-GCM' },
+        false,
+        ['decrypt'],
+      );
+      const plaintext = await crypto.subtle.decrypt(
+        {
+          name: 'AES-GCM',
+          iv: encrypted.slice(0, 12),
+          tagLength: 128,
+        },
+        aesKey,
+        encrypted.slice(12),
+      );
+      return {
+        ok: true,
+        plaintext: new TextDecoder('utf-8').decode(plaintext),
+      };
+    }
+    return lastRetryFailure;
+  } catch (error) {
+    return { ok: false, stage: 'exception', status: 0, error: String(error) };
+  }
+};
+
+  const ntkFetchHtml = async (url) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const target = new URL(url, location.href);
+    target.searchParams.set('cb', String(Date.now()));
+    const response = await fetch(target.href, {
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: await response.text(),
+    };
+  } catch (error) {
+    return { ok: false, status: 0, error: String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+  const ntkBlockMarkers = ['access denied', 'site security policy', 'just a moment', 'country restriction', 'cf-challenge', '/cdn-cgi/challenge'];
+  const ntkHtml = () => ((document.documentElement && document.documentElement.innerHTML) || '');
+  const ntkBlocked = () => {
+    const lower = ntkHtml().toLowerCase();
+    return ntkBlockMarkers.some((marker) => lower.includes(marker));
+  };
+  const ntkChallenge = () => /just a moment|cf-challenge|\/cdn-cgi\/challenge|checking your browser/i.test(ntkHtml());
+  const ntkPageParam = () => (/(?:^|\.)sbxh\d+\./.test(location.host) ? 'page' : 'epage');
+  const ntkDisplayNumber = (item) => {
+    const display = parseInt(item.displayNumber, 10);
+    if (Number.isFinite(display) && display > 0) return display;
+    const labels = String(item.name || '').match(/(\d+)/g);
+    if (labels && labels.length) {
+      const last = parseInt(labels[labels.length - 1], 10);
+      if (Number.isFinite(last) && last > 0) return last;
+    }
+    const number = parseInt(item.number, 10);
+    if (Number.isFinite(number) && number > 0) return number;
+    return null;
+  };
+  const ntkImageName = (url, index) => {
+    const prefix = String(index).padStart(4, '0');
+    let extension = 'jpg';
+    const last = (String(url).split(/[?#]/)[0].split('/').pop() || '');
+    const dot = last.lastIndexOf('.');
+    const candidate = dot >= 0 ? last.slice(dot + 1).toLowerCase() : '';
+    if (candidate && candidate.length <= 5 && /^[a-z0-9]+$/.test(candidate)) extension = candidate;
+    return `images/${prefix}_01.${extension}`;
+  };
+  const ntkCleanText = (value) => String(value == null ? '' : value)
+    .replace(/\r\n/g, '\n')
+    .replace(/[\u200b\ufeff]/g, '')
+    .split('\n').map((line) => line.replace(/[ \t\u00a0]+/g, ' ').replace(/\s+$/, '')).join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  const ntkUnwrapPlaintext = (plaintext) => {
+    let data = null;
+    try { data = JSON.parse(plaintext); } catch (e) { data = null; }
+    if (data && typeof data === 'object') {
+      if (data.kind === 'html' && typeof data.html === 'string') return { html: data.html };
+      if (data.kind === 'text-shuffled' && Array.isArray(data.paragraphs) && Array.isArray(data.perm)) {
+        const ordered = [];
+        for (let i = 0; i < data.paragraphs.length; i += 1) {
+          const pos = data.perm[i];
+          if (Number.isInteger(pos)) ordered[pos] = data.paragraphs[i];
+        }
+        return { text: ordered.filter((p) => p != null).join('\n\n') };
+      }
+      if (data.kind === 'text' && Array.isArray(data.paragraphs)) return { text: data.paragraphs.join('\n\n') };
+      if (typeof data.text === 'string') return { text: data.text };
+    }
+    return { text: String(plaintext == null ? '' : plaintext) };
+  };
+  const ntkTextResult = (title, unwrapped) => {
+    if (unwrapped.html != null) {
+      let doc = null;
+      try { doc = new DOMParser().parseFromString(unwrapped.html, 'text/html'); } catch (e) { doc = null; }
+      if (!doc || !doc.body) return null;
+      doc.body.querySelectorAll('script, style, iframe, noscript').forEach((el) => el.remove());
+      const body = ntkCleanText(doc.body.textContent || '');
+      const inner = doc.body.innerHTML.trim();
+      if (!body && !/<img/i.test(inner)) return null;
+      return { chapterName: title || 'Chapter', contentText: body, contentHtml: `<div class="ntk-content">${inner}</div>` };
+    }
+    const body = ntkCleanText(unwrapped.text);
+    if (!body) return null;
+    let paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    if (!paragraphs.length) paragraphs = body.split('\n').map((p) => p.trim()).filter(Boolean);
+    const html = '<div class="ntk-content">' + paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join('\n') + '</div>';
+    return { chapterName: title || 'Chapter', contentText: body, contentHtml: html };
+  };
+  const ntkImageUrls = (htmlText, baseUrl) => {
+    const out = [];
+    const seen = new Set();
+    const add = (raw) => {
+      if (!raw) return;
+      let abs;
+      try { abs = new URL(String(raw).trim(), baseUrl).href; } catch (e) { return; }
+      if (!/^https?:/i.test(abs)) return;
+      if (!/\.(?:jpe?g|png|webp|gif|avif)(?:[?#]|$)/i.test(abs)) return;
+      if (/(?:favicon|avatar|profile|emoji|logo|sprite|blank)/i.test(abs)) return;
+      if (/(?:novel|webtoon)_thumb|og-default/i.test(abs)) return;
+      if (seen.has(abs)) return;
+      seen.add(abs);
+      out.push(abs);
+    };
+    let doc = null;
+    try { doc = new DOMParser().parseFromString(htmlText, 'text/html'); } catch (e) { doc = null; }
+    if (doc) {
+      for (const img of doc.querySelectorAll('img')) {
+        add(img.getAttribute('data-src') || img.getAttribute('data-original')
+          || img.getAttribute('data-lazy-src') || img.getAttribute('src'));
+        const srcset = img.getAttribute('srcset') || img.getAttribute('data-srcset');
+        if (srcset) srcset.split(',').forEach((part) => add(part.trim().split(/\s+/)[0]));
+      }
+    }
+    const re = /https?:\/\/[^\s"'<>]+?\.(?:jpe?g|png|webp|gif|avif)/gi;
+    let match;
+    while ((match = re.exec(htmlText))) {
+      if (/toonflix|imagebox|\/(?:data|upload|webtoon|image)s?\//i.test(match[0])) add(match[0]);
+    }
+    return out;
+  };
+
+  ntk.pageState = function (options) {
+    const opts = options || {};
+    const kind = opts.kind || 'novel';
+    const novelId = String(opts.novelId || '');
+    if (ntkChallenge()) return { state: 'verification' };
+    if (ntkBlocked()) return { state: 'blocked' };
+    const prefix = `/${kind}/${novelId}/`;
+    const ready = Array.from(document.querySelectorAll('a[href]')).some((link) => {
+      try { return new URL(link.href, location.href).pathname.startsWith(prefix); } catch (e) { return false; }
+    });
+    return { state: (document.readyState !== 'loading' && ready) ? 'ready' : 'waiting' };
+  };
+
+  ntk.chapterState = function () {
+    if (ntkChallenge()) return { ready: true, blocked: false, verification: true };
+    if (ntkBlocked()) return { ready: true, blocked: true, verification: false };
+    return { ready: document.readyState !== 'loading', blocked: false, verification: false };
+  };
+
+  ntk.bookInfo = function (options) {
+    const opts = options || {};
+    const kind = opts.kind || 'novel';
+    const novelId = String(opts.novelId || '');
+    if (ntkChallenge()) return { ok: false, error: 'verification' };
+    if (ntkBlocked()) return { ok: false, blocked: true, error: 'blocked' };
+    const prefix = `/${kind}/${novelId}/`;
+    const ready = Array.from(document.querySelectorAll('a[href]')).some((link) => {
+      try { return new URL(link.href, location.href).pathname.startsWith(prefix); } catch (e) { return false; }
+    });
+    if (!ready && document.readyState === 'loading') return { ok: false, error: 'waiting' };
+    const firstText = (selectors) => {
+      for (const selector of selectors) {
+        const value = text(document.querySelector(selector));
+        if (value) return value;
+      }
+      return '';
+    };
+    const firstImage = (selectors) => {
+      for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        if (el && (el.currentSrc || el.src)) return el.currentSrc || el.src;
+      }
+      return '';
+    };
+    const tags = [];
+    for (const el of document.querySelectorAll('.hero-v2-tag, [class*="tag"] a, a[href*="tag"], a[href*="genre"]')) {
+      const value = text(el).replace(/^#/, '').trim();
+      if (value && value.length <= 50 && !tags.includes(value)) tags.push(value);
+    }
+    let title = firstText(['.novel-detail h1', '.novel-title', '.nd-title', '[data-novel-title]'])
+      || metaContent('og:title') || firstText(['main h1', 'h1']) || document.title || '';
+    title = title.split(/\s+[-|]\s+/)[0].trim();
+    let cover = absolute(firstImage(['.nd-thumb img', '.novel-detail img', 'main img']) || metaContent('og:image') || '');
+    if (cover) cover = cover.replace(/aws-cdn\d+\.site/i, 'aws-cdn1.site');
+    return {
+      ok: true,
+      kind,
+      title,
+      author: firstText(['.nd-meta span:first-child', '[class*="author"]', '[rel="author"]']),
+      synopsis: firstText(['.nd-desc', '[class*="description"]', '[class*="intro"]']),
+      cover: cover || '',
+      tags,
+    };
+  };
+
+  ntk.chapterList = async function (options) {
+    const opts = options || {};
+    const kind = opts.kind || 'novel';
+    const novelId = String(opts.novelId || '');
+    if (!novelId) return { ok: false, error: 'missing novel id' };
+    let rows;
+    try { rows = await ntkCollectChapters(novelId, kind, ntkPageParam()); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+    const map = new Map();
+    for (const row of (rows || [])) {
+      const episodeId = String(row.episodeId || '');
+      if (!/^\d+$/.test(episodeId) || map.has(episodeId)) continue;
+      map.set(episodeId, { url: row.url, episodeId, name: String(row.name || '').trim(), sourceNumber: ntkDisplayNumber(row) });
+    }
+    let chapters = Array.from(map.values());
+    if (!chapters.length) return { ok: false, error: 'no chapters found' };
+    const numbers = chapters.map((c) => c.sourceNumber);
+    const allNumbered = numbers.every((n) => n != null) && new Set(numbers).size === numbers.length;
+    if (allNumbered) chapters.sort((a, b) => a.sourceNumber - b.sourceNumber);
+    else chapters.reverse();
+    chapters = chapters.map((c, index) => ({
+      url: c.url,
+      episodeId: c.episodeId,
+      number: index + 1,
+      name: c.name || `Chapter ${index + 1}`,
+    }));
+    return { ok: true, chapters };
+  };
+
+  ntk.chapter = async function (options) {
+    const opts = options || {};
+    const chapterUrl = opts.chapterUrl || location.href;
+    const title = opts.name || '';
+    let fetched;
+    try { fetched = await ntkFetchChapterPlaintext(chapterUrl); } catch (e) { return { ok: false, stage: 'exception', status: 0, error: String((e && e.message) || e) }; }
+    if (!fetched || !fetched.ok) {
+      const status = (fetched && fetched.status) || 0;
+      const stage = (fetched && fetched.stage) || '';
+      const blocked = status === 403 || status === 451 || stage === 'blocked';
+      return { ok: false, blocked, stage, status, error: (fetched && fetched.error) || stage || 'chapter fetch failed' };
+    }
+    const built = ntkTextResult(title, ntkUnwrapPlaintext(fetched.plaintext));
+    if (!built || ntkCleanText(built.contentText).length < 40) {
+      return { ok: false, stage: 'content', status: 0, error: 'the chapter had no readable text' };
+    }
+    return { ok: true, chapterName: built.chapterName, contentText: built.contentText, contentHtml: built.contentHtml, images: [] };
+  };
+
+  ntk.webtoon = async function (options) {
+    const opts = options || {};
+    const chapterUrl = opts.chapterUrl || location.href;
+    const title = opts.name || '';
+    let fetched;
+    try { fetched = await ntkFetchHtml(chapterUrl); } catch (e) { return { ok: false, stage: 'exception', status: 0, error: String((e && e.message) || e) }; }
+    if (!fetched || !fetched.ok) {
+      return { ok: false, status: (fetched && fetched.status) || 0, error: (fetched && fetched.error) || 'webtoon fetch failed' };
+    }
+    const urls = ntkImageUrls(fetched.text, chapterUrl);
+    if (!urls.length) return { ok: false, error: 'no webtoon images were found' };
+    const images = [];
+    const parts = [];
+    urls.forEach((url, index) => {
+      const name = ntkImageName(url, index + 1);
+      images.push({ url, name });
+      parts.push(`<div class="ntk-webtoon-page"><img src="${escapeHtml(name)}" alt="page ${index + 1}"/></div>`);
+    });
+    return { ok: true, chapterName: title || 'Chapter', contentText: '', contentHtml: `<div class="ntk-content">${parts.join('\n')}</div>`, images };
+  };
+
 
   const tasks = new Map();
   let taskCounter = 0;
@@ -2180,6 +3497,7 @@
   util.reEscape = reEscape;
   if (root.top === root) {
     try { qdn.installFontHook(); } catch (e) { /* the reader still works; only scripted fonts are missed */ }
+    try { mpia.installReaderHook(); } catch (e) { /* only the mpia reader observer is missed */ }
   }
   root.__npiaHard = hard;
 }(typeof window !== 'undefined' ? window : globalThis));
