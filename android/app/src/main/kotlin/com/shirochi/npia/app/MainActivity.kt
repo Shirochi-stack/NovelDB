@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
         val uploadRun = intent.getStringExtra(EXTRA_UPLOAD_RUN)
         if (uploadRun != null) {
             // The summary notification's Upload button, before the sharing agreement was accepted.
-            model.select(Tab.QUEUE)
+            model.openQueue()
             model.requestUpload {
                 if (!model.manager.uploadRun(uploadRun)) model.manager.message("Those downloads are no longer available to upload.")
             }
@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
             // A notification about several books opens the queue's combined log.
             model.openQueueLog()
         } else if (intent.getBooleanExtra(EXTRA_OPEN_QUEUE, false)) {
-            model.tab = Tab.QUEUE
+            model.openQueue()
         }
     }
 

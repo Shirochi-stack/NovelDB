@@ -122,7 +122,7 @@ fun RootScreen(model: AppViewModel) {
         ) {
             when (route) {
                 null -> when (model.tab) {
-                    Tab.ADD -> AddScreen(model, onQueued = { model.select(Tab.QUEUE) })
+                    Tab.ADD -> AddScreen(model, onQueued = { model.openQueue() })
                     Tab.CATALOG -> CatalogScreen(catalog, model, topBar)
                     Tab.BROWSER -> BrowserScreen(model, topBar)
                     Tab.QUEUE -> QueueScreen(model, topBar)
