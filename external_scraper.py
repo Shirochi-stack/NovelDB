@@ -8722,7 +8722,7 @@ async ({ chapterUrl }) => {
         memory) and marked with a file: address the saver reads; the rest keep
         their mirror URLs for a plain download.
         """
-        deadline = time.time() + min(90.0, 10.0 + 0.4 * len(pages))
+        deadline = time.time() + min(120.0, 15.0 + 0.5 * len(pages))
         try:
             page.evaluate(
                 "() => { for (const img of document.querySelectorAll('img')) img.loading = 'eager'; }"
@@ -8745,7 +8745,7 @@ async ({ chapterUrl }) => {
                 break
             if left != last_count:
                 last_count, last_change = left, time.time()
-            elif time.time() - last_change > 8:
+            elif time.time() - last_change > 15:
                 break
             try:
                 page.mouse.wheel(0, 4000)
