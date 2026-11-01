@@ -332,6 +332,14 @@ final class AppModel {
         requestedPanel = .queue
     }
 
+    /// Opens the Queue's job list, newest first, closing a job page or log left open there.
+    func showQueue() {
+        queueSection = .jobs
+        logFilterJobID = nil
+        queuePath = []
+        requestedPanel = .queue
+    }
+
     // MARK: - Notifications
 
     /// Where a tap on a queue notification goes: the Log filtered to every job, or the job's own page.
