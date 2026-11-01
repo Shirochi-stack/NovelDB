@@ -174,6 +174,8 @@ final class AppModel {
         job.skipped = []
         job.log = []
         job.finishedAt = nil
+        // A retry uses the settings as they are now, so a range or option changed since queueing applies.
+        job.settings = settings
         jobs[index] = job
         if !runJobIDs.contains(id) { runJobIDs.append(id) }
         log(id, .info, "Retry: queued again")

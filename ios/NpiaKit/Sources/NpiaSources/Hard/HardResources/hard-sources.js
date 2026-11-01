@@ -3516,6 +3516,36 @@
     return { ok: false, stage: 'page-content', status: seen.status, error: (seen.data && seen.data.error) ? String(seen.data.error) : 'no payload' };
   };
 
+  /**
+   * One asset (the cover) fetched by the page itself. The image host resets connections from plain
+   * HTTP clients, so the bytes come back base64 for a data: URL (desktop _ntk_fetch_binary_browser).
+   */
+  ntk.fetchBinary = async function (options) {
+    const opts = options || {};
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const target = new URL(String(opts.url || ''), location.href);
+      // CDN covers usually answer Access-Control-Allow-Origin: *, which fails with credentials.
+      const response = await fetch(target.href, {
+        credentials: target.origin === location.origin ? 'include' : 'omit',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (!response.ok) return { ok: false, status: response.status };
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = '';
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      return { ok: true, status: response.status, contentType: response.headers.get('content-type') || '', data: btoa(binary) };
+    } catch (e) {
+      return { ok: false, status: 0, error: String((e && e.message) || e) };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   ntk.chapter = async function (options) {
     const opts = options || {};
     const chapterUrl = opts.chapterUrl || location.href;
@@ -3526,8 +3556,14 @@
     if (root.__npiaNtkFetchHooked && pageWait > 0) {
       try { fromPage = await ntkPageContent(chapterUrl, pageWait); } catch (e) { fromPage = { ok: false, stage: 'page-content', status: 0, error: String((e && e.message) || e) }; }
     }
+    const rateLimited = fromPage && !fromPage.ok
+      && (fromPage.status === 429 || /too many|rate.?limit/i.test(String(fromPage.error || '')));
     if (fromPage && fromPage.ok) {
       fetched = fromPage;
+    } else if (rateLimited) {
+      // The old handshake cannot help here (the site refuses it with ad_proof_required); the native
+      // side waits and reloads the chapter instead.
+      return { ok: false, stage: 'rate-limit', status: 429, error: String(fromPage.error || 'too many requests') };
     } else {
       // The older hand-made handshake, for mirrors that still accept it.
       try { fetched = await ntkFetchChapterPlaintext(chapterUrl); } catch (e) { fetched = { ok: false, stage: 'exception', status: 0, error: String((e && e.message) || e) }; }
