@@ -8,6 +8,21 @@ struct NtkTiming: Sendable {
     var chapterStatePolls = 20
     var poll: TimeInterval = 0.7
     var maxPages = 3
+    /// Reloads of a chapter the site answered with "too many requests", each after a longer pause.
+    var rateLimitRetries = 4
+    var rateLimitPause: TimeInterval = 10
+}
+
+/// The site answered the reader's content request with "too many requests".
+struct NtkRateLimited: Error {
+    let message: String
+}
+
+/// When the site last rate-limited a page; every page waits until then before its next chapter.
+actor NtkCooldown {
+    private var until = Date.distantPast
+    func remaining() -> TimeInterval { until.timeIntervalSinceNow }
+    func extend(by seconds: TimeInterval) { until = max(until, Date().addingTimeInterval(seconds)) }
 }
 
 /// A once-then-give-up gate for the Cloudflare sign-in prompt, shared across the pool.
@@ -175,8 +190,23 @@ final class NtkRun: @unchecked Sendable {
         }
     }
 
+    private let cooldown = NtkCooldown()
+
     func chapter(_ ref: ChapterRef) async throws -> ChapterResult {
-        try await pool.withPage { page in try await self.read(page, ref) }
+        var attempt = 0
+        while true {
+            let wait = await cooldown.remaining()
+            if wait > 0 { try await HTTPSourceSupport.sleep(seconds: wait) }
+            do {
+                return try await pool.withPage { page in try await self.read(page, ref) }
+            } catch let limited as NtkRateLimited {
+                if attempt >= timing.rateLimitRetries { return .failed(ref, message: limited.message) }
+                attempt += 1
+                let pause = timing.rateLimitPause * Double(1 << (attempt - 1))
+                await cooldown.extend(by: pause)
+                context.logger.log(.info, "[ntk] Chapter \(ref.index): the site asked to slow down; trying again in \(Int(pause)) s")
+            }
+        }
     }
 
     func close() async {
@@ -212,6 +242,9 @@ final class NtkRun: @unchecked Sendable {
         if !result.ok {
             if result.blocked {
                 return .failed(ref, message: "the site's security check blocked this chapter; clear it in the Browser tab, then retry")
+            }
+            if result.stage == "rate-limit" {
+                throw NtkRateLimited(message: result.error.isEmpty ? "too many requests" : result.error)
             }
             let reason = result.error.isEmpty ? (result.stage.isEmpty ? "the chapter could not be read" : result.stage) : result.error
             return .failed(ref, message: reason)

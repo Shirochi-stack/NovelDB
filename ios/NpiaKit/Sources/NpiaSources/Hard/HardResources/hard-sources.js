@@ -3526,8 +3526,14 @@
     if (root.__npiaNtkFetchHooked && pageWait > 0) {
       try { fromPage = await ntkPageContent(chapterUrl, pageWait); } catch (e) { fromPage = { ok: false, stage: 'page-content', status: 0, error: String((e && e.message) || e) }; }
     }
+    const rateLimited = fromPage && !fromPage.ok
+      && (fromPage.status === 429 || /too many|rate.?limit/i.test(String(fromPage.error || '')));
     if (fromPage && fromPage.ok) {
       fetched = fromPage;
+    } else if (rateLimited) {
+      // The old handshake cannot help here (the site refuses it with ad_proof_required); the native
+      // side waits and reloads the chapter instead.
+      return { ok: false, stage: 'rate-limit', status: 429, error: String(fromPage.error || 'too many requests') };
     } else {
       // The older hand-made handshake, for mirrors that still accept it.
       try { fetched = await ntkFetchChapterPlaintext(chapterUrl); } catch (e) { fetched = { ok: false, stage: 'exception', status: 0, error: String((e && e.message) || e) }; }
