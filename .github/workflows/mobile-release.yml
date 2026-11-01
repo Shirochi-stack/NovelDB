@@ -1,6 +1,6 @@
 name: Mobile Release
 
-# Builds the Android APK and the unsigned iOS IPA from their integration branches and attaches
+# Builds the Android APK and the unsigned iOS IPA from main (or a chosen branch) and attaches
 # both to a release. A published release gets the plain names (NovelDB-universal.apk,
 # NovelDB-unsigned.ipa); a manual run adds a label, by default the next hotfix number
 # (NovelDB-universal_hotfix11.apk, NovelDB-unsigned_hotfix11.ipa).
@@ -21,11 +21,11 @@ on:
       android_ref:
         description: 'Android branch or commit to build'
         required: false
-        default: 'android/integration'
+        default: 'main'
       ios_ref:
         description: 'iOS branch or commit to build'
         required: false
-        default: 'ios/integration'
+        default: 'main'
       dry_run:
         description: 'Build and name the files without uploading them'
         type: boolean
@@ -84,9 +84,9 @@ jobs:
 
   android:
     needs: plan
-    uses: Shirochi-stack/NovelDB/.github/workflows/android.yml@android/integration
+    uses: ./.github/workflows/android.yml
     with:
-      ref: ${{ inputs.android_ref || 'android/integration' }}
+      ref: ${{ inputs.android_ref }}
       build_id: ${{ needs.plan.outputs.build }}
       release_tag: ${{ needs.plan.outputs.tag }}
       release_label: ${{ needs.plan.outputs.label }}
@@ -94,9 +94,9 @@ jobs:
 
   ios:
     needs: plan
-    uses: Shirochi-stack/NovelDB/.github/workflows/ios.yml@ios/integration
+    uses: ./.github/workflows/ios.yml
     with:
-      ref: ${{ inputs.ios_ref || 'ios/integration' }}
+      ref: ${{ inputs.ios_ref }}
       build_id: ${{ needs.plan.outputs.build }}
       release_tag: ${{ needs.plan.outputs.tag }}
       release_label: ${{ needs.plan.outputs.label }}

@@ -1,0 +1,409 @@
+name: iOS App
+
+on:
+  push:
+    branches: [main]
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Attach the unsigned IPA to this existing release tag (optional)'
+        required: false
+        default: ''
+      live_url:
+        description: 'Download the first three chapters of this book inside the app on a simulator (optional)'
+        required: false
+        default: ''
+  # Called by Mobile Release on main, which builds both apps and attaches them to a release.
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Branch or commit to build'
+        type: string
+        required: false
+        default: ''
+      build_id:
+        description: 'Build number (Unix seconds) stamped into the app; empty builds a development build that never offers app updates'
+        type: string
+        required: false
+        default: ''
+      release_tag:
+        description: 'Release tag shown as the app version, like v98 (only with build_id)'
+        type: string
+        required: false
+        default: ''
+      release_label:
+        description: 'Release label shown next to the tag: none, hotfix3, ... (only with build_id)'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Show toolchain
+        run: xcodebuild -version && swift --version
+      - name: Test NpiaKit
+        working-directory: ios/NpiaKit
+        run: swift test
+
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Build for device (unsigned)
+        working-directory: ios
+        env:
+          # Set when Mobile Release calls this workflow. Called by hand or by a push, they are
+          # empty (or, for release_tag on a manual run, only name the release to attach to), and
+          # ci/release_stamp.sh prints nothing: a development build.
+          BUILD_ID: ${{ inputs.build_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_LABEL: ${{ inputs.release_label }}
+        run: |
+          stamp=$(bash ci/release_stamp.sh)
+          echo "Stamp: $(echo ${stamp:-none, a development build})"
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" $stamp build
+          bash ci/check_stamp.sh build/Build/Products/Release-iphoneos/NpiaMobile.app/Info.plist
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/NpiaMobile.app Payload/
+          zip -qry NovelDB-unsigned.ipa Payload
+          ls -lh NovelDB-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NovelDB-unsigned-ipa
+          path: ios/NovelDB-unsigned.ipa
+          retention-days: 14
+      - name: Attach to release
+        # Mobile Release is a workflow_dispatch run too, and its inputs leak into this called
+        # workflow: when it passes a build number it attaches the files itself.
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.build_id == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.release_tag }}" ios/NovelDB-unsigned.ipa --clobber --repo "${{ github.repository }}"
+
+  simulator-smoke:
+    # Installs the app on an iPhone simulator, launches it, and checks it stays up. Crash
+    # reports, the app's log, and a screenshot are uploaded either way.
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in data if "iOS" in r), reverse=True)
+          for runtime in runtimes:
+              for device in data[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); raise SystemExit
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+      - name: Build for the simulator
+        working-directory: ios
+        run: |
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Debug \
+            -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Launch and watch
+        working-directory: ios
+        run: |
+          udid=${{ steps.sim.outputs.udid }}
+          app=build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app
+          mkdir -p smoke
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl spawn "$udid" log stream --style compact --level debug --predicate 'process == "NpiaMobile"' > smoke/oslog.txt 2>&1 &
+          logger=$!
+          launch() {
+            xcrun simctl launch --console-pty "$udid" com.shirochi.npiamobile >> smoke/console.txt 2>&1 &
+            sleep 25
+            xcrun simctl spawn "$udid" launchctl list | grep -c "com.shirochi.npiamobile" || true
+          }
+          alive=$(launch)
+          if [ "$alive" -eq 0 ] && ! ls ~/Library/Logs/DiagnosticReports/NpiaMobile* > /dev/null 2>&1; then
+            # A fresh simulator sometimes never starts the app on the first launch (no log, no
+            # crash report). A crash is never retried.
+            echo "::warning::NpiaMobile did not start on the first launch; launching it again."
+            alive=$(launch)
+          fi
+          xcrun simctl io "$udid" screenshot smoke/screen.png || true
+          kill "$logger" || true
+          cp ~/Library/Logs/DiagnosticReports/NpiaMobile* smoke/ 2>/dev/null || true
+          echo "--- console"; tail -40 smoke/console.txt || true
+          echo "--- crash reports"; ls smoke/ | grep -i -E "ips|crash" || echo none
+          if [ "$alive" -eq 0 ]; then echo "::error::NpiaMobile is not running 25 s after launch"; exit 1; fi
+          echo "NpiaMobile is running."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-smoke
+          path: ios/smoke/
+          retention-days: 14
+
+  update-check:
+    # Builds the app with a build number (so it is not a development build), runs it on an iPhone
+    # simulator against a local server that answers like GitHub's release downloads
+    # (ci/update_fixture.py), and checks what the app reports for each case: a newer build with a
+    # matching file, a bad checksum, a bad size, no newer build, another schema and no manifest.
+    # Uses the Debug-only launch arguments -NovelDBUpdateBase and -NovelDBUpdateReport (AppUpdateController).
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Allow plain HTTP in this test build
+        # The local server speaks http. Only this job's generated Info.plist changes.
+        working-directory: ios
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" \
+            -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" App/Info.plist
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in data if "iOS" in r), reverse=True)
+          for runtime in runtimes:
+              for device in data[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); raise SystemExit
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+      - name: Build a stamped app for the simulator
+        working-directory: ios
+        env:
+          BUILD_ID: '1000'
+          RELEASE_TAG: v1
+          RELEASE_LABEL: none
+        run: |
+          stamp=$(bash ci/release_stamp.sh)
+          echo "Stamp: $(echo $stamp)"
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Debug \
+            -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO $stamp build
+          bash ci/check_stamp.sh build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app/Info.plist
+      - name: Run the update check in the app
+        working-directory: ios
+        run: |
+          udid=${{ steps.sim.outputs.udid }}
+          app=build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app
+          bundle=com.shirochi.npiamobile
+          root="$PWD/update-site"
+          out="$PWD/update-check"
+          mkdir -p "$root" "$out"
+          python3 ci/update_fixture.py serve "$root" 8765 > "$out/server.log" 2>&1 &
+          server=$!
+          for _ in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:8765/ping > /dev/null && break
+            sleep 0.5
+          done
+          xcrun simctl spawn "$udid" log stream --style compact --level debug --predicate 'process == "NpiaMobile"' > "$out/oslog.txt" 2>&1 &
+          logger=$!
+          failed=0
+
+          # One case: write the fixture, install a fresh copy (so the daily check is due), launch it
+          # until it runs, wait for its report and compare it with the patterns given.
+          scenario() {
+            name=$1; shift
+            echo "=== $name"
+            read -r sha size < <(python3 ci/update_fixture.py write "$root" "$name" 1000)
+            xcrun simctl terminate "$udid" "$bundle" 2> /dev/null || true
+            xcrun simctl uninstall "$udid" "$bundle" 2> /dev/null || true
+            xcrun simctl install "$udid" "$app"
+            documents="$(xcrun simctl get_app_container "$udid" "$bundle" data)/Documents"
+            report="$documents/update-check-report.txt"
+            for attempt in 1 2 3; do
+              xcrun simctl launch "$udid" "$bundle" -NovelDBUpdateBase http://127.0.0.1:8765/releases -NovelDBUpdateReport >> "$out/launch-$name.txt" 2>&1 || true
+              sleep 20
+              listing=$(xcrun simctl spawn "$udid" launchctl list || true)
+              if grep -q "$bundle" <<< "$listing"; then break; fi
+              echo "::warning::NpiaMobile did not start ($name, attempt $attempt)."
+            done
+            for _ in $(seq 1 60); do
+              [ -f "$report" ] && break
+              sleep 2
+            done
+            sleep 3
+            xcrun simctl io "$udid" screenshot "$out/$name.png" || true
+            if [ ! -f "$report" ]; then
+              echo "::error::$name: the app wrote no report"
+              failed=1
+              return
+            fi
+            cp "$report" "$out/$name-report.txt"
+            cat "$report"; echo
+            for pattern in "$@"; do
+              pattern=${pattern//@SHA@/$sha}
+              pattern=${pattern//@SIZE@/$size}
+              if ! grep -Eq "$pattern" "$report"; then
+                echo "::error::$name: the report lacks: $pattern"
+                failed=1
+              fi
+            done
+          }
+
+          scenario good \
+            '^build: v1, build 1000$' \
+            '^outcome: available$' \
+            '^check: NovelDB v2 hotfix3 is available\.$' \
+            '^offer: NovelDB v2 hotfix3 is available$' \
+            '^phase: ready$' \
+            '^file: NovelDB-unsigned\.ipa$' \
+            '^file-size: @SIZE@$' \
+            '^file-sha256: @SHA@$' \
+            '^leftover: NovelDB-unsigned\.ipa$'
+          for bad in badsum badsize; do
+            scenario "$bad" \
+              '^outcome: available$' \
+              '^phase: failed$' \
+              '^error: The download did not match its checksum; nothing was installed\.$' \
+              '^leftover: none$'
+          done
+          scenario current '^outcome: upToDate$' '^check: NovelDB is up to date\.$' '^offer: none$' '^phase: idle$'
+          scenario schema2 '^outcome: noInformation$' '^offer: none$'
+          scenario missing '^outcome: noInformation$' '^offer: none$'
+
+          kill "$logger" "$server" || true
+          cp ~/Library/Logs/DiagnosticReports/NpiaMobile* "$out/" 2>/dev/null || true
+          echo "--- server log"; tail -30 "$out/server.log" || true
+          if [ "$failed" -ne 0 ]; then echo "::error::The app's update check did not behave as expected"; exit 1; fi
+          echo "All update scenarios behaved as expected."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: update-check
+          path: ios/update-check/
+          retention-days: 14
+
+  live-download:
+    # Run by hand with live_url: installs the app on an iPhone simulator, launches it with
+    # -NovelDBLiveDownload (a Debug-only hook in AppModel), and waits for the book's first three
+    # chapters as EPUB and TXT. Needs the site to be up and reachable from GitHub's runners.
+    if: github.event_name == 'workflow_dispatch' && inputs.live_url != ''
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          runtimes = sorted((r for r in data if "iOS" in r), reverse=True)
+          for runtime in runtimes:
+              for device in data[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); raise SystemExit
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+      - name: Build for the simulator
+        working-directory: ios
+        run: |
+          xcodebuild -project NpiaMobile.xcodeproj -scheme NpiaMobile -configuration Debug \
+            -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Download the book in the app
+        working-directory: ios
+        env:
+          LIVE_URL: ${{ inputs.live_url }}
+        run: |
+          udid=${{ steps.sim.outputs.udid }}
+          app=build-sim/Build/Products/Debug-iphonesimulator/NpiaMobile.app
+          mkdir -p live
+          xcrun simctl install "$udid" "$app"
+          documents="$(xcrun simctl get_app_container "$udid" com.shirochi.npiamobile data)/Documents"
+          report="$documents/live-download-report.txt"
+          xcrun simctl spawn "$udid" log stream --style compact --level debug --predicate 'process == "NpiaMobile"' > live/oslog.txt 2>&1 &
+          logger=$!
+          for attempt in 1 2 3; do
+            xcrun simctl launch "$udid" com.shirochi.npiamobile -NovelDBLiveDownload "$LIVE_URL" >> live/launch.txt 2>&1 || true
+            sleep 20
+            if xcrun simctl spawn "$udid" launchctl list | grep -q "com.shirochi.npiamobile"; then break; fi
+            echo "::warning::NpiaMobile did not start (attempt $attempt)."
+          done
+          for _ in $(seq 1 120); do
+            [ -f "$report" ] && break
+            sleep 5
+          done
+          xcrun simctl io "$udid" screenshot live/screen.png || true
+          kill "$logger" || true
+          cp -R "$documents"/. live/ 2>/dev/null || true
+          cp ~/Library/Logs/DiagnosticReports/NpiaMobile* live/ 2>/dev/null || true
+          if [ ! -f live/live-download-report.txt ]; then
+            echo "::error::No download report after 10 minutes"; tail -60 live/oslog.txt || true; exit 1
+          fi
+          cat live/live-download-report.txt
+          grep -q '^state: finished$' live/live-download-report.txt || { echo "::error::The download did not finish"; exit 1; }
+          epub=$(find live -name '*.epub' | head -1)
+          txt=$(find live -name '*.txt' ! -name 'live-download-report.txt' | head -1)
+          [ -n "$epub" ] && [ -n "$txt" ] || { echo "::error::The EPUB or TXT file is missing"; ls -la live; exit 1; }
+          ls -l "$epub" "$txt"
+          echo "--- TXT"; head -c 2000 "$txt"; echo
+          size=$(wc -c < "$txt" | tr -d " ")
+          [ "$size" -gt 3000 ] || { echo "::error::The TXT file has only $size bytes"; exit 1; }
+          unzip -l "$epub"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-download
+          path: ios/live/
+          retention-days: 14

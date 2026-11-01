@@ -1,0 +1,127 @@
+name: Android App
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Attach the APK to this existing release tag (optional)'
+        required: false
+        default: ''
+  # Called by Mobile Release on main, which builds both apps and attaches them to a release.
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Branch or commit to build'
+        type: string
+        required: false
+        default: ''
+      # Set by Mobile Release so the app knows which release it came from (see "Build release APK").
+      build_id:
+        description: 'Build number: Unix time in seconds, planned by the release workflow'
+        type: string
+        required: false
+        default: ''
+      release_tag:
+        description: 'Release tag shown in the app, for example v98'
+        type: string
+        required: false
+        default: ''
+      release_label:
+        description: 'Release label shown in the app, for example none or hotfix3'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # ubuntu-latest ships the Android SDK with ANDROID_HOME set; AGP installs missing platforms.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Unit tests
+        run: gradle --no-daemon test
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Decode release key
+        env:
+          KEYSTORE_B64: ${{ secrets.NPIA_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "NPIA_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          else
+            echo "No release key secret; the release APK is signed with the debug key."
+          fi
+      - name: Build release APK
+        env:
+          NPIA_KEYSTORE_PASSWORD: ${{ secrets.NPIA_KEYSTORE_PASSWORD }}
+          NPIA_KEY_ALIAS: ${{ secrets.NPIA_KEY_ALIAS }}
+          BUILD_ID: ${{ inputs.build_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_LABEL: ${{ inputs.release_label }}
+        run: |
+          # Only a build made for a release carries a build number; without one the app is a development build.
+          args=()
+          if [ -n "$BUILD_ID" ]; then
+            args+=("-PnoveldbBuild=$BUILD_ID" "-PnoveldbTag=$RELEASE_TAG" "-PnoveldbLabel=$RELEASE_LABEL")
+          fi
+          gradle --no-daemon :app:assembleRelease "${args[@]}"
+      - name: Rename and verify APKs
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk NovelDB-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk NovelDB-universal.apk
+          rm -f "$RUNNER_TEMP/release.p12"
+          apksigner=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -V | tail -1 || true)
+          if [ -n "$apksigner" ]; then
+            "$apksigner" verify --print-certs NovelDB-universal.apk | grep -i "certificate" || true
+          else
+            echo "apksigner not found; skipping signature print"
+          fi
+          ls -lh NovelDB-*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NovelDB-debug-apk
+          path: android/NovelDB-debug.apk
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NovelDB-universal-apk
+          path: android/NovelDB-universal.apk
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: android/**/build/reports/tests/
+          retention-days: 7
+      - name: Attach to release
+        # Mobile Release attaches the APK itself and its dispatch inputs reach this workflow, so skip when it passes a build number.
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.build_id == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.release_tag }}" NovelDB-universal.apk --clobber --repo "${{ github.repository }}"

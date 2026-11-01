@@ -1,0 +1,72 @@
+import Foundation
+import NpiaSources
+import Observation
+
+/// A book picked from the catalog website, waiting on the Add tab.
+struct CartItem: Codable, Equatable, Identifiable {
+    var url: String
+    var title: String = ""
+    var source: String = ""
+    var id: String { url }
+}
+
+/// Links collected from the Catalog tab, like a shopping cart; the Add tab downloads them.
+@MainActor
+@Observable
+final class LinkCart {
+    private(set) var items: [CartItem]
+    private let store = JSONFileStore<[CartItem]>(name: "link-cart.json")
+
+    init() {
+        items = store.load() ?? []
+    }
+
+    func add(_ item: CartItem) {
+        let book = Self.canonical(item)
+        guard !items.contains(where: { $0.url == book.url }) else { return }
+        items.append(book)
+        store.save(items)
+    }
+
+    /// A phone-site link and its desktop twin are one book.
+    static func canonical(_ item: CartItem) -> CartItem {
+        guard let url = URL(string: item.url) else { return item }
+        var copy = item
+        copy.url = SourceCatalog.canonicalURL(url).absoluteString
+        return copy
+    }
+
+    /// Adds many items with one write; returns how many were new.
+    @discardableResult
+    func add(contentsOf newItems: [CartItem]) -> Int {
+        var known = Set(items.map(\.url))
+        let fresh = newItems.map(Self.canonical).filter { known.insert($0.url).inserted }
+        guard !fresh.isEmpty else { return 0 }
+        items.append(contentsOf: fresh)
+        store.save(items)
+        return fresh.count
+    }
+
+    /// True when `url`, or the address it is kept under, is in the cart.
+    func contains(_ url: String) -> Bool {
+        let book = Self.canonical(CartItem(url: url)).url
+        return items.contains { $0.url == url || $0.url == book }
+    }
+
+    /// Removes `url` and the address it is kept under (a phone-site page's button removes its desktop twin).
+    func remove(_ url: String) {
+        let book = Self.canonical(CartItem(url: url)).url
+        items.removeAll { $0.url == url || $0.url == book }
+        store.save(items)
+    }
+
+    func removeAll(_ urls: Set<String>) {
+        items.removeAll { urls.contains($0.url) }
+        store.save(items)
+    }
+
+    func clear() {
+        items = []
+        store.save(items)
+    }
+}
