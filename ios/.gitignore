@@ -1,0 +1,7 @@
+.build/
+build/
+Payload/
+*.ipa
+NpiaMobile.xcodeproj/
+NpiaKit/.swiftpm/
+NpiaKit/Package.resolved

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERBATIM = {
     'webtoepub/webtoepub-lib.js',
     'android/sources/src/main/resources/com/shirochi/npia/sources/reader/webtoepub/webtoepub-lib.js',
+    'ios/NpiaKit/Sources/NpiaSources/Reader/Resources/webtoepub/webtoepub-lib.js',
 }
 
 
