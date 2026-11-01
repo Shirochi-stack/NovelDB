@@ -130,13 +130,37 @@ class NtkAdapter internal constructor(
             val book = BookInfo(
                 source = SourceId.NTK, id = novelId, url = indexUrl,
                 title = info.title.ifEmpty { "$kind $novelId" }, author = info.author.ifEmpty { null },
-                synopsis = info.synopsis.ifEmpty { null }, coverUrl = info.cover.ifEmpty { null }, tags = info.tags,
+                synopsis = info.synopsis.ifEmpty { null }, coverUrl = pageCover(page, info.cover, context), tags = info.tags,
                 language = "ko", chapters = chapters,
             )
             log(context, LogLevel.INFO, "Book: ${book.title} by ${book.author ?: "?"} - ${chapters.size} $kind chapters")
             return book
         } finally {
             closeQuietly(page)
+        }
+    }
+
+    /**
+     * The cover as a data: URL fetched by the page: its image host resets plain HTTP connections.
+     * Falls back to the address itself when the page cannot fetch it.
+     */
+    private suspend fun pageCover(page: WebPageDriving, cover: String, context: SourceContext): String? {
+        if (cover.isEmpty()) return null
+        return try {
+            val args = JsonArray(listOf(buildJsonObject { put("url", cover) })).toString()
+            val result = hardJson.decodeFromString(NtkBinary.serializer(), page.hardTask("ntk.fetchBinary", args, maxPolls = 160))
+            if (result.ok && result.data.isNotEmpty()) {
+                val type = result.contentType.substringBefore(';').trim().ifEmpty { "image/jpeg" }
+                "data:$type;base64,${result.data}"
+            } else {
+                log(context, LogLevel.DEBUG, "Cover fetch in the page failed (HTTP ${result.status})")
+                cover
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log(context, LogLevel.DEBUG, "Cover fetch in the page failed: ${e.message}")
+            cover
         }
     }
 

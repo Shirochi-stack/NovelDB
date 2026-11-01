@@ -57,3 +57,12 @@ internal data class NtkChapterResult(
     val contentHtml: String = "",
     val images: List<NtkImage> = emptyList(),
 )
+
+/** `ntk.fetchBinary`: an asset fetched by the page, base64 in `data`. */
+@Serializable
+internal data class NtkBinary(
+    val ok: Boolean = false,
+    val status: Int = 0,
+    val contentType: String = "",
+    val data: String = "",
+)

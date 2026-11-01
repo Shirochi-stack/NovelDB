@@ -156,7 +156,7 @@ class DownloadPipeline(
         chapters.clear()
         chapters += imageOutput.chapters
         val cover = book.coverUrl?.let { coverUrl ->
-            runCatching { http.get(coverUrl).body }
+            runCatching { dataUrlBytes(coverUrl) ?: http.get(coverUrl).body }
                 .onFailure { logger.log(LogLevel.WARNING, "Cover could not be downloaded: ${it.message ?: it}") }
                 .getOrNull()?.takeIf { it.isNotEmpty() }?.let { data ->
                 val processed = runCatching { images.process(data, isCover = true) }.getOrElse { ProcessedImage(data, sniffImageExtension(data)) }
@@ -243,6 +243,12 @@ class DownloadPipeline(
             val again = adapter.parseChapters(failed.map { it.value.ref }, book, context)
             again.forEachIndexed { i, result -> if (i < failed.size) results[failed[i].index] = result }
         }
+    }
+
+    /** The bytes of a `data:...;base64,` URL (a cover a source fetched itself), else null. */
+    private fun dataUrlBytes(url: String): ByteArray? {
+        if (!url.startsWith("data:", ignoreCase = true) || !url.contains(";base64,")) return null
+        return java.util.Base64.getMimeDecoder().decode(url.substringAfter(";base64,"))
     }
 
     private fun sizeText(file: File): String {
