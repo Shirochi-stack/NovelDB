@@ -141,7 +141,7 @@ struct RootView: View {
     @ViewBuilder
     private func content(_ panel: Panel) -> some View {
         switch panel {
-        case .add: AddURLView { selection = .queue }
+        case .add: AddURLView { model.showQueue() }
         case .catalog: CatalogView(state: catalog)
         case .browser: BrowserView { selection = .add }
         case .queue: QueueView()
