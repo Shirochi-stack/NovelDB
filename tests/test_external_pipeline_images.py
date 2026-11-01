@@ -32,11 +32,11 @@ def test_a_mirror_that_failed_is_tried_last_next_time():
     assert saver.tried == ["https://live.test/b.js"]
 
 
-def test_every_mirror_failing_gives_none_after_two_rounds():
+def test_every_mirror_failing_gives_none_after_one_try_each():
     saver = Saver()
     saver.dead = {"a.test", "b.test"}
     assert saver._download_image_mirrors(["https://a.test/1", "https://b.test/1"], "page") is None
-    assert len(saver.tried) == 4
+    assert len(saver.tried) == 2
 
 
 def test_stop_counts_only_when_pressed_while_the_file_is_built():

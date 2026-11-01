@@ -2309,9 +2309,11 @@ img { display: block; max-width: 100%; max-height: 100%;
 
                     if ExternalPipelineMixin._generation_stopped(self):
                         raise _OutputStopped()
+                    # Pages with mirrors were already tried on every host.
                     failed_items = [
                         item for item in image_items
                         if not image_results.get(item[0])
+                        and not item[1].get('candidates')
                     ]
                     if failed_items and image_workers > 1:
                         self._log(
@@ -2343,13 +2345,31 @@ img { display: block; max-width: 100%; max-height: 100%;
                                 html.escape(img_url, quote=True),
                                 f'../Images/{img_name}'
                             )
+                    # A mirrored page every host failed would only stall the inline
+                    # retry below one page at a time; leave it out of the chapter.
+                    dropped = 0
+                    for img_idx, img_info in image_items:
+                        if image_results.get(img_idx) or not img_info.get('candidates'):
+                            continue
+                        img_url = html.unescape(img_info.get('url', '')).strip()
+                        for form in {img_url, html.escape(img_url, quote=True)}:
+                            content_html, count = re.subn(
+                                r'<img\b[^>]*\bsrc="' + re.escape(form) + r'"[^>]*/?>',
+                                '', content_html or '',
+                            )
+                            dropped += count
+                    if dropped:
+                        self._log(
+                            f"    {dropped} page(s) could not be downloaded from "
+                            "any mirror and were left out."
+                        )
                     if image_items:
                         elapsed = max(0.01, time.time() - image_start)
                         mb = image_bytes / (1024 * 1024)
                         ready_count = sum(
                             1 for result in image_results.values() if result
                         )
-                        failed_count = len(image_items) - ready_count
+                        failed_count = len(image_items) - ready_count - dropped
                         self._log(
                             f"    Images embedded: {ready_count}/"
                             f"{len(image_items)}, "
@@ -2575,7 +2595,8 @@ img { display: block; max-width: 100%; max-height: 100%;
 
     def _download_image_python(self, url, label="Image", session=None,
                                max_retries=3, log_success=True,
-                               log_failure=False, request_cookies=None):
+                               log_failure=False, request_cookies=None,
+                               timeout=None):
         """Download an image using requests (no CORS/mixed-content issues).
 
         Automatically upgrades http:// to https:// and retries on failure.
@@ -2597,7 +2618,7 @@ img { display: block; max-width: 100%; max-height: 100%;
         last_error = None
         for attempt in range(max_retries):
             try:
-                request_options = {'timeout': request_timeout(15)}
+                request_options = {'timeout': timeout or request_timeout(15)}
                 if request_cookies:
                     effective_cookies = dict(request_cookies)
                     cloudfront_names = {
@@ -2648,9 +2669,10 @@ img { display: block; max-width: 100%; max-height: 100%;
         """Download an image that several hosts serve (ntk webtoon pages).
 
         One mirror can reset every connection while another serves the same
-        file, so try each host once, then each again, instead of retrying one.
-        Hosts that failed before go last, so a dead or hanging mirror costs
-        one timeout per run rather than one per page.
+        file, so try each host once instead of retrying one. Hosts that failed
+        before go last, so a dead or hanging mirror costs one short
+        timeout per run rather than one per page. Chrome already tried these
+        pages, so a page every host fails is given up on quickly.
         """
         import urllib.parse
 
@@ -2661,17 +2683,16 @@ img { display: block; max-width: 100%; max-height: 100%;
 
         urls = sorted((url for url in urls if url),
                       key=lambda url: failures.get(host(url), 0))
-        for round_number in range(2):
-            for index, url in enumerate(urls):
-                last = round_number == 1 and index == len(urls) - 1
-                raw = self._download_image_python(
-                    url, label, session=session, max_retries=1,
-                    log_success=False, log_failure=log_failure and last,
-                    request_cookies=request_cookies,
-                )
-                if raw:
-                    return raw
-                failures[host(url)] = failures.get(host(url), 0) + 1
+        for index, url in enumerate(urls):
+            raw = self._download_image_python(
+                url, label, session=session, max_retries=1,
+                log_success=False,
+                log_failure=log_failure and index == len(urls) - 1,
+                request_cookies=request_cookies, timeout=20,
+            )
+            if raw:
+                return raw
+            failures[host(url)] = failures.get(host(url), 0) + 1
         return None
 
     def _download_inline_images(self, html_str, epub, session, counter,
