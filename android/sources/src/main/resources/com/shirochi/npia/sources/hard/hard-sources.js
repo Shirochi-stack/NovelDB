@@ -3423,12 +3423,118 @@
     return { ok: true, chapters };
   };
 
+  // The site now acknowledges its ads in a wasm module that signs the ack (ad_proof_required /
+  // missing_canary without it), so the reader's own requests are the ones that work. As on the desktop
+  // batch path, the chapter page is left to run its ad check and ask /api/novel-content itself; the
+  // reply is captured here and decrypted with the page's nv cookie.
+  const ntkCaptured = new Map();
+  const ntkIds = (url) => {
+    try { return new URL(url, location.href).pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/); } catch (e) { return null; }
+  };
+  const ntkRecordContent = (bodyText, status, data) => {
+    let body = null;
+    try { body = JSON.parse(bodyText || 'null'); } catch (e) { body = null; }
+    const page = ntkIds(location.href);
+    const key = body && body.novelId != null && body.episodeId != null
+      ? `${body.novelId}/${body.episodeId}`
+      : (page ? `${page[1]}/${page[2]}` : '');
+    if (!key) return;
+    const previous = ntkCaptured.get(key);
+    // A good reply is kept even if a later retry of the reader fails.
+    if (previous && previous.data && previous.data.ok && previous.data.payload) return;
+    ntkCaptured.set(key, { status, data });
+  };
+  ntk.installContentHook = function () {
+    if (typeof root.fetch !== 'function' || root.__npiaNtkFetchHooked) return;
+    root.__npiaNtkFetchHooked = true;
+    const original = root.fetch;
+    const hooked = function (input, init) {
+      const reply = original.apply(this, arguments);
+      try {
+        const url = typeof input === 'string' ? input : ((input && input.url) || String(input));
+        if (new URL(url, location.href).pathname === '/api/novel-content') {
+          const bodyText = init && typeof init.body === 'string'
+            ? Promise.resolve(init.body)
+            : (input && typeof input.clone === 'function' ? input.clone().text().catch(() => '') : Promise.resolve(''));
+          reply.then((response) => Promise.all([
+            bodyText,
+            response.clone().json().catch(() => null),
+          ]).then(([text, data]) => ntkRecordContent(text, response.status, data))).catch(() => {});
+        }
+      } catch (e) { /* never break the site's own request */ }
+      return reply;
+    };
+    try { hooked.toString = original.toString.bind(original); } catch (e) { /* cosmetic */ }
+    root.fetch = hooked;
+  };
+  const ntkDecrypt = async (novelId, episodeId, payload) => {
+    const html = (document.documentElement && document.documentElement.innerHTML) || '';
+    const cookieMatch = html.match(/\\"cookieName\\":\\"([^\\"]+)\\"/) || html.match(/"cookieName"\s*:\s*"([^"]+)"/);
+    const cookieName = cookieMatch ? cookieMatch[1] : 'nv';
+    let nv = '';
+    for (const part of document.cookie.split(';')) {
+      const item = part.trim();
+      const split = item.indexOf('=');
+      if (split < 0 || item.slice(0, split) !== cookieName) continue;
+      nv = item.slice(split + 1);
+      try { nv = decodeURIComponent(nv); } catch (e) { /* raw value */ }
+      break;
+    }
+    if (!nv) return { ok: false, stage: 'page-cookie', status: 0 };
+    const fromB64url = (value) => {
+      let normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+      while (normalized.length % 4) normalized += '=';
+      return Uint8Array.from(atob(normalized), (char) => char.charCodeAt(0));
+    };
+    const encoder = new TextEncoder();
+    const cookieKey = fromB64url(nv.split('.')[0] || '');
+    const encrypted = fromB64url(payload);
+    if (!cookieKey.length || encrypted.length < 29) return { ok: false, stage: 'page-decrypt', status: 0 };
+    const suffix = encoder.encode(`:${novelId}:${episodeId}:v3`);
+    const material = new Uint8Array(cookieKey.length + suffix.length);
+    material.set(cookieKey, 0);
+    material.set(suffix, cookieKey.length);
+    const aesKey = await crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', material), { name: 'AES-GCM' }, false, ['decrypt']);
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: encrypted.slice(0, 12), tagLength: 128 }, aesKey, encrypted.slice(12));
+    return { ok: true, plaintext: new TextDecoder('utf-8').decode(plaintext) };
+  };
+  /** Waits for the reader's own content reply for this chapter, then decrypts it. */
+  const ntkPageContent = async (chapterUrl, waitMs) => {
+    const ids = ntkIds(chapterUrl);
+    if (!ids) return { ok: false, stage: 'url', status: 0 };
+    const key = `${ids[1]}/${ids[2]}`;
+    const deadline = Date.now() + waitMs;
+    let seen = null;
+    while (Date.now() < deadline) {
+      seen = ntkCaptured.get(key) || null;
+      if (seen && seen.data && seen.data.ok && seen.data.payload) {
+        try { return await ntkDecrypt(ids[1], ids[2], seen.data.payload); } catch (e) { return { ok: false, stage: 'page-decrypt', status: 0, error: String((e && e.message) || e) }; }
+      }
+      await sleep(250);
+    }
+    if (!seen) return { ok: false, stage: 'page-content', status: 0, error: 'the reader did not request the chapter' };
+    return { ok: false, stage: 'page-content', status: seen.status, error: (seen.data && seen.data.error) ? String(seen.data.error) : 'no payload' };
+  };
+
   ntk.chapter = async function (options) {
     const opts = options || {};
     const chapterUrl = opts.chapterUrl || location.href;
     const title = opts.name || '';
     let fetched;
-    try { fetched = await ntkFetchChapterPlaintext(chapterUrl); } catch (e) { return { ok: false, stage: 'exception', status: 0, error: String((e && e.message) || e) }; }
+    const pageWait = Number.isFinite(opts.pageWaitMs) ? opts.pageWaitMs : 25000;
+    let fromPage = null;
+    if (root.__npiaNtkFetchHooked && pageWait > 0) {
+      try { fromPage = await ntkPageContent(chapterUrl, pageWait); } catch (e) { fromPage = { ok: false, stage: 'page-content', status: 0, error: String((e && e.message) || e) }; }
+    }
+    if (fromPage && fromPage.ok) {
+      fetched = fromPage;
+    } else {
+      // The older hand-made handshake, for mirrors that still accept it.
+      try { fetched = await ntkFetchChapterPlaintext(chapterUrl); } catch (e) { fetched = { ok: false, stage: 'exception', status: 0, error: String((e && e.message) || e) }; }
+      if (fromPage && fetched && !fetched.ok) {
+        fetched = { ...fetched, error: `${fromPage.error || fromPage.stage}; then ${fetched.error || fetched.stage || 'failed'}` };
+      }
+    }
     if (!fetched || !fetched.ok) {
       const status = (fetched && fetched.status) || 0;
       const stage = (fetched && fetched.stage) || '';
@@ -3498,6 +3604,7 @@
   if (root.top === root) {
     try { qdn.installFontHook(); } catch (e) { /* the reader still works; only scripted fonts are missed */ }
     try { mpia.installReaderHook(); } catch (e) { /* only the mpia reader observer is missed */ }
+    try { ntk.installContentHook(); } catch (e) { /* ntk falls back to its own handshake */ }
   }
   root.__npiaHard = hard;
 }(typeof window !== 'undefined' ? window : globalThis));
