@@ -876,3 +876,79 @@ def test_ntk_hosts_walk_older_episode_cursor_api(origin, row_style):
         assert book["chapters"][0]["url"] == f"{origin}/novel/63758/8700001"
         assert any("Expanded chapter index from 100 to 400" in m for m in messages)
         browser.close()
+
+
+def test_sbxh_webtoon_index_keeps_mirror_episode_ids_and_banner_free_cover():
+    # Webtoon rows carry data-episode-number, and most episodes from mirror sources have
+    # ids such as goodtoon-745176; only the plain-number ones (168+) used to be kept.
+    def row(number):
+        episode = f"goodtoon-{7000 + number}" if number % 3 else str(1500000 + number)
+        badge = '<span class="ep-badge">UP</span>' if number == 6 else ''
+        return (
+            f'<li class="ep-row-v2" data-episode-number="{number}">'
+            f'<a href="/webtoon/56566288/{episode}" class="ep-row-v2-link">'
+            f'<div class="ep-row-v2-thumb"><span class="ep-row-v2-no">{number}</span></div>'
+            f'<div class="ep-row-v2-title">{badge}<strong>Episode {number}</strong></div>'
+            '</a></li>'
+        )
+
+    def index_html(first, last):
+        rows = "".join(row(number) for number in range(first, last - 1, -1))
+        return (
+            '<html><head><meta property="og:title" content="Webtoon">'
+            '<meta property="og:image" content="https://sbxh9.com/black/thumbs/9289.png"></head>'
+            '<body><main><button><img src="https://sbxh9.com/board_uploads/ad.png"></button>'
+            f'<ul>{rows}</ul>'
+            '<nav><a href="/webtoon/56566288?epage=2">2</a></nav></main></body></html>'
+        )
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_context().new_page()
+
+        def handle(route):
+            if "/api/" in route.request.url:
+                route.fulfill(status=404, body="{}")
+                return
+            body = index_html(3, 1) if "epage=2" in route.request.url else index_html(6, 4)
+            route.fulfill(status=200, content_type="text/html", body=body)
+
+        page.route("https://sbxh9.com/**", handle)
+        page.goto("https://sbxh9.com/webtoon/56566288")
+        scraper, _messages = make_scraper()
+        scraper._page = page
+        book = scraper._ntk_parse_index_browser("https://sbxh9.com/webtoon/56566288")
+        browser.close()
+
+    assert [chapter["name"] for chapter in book["chapters"]] == [
+        f"Episode {number}" for number in range(1, 7)
+    ]
+    assert book["chapters"][0]["episodeId"] == "goodtoon-7001"
+    assert book["coverUrl"] == "https://sbxh9.com/black/thumbs/9289.png"
+
+
+def test_ntk_webtoon_page_list_keeps_mirrors_and_names_disguised_files():
+    scraper, _messages = make_scraper()
+
+    class Reply:
+        status = 200
+
+    pages = scraper._ntk_webtoon_page_list(Reply(), {"ok": True, "images": [
+        {"page": 2, "src": "https://m1.test/s/b.json", "srcCandidates": ["https://m2.test/s/b.json"]},
+        {"page": 1, "src": "https://m1.test/s/a.js", "srcCandidates": ["https://m1.test/s/a.js", "https://m2.test/s/a.js"]},
+    ]})
+    assert pages == [
+        {"url": "https://m1.test/s/a.js", "candidates": ["https://m2.test/s/a.js"]},
+        {"url": "https://m1.test/s/b.json", "candidates": ["https://m2.test/s/b.json"]},
+    ]
+    pages[0]["file"] = "/tmp/page-a"
+    chapter = scraper._ntk_build_image_chapter("Episode 1", pages, "test")
+    first, second = chapter["images"]
+    assert first["name"] == "ntk_webtoon_0001_a.img" and first["data"] == "file:/tmp/page-a"
+    assert first["candidates"] == ["https://m2.test/s/a.js"]
+    assert "data" not in second
+    assert scraper._ntk_image_url_candidates(
+        '<img src="https://apitk.test/board_uploads/2026/ad.png">'
+        '<img src="https://apitk.test/data/page1.jpg">',
+        "https://sbxh9.com/webtoon/1/2",
+    ) == ["https://apitk.test/data/page1.jpg"]

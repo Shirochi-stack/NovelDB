@@ -69,6 +69,11 @@ def _format_size(num_bytes):
         value /= 1024
 
 
+class _OutputStopped(BaseException):
+    """Stop was pressed while a file was being built. A BaseException, so the generators'
+    `except Exception` fallbacks (EPUB failed: write TXT instead) do not catch it."""
+
+
 class ExternalPipelineMixin:
     """External-source downloads: fetch, download, batch, cache and output."""
 
@@ -296,13 +301,18 @@ class ExternalPipelineMixin:
             return result
         images = result.get('images') or []
         for image_index, image in enumerate(images, 1):
-            if not isinstance(image, dict) or image.get('data'):
+            if not isinstance(image, dict):
+                continue
+            data_url = image.get('data') or ''
+            if data_url and not data_url.startswith('file:'):
                 continue
             image_url = html.unescape(image.get('url') or '').strip()
             if not image_url:
                 continue
-            raw = None
-            if (self._book_data or {}).get('_ntk_novel') and self._scraper:
+            # A page the scraper saved to a temporary file goes into the cache as bytes.
+            raw = ExternalPipelineMixin._decode_image_data_url(data_url)
+            if (not raw and (self._book_data or {}).get('_ntk_novel')
+                    and self._scraper):
                 fetch_ntk_binary = getattr(
                     self._scraper, 'fetch_ntk_binary', None
                 )
@@ -1371,6 +1381,24 @@ class ExternalPipelineMixin:
             "Generating format(s): "
             + ", ".join(fmt.upper() for fmt in formats)
         )
+        # A Stop pressed from here on ends the build; one pressed earlier with "generate on
+        # stop" is why this build runs, so it does not count.
+        self._generation_stop_baseline = bool(
+            getattr(self, '_download_cancelled', False))
+        try:
+            ExternalPipelineMixin._generate_formats(
+                self, data, formats, title, author)
+        except _OutputStopped:
+            self._log("Stopped while building the file; it was not written.")
+        finally:
+            self._generation_stop_baseline = True
+
+    def _generation_stopped(self):
+        """True once Stop is pressed during `_generate_output` (never outside it)."""
+        return (bool(getattr(self, '_download_cancelled', False))
+                and not getattr(self, '_generation_stop_baseline', True))
+
+    def _generate_formats(self, data, formats, title, author):
 
         long_image_to_cbz = (
             'epub' in formats
@@ -1427,6 +1455,8 @@ class ExternalPipelineMixin:
             if not separate:
                 yield 0, title, header
             for i, ch_data in enumerate(self._chapter_results):
+                if ExternalPipelineMixin._generation_stopped(self):
+                    raise _OutputStopped()
                 if ch_data is None or ch_data.get('_locked'):
                     continue
                 chapter_number = ExternalPipelineMixin._result_chapter_number(
@@ -1563,7 +1593,7 @@ class ExternalPipelineMixin:
         )
 
         def fetch_image(img_url, label, img_data_url=None, log_failure=False,
-                        request_cookies=None):
+                        request_cookies=None, candidates=None):
             raw = ExternalPipelineMixin._decode_image_data_url(img_data_url)
             if raw:
                 return raw
@@ -1573,6 +1603,12 @@ class ExternalPipelineMixin:
                     raw = fetch_ntk_binary(img_url, data.get('bookUrl') or '')
                     if raw:
                         return raw
+            if img_url and candidates:
+                return ExternalPipelineMixin._download_image_mirrors(
+                    self,
+                    [img_url] + list(candidates), label, session=img_session,
+                    request_cookies=request_cookies, log_failure=log_failure,
+                )
             if img_url:
                 return self._download_image_python(
                     img_url,
@@ -1661,6 +1697,7 @@ class ExternalPipelineMixin:
                                 img_info.get('_cookies')
                                 or ch_data.get('_imageCookies')
                             ),
+                            candidates=img_info.get('candidates'),
                         )
                         if not raw:
                             failed_count += 1
@@ -2046,6 +2083,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                 epub.add_extra_page('info.xhtml', intro_page)
 
             for i, ch_data in enumerate(self._chapter_results):
+                if ExternalPipelineMixin._generation_stopped(self):
+                    raise _OutputStopped()
                 if ch_data is None or ch_data.get('_locked'):
                     continue
                 chapter_number = ExternalPipelineMixin._result_chapter_number(
@@ -2093,6 +2132,21 @@ img { display: block; max-width: 100%; max-height: 100%;
                     image_bytes = 0
                     completed_image_bytes = 0
 
+                    # ntk image hosts reset plain Python connections: fetch the
+                    # chapter's images in Chrome first (on this thread, which
+                    # drives Playwright); the workers download only the rest.
+                    browser_images = {}
+                    fetch_ntk_binaries = getattr(
+                        self._scraper, 'fetch_ntk_binaries', None
+                    ) if data.get('_ntk_novel') and self._scraper else None
+                    if fetch_ntk_binaries:
+                        browser_images = fetch_ntk_binaries([
+                            html.unescape(info.get('url', '')).strip()
+                            for _, info in image_items
+                            # Mirror-hosted webtoon pages block Chrome's fetch (CORS).
+                            if not info.get('data') and not info.get('candidates')
+                        ], concurrency=image_workers)
+
                     # Reuse HTTP sessions across image tasks. Creating a new
                     # TLS connection for every Kpage image is expensive,
                     # especially when compression is disabled and downloading
@@ -2110,11 +2164,13 @@ img { display: block; max-width: 100%; max-height: 100%;
 
                     def process_image(item):
                         img_idx, img_info = item
+                        if ExternalPipelineMixin._generation_stopped(self):
+                            return img_idx, None
                         img_url = html.unescape(img_info.get('url', '')).strip()
                         img_data_url = img_info.get('data')
                         raw = ExternalPipelineMixin._decode_image_data_url(
                             img_data_url
-                        )
+                        ) or browser_images.get(img_url)
 
                         # Fall back to Python-side download. Use one Session
                         # per worker. requests.Session should not be shared
@@ -2127,18 +2183,29 @@ img { display: block; max-width: 100%; max-height: 100%;
                                     dl_session = session_pool.get()
                                 else:
                                     dl_session = img_session
-                                raw = self._download_image_python(
-                                    img_url,
+                                label = (
                                     f"Ch{chapter_number} image {img_idx}/"
-                                    f"{len(image_items)}",
-                                    session=dl_session,
-                                    request_cookies=(
-                                        img_info.get('_cookies')
-                                        or ch_data.get('_imageCookies')
-                                    ),
-                                    log_success=False,
-                                    log_failure=(img_idx <= 3),
+                                    f"{len(image_items)}"
                                 )
+                                cookies = (
+                                    img_info.get('_cookies')
+                                    or ch_data.get('_imageCookies')
+                                )
+                                if img_info.get('candidates'):
+                                    raw = ExternalPipelineMixin._download_image_mirrors(
+                                        self,
+                                        [img_url] + list(img_info['candidates']),
+                                        label, session=dl_session,
+                                        request_cookies=cookies,
+                                        log_failure=(img_idx <= 3),
+                                    )
+                                else:
+                                    raw = self._download_image_python(
+                                        img_url, label, session=dl_session,
+                                        request_cookies=cookies,
+                                        log_success=False,
+                                        log_failure=(img_idx <= 3),
+                                    )
                             finally:
                                 if session_pool is not None and dl_session:
                                     session_pool.put(dl_session)
@@ -2155,6 +2222,10 @@ img { display: block; max-width: 100%; max-height: 100%;
                         base = safe_orig.rsplit('.', 1)[0]
                         ext = safe_orig.rsplit('.', 1)[1].lower() \
                             if '.' in safe_orig else 'jpg'
+                        if ext not in ('jpg', 'jpeg', 'png', 'webp', 'gif',
+                                       'avif', 'bmp'):
+                            # A disguised page file (.img): name it by its bytes.
+                            ext = self._image_ext_from_bytes(raw)
                         img_name = (
                             f'ch{chapter_number:04d}_{img_idx:04d}_{base}.{ext}'
                         )
@@ -2236,6 +2307,8 @@ img { display: block; max-width: 100%; max-height: 100%;
                                 pass
                         session_pool = None
 
+                    if ExternalPipelineMixin._generation_stopped(self):
+                        raise _OutputStopped()
                     failed_items = [
                         item for item in image_items
                         if not image_results.get(item[0])
@@ -2480,7 +2553,14 @@ img { display: block; max-width: 100%; max-height: 100%;
 
     @staticmethod
     def _decode_image_data_url(data_url):
-        """Decode base64 or percent-encoded inline images."""
+        """Decode base64 or percent-encoded inline images, or read a `file:` page the
+        scraper saved (ntk webtoon pages; None once that file is gone)."""
+        if data_url and data_url.startswith('file:'):
+            try:
+                with open(data_url[len('file:'):], 'rb') as handle:
+                    return handle.read() or None
+            except OSError:
+                return None
         if not data_url or ',' not in data_url:
             return None
         try:
@@ -2561,6 +2641,37 @@ img { display: block; max-width: 100%; max-height: 100%;
                 f"(HTTP {last_status}, {last_length or 0} bytes, "
                 f"{last_type or 'unknown content-type'})"
             )
+        return None
+
+    def _download_image_mirrors(self, urls, label, session=None,
+                                request_cookies=None, log_failure=False):
+        """Download an image that several hosts serve (ntk webtoon pages).
+
+        One mirror can reset every connection while another serves the same
+        file, so try each host once, then each again, instead of retrying one.
+        Hosts that failed before go last, so a dead or hanging mirror costs
+        one timeout per run rather than one per page.
+        """
+        import urllib.parse
+
+        failures = self.__dict__.setdefault('_mirror_failures', {})
+
+        def host(url):
+            return (urllib.parse.urlparse(url).hostname or '').lower()
+
+        urls = sorted((url for url in urls if url),
+                      key=lambda url: failures.get(host(url), 0))
+        for round_number in range(2):
+            for index, url in enumerate(urls):
+                last = round_number == 1 and index == len(urls) - 1
+                raw = self._download_image_python(
+                    url, label, session=session, max_retries=1,
+                    log_success=False, log_failure=log_failure and last,
+                    request_cookies=request_cookies,
+                )
+                if raw:
+                    return raw
+                failures[host(url)] = failures.get(host(url), 0) + 1
         return None
 
     def _download_inline_images(self, html_str, epub, session, counter,
