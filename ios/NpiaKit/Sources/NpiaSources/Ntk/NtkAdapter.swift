@@ -132,14 +132,34 @@ public struct NtkAdapter: SourceAdapter {
                 title: entry.name.isEmpty ? "Chapter \(entry.number)" : entry.name, url: URL(string: entry.url)
             )
         }
+        let coverURL = await pageCover(page, info.cover, context)
         let book = BookInfo(
             source: .ntk, id: novelID, url: url,
             title: info.title.isEmpty ? "\(kind) \(novelID)" : info.title, author: info.author.isEmpty ? nil : info.author,
-            synopsis: info.synopsis.isEmpty ? nil : info.synopsis, coverURL: URL(string: info.cover), tags: info.tags,
+            synopsis: info.synopsis.isEmpty ? nil : info.synopsis, coverURL: coverURL, tags: info.tags,
             language: "ko", chapters: chapters
         )
         log(context, .info, "Book: \(book.title) by \(book.author ?? "?") - \(chapters.count) \(kind) chapters")
         return book
+    }
+
+    /// The cover as a data: URL fetched by the page: its image host resets plain HTTP connections.
+    /// Falls back to the address itself when the page cannot fetch it.
+    private func pageCover(_ page: any WebPageDriving, _ cover: String, _ context: SourceContext) async -> URL? {
+        guard !cover.isEmpty else { return nil }
+        do {
+            let args = HardScripts.json([["url": cover]])
+            let result = HardJSON(text: try await page.hardTask("ntk.fetchBinary", argsJSON: args, maxPolls: 160))
+            let data = result.string("data")
+            if result.bool("ok"), !data.isEmpty {
+                let declared = result.string("contentType").split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+                if let url = URL(string: "data:\(declared.isEmpty ? "image/jpeg" : declared);base64,\(data)") { return url }
+            }
+            log(context, .debug, "Cover fetch in the page failed (HTTP \(result.int("status")))")
+        } catch {
+            log(context, .debug, "Cover fetch in the page failed: \(error)")
+        }
+        return URL(string: cover)
     }
 
     // MARK: - Chapters

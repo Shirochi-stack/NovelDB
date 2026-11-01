@@ -175,7 +175,7 @@ public struct DownloadPipeline: Sendable {
         }
         chapters = imageOutput.chapters
         var cover: ProcessedCover?
-        if let coverURL = book.coverURL, let data = try? await client.get(coverURL).body, !data.isEmpty {
+        if let coverURL = book.coverURL, let data = await coverData(coverURL, client: client), !data.isEmpty {
             let processed = try processor.process(data, isCover: true)
             cover = ProcessedCover(data: processed.data, fileExtension: processed.fileExtension)
         }
@@ -269,6 +269,12 @@ public struct DownloadPipeline: Sendable {
     }
 
     /// Applies the chapter range and paid filter.
+    /// A cover's bytes: decoded in place for a data: URL (a cover a source fetched itself), else downloaded.
+    private func coverData(_ url: URL, client: any HTTPFetching) async -> Data? {
+        if url.scheme?.lowercased() == "data" { return try? Data(contentsOf: url) }
+        return try? await client.get(url).body
+    }
+
     public static func select(_ chapters: [ChapterRef], shared: SharedSettings) -> [ChapterRef] {
         chapters.filter { chapter in
             if let from = shared.rangeFrom, chapter.index < from { return false }
