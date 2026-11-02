@@ -29,6 +29,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_guard  # noqa: E402  (keeps credentials out of the bundle)
+
 ROOT = Path(__file__).resolve().parent.parent
 SHIM_DIR = ROOT / "scripts" / "lnreader"
 OUT_DIR = ROOT / "lnreader"
@@ -74,6 +77,7 @@ def shim_key() -> str:
     for name in ("prefix.js", "bridge.js", "vendor.js", "package-lock.json"):
         # Line endings depend on the checkout (Windows or the Linux runner), not the shim.
         digest.update((SHIM_DIR / name).read_bytes().replace(b"\r\n", b"\n"))
+    digest.update(secret_guard.shim_part())
     return digest.hexdigest()[:12]
 
 
@@ -214,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
     # The plugins branch holds only build output; the license is on the source branch.
     license_text = _get(_raw("master", "LICENSE")).decode("utf-8")
 
+    text, removed = secret_guard.redact(text, "lnreader-lib.js")
+    secret_guard.report(removed)
     data = text.encode("utf-8")
     meta.update({"file": "lnreader-lib.js", "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                  "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})

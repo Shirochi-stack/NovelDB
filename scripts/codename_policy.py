@@ -78,6 +78,37 @@ def sanitize_staged_data():
     return changed
 
 
+# Credentials that must never be committed (scripts/secret_guard.py keeps them out of the engine bundles).
+SECRET_PATTERNS = (
+    'AIza[0-9A-Za-z_-]{35}',
+    '-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY',
+    '(ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{36}',
+    'github_pat_[0-9A-Za-z_]{60,}',
+    'AKIA[0-9A-Z]{16}',
+    'xox[abprs]-[0-9A-Za-z-]{10,}',
+    '[sr]k_live_[0-9A-Za-z]{20,}',
+)
+
+
+def secret_failures(paths):
+    """Tracked files holding a credential (text files through git grep, zip bundles opened)."""
+    import sys
+
+    found = []
+    args = ['git', 'grep', '-I', '-l', '-E']
+    for pattern in SECRET_PATTERNS:
+        args += ['-e', pattern]
+    result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
+    found.extend(f'{name}: credential' for name in result.stdout.splitlines() if name)
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    import secret_guard
+
+    zips = [ROOT / name for name in paths if name.endswith('.zip')]
+    found.extend(f'{Path(problem.split(": ")[0]).relative_to(ROOT).as_posix()}: credential in the bundle'
+                 for problem in secret_guard.scan_paths(zips))
+    return found
+
+
 def check(commits=False):
     paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().strip('\0').split('\0')
     failures = []
@@ -105,6 +136,7 @@ def check(commits=False):
             failures.append('Git commit messages')
         if any(contains_name(message) for message in event_messages()):
             failures.append('Incoming commit messages')
+    failures.extend(secret_failures(paths))
     for failure in failures:
         print(to_codenames(failure))
     print(f'Checked {len(paths)} tracked paths; {len(failures)} violations')

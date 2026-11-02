@@ -30,6 +30,9 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_guard  # noqa: E402  (keeps credentials out of the bundle)
+
 ROOT = Path(__file__).resolve().parent.parent
 SHIM_DIR = ROOT / "scripts" / "lncrawl"
 RUNTIME = SHIM_DIR / "runtime"
@@ -88,6 +91,7 @@ def shim_key() -> str:
         digest.update(path.relative_to(SHIM_DIR).as_posix().encode())
         digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
     digest.update(json.dumps(PATCHES, sort_keys=True).encode())
+    digest.update(secret_guard.shim_part())
     return digest.hexdigest()[:12]
 
 
@@ -151,7 +155,12 @@ def pack(folder: Path, index: dict, out: Path) -> None:
                 continue
             info = zipfile.ZipInfo(relative, date_time=(2020, 1, 1, 0, 0, 0))  # reproducible
             info.compress_type = zipfile.ZIP_DEFLATED
-            archive.writestr(info, path.read_bytes().replace(b"\r\n", b"\n"))
+            content = path.read_bytes().replace(b"\r\n", b"\n")
+            if path.suffix == ".py":
+                text, removed = secret_guard.redact(content.decode("utf-8", "replace"), relative)
+                secret_guard.report(removed)
+                content = text.encode("utf-8")
+            archive.writestr(info, content)
         info = zipfile.ZipInfo("index.json", date_time=(2020, 1, 1, 0, 0, 0))
         info.compress_type = zipfile.ZIP_DEFLATED
         archive.writestr(info, json.dumps({"api": API, "crawlers": index["crawlers"]}, indent=1, sort_keys=True))

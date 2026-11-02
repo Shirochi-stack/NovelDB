@@ -27,6 +27,9 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_guard  # noqa: E402  (keeps credentials out of the bundle)
+
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "fanficfare"
 PROJECT = "FanFicFare"
@@ -48,6 +51,7 @@ sys.modules["cloudscraper"] = stub
 sys.modules["cloudscraper.exceptions"] = exceptions
 import fanficfare
 from fanficfare import adapters
+
 sites = set()
 classes = getattr(adapters, "__class_list")
 for cls in classes:
@@ -83,6 +87,7 @@ def _get(url: str) -> bytes:
 def shim_key() -> str:
     """Changes when this build (or the app's way of loading it) changes."""
     digest = hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n"))
+    digest.update(secret_guard.shim_part())
     digest.update(str(API).encode())
     return digest.hexdigest()[:12]
 
@@ -115,7 +120,12 @@ def pack(wheel: bytes, out: Path) -> str:
                 continue
             info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
-            archive.writestr(info, source.read(name))
+            content = source.read(name)
+            if name.endswith((".py", ".ini", ".txt", ".json")):
+                text, removed = secret_guard.redact(content.decode("utf-8", "replace"), name)
+                secret_guard.report(removed)
+                content = text.encode("utf-8")
+            archive.writestr(info, content)
     return license_text
 
 

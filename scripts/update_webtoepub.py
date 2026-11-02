@@ -32,6 +32,9 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_guard  # noqa: E402  (keeps credentials out of the bundle)
+
 ROOT = Path(__file__).resolve().parent.parent
 SHIM_DIR = ROOT / "scripts" / "webtoepub"
 OUT_DIR = ROOT / "webtoepub"
@@ -64,6 +67,7 @@ def shim_key() -> str:
     for name in ("prefix.js", "bridge.js"):
         # Line endings depend on the checkout (Windows or the Linux runner), not the shim.
         digest.update((SHIM_DIR / name).read_bytes().replace(b"\r\n", b"\n"))
+    digest.update(secret_guard.shim_part())
     return digest.hexdigest()[:12]
 
 
@@ -225,6 +229,8 @@ def main(argv: list[str] | None = None) -> int:
             excluded.add(error["file"])
         license_text = (root / "LICENSE.md").read_text(encoding="utf-8")
 
+    text, removed = secret_guard.redact(text, "webtoepub-lib.js")
+    secret_guard.report(removed)
     data = text.encode("utf-8")
     meta.update({"file": "webtoepub-lib.js", "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                  "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})

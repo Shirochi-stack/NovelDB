@@ -3,7 +3,7 @@
   "commit": "393fe556cdefe208671abe81f5ce6c2b5695e1fe",
   "date": "2026-11-01T10:03:48Z",
   "ref": "plugins/v3.0.0",
-  "shim": "ef439fd573dd",
+  "shim": "ebbc3a10fdf0",
   "api": 1,
   "plugins": 328,
   "excluded": [],
@@ -335,7 +335,7 @@
     "url"
   ],
   "file": "lnreader-lib.js",
-  "size": 5017042,
-  "sha256": "eaa13428984e6610943f0f131f683d12f33fba12a3f72fd02e57a704761a4500",
+  "size": 5017003,
+  "sha256": "2617cec2d2d1fd9d111303b49dded3912210c68855097af50d139fbe6d8fa6cf",
   "built": "2026-11-02T14:48:05Z"
 }

@@ -28,6 +28,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_guard  # noqa: E402  (keeps credentials out of the bundle)
+
 ROOT = Path(__file__).resolve().parent.parent
 SHIM_DIR = ROOT / "scripts" / "haruneko"
 OUT_DIR = ROOT / "haruneko"
@@ -72,6 +75,7 @@ def shim_key() -> str:
     for path in sorted((SHIM_DIR / "src").glob("*.ts")) + [SHIM_DIR / "build.mjs", SHIM_DIR / "package-lock.json"]:
         digest.update(path.name.encode())
         digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+    digest.update(secret_guard.shim_part())
     return digest.hexdigest()[:12]
 
 
@@ -167,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     if not result["ready"]:
         raise SystemExit(f"The HaruNeko bundle failed to load: {result['error']}")
     sites = result["sites"]
+    text, removed = secret_guard.redact(text, "haruneko-lib.js")
+    secret_guard.report(removed)
     data = text.encode("utf-8")
     meta.update({"websites": len(sites), "sites": sorted({site["url"] for site in sites}), "file": "haruneko-lib.js",
                  "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),

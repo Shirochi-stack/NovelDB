@@ -27,6 +27,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_guard  # noqa: E402  (keeps credentials out of the bundle)
+
 ROOT = Path(__file__).resolve().parent.parent
 UPSTREAM = "404-novel-project/novel-downloader"
 REPO_URL = f"https://github.com/{UPSTREAM}.git"
@@ -74,6 +77,7 @@ TS_LOADER_FAST = 'use: [{ loader: "ts-loader", options: { transpileOnly: true } 
 def patch_key() -> str:
     """Changes when the build patch or the app's wrappers change."""
     digest = hashlib.sha256((BRIDGE_START + BRIDGE_RUN + "".join(BRIDGE_IMPORTS) + TS_LOADER_FAST).encode())
+    digest.update(secret_guard.shim_part())
     return digest.hexdigest()[:12]
 
 
@@ -223,6 +227,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_sanitize:
         subprocess.run([sys.executable, str(ROOT / "scripts" / "codename_policy.py"), "sanitize-rules",
                         str(target)], check=True)
+    cleaned, removed = secret_guard.redact(target.read_text(encoding="utf-8"), "rules-lib.js")
+    if removed:
+        secret_guard.report(removed)
+        target.write_text(cleaned, encoding="utf-8", newline="\n")
     data = target.read_bytes()
     meta = {"engine": "novel_downloader", "api": API, "commit": sha, "date": date, "ref": args.ref,
             "version": version, "shim": patch_key(), "hosts": len(hosts), "file": "rules-lib.js",
