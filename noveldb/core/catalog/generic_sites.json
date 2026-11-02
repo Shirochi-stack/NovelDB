@@ -1,0 +1,1765 @@
+{
+ "built": "2026-11-02",
+ "ranking": "Tranco top 1M",
+ "sites": [
+  {
+   "site": "qq.com",
+   "rank": 90,
+   "host": "book.qq.com",
+   "hosts": [
+    "book.qq.com"
+   ],
+   "engines": [
+    "novel_downloader"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "naver.com",
+   "rank": 344,
+   "host": "comic.naver.com",
+   "hosts": [
+    "comic.naver.com",
+    "novel.naver.com",
+    "series.naver.com",
+    "m.novel.naver.com",
+    "m.comic.naver.com",
+    "m.series.naver.com"
+   ],
+   "engines": [
+    "haruneko",
+    "native",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "bilibili.com",
+   "rank": 348,
+   "host": "bilibili.com",
+   "hosts": [
+    "bilibili.com"
+   ],
+   "engines": [
+    "novel_downloader"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "rakuten.co.jp",
+   "rank": 599,
+   "host": "books.rakuten.co.jp",
+   "hosts": [
+    "books.rakuten.co.jp"
+   ],
+   "engines": [
+    "native"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "wattpad.com",
+   "rank": 789,
+   "host": "wattpad.com",
+   "hosts": [
+    "wattpad.com"
+   ],
+   "engines": [
+    "fanficfare",
+    "lncrawl",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "pixiv.net",
+   "rank": 1017,
+   "host": "pixiv.net",
+   "hosts": [
+    "pixiv.net",
+    "comic.pixiv.net"
+   ],
+   "engines": [
+    "haruneko",
+    "novel_downloader"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "archiveofourown.org",
+   "rank": 1042,
+   "host": "archiveofourown.org",
+   "hosts": [
+    "archiveofourown.org"
+   ],
+   "engines": [
+    "fanficfare",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "archiveofourown"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "fanfiction.net",
+   "rank": 1259,
+   "host": "fanfiction.net",
+   "hosts": [
+    "fanfiction.net"
+   ],
+   "engines": [
+    "fanficfare",
+    "lncrawl",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [
+    {
+     "file": "sources/en/f/fanfiction.py",
+     "name": "FanFictionCrawler",
+     "search": true
+    }
+   ],
+   "search": "lncrawl",
+   "comic": false
+  },
+  {
+   "site": "litnet.com",
+   "rank": 1283,
+   "host": "litnet.com",
+   "hosts": [
+    "litnet.com"
+   ],
+   "engines": [
+    "lncrawl"
+   ],
+   "lnreader": [],
+   "lncrawl": [
+    {
+     "file": "sources/ru/litnet.py",
+     "name": "LitnetCrawler",
+     "search": true
+    }
+   ],
+   "search": "lncrawl",
+   "comic": false
+  },
+  {
+   "site": "kakao.com",
+   "rank": 1297,
+   "host": "page.kakao.com",
+   "hosts": [
+    "page.kakao.com"
+   ],
+   "engines": [
+    "haruneko",
+    "native"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "asurascans.com",
+   "rank": 1353,
+   "host": "asurascans.com",
+   "hosts": [
+    "asurascans.com"
+   ],
+   "engines": [
+    "haruneko",
+    "lncrawl",
+    "lnreader"
+   ],
+   "lnreader": [
+    "asurascans"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/a/asurascans.py",
+     "name": "AsuraScansCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "ficbook.net",
+   "rank": 1369,
+   "host": "ficbook.net",
+   "hosts": [
+    "ficbook.net"
+   ],
+   "engines": [
+    "fanficfare",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "ficbook"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "mangabuff.ru",
+   "rank": 1404,
+   "host": "mangabuff.ru",
+   "hosts": [
+    "mangabuff.ru"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "syosetu.com",
+   "rank": 1410,
+   "host": "syosetu.com",
+   "hosts": [
+    "syosetu.com",
+    "ncode.syosetu.com",
+    "yomou.syosetu.com",
+    "novel18.syosetu.com"
+   ],
+   "engines": [
+    "fanficfare",
+    "lncrawl",
+    "lnreader",
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "yomou.syosetu"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/ja/syosetu.py",
+     "name": "SyosetuCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "kakuyomu.jp",
+   "rank": 1551,
+   "host": "kakuyomu.jp",
+   "hosts": [
+    "kakuyomu.jp"
+   ],
+   "engines": [
+    "fanficfare",
+    "lnreader",
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "kakuyomu"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "mechacomic.jp",
+   "rank": 1562,
+   "host": "mechacomic.jp",
+   "hosts": [
+    "mechacomic.jp"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "czbooks.net",
+   "rank": 1590,
+   "host": "czbooks.net",
+   "hosts": [
+    "czbooks.net"
+   ],
+   "engines": [
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "freewebnovel.com",
+   "rank": 1608,
+   "host": "freewebnovel.com",
+   "hosts": [
+    "freewebnovel.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "FWN.com"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/f/freewebnovel.py",
+     "name": "FreewebnovelCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "alphapolis.co.jp",
+   "rank": 1613,
+   "host": "alphapolis.co.jp",
+   "hosts": [
+    "alphapolis.co.jp"
+   ],
+   "engines": [
+    "haruneko",
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "syosetu.org",
+   "rank": 1617,
+   "host": "syosetu.org",
+   "hosts": [
+    "syosetu.org",
+    "h.syosetu.org"
+   ],
+   "engines": [
+    "lncrawl",
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [
+    {
+     "file": "sources/ja/syosetuorg.py",
+     "name": "SyosetuOrgCrawler",
+     "search": true
+    }
+   ],
+   "search": "lncrawl",
+   "comic": false
+  },
+  {
+   "site": "piccoma.com",
+   "rank": 1637,
+   "host": "piccoma.com",
+   "hosts": [
+    "piccoma.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "twkan.com",
+   "rank": 1641,
+   "host": "twkan.com",
+   "hosts": [
+    "twkan.com"
+   ],
+   "engines": [
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "manhwaweb.com",
+   "rank": 1682,
+   "host": "manhwaweb.com",
+   "hosts": [
+    "manhwaweb.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "scan-manga.com",
+   "rank": 3364,
+   "host": "scan-manga.com",
+   "hosts": [
+    "scan-manga.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "webnovel.com",
+   "rank": 3380,
+   "host": "webnovel.com",
+   "hosts": [
+    "webnovel.com",
+    "m.webnovel.com"
+   ],
+   "engines": [
+    "haruneko",
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "webnovel"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/w/webnovel.py",
+     "name": "WebnovelCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "kobo.com",
+   "rank": 3999,
+   "host": "kobo.com",
+   "hosts": [
+    "kobo.com"
+   ],
+   "engines": [
+    "native"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "webtoons.com",
+   "rank": 5206,
+   "host": "webtoons.com",
+   "hosts": [
+    "webtoons.com"
+   ],
+   "engines": [
+    "haruneko",
+    "lncrawl"
+   ],
+   "lnreader": [],
+   "lncrawl": [
+    {
+     "file": "sources/en/w/webtoon.py",
+     "name": "WebToonsCrawler",
+     "search": true
+    }
+   ],
+   "search": "lncrawl",
+   "comic": false
+  },
+  {
+   "site": "mangadex.org",
+   "rank": 5887,
+   "host": "mangadex.org",
+   "hosts": [
+    "mangadex.org"
+   ],
+   "engines": [
+    "haruneko",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "royalroad.com",
+   "rank": 6148,
+   "host": "royalroad.com",
+   "hosts": [
+    "royalroad.com"
+   ],
+   "engines": [
+    "fanficfare",
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "royalroad"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/r/royalroad.py",
+     "name": "RoyalRoadCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "toomics.com",
+   "rank": 6425,
+   "host": "toomics.com",
+   "hosts": [
+    "toomics.com",
+    "global.toomics.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "author.today",
+   "rank": 6566,
+   "host": "author.today",
+   "hosts": [
+    "author.today"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader"
+   ],
+   "lnreader": [
+    "AT"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "mangafire.to",
+   "rank": 7252,
+   "host": "mangafire.to",
+   "hosts": [
+    "mangafire.to"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "wtr-lab.com",
+   "rank": 7319,
+   "host": "wtr-lab.com",
+   "hosts": [
+    "wtr-lab.com"
+   ],
+   "engines": [
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "WTRLAB"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "spacebattles.com",
+   "rank": 7474,
+   "host": "forums.spacebattles.com",
+   "hosts": [
+    "forums.spacebattles.com"
+   ],
+   "engines": [
+    "fanficfare",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "booklive.jp",
+   "rank": 7616,
+   "host": "booklive.jp",
+   "hosts": [
+    "booklive.jp"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "ridibooks.com",
+   "rank": 7769,
+   "host": "ridibooks.com",
+   "hosts": [
+    "ridibooks.com"
+   ],
+   "engines": [
+    "haruneko",
+    "native"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "fanfox.net",
+   "rank": 7824,
+   "host": "fanfox.net",
+   "hosts": [
+    "fanfox.net"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "novelupdates.com",
+   "rank": 7877,
+   "host": "novelupdates.com",
+   "hosts": [
+    "novelupdates.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader"
+   ],
+   "lnreader": [
+    "novelupdates"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/multi/novelupdates.py",
+     "name": "NovelupdatesCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "komiku.org",
+   "rank": 8004,
+   "host": "komiku.org",
+   "hosts": [
+    "komiku.org"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "mangatown.com",
+   "rank": 8222,
+   "host": "mangatown.com",
+   "hosts": [
+    "mangatown.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "weebcentral.com",
+   "rank": 8227,
+   "host": "weebcentral.com",
+   "hosts": [
+    "weebcentral.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "fanmtl.com",
+   "rank": 8247,
+   "host": "fanmtl.com",
+   "hosts": [
+    "fanmtl.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "fannovel",
+    "wuxiamtl"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/f/fanmtl.py",
+     "name": "FanMTLCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "novel543.com",
+   "rank": 8259,
+   "host": "novel543.com",
+   "hosts": [
+    "novel543.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "novel543"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "mangaread.org",
+   "rank": 8286,
+   "host": "mangaread.org",
+   "hosts": [
+    "mangaread.org"
+   ],
+   "engines": [
+    "haruneko",
+    "lncrawl"
+   ],
+   "lnreader": [],
+   "lncrawl": [
+    {
+     "file": "sources/en/m/mangaread.py",
+     "name": "MangaReadCrawler",
+     "search": true
+    }
+   ],
+   "search": "lncrawl",
+   "comic": false
+  },
+  {
+   "site": "kingofshojo.com",
+   "rank": 8325,
+   "host": "kingofshojo.com",
+   "hosts": [
+    "kingofshojo.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "shonenjumpplus.com",
+   "rank": 8327,
+   "host": "shonenjumpplus.com",
+   "hosts": [
+    "shonenjumpplus.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "demonicscans.org",
+   "rank": 8354,
+   "host": "demonicscans.org",
+   "hosts": [
+    "demonicscans.org"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "mgeko.cc",
+   "rank": 8360,
+   "host": "mgeko.cc",
+   "hosts": [
+    "mgeko.cc"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "novelpia.com",
+   "rank": 8419,
+   "host": "novelpia.com",
+   "hosts": [
+    "novelpia.com",
+    "global.novelpia.com"
+   ],
+   "engines": [
+    "native",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "ixdzs.tw",
+   "rank": 8578,
+   "host": "ixdzs.tw",
+   "hosts": [
+    "ixdzs.tw"
+   ],
+   "engines": [
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "timotxt.com",
+   "rank": 8580,
+   "host": "timotxt.com",
+   "hosts": [
+    "timotxt.com"
+   ],
+   "engines": [
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "69shuba.com",
+   "rank": 8627,
+   "host": "69shuba.com",
+   "hosts": [
+    "69shuba.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "novel_downloader"
+   ],
+   "lnreader": [],
+   "lncrawl": [
+    {
+     "file": "sources/zh/69shuba.py",
+     "name": "sixnineshu",
+     "search": true
+    }
+   ],
+   "search": "lncrawl",
+   "comic": false
+  },
+  {
+   "site": "novelphoenix.com",
+   "rank": 8632,
+   "host": "novelphoenix.com",
+   "hosts": [
+    "novelphoenix.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "novelphoenix"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/n/novelphoenix.py",
+     "name": "NovelPhoenixCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "shinigami.asia",
+   "rank": 8637,
+   "host": "11.shinigami.asia",
+   "hosts": [
+    "11.shinigami.asia"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "wfxs.tw",
+   "rank": 8654,
+   "host": "wfxs.tw",
+   "hosts": [
+    "wfxs.tw"
+   ],
+   "engines": [
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "batcave.biz",
+   "rank": 8655,
+   "host": "batcave.biz",
+   "hosts": [
+    "batcave.biz"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "questionablequesting.com",
+   "rank": 8660,
+   "host": "questionablequesting.com",
+   "hosts": [
+    "questionablequesting.com",
+    "forum.questionablequesting.com"
+   ],
+   "engines": [
+    "fanficfare",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "olympusxyz.com",
+   "rank": 8787,
+   "host": "olympusxyz.com",
+   "hosts": [
+    "olympusxyz.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "manhuagui.com",
+   "rank": 8868,
+   "host": "manhuagui.com",
+   "hosts": [
+    "manhuagui.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "novelfull.com",
+   "rank": 8877,
+   "host": "novelfull.com",
+   "hosts": [
+    "novelfull.com"
+   ],
+   "engines": [
+    "fanficfare",
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "allnovel",
+    "novelfull"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/n/novelfull.py",
+     "name": "NovelFullCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "en-thunderscans.com",
+   "rank": 8896,
+   "host": "en-thunderscans.com",
+   "hosts": [
+    "en-thunderscans.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "ixdzs8.com",
+   "rank": 8939,
+   "host": "ixdzs8.com",
+   "hosts": [
+    "ixdzs8.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "ixdzs8"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/zh/ixdzs.py",
+     "name": "IxdzsCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "manhwaread.com",
+   "rank": 9052,
+   "host": "manhwaread.com",
+   "hosts": [
+    "manhwaread.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "69shuba.tw",
+   "rank": 9119,
+   "host": "69shuba.tw",
+   "hosts": [
+    "69shuba.tw"
+   ],
+   "engines": [
+    "native",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "xbanxia.cc",
+   "rank": 9190,
+   "host": "xbanxia.cc",
+   "hosts": [
+    "xbanxia.cc"
+   ],
+   "engines": [
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "komikindo.ch",
+   "rank": 9265,
+   "host": "komikindo.ch",
+   "hosts": [
+    "komikindo.ch"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "kiryuu.to",
+   "rank": 9272,
+   "host": "v7.kiryuu.to",
+   "hosts": [
+    "v7.kiryuu.to"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "mangavyvy.com",
+   "rank": 9273,
+   "host": "mangavyvy.com",
+   "hosts": [
+    "mangavyvy.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "luvyaa.co",
+   "rank": 9399,
+   "host": "v5.luvyaa.co",
+   "hosts": [
+    "v5.luvyaa.co"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "mangalik.net",
+   "rank": 9434,
+   "host": "mangalik.net",
+   "hosts": [
+    "mangalik.net"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "truyenqqko.com",
+   "rank": 9458,
+   "host": "truyenqqko.com",
+   "hosts": [
+    "truyenqqko.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "kumanga.com",
+   "rank": 9462,
+   "host": "kumanga.com",
+   "hosts": [
+    "kumanga.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "uukanshu.cc",
+   "rank": 9502,
+   "host": "uukanshu.cc",
+   "hosts": [
+    "uukanshu.cc"
+   ],
+   "engines": [
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "wurmz.net",
+   "rank": 9650,
+   "host": "wurmz.net",
+   "hosts": [
+    "wurmz.net"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "eternalmangas.org",
+   "rank": 9897,
+   "host": "eternalmangas.org",
+   "hosts": [
+    "eternalmangas.org"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "marxists.org",
+   "rank": 10531,
+   "host": "marxists.org",
+   "hosts": [
+    "marxists.org"
+   ],
+   "engines": [
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "lectorxd.com",
+   "rank": 12078,
+   "host": "lectorxd.com",
+   "hosts": [
+    "lectorxd.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "qidian.com",
+   "rank": 13452,
+   "host": "qidian.com",
+   "hosts": [
+    "qidian.com",
+    "book.qidian.com"
+   ],
+   "engines": [
+    "native",
+    "novel_downloader"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "starzmanga.com",
+   "rank": 13471,
+   "host": "starzmanga.com",
+   "hosts": [
+    "starzmanga.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "mangakatana.com",
+   "rank": 13496,
+   "host": "mangakatana.com",
+   "hosts": [
+    "mangakatana.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "goodnovel.com",
+   "rank": 13594,
+   "host": "goodnovel.com",
+   "hosts": [
+    "goodnovel.com"
+   ],
+   "engines": [
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "lector-mangas.lat",
+   "rank": 13931,
+   "host": "lector-mangas.lat",
+   "hosts": [
+    "lector-mangas.lat"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "mgread.io",
+   "rank": 14404,
+   "host": "mgread.io",
+   "hosts": [
+    "mgread.io"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "alicesw.com",
+   "rank": 15276,
+   "host": "alicesw.com",
+   "hosts": [
+    "alicesw.com"
+   ],
+   "engines": [
+    "novel_downloader",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "mintmanga.one",
+   "rank": 15323,
+   "host": "2.mintmanga.one",
+   "hosts": [
+    "2.mintmanga.one"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "ikiru.wtf",
+   "rank": 15459,
+   "host": "09.ikiru.wtf",
+   "hosts": [
+    "09.ikiru.wtf"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "fictionzone.net",
+   "rank": 15498,
+   "host": "fictionzone.net",
+   "hosts": [
+    "fictionzone.net"
+   ],
+   "engines": [
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "fictionzone"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "mangak.io",
+   "rank": 15947,
+   "host": "mangak.io",
+   "hosts": [
+    "mangak.io"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "inkitt.com",
+   "rank": 17155,
+   "host": "inkitt.com",
+   "hosts": [
+    "inkitt.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "inkitt"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/i/inkitt.py",
+     "name": "InkittCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "tapas.io",
+   "rank": 17903,
+   "host": "tapas.io",
+   "hosts": [
+    "tapas.io",
+    "m.tapas.io"
+   ],
+   "engines": [
+    "haruneko",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": false
+  },
+  {
+   "site": "shueisha.co.jp",
+   "rank": 17984,
+   "host": "mangaplus.shueisha.co.jp",
+   "hosts": [
+    "mangaplus.shueisha.co.jp",
+    "mangamillion.shueisha.co.jp",
+    "zebrack-comic.shueisha.co.jp"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "vortexscans.org",
+   "rank": 18342,
+   "host": "vortexscans.org",
+   "hosts": [
+    "vortexscans.org"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "scribblehub.com",
+   "rank": 18364,
+   "host": "scribblehub.com",
+   "hosts": [
+    "scribblehub.com"
+   ],
+   "engines": [
+    "fanficfare",
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "scribblehub"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/s/scribblehub.py",
+     "name": "ScribbleHubCrawler",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "comic-walker.com",
+   "rank": 18891,
+   "host": "comic-walker.com",
+   "hosts": [
+    "comic-walker.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "remanga.org",
+   "rank": 19313,
+   "host": "remanga.org",
+   "hosts": [
+    "remanga.org"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "mangadistrict.com",
+   "rank": 19705,
+   "host": "mangadistrict.com",
+   "hosts": [
+    "mangadistrict.com"
+   ],
+   "engines": [
+    "haruneko"
+   ],
+   "lnreader": [],
+   "lncrawl": [],
+   "search": "web",
+   "comic": true
+  },
+  {
+   "site": "wuxiabox.com",
+   "rank": 19739,
+   "host": "wuxiabox.com",
+   "hosts": [
+    "wuxiabox.com"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader"
+   ],
+   "lnreader": [
+    "wuxiap"
+   ],
+   "lncrawl": [
+    {
+     "file": "sources/en/w/wuxiabox.py",
+     "name": "Wuxiabox",
+     "search": true
+    }
+   ],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "rulate.ru",
+   "rank": 19761,
+   "host": "tl.rulate.ru",
+   "hosts": [
+    "tl.rulate.ru"
+   ],
+   "engines": [
+    "lncrawl",
+    "lnreader",
+    "webtoepub"
+   ],
+   "lnreader": [
+    "rulate-api"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "linovelib.com",
+   "rank": 20353,
+   "host": "linovelib.com",
+   "hosts": [
+    "linovelib.com",
+    "tw.linovelib.com"
+   ],
+   "engines": [
+    "lnreader",
+    "novel_downloader"
+   ],
+   "lnreader": [
+    "linovelib_tw"
+   ],
+   "lncrawl": [],
+   "search": "lnreader",
+   "comic": false
+  },
+  {
+   "site": "novelfull.net",
+   "rank": 20389,
+   "host": "novelfull.net",
+   "hosts": [
+    "novelfull.net"
+   ],
+   "engines": [
+    "lncrawl",
+    "webtoepub"
+   ],
+   "lnreader": [],
+   "lncrawl": [
+    {
+     "file": "sources/en/n/novelfull.py",
+     "name": "NovelFullCrawler",
+     "search": true
+    }
+   ],
+   "search": "lncrawl",
+   "comic": false
+  }
+ ]
+}

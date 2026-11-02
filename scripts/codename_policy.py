@@ -18,6 +18,11 @@ VERBATIM = {
     'webtoepub/webtoepub-lib.js',
     'android/sources/src/main/resources/com/shirochi/npia/sources/reader/webtoepub/webtoepub-lib.js',
     'ios/NpiaKit/Sources/NpiaSources/Reader/Resources/webtoepub/webtoepub-lib.js',
+    'lnreader/lnreader-lib.js', 'lnreader/manifest.json',
+    'lncrawl/lncrawl-sources.zip', 'lncrawl/manifest.json',
+    'haruneko/haruneko-lib.js', 'haruneko/manifest.json',
+    # The generic search's site list: the most visited sites any engine knows, by their addresses.
+    'noveldb/core/catalog/generic_sites.json',
 }
 
 

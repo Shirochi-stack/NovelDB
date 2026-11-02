@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from noveldb.core import net_timeouts, paths, platform_services
 from noveldb.core.catalog.urls import NOVELDB_NEXT_URL, valid_catalog_url
+from noveldb.core.settings.model import GENERIC_CATALOG_URL
 from noveldb.core.settings.model import (
     ACCENTS,
     DEFAULT_CATALOG_URL,
@@ -607,6 +608,11 @@ ENGINE_HINTS = {
     "native": "The app's own scrapers for the sites it knows best.",
     "novel_downloader": "novel-downloader's rules, mostly Chinese and Japanese sites.",
     ENGINE_W2E: "WebToEpub's parsers for 650+ sites, mostly English translations.",
+    "lnreader": "LNReader's plugins for 320+ novel sites in many languages.",
+    "lncrawl": "lightnovel-crawler's sources for 400+ novel sites.",
+    "fanficfare": "FanFicFare's adapters for 100+ fan-fiction archives and forums.",
+    "haruneko": "HaruNeko's websites for 800+ manga and webtoon sites.",
+    "generic": "Reads any other site: its chapter list and text, without site rules.",
 }
 
 
@@ -692,7 +698,10 @@ def engines_form(context: AppContext) -> Form:
     f._refreshers.append(show_bundles)
     f.check("Update the novel-downloader rules automatically", "engines.nd_auto_update")
     f.check("Update the WebToEpub parsers automatically", "engines.webtoepub_auto_update")
-    f.add_hint("Both are on by default and checked once a day. Updates come from NovelDB's GitHub releases, "
+    f.check("Update the LNReader plugins automatically", "engines.lnreader_auto_update")
+    f.check("Update the lightnovel-crawler sources automatically", "engines.lncrawl_auto_update")
+    f.check("Update the HaruNeko websites automatically", "engines.haruneko_auto_update")
+    f.add_hint("All are on by default and checked once a day. Updates come from NovelDB's GitHub releases, "
                "where a daily job rebuilds each engine from its official repository and checks that it loads "
                "before publishing it. A downloaded update that fails to load is set aside.")
     check_now = QPushButton("Check for updates now")
@@ -731,7 +740,12 @@ def engines_form(context: AppContext) -> Form:
     context.settingsChanged.connect(opted_in)
     f.add_hint("novel-downloader is made by the 404 Novel Project (AGPL-3.0): "
                "https://github.com/404-novel-project/novel-downloader. WebToEpub is made by David Teviotdale "
-               "and contributors (GPL-3.0): https://github.com/dteviot/WebToEpub")
+               "and contributors (GPL-3.0): https://github.com/dteviot/WebToEpub. LNReader's plugins (MIT): "
+               "https://github.com/LNReader/lnreader-plugins. lightnovel-crawler (GPL-3.0): "
+               "https://github.com/lncrawl/lightnovel-crawler. FanFicFare (Apache-2.0): "
+               "https://github.com/JimmXinu/FanFicFare. HaruNeko (Unlicense): "
+               "https://github.com/manga-download/haruneko. HaruNeko's DRM and image-descrambling code is not "
+               "included, so the few sites that need it stop with a message.")
     f.finish()
     return f
 
@@ -856,7 +870,7 @@ def catalog_form(context: AppContext) -> Form:
     def save(text):
         value = valid_catalog_url(text)
         if value is None:
-            error.setText("Enter a full address starting with http:// or https://")
+            error.setText("Enter a full address starting with http:// or https://, or use one of the catalogs below")
             save_feedback.done(False, "Check the address")
             return
         error.setText("")
@@ -879,7 +893,10 @@ def catalog_form(context: AppContext) -> Form:
     use_default.clicked.connect(lambda: save(DEFAULT_CATALOG_URL))
     use_next = QPushButton("Use NovelDB Next")
     use_next.clicked.connect(lambda: save(NOVELDB_NEXT_URL))
-    f.add(flow(use_default, use_next))
+    use_generic = QPushButton("Use Generic search")
+    use_generic.setToolTip("Search the 100 most visited sites the site engines know, by title or tag")
+    use_generic.clicked.connect(lambda: save(GENERIC_CATALOG_URL))
+    f.add(flow(use_default, use_next, use_generic))
     f.add(error)
     f.check("Fill the window (widen sites that keep their page in a narrow column)", "catalog.fill_width")
     f.check("Send outside links to the link cart", "catalog.cart_links")

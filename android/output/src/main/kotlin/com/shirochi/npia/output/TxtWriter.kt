@@ -31,6 +31,9 @@ class TxtWriter : BookWriter {
 
         if (shared.separateTxt) {
             val folder = File(directory, baseName).apply { mkdirs() }
+            // The folder holds this download only (as the desktop app does): chapters an earlier
+            // download of the same book left there would otherwise be shared and uploaded with it.
+            folder.listFiles { file -> file.isFile && file.extension.equals("txt", ignoreCase = true) }?.forEach { it.delete() }
             for (chapter in bundle.chapters) {
                 File(folder, "%04d.txt".format(chapter.ref.index)).writeText(render(chapter))
             }

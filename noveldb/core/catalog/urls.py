@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 from urllib.parse import urlsplit
 
-from noveldb.core.settings.model import DEFAULT_CATALOG_URL
+from noveldb.core.settings.model import DEFAULT_CATALOG_URL, GENERIC_CATALOG_URL
 
 NOVELDB_NEXT_URL = "https://noveldb.pages.dev/"
 
@@ -39,9 +39,17 @@ def is_noveldb_site(url: str) -> bool:
     return is_noveldb_default(url) or is_noveldb_next(url)
 
 
+def is_generic_catalog(url: Optional[str]) -> bool:
+    """The desktop Catalog's generic search page rather than a site."""
+    return (url or "").strip() == GENERIC_CATALOG_URL
+
+
 def valid_catalog_url(text: Optional[str]) -> Optional[str]:
-    """`text` when the Catalog page can open it: http(s) with a site name ("https://" alone is not)."""
+    """`text` when the Catalog page can open it: http(s) with a site name ("https://" alone is not), or
+    the generic search page."""
     value = (text or "").strip()
+    if is_generic_catalog(value):
+        return value
     try:
         parts = urlsplit(value)
     except ValueError:

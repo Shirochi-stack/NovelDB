@@ -1,9 +1,12 @@
 name: Engine Updates
 
-# Rebuilds the two rule engines from their official repositories every day, checks that each loads
-# (and parses a fixture book) in Chromium, and publishes them to the "engines" release:
-#   novel-downloader  https://github.com/404-novel-project/novel-downloader  (AGPL-3.0)
-#   WebToEpub         https://github.com/dteviot/WebToEpub                  (GPL-3.0)
+# Rebuilds the rule engines from their official repositories every day, checks that each loads
+# (WebToEpub also parses a fixture book) and publishes them to the "engines" release:
+#   novel-downloader    https://github.com/404-novel-project/novel-downloader  (AGPL-3.0)
+#   WebToEpub           https://github.com/dteviot/WebToEpub                  (GPL-3.0)
+#   LNReader plugins    https://github.com/LNReader/lnreader-plugins          (MIT)
+#   lightnovel-crawler  https://github.com/lncrawl/lightnovel-crawler         (GPL-3.0)
+#   HaruNeko            https://github.com/manga-download/haruneko            (Unlicense)
 # NovelDB apps download them from there only when the user turns on that engine's updates in
 # Settings. The release is a prerelease that is never marked latest, so app release workflows
 # ignore it.
@@ -16,8 +19,8 @@ on:
       engine:
         description: 'Which engine'
         type: choice
-        options: [both, novel-downloader, webtoepub]
-        default: both
+        options: [all, novel-downloader, webtoepub, lnreader, lncrawl, haruneko]
+        default: all
       force:
         description: 'Publish even when upstream and the build patch are unchanged'
         type: boolean
@@ -69,6 +72,24 @@ jobs:
             out: --out build/webtoepub
             manifest: webtoepub-manifest.json
             prefix: webtoepub-lib-
+          - engine: lnreader
+            script: scripts/update_lnreader.py
+            ref: plugins/v3.0.0
+            out: --out build/lnreader
+            manifest: lnreader-manifest.json
+            prefix: lnreader-lib-
+          - engine: lncrawl
+            script: scripts/update_lncrawl.py
+            ref: dev
+            out: --out build/lncrawl
+            manifest: lncrawl-manifest.json
+            prefix: lncrawl-sources-
+          - engine: haruneko
+            script: scripts/update_haruneko.py
+            ref: master
+            out: --out build/haruneko
+            manifest: haruneko-manifest.json
+            prefix: haruneko-lib-
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -76,8 +97,8 @@ jobs:
       - name: Skip engines not asked for
         id: wanted
         run: |
-          want="${{ inputs.engine || 'both' }}"
-          if [ "$want" = both ] || [ "$want" = "${{ matrix.engine }}" ]; then
+          want="${{ inputs.engine || 'all' }}"
+          if [ "$want" = all ] || [ "$want" = both ] || [ "$want" = "${{ matrix.engine }}" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -110,15 +131,15 @@ jobs:
           fi
 
       - uses: actions/setup-node@v4
-        if: steps.decide.outputs.publish == 'true' && matrix.engine == 'novel-downloader'
+        if: steps.decide.outputs.publish == 'true' && contains(fromJSON('["novel-downloader", "lnreader", "haruneko"]'), matrix.engine)
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Install Chromium for the checks
         if: steps.decide.outputs.publish == 'true'
         run: |
           python -m pip install --upgrade pip
-          python -m pip install playwright requests pytest
+          python -m pip install playwright requests pytest beautifulsoup4 lxml Pillow
           python -m playwright install --with-deps chromium
 
       - name: Build and load the bundle
@@ -150,6 +171,7 @@ jobs:
           import sys
           m = json.load(open(sys.argv[1]))
           sites = m.get("sites") or m.get("hosts")
+          sites = len(sites) if isinstance(sites, list) else sites
           print(f"Published {m['engine']} {m.get('version', '')} {m['commit'][:12]} ({m['date']}): "
                 f"{sites} sites, {m['size'] / 1e6:.1f} MB")
           PY

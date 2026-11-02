@@ -40,31 +40,35 @@ def _button(form, text):
     return next(b for b in form.findChildren(QPushButton) if b.text() == text)
 
 
+REST = ["lnreader", "lncrawl", "fanficfare", "haruneko", "generic"]
+
+
 def test_reorder_and_switch_off(form, context):
     engines = form.findChild(QListWidget)
-    assert _names(engines) == ["native", "novel_downloader", "webtoepub"]
+    assert _names(engines) == ["native", "novel_downloader", "webtoepub", *REST]
+    assert engines.item(engines.count() - 1).text().startswith("8. Generic fallback")
     engines.setCurrentRow(2)
     _button(form, "Move up").click()
     _button(form, "Move up").click()
-    assert context.settings.engines.order == ("webtoepub", "native", "novel_downloader")
-    assert _names(engines) == ["webtoepub", "native", "novel_downloader"]
+    assert context.settings.engines.order == ("webtoepub", "native", "novel_downloader", *REST)
+    assert _names(engines) == ["webtoepub", "native", "novel_downloader", *REST]
     assert engines.item(0).text().startswith("1. WebToEpub parsers")
 
     engines.item(2).setCheckState(Qt.Unchecked)
     assert context.settings.engines.disabled == ("novel_downloader",)
-    assert context.settings.engines.enabled() == ("webtoepub", "native")
+    assert context.settings.engines.enabled() == ("webtoepub", "native", *REST)
 
     _button(form, "Default order").click()
-    assert context.settings.engines.enabled() == ("native", "novel_downloader", "webtoepub")
+    assert context.settings.engines.enabled() == ("native", "novel_downloader", "webtoepub", *REST)
 
 
 def test_the_last_engine_cannot_be_switched_off(form, context):
     engines = form.findChild(QListWidget)
-    engines.item(0).setCheckState(Qt.Unchecked)
-    engines.item(1).setCheckState(Qt.Unchecked)
-    engines.item(2).setCheckState(Qt.Unchecked)
-    assert context.settings.engines.enabled() == ("webtoepub",)
-    assert engines.item(2).checkState() == Qt.Checked
+    last = engines.count() - 1
+    for row in range(engines.count()):
+        engines.item(row).setCheckState(Qt.Unchecked)
+    assert context.settings.engines.enabled() == ("generic",)
+    assert engines.item(last).checkState() == Qt.Checked
 
 
 def test_turning_on_updates_checks_once(form, context, monkeypatch):

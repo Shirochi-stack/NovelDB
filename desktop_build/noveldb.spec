@@ -31,12 +31,49 @@ def here(*parts):
 # -- data files -------------------------------------------------------------------------------
 datas = [(here("icon.ico"), "."), (here("dpi_setup.py"), "."), (here("assets", "app-icon.png"), "assets"),
          (here("assets", "cart-icon.png"), "assets"), (here("assets", "download-icon.png"), "assets")]
-if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobile apps)
+if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobile apps), the generic search page
     datas.append((here("noveldb", "qt", "catalog", "catalog-bridge.js"), os.path.join("noveldb", "qt", "catalog")))
+    for name in ("index.html", "generic.js"):
+        datas.append((here("noveldb", "qt", "catalog", "generic", name), os.path.join("noveldb", "qt", "catalog", "generic")))
+datas.append((here("noveldb", "core", "catalog", "generic_sites.json"), os.path.join("noveldb", "core", "catalog")))
 for name in ("gm_stubs.js", "bridge.js", "rules-lib.js"):
     datas.append((here(name), "."))
 for name in ("webtoepub-lib.js", "manifest.json", "LICENSE.md"):  # the WebToEpub engine
     datas.append((here("webtoepub", name), "webtoepub"))
+for folder, names in (("lnreader", ("lnreader-lib.js", "manifest.json", "LICENSE.md")),  # the other rule sets
+                      ("lncrawl", ("lncrawl-sources.zip", "manifest.json", "LICENSE")),
+                      ("haruneko", ("haruneko-lib.js", "manifest.json", "LICENSE"))):
+    for name in names:
+        datas.append((here(folder, name), folder))
+
+
+def _lncrawl_imports():
+    """Modules lightnovel-crawler's sources import (they load from a zip the analysis cannot see)."""
+    import ast
+    import zipfile
+
+    found = set()
+    with zipfile.ZipFile(here("lncrawl", "lncrawl-sources.zip")) as archive:
+        for name in archive.namelist():
+            if not name.endswith(".py"):
+                continue
+            try:
+                tree = ast.parse(archive.read(name))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    found.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    found.add(node.module)
+    own = ("lncrawl", "scraper", "sources")
+    return sorted(m for m in found if m.split(".")[0] not in own)
+
+
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules  # noqa: E402
+
+datas += collect_data_files("fanficfare")  # defaults.ini and the adapters' data
+ENGINE_HIDDEN = collect_submodules("fanficfare") + _lncrawl_imports() + ["lxml", "lxml.etree", "lxml.html"]
 datas += [
     (here("data", "fonts"), os.path.join("data", "fonts")),
     (here("data", "zh_char_frequency.txt"), "data"),
@@ -135,11 +172,12 @@ a = Analysis(
     pathex=[ROOT],
     binaries=binaries,
     datas=datas,
-    hiddenimports=list(VARIANT.all_hidden) + ["_build_info"],
+    hiddenimports=list(VARIANT.all_hidden) + ENGINE_HIDDEN + ["_build_info"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[here("desktop_build", "pyi_rth_noveldb.py")],
-    excludes=list(VARIANT.all_excludes),
+    # cloudscraper: FanFicFare imports it for a setting NovelDB keeps off (it gets a stand-in instead).
+    excludes=list(VARIANT.all_excludes) + ["cloudscraper"],
     noarchive=False,
 )
 

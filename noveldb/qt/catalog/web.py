@@ -11,6 +11,8 @@ again after every navigation, single-page sites included:
   open in the system browser too, and a downloadable page gets a floating Download button that adds
   it to the link cart.
 - Any other site: those links go to the link cart (when that setting is on), else the browser.
+- The generic search page (the "Generic search" catalog): a local page searching the top sites,
+  see `noveldb.qt.catalog.generic`.
 """
 
 from __future__ import annotations
@@ -41,10 +43,11 @@ from PySide6.QtWidgets import (
 from noveldb.core import paths
 from noveldb.core.catalog.cart import CartItem
 from noveldb.core.catalog import sites
-from noveldb.core.catalog.urls import valid_catalog_url
+from noveldb.core.catalog.urls import is_generic_catalog, valid_catalog_url
 from noveldb.core.settings.model import DEFAULT_CATALOG_URL
 from noveldb.core.sources import detect_source
 from noveldb.qt import icons
+from noveldb.qt.catalog import generic as generic_page
 from noveldb.qt.context import AppContext
 from noveldb.qt.widgets import ButtonFeedback, Toast, hint
 
@@ -96,6 +99,8 @@ def parse_message(text: str) -> Optional[dict]:
         data = json.loads(text)
     except (TypeError, ValueError):
         return None
+    if isinstance(data, dict) and str(data.get("type", "")).startswith("generic"):
+        return generic_page.parse_message(data)
     if not isinstance(data, dict) or data.get("type") not in MESSAGE_TYPES:
         return None
     if data["type"] != "ready":
@@ -350,6 +355,9 @@ class CatalogPage(QWidget):
         self.page.setWebChannel(self.channel, WORLD)
         self.bridge.message.connect(self._message)
         self.page.leave.connect(self.leave)
+        self.generic = generic_page.GenericCatalog(
+            lambda script: self.page is not None and self.page.runJavaScript(script, WORLD), self.profile,
+            lambda url: sites.supported_site(url, self.context.settings.engines.enabled()), self)
         self.view = CatalogView(self)
         self.view.setPage(self.page)
         self.view.addToCart.connect(lambda url, title: self._add_to_cart(url, title, announce=True))
@@ -399,11 +407,27 @@ class CatalogPage(QWidget):
         if self.view is None:
             return
         site = self.site
-        self.page.home_host = (urlsplit(site).hostname or "").lower()
         self._loaded_url = site
         self._page_url = site
         self._reported = None
+        if is_generic_catalog(site):
+            self.page.home_host = ""
+            self.view.load(QUrl.fromLocalFile(str(generic_page.PAGE)))
+            return
+        self.page.home_host = (urlsplit(site).hostname or "").lower()
         self.view.load(QUrl(site))
+
+    def _on_generic_page(self) -> bool:
+        return self.view is not None and generic_page.is_generic_page(self.view.url())
+
+    def _start_generic_page(self) -> None:
+        """Load the LNReader plugins and the page's script into the bridge's world."""
+        from noveldb.core import engine_updates
+
+        bundle = engine_updates.current(engine_updates.LNREADER)
+        if bundle is not None:
+            self.page.runJavaScript(bundle.read(), WORLD)
+        self.page.runJavaScript(generic_page.SCRIPT.read_text(encoding="utf-8"), WORLD)
 
     def _retry(self) -> None:
         if self.view is None:
@@ -420,6 +444,8 @@ class CatalogPage(QWidget):
         self.context.update_settings(lambda s: replace(s, catalog=replace(s.catalog, url=DEFAULT_CATALOG_URL)))
 
     def _open_external(self) -> None:
+        if self._on_generic_page():
+            return
         url = self.view.url() if self.view is not None else QUrl(self.site)
         QDesktopServices.openUrl(url if url.isValid() and not url.isEmpty() else QUrl(self.site))
 
@@ -437,6 +463,8 @@ class CatalogPage(QWidget):
         self.forward.setEnabled(self.view.history().canGoForward())
         if ok:
             self.stack.setCurrentWidget(self.view)
+            if self._on_generic_page():
+                self._start_generic_page()
         else:
             self.error_text.setText(f"The catalog did not load.\n{self.view.url().toString() or self.site}\n\n"
                                     "Check your connection or the catalog address in Settings.")
@@ -461,6 +489,8 @@ class CatalogPage(QWidget):
     def _mode(self) -> sites.PageMode:
         """What the page on screen is: NovelDB, a site we download from, or any other site."""
         settings = self.context.settings
+        if self._on_generic_page():
+            return sites.PageMode(sites.KIND_NOVELDB, False, False)  # our own page: no renamed links
         return sites.classify(self._page_url or self.site, settings.engines.enabled(), settings.catalog.cart_links)
 
     def _cart_links(self) -> bool:
@@ -478,7 +508,8 @@ class CatalogPage(QWidget):
         state = json.dumps({"cartLinks": mode.cart_links, "fill": self.context.settings.catalog.fill_width,
                             "download": download})
         self.page.runJavaScript(
-            f"window.NovelDBApp && (NovelDBApp.setCart({urls}), NovelDBApp.setMode({state}));", WORLD)
+            f"window.NovelDBApp && (NovelDBApp.setCart({urls}), NovelDBApp.setMode({state}));"
+            f"window.NovelDBGeneric && NovelDBGeneric.setCart({urls});", WORLD)
 
     def _located(self, address: str, title: str) -> None:
         """The page's bridge reported its address and title. A page can only speak for the site the view shows."""
@@ -491,6 +522,11 @@ class CatalogPage(QWidget):
 
     def _message(self, data: dict) -> None:
         kind = data["type"]
+        if kind.startswith("generic"):
+            if kind == "genericReady":
+                self._push_state()
+            self.generic.handle(data)
+            return
         if kind == "ready":
             self._push_state()
         elif kind == "location":

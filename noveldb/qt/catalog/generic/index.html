@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generic search</title>
+<style>
+    :root {
+        --bg: #f6f6f8; --panel: #ffffff; --ink: #1d1d22; --ink-2: #5b5b66; --line: #e2e2e8;
+        --accent: #c2185b; --accent-ink: #ffffff; --chip: #eeeef3; --shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    @media (prefers-color-scheme: dark) {
+        :root { --bg: #16161a; --panel: #212127; --ink: #ececf1; --ink-2: #a2a2ad; --line: #34343c;
+                --accent: #f06292; --accent-ink: #16161a; --chip: #2c2c33; --shadow: 0 1px 3px rgba(0,0,0,.4); }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
+    header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+    form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input[type=search] { flex: 1 1 260px; min-width: 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line);
+                         background: var(--panel); color: var(--ink); font-size: 15px; }
+    select, button { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+                     color: var(--ink); font-size: 14px; cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+    button:disabled { opacity: .5; cursor: default; }
+    #status { margin-top: 8px; color: var(--ink-2); font-size: 13px; min-height: 18px; }
+    main { padding: 14px 16px 40px; }
+    #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+    .card { background: var(--panel); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; display: flex;
+            flex-direction: column; cursor: pointer; position: relative; }
+    .cover { aspect-ratio: 2 / 3; background: var(--chip); display: flex; align-items: center; justify-content: center;
+             color: var(--ink-2); font-size: 12px; text-align: center; padding: 0; overflow: hidden; }
+    .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .body { padding: 8px 9px 10px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+    .title { font-weight: 600; font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .meta { color: var(--ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .site { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,.65); color: #fff; font-size: 11px;
+            padding: 2px 6px; border-radius: 6px; max-width: calc(100% - 46px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .add { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; border-radius: 16px; border: none;
+           background: var(--accent); color: var(--accent-ink); font-size: 18px; line-height: 1; padding: 0; }
+    .add.in { background: #2e7d32; color: #fff; }
+    #empty { color: var(--ink-2); text-align: center; margin-top: 60px; }
+    dialog { border: none; border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 720px; width: calc(100% - 32px);
+             padding: 0; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+    dialog::backdrop { background: rgba(0,0,0,.45); }
+    .details { display: flex; gap: 16px; padding: 18px; }
+    .details .cover { width: 160px; flex: none; border-radius: 8px; }
+    .details h2 { margin: 0 0 4px; font-size: 18px; }
+    .details p { white-space: pre-line; max-height: 260px; overflow: auto; color: var(--ink); }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
+    .chip { background: var(--chip); border-radius: 10px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
+    .actions { display: flex; gap: 8px; justify-content: flex-end; padding: 0 18px 16px; }
+    @media (max-width: 560px) { .details { flex-direction: column; } .details .cover { width: 120px; } }
+</style>
+</head>
+<body>
+<header>
+    <form id="form">
+        <input id="query" type="search" placeholder="Search the top 100 sites by title or tag" autocomplete="off" autofocus>
+        <select id="mode" title="Search by">
+            <option value="name">Title</option>
+            <option value="tag">Tag</option>
+        </select>
+        <select id="kind" title="Show">
+            <option value="all">Novels and comics</option>
+            <option value="novel">Novels</option>
+            <option value="comic">Comics</option>
+        </select>
+        <button id="go" class="primary" type="submit">Search</button>
+        <button id="stop" type="button" disabled>Stop</button>
+    </form>
+    <div id="status">Searches each site's own search (and its genre and tag pages), then reads each book's page for its details.</div>
+</header>
+<main>
+    <div id="grid"></div>
+    <div id="empty">Type a title or a tag, like “romance fantasy”.</div>
+</main>
+<dialog id="dialog"></dialog>
+</body>
+</html>

@@ -1,10 +1,13 @@
 """The rule-engine bundles: the copies shipped with the app, and opt-in updates.
 
-Two engines run site rules inside the browser page: novel-downloader (`rules-lib.js`, built by
-scripts/update_nd_rules.py) and WebToEpub (`webtoepub/webtoepub-lib.js`, built by
-scripts/update_webtoepub.py). Both ship with the app. When the user turns on updates for an
-engine, newer builds are downloaded from this repository's `engines` release, which a daily
-workflow refreshes from the official upstream repositories after checking that they load.
+Three engines run site rules inside the browser page: novel-downloader (`rules-lib.js`, built by
+scripts/update_nd_rules.py), WebToEpub (`webtoepub/webtoepub-lib.js`, scripts/update_webtoepub.py)
+and LNReader (`lnreader/lnreader-lib.js`, scripts/update_lnreader.py). lightnovel-crawler's sources
+are Python (`lncrawl/lncrawl-sources.zip`, scripts/update_lncrawl.py) and HaruNeko's websites run in
+the page too (`haruneko/haruneko-lib.js`, scripts/update_haruneko.py). All ship with the app. When the
+user turns on updates for an engine, newer builds are downloaded from this repository's `engines`
+release, which a daily workflow refreshes from the official upstream repositories after checking
+that they load.
 
 An update is used only when its API matches this app, its checksum matches its manifest and it is
 newer than the shipped copy. If it then fails to load in a page, it is set aside and the shipped
@@ -43,13 +46,20 @@ class Engine:
     folder: str            # where the shipped copy sits, relative to the app's bundle folder
     shipped_manifest: str  # "" when the version comes from the script's own header
     release_manifest: str  # the manifest asset in the release
+    sites_in_manifest: bool = False  # the manifest's "sites" (addresses) list the sites it knows
 
 
 NOVEL_DOWNLOADER = Engine("novel_downloader", "novel-downloader rules", 1, "rules-lib.js", "", "",
                           "novel-downloader-manifest.json")
 WEBTOEPUB = Engine("webtoepub", "WebToEpub parsers", 1, "webtoepub-lib.js", "webtoepub", MANIFEST,
                    "webtoepub-manifest.json")
-ENGINES = (NOVEL_DOWNLOADER, WEBTOEPUB)
+LNREADER = Engine("lnreader", "LNReader plugins", 1, "lnreader-lib.js", "lnreader", MANIFEST,
+                  "lnreader-manifest.json", True)
+LNCRAWL = Engine("lncrawl", "lightnovel-crawler sources", 1, "lncrawl-sources.zip", "lncrawl", MANIFEST,
+                 "lncrawl-manifest.json", True)
+HARUNEKO = Engine("haruneko", "HaruNeko websites", 1, "haruneko-lib.js", "haruneko", MANIFEST,
+                  "haruneko-manifest.json", True)
+ENGINES = (NOVEL_DOWNLOADER, WEBTOEPUB, LNREADER, LNCRAWL, HARUNEKO)
 BY_NAME = {engine.name: engine for engine in ENGINES}
 
 _lock = threading.Lock()
@@ -95,6 +105,8 @@ class Bundle:
     def knows(self, url: str) -> bool:
         """The engine lists the URL's site (page-based WebToEpub matches need the page itself)."""
         parts = urlsplit(url)
+        if self.engine.sites_in_manifest:
+            return _strip_www((parts.hostname or "").lower()) in _manifest_hosts(tuple(self.manifest.get("sites") or ()))
         try:
             index = _site_index(self.engine.name, str(self.path), self.path.stat().st_mtime)
         except OSError:
@@ -112,7 +124,7 @@ class Bundle:
         patterns that no `@exclude` refuses); WebToEpub lists only hosts, so any page of a listed site
         counts except the site's home page.
         """
-        if self.engine is WEBTOEPUB:
+        if self.engine is WEBTOEPUB or self.engine.sites_in_manifest:
             return self.knows(url) and not is_home_page(url)
         try:
             patterns = _page_patterns(str(self.path), self.path.stat().st_mtime)
@@ -128,6 +140,18 @@ def _page_patterns(path: str, _mtime: float) -> UserScriptPatterns:
 
 def _strip_www(host: str) -> str:
     return host[4:] if host.startswith("www.") else host
+
+
+@lru_cache(maxsize=16)
+def _manifest_hosts(sites: tuple) -> frozenset:
+    """Hosts (without www.) of a manifest's site addresses; bare hosts count too."""
+    hosts = set()
+    for site in sites:
+        text = str(site or "").strip()
+        host = urlsplit(text if "//" in text else "//" + text).hostname
+        if host:
+            hosts.add(_strip_www(host.lower()))
+    return frozenset(hosts)
 
 
 @lru_cache(maxsize=8)

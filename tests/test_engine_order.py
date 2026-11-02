@@ -9,12 +9,14 @@ from noveldb.core.settings.model import SITE_ENGINES, AppSettings, EngineSetting
 
 BOOK = {"bookname": "Book", "chapters": [{"url": "https://site.test/c1", "name": "One"}]}
 EMPTY = {"bookname": "Book", "chapters": []}
+REST = ("lnreader", "lncrawl", "fanficfare", "haruneko", "generic")  # after the original three
 
 
 def test_engine_order_keeps_known_engines_and_appends_missing():
-    assert engine_order(["webtoepub", "bogus", "native"]) == ("webtoepub", "native", "novel_downloader")
+    assert engine_order(["webtoepub", "bogus", "native"]) == ("webtoepub", "native", "novel_downloader") + REST
     assert engine_order(None) == SITE_ENGINES
-    assert engine_order(SITE_ENGINES, ["novel_downloader"]) == ("native", "webtoepub")
+    assert engine_order(SITE_ENGINES, ["novel_downloader"]) == ("native", "webtoepub") + REST
+    assert SITE_ENGINES[-1] == "generic"  # the generic fallback comes last
 
 
 def test_engine_settings_round_trip_through_config():
@@ -24,19 +26,20 @@ def test_engine_settings_round_trip_through_config():
         "webtoepub_auto_update": True,
     })
     assert settings.engines == EngineSettings(
-        order=("webtoepub", "native", "novel_downloader"), disabled=("novel_downloader",),
+        order=("webtoepub", "native", "novel_downloader") + REST, disabled=("novel_downloader",),
         webtoepub_auto_update=True)
     config = export_config(settings)
-    assert config["source_engine_order"] == ["webtoepub", "native", "novel_downloader"]
+    assert config["source_engine_order"] == ["webtoepub", "native", "novel_downloader", *REST]
     assert config["source_engines_off"] == ["novel_downloader"]
     assert config["webtoepub_auto_update"] is True
     assert import_config(config).engines == settings.engines
 
 
 def test_defaults_and_never_all_off():
-    assert AppSettings().engines.enabled() == ("native", "novel_downloader", "webtoepub")
+    assert AppSettings().engines.enabled() == SITE_ENGINES
     assert AppSettings().engines.webtoepub_auto_update is True
     assert AppSettings().engines.nd_auto_update is True
+    assert all(AppSettings().engines.auto_update(name) for name in ("lnreader", "lncrawl", "haruneko"))
     settings = import_config({"source_engines_off": list(SITE_ENGINES)})
     assert settings.engines.enabled() == SITE_ENGINES
 
@@ -46,7 +49,7 @@ def test_jobs_pass_the_enabled_order_to_the_scraper():
     settings = settings.__class__(**{**settings.__dict__, "engines": EngineSettings(
         order=("webtoepub", "native", "novel_downloader"), disabled=("native",))})
     values = external_values(settings, "https://site.test/book", "reader", None)
-    assert values["_var_engine_order"].get() == ["webtoepub", "novel_downloader"]
+    assert values["_var_engine_order"].get() == ["webtoepub", "novel_downloader", *REST]
 
 
 class Recorder(ExternalScraper):
@@ -91,6 +94,14 @@ class Recorder(ExternalScraper):
         self.calls.append("webtoepub")
         return self.results.get("webtoepub")
 
+    def _script_parse_book(self, engine, url):
+        self.calls.append(engine)
+        return self.results.get(engine)
+
+    def _python_parse_book(self, engine, url):
+        self.calls.append(engine)
+        return self.results.get(engine)
+
 
 def test_native_scraper_wins_without_touching_the_browser():
     s = Recorder({"native": BOOK})
@@ -125,6 +136,33 @@ def test_site_lists_come_from_the_bundles():
     assert not s._engine_knows_site("novel_downloader", "https://novelfull.com/book.html")
     assert s._engine_knows_site("webtoepub", "https://www.novelfull.com/book.html")
     assert not s._engine_knows_site("webtoepub", "https://unknown.example/book")
+    assert s._engine_knows_site("lnreader", "https://novelfire.net/book/shadow-slave")
+    assert s._engine_knows_site("lncrawl", "https://www.novelupdates.com/series/x/")
+    assert s._engine_knows_site("haruneko", "https://anikiga.com/manga/x/")
+    assert s._engine_knows_site("fanficfare", "https://archiveofourown.org/works/1")
+    assert not s._engine_knows_site("lnreader", "https://unknown.example/book")
+    # The generic fallback lists no site: it never follows a failed built-in scraper.
+    assert not s._engine_knows_site("generic", "https://novelfire.net/book/shadow-slave")
+
+
+def test_the_rule_sets_and_the_generic_fallback_come_after_webtoepub():
+    s = Recorder({"generic": BOOK}, native=False, knows=())
+    assert s.parse_book("https://site.test/book") is BOOK
+    assert s.calls == ["open", "novel_downloader", "webtoepub", *REST]
+    # The Python engines still run when the page did not load.
+    s = Recorder({"lncrawl": BOOK}, native=False, page_ok=False, knows=())
+    assert s.parse_book("https://site.test/book") is BOOK
+    assert s.calls == ["open", "lncrawl"]
+
+
+def test_engine_books_fetch_chapters_through_their_engine(monkeypatch):
+    s = ExternalScraper(logger=lambda _m: None)
+    s._book_data = {"_lnreader": True}
+    monkeypatch.setattr(s, "_script_parse_chapter", lambda script, index, chapter, **o: {"engine": script.engine})
+    assert s.parse_chapter(0, {"url": "https://site.test/c1"})["engine"] == "lnreader"
+    s._book_data = {"_generic": True}
+    monkeypatch.setattr(s, "_python_parse_chapter", lambda engine, index, chapter, **o: {"engine": engine})
+    assert s.parse_chapter(0, {"url": "https://site.test/c1"})["engine"] == "generic"
 
 
 def test_user_order_and_switched_off_engines():
