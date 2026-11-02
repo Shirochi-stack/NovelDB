@@ -8,6 +8,7 @@ name: Engine Updates
 #   lightnovel-crawler  https://github.com/lncrawl/lightnovel-crawler         (GPL-3.0)
 #   HaruNeko            https://github.com/manga-download/haruneko            (Unlicense)
 #   FanFicFare          https://github.com/JimmXinu/FanFicFare                 (Apache-2.0, from PyPI)
+#   gallery-dl          https://github.com/mikf/gallery-dl                     (GPL-2.0, from PyPI)
 # NovelDB apps download them from there only when the user turns on that engine's updates in
 # Settings. The release is a prerelease that is never marked latest, so app release workflows
 # ignore it.
@@ -20,7 +21,7 @@ on:
       engine:
         description: 'Which engine'
         type: choice
-        options: [all, novel-downloader, webtoepub, lnreader, lncrawl, haruneko, fanficfare]
+        options: [all, novel-downloader, webtoepub, lnreader, lncrawl, haruneko, fanficfare, gallerydl]
         default: all
       force:
         description: 'Publish even when upstream and the build patch are unchanged'
@@ -97,6 +98,12 @@ jobs:
             out: --out build/fanficfare
             manifest: fanficfare-manifest.json
             prefix: fanficfare-
+          - engine: gallerydl
+            script: scripts/update_gallerydl.py
+            ref: latest
+            out: --out build/gallerydl
+            manifest: gallerydl-manifest.json
+            prefix: gallerydl-
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -149,6 +156,7 @@ jobs:
           python -m pip install playwright requests pytest beautifulsoup4 lxml Pillow
           # FanFicFare's own dependencies, for the check that the packed release imports
           if [ "${{ matrix.engine }}" = fanficfare ]; then python -m pip install fanficfare; fi
+          if [ "${{ matrix.engine }}" = gallerydl ]; then python -m pip install gallery-dl; fi
           python -m playwright install --with-deps chromium
 
       - name: Build and load the bundle

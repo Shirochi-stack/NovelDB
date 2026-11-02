@@ -44,7 +44,8 @@ for name in ("webtoepub-lib.js", "manifest.json", "LICENSE.md"):  # the WebToEpu
 for folder, names in (("lnreader", ("lnreader-lib.js", "manifest.json", "LICENSE.md")),  # the other rule sets
                       ("lncrawl", ("lncrawl-sources.zip", "manifest.json", "LICENSE")),
                       ("haruneko", ("haruneko-lib.js", "manifest.json", "LICENSE")),
-                      ("fanficfare", ("fanficfare.zip", "manifest.json", "LICENSE"))):
+                      ("fanficfare", ("fanficfare.zip", "manifest.json", "LICENSE")),
+                      ("gallerydl", ("gallerydl.zip", "manifest.json", "LICENSE"))):
     for name in names:
         datas.append((here(folder, name), folder))
 
@@ -75,7 +76,8 @@ def _lncrawl_imports():
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules  # noqa: E402
 
 datas += collect_data_files("fanficfare")  # defaults.ini and the adapters' data
-ENGINE_HIDDEN = collect_submodules("fanficfare") + _lncrawl_imports() + ["lxml", "lxml.etree", "lxml.html"]
+# gallery-dl loads its extractors by name: all of them (and the standard modules they use) go in.
+ENGINE_HIDDEN = collect_submodules("fanficfare") + collect_submodules("gallery_dl") + _lncrawl_imports() + ["lxml", "lxml.etree", "lxml.html"]
 datas += [
     (here("data", "fonts"), os.path.join("data", "fonts")),
     (here("data", "zh_char_frequency.txt"), "data"),

@@ -615,6 +615,7 @@ ENGINE_HINTS = {
     "lncrawl": "lightnovel-crawler's sources for 400+ novel sites.",
     "fanficfare": "FanFicFare's adapters for 100+ fan-fiction archives and forums.",
     "haruneko": "HaruNeko's websites for 800+ manga and webtoon sites.",
+    "gallerydl": "gallery-dl's extractors for manga sites (mangatown, mangadex, mangafire and more).",
     "generic": "Reads any other site: its chapter list and text, without site rules.",
 }
 
@@ -722,6 +723,7 @@ def engines_form(context: AppContext) -> Form:
     f.check("Update the lightnovel-crawler sources automatically", "engines.lncrawl_auto_update")
     f.check("Update the HaruNeko websites automatically", "engines.haruneko_auto_update")
     f.check("Update the FanFicFare adapters automatically", "engines.fanficfare_auto_update")
+    f.check("Update the gallery-dl extractors automatically", "engines.gallerydl_auto_update")
     f.add_hint("All are on by default and checked once a day. Updates come from NovelDB's GitHub releases, "
                "where a daily job rebuilds each engine from its official repository and checks that it loads "
                "before publishing it. A downloaded update that fails to load is set aside.")
@@ -766,6 +768,7 @@ def engines_form(context: AppContext) -> Form:
         ("lightnovel-crawler", "its contributors", "GPL-3.0", "https://github.com/lncrawl/lightnovel-crawler"),
         ("FanFicFare", "Jim Miller and contributors", "Apache-2.0", "https://github.com/JimmXinu/FanFicFare"),
         ("HaruNeko", "its contributors", "Unlicense", "https://github.com/manga-download/haruneko"),
+        ("gallery-dl", "Mike Fährmann and contributors", "GPL-2.0", "https://github.com/mikf/gallery-dl"),
     ]
     # One source per line.
     credit_label = f.add_hint("<br>".join(f"<b>{name}</b> by {author} ({license_}): <a href=\"{url}\">{url}</a>"

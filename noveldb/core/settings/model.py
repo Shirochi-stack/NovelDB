@@ -28,10 +28,11 @@ ENGINE_LNR = "lnreader"
 ENGINE_LNC = "lncrawl"
 ENGINE_FFF = "fanficfare"
 ENGINE_HN = "haruneko"
+ENGINE_GDL = "gallerydl"
 ENGINE_GENERIC = "generic"
 # lightnovel-crawler before LNReader: its sources are the more reliable of the two.
 SITE_ENGINES = (ENGINE_NATIVE, ENGINE_ND, ENGINE_W2E, ENGINE_LNC, ENGINE_LNR, ENGINE_FFF, ENGINE_HN,
-                ENGINE_GENERIC)
+                ENGINE_GDL, ENGINE_GENERIC)
 ENGINE_LABELS = {
     ENGINE_NATIVE: "Built-in scrapers",
     ENGINE_ND: "novel-downloader rules",
@@ -40,6 +41,7 @@ ENGINE_LABELS = {
     ENGINE_LNC: "lightnovel-crawler sources",
     ENGINE_FFF: "FanFicFare adapters",
     ENGINE_HN: "HaruNeko websites",
+    ENGINE_GDL: "gallery-dl extractors",
     ENGINE_GENERIC: "Generic fallback",
 }
 
@@ -257,11 +259,13 @@ class EngineSettings:
     lncrawl_auto_update: bool = True
     haruneko_auto_update: bool = True
     fanficfare_auto_update: bool = True
+    gallerydl_auto_update: bool = True
 
     def auto_update(self, engine: str) -> bool:
         return {ENGINE_ND: self.nd_auto_update, ENGINE_W2E: self.webtoepub_auto_update,
                 ENGINE_LNR: self.lnreader_auto_update, ENGINE_LNC: self.lncrawl_auto_update,
-                ENGINE_HN: self.haruneko_auto_update, ENGINE_FFF: self.fanficfare_auto_update}.get(engine, False)
+                ENGINE_HN: self.haruneko_auto_update, ENGINE_FFF: self.fanficfare_auto_update,
+                ENGINE_GDL: self.gallerydl_auto_update}.get(engine, False)
 
     def enabled(self) -> tuple[str, ...]:
         return engine_order(self.order, self.disabled)

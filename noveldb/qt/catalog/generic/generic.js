@@ -877,6 +877,13 @@
     });
 
     $('form').addEventListener('submit', search);
+    // Clearing the search box (and with no tags picked) goes back to the Top 100.
+    $('query').addEventListener('input', function () {
+        if (!$('query').value.trim() && !picked.length && view === 'search') {
+            send({type: 'genericStop', id: searchId});
+            showTop();
+        }
+    });
     $('stop').addEventListener('click', function () {
         send({type: 'genericStop', id: searchId});
         searchId++;

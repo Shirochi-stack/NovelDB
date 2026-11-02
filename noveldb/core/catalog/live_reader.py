@@ -32,6 +32,9 @@ class LiveReader:
                 if name == "lncrawl":
                     from noveldb.core.engines.lncrawl_engine import LncrawlEngine
                     self._engines[name] = LncrawlEngine(fetch=self.fetch, log=self.log, render=self.render)
+                elif name == "gallerydl":
+                    from noveldb.core.engines.gallerydl_engine import GalleryDlEngine
+                    self._engines[name] = GalleryDlEngine(fetch=self.fetch, log=self.log)
                 elif name == "fanficfare":
                     from noveldb.core.engines.fanficfare_engine import FanFicFareEngine
                     self._engines[name] = FanFicFareEngine(fetch=self.fetch, log=self.log)
@@ -52,6 +55,12 @@ class LiveReader:
             from noveldb.core.engines import fanficfare_engine
             if fanficfare_engine.knows(url):
                 names.append("fanficfare")
+        except Exception:
+            pass
+        try:
+            from noveldb.core.engines import gallerydl_engine
+            if gallerydl_engine.knows(url):
+                names.append("gallerydl")
         except Exception:
             pass
         return names + ["generic"]

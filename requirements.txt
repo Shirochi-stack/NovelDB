@@ -16,3 +16,4 @@ pillow-avif-plugin>=1.4.3
 weasyprint
 lxml>=5.0                 # lightnovel-crawler sources' HTML parser
 fanficfare>=4.60          # the FanFicFare engine (fan-fiction archives)
+gallery-dl>=1.32

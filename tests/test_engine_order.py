@@ -9,7 +9,7 @@ from noveldb.core.settings.model import SITE_ENGINES, AppSettings, EngineSetting
 
 BOOK = {"bookname": "Book", "chapters": [{"url": "https://site.test/c1", "name": "One"}]}
 EMPTY = {"bookname": "Book", "chapters": []}
-REST = ("lncrawl", "lnreader", "fanficfare", "haruneko", "generic")  # after the original three
+REST = ("lncrawl", "lnreader", "fanficfare", "haruneko", "gallerydl", "generic")  # after the original three
 
 
 def test_engine_order_keeps_known_engines_and_appends_missing():
@@ -141,6 +141,8 @@ def test_site_lists_come_from_the_bundles():
     assert s._engine_knows_site("lncrawl", "https://www.novelupdates.com/series/x/")
     assert s._engine_knows_site("haruneko", "https://anikiga.com/manga/x/")
     assert s._engine_knows_site("fanficfare", "https://archiveofourown.org/works/1")
+    assert s._engine_knows_site("gallerydl", "https://www.mangatown.com/manga/some_title/")
+    assert not s._engine_knows_site("gallerydl", "https://www.royalroad.com/fiction/1")
     assert not s._engine_knows_site("lnreader", "https://unknown.example/book")
     # The generic fallback lists no site: it never follows a failed built-in scraper.
     assert not s._engine_knows_site("generic", "https://novelfire.net/book/shadow-slave")

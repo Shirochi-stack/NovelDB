@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from noveldb.core.settings.model import ENGINE_FFF, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC, ENGINE_LNR
+from noveldb.core.settings.model import ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC, ENGINE_HN, ENGINE_LNC, ENGINE_LNR
 
 TRANSPORT_BINDING = "__noveldb_engine_transport"
 WINDOW_BINDING = "__noveldb_window_script"
@@ -96,8 +96,8 @@ PAGE_SCRIPTS = {
     ENGINE_LNR: PageScript(ENGINE_LNR, "__LNR", "_lnreader", "LNReader", "LNREADER"),
     ENGINE_HN: PageScript(ENGINE_HN, "__HN", "_haruneko", "HaruNeko", "HARUNEKO"),
 }
-PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GENERIC)
-PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GENERIC: "_generic"}
+PYTHON_ENGINES = (ENGINE_LNC, ENGINE_FFF, ENGINE_GDL, ENGINE_GENERIC)
+PYTHON_FLAGS = {ENGINE_LNC: "_lncrawl", ENGINE_FFF: "_fanficfare", ENGINE_GDL: "_gallerydl", ENGINE_GENERIC: "_generic"}
 
 
 def _with_text(result: dict) -> dict:
@@ -489,6 +489,9 @@ class SiteEnginesMixin:
             if engine == ENGINE_LNC:
                 from noveldb.core.engines.lncrawl_engine import LncrawlEngine
                 engines[engine] = LncrawlEngine(fetch=self.engine_fetch, log=self.log, render=self.render_html)
+            elif engine == ENGINE_GDL:
+                from noveldb.core.engines.gallerydl_engine import GalleryDlEngine
+                engines[engine] = GalleryDlEngine(fetch=self.engine_fetch, log=self.log)
             elif engine == ENGINE_FFF:
                 from noveldb.core.engines.fanficfare_engine import FanFicFareEngine
                 engines[engine] = FanFicFareEngine(fetch=self.engine_fetch, log=self.log)

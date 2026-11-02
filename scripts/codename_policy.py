@@ -22,6 +22,7 @@ VERBATIM = {
     'lncrawl/lncrawl-sources.zip', 'lncrawl/manifest.json',
     'haruneko/haruneko-lib.js', 'haruneko/manifest.json',
     'fanficfare/fanficfare.zip', 'fanficfare/manifest.json',
+    'gallerydl/gallerydl.zip', 'gallerydl/manifest.json',
     # The generic search's site list: the most visited sites any engine knows, by their addresses.
     'noveldb/core/catalog/generic_sites.json',
 }

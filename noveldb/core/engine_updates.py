@@ -5,7 +5,8 @@ scripts/update_nd_rules.py), WebToEpub (`webtoepub/webtoepub-lib.js`, scripts/up
 and LNReader (`lnreader/lnreader-lib.js`, scripts/update_lnreader.py). lightnovel-crawler's sources
 are Python (`lncrawl/lncrawl-sources.zip`, scripts/update_lncrawl.py) and HaruNeko's websites run in
 the page too (`haruneko/haruneko-lib.js`, scripts/update_haruneko.py). FanFicFare is a Python package,
-packed from its PyPI release (`fanficfare/fanficfare.zip`, scripts/update_fanficfare.py). All ship with the app. When the
+packed from its PyPI release (`fanficfare/fanficfare.zip`, scripts/update_fanficfare.py), and so is
+gallery-dl (`gallerydl/gallerydl.zip`, scripts/update_gallerydl.py). All ship with the app. When the
 user turns on updates for an engine, newer builds are downloaded from this repository's `engines`
 release, which a daily workflow refreshes from the official upstream repositories after checking
 that they load.
@@ -62,7 +63,9 @@ HARUNEKO = Engine("haruneko", "HaruNeko websites", 1, "haruneko-lib.js", "harune
                   "haruneko-manifest.json", True)
 FANFICFARE = Engine("fanficfare", "FanFicFare adapters", 1, "fanficfare.zip", "fanficfare", MANIFEST,
                     "fanficfare-manifest.json", True)
-ENGINES = (NOVEL_DOWNLOADER, WEBTOEPUB, LNREADER, LNCRAWL, HARUNEKO, FANFICFARE)
+GALLERYDL = Engine("gallerydl", "gallery-dl extractors", 1, "gallerydl.zip", "gallerydl", MANIFEST,
+                   "gallerydl-manifest.json", True)
+ENGINES = (NOVEL_DOWNLOADER, WEBTOEPUB, LNREADER, LNCRAWL, HARUNEKO, FANFICFARE, GALLERYDL)
 BY_NAME = {engine.name: engine for engine in ENGINES}
 
 _lock = threading.Lock()

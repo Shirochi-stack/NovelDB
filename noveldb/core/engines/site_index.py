@@ -87,6 +87,12 @@ def build() -> dict:
             engines[engine.name] = _engine_sites(engine)
         except Exception:
             engines[engine.name] = {"hosts": [], "patterns": []}
+    if not engines.get("gallerydl", {}).get("hosts"):
+        try:
+            from noveldb.core.engines.gallerydl_engine import manga_hosts
+            engines["gallerydl"] = {"hosts": manga_hosts(), "patterns": []}
+        except Exception:
+            pass
     if not engines.get("fanficfare", {}).get("hosts"):
         try:
             engines["fanficfare"] = _fanficfare_sites()  # no bundle: the installed copy's adapters

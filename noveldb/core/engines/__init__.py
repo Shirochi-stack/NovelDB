@@ -3,6 +3,7 @@
 - `page_engines`: the LNReader plugins and HaruNeko websites, which run inside the browser page.
 - `lncrawl_engine`: lightnovel-crawler's Python sources.
 - `fanficfare_engine`: FanFicFare's adapters (fan-fiction archives).
+- `gallerydl_engine`: gallery-dl's manga and chapter extractors (manga sites).
 - `generic`: the generic fallback that reads any site's metadata, chapter list and chapter text.
 - `scraper_mixin`: how `ExternalScraper` drives them.
 

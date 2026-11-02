@@ -369,6 +369,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
         lncrawl_auto_update=_first_bool(c, "lncrawl_auto_update", eng.lncrawl_auto_update),
         haruneko_auto_update=_first_bool(c, "haruneko_auto_update", eng.haruneko_auto_update),
         fanficfare_auto_update=_first_bool(c, "fanficfare_auto_update", eng.fanficfare_auto_update),
+        gallerydl_auto_update=_first_bool(c, "gallerydl_auto_update", eng.gallerydl_auto_update),
         dynamic_priority=_first_bool(c, "source_engines_dynamic", eng.dynamic_priority),
     )
     if not engine_order(engines.order, engines.disabled):
@@ -589,6 +590,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
     c["lncrawl_auto_update"] = s.engines.lncrawl_auto_update
     c["haruneko_auto_update"] = s.engines.haruneko_auto_update
     c["fanficfare_auto_update"] = s.engines.fanficfare_auto_update
+    c["gallerydl_auto_update"] = s.engines.gallerydl_auto_update
     c["source_engines_dynamic"] = s.engines.dynamic_priority
     c["app_update_check"] = s.updates.check_automatically
     c["max_concurrent_jobs"] = s.queue.max_concurrent_jobs
