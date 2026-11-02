@@ -7,7 +7,7 @@
     "dayjs": "1.11.13",
     "htmlparser2": "9.1.0",
     "@noble/ciphers": "2.1.1",
-    "protobufjs": "7.4.0"
+    "protobufjs": "7.6.5"
   },
   "devDependencies": {
     "esbuild": "0.25.3"
