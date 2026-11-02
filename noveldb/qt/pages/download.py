@@ -482,12 +482,10 @@ class DownloadPage(QWidget):
         self.download.setText(f"Download {count}" if count > 1 else "Download")
 
     def _download(self) -> None:
-        # One press queues the links above and the link cart; queued links leave the cart.
+        # One press queues the links above and the link cart; queued links leave the cart. The
+        # links stay in the box, so a book can be queued again with other settings.
         self._detect()
-        if not self.queue_lines(self._download_lines()):
-            return
-        remaining = [line for line, source in self._lines if not source]
-        self.input.setPlainText(NL.join(remaining))
+        self.queue_lines(self._download_lines())
 
     def _refresh_cart(self) -> None:
         count = len(self.context.cart)

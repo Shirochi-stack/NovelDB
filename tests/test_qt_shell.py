@@ -65,7 +65,8 @@ def test_download_queues_detected_lines_and_queue_shows_them(window, context, qt
     page.download.click()
     assert context.runner.wait_idle(5)
     assert sorted(context.ran) == ["12345", "67890"]
-    assert page.input.toPlainText() == "not a link"  # unrecognised lines stay
+    # The links stay in the box after Download, so a book can be queued again with other settings.
+    assert page.input.toPlainText() == "12345\n# comment\nnot a link\n67890"
     jobs = context.runner.jobs
     assert all(job.state == DONE for job in jobs)
     assert all(job.output_dir == context.settings.output.output_dir for job in jobs)
@@ -109,8 +110,8 @@ def test_download_queues_the_links_above_and_the_link_cart(window, context):
     assert context.runner.wait_idle(5)
     assert sorted(context.ran) == ["11111", "12345", "67890"]
     assert context.cart.urls == []
-    assert page.input.toPlainText() == ""
-    assert not page.download.isEnabled()
+    assert page.input.toPlainText() == "12345\n11111"  # the links above stay
+    assert page.download.text() == "Download 2"
 
 
 def test_a_saved_screen_sized_window_starts_maximised_with_room_to_restore(context, qtbot):

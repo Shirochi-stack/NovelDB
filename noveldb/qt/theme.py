@@ -62,31 +62,54 @@ def palette_for(scheme: dict) -> QPalette:
     return p
 
 
+# Each icon on a 16 x 16 grid: ("line", width, points) strokes a polyline, ("bar", x, y, w, h) fills a
+# rounded bar.
 _ICONS = {
-    "check": "<path d='M3.5 8.5l3 3 6-7' fill='none' stroke='{c}' stroke-width='2' stroke-linecap='round' "
-             "stroke-linejoin='round'/>",
-    "down": "<path d='M4 6l4 4 4-4' fill='none' stroke='{c}' stroke-width='1.8' stroke-linecap='round' "
-            "stroke-linejoin='round'/>",
-    "up": "<path d='M4 10l4-4 4 4' fill='none' stroke='{c}' stroke-width='1.8' stroke-linecap='round' "
-          "stroke-linejoin='round'/>",
-    "grip": "<rect x='3' y='6' width='10' height='1.4' rx='.7' fill='{c}'/><rect x='3' y='8.6' width='10' "
-            "height='1.4' rx='.7' fill='{c}'/>",
-    "gripv": "<rect x='6' y='3' width='1.4' height='10' rx='.7' fill='{c}'/><rect x='8.6' y='3' width='1.4' "
-             "height='10' rx='.7' fill='{c}'/>",
+    "check": [("line", 2.0, [(3.5, 8.5), (6.5, 11.5), (12.5, 4.5)])],
+    "down": [("line", 1.8, [(4, 6), (8, 10), (12, 6)])],
+    "up": [("line", 1.8, [(4, 10), (8, 6), (12, 10)])],
+    "grip": [("bar", 3, 6, 10, 1.4), ("bar", 3, 8.6, 10, 1.4)],
+    "gripv": [("bar", 6, 3, 1.4, 10), ("bar", 8.6, 3, 1.4, 10)],
 }
+
+# Pixels per grid unit: drawn large so Qt only ever scales the image down, at any window scale.
+_ICON_SCALE = 6
 
 
 def _icon_file(name: str, color: str) -> str:
-    """A small SVG in `color`, written once to the cache (QSS images need a file); "" if it can't be."""
+    """A small PNG in `color`, written once to the cache (QSS images need a file); "" if it can't be.
+
+    PNG rather than SVG: Qt reads PNG itself, while SVG needs the image-format plugin, and a built
+    app that failed to load it showed checkboxes with no tick and drop-downs with no arrow.
+    """
+    from PySide6.QtCore import QPointF, QRectF
+    from PySide6.QtGui import QImage, QPainter, QPen, QPolygonF
+
     try:
         from noveldb.core import paths
 
         folder = paths.cache_dir() / "theme"
         folder.mkdir(parents=True, exist_ok=True)
-        target = folder / f"{name}-{color.lstrip('#').lower()}.svg"
+        target = folder / f"{name}-{color.lstrip('#').lower()}.png"
         if not target.exists():
-            target.write_text("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
-                              + _ICONS[name].format(c=color) + "</svg>", encoding="utf-8")
+            size = 16 * _ICON_SCALE
+            image = QImage(size, size, QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.scale(_ICON_SCALE, _ICON_SCALE)
+            for shape in _ICONS[name]:
+                if shape[0] == "line":
+                    painter.setPen(QPen(QColor(color), shape[1], Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    painter.drawPolyline(QPolygonF([QPointF(x, y) for x, y in shape[2]]))
+                else:
+                    x, y, w, h = shape[1:]
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QColor(color))
+                    painter.drawRoundedRect(QRectF(x, y, w, h), min(w, h) / 2, min(w, h) / 2)
+            painter.end()
+            if not image.save(str(target), "PNG"):
+                return ""
         return target.as_posix()
     except OSError:
         return ""

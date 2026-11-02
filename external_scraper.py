@@ -4692,6 +4692,7 @@ class ExternalScraper:
 
     def cleanup(self):
         """Release browser resources."""
+        self._ntk_clear_webtoon_pages()
         self._global_npia_shutdown_ad_worker()
         self._backup_storage_state()
         site_cdp_port = (
@@ -7203,7 +7204,7 @@ async ({ novelId, kind, pageParam }) => {
   const collect = (root, baseUrl) => {
     const allLinks = Array.from(root.querySelectorAll('a[href]'));
     const episodeRowLinks = allLinks.filter(
-      (link) => link.closest('li[data-ep]')
+      (link) => link.closest('li[data-ep], li[data-episode-number]')
     );
     const candidateLinks = episodeRowLinks.length ? episodeRowLinks : allLinks;
     for (const link of candidateLinks) {
@@ -7221,23 +7222,27 @@ async ({ novelId, kind, pageParam }) => {
       const remainder = target.pathname
         .slice(chapterPrefix.length)
         .replace(/\/$/, '');
-      if (!/^\d+$/.test(remainder)) continue;
-      const row = link.closest('li[data-ep], li, tr, article, div');
-      const titleElement = link.querySelector(
-        '.ne-title, .ep-title, [class*="title"]'
+      // Webtoon episodes from mirror sources have ids such as goodtoon-745176 or kp-5656-6755.
+      if (!/^[A-Za-z0-9][\w-]*$/.test(remainder)) continue;
+      const row = link.closest(
+        'li[data-ep], li[data-episode-number], li, tr, article, div'
       );
+      // Webtoon rows put an "UP" badge before the title; read the title itself.
+      const titleElement = link.querySelector('.ep-row-v2-title strong')
+        || link.querySelector('.ne-title, .ep-title, [class*="title"]');
       const chapterName = text(titleElement) || text(link) || text(row) || '';
       if (/(?:1\s*화부터\s*보기|최신화부터)/.test(chapterName)) continue;
       // Not every NewToki build renders data-ep; fall back to the "301화"
       // number label so cursor paging and ordering still work.
       const numberLabel = text(
-        link.querySelector('.ne-num, .ep-num, [class*="num"]')
+        link.querySelector('.ne-num, .ep-num, .ep-row-v2-no, [class*="num"]')
       );
       const labelMatch = numberLabel.match(/(\d+)/);
       chapters.set(remainder, {
         url: target.href,
         episodeId: remainder,
-        displayNumber: (row && row.getAttribute('data-ep'))
+        displayNumber: (row && (row.getAttribute('data-ep')
+          || row.getAttribute('data-episode-number')))
           || (labelMatch ? labelMatch[1] : ''),
         name: chapterName,
       });
@@ -7259,6 +7264,7 @@ async ({ novelId, kind, pageParam }) => {
       if (!Number.isFinite(number) || number <= 0) continue;
       if (!oldest || number < oldest.number
           || (number === oldest.number
+              && /^\d+$/.test(item.episodeId) && /^\d+$/.test(oldest.id)
               && BigInt(item.episodeId) < BigInt(oldest.id))) {
         oldest = { number, id: item.episodeId };
       }
@@ -7315,7 +7321,7 @@ async ({ novelId, kind, pageParam }) => {
       }
       for (const item of data.items) {
         const episodeId = String(item && item.id || '');
-        if (!/^\d+$/.test(episodeId)) continue;
+        if (!/^[A-Za-z0-9][\w-]*$/.test(episodeId)) continue;
         chapters.set(episodeId, {
           url: new URL(`${chapterPrefix}${episodeId}`, location.origin).href,
           episodeId,
@@ -7559,22 +7565,27 @@ async ({ novelId, kind, pageParam }) => {
     }
     return '';
   };
+  // board_uploads holds the site's banner ads, which fill `main` and rotate.
+  const isBanner = (url) => /\/board_uploads\//.test(url || '');
   const firstImage = (selectors) => {
     for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element && (element.currentSrc || element.src)) {
-        return element.currentSrc || element.src;
+      for (const element of document.querySelectorAll(selector)) {
+        const url = element.currentSrc || element.src;
+        if (url && !isBanner(url)) return url;
       }
     }
     return '';
   };
+  const ogImage = (
+    document.querySelector('meta[property="og:image"]') || {}
+  ).content || '';
 
   const prefix = `/${kind}/${novelId}/`;
   const seen = new Set();
   const chapters = [];
   const allLinks = Array.from(document.querySelectorAll('a[href]'));
   const episodeRowLinks = allLinks.filter(
-    (link) => link.closest('li[data-ep]')
+    (link) => link.closest('li[data-ep], li[data-episode-number]')
   );
   const candidateLinks = episodeRowLinks.length ? episodeRowLinks : allLinks;
   for (const link of candidateLinks) {
@@ -7584,16 +7595,19 @@ async ({ novelId, kind, pageParam }) => {
       continue;
     }
     const remainder = target.pathname.slice(prefix.length).replace(/\/$/, '');
-    if (!/^\d+$/.test(remainder) || seen.has(remainder)) continue;
+    // Webtoon episodes from mirror sources have ids such as goodtoon-745176 or kp-5656-6755.
+    if (!/^[A-Za-z0-9][\w-]*$/.test(remainder) || seen.has(remainder)) continue;
     seen.add(remainder);
     const row = link.closest('li, tr, article, div');
-    const titleElement = link.querySelector('.ne-title, .ep-title, [class*="title"]');
+    const titleElement = link.querySelector('.ep-row-v2-title strong')
+      || link.querySelector('.ne-title, .ep-title, [class*="title"]');
     const chapterName = text(titleElement) || text(link) || text(row) || '';
     if (/(?:1\s*화부터\s*보기|최신화부터)/.test(chapterName)) continue;
     chapters.push({
       url: target.href,
       episodeId: remainder,
-      displayNumber: row && row.getAttribute('data-ep') || '',
+      displayNumber: row && (row.getAttribute('data-ep')
+        || row.getAttribute('data-episode-number')) || '',
       name: chapterName || `${chapters.length + 1}화`,
       number: chapters.length + 1,
     });
@@ -7625,7 +7639,9 @@ async ({ novelId, kind, pageParam }) => {
     ]),
     introduction: firstText(['.nd-desc', '[class*="description"]', '[class*="intro"]']),
     introductionHtml: firstHtml(['.nd-desc', '[class*="description"]', '[class*="intro"]']),
-    coverUrl: firstImage(['.nd-thumb img', '.novel-detail img', 'main img']),
+    coverUrl: firstImage(['.nd-thumb img', '.novel-detail img'])
+      || (!isBanner(ogImage) && !/og-default/.test(ogImage) ? ogImage : '')
+      || firstImage(['main img']),
     tags,
     chapters,
     bodyText: bodyText.slice(0, 1000),
@@ -8620,7 +8636,163 @@ async ({ chapterUrl }) => {
         self.log("  [NewToki] Chrome returned empty/short chapter content.")
         return None
 
+    def _ntk_webtoon_images_browser(self, chapter_url):
+        """The chapter's pages as the reader gets them from /api/webtoon-images.
+
+        Open the chapter in Chrome so the site does its own token/proof handshake, and read
+        the reply: [{'url': ..., 'candidates': [mirror urls]}]. The page files carry
+        disguised names (.js, .css, .woff) on mirror hosts, so the chapter HTML only shows
+        the site's banner ads. Empty when the reply does not come.
+        """
+        page = self._page
+        if not page or not hasattr(page, 'expect_response'):
+            return []
+
+        def is_images_reply(response):
+            try:
+                return urllib.parse.urlparse(response.url).path == '/api/webtoon-images'
+            except Exception:
+                return False
+
+        # The mirrors often reset or stall plain downloads, while the reader
+        # loads every page through Chrome: keep the bytes Chrome receives.
+        received = {}
+
+        def keep_page(response):
+            # Page files have no fixed path or extension: keep every image but the
+            # banners, and match them to the page list afterwards.
+            try:
+                is_image = response.request.resource_type == 'image'
+            except Exception:
+                is_image = False
+            if (not is_image or response.status != 200
+                    or '/board_uploads/' in response.url):
+                return
+            try:
+                body = response.body()
+            except Exception:
+                return
+            if len(body) > 100:
+                received[response.url] = body
+
+        page.on('response', keep_page)
+        try:
+            try:
+                with page.expect_response(is_images_reply, timeout=_page_ms(45000)) as info:
+                    page.goto(chapter_url, wait_until='domcontentloaded', timeout=_page_ms(45000))
+                response = info.value
+                data = response.json()
+            except Exception as e:
+                self.log(f"  [NewToki] Webtoon page list did not arrive: {e}")
+                return []
+            pages = self._ntk_webtoon_page_list(response, data)
+            if pages:
+                self._ntk_load_webtoon_pages(page, pages, received)
+        finally:
+            try:
+                page.remove_listener('response', keep_page)
+            except Exception:
+                pass
+        return pages
+
+    def _ntk_webtoon_page_list(self, response, data):
+        """[{'url', 'candidates'}] from a /api/webtoon-images reply ([] if it failed)."""
+        if response.status != 200 or not isinstance(data, dict) or not data.get('ok'):
+            error = data.get('error', '') if isinstance(data, dict) else ''
+            self.log(
+                f"  [NewToki] Webtoon page list failed (HTTP {response.status})"
+                + (f": {error}" if error else '')
+            )
+            return []
+        pages = []
+        items = [item for item in data.get('images') or [] if isinstance(item, dict)]
+        items.sort(key=lambda item: item.get('page') or 0)
+        for item in items:
+            urls = [item.get('src')] + list(item.get('srcCandidates') or [])
+            urls = [url for url in dict.fromkeys(urls) if isinstance(url, str) and url]
+            if urls:
+                pages.append({'url': urls[0], 'candidates': urls[1:]})
+        return pages
+
+    def _ntk_load_webtoon_pages(self, page, pages, received):
+        """Make the reader load every page now, and attach what Chrome received.
+
+        The reader loads pages lazily as you scroll. Pages Chrome delivers are
+        written to a folder for this book (a long webtoon would not fit in
+        memory) and marked with a file: address the saver reads; the rest keep
+        their mirror URLs for a plain download.
+        """
+        deadline = time.time() + min(120.0, 15.0 + 0.5 * len(pages))
+        try:
+            page.evaluate(
+                "() => { for (const img of document.querySelectorAll('img')) img.loading = 'eager'; }"
+            )
+        except Exception:
+            pass
+
+        def missing():
+            return [
+                entry for entry in pages
+                if not any(url in received for url in [entry['url']] + entry['candidates'])
+            ]
+
+        # Stop early once nothing new has come for a while: some pages fail in the
+        # reader too, and waiting out the deadline for them costs every chapter.
+        last_count, last_change = -1, time.time()
+        while time.time() < deadline and not self._stop_requested:
+            left = len(missing())
+            if not left:
+                break
+            if left != last_count:
+                last_count, last_change = left, time.time()
+            elif time.time() - last_change > 15:
+                break
+            try:
+                page.mouse.wheel(0, 4000)
+                page.wait_for_timeout(250)
+            except Exception:
+                break
+
+        folder = getattr(self, '_ntk_pages_dir', None)
+        if not folder or not os.path.isdir(folder):
+            folder = tempfile.mkdtemp(prefix='ntk-pages-')
+            self._ntk_pages_dir = folder
+        captured = 0
+        for entry in pages:
+            body = next(
+                (received[url] for url in [entry['url']] + entry['candidates'] if url in received),
+                None,
+            )
+            if body is None:
+                continue
+            digest = hashlib.sha1(entry['url'].encode('utf-8')).hexdigest()
+            path = os.path.join(folder, digest)
+            try:
+                with open(path, 'wb') as handle:
+                    handle.write(body)
+            except OSError:
+                continue
+            entry['file'] = path
+            captured += 1
+        if captured < len(pages):
+            self.log(
+                f"  [NewToki] Chrome delivered {captured}/{len(pages)} webtoon "
+                "page(s); the rest will be downloaded from the mirrors."
+            )
+
+    def _ntk_clear_webtoon_pages(self):
+        """Delete the previous book's captured webtoon pages."""
+        folder = getattr(self, '_ntk_pages_dir', None)
+        self._ntk_pages_dir = None
+        if folder:
+            shutil.rmtree(folder, ignore_errors=True)
+
     def _ntk_fetch_webtoon_chapter_browser(self, chapter_url, chapter_name):
+        pages = self._ntk_webtoon_images_browser(chapter_url)
+        if pages:
+            return self._ntk_build_image_chapter(
+                chapter_name, pages, 'ntk browser api/webtoon-images',
+            )
         html_text = self._ntk_browser_fetch_html(chapter_url)
         if not html_text:
             return None
@@ -8682,6 +8854,65 @@ async ({ url }) => {
         except Exception as e:
             self.log(f"  [NewToki] Chrome asset fetch failed: {e}")
         return None
+
+    def fetch_ntk_binaries(self, urls, concurrency=6):
+        """Fetch several NewToki images inside Chrome at once: {url: bytes}.
+
+        The image hosts reset plain Python connections, while the page's own
+        fetch gets through. Playwright must be driven from this thread, so the
+        image workers use these bytes instead of calling Chrome themselves.
+        """
+        urls = [url for url in dict.fromkeys(urls or []) if url]
+        if not urls or not self._ntk_browser_fallback or not self._page:
+            return {}
+        try:
+            results = self._page.evaluate(
+                r"""
+async ({ urls, concurrency }) => {
+  const results = {};
+  const fetchOne = async (url) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const target = new URL(url, location.href);
+      const response = await fetch(target.href, {
+        credentials: target.origin === location.origin ? 'include' : 'omit',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (!response.ok) return;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = '';
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      results[url] = btoa(binary);
+    } catch (_) {
+      // Left out: the caller downloads it another way.
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  let next = 0;
+  const worker = async () => {
+    while (next < urls.length) await fetchOne(urls[next++]);
+  };
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  return results;
+}
+                """,
+                {'urls': urls, 'concurrency': max(1, int(concurrency))},
+            ) or {}
+        except Exception as e:
+            self.log(f"  [NewToki] Chrome image batch failed: {e}")
+            return {}
+        fetched = {}
+        for url, data in results.items():
+            try:
+                fetched[url] = base64.b64decode(data)
+            except (TypeError, ValueError):
+                pass
+        return fetched
 
     def _ntk_fetch_chapter_api(self, chapter_url, chapter_name, state=None):
         state = state or self._ntk_api_state
@@ -8813,6 +9044,8 @@ async ({ url }) => {
                 return
             if any(skip in lower for skip in ('favicon', 'avatar', 'profile', 'emoji')):
                 return
+            if '/board_uploads/' in lower:  # the site's banner ads, not chapter pages
+                return
             if value not in urls:
                 urls.append(value)
 
@@ -8848,14 +9081,24 @@ async ({ url }) => {
             return None
         images = []
         html_parts = []
-        for idx, img_url in enumerate(image_urls, 1):
+        for idx, item in enumerate(image_urls, 1):
+            # A page is a URL, or {'url', 'candidates'} with mirror hosts to try next.
+            img_url = item['url'] if isinstance(item, dict) else item
             parsed = urllib.parse.urlparse(img_url)
             name = os.path.basename(parsed.path) or f'page_{idx:04d}.jpg'
             name = re.sub(r'[^A-Za-z0-9._-]+', '_', name).strip('._')
             if '.' not in name:
                 name += '.jpg'
+            elif not re.search(r'\.(?:jpe?g|png|webp|gif|avif|bmp)$', name, re.I):
+                # Disguised page files (.js, .css, .woff): the saver names them by their bytes.
+                name = name.rsplit('.', 1)[0] + '.img'
             name = f'ntk_webtoon_{idx:04d}_{name}'
-            images.append({'url': img_url, 'name': name})
+            image = {'url': img_url, 'name': name}
+            if isinstance(item, dict) and item.get('candidates'):
+                image['candidates'] = list(item['candidates'])
+            if isinstance(item, dict) and item.get('file'):
+                image['data'] = 'file:' + item['file']  # read by the saver
+            images.append(image)
             html_parts.append(
                 f'<div class="ntk-webtoon-page">'
                 f'<img src="{html.escape(img_url, quote=True)}" alt="page {idx}" />'
@@ -9054,6 +9297,7 @@ async ({ url }) => {
         self._ntk_browser_fallback = True
         self._ntk_api_state = None
         self._ntk_spa_origin = None
+        self._ntk_clear_webtoon_pages()
         kind = self._ntk_content_kind_from_url(url)
         self.log(
             f"[NewToki] Detected {kind} URL, using headless browser scraper."
