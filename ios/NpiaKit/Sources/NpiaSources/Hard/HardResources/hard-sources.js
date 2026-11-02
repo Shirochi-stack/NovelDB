@@ -2505,6 +2505,10 @@
 
   const ntk = hard.ntk;
 
+  // Webtoon episodes from mirror sources have ids such as goodtoon-745176 or kp-5656-6755; pages beside
+  // the episodes (reviews, comments) have no digit.
+  const ntkEpisodeId = /^(?=\D*\d)[A-Za-z0-9][\w-]*$/;
+
   const ntkCollectChapters = async (novelId, kind, pageParam) => {
   const basePath = `/${kind}/${novelId}`;
   const chapterPrefix = `${basePath}/`;
@@ -2519,7 +2523,7 @@
   const collect = (root, baseUrl) => {
     const allLinks = Array.from(root.querySelectorAll('a[href]'));
     const episodeRowLinks = allLinks.filter(
-      (link) => link.closest('li[data-ep]')
+      (link) => link.closest('li[data-ep], li[data-episode-number]')
     );
     const candidateLinks = episodeRowLinks.length ? episodeRowLinks : allLinks;
     for (const link of candidateLinks) {
@@ -2537,23 +2541,26 @@
       const remainder = target.pathname
         .slice(chapterPrefix.length)
         .replace(/\/$/, '');
-      if (!/^\d+$/.test(remainder)) continue;
-      const row = link.closest('li[data-ep], li, tr, article, div');
-      const titleElement = link.querySelector(
-        '.ne-title, .ep-title, [class*="title"]'
+      if (!ntkEpisodeId.test(remainder)) continue;
+      const row = link.closest(
+        'li[data-ep], li[data-episode-number], li, tr, article, div'
       );
+      // Webtoon rows put an "UP" badge before the title; read the title itself.
+      const titleElement = link.querySelector('.ep-row-v2-title strong')
+        || link.querySelector('.ne-title, .ep-title, [class*="title"]');
       const chapterName = text(titleElement) || text(link) || text(row) || '';
       if (/(?:1\s*화부터\s*보기|최신화부터)/.test(chapterName)) continue;
       // Not every NewToki build renders data-ep; fall back to the "301화"
       // number label so cursor paging and ordering still work.
       const numberLabel = text(
-        link.querySelector('.ne-num, .ep-num, [class*="num"]')
+        link.querySelector('.ne-num, .ep-num, .ep-row-v2-no, [class*="num"]')
       );
       const labelMatch = numberLabel.match(/(\d+)/);
       chapters.set(remainder, {
         url: target.href,
         episodeId: remainder,
-        displayNumber: (row && row.getAttribute('data-ep'))
+        displayNumber: (row && (row.getAttribute('data-ep')
+          || row.getAttribute('data-episode-number')))
           || (labelMatch ? labelMatch[1] : ''),
         name: chapterName,
       });
@@ -2574,6 +2581,7 @@
       if (!Number.isFinite(number) || number <= 0) continue;
       if (!oldest || number < oldest.number
           || (number === oldest.number
+              && /^\d+$/.test(item.episodeId) && /^\d+$/.test(oldest.id)
               && BigInt(item.episodeId) < BigInt(oldest.id))) {
         oldest = { number, id: item.episodeId };
       }
@@ -2630,7 +2638,7 @@
       }
       for (const item of data.items) {
         const episodeId = String(item && item.id || '');
-        if (!/^\d+$/.test(episodeId)) continue;
+        if (!ntkEpisodeId.test(episodeId)) continue;
         chapters.set(episodeId, {
           url: new URL(`${chapterPrefix}${episodeId}`, location.origin).href,
           episodeId,
@@ -3246,14 +3254,15 @@
     if (Number.isFinite(number) && number > 0) return number;
     return null;
   };
-  const ntkImageName = (url, index) => {
-    const prefix = String(index).padStart(4, '0');
-    let extension = 'jpg';
+  // board_uploads holds the site's banner ads, which fill `main` and rotate.
+  const ntkIsBanner = (url) => /\/board_uploads\//.test(url || '');
+  const ntkImageName = (url, chapter, page) => {
     const last = (String(url).split(/[?#]/)[0].split('/').pop() || '');
     const dot = last.lastIndexOf('.');
     const candidate = dot >= 0 ? last.slice(dot + 1).toLowerCase() : '';
-    if (candidate && candidate.length <= 5 && /^[a-z0-9]+$/.test(candidate)) extension = candidate;
-    return `images/${prefix}_01.${extension}`;
+    // Mirrors disguise page files as .js, .css or .woff; the image stage names them by their bytes.
+    const extension = /^(?:jpe?g|png|webp|gif|avif|bmp)$/.test(candidate) ? candidate : 'webp';
+    return `images/${String(chapter).padStart(4, '0')}_${String(page).padStart(4, '0')}.${extension}`;
   };
   const ntkCleanText = (value) => String(value == null ? '' : value)
     .replace(/\r\n/g, '\n')
@@ -3307,7 +3316,7 @@
       if (!/^https?:/i.test(abs)) return;
       if (!/\.(?:jpe?g|png|webp|gif|avif)(?:[?#]|$)/i.test(abs)) return;
       if (/(?:favicon|avatar|profile|emoji|logo|sprite|blank)/i.test(abs)) return;
-      if (/(?:novel|webtoon)_thumb|og-default/i.test(abs)) return;
+      if (/(?:novel|webtoon)_thumb|og-default/i.test(abs) || ntkIsBanner(abs)) return;
       if (seen.has(abs)) return;
       seen.add(abs);
       out.push(abs);
@@ -3369,11 +3378,14 @@
     };
     const firstImage = (selectors) => {
       for (const selector of selectors) {
-        const el = document.querySelector(selector);
-        if (el && (el.currentSrc || el.src)) return el.currentSrc || el.src;
+        for (const el of document.querySelectorAll(selector)) {
+          const url = el.currentSrc || el.src;
+          if (url && !ntkIsBanner(url)) return url;
+        }
       }
       return '';
     };
+    const ogImage = metaContent('og:image') || '';
     const tags = [];
     for (const el of document.querySelectorAll('.hero-v2-tag, [class*="tag"] a, a[href*="tag"], a[href*="genre"]')) {
       const value = text(el).replace(/^#/, '').trim();
@@ -3382,7 +3394,9 @@
     let title = firstText(['.novel-detail h1', '.novel-title', '.nd-title', '[data-novel-title]'])
       || metaContent('og:title') || firstText(['main h1', 'h1']) || document.title || '';
     title = title.split(/\s+[-|]\s+/)[0].trim();
-    let cover = absolute(firstImage(['.nd-thumb img', '.novel-detail img', 'main img']) || metaContent('og:image') || '');
+    let cover = absolute(firstImage(['.nd-thumb img', '.novel-detail img'])
+      || (!ntkIsBanner(ogImage) && !/og-default/.test(ogImage) ? ogImage : '')
+      || firstImage(['main img']));
     if (cover) cover = cover.replace(/aws-cdn\d+\.site/i, 'aws-cdn1.site');
     return {
       ok: true,
@@ -3405,7 +3419,7 @@
     const map = new Map();
     for (const row of (rows || [])) {
       const episodeId = String(row.episodeId || '');
-      if (!/^\d+$/.test(episodeId) || map.has(episodeId)) continue;
+      if (!ntkEpisodeId.test(episodeId) || map.has(episodeId)) continue;
       map.set(episodeId, { url: row.url, episodeId, name: String(row.name || '').trim(), sourceNumber: ntkDisplayNumber(row) });
     }
     let chapters = Array.from(map.values());
@@ -3426,23 +3440,35 @@
   // The site now acknowledges its ads in a wasm module that signs the ack (ad_proof_required /
   // missing_canary without it), so the reader's own requests are the ones that work. As on the desktop
   // batch path, the chapter page is left to run its ad check and ask /api/novel-content itself; the
-  // reply is captured here and decrypted with the page's nv cookie.
+  // reply is captured here and decrypted with the page's nv cookie. A webtoon chapter's page list comes
+  // the same way, from /api/webtoon-images.
   const ntkCaptured = new Map();
+  const ntkCapturedPages = new Map();
   const ntkIds = (url) => {
-    try { return new URL(url, location.href).pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/(\d+)/); } catch (e) { return null; }
+    try { return new URL(url, location.href).pathname.match(/^\/(?:novel|webtoon)\/(\d+)\/([\w-]+)/); } catch (e) { return null; }
   };
-  const ntkRecordContent = (bodyText, status, data) => {
+  const ntkReplyKey = (bodyText) => {
     let body = null;
     try { body = JSON.parse(bodyText || 'null'); } catch (e) { body = null; }
+    const work = body && (body.novelId != null ? body.novelId : body.workId);
+    if (work != null && body.episodeId != null) return `${work}/${body.episodeId}`;
     const page = ntkIds(location.href);
-    const key = body && body.novelId != null && body.episodeId != null
-      ? `${body.novelId}/${body.episodeId}`
-      : (page ? `${page[1]}/${page[2]}` : '');
+    return page ? `${page[1]}/${page[2]}` : '';
+  };
+  const ntkRecordContent = (bodyText, status, data) => {
+    const key = ntkReplyKey(bodyText);
     if (!key) return;
     const previous = ntkCaptured.get(key);
     // A good reply is kept even if a later retry of the reader fails.
     if (previous && previous.data && previous.data.ok && previous.data.payload) return;
     ntkCaptured.set(key, { status, data });
+  };
+  const ntkRecordPages = (bodyText, status, data) => {
+    const key = ntkReplyKey(bodyText);
+    if (!key) return;
+    const previous = ntkCapturedPages.get(key);
+    if (previous && previous.data && previous.data.ok && Array.isArray(previous.data.images) && previous.data.images.length) return;
+    ntkCapturedPages.set(key, { status, data });
   };
   ntk.installContentHook = function () {
     if (typeof root.fetch !== 'function' || root.__npiaNtkFetchHooked) return;
@@ -3452,14 +3478,16 @@
       const reply = original.apply(this, arguments);
       try {
         const url = typeof input === 'string' ? input : ((input && input.url) || String(input));
-        if (new URL(url, location.href).pathname === '/api/novel-content') {
+        const path = new URL(url, location.href).pathname;
+        const record = path === '/api/novel-content' ? ntkRecordContent : (path === '/api/webtoon-images' ? ntkRecordPages : null);
+        if (record) {
           const bodyText = init && typeof init.body === 'string'
             ? Promise.resolve(init.body)
             : (input && typeof input.clone === 'function' ? input.clone().text().catch(() => '') : Promise.resolve(''));
           reply.then((response) => Promise.all([
             bodyText,
             response.clone().json().catch(() => null),
-          ]).then(([text, data]) => ntkRecordContent(text, response.status, data))).catch(() => {});
+          ]).then(([text, data]) => record(text, response.status, data))).catch(() => {});
         }
       } catch (e) { /* never break the site's own request */ }
       return reply;
@@ -3584,10 +3612,64 @@
     return { ok: true, chapterName: built.chapterName, contentText: built.contentText, contentHtml: built.contentHtml, images: [] };
   };
 
+  /** Waits for the reader's own page list for this chapter: `{status, data}`, or null if it never asked. */
+  const ntkWebtoonReply = async (chapterUrl, waitMs) => {
+    const ids = ntkIds(chapterUrl);
+    if (!ids) return null;
+    const key = `${ids[1]}/${ids[2]}`;
+    const deadline = Date.now() + waitMs;
+    let seen = null;
+    while (Date.now() < deadline) {
+      seen = ntkCapturedPages.get(key) || null;
+      if (seen && seen.data && seen.data.ok && Array.isArray(seen.data.images) && seen.data.images.length) return seen;
+      await sleep(250);
+    }
+    return seen;
+  };
+  /** A page list as `[{url, candidates}]` in reading order; `candidates` is every host serving the page. */
+  ntk.webtoonPages = function (data) {
+    const items = ((data && data.images) || []).filter((item) => item && typeof item === 'object');
+    items.sort((a, b) => (a.page || 0) - (b.page || 0));
+    const pages = [];
+    for (const item of items) {
+      const urls = [];
+      for (const raw of [item.src].concat(item.srcCandidates || [])) {
+        if (typeof raw !== 'string' || !raw) continue;
+        let abs;
+        try { abs = new URL(raw, location.href).href; } catch (e) { continue; }
+        if (/^https?:/i.test(abs) && !ntkIsBanner(abs) && !urls.includes(abs)) urls.push(abs);
+      }
+      if (urls.length) pages.push({ url: urls[0], candidates: urls });
+    }
+    return pages;
+  };
+  const ntkImageChapter = (title, pages, chapter) => {
+    const images = [];
+    const parts = [];
+    pages.forEach((page, index) => {
+      const name = ntkImageName(page.url, chapter, index + 1);
+      images.push({ url: page.url, name, candidates: page.candidates || [] });
+      parts.push(`<div class="ntk-webtoon-page"><img src="${escapeHtml(name)}" alt="page ${index + 1}"/></div>`);
+    });
+    return { ok: true, chapterName: title || 'Chapter', contentText: '', contentHtml: `<div class="ntk-content">${parts.join('\n')}</div>`, images };
+  };
+
   ntk.webtoon = async function (options) {
     const opts = options || {};
     const chapterUrl = opts.chapterUrl || location.href;
     const title = opts.name || '';
+    const chapter = Number.isFinite(opts.index) ? opts.index : 0;
+    const pageWait = Number.isFinite(opts.pageWaitMs) ? opts.pageWaitMs : 45000;
+    if (root.__npiaNtkFetchHooked && pageWait > 0) {
+      const reply = await ntkWebtoonReply(chapterUrl, pageWait);
+      const pages = reply && reply.data && reply.data.ok ? ntk.webtoonPages(reply.data) : [];
+      if (pages.length) return ntkImageChapter(title, pages, chapter);
+      const error = String((reply && reply.data && reply.data.error) || '');
+      if (reply && (reply.status === 429 || /too many|rate.?limit/i.test(error))) {
+        return { ok: false, stage: 'rate-limit', status: 429, error: error || 'too many requests' };
+      }
+    }
+    // Builds that still put the pages in the chapter HTML.
     let fetched;
     try { fetched = await ntkFetchHtml(chapterUrl); } catch (e) { return { ok: false, stage: 'exception', status: 0, error: String((e && e.message) || e) }; }
     if (!fetched || !fetched.ok) {
@@ -3595,14 +3677,7 @@
     }
     const urls = ntkImageUrls(fetched.text, chapterUrl);
     if (!urls.length) return { ok: false, error: 'no webtoon images were found' };
-    const images = [];
-    const parts = [];
-    urls.forEach((url, index) => {
-      const name = ntkImageName(url, index + 1);
-      images.push({ url, name });
-      parts.push(`<div class="ntk-webtoon-page"><img src="${escapeHtml(name)}" alt="page ${index + 1}"/></div>`);
-    });
-    return { ok: true, chapterName: title || 'Chapter', contentText: '', contentHtml: `<div class="ntk-content">${parts.join('\n')}</div>`, images };
+    return ntkImageChapter(title, urls.map((url) => ({ url })), chapter);
   };
 
 
