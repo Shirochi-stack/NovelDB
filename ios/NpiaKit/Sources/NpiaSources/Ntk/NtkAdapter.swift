@@ -11,6 +11,8 @@ struct NtkTiming: Sendable {
     /// Reloads of a chapter the site answered with "too many requests", each after a longer pause.
     var rateLimitRetries = 4
     var rateLimitPause: TimeInterval = 10
+    /// How long one mirror host gets to serve a webtoon page before the next is tried.
+    var mirrorTimeout: TimeInterval = 20
 }
 
 /// The site answered the reader's content request with "too many requests".
@@ -23,6 +25,26 @@ actor NtkCooldown {
     private var until = Date.distantPast
     func remaining() -> TimeInterval { until.timeIntervalSinceNow }
     func extend(by seconds: TimeInterval) { until = max(until, Date().addingTimeInterval(seconds)) }
+}
+
+/// Which mirror hosts failed during one download. One mirror can reset every connection while another
+/// serves the same file, so hosts that failed go last: a dead one costs a few short waits, not one per page.
+actor NtkMirrors {
+    private var failures: [String: Int] = [:]
+
+    func ordered(_ urls: [String]) -> [String] {
+        urls.enumerated()
+            .sorted { (failures[Self.host($0.element)] ?? 0, $0.offset) < (failures[Self.host($1.element)] ?? 0, $1.offset) }
+            .map(\.element)
+    }
+
+    func failed(_ url: String) {
+        failures[Self.host(url), default: 0] += 1
+    }
+
+    private static func host(_ url: String) -> String {
+        URL(string: url)?.host?.lowercased() ?? ""
+    }
 }
 
 /// A once-then-give-up gate for the Cloudflare sign-in prompt, shared across the pool.
@@ -39,7 +61,8 @@ actor NtkPromptGate {
 /// ntk: a free webtoon/novel aggregator on numbered mirror hosts, behind a Cloudflare / anti-bot gate.
 /// The native side opens the sign-in browser so the user clears the check once; after that this reads the
 /// book, the chapter list, and each chapter in the verified session. A novel chapter runs the site's own
-/// ad-acknowledgement handshake and v3 decrypt in-page; a webtoon chapter scrapes its image pages.
+/// ad-acknowledgement handshake and v3 decrypt in-page; a webtoon chapter takes its page list from the
+/// reader's own request and downloads each page from whichever mirror host serves it.
 /// Nothing is bought — the site has no VIP concept.
 ///
 /// Port of `_ntk_*` (browser path) in the desktop scraper. This side navigates, paces and builds results;
@@ -211,6 +234,7 @@ final class NtkRun: @unchecked Sendable {
     }
 
     private let cooldown = NtkCooldown()
+    private let mirrors = NtkMirrors()
 
     func chapter(_ ref: ChapterRef) async throws -> ChapterResult {
         var attempt = 0
@@ -257,7 +281,7 @@ final class NtkRun: @unchecked Sendable {
         if !sawReady { return .failed(ref, message: "the chapter page did not finish loading") }
 
         let entry = kind == "webtoon" ? "ntk.webtoon" : "ntk.chapter"
-        let args = HardScripts.json([["chapterUrl": url.absoluteString, "name": ref.title]])
+        let args = HardScripts.json([["chapterUrl": url.absoluteString, "name": ref.title, "index": ref.index] as [String: Any]])
         let result = NtkChapterResult(HardJSON(text: try await page.hardTask(entry, argsJSON: args)))
         if !result.ok {
             if result.blocked {
@@ -276,15 +300,21 @@ final class NtkRun: @unchecked Sendable {
     }
 
     private func buildResult(_ ref: ChapterRef, url: URL, _ result: NtkChapterResult) async -> ChapterResult {
-        let images: [ImageRef]
         if result.images.isEmpty {
-            images = []
-        } else if context.settings.images.saveImageURLsOnly {
-            images = result.images.compactMap { image in URL(string: image.url).map { ImageRef(url: $0, filename: image.name) } }
-        } else {
-            images = await downloadImages(result.images, referer: NtkSite.origin(url), workers: context.shared(for: .ntk).imageWorkers)
+            return .content(ChapterContent(ref: ref, html: result.contentHtml))
         }
-        return .content(ChapterContent(ref: ref, html: result.contentHtml, images: images))
+        if context.settings.images.saveImageURLsOnly {
+            let images = result.images.compactMap { image in URL(string: image.url).map { ImageRef(url: $0, filename: image.name) } }
+            return .content(ChapterContent(ref: ref, html: result.contentHtml, images: images))
+        }
+        let images = await downloadImages(result.images, referer: NtkSite.origin(url), workers: context.shared(for: .ntk).imageWorkers)
+        if images.isEmpty { return .failed(ref, message: "no mirror served any page of this chapter") }
+        let kept = Set(images.map(\.filename))
+        let missing = result.images.map(\.name).filter { !kept.contains($0) }
+        if !missing.isEmpty {
+            context.logger.log(.warning, "[ntk] Chapter \(ref.index): \(missing.count) page(s) could not be downloaded from any mirror and were left out")
+        }
+        return .content(ChapterContent(ref: ref, html: NtkSite.withoutPages(result.contentHtml, names: missing), images: images))
     }
 
     private func downloadImages(_ images: [NtkImage], referer: String, workers: Int) async -> [ImageRef] {
@@ -311,10 +341,37 @@ final class NtkRun: @unchecked Sendable {
 
     private func imageRef(_ image: NtkImage, referer: String) async -> ImageRef? {
         guard let url = URL(string: image.url) else { return nil }
-        return ImageRef(url: url, filename: image.name, data: await fetchImage(image.url, url: url, referer: referer))
+        if image.candidates.isEmpty {
+            return ImageRef(url: url, filename: image.name, data: await fetchImage(image.url, url: url, referer: referer))
+        }
+        guard let data = await fetchMirrored(image.candidates, referer: referer) else { return nil }
+        return ImageRef(url: url, filename: image.name, data: data)
     }
 
-    private func fetchImage(_ text: String, url: URL, referer: String) async -> Data? {
+    /// The bytes from the first host that serves the page, each host tried once; nil when none does.
+    private func fetchMirrored(_ urls: [String], referer: String) async -> Data? {
+        for text in await mirrors.ordered(urls) {
+            if Task.isCancelled { return nil }
+            guard let url = URL(string: text) else { continue }
+            let data = await withTaskGroup(of: Data?.self) { group -> Data? in
+                group.addTask {
+                    await self.fetchImage(text, url: url, referer: referer, timeout: self.timing.mirrorTimeout, quietStatuses: NtkSite.mirrorErrors)
+                }
+                group.addTask {
+                    try? await HTTPSourceSupport.sleep(seconds: self.timing.mirrorTimeout)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+            if let data, NtkSite.isImage(data) { return data }
+            await mirrors.failed(text)
+        }
+        return nil
+    }
+
+    private func fetchImage(_ text: String, url: URL, referer: String, timeout: TimeInterval = 0, quietStatuses: Set<Int> = []) async -> Data? {
         if text.lowercased().hasPrefix("data:") {
             guard let comma = text.range(of: "base64,") else { return nil }
             return Data(base64Encoded: String(text[comma.upperBound...]), options: .ignoreUnknownCharacters)
@@ -324,7 +381,7 @@ final class NtkRun: @unchecked Sendable {
                 "User-Agent": NtkSite.userAgent,
                 "Referer": referer,
                 "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-            ]))
+            ], timeout: timeout, quietStatuses: quietStatuses))
             return (200..<300).contains(response.status) && !response.body.isEmpty ? response.body : nil
         } catch {
             return nil

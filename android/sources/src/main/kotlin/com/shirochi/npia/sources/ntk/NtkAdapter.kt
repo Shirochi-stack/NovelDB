@@ -5,6 +5,7 @@ import com.shirochi.npia.core.ChapterContent
 import com.shirochi.npia.core.ChapterRef
 import com.shirochi.npia.core.ChapterResult
 import com.shirochi.npia.core.HttpFetching
+import com.shirochi.npia.core.HttpRequest
 import com.shirochi.npia.core.ImageRef
 import com.shirochi.npia.core.LogLevel
 import com.shirochi.npia.core.SourceAdapter
@@ -19,10 +20,12 @@ import com.shirochi.npia.core.WebPageDriving
 import com.shirochi.npia.core.WebPagePool
 import com.shirochi.npia.core.WebProfile
 import com.shirochi.npia.core.parseConcurrently
+import com.shirochi.npia.core.sniffImageExtension
 import com.shirochi.npia.sources.hard.HardScripts
 import com.shirochi.npia.sources.hard.hard
 import com.shirochi.npia.sources.hard.hardJson
 import com.shirochi.npia.sources.hard.hardTask
+import com.shirochi.npia.sources.http.HttpSourceSupport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -30,6 +33,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -47,16 +51,33 @@ internal data class NtkTiming(
     /** Reloads of a chapter the site answered with "too many requests", each after a longer pause. */
     val rateLimitRetries: Int = 4,
     val rateLimitPauseMillis: Long = 10_000,
+    /** How long one mirror host gets to serve a webtoon page before the next is tried. */
+    val mirrorTimeoutSeconds: Long = 20,
 )
 
 /** The site answered the reader's content request with "too many requests". */
 private class NtkRateLimited(message: String) : Exception(message)
 
 /**
+ * Which mirror hosts failed during one download. One mirror can reset every connection while another
+ * serves the same file, so hosts that failed go last: a dead one costs a few short waits, not one per page.
+ */
+internal class NtkMirrors {
+    private val failures = ConcurrentHashMap<String, Int>()
+
+    fun ordered(urls: List<String>): List<String> = urls.sortedBy { failures[HttpSourceSupport.host(it)] ?: 0 }
+
+    fun failed(url: String) {
+        failures.merge(HttpSourceSupport.host(url), 1, Int::plus)
+    }
+}
+
+/**
  * ntk: a free webtoon/novel aggregator on numbered mirror hosts, behind a Cloudflare / anti-bot gate.
  * The native side opens the sign-in browser so the user clears the check once; after that this reads the
  * book, the chapter list, and each chapter in the verified session. A novel chapter runs the site's own
- * ad-acknowledgement handshake and v3 decrypt in-page; a webtoon chapter scrapes its image pages.
+ * ad-acknowledgement handshake and v3 decrypt in-page; a webtoon chapter takes its page list from the
+ * reader's own request and downloads each page from whichever mirror host serves it.
  * Nothing is bought — the site has no VIP concept.
  *
  * Port of `_ntk_*` (browser path) in the desktop scraper. This side navigates, paces and builds results;
@@ -195,6 +216,8 @@ class NtkAdapter internal constructor(
         /** When the site last rate-limited a page, every page waits until then before its next chapter. */
         @Volatile private var coolUntil = 0L
 
+        private val mirrors = NtkMirrors()
+
         suspend fun chapter(ref: ChapterRef): ChapterResult {
             var attempt = 0
             while (true) {
@@ -236,7 +259,7 @@ class NtkAdapter internal constructor(
             }
             if (!sawReady) return ChapterResult.Failed(ref, "the chapter page did not finish loading")
 
-            val args = JsonArray(listOf(buildJsonObject { put("chapterUrl", url); put("name", ref.title) })).toString()
+            val args = JsonArray(listOf(buildJsonObject { put("chapterUrl", url); put("name", ref.title); put("index", ref.index) })).toString()
             val entry = if (kind == "webtoon") "ntk.webtoon" else "ntk.chapter"
             val result = hardJson.decodeFromString(NtkChapterResult.serializer(), page.hardTask(entry, args))
             if (!result.ok) {
@@ -251,12 +274,18 @@ class NtkAdapter internal constructor(
         }
 
         private suspend fun buildResult(ref: ChapterRef, url: String, result: NtkChapterResult, context: SourceContext): ChapterResult {
-            val images = when {
-                result.images.isEmpty() -> emptyList()
-                context.settings.images.saveImageUrlsOnly -> result.images.map { ImageRef(it.url, it.name) }
-                else -> downloadImages(result.images, NtkSite.origin(url), context.http, context.shared(SourceId.NTK).imageWorkers)
+            if (result.images.isEmpty()) return ChapterResult.Content(ChapterContent(ref, result.contentHtml))
+            if (context.settings.images.saveImageUrlsOnly) {
+                return ChapterResult.Content(ChapterContent(ref, result.contentHtml, result.images.map { ImageRef(it.url, it.name) }))
             }
-            return ChapterResult.Content(ChapterContent(ref, result.contentHtml, images))
+            val pages = downloadImages(result.images, NtkSite.origin(url), context.http, context.shared(SourceId.NTK).imageWorkers, mirrors)
+            val kept = pages.filterNotNull()
+            if (kept.isEmpty()) return ChapterResult.Failed(ref, "no mirror served any page of this chapter")
+            val missing = result.images.filterIndexed { index, _ -> pages[index] == null }.map { it.name }
+            if (missing.isNotEmpty()) {
+                log(context, LogLevel.WARNING, "Chapter ${ref.index}: ${missing.size} page(s) could not be downloaded from any mirror and were left out")
+            }
+            return ChapterResult.Content(ChapterContent(ref, NtkSite.withoutPages(result.contentHtml, missing), kept))
         }
     }
 
@@ -265,24 +294,53 @@ class NtkAdapter internal constructor(
         referer: String,
         http: HttpFetching,
         workers: Int,
-    ): List<ImageRef> = coroutineScope {
+        mirrors: NtkMirrors,
+    ): List<ImageRef?> = coroutineScope {
         val permits = Semaphore(workers.coerceIn(1, 8))
         images.map { image ->
             async {
-                permits.withPermit { ImageRef(image.url, image.name, fetchImage(image.url, referer, http)) }
+                permits.withPermit {
+                    if (image.candidates.isEmpty()) {
+                        ImageRef(image.url, image.name, fetchImage(image.url, referer, http))
+                    } else {
+                        fetchMirrored(image.candidates, referer, http, mirrors)?.let { ImageRef(image.url, image.name, it) }
+                    }
+                }
             }
         }.awaitAll()
     }
 
+    /** The bytes from the first host that serves the page, each host tried once; null when none does. */
+    private suspend fun fetchMirrored(urls: List<String>, referer: String, http: HttpFetching, mirrors: NtkMirrors): ByteArray? {
+        for (url in mirrors.ordered(urls)) {
+            val bytes = withTimeoutOrNull(timing.mirrorTimeoutSeconds * 1000) {
+                fetchImage(url, referer, http, timing.mirrorTimeoutSeconds, NtkSite.MIRROR_ERRORS)
+            }
+            if (bytes != null && sniffImageExtension(bytes) != "bin") return bytes
+            mirrors.failed(url)
+        }
+        return null
+    }
+
     /** The bytes, or null (the image stage tries again without a referer). */
-    private suspend fun fetchImage(url: String, referer: String, http: HttpFetching): ByteArray? {
+    private suspend fun fetchImage(
+        url: String,
+        referer: String,
+        http: HttpFetching,
+        timeoutSeconds: Long = 0,
+        quietStatuses: Set<Int> = emptySet(),
+    ): ByteArray? {
         if (url.startsWith("data:", ignoreCase = true)) {
             return runCatching { Base64.getMimeDecoder().decode(url.substringAfter("base64,")) }.getOrNull()
         }
         return try {
-            val response = http.get(
-                url,
-                mapOf("User-Agent" to NtkSite.USER_AGENT, "Referer" to referer, "Accept" to "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"),
+            val response = http.send(
+                HttpRequest(
+                    url,
+                    headers = mapOf("User-Agent" to NtkSite.USER_AGENT, "Referer" to referer, "Accept" to "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"),
+                    timeoutSeconds = timeoutSeconds,
+                    quietStatuses = quietStatuses,
+                ),
             )
             response.body.takeIf { response.status in 200..299 && it.isNotEmpty() }
         } catch (e: CancellationException) {

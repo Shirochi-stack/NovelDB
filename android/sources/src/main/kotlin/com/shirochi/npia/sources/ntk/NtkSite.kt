@@ -10,8 +10,12 @@ internal object NtkSite {
     const val VIEWPORT_WIDTH = 1280
     const val VIEWPORT_HEIGHT = 900
 
+    /** A mirror host that answers these (often 522 or 523) just loses its turn to the next one. */
+    val MIRROR_ERRORS: Set<Int> = (400..599).toSet()
+
     private val hostPattern = Regex("^(?:www\\.)?(?:ntk|newtoki|sbxh)\\d+\\.(?:com|org)$", RegexOption.IGNORE_CASE)
-    private val pathPattern = Regex("""^/(?:novel|webtoon)/\d+(?:/\d+)?/?$""")
+    /** Webtoon episodes from mirror sources have ids such as `goodtoon-745176` or `kp-5656-6755`. */
+    private val pathPattern = Regex("""^/(?:novel|webtoon)/\d+(?:/[A-Za-z0-9][\w-]*)?/?$""")
 
     fun ownsSite(host: String): Boolean = hostPattern.matches(host)
 
@@ -36,4 +40,10 @@ internal object NtkSite {
         val novelId = novelId(url)
         return if (novelId.isEmpty()) url else "${origin(url)}/${kind(url)}/$novelId"
     }
+
+    /** The chapter HTML without the given pages (no mirror served them). */
+    fun withoutPages(html: String, names: List<String>): String =
+        names.fold(html) { text, name ->
+            text.replace(Regex("""<div class="ntk-webtoon-page"><img src="${Regex.escape(name)}"[^>]*/></div>\n?"""), "")
+        }
 }
