@@ -97,7 +97,9 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
     if kind == "genericImage" and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
-    if kind in ("genericBook", "genericChapter", "genericLogin") and not str(data.get("url", "")).startswith(("http://", "https://")):
+    if kind == "genericLogin" and not str(data.get("url", "")).startswith(("http://", "https://")):
+        return None
+    if kind in ("genericBook", "genericChapter") and not str(data.get("url", "")).startswith(("http://", "https://", "file:")):
         return None
     if kind == "genericChapter" and not (isinstance(data.get("index"), int) and data["index"] >= 0):
         return None
@@ -293,6 +295,9 @@ class GenericCatalog(QObject):
             self._background(self._cover_put, str(data["key"]), data["dataUrl"])
         elif kind == "genericTop":
             self.top(int(data.get("id") or 0), data["kind"], str(data.get("language") or "all")[:5])
+        elif kind in ("genericBook", "genericChapter") and data["url"].startswith("file:") \
+                and not self._in_library(data["url"]):
+            self._fetched.emit(data["id"], {"error": "only books in the Library can be read"})
         elif kind == "genericBook":
             self._background(self._read, data["id"], self.reader.book, data["url"])
         elif kind == "genericChapter":
@@ -428,6 +433,28 @@ class GenericCatalog(QObject):
 
         return self.reader.chapter(url, index, on_images=images)
 
+    # The Library folder (books there open in the reader); set by the Catalog page.
+    library_folder: Optional[Callable[[], Path]] = None
+
+    def _in_library(self, url: str) -> bool:
+        """A file: address of an EPUB in the Library folder (the page may ask for nothing else)."""
+        from urllib.parse import unquote, urlsplit
+
+        if self.library_folder is None:
+            return False
+        raw = unquote(urlsplit(url).path)
+        path = Path(raw.lstrip("/") if __import__("os").name == "nt" else raw)
+        try:
+            folder = Path(self.library_folder()).resolve()
+            target = path.resolve()
+        except OSError:
+            return False
+        return target.suffix.lower() == ".epub" and folder in target.parents
+
+    def read_local(self, path: Path, title: str) -> None:
+        """Opens a Library EPUB in the page's reader."""
+        self._call("readLocal", {"url": Path(path).resolve().as_uri(), "title": title})
+
     def _note(self, text: str) -> None:
         """A progress note for the reader request this thread is answering, if any."""
         fetch_id = getattr(_reading, "id", None)
@@ -440,6 +467,9 @@ class GenericCatalog(QObject):
         _reading.id = fetch_id
         try:
             url = args[0]
+            if url.startswith("file:"):
+                self._fetched.emit(fetch_id, function(*args))  # a Library EPUB: no downloader
+                return
             if url in self._downloader_books:
                 self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
                 return

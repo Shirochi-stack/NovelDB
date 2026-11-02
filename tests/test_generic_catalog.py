@@ -178,3 +178,27 @@ def test_the_offline_cache_keeps_entries_within_its_limit(tmp_path):
     assert cache.get("covers", "cover2") is not None and cache.get("covers", "cover0") is None  # oldest went first
     limit[0] = 0
     assert cache.get("covers", "cover2") is None  # off
+
+
+def test_library_epubs_open_in_the_reader(tmp_path):
+    import zipfile
+
+    from noveldb.core.catalog.live_reader import LiveReader
+
+    book = tmp_path / "Book.epub"
+    with zipfile.ZipFile(book, "w") as epub:
+        epub.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/>'
+                                                '</rootfiles></container>')
+        epub.writestr("OEBPS/content.opf", '<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata>'
+                                           '<dc:title>Book</dc:title></metadata><manifest>'
+                                           '<item id="c1" href="Text/c1.xhtml" media-type="application/xhtml+xml"/>'
+                                           '<item id="i" href="Images/a.png" media-type="image/png"/></manifest>'
+                                           '<spine><itemref idref="c1"/></spine></package>')
+        epub.writestr("OEBPS/Text/c1.xhtml", '<html><head><title>One</title></head><body><p>Hello</p>'
+                                             '<img src="../Images/a.png"/></body></html>')
+        epub.writestr("OEBPS/Images/a.png", b"\x89PNG\r\n")
+    reader = LiveReader(fetch=lambda *_a, **_k: None)
+    contents = reader.book(book.as_uri())
+    assert contents["title"] == "Book" and contents["chapters"][0]["name"] == "c1"
+    chapter = reader.chapter(book.as_uri(), 0)
+    assert "<p>Hello</p>" in chapter["html"] and 'src="data:image/png;base64,' in chapter["html"]

@@ -1446,6 +1446,13 @@
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
         },
+        // A book from the Library (an EPUB on this computer), in the reader.
+        readLocal: function (book) {
+            var group = {key: 'local:' + book.url, title: book.title, author: '', cover: '', description: '', tags: [],
+                         comic: false, loaded: true, sources: [{url: book.url, site: 'Library', source: 'local'}]};
+            if ($('dialog').open) $('dialog').close();
+            openReader(group, 0);
+        },
         readerStatus: function (id, text) {
             if (id !== R.requestId || !R.drawNote) return;
             R.noteDetail = text;

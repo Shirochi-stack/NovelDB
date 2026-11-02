@@ -191,7 +191,7 @@ def _date(value: str) -> str:
         year, month, day = (int(part) for part in match.groups())
         if 1990 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31:
             return f"{year:04d}-{month:02d}-{day:02d}"
-    return value[:40] if re.search(r"\d", value) or re.search(r"ago", value, re.I) else ""
+    return value[:40] if re.search(r"\d", value) or re.search(r"\bago\b", value, re.I) else ""
 
 
 def _count(value: str) -> str:

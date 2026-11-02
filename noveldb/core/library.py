@@ -147,8 +147,101 @@ def scan(folder: Path) -> List[LibraryBook]:
             meta = _epub_meta(path, size, modified)
             book.title = meta.get("title") or book.title
             book.author = meta.get("author") or book.author
-            book.cover = meta.get("cover") or book.cover
     return sorted(books.values(), key=lambda b: b.modified, reverse=True)
+
+
+def cover(book: LibraryBook) -> Optional[bytes]:
+    """The book's EPUB cover image (read when it is shown, not when the folder is scanned)."""
+    epub = next((f for f in book.files if f.format == "EPUB"), None)
+    if epub is None:
+        return None
+    return _epub_meta(epub.path, epub.size, epub.modified).get("cover")
+
+
+# -- reading an EPUB in the app's reader ---------------------------------------------------------------
+
+def _resolve(base: str, href: str) -> str:
+    return posixpath.normpath(posixpath.join(base, href.split("#")[0]))
+
+
+def epub_contents(path: Path) -> dict:
+    """{title, author, chapters: [{name, href}]}: the spine in reading order, named from the table of
+    contents (nav or NCX) where it names them."""
+    with zipfile.ZipFile(path) as archive:
+        container = ElementTree.fromstring(archive.read("META-INF/container.xml"))
+        rootfile = next(e.get("full-path") for e in container.iter() if e.tag.endswith("rootfile"))
+        opf = ElementTree.fromstring(archive.read(rootfile))
+        base = posixpath.dirname(rootfile)
+        items = {e.get("id"): e for e in opf.iter() if e.tag.endswith("item")}
+        spine = [items[e.get("idref")] for e in opf.iter() if e.tag.endswith("itemref") and e.get("idref") in items]
+        names: Dict[str, str] = {}
+        nav = next((e for e in items.values() if "nav" in (e.get("properties") or "")), None)
+        ncx = next((e for e in items.values() if (e.get("media-type") or "") == "application/x-dtbncx+xml"), None)
+        try:
+            if nav is not None:
+                href = _resolve(base, nav.get("href"))
+                tree = ElementTree.fromstring(archive.read(href))
+                for anchor in tree.iter():
+                    if anchor.tag.endswith("}a") or anchor.tag == "a":
+                        target = anchor.get("href")
+                        text = "".join(anchor.itertext()).strip()
+                        if target and text:
+                            names.setdefault(_resolve(posixpath.dirname(href), target), text)
+            elif ncx is not None:
+                href = _resolve(base, ncx.get("href"))
+                tree = ElementTree.fromstring(archive.read(href))
+                for point in tree.iter():
+                    if point.tag.endswith("navPoint"):
+                        label = next(("".join(e.itertext()).strip() for e in point.iter() if e.tag.endswith("text")), "")
+                        content = next((e.get("src") for e in point.iter() if e.tag.endswith("content")), None)
+                        if label and content:
+                            names.setdefault(_resolve(posixpath.dirname(href), content), label)
+        except Exception:
+            pass
+        meta = {}
+        for element in opf.iter():
+            tag = element.tag.rsplit("}", 1)[-1]
+            if tag in ("title", "creator") and tag not in meta and (element.text or "").strip():
+                meta[tag] = element.text.strip()
+    chapters = []
+    for item in spine:
+        href = _resolve(base, item.get("href") or "")
+        if not (item.get("media-type") or "").endswith(("xhtml+xml", "html")):
+            continue
+        name = names.get(href) or posixpath.splitext(posixpath.basename(href))[0]
+        if re.fullmatch(r"(cover|titlepage|title|nav|toc)", name, re.I) and len(spine) > 2:
+            continue
+        chapters.append({"name": name, "href": href})
+    return {"title": meta.get("title", path.stem), "author": meta.get("creator", ""), "chapters": chapters}
+
+
+def epub_chapter(path: Path, href: str) -> dict:
+    """A chapter's body as HTML, its images inlined (data: addresses), for the reader."""
+    import base64
+    import mimetypes
+
+    with zipfile.ZipFile(path) as archive:
+        text = archive.read(href).decode("utf-8", "replace")
+        body = re.search(r"<body[^>]*>(.*)</body>", text, re.S | re.I)
+        html = body.group(1) if body else text
+        folder = posixpath.dirname(href)
+
+        def inline(match):
+            source = match.group(2)
+            if source.startswith(("data:", "http:", "https:")):
+                return match.group(0)
+            name = _resolve(folder, source)
+            try:
+                data = archive.read(name)
+            except KeyError:
+                return match.group(0)
+            kind = mimetypes.guess_type(name)[0] or "image/jpeg"
+            return f'{match.group(1)}"data:{kind};base64,{base64.b64encode(data).decode("ascii")}"'
+
+        html = re.sub(r'(<img\b[^>]*?\bsrc=)"([^"]+)"', inline, html, flags=re.I)
+        html = re.sub(r'(<image\b[^>]*?\bhref=)"([^"]+)"', inline, html, flags=re.I)
+    title = re.search(r"<title>(.*?)</title>", text, re.S | re.I)
+    return {"name": (title.group(1).strip() if title else ""), "html": html}
 
 
 def _title_from_name(name: str) -> str:

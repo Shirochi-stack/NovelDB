@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         self.download.openCart.connect(self.show_cart)
         self.catalog.openCart.connect(self.show_cart)
         self.catalog.downloadCart.connect(self.download_cart)
+        self.library.readRequested.connect(self._read_in_app)
         if hasattr(self.catalog, "downloadLinks"):
             self.catalog.downloadLinks.connect(self.download.queue_lines)
             self.catalog.loginRequested.connect(self.tools.enter_browser)
@@ -195,6 +196,16 @@ class MainWindow(QMainWindow):
 
     def show_page(self, index: int) -> None:
         self.sidebar.setCurrentRow(index)
+
+    def _read_in_app(self, path: str, title: str) -> None:
+        """A Library book in the Catalog's reader (builds without the web view open it with the system app)."""
+        if hasattr(self.catalog, "read_local"):
+            self.show_page(PAGES.index("Catalog"))
+            self.catalog.read_local(path, title)
+        else:
+            from noveldb.core import platform_services
+
+            platform_services.open_path(path)
 
     def show_cart(self) -> None:
         dialog = CartDialog(self.context, self)

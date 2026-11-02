@@ -56,8 +56,28 @@ class LiveReader:
             pass
         return names + ["generic"]
 
+    @staticmethod
+    def _local(url: str):
+        """A Library EPUB (a file: address), or None."""
+        if not url.startswith("file:"):
+            return None
+        from urllib.parse import unquote, urlsplit
+        from pathlib import Path
+
+        path = Path(unquote(urlsplit(url).path).lstrip("/") if __import__("os").name == "nt" else unquote(urlsplit(url).path))
+        return path if path.suffix.lower() == ".epub" and path.is_file() else None
+
     def book(self, url: str) -> dict:
         """{title, author, engine, chapters: [{name, section}]}; raises when no engine can read it."""
+        local = self._local(url)
+        if local is not None:
+            from noveldb.core import library
+
+            contents = library.epub_contents(local)
+            with self._lock:
+                self._books[url] = ("epub", contents)
+            return {"title": contents["title"], "author": contents["author"], "engine": "EPUB",
+                    "chapters": [{"name": c["name"], "section": ""} for c in contents["chapters"]]}
         errors = []
         for name in self._candidates(url):
             try:
@@ -94,6 +114,10 @@ class LiveReader:
                 known = self._books.get(url)
         name, data = known
         chapters = data["chapters"]
+        if name == "epub":
+            from noveldb.core import library
+
+            return library.epub_chapter(self._local(url), chapters[index]["href"])
         if not 0 <= index < len(chapters):
             raise IndexError("no such chapter")
         info = chapters[index]

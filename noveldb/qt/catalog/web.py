@@ -363,6 +363,10 @@ class CatalogPage(QWidget):
             cache_mb=lambda: self.context.settings.catalog.offline_cache_mb)
         if self.context.browser is not None:
             self.generic.downloader = self.context.browser.submit
+        from noveldb.qt.pages.library import library_folder
+
+        self.generic.library_folder = lambda: library_folder(self.context)
+        self._pending_local = None
         self.view = CatalogView(self)
         self.view.setPage(self.page)
         self.view.addToCart.connect(lambda url, title: self._add_to_cart(url, title, announce=True))
@@ -421,6 +425,17 @@ class CatalogPage(QWidget):
             return
         self.page.home_host = (urlsplit(site).hostname or "").lower()
         self.view.load(QUrl(site))
+
+    def read_local(self, path, title: str) -> None:
+        """A Library book in the reader: the Generic search page's, loaded first if another site is shown."""
+        if self.view is None:
+            return
+        if self._on_generic_page():
+            self.generic.read_local(path, title)
+            return
+        self._pending_local = (path, title)
+        self.page.home_host = ""
+        self.view.load(QUrl.fromLocalFile(str(generic_page.PAGE)))
 
     def _on_generic_page(self) -> bool:
         return self.view is not None and generic_page.is_generic_page(self.view.url())
@@ -530,6 +545,10 @@ class CatalogPage(QWidget):
         if kind.startswith("generic"):
             if kind == "genericReady":
                 self._push_state()
+                if self._pending_local is not None:
+                    path, title = self._pending_local
+                    self._pending_local = None
+                    QTimer.singleShot(300, lambda: self.generic.read_local(path, title))
             if kind == "genericLogin":
                 if self._on_generic_page():
                     self.loginRequested.emit(data["url"])
