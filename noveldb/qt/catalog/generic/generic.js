@@ -21,7 +21,7 @@
     var cart = new Set(), pending = {}, nextId = 0, searchId = 0, running = 0;
     var view = 'top', current = {text: '', tags: []}, picked = [], resultTags = new Map();
     // TOP_KEY's version: a new one drops the top lists saved by older code.
-    var TOP_KEY = 'noveldb.generic.top.v3', TOP_HOURS = 12, TOP_SIZE = 100;
+    var TOP_KEY = 'noveldb.generic.top.v4', TOP_HOURS = 12, TOP_SIZE = 100;
     var TAGS = ['Action', 'Adventure', 'Apocalypse', 'BL', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
@@ -369,16 +369,18 @@
     var IMG_KEY = 'noveldb.generic.images';
     var imaging = Object.assign({low: true, quality: 72, resolution: 72}, store(IMG_KEY) || {});
     // A cover's offline-cache key: its address and the compression settings its small copy was made with.
-    function coverKey(url) { return [url, imaging.quality, imaging.resolution, Math.round(window.devicePixelRatio || 1)].join('|'); }
+    // "v2": covers made by the older, harsher shrinking are not reused.
+    function coverKey(url) { return ['v2', url, imaging.quality, imaging.resolution, Math.round(window.devicePixelRatio || 1)].join('|'); }
     function shrink(group, image) {
         if (!imaging.low || image.dataset.small || !image.naturalWidth) return;
         var original = group.cover;
-        // The size the cover is shown at (in device pixels) is the floor: a thumbnail already that small
-        // is kept as it is (re-encoding it would only blur it); a bigger one shrinks by the resolution
-        // setting, never below that size.
-        var shown = Math.max(1, (image.clientWidth || 180) * (window.devicePixelRatio || 1));
-        if (image.naturalWidth <= shown * 1.25) { image.dataset.small = '1'; return; }
-        var scale = Math.min(1, Math.max(shown / image.naturalWidth, imaging.resolution / 100));
+        // Only a cover much bigger than the card is made smaller: one up to twice the size it is shown at
+        // (in device pixels) is kept exactly as the site sent it, since re-encoding a small thumbnail only
+        // blurs it. A bigger one shrinks by the resolution setting, never below 1.5 times the shown size.
+        var card = image.closest('.cover');
+        var shown = Math.max(1, ((card && card.clientWidth) || image.clientWidth || 180) * (window.devicePixelRatio || 1));
+        if (image.naturalWidth <= shown * 2) { image.dataset.small = '1'; return; }
+        var scale = Math.min(1, Math.max(shown * 1.5 / image.naturalWidth, imaging.resolution / 100));
         var canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
         canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -714,7 +716,9 @@
     function topSave() {
         var items = order.map(function (group) {
             var first = group.sources[0];
-            return Object.assign({}, strip(group, first), {plugin: first.plugin, path: first.path, ms: first.ms,
+            // The site's own cover address, not the small copy made here (that one follows the settings).
+            var original = (group.covers && group.covers[0]) || (/^data:/.test(group.cover) ? '' : group.cover);
+            return Object.assign({}, strip(group, first), {cover: original, plugin: first.plugin, path: first.path, ms: first.ms,
                 more: group.sources.slice(1).map(function (s) {
                     return {url: s.url, title: group.title, site: s.site, source: s.source, plugin: s.plugin, path: s.path, comic: group.comic, ms: s.ms};
                 })});
