@@ -238,6 +238,7 @@ class CatalogSettings:
     url: str = DEFAULT_CATALOG_URL
     cart_links: bool = True
     zoom: float = 1.0  # desktop: the Catalog page's zoom (0.25-3.0, in browser steps)
+    offline_cache_mb: int = 300  # Generic search's offline cache of book details and covers (0: off)
     fill_width: bool = True  # desktop: widen sites that keep their page in a narrow column
 
 

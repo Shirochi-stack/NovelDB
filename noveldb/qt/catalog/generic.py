@@ -23,6 +23,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from noveldb.core import paths
 from noveldb.core.catalog.generic_search import GenericSearch, default_fetch, load_learned, save_learned, top_sites
 from noveldb.core.catalog.live_reader import LiveReader
+from noveldb.core.catalog.offline_cache import OfflineCache
 from noveldb.core.catalog.site_search import SiteSearch
 
 log = logging.getLogger(__name__)
@@ -30,12 +31,18 @@ PAGE_DIR = Path(__file__).with_name("generic")
 PAGE = PAGE_DIR / "index.html"
 SCRIPT = PAGE_DIR / "generic.js"
 MESSAGE_TYPES = ("genericReady", "genericSearch", "genericStop", "genericFetch", "genericImage", "genericDetails",
-                 "genericDownload", "genericBook", "genericChapter", "genericTop")
+                 "genericDownload", "genericBook", "genericChapter", "genericTop", "genericLogin",
+                 "genericCover", "genericCoverPut")
 MAX_QUERIES = 6
 # A country's domain and its language (the page's preferred-language setting; others count as English).
 TLD_LANG = {"jp": "ja", "kr": "ko", "cn": "zh", "tw": "zh", "hk": "zh", "ru": "ru", "es": "es", "mx": "es", "br": "pt",
             "pt": "pt", "fr": "fr", "id": "id", "th": "th", "tr": "tr", "de": "de", "vn": "vi"}
-COMIC_SITE = __import__("re").compile(r"(manga|manhwa|manhua|toon|comic|piccoma|mechacomic|booklive|toomics)", 2)
+COMIC_SITE = __import__("re").compile(r"(manga|manhwa|manhua|toon|comic|piccoma|mechacomic|booklive|toomics|scans?\b)", 2)
+MANGA_SITE = __import__("re").compile(r"(manga(?!.*hwa)|fanfox|comick|jumpplus|shonenjump|mechacomic|piccoma|booklive|komiku|raw)", 2)
+MANHWA_SITE = __import__("re").compile(r"(toon|manhwa|scans?\b|asura|reaper|flame|demonic|kingofshojo|mgeko|toomics)", 2)
+BLOCKED = ("This page is blocked: the site may need you to sign in, or to buy the book. Sign in with Enter "
+           "Browser (your login is saved), then try again.")
+_reading = threading.local()  # the reader request a worker thread is answering (for its progress notes)
 _CHALLENGE = ("just a moment", "attention required", "security check", "verify you are human")
 
 
@@ -49,6 +56,13 @@ def download_icon() -> str:
         return ""
     found = re.search(r"DOWNLOAD_ICON = '(data:image/[^']+)'", text)
     return found.group(1) if found else ""
+
+
+def _short(url: str) -> str:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    return (parts.hostname or "").removeprefix("www.") + (parts.path[:40] if len(parts.path) > 1 else "")
 
 
 def is_generic_page(url: QUrl) -> bool:
@@ -83,9 +97,13 @@ def parse_message(data: dict) -> Optional[dict]:
             return None
     if kind == "genericImage" and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
-    if kind in ("genericBook", "genericChapter") and not str(data.get("url", "")).startswith(("http://", "https://")):
+    if kind in ("genericBook", "genericChapter", "genericLogin") and not str(data.get("url", "")).startswith(("http://", "https://")):
         return None
     if kind == "genericChapter" and not (isinstance(data.get("index"), int) and data["index"] >= 0):
+        return None
+    if kind in ("genericCover", "genericCoverPut") and not (str(data.get("key", "")) and len(str(data["key"])) < 3000):
+        return None
+    if kind == "genericCoverPut" and not str(data.get("dataUrl", "")).startswith("data:image/"):
         return None
     if kind == "genericTop" and data.get("kind") not in ("manga", "manhwa", "comic", "lightnovel", "webnovel"):
         return None
@@ -124,10 +142,11 @@ class BrowserFetcher(QObject):
         self._active = 0
         self._request.connect(self._enqueue)
 
-    def fetch(self, url: str, timeout: float = 45.0) -> Optional[dict]:
+    def fetch(self, url: str, timeout: float = 45.0, scroll: bool = False) -> Optional[dict]:
         if threading.current_thread() is threading.main_thread():
             return None
-        job = {"url": url, "event": threading.Event(), "result": None, "deadline": time.monotonic() + timeout - 5}
+        job = {"url": url, "event": threading.Event(), "result": None, "deadline": time.monotonic() + timeout - 5,
+               "scroll": scroll}
         self._request.emit(job)
         job["event"].wait(timeout)
         return job["result"]
@@ -159,7 +178,28 @@ class BrowserFetcher(QObject):
         if any(word in title for word in _CHALLENGE) and time.monotonic() < job["deadline"]:
             QTimer.singleShot(1000, lambda: self._check(job))  # the site's check page reloads itself when done
             return
+        if job.get("scroll"):
+            from noveldb.core.engines.generic import SCROLL_TO_END
+
+            job["scroll"] = False
+            page.runJavaScript(SCROLL_TO_END)
+            QTimer.singleShot(700, lambda: self._scrolled(job))
+            return
         page.toHtml(lambda html, job=job: self._finish(job, html))
+
+    def _scrolled(self, job) -> None:
+        """Waits for the scroll script to reach the end (or the job's time to run out), then takes the page."""
+        page = job.get("page")
+        if page is None:
+            return
+
+        def done(value):
+            if value or time.monotonic() > job["deadline"] - 3:
+                page.toHtml(lambda html, job=job: self._finish(job, html))
+            else:
+                QTimer.singleShot(700, lambda: self._scrolled(job))
+
+        page.runJavaScript("!!window.__noveldbScrolled", done)
 
     def _finish(self, job, html: str) -> None:
         page = job.pop("page", None)
@@ -182,9 +222,15 @@ class GenericCatalog(QObject):
     _detailed = Signal(dict)
     _fetched = Signal(int, object)
     _progress = Signal(int, dict)
+    _reader_status = Signal(int, str)
+    _reader_images = Signal(int, dict)
 
-    def __init__(self, run_js: Callable[[str], None], profile, known_site: Callable[[str], bool], parent: QObject):
+    DETAILS_DAYS = 3
+
+    def __init__(self, run_js: Callable[[str], None], profile, known_site: Callable[[str], bool], parent: QObject,
+                 cache_mb: Callable[[], int] = lambda: 300):
         super().__init__(parent)
+        self.cache = OfflineCache(cache_mb)
         self.run_js = run_js
         self.browser = BrowserFetcher(profile, self)
         self.known_site = known_site
@@ -201,14 +247,22 @@ class GenericCatalog(QObject):
         self._detailed.connect(lambda card: self._call("details", card))
         self._fetched.connect(lambda fid, result: self._call("fetched", fid, result))
         self._progress.connect(lambda sid, item: self._call("progress", sid, item))
+        self._reader_status.connect(lambda fid, text: self._call("readerStatus", fid, text))
+        self._reader_images.connect(lambda fid, found: self._call("readerImages", fid, found))
+        # The downloader's own browser worker (`context.browser.submit`), for books the quick engines
+        # can't read: it has the saved sessions of Enter Browser. Set by the Catalog page.
+        self.downloader: Optional[Callable] = None
+        self._downloader_books: dict = {}
 
     # -- requests ----------------------------------------------------------------------------------
 
     def fetch(self, url: str, method: str = "GET", data=None, headers=None, binary: bool = False,
               referer: str = "", quick: bool = False) -> Optional[dict]:
         """Plain HTTP; a page that refuses it is read in a hidden Catalog tab instead (not for `quick` guesses)."""
+        self._note(f"Fetching {_short(url)}…")
         result = default_fetch(url, method=method, data=data, headers=headers, binary=binary, referer=referer, quick=quick)
         if method == "GET" and not binary and not quick and _refused(result):
+            self._note(f"{_short(url)} refused a plain request; loading it in a browser tab…")
             rendered = self.browser.fetch(url)
             if rendered is not None:
                 return rendered
@@ -233,12 +287,16 @@ class GenericCatalog(QObject):
             self._background(self._image, data["id"], data["url"], str(data.get("referer") or ""))
         elif kind == "genericDetails":
             self._background(self._details, data["card"])
+        elif kind == "genericCover":
+            self._background(self._cover, data["id"], str(data["key"]))
+        elif kind == "genericCoverPut":
+            self._background(self._cover_put, str(data["key"]), data["dataUrl"])
         elif kind == "genericTop":
             self.top(int(data.get("id") or 0), data["kind"], str(data.get("language") or "all")[:5])
         elif kind == "genericBook":
             self._background(self._read, data["id"], self.reader.book, data["url"])
         elif kind == "genericChapter":
-            self._background(self._read, data["id"], self.reader.chapter, data["url"], data["index"])
+            self._background(self._read, data["id"], self._chapter, data["url"], data["index"])
         return True
 
     def init_page(self) -> None:
@@ -297,6 +355,12 @@ class GenericCatalog(QObject):
         comic = kind in ("manga", "manhwa", "comic")
         sites = [site for site in top_sites() if bool(site.get("comic")) == comic and not site.get("lnreader")
                  or comic and COMIC_SITE.search(site["site"])]
+        if comic:
+            # Each kind from the sites that publish it: manga sites, manhwa (webtoon and scanlation) sites,
+            # and the other comic sites for comics.
+            manga = [s for s in sites if MANGA_SITE.search(s["site"])]
+            manhwa = [s for s in sites if MANHWA_SITE.search(s["site"]) and s not in manga]
+            sites = {"manga": manga, "manhwa": manhwa}.get(kind) or [s for s in sites if s not in manga and s not in manhwa] or sites
         if language != "all":
             def fits(site: dict) -> bool:
                 country = TLD_LANG.get(site["site"].rsplit(".", 1)[-1])
@@ -342,18 +406,86 @@ class GenericCatalog(QObject):
             "responseBase64": base64.b64encode(result.get("content") or b"").decode("ascii"),
         })
 
-    def _render(self, url: str, *_args, **_kwargs) -> str:
-        """A page's HTML after its scripts ran (the engines' `render`), from a hidden Catalog tab."""
-        result = self.browser.fetch(url)
+    def _render(self, url: str, *_args, scroll: bool = False, **_kwargs) -> str:
+        """A page's HTML after its scripts ran (the engines' `render`), from a hidden Catalog tab;
+        `scroll`: scrolled to its end first (lists that load as you scroll)."""
+        if scroll:
+            self._note("Scrolling the chapter list to its end in a browser tab…")
+        result = self.browser.fetch(url, timeout=75.0 if scroll else 45.0, scroll=scroll)
         return (result or {}).get("text") or ""
 
+    def _chapter(self, url: str, index: int) -> dict:
+        """A chapter for the reader; a manga chapter's images go to the page as they are found."""
+        fetch_id = getattr(_reading, "id", None)
+        last = [0.0]
+
+        def images(found, total):
+            import time as clock
+
+            if fetch_id is not None and (clock.monotonic() - last[0] > 0.4 or len(found) >= total):
+                last[0] = clock.monotonic()
+                self._reader_images.emit(fetch_id, {"images": list(found), "total": total})
+
+        return self.reader.chapter(url, index, on_images=images)
+
+    def _note(self, text: str) -> None:
+        """A progress note for the reader request this thread is answering, if any."""
+        fetch_id = getattr(_reading, "id", None)
+        if fetch_id is not None:
+            self._reader_status.emit(fetch_id, text)
+
     def _read(self, fetch_id: int, function, *args) -> None:
-        """The reader's book or chapter, or {error} for the page to show."""
+        """The reader's book or chapter: the quick engines, then the downloader with its saved sessions;
+        else {error, blocked} for the page to show (with Enter Browser)."""
+        _reading.id = fetch_id
         try:
-            self._fetched.emit(fetch_id, function(*args))
-        except Exception as e:
-            log.info("generic reader: %s", e)
-            self._fetched.emit(fetch_id, {"error": str(e)[:300] or type(e).__name__})
+            url = args[0]
+            if url in self._downloader_books:
+                self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
+                return
+            try:
+                self._fetched.emit(fetch_id, function(*args))
+                return
+            except Exception as e:
+                quick_error = str(e)[:300] or type(e).__name__
+            if self.downloader is None:
+                self._fetched.emit(fetch_id, {"error": quick_error, "blocked": True, "message": BLOCKED})
+                return
+            try:
+                self._fetched.emit(fetch_id, self._downloader_read(url, *args[1:]))
+            except Exception as e:
+                log.info("generic reader (downloader): %s", e)
+                self._fetched.emit(fetch_id, {"error": f"{quick_error}; the downloader: {str(e)[:200]}",
+                                              "blocked": True, "message": BLOCKED})
+        finally:
+            _reading.id = None
+
+    def _downloader_read(self, url: str, index: Optional[int] = None) -> dict:
+        """The book (index None) or one chapter through the downloader's engine chain and saved sessions."""
+        if index is None:
+            self._note("The quick engines couldn't read it; trying the downloader with your saved logins…")
+            data = self.downloader(lambda scraper: scraper.parse_book(url)).result(timeout=240)
+            if not data or not data.get("chapters"):
+                raise RuntimeError("no chapters (the site may need a login)")
+            self._downloader_books[url] = data
+            return {"title": data.get("bookname") or "", "author": data.get("author") or "",
+                    "engine": "downloader (saved logins)",
+                    "chapters": [{"name": c.get("name") or f"Chapter {i + 1}", "section": c.get("sectionName") or ""}
+                                 for i, c in enumerate(data["chapters"])]}
+        data = self._downloader_books[url]
+        chapter = data["chapters"][index]
+        self._note(f"Scraping {chapter.get('name') or 'the chapter'} with the downloader…")
+
+        def read(scraper):
+            if getattr(scraper, "_book_url", None) != url:
+                scraper.parse_book(url)  # the worker may have read another book since
+            return scraper.parse_chapter(index, chapter, interval=0)
+
+        result = self.downloader(read).result(timeout=240)
+        if not result:
+            raise RuntimeError("the chapter could not be read (it may need a login or a purchase)")
+        return {"name": result.get("chapterName") or chapter.get("name") or "", "html": result.get("contentHtml") or "",
+                "text": result.get("contentText") or ""}
 
     def _image(self, fetch_id: int, url: str, referer: str) -> None:
         result = default_fetch(url, binary=True, referer=referer, headers={"Accept": "image/*"})
@@ -365,14 +497,32 @@ class GenericCatalog(QObject):
             if line.lower().startswith("content-type:") and "image/" in line:
                 kind = line.split(":", 1)[1].split(";")[0].strip()
         data = base64.b64encode(result["content"]).decode("ascii")
-        self._fetched.emit(fetch_id, {"dataUrl": f"data:{kind};base64,{data}"})
+        self._fetched.emit(fetch_id, {"dataUrl": f"data:{kind};base64,{data}", "bytes": len(result["content"])})
 
     def _details(self, card: dict) -> None:
+        """A book's details: from the offline cache when read in the last few days, else its page."""
+        cached = self.cache.get_json("details", card["url"], max_age=self.DETAILS_DAYS * 86400)
+        if cached:
+            self._detailed.emit(dict(card, **cached, complete=True))
+            return
         engine = GenericSearch(fetch=self.fetch, site_search=self.site_search)
         try:
-            self._detailed.emit(engine.details(card))
+            found = engine.details(card)
         except Exception:
             self._detailed.emit(dict(card, complete=True))
+            return
+        keep = {k: v for k, v in found.items() if k not in ("url", "site", "source", "via", "complete", "ms") and v}
+        if keep:
+            self.cache.put_json("details", card["url"], keep)
+        self._detailed.emit(found)
+
+    def _cover(self, fetch_id: int, key: str) -> None:
+        """A cover the page made before (its address and compression settings are the key), or None."""
+        data = self.cache.get("covers", key)
+        self._fetched.emit(fetch_id, {"dataUrl": data.decode("ascii")} if data else None)
+
+    def _cover_put(self, key: str, data_url: str) -> None:
+        self.cache.put("covers", key, data_url.encode("ascii"))
 
     def _call(self, name: str, *args) -> None:
         payload = ", ".join(json.dumps(arg, ensure_ascii=False) for arg in args)

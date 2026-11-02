@@ -285,8 +285,24 @@ class GenericSearch:
         return merged
 
     def _lncrawl_entries(self) -> List[dict]:
-        return [dict(entry, _site=site) for site in self.sites for entry in site.get("lncrawl", [])
-                if site.get("search") == "lncrawl"]
+        """Every lightnovel-crawler source that searches (the top sites' and all the others)."""
+        try:
+            from noveldb.core.engines.lncrawl_engine import searchable_sites
+
+            entries = searchable_sites()
+        except Exception:
+            entries = []
+        out, seen = [], set()
+        for entry in entries:
+            host = _host(entry["base_urls"][0] if entry.get("base_urls") else "")
+            if host and host not in seen and not (self.skip_lnreader and self._lnreader_host(host)):
+                seen.add(host)
+                out.append(dict(entry, _site=self.site_for("https://" + host + "/") or {"site": site_of(host), "host": host}))
+        return out[:120]
+
+    def _lnreader_host(self, host: str) -> bool:
+        site = self.site_for("https://" + host + "/")
+        return bool(site and site.get("lnreader"))
 
     def run(self, text: str, mode: str, emit: Callable[[List[dict]], None], stop: threading.Event,
             done: Callable[[dict], None] = lambda _summary: None, deadline: float = 45.0,

@@ -350,6 +350,7 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
 
     catalog = replace(
         base.catalog,
+        offline_cache_mb=int(_clamp(_int(c.get("catalog_offline_cache_mb")), 0, 5000, base.catalog.offline_cache_mb)),
         url=_valid_url(c.get("catalog_url")) or base.catalog.url,
         cart_links=_first_bool(c, "catalog_cart_links", base.catalog.cart_links),
         zoom=_clamp(_float(c.get("catalog_zoom")), 0.25, 3.0, base.catalog.zoom),
@@ -576,6 +577,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
         c["window_geometry"] = s.ui.window_geometry
 
     c["catalog_url"] = s.catalog.url or DEFAULT_CATALOG_URL
+    c["catalog_offline_cache_mb"] = s.catalog.offline_cache_mb
     c["catalog_cart_links"] = s.catalog.cart_links
     c["catalog_zoom"] = s.catalog.zoom
     c["catalog_fill_width"] = s.catalog.fill_width

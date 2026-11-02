@@ -231,6 +231,7 @@ class CatalogPage(QWidget):
     openCart = Signal()
     downloadCart = Signal()
     downloadLinks = Signal(list)  # Generic search: a book downloaded straight from its details
+    loginRequested = Signal(str)  # Generic search's reader: Enter Browser on a page that needs a login
 
     def __init__(self, context: AppContext) -> None:
         super().__init__()
@@ -358,7 +359,10 @@ class CatalogPage(QWidget):
         self.page.leave.connect(self.leave)
         self.generic = generic_page.GenericCatalog(
             lambda script: self.page is not None and self.page.runJavaScript(script, WORLD), self.profile,
-            lambda url: sites.supported_site(url, self.context.settings.engines.enabled()), self)
+            lambda url: sites.supported_site(url, self.context.settings.engines.enabled()), self,
+            cache_mb=lambda: self.context.settings.catalog.offline_cache_mb)
+        if self.context.browser is not None:
+            self.generic.downloader = self.context.browser.submit
         self.view = CatalogView(self)
         self.view.setPage(self.page)
         self.view.addToCart.connect(lambda url, title: self._add_to_cart(url, title, announce=True))
@@ -526,6 +530,10 @@ class CatalogPage(QWidget):
         if kind.startswith("generic"):
             if kind == "genericReady":
                 self._push_state()
+            if kind == "genericLogin":
+                if self._on_generic_page():
+                    self.loginRequested.emit(data["url"])
+                return
             if kind == "genericDownload":
                 if self._on_generic_page():
                     title = str(data.get("title") or "") or data["url"]

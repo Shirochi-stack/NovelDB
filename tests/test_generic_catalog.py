@@ -156,3 +156,25 @@ def test_id_and_top_list_messages_are_checked():
     assert generic.parse_message({"type": "genericTop", "id": 1, "kind": "bogus"}) is None
     assert generic.parse_message({"type": "genericChapter", "id": 3, "url": "https://a.example/b", "index": -1}) is None
     assert generic.download_icon().startswith("data:image/")
+
+
+def test_the_offline_cache_keeps_entries_within_its_limit(tmp_path):
+    import os
+    import time
+
+    from noveldb.core.catalog.offline_cache import OfflineCache
+
+    limit = [1]
+    cache = OfflineCache(lambda: limit[0], tmp_path / "cache")
+    cache.put_json("details", "https://a.example/book", {"title": "A"})
+    assert cache.get_json("details", "https://a.example/book")["title"] == "A"
+    assert cache.get_json("details", "https://a.example/book", max_age=-1) is None  # too old
+    for n in range(3):
+        cache.put("covers", f"cover{n}", b"x" * 400_000)
+        path = cache._path("covers", f"cover{n}")
+        os.utime(path, (time.time() - 100 + n, time.time() - 100 + n))
+    cache.trim()
+    assert cache.size() <= 1024 * 1024
+    assert cache.get("covers", "cover2") is not None and cache.get("covers", "cover0") is None  # oldest went first
+    limit[0] = 0
+    assert cache.get("covers", "cover2") is None  # off

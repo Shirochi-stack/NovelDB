@@ -43,11 +43,12 @@
         catch (e) { return null; }
     }
     // An app request answered through NovelDBGeneric.fetched.
-    function ask(message) {
+    function ask(message, onId) {
         return new Promise(function (resolve) {
             var id = ++nextId;
             pending[id] = resolve;
             message.id = id;
+            if (onId) onId(id);
             send(message);
         });
     }
@@ -64,6 +65,10 @@
     var TLD_LANG = {jp: 'ja', kr: 'ko', cn: 'zh', tw: 'zh', hk: 'zh', ru: 'ru', es: 'es', mx: 'es', ar: 'es', br: 'pt', pt: 'pt',
                     fr: 'fr', id: 'id', th: 'th', tr: 'tr', de: 'de', vn: 'vi'};
     var pluginLangs = {};
+    var allPlugins = [];  // every LNReader plugin: {id, site, rank (its place among the top sites, or -1), ln}
+    // Sites of translated Japanese/Korean/Chinese light novels (the Light Novels top list comes from them).
+    var LN_SITE = /light ?novel|lnmtl|\bln\.|lnori|novelight|hako|syosetu|kakuyomu|yomou|bookwalker|j-?novel/i;
+    function plugins() { return allPlugins.length ? allPlugins : (config.lnreader || []); }
     function langCode(name) {
         var value = String(name || '').toLowerCase();
         return LANG_NAMES[value] || (value.length === 2 ? value : '');
@@ -163,6 +168,7 @@
         return !!card.comic || COMIC_SITE.test(card.site || '');
     }
     function kindOf(group) {
+        if (group.topKind && group.topKind !== 'webnovel') return group.topKind;
         var text = [group.title, (group.tags || []).join(' '), group.sources.map(function (s) { return s.site; }).join(' ')].join(' ');
         if (group.comic) {
             if (/manhwa|webtoon|korean|웹툰|만화|\.kr\b|toomics|manhwa/i.test(text)) return 'manhwa';
@@ -228,6 +234,7 @@
             if (card[name] && !group[name]) group[name] = card[name];
         });
         if (card.cover && !group.cover) group.cover = card.cover;  // the first site's cover stays
+        if (card.cover && (group.covers || (group.covers = [])).indexOf(card.cover) < 0) group.covers.push(card.cover);
         if (card.description && card.description.length > (group.description || '').length) group.description = card.description;
         if (card.tags && card.tags.length) {
             var seen = new Set(group.tags.map(function (t) { return t.toLowerCase(); }));
@@ -312,6 +319,17 @@
             + synopsis + '</div>';
         element.querySelector('.add').addEventListener('click', function () { toggleCart(group); });
         var image = element.querySelector('img');
+        if (image && imaging.low && !/^data:/.test(group.cover) && !group.cacheAsked) {
+            // The small copy made before with these settings, from the offline cache; else the cover itself.
+            group.cacheAsked = true;
+            var wanted_ = group.cover;
+            image.removeAttribute('src');
+            ask({type: 'genericCover', key: coverKey(wanted_)}).then(function (data) {
+                if (group.cover !== wanted_) return;
+                if (data && data.dataUrl) { group.cover = data.dataUrl; image.dataset.small = '1'; }
+                image.src = group.cover;
+            });
+        }
         if (image) {
             image.addEventListener('error', function () { coverFailed(group, image); }, {once: true});
             image.addEventListener('load', function () {
@@ -330,6 +348,10 @@
         var holder = image.parentNode;
         image.style.visibility = 'hidden';  // no broken-image outline while the app tries again
         if (group.coverTried) {
+            // The app couldn't fetch it either: the book's cover from its next site, if it has one.
+            var next = (group.covers || []).filter(function (c) { return c !== group.cover && !(group.failedCovers || []).includes(c); })[0];
+            (group.failedCovers || (group.failedCovers = [])).push(group.cover);
+            if (next) { group.cover = next; group.coverTried = false; render(group); return; }
             if (holder) holder.classList.remove('loading');
             image.remove();
             return;
@@ -345,8 +367,11 @@
     // -- covers at lower quality (NovelDB's cover-loader): decoded once, kept as a small WebP ----------
     var IMG_KEY = 'noveldb.generic.images';
     var imaging = Object.assign({low: true, quality: 72, resolution: 72}, store(IMG_KEY) || {});
+    // A cover's offline-cache key: its address and the compression settings its small copy was made with.
+    function coverKey(url) { return [url, imaging.quality, imaging.resolution, Math.round(window.devicePixelRatio || 1)].join('|'); }
     function shrink(group, image) {
         if (!imaging.low || image.dataset.small || !image.naturalWidth) return;
+        var original = group.cover;
         // The size the cover is shown at (in device pixels) is the floor: a thumbnail already that small
         // is kept as it is (re-encoding it would only blur it); a bigger one shrinks by the resolution
         // setting, never below that size.
@@ -374,6 +399,7 @@
                     image.dataset.small = '1';
                     group.cover = reader.result;  // later renders reuse the small copy
                     image.src = reader.result;
+                    if (!/^data:/.test(original)) send({type: 'genericCoverPut', key: coverKey(original), dataUrl: reader.result});
                 };
                 reader.readAsDataURL(blob);
             }, 'image/webp', imaging.quality / 100);
@@ -402,6 +428,16 @@
             imaging.resolution = Number($('imgResolution').value);
             store(IMG_KEY, imaging);
             showImaging();
+            clearTimeout(imaging.timer);
+            imaging.timer = setTimeout(function () {
+                order.forEach(function (group) {
+                    // Back to each book's own cover, to be made again with the new settings.
+                    if (group.covers && group.covers.length) group.cover = group.covers[0];
+                    group.cacheAsked = false;
+                    group.coverTried = false;
+                    if (group.element) render(group);
+                });
+            }, 400);
         });
     });
     $('settingsButton').addEventListener('click', function (event) {
@@ -533,7 +569,12 @@
                 + '<button type="button" data-act="cart">' + (inCart ? 'Remove from cart' : 'Add to cart') + '</button>'
                 + '<button type="button" data-act="close">Close</button></div>';
             var image = dialog.querySelector('img');
-            if (image) image.addEventListener('error', function () { image.remove(); }, {once: true});
+            if (image) image.addEventListener('error', function () {
+                // The same way back as the card's cover: the app, then the book's other sites.
+                var cardImage = group.element && group.element.querySelector('.cover img');
+                if (cardImage) coverFailed(group, cardImage); else image.remove();
+                setTimeout(function () { if (group.onDetails && $('dialog').open) group.onDetails(); }, 1500);
+            }, {once: true});
             dialog.querySelector('[data-act=read]').onclick = function () { dialog.close(); openReader(group, 0); };
             dialog.querySelector('[data-act=download]').onclick = function () { download(group, group.sources[0]); };
             dialog.querySelector('[data-act=cart]').onclick = function () { toggleCart(group); };
@@ -569,7 +610,7 @@
         return new Promise(function (resolve) {
             function next() {
                 if (id !== searchId) { setRunning(-1); resolve(); return; }
-                while (active < 4 && index < jobs.length) {
+                while (active < 8 && index < jobs.length) {
                     var job = jobs[index++];
                     active++;
                     job.started = Date.now();
@@ -595,11 +636,11 @@
                 source: 'lnreader', plugin: item.plugin || plugin.id, path: item.path, via: via, complete: false, ms: item.ms};
     }
     function lnreaderSearch(id, queries) {
-        var plugins = config.lnreader || [];
-        if (!plugins.length || !window.__LNR_search) return;
+        var every = plugins();
+        if (!every.length || !window.__LNR_search) return;
         var jobs = [];
         queries.forEach(function (q) {
-            plugins.forEach(function (plugin) {
+            every.forEach(function (plugin) {
                 jobs.push({plugin: plugin, query: q, run: function () {
                     return q.mode === 'tag' && window.__LNR_genre ? window.__LNR_genre(plugin.id, q.query) : window.__LNR_search(plugin.id, q.query, 1);
                 }});
@@ -658,7 +699,8 @@
             var group = merge(entry.cards[0], rank + 1);
             if (!group) return;
             entry.cards.slice(1).forEach(function (card) { merge(card); });
-            if (top.kind !== 'webnovel' && kindOf(group) !== top.kind) {  // e.g. a manhwa on a manga site
+            group.topKind = top.kind;  // the list it is in: the sites it came from say what it is
+            if (false) {
                 groups.delete(group.key);
                 order = order.filter(function (g) { return g !== group; });
                 return;
@@ -693,19 +735,24 @@
             running = 0;
             setRunning(1);
             startProgress(0);
-            status('Reading the popular pages of the top comic sites…');
+            status('Reading the popular pages of the top ' + TOP_NAMES[top.kind] + ' sites…');
             send({type: 'genericTop', id: id, kind: top.kind, language: language});
             return;
         }
-        var plugins = (config.lnreader || []).filter(function (p) {
-            return !p.comic && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language);
-        });
-        if (!plugins.length || !window.__LNR_popular) { empty(); return; }
-        status('Reading the popular lists of ' + plugins.length + ' sites…');
-        var jobs = plugins.map(function (plugin, siteIndex) {
-            return {plugin: plugin, weight: 1 / Math.sqrt(siteIndex + 1), report: true,
+        var wantLn = top.kind === 'lightnovel';
+        var chosen = plugins().filter(function (p) {
+            return !p.comic && (language === 'all' || !pluginLangs[p.id] || pluginLangs[p.id] === language)
+                && (allPlugins.length ? !!p.ln === wantLn : true);
+        }).sort(function (a, b) { return (a.rank < 0 ? 999 : a.rank) - (b.rank < 0 ? 999 : b.rank); }).slice(0, 60);
+        if (!chosen.length || !window.__LNR_popular) { empty(); return; }
+        status('Reading the popular lists of ' + chosen.length + ' ' + TOP_NAMES[top.kind] + ' sites…');
+        var jobs = chosen.map(function (plugin, siteIndex) {
+            // The busiest sites (the top 100 list) count most; the rest count alike.
+            var weight = plugin.rank >= 0 || !allPlugins.length ? 1 / Math.sqrt((plugin.rank >= 0 ? plugin.rank : siteIndex) + 1) : 0.3;
+            return {plugin: plugin, weight: weight, report: true,
                     run: function () { return window.__LNR_popular(plugin.id, 1, false); }};
         });
+        var plugins_ = chosen;
         startProgress(jobs.length);
         lnreaderRun(id, jobs, function (job, found) {
             found.forEach(function (item, position) { topCollect(lnreaderCard(job.plugin, item, 'top'), job.weight, position, found.length); });
@@ -714,7 +761,7 @@
             if (id !== searchId) return;
             topRedraw();
             topSave();
-            status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on ' + plugins.length + ' of the top sites, by their popular lists.'
+            status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on ' + plugins_.length + ' ' + TOP_NAMES[top.kind] + ' sites, by their popular lists.'
                 : 'No ' + TOP_NAMES[top.kind] + ' in the popular lists right now.');
             empty();
         });
@@ -750,7 +797,7 @@
         $('heading').innerHTML = 'Results for ' + esc(label) + ' <a id="backTop">Top 100</a>';
         $('backTop').onclick = function () { $('query').value = ''; picked = []; showPicked(); showTop(); };
         startProgress(0);
-        status('Searching ' + (config.sites.length || 100) + ' sites for ' + label + '…');
+        status('Searching ' + ((config.sites.length || 100) + plugins().length) + ' sites for ' + label + '…');
         empty();
         send({type: 'genericSearch', id: searchId, queries: queries});
         if (!byId) lnreaderSearch(searchId, queries);
@@ -872,7 +919,7 @@
     }
     document.querySelectorAll('#look [data-look]').forEach(function (button) {
         button.addEventListener('click', function () {
-            var name = button.dataset.look, at = progress();
+            var name = button.dataset.look, at = readingAt();
             if (name === 'smaller') look.size = Math.max(12, look.size - 1);
             else if (name === 'larger') look.size = Math.min(34, look.size + 1);
             else if (name === 'tighter') look.leading = Math.max(1.2, Math.round((look.leading - 0.1) * 10) / 10);
@@ -935,6 +982,7 @@
     function openReader(group, sourceIndex) {
         var reader = $('reader');
         R.group = group;
+        R.blocked = '';
         R.comic = !!group.comic;
         R.token++;
         R.cache = new Map();
@@ -950,7 +998,9 @@
     function note(text, limit, retry) {
         clearInterval(R.clock);
         var started = Date.now(), token = R.token;
-        var draw = function () {
+        R.noteText = text;
+        R.noteDetail = '';
+        var draw = R.drawNote = function () {
             if (token !== R.token) { clearInterval(R.clock); return; }
             var seconds = Math.round((Date.now() - started) / 1000);
             if (limit && seconds >= limit) {
@@ -958,7 +1008,8 @@
                 failed(text.replace(/…$/, '') + ' took too long (' + limit + ' s).', retry);
                 return;
             }
-            $('flow').innerHTML = '<p class="note">' + esc(text) + (seconds >= 2 ? ' <span class="clock">' + seconds + ' s</span>' : '') + '</p>';
+            $('flow').innerHTML = '<p class="note">' + esc(text) + (seconds >= 2 ? ' <span class="clock">' + seconds + ' s</span>' : '')
+                + (R.noteDetail ? '<br><span class="detail">' + esc(R.noteDetail) + '</span>' : '') + '</p>';
         };
         draw();
         if (limit) R.clock = setInterval(draw, 1000);
@@ -966,15 +1017,18 @@
         place();
     }
     // A failure, with Retry, the page itself, and the book's other sites.
-    function failed(message, retry) {
+    function failed(message, retry, blocked) {
         clearInterval(R.clock);
         var others = R.group ? R.group.sources.filter(function (s) { return !R.source || s.url !== R.source.url; }) : [];
+        var page = R.source || (R.group && R.group.sources[R.tried || 0]);
         $('flow').innerHTML = '<p class="note">' + esc(message) + '</p><p class="next-chapter">'
+            + (blocked && page ? '<button type="button" id="rLogin" class="primary">Sign in with Enter Browser</button> ' : '')
             + (retry ? '<button type="button" id="rRetry">Try again</button> ' : '')
             + (R.source ? '<button type="button" id="rOpen">Open the page</button> ' : '')
             + others.map(function (s, i) { return '<button type="button" data-other="' + i + '">Read on ' + esc(s.site) + '</button> '; }).join('')
             + '</p>';
         if (retry) $('rRetry').onclick = retry;
+        if ($('rLogin')) $('rLogin').onclick = function () { send({type: 'genericLogin', url: page.url}); };
         if ($('rOpen')) $('rOpen').onclick = function () { send({type: 'open', url: R.source.url, title: R.group.title}); };
         $('flow').querySelectorAll('[data-other]').forEach(function (button) {
             button.onclick = function () {
@@ -990,12 +1044,18 @@
         var order = group.sources.slice(start).concat(group.sources.slice(0, start));
         var attempt = function (i) {
             if (token !== R.token) return;
-            if (i >= order.length) { R.source = null; failed('The book could not be read: ' + errors.join('; '), function () { openReader(group, start); }); return; }
+            if (i >= order.length) {
+                R.source = null;
+                failed(R.blocked || 'The book could not be read: ' + errors.join('; '), function () { openReader(group, start); }, !!R.blocked);
+                return;
+            }
+            R.tried = group.sources.indexOf(order[i]);
             var source = order[i];
             note('Reading the chapter list from ' + source.site + '…', 0);
             loadBook(source).then(function (book) {
                 if (token !== R.token) return;
                 if (!book || book.error || !book.chapters || !book.chapters.length) {
+                    if (book && book.blocked) R.blocked = book.message;
                     errors.push(source.site + ': ' + ((book && book.error) || 'no chapters'));
                     attempt(i + 1);
                     return;
@@ -1012,7 +1072,8 @@
     }
     // An app request that gives up after `seconds` (the reader shows what failed instead of waiting forever).
     function askWithin(message, seconds) {
-        return within(ask(message), seconds * 1000, {error: 'the site did not answer in ' + seconds + ' s'});
+        return within(ask(message, function (id) { R.requestId = id; }), seconds * 1000,
+                      {error: 'the site did not answer in ' + seconds + ' s'});
     }
     function loadBook(source) {
         if (lnreaderSite(source) && window.__LNR_parseBook) {
@@ -1034,7 +1095,11 @@
             promise = askWithin({type: 'genericChapter', url: source.url, index: index}, 90);
         }
         promise = promise.then(function (result) {
-            if (!result || result.error) { R.cache.delete(index); return {error: (result && result.error) || 'the chapter could not be read'}; }
+            if (!result || result.error) {
+                R.cache.delete(index);
+                return {error: (result && result.error) || 'the chapter could not be read', blocked: !!(result && result.blocked),
+                        message: result && result.message};
+            }
             var html = result.html || result.contentHtml ? clean(result.html || result.contentHtml, source.url) : '';
             if (!html.replace(/<[^>]+>/g, '').trim() && html.indexOf('<img') < 0) html = textHtml(result.text || result.contentText);
             return {name: result.name || result.chapterName || R.chapters[index].name, html: html};
@@ -1044,6 +1109,8 @@
     }
     function openChapter(index, at) {
         var token = R.token;
+        R.streamed = -1;
+        resetPictures();
         R.index = index;
         $('rChapter').textContent = '· ' + (R.chapters[index].name || '');
         $('rChapterNo').textContent = 'Chapter ' + (index + 1) + ' of ' + R.chapters.length;
@@ -1055,14 +1122,26 @@
             if (token !== R.token || index !== R.index) return;
             clearInterval(R.clock);
             if (chapter.error) {
-                failed('Chapter ' + (index + 1) + ' could not be read: ' + chapter.error, retry);
+                failed(chapter.blocked ? chapter.message : 'Chapter ' + (index + 1) + ' could not be read: ' + chapter.error, retry, chapter.blocked);
                 return;
             }
+            if (R.streamed === index) { R.streamed = -1; finishStream(chapter); return; }
             var last = index + 1 < R.chapters.length;
+            var many = (chapter.html.match(/<img/g) || []).length >= 4;
+            if (many) {
+                R.streamed = -1;
+                resetPictures();
+                chapter.html = chapter.html.replace(/<img[^>]*?src="([^"]+)"[^>]*>/g, function (_tag, src) { return slotHtml(src); });
+            }
             $('flow').innerHTML = '<h2 class="chapter">' + esc(chapter.name) + '</h2>' + chapter.html
                 + (layout() === 'scroll' && last ? '<p class="next-chapter"><button type="button" id="rNextChapter">Next chapter ›</button></p>' : '');
             if ($('rNextChapter')) $('rNextChapter').onclick = function () { openChapter(index + 1, 0); };
-            var images = $('flow').querySelectorAll('img'), loadedImages = 0;
+            if (many) {
+                $('flow').querySelectorAll('img.slot').forEach(function (slot) { fetchPicture(slot); });
+                pictures.total = $('flow').querySelectorAll('img.slot').length;
+                showPictures();
+            }
+            var images = $('flow').querySelectorAll('img:not(.slot)'), loadedImages = 0;
             var imageNote = function () {
                 if (!images.length) return;
                 $('rWhere').textContent = loadedImages < images.length
@@ -1073,7 +1152,7 @@
                 var counted = function () { loadedImages++; imageNote(); };
                 image.addEventListener('load', counted, {once: true});
                 image.addEventListener('error', counted, {once: true});
-                image.addEventListener('load', function () { paginate(progress()); }, {once: true});
+                image.addEventListener('load', function () { paginate(readingAt()); }, {once: true});
                 image.addEventListener('error', function () {
                     ask({type: 'genericImage', url: image.src, referer: R.source.url}).then(function (data) {
                         if (data && data.dataUrl) image.src = data.dataUrl; else image.remove();
@@ -1085,6 +1164,87 @@
             if (last) loadChapter(index + 1);  // read ahead
         });
     }
+    // -- chapter images: fetched by the app (no hotlink refusals), 4 at a time, counted ------------------
+    var pictures = {queue: [], active: 0, done: 0, total: 0, bytes: 0, started: 0, urls: []};
+    function resetPictures() {
+        pictures.urls.forEach(function (url) { URL.revokeObjectURL(url); });
+        pictures = {queue: [], active: 0, done: 0, total: 0, bytes: 0, started: Date.now(), urls: [], token: R.token};
+        showPictures();
+    }
+    function showPictures() {
+        var bar = $('rProgress');
+        if (!pictures.total || pictures.done >= pictures.total) { bar.classList.remove('on'); return; }
+        bar.classList.add('on');
+        var seconds = Math.max(0.5, (Date.now() - pictures.started) / 1000);
+        bar.firstElementChild.style.width = (100 * pictures.done / pictures.total) + '%';
+        bar.lastElementChild.textContent = 'Images ' + pictures.done + ' of ' + pictures.total + ' · '
+            + (pictures.bytes / 1048576).toFixed(1) + ' MB · ' + (pictures.bytes / 1048576 / seconds).toFixed(2) + ' MB/s';
+    }
+    function fetchPicture(image) {
+        pictures.queue.push(image);
+        pumpPictures();
+    }
+    function pumpPictures() {
+        while (pictures.active < 4 && pictures.queue.length) {
+            var image = pictures.queue.shift(), token = pictures.token;
+            pictures.active++;
+            ask({type: 'genericImage', url: image.dataset.src, referer: R.source ? R.source.url : ''}).then(function (data) {
+                if (token !== pictures.token) return;
+                pictures.active--;
+                pictures.done++;
+                if (data && data.dataUrl) {
+                    pictures.bytes += data.bytes || Math.round(data.dataUrl.length * 0.75);
+                    fetch(data.dataUrl).then(function (r) { return r.blob(); }).then(function (blob) {
+                        var url = URL.createObjectURL(blob);
+                        pictures.urls.push(url);
+                        this.src = url;
+                        this.classList.add('ready');
+                    }.bind(this));
+                } else {
+                    this.src = this.dataset.src;  // the browser itself, as a last try
+                    this.classList.add('ready');
+                }
+                showPictures();
+                pumpPictures();
+            }.bind(image));
+        }
+        showPictures();
+    }
+    // A chapter of images as slots: each shows Halgakos until its image arrives.
+    function slotHtml(src) { return '<img class="slot" alt="" data-src="' + esc(src || '') + '">'; }
+    function streamImages(index, found) {
+        if (index !== R.index) return;
+        if (R.streamed !== index) {
+            R.streamed = index;
+            clearInterval(R.clock);
+            resetPictures();
+            $('flow').innerHTML = '<h2 class="chapter">' + esc(R.chapters[index].name || '') + '</h2>';
+            R.slots = [];
+        }
+        var flow = $('flow');
+        while (R.slots.length < found.total) {
+            flow.insertAdjacentHTML('beforeend', slotHtml(''));
+            R.slots.push(flow.lastElementChild);
+        }
+        pictures.total = Math.max(found.total, found.images.length);
+        found.images.forEach(function (src, i) {
+            var slot = R.slots[i];
+            if (!slot) { flow.insertAdjacentHTML('beforeend', slotHtml('')); slot = flow.lastElementChild; R.slots.push(slot); }
+            if (!slot.dataset.src) { slot.dataset.src = src; fetchPicture(slot); }
+        });
+        showPictures();
+    }
+    function finishStream(chapter) {
+        // The whole chapter is in: slots that never got an image go, the rest keep loading.
+        var images = (chapter.html.match(/<img[^>]+src="([^"]+)"/g) || []).map(function (tag) { return tag.match(/src="([^"]+)"/)[1]; });
+        streamImages(R.index, {images: images, total: images.length});
+        R.slots.slice(images.length).forEach(function (slot) { slot.remove(); });
+        pictures.total = images.length;
+        showPictures();
+        paginate(0);
+        if (R.index + 1 < R.chapters.length) loadChapter(R.index + 1);
+    }
+
     function columns() { return $('viewport').clientWidth > 1100 ? 2 : 1; }
     function paginate(at, toEnd) {
         var flow = $('flow'), viewport = $('viewport');
@@ -1117,7 +1277,7 @@
         place();
         requestAnimationFrame(function () { flow.style.transition = ''; });
     }
-    function progress() {
+    function readingAt() {
         if (layout() === 'scroll') {
             var v = $('viewport'), f = $('flow');
             return f.scrollHeight > v.clientHeight ? v.scrollTop / (f.scrollHeight - v.clientHeight) : 0;
@@ -1130,7 +1290,7 @@
         $('rSlider').max = String(R.pages);
         $('rSlider').value = String(R.page + 1);
         $('rSlider').style.display = layout() === 'scroll' ? 'none' : '';
-        if (R.source) store('noveldb.read.' + key(R.source.url), {chapter: R.index, at: progress(), time: Date.now()});
+        if (R.source) store('noveldb.read.' + key(R.source.url), {chapter: R.index, at: readingAt(), time: Date.now()});
         if ($('toc').classList.contains('open') && tocTab === 'pages') drawPages();
     }
     function turn(step) {
@@ -1232,7 +1392,7 @@
     window.addEventListener('resize', function () {
         if (!$('reader').classList.contains('open')) return;
         clearTimeout(R.resizeTimer);
-        var at = progress();
+        var at = readingAt();
         R.resizeTimer = setTimeout(function () { paginate(at); }, 120);
     });
 
@@ -1240,8 +1400,15 @@
         init: function (value) {
             config = value || config;
             try {
-                (parse(window.__LNR_sites && window.__LNR_sites()) || []).forEach(function (p) { pluginLangs[p.id] = langCode(p.lang); });
-            } catch (e) { /* no plugin list: the titles tell the language */ }
+                var top = {};
+                (config.lnreader || []).forEach(function (p, index) { top[p.id] = index; });
+                allPlugins = (parse(window.__LNR_sites && window.__LNR_sites()) || []).map(function (p) {
+                    pluginLangs[p.id] = langCode(p.lang);
+                    var site = hostOf(p.site) || p.site;
+                    return {id: p.id, site: site, comic: false, rank: p.id in top ? top[p.id] : -1,
+                            ln: LN_SITE.test(site + ' ' + p.name)};
+                });
+            } catch (e) { allPlugins = []; /* no plugin list: the top sites' plugins only */ }
             if (view === 'top' && !order.length) showTop();
         },
         add: add,
@@ -1256,8 +1423,8 @@
             if (view === 'top') {
                 topRedraw();
                 topSave();
-                status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on the top comic sites, by their popular pages.'
-                    : 'The comic sites\' popular pages did not answer.');
+                status(order.length ? 'The most read ' + TOP_NAMES[top.kind] + ' on the top ' + TOP_NAMES[top.kind] + ' sites, by their popular pages.'
+                    : 'The ' + TOP_NAMES[top.kind] + ' sites\' popular pages did not answer.');
                 return;
             }
             var slow = summary && (summary.failed || summary.timed_out);
@@ -1278,6 +1445,15 @@
             merge(card);
             finishDetails(group);
             if (group.onDetails && $('dialog').open) group.onDetails();
+        },
+        readerStatus: function (id, text) {
+            if (id !== R.requestId || !R.drawNote) return;
+            R.noteDetail = text;
+            R.drawNote();
+        },
+        readerImages: function (id, found) {
+            if (id !== R.requestId || !found || !found.images) return;
+            streamImages(R.index, found);
         },
         fetched: function (id, result) {
             var resolve = pending[id];

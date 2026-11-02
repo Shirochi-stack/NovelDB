@@ -7,10 +7,11 @@ form refreshes when settings change elsewhere.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from typing import Callable
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -28,6 +29,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStackedWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -924,6 +927,28 @@ def catalog_form(context: AppContext) -> Form:
     f.add(error)
     f.check("Fill the window (widen sites that keep their page in a narrow column)", "catalog.fill_width")
     f.check("Send outside links to the link cart", "catalog.cart_links")
+    f.spin("Generic search's offline cache", "catalog.offline_cache_mb", 0, 5000, " MB")
+    cache_hint = f.add_hint("")
+    clear_cache = QPushButton("Clear the offline cache")
+
+    def show_cache(_s=None) -> None:
+        from noveldb.core.catalog.offline_cache import OfflineCache
+
+        used = OfflineCache(lambda: context.settings.catalog.offline_cache_mb).size()
+        cache_hint.setText(
+            f"Keeps the book details and the small covers Generic search has shown, so they load at once next "
+            f"time (details for {3} days; covers until the compression settings change). Using "
+            f"{used / 1048576:.1f} MB. 0 turns it off.")
+
+    def clear() -> None:
+        from noveldb.core.catalog.offline_cache import OfflineCache
+
+        OfflineCache(lambda: 1).clear()
+        show_cache()
+
+    clear_cache.clicked.connect(clear)
+    f.add(flow(clear_cache))
+    f._refreshers.append(show_cache)
     download = icons.inline(icons.DOWNLOAD, 18)
     f.add_hint("This applies only to sites other than NovelDB, NovelDB Next and the sites NovelDB downloads from. "
                f"There, links to book pages go to the link cart and their buttons read {download} Download. "
@@ -1014,6 +1039,24 @@ def _sfc_session_saved() -> bool:
     return any("session_APP=" in text for text in texts)
 
 
+class SessionSites(QObject):
+    """Reads the login browsers' cookie lists on a worker thread (noveldb.core.external.sessions)."""
+
+    ready = Signal(object)
+
+    def load(self) -> None:
+        def run():
+            try:
+                from noveldb.core.external.sessions import saved_sites
+
+                found = saved_sites()
+            except Exception:
+                found = []
+            self.ready.emit(found)
+
+        threading.Thread(target=run, name="saved-sessions", daemon=True).start()
+
+
 def sessions_form(context: AppContext) -> Form:
     """Saved logins, like the mobile Enter App tab: the sfc app session, the shared login browser,
     and a pointer to the npia account."""
@@ -1056,6 +1099,54 @@ def sessions_form(context: AppContext) -> Form:
         "then close it — the logins are saved to the browser profile and reused for downloads."
     )
     f.add(flow(button("Enter Browser", "enter_browser"), spacing=8))
+
+    f.add_section("Sites with saved browser logins")
+    f.add_hint("Every site the login browsers keep cookies for, so you can check a login is saved. "
+               "“Logged in” means a login-type cookie that hasn't expired. Cookie values are never shown.")
+    sites_filter = QLineEdit()
+    sites_filter.setPlaceholderText("Find a site")
+    sites_filter.setClearButtonEnabled(True)
+    sites_table = QTreeWidget()
+    sites_table.setHeaderLabels(["Site", "Logged in", "Cookies", "Expires", "Browser"])
+    sites_table.setRootIsDecorated(False)
+    sites_table.setSortingEnabled(True)
+    sites_table.setMinimumHeight(260)
+    sites_status = QLabel("")
+    refresh_sites = QPushButton("Refresh")
+    f.add(flow(sites_filter, refresh_sites, spacing=8))
+    f.add(sites_table)
+    f.add(sites_status)
+    loaded = SessionSites(f)
+
+    def show_sites(found) -> None:
+        import time as clock
+
+        sites_table.clear()
+        for site in found:
+            expires = clock.strftime("%Y-%m-%d", clock.localtime(site.expires)) if site.expires else "when closed"
+            item = QTreeWidgetItem([site.site, "Yes" if site.login else "", str(site.cookies), expires,
+                                    ", ".join(site.profiles)])
+            sites_table.addTopLevelItem(item)
+        for column in range(5):
+            sites_table.resizeColumnToContents(column)
+        logged = sum(1 for site in found if site.login)
+        sites_status.setText(f"{len(found)} sites, {logged} with a login." if found else
+                             "No saved browser cookies yet. Sign in with Enter Browser to save a login.")
+        filter_sites(sites_filter.text())
+
+    def filter_sites(text: str) -> None:
+        for index in range(sites_table.topLevelItemCount()):
+            item = sites_table.topLevelItem(index)
+            item.setHidden(bool(text) and text.lower() not in item.text(0).lower())
+
+    def load_sites() -> None:
+        sites_status.setText("Reading the browser profiles…")
+        loaded.load()
+
+    loaded.ready.connect(show_sites)
+    sites_filter.textChanged.connect(filter_sites)
+    refresh_sites.clicked.connect(load_sites)
+    load_sites()
 
     f.add_section("npia")
     f.add_hint(

@@ -174,7 +174,10 @@ class Tools(QObject):
 
     def _enter_browser(self) -> None:
         lines = split_inputs(self.window.download.input.toPlainText())
-        url = next((line for line in lines if line.startswith(("http://", "https://"))), None)
+        self.enter_browser(next((line for line in lines if line.startswith(("http://", "https://"))), None))
+
+    def enter_browser(self, url=None) -> None:
+        """The visible login browser (the downloader's saved profile), opened on `url`."""
         regular, message = login_browser_mode(url, self.context.settings.sources.regular_browser,
                                               detect_source(url) if url else None)
         self.context.hub.log("", message)

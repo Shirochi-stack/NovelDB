@@ -297,12 +297,22 @@ class SiteEnginesMixin:
         return {"status": status, "statusText": "", "finalUrl": page.url,
                 "responseHeaders": "Content-Type: text/html; charset=utf-8", "responseText": page.content()}
 
-    def render_html(self, url: str) -> Optional[str]:
-        """The page as the browser renders it (for sites that build their pages with scripts), or None."""
+    def render_html(self, url: str, scroll: bool = False) -> Optional[str]:
+        """The page as the browser renders it (for sites that build their pages with scripts), or None.
+        `scroll`: scrolled to its end first, "Load more" clicked, for lists that load as you scroll."""
         lock = self.__dict__.setdefault("_browser_fetch_lock", threading.Lock())
         with lock:
             try:
-                result = self._open_in_tab(self._site_page(url), url)
+                page = self._site_page(url)
+                result = self._open_in_tab(page, url)
+                if scroll and result:
+                    from noveldb.core.engines.generic import SCROLL_TO_END
+
+                    page.evaluate(SCROLL_TO_END)
+                    deadline = time.monotonic() + 45
+                    while time.monotonic() < deadline and not page.evaluate("!!window.__noveldbScrolled"):
+                        page.wait_for_timeout(700)
+                    result["responseText"] = page.content()
             except Exception as e:
                 self.log(f"  Could not render {url} in the browser: {str(e).splitlines()[0][:200]}")
                 return None

@@ -37,7 +37,7 @@ class LiveReader:
                     self._engines[name] = FanFicFareEngine(fetch=self.fetch, log=self.log)
                 else:
                     from noveldb.core.engines.generic import GenericEngine
-                    self._engines[name] = GenericEngine(fetch=self.fetch, log=self.log, render=self.render)
+                    self._engines[name] = GenericEngine(fetch=self.fetch, log=self.log, render=self.render, parallel=True)
             return self._engines[name]
 
     def _candidates(self, url: str) -> List[str]:
@@ -83,8 +83,9 @@ class LiveReader:
             errors.append(f"{name}: no chapters found")
         raise RuntimeError("; ".join(errors)[:400] or "no engine could read the book")
 
-    def chapter(self, url: str, index: int) -> dict:
-        """{name, html} of the book's chapter at `index` (0-based), scraped now."""
+    def chapter(self, url: str, index: int, on_images: Optional[Callable[[List[str], int], None]] = None) -> dict:
+        """{name, html} of the book's chapter at `index` (0-based), scraped now. A manga chapter's images
+        reach `on_images(images so far, pages)` as its pages are read."""
         with self._lock:
             known = self._books.get(url)
         if known is None:
@@ -96,7 +97,14 @@ class LiveReader:
         if not 0 <= index < len(chapters):
             raise IndexError("no such chapter")
         info = chapters[index]
-        result = self._engine(name).parse_chapter(info, data)
+        engine = self._engine(name)
+        if on_images is not None and hasattr(engine, "on_images"):
+            engine.on_images = on_images
+        try:
+            result = engine.parse_chapter(info, data)
+        finally:
+            if hasattr(engine, "on_images"):
+                engine.on_images = lambda _images, _total: None
         if not result:
             raise RuntimeError("the chapter could not be read")
         return {"name": result.get("chapterName") or info.get("name") or "",

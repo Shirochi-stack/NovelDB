@@ -43,22 +43,45 @@ _SECOND_LEVEL = {"co", "com", "ne", "net", "or", "org", "go", "ac", "ed", "gov",
 
 # -- pages -----------------------------------------------------------------------------------------
 
+_MOJIBAKE = re.compile("[\u00c2\u00c3\u00e2][\u0080-\u00bf\u20ac\u201a-\u201e\u2018-\u201d\u2122\u0153\u0161]")
+_WESTERN = ("iso-8859-1", "latin-1", "latin1", "windows-1252", "cp1252", "us-ascii", "ascii")
+
+
+def repair(text: str) -> str:
+    """UTF-8 text that was read as Latin-1 ("â€™" for "’", "Â " for a no-break space), put right."""
+    if not text or not _MOJIBAKE.search(text):
+        return text
+    for western in ("cp1252", "latin-1"):
+        try:
+            return text.encode(western).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+    return text
+
+
 def decode(result: dict) -> str:
-    """The page's text, in the charset its headers or its meta tag declare (GBK sites included)."""
+    """The page's text, in the charset its headers or its meta tag declare (GBK sites included). A page
+    that declares a Western charset, or none, but is valid UTF-8 is read as UTF-8 (servers often say
+    ISO-8859-1 for UTF-8 pages); text that arrived garbled that way is repaired."""
     content = result.get("content")
     if content is None:
-        return result.get("text") or ""
+        return repair(result.get("text") or "")
     headers = str(result.get("headers") or "")
-    match = re.search(r"charset=([\w-]+)", headers, re.I) or re.search(
-        rb"""<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)""", content[:4096], re.I)
+    meta = re.search(rb"""<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)""", content[:4096], re.I)
+    match = meta or re.search(r"charset=([\w-]+)", headers, re.I)
     charset = match.group(1) if match else "utf-8"
     if isinstance(charset, bytes):
         charset = charset.decode("ascii", "ignore")
     charset = {"gb2312": "gb18030", "gbk": "gb18030", "x-gbk": "gb18030"}.get(charset.lower(), charset)
+    if charset.lower() in _WESTERN or charset.lower() in ("utf-8", "utf8"):
+        try:
+            return repair(content.decode("utf-8"))
+        except UnicodeDecodeError:
+            pass
     try:
-        return content.decode(charset, "replace")
+        return repair(content.decode(charset, "replace"))
     except LookupError:
-        return content.decode("utf-8", "replace")
+        return repair(content.decode("utf-8", "replace"))
 
 
 def soup_of(html: str):
@@ -332,6 +355,7 @@ def shape(url: str) -> str:
 
 # "3 days ago", "Updated 2 years ago", "2024-03-09": when a list shows a chapter's age next to its name.
 _AGE = re.compile(r"\s*(updated\s*)?(\d+|an?|one)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|"
+                  r"mo|mos|yrs?|[smhdwy]|"
                   r"초|분|시간|일|주|개월|년|秒|分钟?|小时|天|周|个月|年|日|週間|か月|ヶ月)\s*(ago|전|前)\s*$", re.I)
 _DATE_TAIL = re.compile(r"\s*(updated\s*)?\d{4}[-./]\d{1,2}[-./]\d{1,2}(\s+\d{1,2}:\d{2}(:\d{2})?)?\s*$", re.I)
 
@@ -344,6 +368,8 @@ def clean_name(text: str) -> str:
         name = _DATE_TAIL.sub("", name).strip()
     name = re.sub(r"^(read|start reading|continue reading|read now)\s+", "", name, flags=re.I)
     name = re.sub(r"^(\d+(?:\.\d+)?)\s+\1\b\s*", r"\1 ", name)  # "12 12 Title" (the number in two cells)
+    name = name.replace("\u00a0", " ")  # "Chapter 2\u00a0- Title"
+    name = re.sub(r"\s{2,}", " ", name)
     name = re.sub(r"^(novel chapters|chapters?\s+list|latest chapters?)\s+", "", name, flags=re.I)
     return name.strip(" -|:·")
 
@@ -539,6 +565,138 @@ def extract_content(html: str, url: str, title: str = "") -> Tuple[str, str]:
     return "".join(str(child) for child in best.children).strip(), text
 
 
+# A chapter address (".../c147/", "/chapter-12", "/ch_3", "/episode/9"), for stepping up to the series page.
+_CHAPTER_PATH = re.compile(r"/(c|ch|chap|chapter|episode|ep|vol|v)[-_.]?\d+(\.\d+)?(/|\.html?|$)", re.I)
+_SKIP_IMAGES = re.compile(r"(logo|icon|avatar|banner|sprite|loading|spinner|blank|pixel|emoji|button|ads?[-_/]|"
+                          r"advert|placeholder|thumb[-_]?nav|\.svg|\.gif$)", re.I)
+
+
+def is_chapter_address(url: str) -> bool:
+    return bool(_CHAPTER_PATH.search(urlsplit(url).path))
+
+
+def parent_addresses(url: str) -> List[str]:
+    """The addresses above a chapter's, nearest first: /manga/x/c147/2.html -> /manga/x/c147/, /manga/x/."""
+    parts = urlsplit(url)
+    segments = [s for s in parts.path.split("/") if s]
+    out = []
+    while segments:
+        segments = segments[:-1]
+        if not segments:
+            break
+        path = "/" + "/".join(segments) + "/"
+        if not _CHAPTER_PATH.search(path):
+            out.append(f"{parts.scheme}://{parts.netloc}{path}")
+    return out[:2]
+
+
+def page_images(soup, base: str) -> List[str]:
+    """A manga page's own images (not logos, icons or ads), in page order."""
+    out = []
+    for image in soup.find_all("img"):
+        source = (image.get("data-src") or image.get("data-original") or image.get("data-lazy-src")
+                  or image.get("data-url") or image.get("src") or "").strip()
+        if not source or source.startswith("data:") or _SKIP_IMAGES.search(source):
+            continue
+        hint = " ".join(image.get("class") or []) + " " + (image.get("id") or "") + " " + (image.get("alt") or "")
+        if re.search(r"(logo|icon|avatar|ads?\b|banner)", hint, re.I):
+            continue
+        width = re.match(r"\d+", str(image.get("width") or ""))
+        if width and int(width.group()) < 150:
+            continue
+        if any(BAD_BLOCKS.search(" ".join(p.get("class") or []) + " " + (p.get("id") or ""))
+               and not GOOD_BLOCKS.search(" ".join(p.get("class") or []) + " " + (p.get("id") or ""))
+               for p in image.parents if getattr(p, "get", None)):
+            continue
+        url = clean_url(source, base)
+        if url and url not in out:
+            out.append(url)
+    return out
+
+
+def chapter_pages(soup, base: str) -> List[str]:
+    """The other pages of a chapter shown one image per page: its page picker's options, or links
+    like ".../c147/2.html" under the chapter's address."""
+    parts = urlsplit(base)
+    folder = parts.path if parts.path.endswith("/") else parts.path.rsplit("/", 1)[0] + "/"
+    found = []
+    for option in soup.select("select option[value]"):
+        url = clean_url(option.get("value") or "", base)
+        if url and urlsplit(url).path.startswith(folder) and url not in found:
+            found.append(url)
+    if len(found) < 2:
+        found = []
+        for anchor in soup.find_all("a", href=True):
+            url = clean_url(anchor["href"], base)
+            path = urlsplit(url).path if url else ""
+            if path.startswith(folder) and re.fullmatch(r"\d{1,3}(\.html?)?", path[len(folder):]) and url not in found:
+                found.append(url)
+        found.sort(key=lambda u: int(re.search(r"(\d+)(\.html?)?$", urlsplit(u).path).group(1)))
+    return [u for u in found if u.rstrip("/") != base.rstrip("/")]
+
+
+# Scrolls a page to its end and clicks "Load more" until it stops growing (lists that load as you scroll):
+# sets window.__noveldbScrolled when done. Shared by the downloader's browser and the Catalog's.
+SCROLL_TO_END = r"""(function () {
+  if (window.__noveldbScrolling) return; window.__noveldbScrolling = true; window.__noveldbScrolled = false;
+  var words = /^(load|show|view|see)\s+(more|all)|more chapters|all chapters|show all|view all|더보기|더 보기|加载更多|查看更多|全部章节|もっと見る/i;
+  var rounds = 0, still = 0, last = 0;
+  function step() {
+    rounds++;
+    Array.prototype.slice.call(document.querySelectorAll('button, a, [role=button], div[class*=more], span[class*=more]'))
+      .filter(function (el) { var t = (el.innerText || '').trim(); return t.length < 40 && words.test(t) && el.offsetParent; })
+      .slice(0, 2).forEach(function (el) { try { if (!el.getAttribute('href') || /^#|javascript/i.test(el.getAttribute('href'))) el.click(); } catch (e) {} });
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    var lists = document.querySelectorAll('[class*=chapter] a, [id*=chapter] a, li a').length;
+    var size = document.documentElement.scrollHeight + lists;
+    still = size === last ? still + 1 : 0; last = size;
+    if (still >= 3 || rounds >= 60) { window.__noveldbScrolled = true; return; }
+    setTimeout(step, 700);
+  }
+  step();
+})();"""
+_ALL_CHAPTERS = re.compile(r"^\s*(view|see|show|read)?\s*(all|full|complete)\s*(chapters?|episodes?|list|chapter list|toc)\b|"
+                           r"^\s*(chapter list|table of contents|contents|toc|index)\s*$|全部章节|章节目录|目录|전체\s*(목록|회차)|"
+                           r"目次|すべての話|^\s*(oldest|ascending|sort by oldest|from the beginning)\s*$", re.I)
+
+
+def full_list_links(soup, base: str) -> List[str]:
+    """Links to a book's whole chapter list ("All chapters", "Table of contents", "Oldest first")."""
+    out = []
+    for anchor in soup.find_all("a", href=True):
+        if _ALL_CHAPTERS.search(text_of(anchor) or anchor.get("title", "")):
+            url = clean_url(anchor["href"], base)
+            if url and url.rstrip("/") != base.rstrip("/") and site_of(urlsplit(url).hostname or "") == \
+                    site_of(urlsplit(base).hostname or "") and url not in out:
+                out.append(url)
+    return out[:3]
+
+
+def numbered_pages(pages: List[str]) -> List[str]:
+    """When list pages differ only in a page number ("?page=2", "/page/3"), every page up to the
+    highest one shown (pagination shows 1 2 3 ... 47): those not linked are filled in."""
+    if not pages:
+        return pages
+    pattern = None
+    numbers = []
+    for url in pages:
+        found = list(re.finditer(r"(?<=[?&/_=-])(\d{1,4})(?=(\.html?)?(/|&|$))", url))
+        if not found:
+            return pages
+        last = found[-1]
+        shape_now = url[: last.start()] + "{n}" + url[last.end():]
+        if pattern is None:
+            pattern = shape_now
+        elif shape_now != pattern:
+            return pages
+        numbers.append(int(last.group(1)))
+    top = max(numbers)
+    if top > 400 or top <= len(set(numbers)):
+        return pages
+    low = min(numbers)
+    return [pattern.replace("{n}", str(n)) for n in range(low, top + 1)]
+
+
 def _words(text: str) -> str:
     return re.sub(r"[\W_]+", "", (text or "").lower())
 
@@ -577,10 +735,14 @@ class GenericEngine:
     MAX_CHAPTER_PAGES = 15
 
     def __init__(self, fetch: Callable = None, log: Callable[[str], None] = lambda _m: None,
-                 render: Optional[Callable[[str], Optional[str]]] = None):
+                 render: Optional[Callable[[str], Optional[str]]] = None, parallel: bool = False):
         self.fetch = fetch
         self.log = log
         self.render = render
+        # The pages of a manga chapter at once (only where `fetch` may run on any thread: not the
+        # downloader's, whose requests stay on its browser thread).
+        self.parallel = parallel
+        self.on_images: Callable[[List[str], int], None] = lambda _images, _total: None
 
     @staticmethod
     def knows(url: str) -> bool:
@@ -596,6 +758,19 @@ class GenericEngine:
         html, final = self._page(url)
         soup = soup_of(html)
         chapters = find_chapters(soup, final)
+        if is_chapter_address(final):
+            # A chapter's link (a manga chapter's pages look like a chapter list): the series page above it.
+            for parent in parent_addresses(final):
+                try:
+                    parent_html, parent_final = self._page(parent, referer=final)
+                except Exception:
+                    continue
+                parent_soup = soup_of(parent_html)
+                found = find_chapters(parent_soup, parent_final)
+                if len(found) >= 2 and sum(is_chapter_address(c["url"]) for c in found) >= len(found) / 2:
+                    self.log(f"Generic: {final} is a chapter; reading the series page {parent_final}.")
+                    html, final, soup, chapters = parent_html, parent_final, parent_soup, found
+                    break
         if len(chapters) < 2 and self.render is not None:
             rendered = self.render(final)
             if rendered:
@@ -605,8 +780,33 @@ class GenericEngine:
                     soup, chapters, html = rendered_soup, found, rendered
         meta = extract_metadata(html, final, soup)
         warnings = []
+        expected = int(re.sub(r"\D", "", str(meta.get("chapters") or "")) or 0)
+        if chapters and expected and len(chapters) < expected * 0.8:
+            # The page shows only some of the chapters: its "All chapters" page, if it links one.
+            for link in full_list_links(soup, final):
+                try:
+                    full_html, full_final = self._page(link, referer=final)
+                except Exception:
+                    continue
+                full_soup = soup_of(full_html)
+                found = find_chapters(full_soup, full_final)
+                if len(found) > len(chapters):
+                    self.log(f"Generic: reading the full chapter list at {full_final}.")
+                    soup, chapters, final = full_soup, found, full_final
+                    break
         if chapters:
             chapters = self._more_list_pages(soup, final, chapters, warnings)
+        if self.render is not None and (len(chapters) < 2 or (expected and len(chapters) < expected * 0.8)):
+            # A list that loads as you scroll, or behind "Load more": the browser, scrolled to the end.
+            try:
+                rendered = self.render(final, scroll=True)
+            except TypeError:
+                rendered = None  # a renderer that can't scroll
+            if rendered:
+                found = find_chapters(soup_of(rendered), final)
+                if len(found) > len(chapters):
+                    self.log(f"Generic: {len(found)} chapters once the page was scrolled to its end.")
+                    chapters = found
         else:
             # No list: the page may be a chapter itself; follow its "next" links.
             follow = next_link(soup, final)
@@ -637,7 +837,9 @@ class GenericEngine:
     def _more_list_pages(self, soup, base: str, chapters: List[dict], warnings: List[str]) -> List[dict]:
         seen_pages = {base}
         known = {c["url"] for c in chapters}
-        queue = _list_pages(soup, base, seen_pages)
+        queue = numbered_pages(_list_pages(soup, base, seen_pages))
+        if self.parallel and len(queue) > 2:
+            return self._list_pages_at_once(base, queue, chapters, known)
         order_reversed = False
         pages = 0
         while queue and pages < self.MAX_LIST_PAGES:
@@ -668,6 +870,29 @@ class GenericEngine:
             warnings.append(f"The chapter list goes on past {self.MAX_LIST_PAGES} pages; read the first ones.")
         return _reading_order(chapters) if len(chapters) > 2 else chapters
 
+    def _list_pages_at_once(self, base: str, queue: List[str], chapters: List[dict], known: set) -> List[dict]:
+        """Every numbered list page at once (8 at a time), kept in page order."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def read(page_url: str) -> List[dict]:
+            try:
+                html, final = self._page(page_url, referer=base)
+            except Exception:
+                return []
+            return find_chapters(soup_of(html), final)
+
+        with ThreadPoolExecutor(8, thread_name_prefix="generic-list") as pool:
+            for found in pool.map(read, queue[: self.MAX_LIST_PAGES]):
+                by_url = {c["url"]: c for c in chapters}
+                for chapter in found:
+                    earlier = by_url.get(chapter["url"])
+                    if earlier is not None and _bare(earlier["name"]) and not _bare(chapter["name"]):
+                        earlier["name"] = chapter["name"]
+                more = [c for c in found if c["url"] not in known]
+                known.update(c["url"] for c in more)
+                chapters.extend(more)
+        return _reading_order(chapters) if len(chapters) > 2 else chapters
+
     def _chain(self, start: str, soup, warnings: List[str]) -> List[dict]:
         chapters, seen = [], set()
         url, page_soup = start, soup
@@ -687,10 +912,64 @@ class GenericEngine:
             warnings.append(f"Followed {self.MAX_CHAIN} chapters through their 'next' links; stopped there.")
         return chapters
 
+    MAX_MANGA_PAGES = 250
+
+    def _manga_chapter(self, html: str, final: str) -> Optional[str]:
+        """A chapter of images: every image on the page, or one per page when the chapter is split over
+        pages; None for a chapter of text."""
+        soup = soup_of(html)
+        text = len(re.sub(r"\s+", "", _plain(soup.body or soup)))
+        images = page_images(soup, final)
+        pages = chapter_pages(soup, final)
+        if not images or (not pages and text > 3000 and len(images) < 3):
+            return None  # a chapter of text (a few pictures in it stay with the text)
+        if pages and len(images) <= 3:
+            pages = pages[: self.MAX_MANGA_PAGES]
+            found = {}  # page index -> its images
+            total = len(pages) + 1
+
+            def read(index: int, page_url: str):
+                try:
+                    page_html, page_final = self._page(page_url, referer=final)
+                except Exception:
+                    return index, []
+                return index, page_images(soup_of(page_html), page_final)[:3]
+
+            def report():
+                # The images so far, in page order up to the first page still missing.
+                ordered = list(images)
+                for index in range(len(pages)):
+                    if index not in found:
+                        break
+                    ordered.extend(i for i in found[index] if i not in ordered)
+                self.on_images(ordered, total)
+
+            if self.parallel:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                with ThreadPoolExecutor(8, thread_name_prefix="generic-pages") as pool:
+                    for future in as_completed([pool.submit(read, i, u) for i, u in enumerate(pages)]):
+                        index, page = future.result()
+                        found[index] = page
+                        report()
+            else:
+                for index, page_url in enumerate(pages):
+                    found[index] = read(index, page_url)[1]
+                    report()
+            for index in range(len(pages)):
+                images.extend(i for i in found.get(index, []) if i not in images)
+        elif len(images) < 3:
+            return None
+        return "".join(f'<p><img src="{image}" alt=""/></p>' for image in images)
+
     def parse_chapter(self, chapter_info: dict, book: dict) -> Optional[dict]:
         url = chapter_info.get("url", "")
         name = chapter_info.get("fullName") or chapter_info.get("name", "")
         html, final = self._page(url, referer=chapter_info.get("bookUrl") or book.get("bookUrl") or "")
+        manga = self._manga_chapter(html, final)
+        if manga is not None:
+            return {"chapterName": name, "contentHtml": manga, "contentText": "", "imageCount": manga.count("<img"),
+                    "images": []}
         content, text = extract_content(html, final, name)
         # A chapter split over several pages ("下一页", "Next page"): join them.
         seen = {final}

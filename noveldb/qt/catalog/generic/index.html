@@ -148,6 +148,7 @@
                    color: var(--r-ink-2); font-size: 13px; background: var(--r-bg); z-index: 2; }
     #reader .bar.top { top: 0; border-bottom: 1px solid var(--r-line); }
     #reader .bar.bottom { bottom: 0; border-top: 1px solid var(--r-line); }
+    #reader .bar button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
     #reader .bar button { background: transparent; border: 1px solid var(--r-line); color: var(--r-ink); padding: 5px 10px; }
     #reader .bar .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
     #reader .bar b { color: var(--r-ink); font-weight: 600; }
@@ -162,6 +163,15 @@
     #flow img { max-width: 100%; max-height: calc(100vh - 170px); display: block; margin: .6em auto; break-inside: avoid; }
     #flow .note { color: var(--r-ink-2); text-align: center; margin-top: 30vh; font-style: italic; }
     #flow .note .clock { font-style: normal; opacity: .7; margin-left: .4em; }
+    #flow .note .detail { font-size: .75em; font-style: normal; opacity: .75; }
+    /* An image of the chapter not here yet: Halgakos holds its place. */
+    #flow img.slot { display: block; width: 100%; max-width: 900px; min-height: 320px; margin: 0 auto 6px;
+                     background: url(halgakos-loading.webp) center / 180px auto no-repeat, var(--r-line); object-fit: contain; }
+    #flow img.slot.ready { min-height: 0; background: none; }
+    .rprogress { display: none; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; }
+    .rprogress.on { display: inline-flex; }
+    .rprogress i { display: block; width: 140px; height: 6px; border-radius: 3px; background: var(--r-line); position: relative; overflow: hidden; }
+    .rprogress i::before { content: ""; position: absolute; inset: 0; width: var(--w, 0); background: var(--accent); }
     #flow .next-chapter { text-align: center; margin: 2em 0; }
     .zone { position: absolute; top: 52px; bottom: 52px; width: 22%; z-index: 1; cursor: pointer; }
     .zone.left { left: 0; } .zone.right { right: 0; }
@@ -195,7 +205,7 @@
     <form id="form">
         <div class="searchbox" id="searchbox">
             <span id="picked"></span>
-            <input id="query" type="search" placeholder="Search titles and tags on the top 100 sites" autocomplete="off" autofocus>
+            <input id="query" type="search" placeholder="Search titles, tags or a novel ID on 1,000+ sites" autocomplete="off" autofocus>
         </div>
         <button id="tagsButton" type="button" title="Pick tags to search">Tags<span id="tagCount"></span></button>
         <select id="kind" title="Show">
@@ -269,6 +279,7 @@
         <button id="rPrev" type="button" title="Previous page (←)">‹</button>
         <span id="rWhere"></span>
         <input id="rSlider" type="range" min="1" max="1" value="1" title="Page">
+        <span id="rProgress" class="rprogress"><i></i><span></span></span>
         <span id="rChapterNo"></span>
         <button id="rNext" type="button" title="Next page (→)">›</button>
     </div>

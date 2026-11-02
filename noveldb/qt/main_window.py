@@ -155,6 +155,7 @@ class MainWindow(QMainWindow):
         self.catalog.downloadCart.connect(self.download_cart)
         if hasattr(self.catalog, "downloadLinks"):
             self.catalog.downloadLinks.connect(self.download.queue_lines)
+            self.catalog.loginRequested.connect(self.tools.enter_browser)
         # The log stays folded away until a download writes to it (or the user opens it).
         self.log_toggle = QPushButton("Show log")
         self.log_toggle.setFlat(True)
