@@ -9,8 +9,12 @@ enum NtkSite {
     static let viewportWidth = 1280
     static let viewportHeight = 900
 
+    /// A mirror host that answers these (often 522 or 523) just loses its turn to the next one.
+    static let mirrorErrors = Set(400...599)
+
     static let hostPattern = #"^(?:www\.)?(?:ntk|newtoki|sbxh)\d+\.(?:com|org)$"#
-    static let pathPattern = #"^/(?:novel|webtoon)/\d+(?:/\d+)?/?$"#
+    /// Webtoon episodes from mirror sources have ids such as `goodtoon-745176` or `kp-5656-6755`.
+    static let pathPattern = #"^/(?:novel|webtoon)/\d+(?:/[A-Za-z0-9][\w-]*)?/?$"#
 
     static func ownsSite(_ host: String) -> Bool {
         host.range(of: hostPattern, options: [.regularExpression, .caseInsensitive]) != nil
@@ -40,5 +44,24 @@ enum NtkSite {
         let id = novelID(url)
         if id.isEmpty { return url }
         return URL(string: "\(origin(url))/\(kind(url))/\(id)") ?? url
+    }
+
+    /// The chapter HTML without the given pages (no mirror served them).
+    static func withoutPages(_ html: String, names: [String]) -> String {
+        names.reduce(html) { text, name in
+            let pattern = #"<div class="ntk-webtoon-page"><img src=""# + NSRegularExpression.escapedPattern(for: name) + #""[^>]*/></div>\n?"#
+            return text.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+    }
+
+    /// Whether the bytes start like an image: a mirror can answer 200 with an error page.
+    static func isImage(_ data: Data) -> Bool {
+        let bytes = [UInt8](data.prefix(12))
+        func starts(_ prefix: [UInt8], at offset: Int = 0) -> Bool {
+            bytes.count >= offset + prefix.count && Array(bytes[offset..<(offset + prefix.count)]) == prefix
+        }
+        return starts([0xFF, 0xD8, 0xFF]) || starts([0x89, 0x50, 0x4E, 0x47]) || starts([0x47, 0x49, 0x46, 0x38])
+            || (starts([0x52, 0x49, 0x46, 0x46]) && starts([0x57, 0x45, 0x42, 0x50], at: 8))
+            || starts([0x66, 0x74, 0x79, 0x70], at: 4)
     }
 }

@@ -42,7 +42,12 @@ internal data class NtkChapterListResult(
 )
 
 @Serializable
-internal data class NtkImage(val url: String = "", val name: String = "")
+internal data class NtkImage(
+    val url: String = "",
+    val name: String = "",
+    /** Every host serving a webtoon page, `url` first. Empty for an image with a single address. */
+    val candidates: List<String> = emptyList(),
+)
 
 @Serializable
 internal data class NtkChapterResult(
