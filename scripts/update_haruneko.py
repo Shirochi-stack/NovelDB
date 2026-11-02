@@ -37,7 +37,18 @@ API = 1  # bump when the window.__HN_* contract changes; apps ignore bundles wit
 
 
 def _get(url: str, accept: str = "") -> bytes:
-    import requests
+    try:
+        import requests
+    except ImportError:  # the workflow's first step runs before anything is installed
+        import urllib.request
+
+        request = urllib.request.Request(url, headers={"User-Agent": "NovelDB-engine-update",
+                                                       **({"Accept": accept} if accept else {})})
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if token and url.startswith("https://api.github.com/"):
+            request.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(request, timeout=300) as response:
+            return response.read()
 
     headers = {"User-Agent": "NovelDB-haruneko-update"}
     if accept:
