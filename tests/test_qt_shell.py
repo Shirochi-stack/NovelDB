@@ -49,9 +49,11 @@ def window(context, qtbot):
 
 def test_pages_build(window):
     names = [window.sidebar.item(i).text() for i in range(window.sidebar.count())]
-    assert names == ["Download", "Catalog", "Queue", "Settings"]
-    window.show_page(3)
+    assert names == ["Download", "Catalog", "Library", "Queue", "Settings"]
+    window.show_page(4)
     assert window.stack.currentWidget() is window.settings_page
+    window.show_page(2)
+    assert window.stack.currentWidget() is window.library
 
 
 def test_download_queues_detected_lines_and_queue_shows_them(window, context, qtbot):
@@ -320,7 +322,7 @@ def test_log_is_a_column_on_download_and_a_bottom_panel_elsewhere(window, qtbot)
     window.show_page(0)
     assert window.log_panel.parentWidget() is window.download.log_dock
     assert window.log_panel.isVisible() and not window.log_toggle.isVisible()
-    window.show_page(2)  # Queue: folded at the bottom until opened
+    window.show_page(3)  # Queue: folded at the bottom until opened
     assert window.log_panel.parentWidget() is window.splitter
     assert not window.log_panel.isVisible() and window.log_toggle.isVisible()
     window.set_log_visible(True)
@@ -384,3 +386,30 @@ def test_the_log_keeps_its_share_and_the_options_get_the_rest(window, qtbot):
     page._fit_split()
     left, right = page.split.sizes()
     assert abs(right - round((left + right) * LOG_SHARE)) <= 2
+
+
+def test_the_library_shows_the_books_in_the_save_folder(window, context, qtbot, tmp_path):
+    import zipfile
+    from dataclasses import replace
+
+    folder = tmp_path / "lib"
+    folder.mkdir()
+    with zipfile.ZipFile(folder / "My Book.epub", "w") as epub:
+        epub.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/>'
+                                                '</rootfiles></container>')
+        epub.writestr("OEBPS/content.opf", '<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata>'
+                                           '<dc:title>My Real Title</dc:title><dc:creator>An Author</dc:creator></metadata>'
+                                           '<manifest/></package>')
+    (folder / "My Book.pdf").write_bytes(b"%PDF-1.4")
+    (folder / "Other").mkdir()
+    (folder / "Other" / "0001.txt").write_text("text", encoding="utf-8")
+    (folder / "notes.log").write_text("x", encoding="utf-8")
+    context.update_settings(lambda s: replace(s, output=replace(s.output, output_dir=str(folder))))
+    page = window.library
+    page.refresh()
+    qtbot.waitUntil(lambda: page.grid.count() == 2, timeout=5000)
+    texts = sorted(page.grid.item(i).text() for i in range(page.grid.count()))
+    assert texts[0].startswith("My Real Title") and "EPUB" in texts[0] and "PDF" in texts[0]
+    assert texts[1].startswith("Other") and "TXT folder" in texts[1]
+    page.search.setText("author")
+    assert page.grid.count() == 1

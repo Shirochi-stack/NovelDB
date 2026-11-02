@@ -179,13 +179,38 @@ def cache_dir(base: os.PathLike | str | None = None) -> Path:
     return _folder(".cache", "cache", base)
 
 
+LIBRARY_DIRNAME = "NovelDB Library"
+
+
+def _documents() -> Path:
+    """The user's Documents folder (Windows may have moved it, to OneDrive say)."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            buffer = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buffer) == 0 and buffer.value:  # CSIDL_PERSONAL
+                return Path(buffer.value)
+        except Exception:
+            pass
+    documents = Path.home() / "Documents"
+    return documents if documents.is_dir() else Path.home()
+
+
 def default_output_dir(base: os.PathLike | str | None = None) -> Path:
-    """Where downloads go when no folder is chosen: the app folder when portable, else ~/Downloads/NovelDB."""
+    """The Library: where downloads go when no folder is chosen. A "Library" folder next to the app when
+    portable, else "NovelDB Library" in Documents."""
     folder = Path(base) if base is not None else install_dir()
     if portable(base) and is_writable_dir(folder):
-        return folder
-    path = Path.home() / "Downloads" / APP_DIRNAME
-    path.mkdir(parents=True, exist_ok=True)
+        path = folder / "Library"
+    else:
+        path = _documents() / LIBRARY_DIRNAME
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        path = Path.home() / "Downloads" / APP_DIRNAME
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 

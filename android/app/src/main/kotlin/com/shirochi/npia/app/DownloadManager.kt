@@ -615,7 +615,7 @@ class DownloadManager(private val app: Application) {
     }
 
     /** The job whose output includes `file`. */
-    private fun jobOwning(file: File): JobItem? {
+    fun jobOwning(file: File): JobItem? {
         val path = file.absolutePath
         return _jobs.value.firstOrNull { job -> job.files(outputDirectory).any { it.absolutePath == path } }
     }

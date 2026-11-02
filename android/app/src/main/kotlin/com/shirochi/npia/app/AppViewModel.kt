@@ -10,7 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.shirochi.npia.app.model.QueueView
 import com.shirochi.npia.core.SourceId
 
-enum class Tab(val title: String) { ADD("Add"), CATALOG("Catalog"), BROWSER("Browser"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
+enum class Tab(val title: String) { ADD("Add"), CATALOG("Catalog"), BROWSER("Browser"), LIBRARY("Library"), QUEUE("Queue"), UPLOADS("Uploads"), SETTINGS("Settings") }
 
 /** Screens pushed on top of a tab's root. */
 sealed class Route(val title: String) {

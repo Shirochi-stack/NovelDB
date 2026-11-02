@@ -327,9 +327,12 @@ def import_config(c: dict, base: Optional[AppSettings] = None) -> AppSettings:
 
     o = base.output
     quick = _bool(c.get("quick_enable"))
+    ask = (not quick) if quick is not None else o.ask_each_time
+    if quick is not None and "library_default" not in c and not _str(c.get("quick_path")):
+        ask = False  # saved before the Library: no folder chosen, so downloads go to the Library unasked
     output = replace(
         o,
-        ask_each_time=(not quick) if quick is not None else o.ask_each_time,
+        ask_each_time=ask,
         output_dir=_str(c.get("quick_path")) if _str(c.get("quick_path")) is not None else o.output_dir,
         shutdown_after_success=_first_bool(c, "shutdown_after_success", o.shutdown_after_success),
     )
@@ -561,6 +564,7 @@ def export_config(s: AppSettings, existing: Optional[dict] = None, include_secre
 
     c["quick_enable"] = not s.output.ask_each_time
     c["quick_path"] = s.output.output_dir
+    c["library_default"] = True  # written by builds with the Library (see the import above)
     c["shutdown_after_success"] = s.output.shutdown_after_success
 
     c["ui_theme"] = s.ui.theme

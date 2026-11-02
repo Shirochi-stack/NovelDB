@@ -153,6 +153,7 @@ fun RootScreen(model: AppViewModel) {
                     Tab.ADD -> AddScreen(model, onQueued = { model.openQueue() })
                     Tab.CATALOG -> CatalogScreen(catalog, model, topBar)
                     Tab.BROWSER -> BrowserScreen(model, topBar)
+                    Tab.LIBRARY -> LibraryScreen(model)
                     Tab.QUEUE -> QueueScreen(model, topBar)
                     Tab.UPLOADS -> UploadsScreen(model, topBar)
                     Tab.SETTINGS -> SettingsScreen(model)
@@ -196,6 +197,20 @@ fun RootScreen(model: AppViewModel) {
 
 private val DOWNLOAD_TABS = setOf(Tab.CATALOG, Tab.ADD)
 
+/** Material's "library books" (the core icon set the app ships has none). */
+private val LibraryIcon: ImageVector = materialIcon(name = "Filled.LibraryBooks") {
+    materialPath {
+        moveTo(4f, 6f); horizontalLineTo(2f); verticalLineToRelative(14f); curveToRelative(0f, 1.1f, 0.9f, 2f, 2f, 2f)
+        horizontalLineToRelative(14f); verticalLineToRelative(-2f); horizontalLineTo(4f); verticalLineTo(6f); close()
+        moveTo(20f, 2f); horizontalLineTo(8f); curveToRelative(-1.1f, 0f, -2f, 0.9f, -2f, 2f); verticalLineToRelative(12f)
+        curveToRelative(0f, 1.1f, 0.9f, 2f, 2f, 2f); horizontalLineToRelative(12f); curveToRelative(1.1f, 0f, 2f, -0.9f, 2f, -2f)
+        verticalLineTo(4f); curveToRelative(0f, -1.1f, -0.9f, -2f, -2f, -2f); close()
+        moveTo(19f, 11f); horizontalLineTo(9f); verticalLineTo(9f); horizontalLineToRelative(10f); verticalLineToRelative(2f); close()
+        moveTo(15f, 15f); horizontalLineTo(9f); verticalLineToRelative(-2f); horizontalLineToRelative(6f); verticalLineToRelative(2f); close()
+        moveTo(19f, 7f); horizontalLineTo(9f); verticalLineTo(5f); horizontalLineToRelative(10f); verticalLineToRelative(2f); close()
+    }
+}
+
 /** Material's "download" arrow (the core icon set the app ships has none). */
 private val DownloadIcon: ImageVector = materialIcon(name = "Filled.Download") {
     materialPath {
@@ -211,6 +226,7 @@ private class BarItem(val title: String, val icon: ImageVector, val tabs: Set<Ta
 private val BAR_ITEMS = listOf(
     BarItem("Download", DownloadIcon, DOWNLOAD_TABS),
     BarItem(Tab.BROWSER.title, Icons.Filled.AccountCircle, setOf(Tab.BROWSER)),
+    BarItem(Tab.LIBRARY.title, LibraryIcon, setOf(Tab.LIBRARY)),
     BarItem(Tab.QUEUE.title, Icons.AutoMirrored.Filled.List, setOf(Tab.QUEUE)),
     BarItem(Tab.UPLOADS.title, Icons.Filled.Share, setOf(Tab.UPLOADS)),
     BarItem(Tab.SETTINGS.title, Icons.Filled.Settings, setOf(Tab.SETTINGS)),

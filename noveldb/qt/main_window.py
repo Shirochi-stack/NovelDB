@@ -26,12 +26,13 @@ from noveldb.qt.context import AppContext
 from noveldb.qt.log_panel import LogPanel
 from noveldb.qt.pages.catalog import catalog_page
 from noveldb.qt.pages.download import DownloadPage
+from noveldb.qt.pages.library import LibraryPage
 from noveldb.qt.pages.queue import QueuePage
 from noveldb.qt.pages.settings import SettingsPage
 from noveldb.qt.scale import bind_rows, bind_size, factor_for, on_scale, ui_scale
 from noveldb.qt.theme import apply_theme
 
-PAGES = ("Download", "Catalog", "Queue", "Settings")
+PAGES = ("Download", "Catalog", "Library", "Queue", "Settings")
 # Saved geometry is prefixed with a version: sizes saved before display scaling followed the OS
 # setting were a third too small, so they are not restored.
 GEOMETRY_VERSION = "2:"
@@ -116,10 +117,11 @@ class MainWindow(QMainWindow):
 
         self.download = DownloadPage(context)
         self.catalog = catalog_page(context)
+        self.library = LibraryPage(context)
         self.queue = QueuePage(context)
         self.settings_page = SettingsPage(context)
         self.stack = QStackedWidget()
-        for page in (self.download, self.catalog, self.queue, self.settings_page):
+        for page in (self.download, self.catalog, self.library, self.queue, self.settings_page):
             self.stack.addWidget(page)
         self.sidebar.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.sidebar.setCurrentRow(0)

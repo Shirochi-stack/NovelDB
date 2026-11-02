@@ -30,7 +30,8 @@ def here(*parts):
 
 # -- data files -------------------------------------------------------------------------------
 datas = [(here("icon.ico"), "."), (here("dpi_setup.py"), "."), (here("assets", "app-icon.png"), "assets"),
-         (here("assets", "cart-icon.png"), "assets"), (here("assets", "download-icon.png"), "assets")]
+         (here("assets", "cart-icon.png"), "assets"), (here("assets", "download-icon.png"), "assets"),
+         (here("assets", "halgakos-cover.png"), "assets")]
 if VARIANT.webengine:  # the Catalog page's bridge script (shared with the mobile apps), the generic search page
     datas.append((here("noveldb", "qt", "catalog", "catalog-bridge.js"), os.path.join("noveldb", "qt", "catalog")))
     for name in ("index.html", "generic.js", "halgakos-loading.webp"):

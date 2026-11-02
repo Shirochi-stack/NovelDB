@@ -119,7 +119,7 @@ def test_an_appimage_uses_the_xdg_folders_and_takes_its_old_files_along(monkeypa
     assert (paths.data_dir() / "link-cart.json").read_text(encoding="utf-8") == "[]"
     assert paths.cache_dir() == tmp_path / "cache" / "NovelDB"
     assert paths.logs_dir() == tmp_path / "state" / "NovelDB" / "logs"
-    assert paths.default_output_dir() == tmp_path / "home" / "Downloads" / "NovelDB"
+    assert paths.default_output_dir() == tmp_path / "home" / "NovelDB Library"  # no Documents folder there
     # Nothing new is written next to the AppImage.
     assert sorted(p.name for p in folder.iterdir()) == ["NovelDB98.AppImage", "config.json", "data"]
 
@@ -131,3 +131,15 @@ def test_appimage_install_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setenv("APPIMAGE", str(image))
     assert paths.install_dir() == image.parent.resolve()
+
+
+def test_downloads_go_to_the_library_without_asking_unless_a_folder_was_chosen():
+    from noveldb.core.settings.desktop_config import export_config, import_config
+
+    assert not import_config({}).output.ask_each_time
+    # Saved before the Library, with no folder chosen: the Library, unasked.
+    assert not import_config({"quick_enable": False, "quick_path": ""}).output.ask_each_time
+    # A folder chosen, or a choice saved by a build with the Library, stays as it was.
+    assert import_config({"quick_enable": False, "quick_path": "D:/Books"}).output.ask_each_time
+    saved = export_config(import_config({"quick_enable": False, "quick_path": "", "library_default": True}))
+    assert import_config({**saved, "quick_enable": False}).output.ask_each_time

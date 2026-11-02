@@ -215,9 +215,10 @@ class SourceOptions:
 
 @dataclass(frozen=True)
 class OutputSettings:
-    """Where files go. `ask_each_time` is the inverse of the old "Quick Download" switch."""
+    """Where files go. `ask_each_time` is the inverse of the old "Quick Download" switch; off by default,
+    so downloads go straight to the Library (`output_dir`, or paths.default_output_dir)."""
 
-    ask_each_time: bool = True
+    ask_each_time: bool = False
     output_dir: str = ""
     shutdown_after_success: bool = False
 

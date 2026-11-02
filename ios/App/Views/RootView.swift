@@ -2,12 +2,12 @@ import NpiaWebEngine
 import SwiftUI
 
 enum Panel: String, CaseIterable, Hashable, Identifiable {
-    case add, catalog, browser, queue, settings
+    case add, catalog, browser, library, queue, settings
 
     var id: String { rawValue }
 
     /// The tabs shown: Add and Catalog are one tab ("Download") with a switch at its top.
-    static let shown: [Panel] = [.add, .browser, .queue, .settings]
+    static let shown: [Panel] = [.add, .browser, .library, .queue, .settings]
 
     /// The shown tab a panel lives in.
     var tab: Panel { self == .catalog ? .add : self }
@@ -17,6 +17,7 @@ enum Panel: String, CaseIterable, Hashable, Identifiable {
         case .add: return "Download"
         case .catalog: return "Catalog"
         case .browser: return "Browser"
+        case .library: return "Library"
         case .queue: return "Queue"
         case .settings: return "Settings"
         }
@@ -27,6 +28,7 @@ enum Panel: String, CaseIterable, Hashable, Identifiable {
         case .add: return "square.and.arrow.down"
         case .catalog: return "books.vertical"
         case .browser: return "globe"
+        case .library: return "books.vertical.fill"
         case .queue: return "arrow.down.circle"
         case .settings: return "gearshape"
         }
@@ -178,6 +180,7 @@ struct RootView: View {
                 if panel == .add || panel == .catalog, let panel { downloadMode = panel }
             }
         case .browser: BrowserView { selection = .add }
+        case .library: LibraryView()
         case .queue: QueueView()
         case .settings: SettingsView()
         }
