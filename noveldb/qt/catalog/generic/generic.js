@@ -20,7 +20,8 @@
     var groups = new Map(), byUrl = new Map(), order = [];
     var cart = new Set(), pending = {}, nextId = 0, searchId = 0, running = 0;
     var view = 'top', current = {text: '', tags: []}, picked = [], resultTags = new Map();
-    var TOP_KEY = 'noveldb.generic.top.v1', TOP_HOURS = 12, TOP_SIZE = 100;
+    // TOP_KEY's version: a new one drops the top lists saved by older code.
+    var TOP_KEY = 'noveldb.generic.top.v3', TOP_HOURS = 12, TOP_SIZE = 100;
     var TAGS = ['Action', 'Adventure', 'Apocalypse', 'BL', 'Comedy', 'Cultivation', 'Drama', 'Dungeon', 'Ecchi', 'Fantasy',
         'Game', 'Gender Bender', 'GL', 'Harem', 'Historical', 'Horror', 'Isekai', 'Josei', 'LitRPG', 'Magic', 'Martial Arts',
         'Mature', 'Mecha', 'Military', 'Modern', 'Murim', 'Mystery', 'Psychological', 'Regression', 'Reincarnation', 'Revenge',
@@ -304,7 +305,7 @@
             : (group.loaded ? '' : '<div class="loading"><i></i><i></i><i></i></div>');
         element.innerHTML = '<div class="cover' + (group.cover ? ' loading' : '') + '">'
             + (group.cover ? '<img loading="lazy" referrerpolicy="no-referrer" alt="" src="' + esc(group.cover) + '">' : '')
-            + (group.rank ? '<span class="rank">#' + group.rank + '</span>' : '') + '</div>'
+            + '</div>'
             + '<span class="site" title="' + esc(group.sources.map(function (s) { return s.site + (s.ms != null ? ' (' + seconds(s.ms) + ')' : ''); }).join(', ')) + '">'
             + esc(group.sources[0].site + more) + '</span>'
             // The download artwork: greyed out until the book is in the link cart.
@@ -687,31 +688,22 @@
         entry.cards.push(card);
         top.scores.set(k, entry);
     }
-    // The list re-sorted: books found on more (and busier) sites, higher in their lists, come first.
+    // The list as books arrive: a new book goes at the end and stays where it is (no reshuffling as more
+    // sites answer); a book another site lists too just gains that site. It stops at 100 books.
     function topRedraw() {
-        var ranked = Array.from(top.scores.values()).sort(function (a, b) { return b.score - a.score || a.first - b.first; });
-        if (!groups.size && !ranked.length) return;
-        groups.clear(); byUrl.clear(); order = [];
-        $('grid').innerHTML = '';
-        var rank = 0;
-        ranked.forEach(function (entry) {
-            if (rank >= TOP_SIZE) return;
-            var group = merge(entry.cards[0], rank + 1);
-            if (!group) return;
-            entry.cards.slice(1).forEach(function (card) { merge(card); });
-            group.topKind = top.kind;  // the list it is in: the sites it came from say what it is
-            if (false) {
-                groups.delete(group.key);
-                order = order.filter(function (g) { return g !== group; });
-                return;
+        var entries = Array.from(top.scores.values()).sort(function (a, b) { return a.first - b.first; });
+        entries.forEach(function (entry) {
+            if (!entry.group) {
+                if (order.length >= TOP_SIZE) return;
+                var group = merge(entry.cards[0]);
+                if (!group) return;
+                group.topKind = top.kind;
+                entry.group = group;
+                entry.used = 1;
             }
-            group.rank = ++rank;
-            var old = entry.group;
-            if (old) ['description', 'tags', 'author', 'loaded', 'asked', 'rating', 'ratings', 'likes', 'views', 'chapters',
-                      'published', 'updated', 'status', 'timer', 'cover', 'coverTried']
-                .forEach(function (name) { if (old[name] && !(Array.isArray(old[name]) && !old[name].length)) group[name] = old[name]; });
-            entry.group = group;
-            render(group);
+            entry.cards.slice(entry.used).forEach(function (card) { merge(card); });
+            entry.used = entry.cards.length;
+            render(entry.group);
         });
         empty();
     }
@@ -1001,7 +993,7 @@
         R.noteText = text;
         R.noteDetail = '';
         var draw = R.drawNote = function () {
-            if (token !== R.token) { clearInterval(R.clock); return; }
+            if (token !== R.token || R.streamed === R.index) { clearInterval(R.clock); return; }
             var seconds = Math.round((Date.now() - started) / 1000);
             if (limit && seconds >= limit) {
                 clearInterval(R.clock);
@@ -1456,6 +1448,8 @@
         readerStatus: function (id, text) {
             if (id !== R.requestId || !R.drawNote) return;
             R.noteDetail = text;
+            // Once the chapter's images are showing, the note would cover them: the bottom bar says it instead.
+            if (R.streamed === R.index) { $('rWhere').textContent = text; return; }
             R.drawNote();
         },
         readerImages: function (id, found) {
