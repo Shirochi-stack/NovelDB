@@ -340,7 +340,7 @@ struct FileRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: icon)
-                Text(file.lastPathComponent).lineLimit(2)
+                Text(displayName).lineLimit(2)
                 Spacer()
                 if let size {
                     Text(size).font(.caption).foregroundStyle(.secondary)
@@ -388,6 +388,19 @@ struct FileRow: View {
         case "txt": return "doc.plaintext"
         default: return "doc"
         }
+    }
+
+    /// A folder (separate TXT) has no extension of its own, so it is listed with the extension and
+    /// count of the files it holds: `Book (12 .txt files)`.
+    private var displayName: String {
+        guard file.hasDirectoryPath else { return file.lastPathComponent }
+        let items = (try? FileManager.default.contentsOfDirectory(at: file, includingPropertiesForKeys: [.isRegularFileKey])) ?? []
+        let files = items.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+        guard !files.isEmpty else { return file.lastPathComponent + "/" }
+        let extensions = Set(files.map { $0.pathExtension.lowercased() }.filter { !$0.isEmpty })
+            .sorted().map { "." + $0 }.joined(separator: "/")
+        let noun = files.count == 1 ? "file" : "files"
+        return "\(file.lastPathComponent) (\(files.count) \(extensions.isEmpty ? "" : extensions + " ")\(noun))"
     }
 
     private var size: String? {

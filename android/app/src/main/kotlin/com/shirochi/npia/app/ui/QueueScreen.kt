@@ -378,7 +378,7 @@ fun FileRow(model: AppViewModel, file: File, jobId: String?) {
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(file.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(FileActions.displayName(file), Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
             val size = if (file.isDirectory) file.walkTopDown().filter { it.isFile }.sumOf { it.length() } else file.length()
             if (file.exists()) Text(Formatter.formatShortFileSize(context, size), style = MaterialTheme.typography.bodySmall)
         }

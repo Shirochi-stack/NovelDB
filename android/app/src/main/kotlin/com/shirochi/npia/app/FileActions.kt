@@ -72,6 +72,20 @@ object FileActions {
 
     fun openUrl(context: Context, url: String): Boolean = launch(context, Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 
+    /**
+     * The name a finished output is listed under. A folder (separate TXT) has no extension of its
+     * own, so it is listed with the extension and count of the files it holds: `Book (12 .txt files)`.
+     */
+    fun displayName(file: File): String {
+        if (!file.isDirectory) return file.name
+        val files = file.listFiles()?.filter { it.isFile }.orEmpty()
+        if (files.isEmpty()) return "${file.name}/"
+        val extensions = files.map { it.extension.lowercase() }.filter { it.isNotEmpty() }.distinct().sorted()
+            .joinToString("/") { ".$it" }
+        val noun = if (files.size == 1) "file" else "files"
+        return "${file.name} (${files.size} ${if (extensions.isEmpty()) "" else "$extensions "}$noun)"
+    }
+
     /** The name a saved copy gets: a folder (separate TXT) is saved as `<folder>.zip`. */
     fun copyName(file: File): String = if (file.isDirectory) "${file.name}.zip" else file.name
 
