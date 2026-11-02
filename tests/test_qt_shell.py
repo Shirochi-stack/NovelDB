@@ -398,8 +398,11 @@ def test_the_library_shows_the_books_in_the_save_folder(window, context, qtbot, 
         epub.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/>'
                                                 '</rootfiles></container>')
         epub.writestr("OEBPS/content.opf", '<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata>'
-                                           '<dc:title>My Real Title</dc:title><dc:creator>An Author</dc:creator></metadata>'
-                                           '<manifest/></package>')
+                                           '<dc:title>My Real Title</dc:title><dc:creator>An Author</dc:creator>'
+                                           '<dc:description>A short synopsis.</dc:description></metadata>'
+                                           '<manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>'
+                                           '</manifest><spine><itemref idref="c1"/></spine></package>')
+        epub.writestr("OEBPS/c1.xhtml", "<html><body><p>First words.</p></body></html>")
     (folder / "My Book.pdf").write_bytes(b"%PDF-1.4")
     (folder / "Other").mkdir()
     (folder / "Other" / "0001.txt").write_text("text", encoding="utf-8")
@@ -413,3 +416,11 @@ def test_the_library_shows_the_books_in_the_save_folder(window, context, qtbot, 
     assert texts[1].startswith("Other") and "TXT folder" in texts[1]
     page.search.setText("author")
     assert page.grid.count() == 1
+    # A double click opens the book's page in the Library; Read opens the Library's reader, from the file.
+    item = page.grid.item(0)
+    page.grid.itemActivated.emit(item)
+    assert page.views.currentWidget() is page.book_view
+    assert page.book_view.synopsis.text() == "A short synopsis." and page.book_view.chapters.count() == 1
+    page.book_view.read.click()
+    assert page.views.currentWidget() is page.reader
+    assert "First words." in page.reader.page.toPlainText()

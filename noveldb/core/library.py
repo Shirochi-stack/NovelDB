@@ -81,6 +81,8 @@ def _epub_meta(path: Path, size: int, modified: float) -> dict:
                     meta["title"] = element.text.strip()
                 elif tag == "creator" and not meta.get("author") and (element.text or "").strip():
                     meta["author"] = element.text.strip()
+                elif tag == "description" and not meta.get("description") and (element.text or "").strip():
+                    meta["description"] = re.sub(r"<[^>]+>", " ", element.text).strip()
             items = {e.get("id"): e for e in opf.iter() if e.tag.endswith("item")}
             cover_id = next((e.get("content") for e in opf.iter()
                              if e.tag.endswith("meta") and e.get("name") == "cover"), None)
@@ -116,13 +118,16 @@ def _format_of(path: Path) -> Optional[str]:
     return {".htm": "HTML"}.get(suffix, suffix[1:].upper())
 
 
-def scan(folder: Path) -> List[LibraryBook]:
-    """The books in `folder`, newest first."""
+def scan(folder: Path, progress=None) -> List[LibraryBook]:
+    """The books in `folder`, newest first; `progress(done, total)` hears how far the reading is."""
     folder = Path(folder)
     if not folder.is_dir():
         return []
     books: Dict[str, LibraryBook] = {}
-    for path in folder.iterdir():
+    entries = list(folder.iterdir())
+    for done, path in enumerate(entries, 1):
+        if progress is not None and (done % 10 == 0 or done == len(entries)):
+            progress(done, len(entries))
         if path.name.startswith(".") or path.name.endswith((".part", ".tmp")):
             continue
         try:
@@ -148,6 +153,28 @@ def scan(folder: Path) -> List[LibraryBook]:
             book.title = meta.get("title") or book.title
             book.author = meta.get("author") or book.author
     return sorted(books.values(), key=lambda b: b.modified, reverse=True)
+
+
+def description(book: LibraryBook) -> str:
+    """The synopsis the EPUB carries, or ""."""
+    epub = next((f for f in book.files if f.format == "EPUB"), None)
+    return _epub_meta(epub.path, epub.size, epub.modified).get("description", "") if epub else ""
+
+
+def chapter_source(path: Path, href: str) -> Tuple[str, str]:
+    """(body HTML, the chapter's folder in the EPUB) for a reader that loads the images itself."""
+    with zipfile.ZipFile(path) as archive:
+        text = archive.read(href).decode("utf-8", "replace")
+    body = re.search(r"<body[^>]*>(.*)</body>", text, re.S | re.I)
+    return (body.group(1) if body else text), posixpath.dirname(href)
+
+
+def read_member(path: Path, name: str) -> Optional[bytes]:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return archive.read(name)
+    except (KeyError, OSError, zipfile.BadZipFile):
+        return None
 
 
 def cover(book: LibraryBook) -> Optional[bytes]:

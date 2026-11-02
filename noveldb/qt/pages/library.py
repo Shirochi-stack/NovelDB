@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List
 
 from PySide6.QtCore import QFile, QFileSystemWatcher, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPixmap
+from PySide6.QtGui import QDesktopServices, QIcon, QImage, QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMessageBox,
+    QProgressBar,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +35,7 @@ from PySide6.QtWidgets import (
 from noveldb.core import library, paths, platform_services
 from noveldb.qt import icons
 from noveldb.qt.context import AppContext
+from noveldb.qt.pages.library_reader import BookView, EpubReader
 from noveldb.qt.scale import bind_title
 from noveldb.qt.widgets import hint
 
@@ -73,9 +76,54 @@ def _cover_image(data) -> QImage:
     return canvas
 
 
+class Loading(QWidget):
+    """Halgakos turning, with a progress bar, while the Library folder is read."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.picture = QLabel()
+        self.picture.setAlignment(Qt.AlignCenter)
+        self.picture.setFixedSize(QSize(200, 200))
+        self.bar = QProgressBar()
+        self.bar.setMaximumWidth(360)
+        self.bar.setTextVisible(True)
+        self.text = hint("Reading the Library folder…")
+        self.text.setAlignment(Qt.AlignCenter)
+        layout = QVBoxLayout(self)
+        layout.addStretch(1)
+        layout.addWidget(self.picture, 0, Qt.AlignHCenter)
+        layout.addWidget(self.bar, 0, Qt.AlignHCenter)
+        layout.addWidget(self.text, 0, Qt.AlignHCenter)
+        layout.addStretch(1)
+        image = QPixmap(icons.path(PLACEHOLDER))
+        self.image = image.scaled(QSize(140, 140), Qt.KeepAspectRatio, Qt.SmoothTransformation) if not image.isNull() else image
+        self.angle = 0
+        self.timer = QTimer(self, interval=40)
+        self.timer.timeout.connect(self._turn)
+
+    def start(self) -> None:
+        self.bar.setRange(0, 0)  # busy until the first count arrives
+        self.timer.start()
+
+    def stop(self) -> None:
+        self.timer.stop()
+
+    def progress(self, done: int, total: int) -> None:
+        self.bar.setRange(0, max(1, total))
+        self.bar.setValue(done)
+        self.bar.setFormat(f"{done} of {total}")
+
+    def _turn(self) -> None:
+        if self.image.isNull():
+            return
+        self.angle = (self.angle + 6) % 360
+        turned = self.image.transformed(QTransform().rotate(self.angle), Qt.SmoothTransformation)
+        self.picture.setPixmap(turned)
+
+
 class LibraryPage(QWidget):
-    readRequested = Signal(str, str)  # a book's EPUB and title, for the in-app reader
     _scanned = Signal(object, float)
+    _scan_progress = Signal(int, int, float)
     _covered = Signal(str, object, int)  # book name, cover QImage, page generation
 
     def __init__(self, context: AppContext) -> None:
@@ -118,7 +166,7 @@ class LibraryPage(QWidget):
         self.grid.setSelectionMode(QAbstractItemView.SingleSelection)
         self.grid.setContextMenuPolicy(Qt.CustomContextMenu)
         self.grid.customContextMenuRequested.connect(self._menu)
-        self.grid.itemActivated.connect(lambda item: self._read(item.data(Qt.UserRole)))
+        self.grid.itemActivated.connect(lambda item: self._show_book(item.data(Qt.UserRole)))
         self.empty = hint("")
         self.empty.setAlignment(Qt.AlignCenter)
 
@@ -152,15 +200,36 @@ class LibraryPage(QWidget):
             actions.addWidget(button)
         self.grid.currentItemChanged.connect(lambda *_a: self._selection_changed())
 
-        layout = QVBoxLayout(self)
+        self.loading = Loading()
+        self.body = QStackedWidget()  # the grid, or Halgakos while the folder is read
+        self.body.addWidget(self.grid)
+        self.body.addWidget(self.loading)
+        shelf = QWidget()
+        layout = QVBoxLayout(shelf)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.addWidget(title)
         layout.addWidget(self.where)
         layout.addLayout(bar)
-        layout.addWidget(self.grid, 1)
+        layout.addWidget(self.body, 1)
         layout.addWidget(self.empty)
         layout.addLayout(pages)
         layout.addLayout(actions)
+
+        # The Library's own views: the shelf, a book's page, and the reader (all from the files themselves).
+        self.book_view = BookView()
+        self.reader = EpubReader()
+        self.views = QStackedWidget()
+        for view in (shelf, self.book_view, self.reader):
+            self.views.addWidget(view)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.views)
+        self.book_view.back.connect(lambda: self.views.setCurrentIndex(0))
+        self.book_view.readRequested.connect(self._read_at)
+        self.book_view.openRequested.connect(self._open)
+        self.book_view.revealRequested.connect(self._reveal)
+        self.book_view.deleteRequested.connect(self._delete)
+        self.reader.back.connect(lambda: self.views.setCurrentWidget(self.book_view))
 
         self._placeholder = QIcon(QPixmap.fromImage(_cover_image(None)))
         self.watcher = QFileSystemWatcher(self)
@@ -168,6 +237,8 @@ class LibraryPage(QWidget):
         self._later = QTimer(self, singleShot=True, interval=800)
         self._later.timeout.connect(self.refresh)
         self._scanned.connect(self._take)
+        self._scan_progress.connect(lambda done, total, started: self.loading.progress(done, total)
+                                    if started == self._scan_started else None)
         self._covered.connect(self._set_cover)
         context.hub.jobSaved.connect(lambda *_a: self._later.start() if self._ever_shown else None)
         context.settingsChanged.connect(self._folder_changed)
@@ -204,15 +275,22 @@ class LibraryPage(QWidget):
         started = time.monotonic()
         self._scan_started = started
         if not self.books:
-            self.empty.setText("Reading the Library folder…")
-            self.empty.setVisible(True)
-        threading.Thread(target=lambda: self._scanned.emit(library.scan(folder), started),
-                         name="library-scan", daemon=True).start()
+            self.body.setCurrentWidget(self.loading)
+            self.loading.start()
+            self.empty.setVisible(False)
+
+        def run():
+            books = library.scan(folder, lambda done, total: self._scan_progress.emit(done, total, started))
+            self._scanned.emit(books, started)
+
+        threading.Thread(target=run, name="library-scan", daemon=True).start()
 
     def _take(self, books, started: float) -> None:
         if started != self._scan_started:
             return  # a newer scan is on its way
         self.books = books
+        self.loading.stop()
+        self.body.setCurrentWidget(self.grid)
         self._show()
 
     # -- showing it, a page at a time --------------------------------------------------------------
@@ -322,13 +400,33 @@ class LibraryPage(QWidget):
         menu.addAction("Delete…", lambda: self._delete(book))
         menu.exec(self.grid.viewport().mapToGlobal(point))
 
+    def _show_book(self, book) -> None:
+        """A book's page, in the Library tab."""
+        if book is None:
+            return
+        self.book_view.show_book(book, _cover_image(library.cover(book)) if book.cover is None else None)
+        self.views.setCurrentWidget(self.book_view)
+
     def _read(self, book) -> None:
-        """The EPUB in the app's reader; a book without one opens with the system app."""
-        epub = next((f for f in book.files if f.format == "EPUB"), None) if book is not None else None
-        if epub is None:
+        """The EPUB in the Library's reader (from the file: nothing is scraped again); a book without
+        one opens with the system app."""
+        if book is None:
+            return
+        if not any(f.format == "EPUB" for f in book.files):
             self._open(book)
             return
-        self.readRequested.emit(str(epub.path), book.title)
+        if self.book_view.book is not book:
+            self.book_view.show_book(book, _cover_image(library.cover(book)))
+        self._read_at(book, -1)
+
+    def _read_at(self, book, chapter: int) -> None:
+        contents = self.book_view.contents if self.book_view.book is book else None
+        if not contents or not contents.get("chapters"):
+            self._open(book)
+            return
+        self.reader.open_book(book, contents, chapter)
+        self.views.setCurrentWidget(self.reader)
+        self.reader.setFocus()
 
     def _open(self, book) -> None:
         file = book.preferred() if book is not None else None
@@ -346,6 +444,7 @@ class LibraryPage(QWidget):
         answer = QMessageBox.question(self, "Delete book", f"Move {book.title} to the Recycle Bin?\n\n{names}")
         if answer != QMessageBox.Yes:
             return
+        self.views.setCurrentIndex(0)
         failed = [f.path.name for f in book.files if not _to_trash(f.path)]
         if failed:
             QMessageBox.warning(self, "Delete book", "These could not be moved to the Recycle Bin:\n" + "\n".join(failed))
