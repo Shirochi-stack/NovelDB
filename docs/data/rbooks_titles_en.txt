@@ -7456,6 +7456,7 @@
 2107167902|||크툴루의 두 번째 촉수가 되었다|||I Became Cthulhu’s Second Tentacle
 2107168231|||약선요리로 무신의 제자가 되었다|||I Became the Martial God’s Disciple Through Medicinal Cooking
 2107168592|||헬 난이도에서 즉사 자동루팅 복사로 탑등반|||Climbing the Tower as a Copy User on Hell Difficulty with Instant Death and Auto-Looting
+2107168762|||독마의선|||The Poison Demon's Line
 211006759|||서울 아랑전|||The Seoul Arang Chronicle
 211008931|||저스트 더 투 오브 어스|||Just the Two of Us
 211009276|||내 집에 유령각시|||A Ghost Bride in My House
@@ -17893,6 +17894,7 @@
 5040000004|||어드밴티지(Advantage)(15세 개정판)|||Advantage (15+ Revised Edition)
 5040000389|||사카린|||Saccharin
 5040000390|||사카린(15세 개정판)|||Saccharin (15+ Revised Edition)
+5040000678|||색순응|||Color Adaptation
 5045000005|||씨야드|||Seeyard
 5048000001|||파멸하는 시간|||The Time of Ruin
 5048000002|||파멸하는 시간(15세 개정판)|||The Time of Ruin (15+ Revised Edition)
@@ -18209,6 +18211,7 @@
 5329000276|||파이탄의 마녀(15세 개정판)|||The Witch of Paitan (15+ Revised Edition)
 5329000611|||알파 메일|||Alpha Male
 5329000612|||알파 메일(15세 개정판)|||Alpha Male (15+ Revised Edition)
+5329000859|||내게 금지된 것|||What I Am Forbidden
 5332000001|||트리센 저택|||Trisen Manor
 5332000210|||아네트|||Annette
 5332000290|||아네트(15세 개정판)|||Annette (15+ Revised Edition)
@@ -18810,6 +18813,7 @@
 6016000001|||스킬을 악용하지 마세요|||Don't Abuse Your Skills
 6016000002|||스킬을 악용하지 마세요(15세 개정판)|||Don't Abuse Your Skills (15+ Revised Edition)
 6028000001|||포스터가 36번지에는 괴물이 산다|||A Monster Lives at 36 Foster Street
+6028000267|||가짜 마법사를 위한 로그아웃은 없다|||No Logout for the Fake Mage
 6030000001|||아기새 카페 타이쿤|||Baby Bird Café Tycoon
 6030000202|||컬트 타운 매뉴얼|||Cult Town Manual
 6034000021|||짝사랑을 끝내려고 했는데(LOVE-HATE)|||I Tried to End My One-Sided Love (LOVE-HATE)
@@ -21416,10 +21420,6 @@
 961087519|||소문|||Rumor
 961089747|||귀신 잡는 아이돌의 퇴마 라인업|||The Ghost-Hunting Idol’s Exorcism Lineup
 1190004304|||36.5|||
-2107168762|||독마의선|||
 425606091|||1903|||
 425629250|||1973|||
-5040000678|||색순응|||
-5329000859|||내게 금지된 것|||
-6028000267|||가짜 마법사를 위한 로그아웃은 없다|||
 945008054|||40,41|||
